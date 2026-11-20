@@ -130,9 +130,6 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
     restore: vi.fn().mockResolvedValue(membershipRow),
     softDelete: vi.fn().mockResolvedValue(membershipRow),
     findByUserAndOrganization: vi.fn().mockResolvedValue(membershipRow),
-    summarizeTeamForSetup: vi
-      .fn()
-      .mockResolvedValue({ has_teammate: false, has_bookable_member: false }),
     listOrganizationsForUserDataExport: vi.fn().mockResolvedValue([]),
     resolveUserSummariesByInternalIds: vi.fn(
       async (ids: readonly number[]) =>
@@ -793,63 +790,6 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
       vi.mocked(membershipRepository.findByUserAndOrganization).mockResolvedValueOnce(null);
       await expect(service.getCallerMembershipContext(userScope)).resolves.toBeNull();
       expect(membershipRepository.resolveRoleSummariesByInternalIds).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('summarizeTeamForSetup (feat-clinic-setup)', () => {
-    it("answers the team facts and the caller's membership id", async () => {
-      vi.mocked(membershipRepository.summarizeTeamForSetup).mockResolvedValueOnce({
-        has_teammate: true,
-        has_bookable_member: false,
-      });
-      const summary = await service.summarizeTeamForSetup({
-        scope: asScope('org_public'),
-        bookableRoleNames: ['Doctor', 'Therapist'],
-        actingUserPublicId: 'user_public',
-      });
-      expect(membershipRepository.summarizeTeamForSetup).toHaveBeenCalledWith({
-        organization_id: organization.id,
-        owner_user_id: organization.owner_user_id,
-        bookable_role_names: ['Doctor', 'Therapist'],
-      });
-      expect(membershipRepository.findByUserAndOrganization).toHaveBeenCalledWith(
-        10,
-        organization.id,
-      );
-      expect(summary).toEqual({
-        hasTeammate: true,
-        hasBookableMember: false,
-        actingMembershipId: membershipRow.id,
-      });
-    });
-
-    it('carries a bookable member through and a null membership for an unresolved caller', async () => {
-      vi.mocked(membershipRepository.summarizeTeamForSetup).mockResolvedValueOnce({
-        has_teammate: false,
-        has_bookable_member: true,
-      });
-      vi.mocked(organizationService.resolveUserInternalIdByPublicId).mockResolvedValueOnce(null);
-      const summary = await service.summarizeTeamForSetup({
-        scope: asScope('org_public'),
-        bookableRoleNames: ['Doctor'],
-        actingUserPublicId: undefined,
-      });
-      expect(membershipRepository.findByUserAndOrganization).not.toHaveBeenCalled();
-      expect(summary).toEqual({
-        hasTeammate: false,
-        hasBookableMember: true,
-        actingMembershipId: null,
-      });
-    });
-
-    it('answers a null membership id when the caller is no member here', async () => {
-      vi.mocked(membershipRepository.findByUserAndOrganization).mockResolvedValueOnce(null);
-      const summary = await service.summarizeTeamForSetup({
-        scope: asScope('org_public'),
-        bookableRoleNames: [],
-        actingUserPublicId: 'user_public',
-      });
-      expect(summary.actingMembershipId).toBeNull();
     });
   });
 

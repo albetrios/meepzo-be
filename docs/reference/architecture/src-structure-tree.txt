@@ -86,7 +86,7 @@ src/
     │   │   │   ├── auth-recovery-atomicity.integration.test.ts
     │   │   │   ├── auth-route-smoke.integration.test.ts
     │   │   │   ├── auth.integration.test.ts
-    │   │   │   ├── login-restores-last-clinic.integration.test.ts
+    │   │   │   ├── login-restores-last-organization.integration.test.ts
     │   │   │   ├── logout-revokes-token.integration.test.ts
     │   │   │   ├── organization-mfa-enforcement.integration.test.ts
     │   │   │   ├── refresh-preserves-active-organization.integration.test.ts
@@ -2620,11 +2620,8 @@ src/
     │   │   │   ├── bullmq-job-validation.unit.test.ts
     │   │   │   ├── file-magic.util.unit.test.ts
     │   │   │   ├── parse-with-schema.util.unit.test.ts
-    │   │   │   ├── record-fields.calendar-years.unit.test.ts
-    │   │   │   ├── record-fields.money.unit.test.ts
+    │   │   │   ├── record-fields.known-time-zone.unit.test.ts
     │   │   │   ├── record-fields.query-instant-range.unit.test.ts
-    │   │   │   ├── record-fields.rupees.unit.test.ts
-    │   │   │   ├── record-fields.time-zone.unit.test.ts
     │   │   │   ├── record-fields.to-text.unit.test.ts
     │   │   │   ├── validation.util.unit.test.ts
     │   │   │   └── zod-issue-messages.util.unit.test.ts

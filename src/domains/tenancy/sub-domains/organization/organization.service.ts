@@ -618,7 +618,7 @@ export class OrganizationService {
   }
 
   /**
-   * Changes the organization (`PATCH /tenancy/organization`): name, slug, specialties, time zone —
+   * Changes the organization (`PATCH /tenancy/organization`): name, slug, time zone —
    * and `status`, which only its owner may change (B2-3).
    *
    * @remarks

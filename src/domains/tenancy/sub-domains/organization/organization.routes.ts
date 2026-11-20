@@ -134,7 +134,7 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         schema: {
           summary: 'Update organization',
           description:
-            "Updates organization details (name, slug, specialties, timezone, status). Requires ORGANIZATION_UPDATE permission. `status` is the owner's alone (403 `owner_only` for anyone else, an API key included) and needs a recent step-up on this session (`POST /auth/step-up`, within 10 minutes). A SUSPENDED or ARCHIVED organization grants its members no permission, refuses its API keys and cannot be switched into — except by its owner, who keeps organization:read and organization:update to reactivate it.",
+            "Updates organization details (name, slug, timezone, status). Requires ORGANIZATION_UPDATE permission. `status` is the owner's alone (403 `owner_only` for anyone else, an API key included) and needs a recent step-up on this session (`POST /auth/step-up`, within 10 minutes). A SUSPENDED or ARCHIVED organization grants its members no permission, refuses its API keys and cannot be switched into — except by its owner, who keeps organization:read and organization:update to reactivate it.",
           tags: ['Organization'],
           body: updateOrganizationDto,
         },

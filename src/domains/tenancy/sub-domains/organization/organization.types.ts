@@ -11,8 +11,6 @@ export interface Organization {
   status: string;
   logo_url: string | null;
   stripe_customer_id: string | null;
-  /** What the organization practises (launch D7). */
-  specialties: string[];
   /** IANA time zone its timed work runs in (D41). */
   timezone: string;
   /** Always `INR` at launch (server-set). */
@@ -37,8 +35,6 @@ export interface OrganizationOutput {
    */
   owner_user_id: string | null;
   logo_url: string | null;
-  /** What the organization practises — 1 to 6 of `skin`, `hair`, … (launch D7). */
-  specialties: string[];
   /** IANA time zone its timed work runs in (D41). */
   timezone: string;
   /** Always `INR` at launch. */

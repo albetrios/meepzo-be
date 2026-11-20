@@ -418,7 +418,6 @@ CREATE TABLE "tenancy"."organizations" (
 	"status" varchar(20) DEFAULT 'ACTIVE' NOT NULL,
 	"logo_url" varchar(512),
 	"stripe_customer_id" varchar(255),
-	"specialties" text[] DEFAULT ARRAY['skin']::text[] NOT NULL,
 	"timezone" varchar(64) DEFAULT 'Asia/Kolkata' NOT NULL,
 	"currency" varchar(3) DEFAULT 'INR' NOT NULL,
 	"deleted_at" timestamp with time zone,
@@ -430,8 +429,6 @@ CREATE TABLE "tenancy"."organizations" (
 	CONSTRAINT "chk_organizations_type" CHECK ("tenancy"."organizations"."type" IN ('PERSONAL', 'TEAM')),
 	CONSTRAINT "chk_organizations_slug" CHECK ("tenancy"."organizations"."slug" ~ '^[a-z0-9-]+$'),
 	CONSTRAINT "chk_organizations_updated" CHECK ("tenancy"."organizations"."updated_at" >= "tenancy"."organizations"."created_at"),
-	CONSTRAINT "chk_organizations_specialties_allowed" CHECK ("tenancy"."organizations"."specialties" <@ ARRAY['skin', 'hair', 'dental', 'gynac', 'physio', 'general']::text[]),
-	CONSTRAINT "chk_organizations_specialties_count" CHECK (cardinality("tenancy"."organizations"."specialties") BETWEEN 1 AND 6),
 	CONSTRAINT "chk_organizations_currency" CHECK ("tenancy"."organizations"."currency" = 'INR')
 );
 --> statement-breakpoint

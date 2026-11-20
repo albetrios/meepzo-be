@@ -11,7 +11,6 @@ const organization = (id: string, type: 'PERSONAL' | 'TEAM'): OrganizationOutput
   status: 'ACTIVE',
   owner_user_id: 'usr_1',
   logo_url: null,
-  specialties: ['skin'],
   timezone: 'Asia/Kolkata',
   currency: 'INR',
   created_at: '2026-01-01T00:00:00.000Z',

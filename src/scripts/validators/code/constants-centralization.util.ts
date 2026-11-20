@@ -17,7 +17,7 @@ function getConstantsRoot(): string {
 const ALLOWED_DUPLICATE_NUMBERS = new Set([
   4, // small independent thresholds (phone-search digits, a score scale, a record number's digits)
   5, // small independent counters (webhook delivery max attempts, postgres-error cause-chain depth)
-  6, // small independent sizes (a verification code's length, an organization's specialties)
+  6, // small independent sizes (a verification code's length)
   10, // parseInt radix, deciles
   16, // hex
   20, // small independent thresholds (migration header scan limit, rejection burst threshold)

@@ -491,7 +491,6 @@ export interface Organization {
   status: string;
   owner_user_id: string | null; // usr_… — the owner; compare with user.id (null only if the login is gone)
   logo_url: string | null;
-  specialties: string[];        // 1 to 6 of `skin`, `hair`, …
   timezone: string;             // IANA time zone
   currency: string;             // always `INR` at launch
   created_at: string;           // ISO-8601

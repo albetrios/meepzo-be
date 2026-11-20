@@ -5,9 +5,7 @@ import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import {
   ORGANIZATION_CURRENCY,
-  ORGANIZATION_DEFAULT_SPECIALTIES,
   ORGANIZATION_DEFAULT_TIMEZONE,
-  ORGANIZATION_SPECIALTIES,
 } from '@/domains/tenancy/sub-domains/organization/organization.constants.js';
 
 /** Postgres `check_violation`. */
@@ -30,40 +28,16 @@ describe('Integration: organization profile fields', () => {
 
   it('gives a new organization the launch profile', async () => {
     const [row] = await operatorQuery<
-      { specialties: string[]; timezone: string; currency: string }[]
-    >`SELECT specialties, timezone, currency FROM tenancy.organizations WHERE id = ${organizationId}`;
+      { timezone: string; currency: string }[]
+    >`SELECT timezone, currency FROM tenancy.organizations WHERE id = ${organizationId}`;
 
     expect(row).toEqual({
-      specialties: [...ORGANIZATION_DEFAULT_SPECIALTIES],
       timezone: ORGANIZATION_DEFAULT_TIMEZONE,
       currency: ORGANIZATION_CURRENCY,
     });
   });
 
-  it('accepts every allowed specialty, up to six', async () => {
-    const six = ORGANIZATION_SPECIALTIES.slice(0, 6);
-    await operatorQuery`
-      UPDATE tenancy.organizations SET specialties = ${six}::text[] WHERE id = ${organizationId}
-    `;
-    const [row] = await operatorQuery<{ specialties: string[] }[]>`
-      SELECT specialties FROM tenancy.organizations WHERE id = ${organizationId}
-    `;
-    expect(row?.specialties).toEqual(six);
-  });
-
   it.each([
-    [
-      'an unknown specialty',
-      `UPDATE tenancy.organizations SET specialties = ARRAY['skin', 'ortho']::text[] WHERE id = $1`,
-    ],
-    [
-      'no specialty',
-      `UPDATE tenancy.organizations SET specialties = ARRAY[]::text[] WHERE id = $1`,
-    ],
-    [
-      'more than six specialties',
-      `UPDATE tenancy.organizations SET specialties = ARRAY['skin','hair','dental','gynac','physio','general','skin']::text[] WHERE id = $1`,
-    ],
     [
       'a currency other than INR',
       `UPDATE tenancy.organizations SET currency = 'USD' WHERE id = $1`,

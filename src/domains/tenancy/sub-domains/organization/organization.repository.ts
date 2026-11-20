@@ -488,7 +488,6 @@ export class OrganizationRepository {
       slug?: string;
       status?: string;
       logo_url?: string | null;
-      specialties?: string[];
       timezone?: string;
     },
     updated_by_user_id: number | null,

@@ -15,7 +15,6 @@ export function serializeOrganization(row: {
   /** The owner's user public id (`usr_…`), resolved by the caller; null when the login is gone. */
   owner_user_public_id: string | null;
   logo_url: string | null;
-  specialties: string[];
   timezone: string;
   currency: string;
   created_at: Date;
@@ -29,7 +28,6 @@ export function serializeOrganization(row: {
     status: row.status,
     owner_user_id: row.owner_user_public_id,
     logo_url: row.logo_url,
-    specialties: row.specialties,
     timezone: row.timezone,
     currency: row.currency,
     created_at: row.created_at.toISOString(),

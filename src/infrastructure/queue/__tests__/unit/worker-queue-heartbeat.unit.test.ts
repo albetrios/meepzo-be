@@ -1,0 +1,101 @@
+import { EventEmitter } from 'node:events';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  WORKER_QUEUE_HEARTBEAT_MIN_INTERVAL_MS,
+  attachWorkerQueueHeartbeat,
+  isWorkerStalled,
+  isWorkerThroughputStalled,
+  type WorkerQueueHeartbeat,
+} from '@/infrastructure/queue/worker-runtime/worker-queue-heartbeat.js';
+
+const redisSetMock = vi.hoisted(() => vi.fn());
+vi.mock('@/infrastructure/cache/redis.client.js', () => ({
+  redisConnection: { set: redisSetMock, mget: vi.fn() },
+}));
+
+describe('attachWorkerQueueHeartbeat', () => {
+  it('writes the heartbeat on a completion, at most once per interval per queue', () => {
+    redisSetMock.mockReset().mockResolvedValue('OK');
+    const worker = new EventEmitter();
+    let now = 1_000_000;
+    attachWorkerQueueHeartbeat({ worker, queueName: 'mail', nowMilliseconds: () => now });
+
+    worker.emit('completed');
+    worker.emit('completed');
+    now += WORKER_QUEUE_HEARTBEAT_MIN_INTERVAL_MS - 1;
+    worker.emit('completed');
+    expect(redisSetMock).toHaveBeenCalledTimes(1);
+    expect(redisSetMock).toHaveBeenCalledWith(
+      'worker:queue:mail:last_job_at',
+      expect.any(String),
+      'EX',
+      expect.any(Number),
+    );
+
+    // A job per millisecond at peak still costs one Redis write per interval.
+    now += 1;
+    worker.emit('completed');
+    expect(redisSetMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('never lets a failed heartbeat write reach the job', async () => {
+    redisSetMock.mockReset().mockRejectedValue(new Error('redis down'));
+    const worker = new EventEmitter();
+    attachWorkerQueueHeartbeat({ worker, queueName: 'mail', nowMilliseconds: () => 0 });
+
+    expect(() => worker.emit('completed')).not.toThrow();
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+});
+
+describe('worker-queue-heartbeat', () => {
+  const nowMs = Date.parse('2026-05-19T12:00:00.000Z');
+  const stallTimeoutMs = 300_000;
+
+  it('isWorkerThroughputStalled returns false when no heartbeats exist yet', () => {
+    const heartbeats: WorkerQueueHeartbeat[] = [
+      { queue: 'mail', last_job_at: null },
+      { queue: 'webhook-delivery', last_job_at: null },
+    ];
+    expect(isWorkerThroughputStalled({ heartbeats, stallTimeoutMs, nowMilliseconds: nowMs })).toBe(
+      false,
+    );
+  });
+
+  it('isWorkerThroughputStalled returns false when at least one queue completed recently', () => {
+    const heartbeats: WorkerQueueHeartbeat[] = [
+      { queue: 'mail', last_job_at: '2026-05-19T11:58:00.000Z' },
+      { queue: 'webhook-delivery', last_job_at: '2026-05-19T11:50:00.000Z' },
+    ];
+    expect(isWorkerThroughputStalled({ heartbeats, stallTimeoutMs, nowMilliseconds: nowMs })).toBe(
+      false,
+    );
+  });
+
+  it('isWorkerThroughputStalled returns true when all recorded heartbeats are stale', () => {
+    const heartbeats: WorkerQueueHeartbeat[] = [
+      { queue: 'mail', last_job_at: '2026-05-19T11:00:00.000Z' },
+      { queue: 'webhook-delivery', last_job_at: '2026-05-19T10:30:00.000Z' },
+    ];
+    expect(isWorkerThroughputStalled({ heartbeats, stallTimeoutMs, nowMilliseconds: nowMs })).toBe(
+      true,
+    );
+  });
+});
+
+describe('isWorkerStalled (queue-depth-aware readiness — EX-02)', () => {
+  // Bug premise: a stale heartbeat alone used to mark the worker stalled. With queue depth in the
+  // decision, an idle worker (stale heartbeat, empty queue) is healthy; only a backlog with dead
+  // throughput is stalled.
+  it('is NOT stalled when heartbeats are stale but no jobs are waiting (idle worker — the fix)', () => {
+    expect(isWorkerStalled({ isThroughputStalled: true, waitingJobCount: 0 })).toBe(false);
+  });
+
+  it('IS stalled when heartbeats are stale and jobs are waiting (genuinely stuck)', () => {
+    expect(isWorkerStalled({ isThroughputStalled: true, waitingJobCount: 5 })).toBe(true);
+  });
+
+  it('is NOT stalled when throughput is healthy, regardless of waiting jobs', () => {
+    expect(isWorkerStalled({ isThroughputStalled: false, waitingJobCount: 5 })).toBe(false);
+  });
+});

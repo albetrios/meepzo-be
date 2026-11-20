@@ -1,0 +1,140 @@
+name: Mutation testing (Stryker)
+
+on:
+  schedule:
+    - cron: '30 3 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-testing
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+jobs:
+  stryker:
+    name: Stryker mutation score
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    # Stryker's dry run executes the mutated files' unit tests, which boot the
+    # app stack and touch Postgres + Redis (e.g. i18n.middleware locale cache).
+    # Without these services the dry run fails with "Connection is closed" before
+    # any mutant is scored.
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: meepzo
+          POSTGRES_PASSWORD: meepzo
+          POSTGRES_DB: meepzo
+        options: >-
+          --health-cmd="pg_isready -U meepzo -d meepzo"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+      redis:
+        image: redis:8.6.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      NODE_ENV: development
+      LOG_LEVEL: warn
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      REDIS_URL: redis://localhost:6379
+      RATE_LIMIT_MAX: 1000
+      RATE_LIMIT_WINDOW_MS: 60000
+      RUN_DB_TESTS: 1
+      RUN_REDIS_TESTS: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Export shared CI test env (JWT keys + retention + secrets-encryption)
+        uses: ./.github/actions/test-env
+      # Like every DB lane: no crash safety on a throwaway database (.github/ci-services.yml).
+      - uses: ./.github/actions/tune-ci-postgres
+        with:
+          container: ${{ job.services.postgres.id }}
+
+      - name: Run mutation tests
+        run: pnpm test:mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: stryker-mutation-report
+          path: |
+            reports/mutation/mutation-report.html
+            reports/mutation/mutation-report.json
+          retention-days: 14
+
+  resolve-success:
+    name: Close ci-failure issue
+    needs: [stryker]
+    if: always() && needs.stryker.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Close the open ci-failure issue
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: close
+          title: Weekly mutation tests (Stryker) failing
+          close-comment: The weekly Stryker run is green again — closing automatically.
+
+  notify-failure:
+    name: Notify failure
+    needs: [stryker]
+    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # the fix plan reads the failed jobs and their logs
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Open or update ci-failure issue
+        # A red weekly run is invisible on a schedule; an issue sends a real notification.
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: open
+          title: Weekly mutation tests (Stryker) failing
+          body: |
+            The weekly Stryker mutation run failed: the mutation score fell below its threshold, or the
+            run broke before scoring (read the step list first). Reproduce: pnpm test:mutation.
+            The next green run closes this issue.

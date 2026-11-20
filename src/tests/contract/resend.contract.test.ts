@@ -1,0 +1,180 @@
+import { sendEmail } from '@/infrastructure/mail/mail.service.js';
+import { ResendApiError } from '@/infrastructure/mail/resend-api.error.js';
+import { resendCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { env } from '@/shared/config/env.config.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { PROJECT_BRAND_NAME } from '@/shared/constants/project-identity.constants.js';
+import nock from 'nock';
+import { describe, expect, test, vi, afterEach } from 'vitest';
+
+import outboundResendEmailsRequestExpectedEnvelope from './fixtures/resend/emails.send.request.expected.json' with {
+  type: 'json',
+};
+import outboundResendEmailsErrorEnvelope from './fixtures/resend/emails.send.error.response.json' with {
+  type: 'json',
+};
+import outboundResendEmailsSuccessEnvelope from './fixtures/resend/emails.send.success.response.json' with {
+  type: 'json',
+};
+import { registerThirdPartyContractTestIsolationHooks } from './helpers/register-contract-test-hooks.js';
+import {
+  ResendEmailsSuccessfulResponseContractSchema,
+  ResendEmailsOutgoingJsonContractSchema,
+  ResendEmailsErrorEnvelopeContractSchema,
+} from './schemas/resend.schemas.js';
+
+registerThirdPartyContractTestIsolationHooks();
+
+function coerceOutboundResendRequestBodyUtf8Outbound(rawOutboundBodyUnknown: unknown): string {
+  if (typeof rawOutboundBodyUnknown === 'string') return rawOutboundBodyUnknown;
+  if (Buffer.isBuffer(rawOutboundBodyUnknown)) {
+    return rawOutboundBodyUnknown.toString('utf8');
+  }
+  if (
+    rawOutboundBodyUnknown !== null &&
+    typeof rawOutboundBodyUnknown === 'object' &&
+    !Array.isArray(rawOutboundBodyUnknown)
+  ) {
+    return JSON.stringify(rawOutboundBodyUnknown);
+  }
+  return String(rawOutboundBodyUnknown ?? '');
+}
+
+describe('Resend outbound email contract (`mail.service.sendEmail`)', () => {
+  const resendApiHostnameOutbound = 'https://api.resend.com';
+  let outboundLoggerFixtureErrorSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+  afterEach(() => {
+    outboundLoggerFixtureErrorSpy?.mockRestore();
+  });
+
+  test('sendEmail emits JSON payloads that match documented Resend request fields', async () => {
+    nock(resendApiHostnameOutbound)
+      .post('/emails', (rawOutboundUtf8PayloadUnknown) => {
+        const parsedResendEmailsOutboundJsonEnvelope = JSON.parse(
+          coerceOutboundResendRequestBodyUtf8Outbound(rawOutboundUtf8PayloadUnknown),
+        );
+        ResendEmailsOutgoingJsonContractSchema.parse(parsedResendEmailsOutboundJsonEnvelope);
+        const outboundResendFromHeaderExpectedEnvelope = `${env.EMAIL_FROM_NAME ?? PROJECT_BRAND_NAME} <${env.EMAIL_FROM_ADDRESS}>`;
+        expect(parsedResendEmailsOutboundJsonEnvelope).toMatchObject({
+          from: outboundResendFromHeaderExpectedEnvelope,
+          to: outboundResendEmailsRequestExpectedEnvelope.to,
+          subject: outboundResendEmailsRequestExpectedEnvelope.subject,
+          html: outboundResendEmailsRequestExpectedEnvelope.html,
+        });
+        return true;
+      })
+      .matchHeader('authorization', /^Bearer /)
+      .reply(200, outboundResendEmailsSuccessEnvelope);
+
+    const outboundResendMessageIdentifier = await sendEmail({
+      to: outboundResendEmailsRequestExpectedEnvelope.to[0] ?? '',
+      subject: outboundResendEmailsRequestExpectedEnvelope.subject,
+      html: outboundResendEmailsRequestExpectedEnvelope.html,
+    });
+
+    ResendEmailsSuccessfulResponseContractSchema.parse(outboundResendEmailsSuccessEnvelope);
+    expect(outboundResendMessageIdentifier).toBe(outboundResendEmailsSuccessEnvelope.id);
+  });
+
+  test('sendEmail forwards the outbox idempotency key as the Idempotency-Key header', async () => {
+    const outboxIdempotencyKey = 'mail-outbox-3f0c7a52-8a1e-4f6b-9a7d-2c5e8b1d4f60';
+    nock(resendApiHostnameOutbound)
+      .post('/emails', () => true)
+      .matchHeader('authorization', /^Bearer /)
+      .matchHeader('idempotency-key', outboxIdempotencyKey)
+      .reply(200, outboundResendEmailsSuccessEnvelope);
+
+    const outboundResendMessageIdentifier = await sendEmail({
+      to: outboundResendEmailsRequestExpectedEnvelope.to[0] ?? '',
+      subject: outboundResendEmailsRequestExpectedEnvelope.subject,
+      html: outboundResendEmailsRequestExpectedEnvelope.html,
+      idempotencyKey: outboxIdempotencyKey,
+    });
+
+    expect(outboundResendMessageIdentifier).toBe(outboundResendEmailsSuccessEnvelope.id);
+  });
+
+  test('sendEmail throws ResendApiError while logging Resend semantic error payloads', async () => {
+    nock(resendApiHostnameOutbound)
+      .post('/emails', () => true)
+      .matchHeader('authorization', /^Bearer /)
+      .reply(422, outboundResendEmailsErrorEnvelope);
+
+    outboundLoggerFixtureErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+    await expect(
+      sendEmail({
+        to: outboundResendEmailsRequestExpectedEnvelope.to[0] ?? '',
+        subject: outboundResendEmailsRequestExpectedEnvelope.subject,
+        html: outboundResendEmailsRequestExpectedEnvelope.html,
+      }),
+    ).rejects.toBeInstanceOf(ResendApiError);
+
+    ResendEmailsErrorEnvelopeContractSchema.parse(outboundResendEmailsErrorEnvelope);
+    expect(outboundLoggerFixtureErrorSpy).toHaveBeenCalled();
+  });
+
+  test('a run of per-email rejections never opens the resend circuit', async () => {
+    // One more refusal than the circuit's failure threshold (5): counted as failures, they would
+    // open it and hold back every other email for a minute.
+    const rejectionCount = 6;
+    nock(resendApiHostnameOutbound)
+      .post('/emails', () => true)
+      .times(rejectionCount)
+      .reply(422, outboundResendEmailsErrorEnvelope);
+
+    outboundLoggerFixtureErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+    for (let attempt = 0; attempt < rejectionCount; attempt += 1) {
+      const rejection = await sendEmail({
+        to: outboundResendEmailsRequestExpectedEnvelope.to[0] ?? '',
+        subject: outboundResendEmailsRequestExpectedEnvelope.subject,
+        html: outboundResendEmailsRequestExpectedEnvelope.html,
+      }).catch((error: unknown) => error);
+
+      expect(rejection).toBeInstanceOf(ResendApiError);
+      expect(rejection).toMatchObject({
+        statusCode: 422,
+        resendErrorName: 'validation_error',
+        isPerEmailRejection: true,
+      });
+    }
+
+    expect(await resendCircuit.getState()).toBe('CLOSED');
+  });
+
+  test('a burst of rate-limit 429s is a throttle with its Retry-After — it never opens the circuit', async () => {
+    // Resend allows 10 requests a second per team. Counted as failures, a burst over it opened the
+    // circuit and — with the outage pause — held all mail for five minutes at a time.
+    const throttleCount = 6;
+    nock(resendApiHostnameOutbound)
+      .post('/emails', () => true)
+      .times(throttleCount)
+      .reply(
+        429,
+        { statusCode: 429, name: 'rate_limit_exceeded', message: 'Too many requests.' },
+        { 'retry-after': '2', 'ratelimit-reset': '2' },
+      );
+
+    outboundLoggerFixtureErrorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+    for (let attempt = 0; attempt < throttleCount; attempt += 1) {
+      const throttle = await sendEmail({
+        to: outboundResendEmailsRequestExpectedEnvelope.to[0] ?? '',
+        subject: outboundResendEmailsRequestExpectedEnvelope.subject,
+        html: outboundResendEmailsRequestExpectedEnvelope.html,
+      }).catch((error: unknown) => error);
+
+      expect(throttle).toBeInstanceOf(ResendApiError);
+      expect(throttle).toMatchObject({
+        statusCode: 429,
+        resendErrorName: 'rate_limit_exceeded',
+        isRateLimited: true,
+        retryAfterMs: 2_000,
+      });
+    }
+
+    expect(await resendCircuit.getState()).toBe('CLOSED');
+  });
+});

@@ -1,0 +1,97 @@
+# i18n (Internationalization)
+
+All user-facing response messages in the API are produced via **i18next**. The languages are `SUPPORTED_LANGUAGES` (`en`, `es`) in `src/shared/constants/i18n.constants.ts`; English (`en`) is the default and fallback locale. `toSupportedLanguage(value)` maps any other value to English.
+
+---
+
+## Request flow
+
+```mermaid
+flowchart LR
+  A[Service or middleware] -->|"throw messageKey (errors:…)"| B[Error handler]
+  B -->|"request.t(messageKey, params)"| C[Locale JSON]
+  C --> D[Translated error.detail]
+  E[i18n middleware] --> B
+  F[Accept-Language] --> E
+```
+
+Services and validators throw typed errors with a **messageKey** (for example `errors:userNotFound`). The global error handler calls `request.t(error.messageKey, error.messageParams)` so the client receives text from `src/shared/locales/{lng}/errors.json`. The i18n middleware sets `request.language` from `Accept-Language` (fallback `en`).
+
+---
+
+## Scope
+
+- **Error responses**: `error.detail` and each `error.errors[].message` are translated using `request.t(key, params)` in the error handler.
+- **Success responses**: When a controller returns a `message` in the response body, it uses `request.t(messageKey, messageParams)` (or a fallback using `request.language`).
+- **Validation messages**: each `error.errors[].message` follows the request language too — see [Validation messages](#validation-messages).
+- **Emails and notifications**: written in the recipient's language — see [Background work](#background-work-emails-and-notifications).
+
+## Validation messages
+
+A request body that fails its Zod schema answers with one `errors[]` item per field, in the request language:
+
+- **Zod's own message** ("expected number, received string") is rendered from Zod's catalog for each language (`z.locales.en()`, `z.locales.es()`). The parse runs with `reportInput: true` because the catalog names the received type from the input; the input is never stored on the error.
+- **A schema's own message** is a translation key (`errors:validation.webhookUrlMustUseHttps`) — never English text — translated per language.
+- Both paths share one renderer, `renderZodIssueMessages(issue)` in `src/shared/utils/validation/zod-issue-messages.util.ts`: `parseWithSchema` (service validators) and the route `validatorCompiler` (`zod-type-provider.middleware.ts`) attach the rendered messages, and the error handler picks the request's language.
+
+`errors:notFound` names the resource in the request language: the noun (`Plan`, `Membership`) is looked up under `errors:resources.<noun>` (`"No se encontró el plan"`); a noun with no entry stays as written.
+
+## Background work (emails and notifications)
+
+A job has no request, so the language travels in the event or job payload as `locale` (a `SupportedLanguage`):
+
+| Message | Language |
+| ------- | -------- |
+| Sign-in code, password reset | The request's (`toSupportedLanguage(request.language)`) |
+| Member invitation, invitation accepted | The organization's `default_locale` |
+
+Templates translate through `translateMailText({ key, locale, values })` (`src/infrastructure/mail/templates/base.template.ts`), which leaves escaping to the template (`escapeHtml` on every value) and sets `<html lang>`. The worker process loads the locale files once at start with `initializeI18nextForBackgroundWork()`; a unit test that renders copy calls the same function in `beforeAll`.
+
+## Conventions
+
+1. **Translation keys in code**
+   - Errors: use keys like `errors:notFound`, `errors:validation.invalidToken`, `errors:disposableEmail`.
+   - Success: use keys like `success:emailVerified`, `success:passwordResetEmailSent`.
+   - Namespace format: `namespace:key` (e.g. `errors:routeNotFound`, `success:verificationEmailSent`).
+
+2. **Locale files**
+   - Add new keys to **`src/shared/locales/en/`** first (e.g. `src/shared/locales/en/errors.json`, `src/shared/locales/en/success.json`).
+   - Then add the same keys to other locales (e.g. `src/shared/locales/es/`).
+   - i18next `fallbackLng: 'en'` ensures missing keys or unsupported languages return the English string.
+
+3. **Errors**
+   - Services/validators throw with a **messageKey** (and optional **messageParams**). Do not throw raw user-facing strings.
+   - The error handler calls `request.t(error.messageKey, error.messageParams)` for `detail` and for each validation item's `message` when `messageKey` is set.
+
+4. **Success messages**
+   - Services that return a user-facing message return `{ messageKey, messageParams? }`. Controllers call `request.t(messageKey, messageParams)` and send the result as `message` in the response.
+
+## Middleware and request
+
+- **i18n middleware** (`src/shared/middlewares/core/i18n.middleware.ts`): Runs on every request (`onRequest`) and resolves **one supported language** — the first `Accept-Language` segment when it is in `SUPPORTED_LANGUAGES`, else the active organization's default locale (applied by the auth middleware), else `en`. It sets `request.language` and `request.t` (`i18next.getFixedT(language)`), and the response carries `Content-Language` with that language.
+- **The request never names a language i18next loads.** i18next is initialised with `supportedLngs: SUPPORTED_LANGUAGES` (`nonExplicitSupportedLngs`, `load: 'languageOnly'`), and no `?lng=` query or `i18next` cookie is read: an unknown code maps to `en` and leaves `i18next.options.preload` unchanged. The previous `i18next-http-middleware` handler loaded any requested code into the shared instance, so random codes from anonymous callers grew that list without bound (D-1, pinned by `src/tests/unit/middleware/i18n.middleware.hook.unit.test.ts`).
+
+## Locale key parity
+
+`en` is the source of truth. Every leaf key in `src/shared/locales/en/` must exist in each other locale with the same nested structure (dot notation for nested keys, e.g. `validation.invalidToken`):
+
+| File | Purpose |
+| ---- | ------- |
+| `errors.json` | API error `detail` and validation messages |
+| `success.json` | Success response `message` keys |
+| `common.json` | Shared labels |
+| `mail.json` | Transactional email copy |
+
+**Check locally:**
+
+```bash
+pnpm exec vitest run src/tests/global/locale-parity.global.test.ts src/tests/unit/validators/locale-hardcoded-fallbacks.policy.unit.test.ts
+```
+
+Two tests, one job each. `locale-parity.global.test.ts` is the parity check: every locale carries English's keys with the same interpolation placeholders, in every namespace but `openapi`. `locale-hardcoded-fallbacks.policy.unit.test.ts` checks the code side: every key the code references exists, and no application code passes a redundant English **fallback** string when an `errors:` messageKey is already set. A key used with a computed suffix (`errors:resources.${noun}`) is written as its prefix ending in `.`; the key-usage scan treats it as a prefix.
+
+Both run in every PR's unit lane (`--project unit --project global`) and in `pnpm test`. When adding a key, update **every** locale file in the same change.
+
+## Skill
+
+When adding or changing user-facing messages, run the **be-i18n-message-guard** skill so keys stay in sync with `src/shared/locales/en/` (and other locales). See `.cursor/skills/be-skill-index/SKILL.md`.

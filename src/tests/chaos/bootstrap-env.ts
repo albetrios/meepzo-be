@@ -1,0 +1,122 @@
+/**
+ * Must stay free of `@/` path alias — env must be deterministic before Vitest resolves application modules.
+ * Loads `.env.${NODE_ENV}` (defaulting to `.env.local`) from project root via the shared
+ * loader, same as the API and worker entrypoints.
+ */
+import '../../shared/config/load-env-files.js';
+import '../helpers/harness-provider-env.js';
+
+// Force NODE_ENV=development (mirrors src/tests/setup.ts) so a developer's `.env.local` cannot leak a
+// different value through load-env-files. NODE_ENV is `local` | `development` | `production`; the chaos
+// suite runs as `development` and drives test-only behaviour (captcha bypass, in-memory rate limiting,
+// cleanupDatabase/cleanupTestRedis guards) via the explicit flags below.
+process.env.NODE_ENV = 'development';
+// Isolate the chaos Redis keyspace from a running `pnpm dev` (both are NODE_ENV=development).
+// Forced with `=`, as src/tests/setup.ts does: with `??=` a developer's env file that sets
+// REDIS_KEY_PREFIX won, and the chaos jobs and cleanupTestRedis ran inside the dev namespace.
+// Literal, not an import: this module must resolve BEFORE Vitest wires `@/` aliases,
+// and the import-paths policy forbids `../` in a `from` clause. It is instead a
+// generator target (see text-identity-rewrites.ts), so a rebrand rewrites it in place.
+process.env.REDIS_KEY_PREFIX = 'meepzo:test:';
+// Skip process-level shared-singleton teardown under the per-worker Vitest harness.
+process.env.SHUTDOWN_SKIP_SHARED_TEARDOWN = 'true';
+// Disable the ioredis ready-check (read raw from process.env by the Redis/BullMQ clients).
+process.env.REDIS_READY_CHECK_ENABLED = 'false';
+// Category-B security flags default hardened; set the relaxed test values (see src/tests/setup.ts).
+process.env.CAPTCHA_BYPASS_ALLOWED ??= 'true';
+// CAPTCHA is hard-disabled (`=`, not `??=`), as src/tests/setup.ts does for the main suite: CI leaves
+// CAPTCHA_PROVIDER unset (schema default `disabled`), while a developer's env file that enables
+// Turnstile would make every public auth form here answer 401 `errors:captchaRequired`.
+process.env.CAPTCHA_PROVIDER = 'disabled';
+process.env.SESSION_ORIGIN_CSRF_REQUIRED ??= 'false';
+process.env.WEBHOOK_ALLOWLIST_REQUIRED ??= 'false';
+process.env.METRICS_AUTH_REQUIRED ??= 'false';
+// Boot-time safety checks + wipe/rate-limit affordances (see src/tests/setup.ts). The chaos suite
+// forces the in-memory rate-limit store (RUN_REDIS_TESTS=0 below), which requires the fallback flag.
+process.env.DATABASE_TLS_ENFORCED ??= 'false';
+process.env.DATABASE_RLS_SAFETY_ENFORCED ??= 'false';
+process.env.DATABASE_CONNECTION_BUDGET_ENFORCED ??= 'false';
+process.env.REDIS_TLS_ENFORCED ??= 'false';
+process.env.TRUST_PROXY_REQUIRED ??= 'false';
+// TEST_MODE marks this as a test run — the single gate the test-only affordances require.
+process.env.TEST_MODE = 'true';
+process.env.RATE_LIMIT_RELAXED_CAPS ??= 'true';
+process.env.RATE_LIMIT_IN_MEMORY_FALLBACK_ALLOWED ??= 'true';
+// Category-A behaviour flags now have static production-safe defaults; set the development values.
+process.env.CAPTCHA_FAIL_OPEN ??= 'true';
+process.env.SCHEDULER_REGISTRY_AUDIT_STRICT ??= 'false';
+process.env.SERVER_TIMING_COARSE ??= 'false';
+process.env.SHUTDOWN_DRAIN_ENABLED ??= 'false';
+process.env.I18N_REPORT_MISSING_KEYS ??= 'false';
+process.env.LOG_PRETTY ??= 'true';
+process.env.SENTRY_REDUCED_SAMPLING ??= 'false';
+process.env.SENTRY_DEBUG ??= 'true';
+process.env.VITEST_CHAOS_SUITE = 'true';
+/**
+ * In-memory rate limiting only: `@fastify/rate-limit` otherwise shares `redisConnection` and can
+ * stall requests while other scenarios administratively disable the Redis Toxiproxy listener.
+ */
+process.env.RUN_REDIS_TESTS = '0';
+process.env.RUN_DB_TESTS ||= '1';
+
+process.env.PORT ??= '3000';
+process.env.HTTP_BIND_HOST = '127.0.0.1';
+process.env.LOG_LEVEL ??= 'warn';
+process.env.ALLOWED_ORIGINS ??= 'http://localhost:3000';
+process.env.FRONTEND_URL ??= 'http://localhost:3000';
+
+process.env.RATE_LIMIT_MAX ??= '1000';
+process.env.RATE_LIMIT_WINDOW_MS ??= '60000';
+process.env.ENABLE_QUEUE_DASHBOARD ??= 'true';
+process.env.ENABLE_MCP_SERVER ??= 'true';
+process.env.BLOCK_DISPOSABLE_EMAIL ??= 'false';
+
+/**
+/**
+ * Always point at Toxiproxy listener ports for this Vitest profile. A developer `.env` often
+ * sets direct `localhost:5432` / `6379` URLs; `||=` would skip the override and chaos traffic
+ * would bypass proxies, so toxins and administrative proxy disables would not affect the app.
+ * The credentials are Compose's (the project's local database name as user and password); the CI
+ * chaos job's Postgres service creates the same role. The database is this worker's own clone the
+ * global setup made, `<test database>_worker_<pool id>` — the test database is the harness's own
+ * `<project>_test` locally (keep it equal to LOCAL_TEST_DATABASE_NAME in
+ * src/tests/helpers/local-test-database.ts, and the suffix equal to `workerDatabaseName` in
+ * tooling/vitest/worker-databases.ts, which this alias-free file cannot import) and the service
+ * container's primary one on CI. Chaos suites run cleanupDatabase() too, which must never truncate
+ * the database `pnpm dev` serves, and only ever accepts a worker's own database.
+ */
+const chaosTestDatabase = process.env.GITHUB_ACTIONS === 'true' ? 'meepzo' : 'meepzo_be_test';
+process.env.DATABASE_URL = `postgresql://meepzo:meepzo@127.0.0.1:25432/${chaosTestDatabase}_worker_${String(process.env.VITEST_POOL_ID)}`;
+
+process.env.REDIS_URL = 'redis://127.0.0.1:26379';
+
+/**
+ * The harness's elevated connection (`DATABASE_OPERATOR_URL`, which `cleanupDatabase()` uses) must
+ * go through the proxy too. Left on a developer's direct URL, cleanup bypasses Toxiproxy and the
+ * app pool starts every test cold — and a cold pool does not fail fast under a connect-time fault
+ * (it keeps reconnecting while the query waits), so an assertion that expects the query to reject
+ * waits out the test timeout instead. Only the host, port and database change: the operator's
+ * role and credentials stay, because fixture owner/session lookups need its privileges under
+ * FORCE RLS.
+ */
+const proxiedOperatorUrl = new URL(process.env.DATABASE_OPERATOR_URL ?? process.env.DATABASE_URL);
+proxiedOperatorUrl.hostname = '127.0.0.1';
+proxiedOperatorUrl.port = '25432';
+proxiedOperatorUrl.pathname = new URL(process.env.DATABASE_URL).pathname;
+process.env.DATABASE_OPERATOR_URL = proxiedOperatorUrl.toString();
+
+/**
+ * Maintenance contexts (`withMaintenanceDatabaseContext` — retention, audit drain, global admin)
+ * open their own pool on `DATABASE_MAINTENANCE_URL`, which a developer's env file points straight
+ * at Postgres, so no toxin could touch a maintenance path. Keep its role and credentials — the
+ * scope's grants are what these paths are tested under — and reroute only the host and port
+ * through the Toxiproxy listener, onto the same database as `DATABASE_URL` above. Unset, it is
+ * `DATABASE_URL` itself.
+ */
+const proxiedMaintenanceUrl = new URL(
+  process.env.DATABASE_MAINTENANCE_URL ?? process.env.DATABASE_URL,
+);
+proxiedMaintenanceUrl.hostname = '127.0.0.1';
+proxiedMaintenanceUrl.port = '25432';
+proxiedMaintenanceUrl.pathname = new URL(process.env.DATABASE_URL).pathname;
+process.env.DATABASE_MAINTENANCE_URL = proxiedMaintenanceUrl.toString();

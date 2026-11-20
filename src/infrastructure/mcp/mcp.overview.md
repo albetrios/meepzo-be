@@ -1,0 +1,36 @@
+`src/infrastructure/mcp/`
+
+# MCP (Model Context Protocol) infrastructure
+
+## Purpose
+
+Optional MCP server endpoint that lets a developer's coding agent introspect this backend through MCP — listing routes, fetching the current OpenAPI document, and invoking the `call_api` tool to call this platform's HTTP API in-process. Mounted at `/api/v1/mcp` (GET + POST) when `ENABLE_MCP_SERVER=true`. Requires a JWT with the global `super_admin` role.
+
+## Design decisions
+
+- **Optional dependency**: `@modelcontextprotocol/sdk` is declared as an `optionalDependency`. The server falls back gracefully when the package isn't installed — useful for the production Docker image which doesn't ship it.
+- **Dynamic import**: the SDK is imported only when the feature flag is on, so the dependency cost (in cold start time and bundle size) is paid only by deploys that enable it.
+- **Two resources**: `meepzo-be://openapi` (the generated OpenAPI document) and `meepzo-be://routes` (the route catalog). Both are read-only.
+- **One tool**: `call_api` invokes the local HTTP API through `fastify.inject()` — no extra TCP hop, no extra auth dance, scoped to the calling JWT's permissions.
+- **Strict admin gating**: the auth preHandler requires the global `super_admin` role (`requireRole(GLOBAL_ROLES.SUPER_ADMIN)`) — a plain `user` JWT is refused. There is no per-organization MCP today.
+- **`call_api` blast radius & R14 gating**: because `call_api` is an admin-authority in-process proxy into the *entire* `/api/v1/` surface, it is gated by `evaluateCallApiPolicy` (in `mcp-capabilities.ts`): (1) the path is normalised first — a dot segment (`..`, `.`, raw or `%2e`-encoded), a backslash, whitespace or an encoded separator (`%2f`, `%5c`) is refused, the rest is resolved with `new URL()` — and the **normalised** path must start with `/api/v1/`, `/livez`, or `/readyz`; the sub-request injects that normalised path, so the path checked is the path called (C-3); (2) caller-supplied `BLOCKED_HEADERS` (authorization/cookie/x-csrf-token/forwarding headers) are stripped so the sub-request can't pivot principal or session; (3) **read-only by default** — only `GET` is allowed unless `MCP_CALL_API_ALLOW_MUTATIONS=true`; (4) an optional operator allowlist `MCP_CALL_API_ALLOWED_PATH_PREFIXES` (CSV) further narrows reachable paths, matched against the normalised path. Errors from the proxied call are logged server-side and returned to the client as a generic message (MCP responses bypass the global error masker via `reply.hijack()`).
+
+## Operational concerns
+
+- **Production posture**: ship with `ENABLE_MCP_SERVER=false` unless ops explicitly opts in. If enabled, `call_api` stays **read-only** (GET) unless `MCP_CALL_API_ALLOW_MUTATIONS=true` is also set, so enabling MCP cannot on its own expose destructive admin mutations through the tool.
+- **Per-request server and transport**: stateless Streamable HTTP needs a fresh `McpServer` + transport for every request; `handleMcpRequest` closes both when the response closes (`closeMcpTransportAndServer`, D-9), so a long-running API does not accumulate connected pairs.
+- **In-process API invocation**: `call_api` reuses the same Fastify routing, middleware, and rate-limit pipeline that an external client would hit. Authorization is enforced exactly the same way.
+
+## External dependencies
+
+- **`@modelcontextprotocol/sdk`** — optional dependency; loaded only when `ENABLE_MCP_SERVER=true`.
+
+## Failure modes
+
+- **SDK package missing while flag is on** → server logs an error and the route returns 503. The rest of the platform is unaffected.
+- **JWT without the `super_admin` role** → 403.
+- **Tool call exceeds the per-call timeout** → standard Fastify timeout error class.
+
+## Related docs
+
+- [docs/integrations/cursor-backend-mcp.md](docs/integrations/cursor-backend-mcp.md) — usage from the Cursor editor.

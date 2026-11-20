@@ -1,0 +1,141 @@
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { successResponse } from '@/shared/utils/http/response.util.js';
+import { getRequestIdentifier, requireAuth } from '@/shared/utils/http/request.util.js';
+import { recordScopedAuditEvent } from '@/shared/utils/infrastructure/audit-request-context.util.js';
+import {
+  getIpAddress,
+  readRequestOrigin,
+  setSessionCookie,
+} from '@/domains/auth/auth.http.util.js';
+import { getUserAgent } from '@/shared/utils/http/user-agent.util.js';
+import { AuthSerializer } from '@/domains/auth/auth.serializer.js';
+import { validateWebauthnCredentialIdParam } from '@/domains/auth/sub-domains/auth-webauthn/webauthn.validator.js';
+import {
+  recordLoginAuditEvent,
+  recordLoginFailureAuditEvent,
+} from '@/domains/auth/shared/audit-login.util.js';
+import type { AuthContainer } from '@/domains/auth/auth.container.js';
+import { ACCOUNT_SECURITY_NOTICE } from '@/domains/auth/sub-domains/auth-method/events/auth.events.js';
+import { toSupportedLanguage } from '@/shared/constants/i18n.constants.js';
+
+type AuthWebauthnHandlersDependencies = Pick<
+  AuthContainer,
+  'webauthnService' | 'authMethodService'
+>;
+
+/** Builds the WebAuthn Fastify handlers: `webauthnRegisterOptions` / `webauthnRegisterVerify` for credential enrollment, `webauthnAuthenticateOptions` / `webauthnAuthenticateVerify` for passkey login (sets the session cookie on success), and `webauthnListCredentials` / `webauthnRevokeCredential` for owner-scoped passkey management. */
+export function createAuthWebauthnHandlers({
+  webauthnService,
+  authMethodService,
+}: AuthWebauthnHandlersDependencies) {
+  return {
+    webauthnRegisterOptions: async (request: FastifyRequest, _reply: FastifyReply) => {
+      const auth = requireAuth(request);
+      const data = await webauthnService.generateRegistrationOptions(auth.userId);
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    webauthnRegisterVerify: async (request: FastifyRequest, _reply: FastifyReply) => {
+      const auth = requireAuth(request);
+      const data = await webauthnService.verifyRegistration({
+        userPublicId: auth.userId,
+        body: request.body,
+        requestOrigin: readRequestOrigin(request),
+      });
+      // Enrolling a new passkey adds a login credential (a takeover-persistence move), so audit it —
+      // symmetric with the already-audited passkey revoke.
+      await recordScopedAuditEvent({
+        request,
+        input: {
+          actorUserPublicId: auth.userId,
+          action: 'auth.webauthn.register',
+          resource_type: 'webauthn_credential',
+          metadata: { credential_id: data.credential_id },
+        },
+      });
+      await authMethodService.sendAccountSecurityNotice({
+        userPublicId: auth.userId,
+        notice: ACCOUNT_SECURITY_NOTICE.FACTOR_ENROLLED,
+        locale: toSupportedLanguage(request.language),
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    webauthnListCredentials: async (request: FastifyRequest, _reply: FastifyReply) => {
+      const auth = requireAuth(request);
+      const data = await webauthnService.listCredentials(auth.userId);
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    webauthnRevokeCredential: async (
+      request: FastifyRequest<{ Params: { credential_id: string } }>,
+      reply: FastifyReply,
+    ) => {
+      const auth = requireAuth(request);
+      const credentialPublicId = validateWebauthnCredentialIdParam(request.params.credential_id);
+      await webauthnService.revokeCredential({ userPublicId: auth.userId, credentialPublicId });
+      await recordScopedAuditEvent({
+        request,
+        input: {
+          actorUserPublicId: auth.userId,
+          action: 'auth.webauthn.revoke',
+          resource_type: 'webauthn_credential',
+          metadata: { credential_id: credentialPublicId },
+        },
+      });
+      return reply.code(204).send();
+    },
+    webauthnAuthenticateOptions: async (request: FastifyRequest, _reply: FastifyReply) => {
+      const data = await webauthnService.generateAuthenticationOptions(request.body);
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    webauthnAuthenticateVerify: async (request: FastifyRequest, reply: FastifyReply) => {
+      let data: Awaited<ReturnType<typeof webauthnService.verifyAuthentication>>;
+      try {
+        data = await webauthnService.verifyAuthentication({
+          body: request.body,
+          ipAddress: getIpAddress(request),
+          requestOrigin: readRequestOrigin(request),
+          userAgent: getUserAgent(request) ?? undefined,
+        });
+      } catch (error) {
+        // sec-A8 follow-up: record the failure side of the auth.overview.md invariant.
+        await recordLoginFailureAuditEvent({ request, source: 'webauthn', error });
+        throw error;
+      }
+      if ('mfa_required' in data && data.mfa_required === true) {
+        return successResponse({
+          data: AuthSerializer.mfaRequired(data),
+          request_id: getRequestIdentifier(request),
+        });
+      }
+      if (
+        'session_public_id' in data &&
+        'session_refresh_secret' in data &&
+        typeof data.session_public_id === 'string' &&
+        typeof data.session_refresh_secret === 'string'
+      ) {
+        setSessionCookie({
+          reply,
+          sessionPublicId: data.session_public_id,
+          refreshSecret: data.session_refresh_secret,
+        });
+        // sec-A8: audit WebAuthn passkey login so the auth.overview.md "every login
+        // records a row" invariant holds across every entrypoint.
+        if ('access_token' in data && typeof data.access_token === 'string') {
+          await recordLoginAuditEvent({
+            request,
+            loginResult: {
+              access_token: data.access_token,
+              session_public_id: data.session_public_id,
+            },
+            source: 'webauthn',
+          });
+        }
+      }
+      return successResponse({
+        data: AuthSerializer.accessToken(
+          data as { access_token: string; session_public_id?: string },
+        ),
+        request_id: getRequestIdentifier(request),
+      });
+    },
+  };
+}

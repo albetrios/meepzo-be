@@ -1,0 +1,54 @@
+name: Start API server
+description: Start the API in the background and wait for /readyz
+
+inputs:
+  rate-limit-max:
+    description: RATE_LIMIT_MAX for the server process
+    required: false
+    default: '10000'
+  log-file:
+    description: Server log file path
+    required: false
+    default: server.log
+  ready-timeout-seconds:
+    description: Max seconds to wait for readiness
+    required: false
+    default: '120'
+
+runs:
+  using: composite
+  steps:
+    - name: Start API server (background)
+      # The boot-time safety checks default hardened (src/shared/config/env-schema.ts). This
+      # ephemeral CI boot runs against plaintext, superuser, proxy-less service containers, so it
+      # relaxes them exactly as the Docker smoke boot in reusable-docker-build-trivy.yml does.
+      env:
+        DATABASE_TLS_ENFORCED: 'false'
+        DATABASE_RLS_SAFETY_ENFORCED: 'false'
+        DATABASE_CONNECTION_BUDGET_ENFORCED: 'false'
+        # The budget is still checked with that flag off, assuming one API plus one worker —
+        # more than the default service Postgres allows. This is one API and no worker.
+        DEPLOYMENT_TOTAL_REPLICA_COUNT: '1'
+        REDIS_TLS_ENFORCED: 'false'
+        TRUST_PROXY_REQUIRED: 'false'
+        # Inputs reach the script through env, never expanded into it (zizmor template-injection).
+        RATE_LIMIT_MAX: ${{ inputs.rate-limit-max }}
+        SERVER_LOG_FILE: ${{ inputs.log-file }}
+      run: |
+        pnpm exec tsx src/server.ts > "$SERVER_LOG_FILE" 2>&1 &
+        echo $! > server.pid
+      shell: bash
+
+    - name: Wait for server readiness
+      env:
+        READY_TIMEOUT_SECONDS: ${{ inputs.ready-timeout-seconds }}
+        SERVER_LOG_FILE: ${{ inputs.log-file }}
+      # The one wait for readiness (tooling/ci/wait-for-ready.sh); it stops at once if the server exits.
+      run: |
+        if ! bash tooling/ci/wait-for-ready.sh --url http://localhost:3000/readyz \
+          --timeout "$READY_TIMEOUT_SECONDS" --interval 1 --pid-file server.pid; then
+          echo "--- ${SERVER_LOG_FILE} (tail 200) ---"
+          tail -n 200 "$SERVER_LOG_FILE" || true
+          exit 1
+        fi
+      shell: bash

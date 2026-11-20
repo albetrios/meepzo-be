@@ -1,0 +1,88 @@
+import { getBullMQConnectionOptions } from '@/infrastructure/queue/connection.js';
+import { getDefaultWorkerOptions } from '@/infrastructure/queue/worker-runtime/worker-options.js';
+import { processMailOutboxJob } from '@/infrastructure/mail/workers/mail.processor.js';
+import {
+  MAIL_QUEUE_MAX_ATTEMPTS,
+  MAIL_QUEUE_NAME,
+  type MailJobData,
+} from '@/infrastructure/mail/queues/mail.queue.js';
+import { mailBackoffStrategy } from '@/infrastructure/mail/queues/mail-backoff.util.js';
+import { mailJobDataSchema } from '@/infrastructure/mail/queues/mail.job.schema.js';
+import { parseJobDataOrDeadLetter } from '@/infrastructure/queue/dlq/poison-job.util.js';
+import { runWithPropagatedTraceContext } from '@/infrastructure/observability/tracing/trace-context.util.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
+import { buildWorkerHandle } from '@/infrastructure/queue/worker-runtime/worker-close.util.js';
+import { createProviderPausableWorker } from '@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js';
+import { getWorkerConcurrencyMail } from '@/shared/config/worker-concurrency.util.js';
+import { env } from '@/shared/config/env.config.js';
+import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
+import type { WorkerHandle } from '@/infrastructure/queue/bootstrap.js';
+
+/**
+ * Creates the BullMQ worker that drains the mail queue by delegating each job to
+ * {@link processMailOutboxJob}.
+ *
+ * @remarks
+ * - **Algorithm:** parses + validates the job payload with `mailJobDataSchema`,
+ *   then invokes the processor with BullMQ attempt metadata so terminal-attempt
+ *   semantics are correct; concurrency is set from `WORKER_CONCURRENCY_MAIL`, and the queue's
+ *   limiter paces sends to `RESEND_MAX_REQUESTS_PER_SECOND` across every replica, so a burst is
+ *   spread out instead of tripping Resend's rate limit.
+ * - **Failure modes:** a malformed payload is dead-lettered at once
+ *   (`parseJobDataOrDeadLetter`). While Resend is down the queue pauses on every replica and
+ *   probes every five minutes, spending no attempt (`createProviderPausableWorker`); a Resend
+ *   throttle pauses it for the `Retry-After` instead; other send errors are retried via the
+ *   custom `mailBackoffStrategy`; final failures land in the per-source DLQ.
+ * - **Side effects:** see processor — talks to Postgres (`auth.mail_outbox`)
+ *   and Resend HTTP; logs `mail.worker.{stalled,completed}`.
+ * - **Notes:** returned `WorkerHandle` exposes `close()` so the worker bootstrap
+ *   can stop it cleanly on shutdown.
+ */
+export function createMailWorker(): WorkerHandle {
+  const worker = createProviderPausableWorker<MailJobData>({
+    queueName: MAIL_QUEUE_NAME,
+    provider: 'resend',
+    limiter: { max: env.RESEND_MAX_REQUESTS_PER_SECOND, duration: MILLISECONDS_PER_SECOND },
+    processor: async (job) => {
+      const jobData = await parseJobDataOrDeadLetter({
+        schema: mailJobDataSchema,
+        job,
+        queueName: MAIL_QUEUE_NAME,
+      });
+      const { requestId, traceparent, tracestate } = jobData;
+      return runWithPropagatedTraceContext({
+        carrier: { traceparent, tracestate },
+        spanName: job.name,
+        callback: () =>
+          processMailOutboxJob({
+            jobData,
+            options: omitUndefined({
+              jobId: job.id,
+              requestId,
+              jobAttemptNumber: job.attemptsMade,
+              maxJobAttempts: job.opts.attempts ?? MAIL_QUEUE_MAX_ATTEMPTS,
+            }),
+          }),
+      });
+    },
+    workerOptions: {
+      connection: getBullMQConnectionOptions(),
+      concurrency: getWorkerConcurrencyMail(),
+      ...getDefaultWorkerOptions(),
+      settings: {
+        backoffStrategy: mailBackoffStrategy,
+      },
+    },
+  });
+
+  worker.on('stalled', (jobId) => {
+    logger.warn({ jobId, queue: MAIL_QUEUE_NAME }, 'mail.worker.stalled');
+  });
+
+  worker.on('completed', (job) => {
+    logger.info({ jobId: job?.id }, 'mail.worker.completed');
+  });
+
+  return buildWorkerHandle({ worker, queueName: MAIL_QUEUE_NAME });
+}

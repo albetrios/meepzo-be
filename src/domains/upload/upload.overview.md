@@ -1,0 +1,106 @@
+`src/domains/upload/`
+
+# Upload
+
+## Purpose
+
+Two-phase S3-presigned upload + download flow. Clients request a presigned URL, upload directly to S3 (or any S3-compatible store), then call back to confirm the upload so the platform can persist the file metadata row. The domain works against AWS S3 in production and against any S3-compatible endpoint configured via env (`S3_*` variables) for development and self-hosting.
+
+What it owns:
+
+- The `uploads` table that records each file's S3 key, content-type, byte size, owner, and upload state.
+- The presigned-POST + presigned-GET URL issuance, with TTLs aligned to `PRESIGNED_URL_EXPIRY_SECONDS` (15 min by default).
+- The `POST /api/v1/uploads`, `GET /:publicId`, `POST /:publicId/confirm`, and `DELETE /:publicId` HTTP API.
+
+What it does not own: CDN caching policy (edge config), or content-type validation beyond the MIME-prefix allowlist on the presign call.
+
+**Known gap — no malware scanning.** Nothing scans uploaded files, here or outside the platform. Deferred by
+decision on 2026-10-06; revisit before organization files are opened to sensitive documents. Options weighed: a
+storage-agnostic scanner port with ClamAV on confirm (infected or unscanned files never served), or AWS GuardDuty
+Malware Protection for S3 (downloads gated on a clean tag). Details: `docs/deployment/runbooks/upload-storage.md`.
+
+## Key invariants
+
+- **Two-phase commit**: a create-upload request first **reserves** a `pending` row (atomically, see quota invariant) and only then mints the presigned URL; the confirm call validates the upload landed in S3 (HEAD) and transitions the row to `uploaded`. A row stuck in `pending` past its presign TTL is reconciled by the pending sweep (auto-confirmed, failed, or orphan-deleted).
+- **Magic-byte verification on confirm**: after HEAD, confirm reads the object's leading bytes and rejects mismatches against the declared `content_type` (closing the spoofed-content-type vector where S3 only echoes the client-declared type).
+- **Atomic per-user PENDING quota**: the pending-count check and the row insert run in one transaction guarded by a per-user `pg_advisory_xact_lock`, before any presigned URL is issued. This makes the quota race-free — concurrent requests cannot all pass the count check and then over-mint presigned slots. If presigning fails after the row is reserved, the row is left `pending` for the sweep worker to reclaim.
+- **Reservation RLS context matches the row** (sec-r7/M4): an organization-scoped upload reserves its `pending` row under `withAppDatabaseContext` with an organization scope (sets `app.current_organization_public_id`) so the `uploads_tenant_isolation` `WITH CHECK` is satisfied; a personal upload (`organization_id IS NULL`) reserves under `withAppDatabaseContext` with a user scope for `uploads_owner_access`. Reserving an organization row under user context is rejected by RLS as the production `meepzo_be_app` role (FORCE RLS) — verified in `src/tests/security/rls/upload-rls.security.test.ts`.
+- **Owner-scoped**: personal uploads (`organization_id IS NULL`) are owned by the presigning user. An organization upload belongs to the caller's **active** organization (the signed claim; another `organization_id` is a 403) and needs `upload:manage` there on create, get, confirm and delete — checked through `assertOrganizationPermission`, like every organization route, so API-key scopes and the organization's MFA requirement apply (the controller hands the service an `UploadPrincipal` whose `authorizeOrganization` does it). Former members cannot mutate organization assets via the user-owned upload routes.
+- **An upload belongs to the record it was first attached to (C-2):** a record write binds its keys
+  (`bound_resource`, `bound_public_id`) in one guarded `UPDATE` inside its own transaction, and refuses a
+  key bound to another record (400 on its field). A record's read links are signed only for the record a
+  key is bound to. Rows written before the binding existed were bound to the record holding their key
+  by `20261104043912_upload_record_binding_backfill.sql`; until its contract migration, a record the
+  previous release (v9.4.1) writes is bound by a trigger on the record's table
+  (`20261104043911_previous_release_write_compatibility.sql`). Bindable records are
+  `UPLOAD_BOUND_RECORD_TABLES` (`upload-bound-records.ts`).
+- **A purged record's files are tombstoned (G2-5):** the tombstone retention first soft-deletes the uploads
+  whose bound record no longer exists (a join-only `NOT EXISTS` on that record's table), then deletes the
+  objects of tombstoned rows as usual — so a file of a purged review goes at the next run.
+- **Public-id only at the API boundary**: clients never see the internal numeric id; URLs use the URL-safe public id.
+- **No server-side body proxying**: the API never sees the upload bytes — they go directly from client to S3. This is what makes the domain horizontally scalable.
+
+## Sub-domains
+
+`upload` is a flat domain — no `sub-domains/` folder. The single resource lives at the domain root. Per-symbol docs are in TSDoc on each export (use IDE hover or `pnpm tsdoc:check --report`).
+
+## Patterns used
+
+This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERNS.md):
+
+- `idempotency` — the presign + confirm endpoints accept `X-Idempotency-Key` so retries don't issue duplicate presigns or re-confirm a row.
+- `soft-delete` — upload rows tombstone with `deleted_at`; after the retention window a retention worker deletes the S3 object, and the row only once its object is gone.
+- `audit-emission` — confirm and delete record audit rows so file lifecycle is forensically traceable.
+
+## Cross-domain flows
+
+- **A record's stored file is shown (launch D86):** a record read that shows files calls
+  `UploadService.createReadUrls` with the page's keys — one read of the
+  organization's live, confirmed uploads among them, then a presigned GET per upload, valid
+  `PRESIGNED_URL_EXPIRY_SECONDS` and served inline under its `file_name`
+  (`content-disposition.util.ts`). The record decides who gets the links; a key that is no confirmed
+  upload of the organization gets none.
+
+- **A stored photo loses its location (launch D79):** a record that files a photo calls
+  `UploadService.removeImageLocation` — the organization's
+  confirmed JPEG / PNG is read, its EXIF GPS block and XMP removed
+  (`src/shared/utils/security/image-location.util.ts`) and written back under the same key, before
+  the photo is filed.
+
+- **A thumbnail next to a stored image (common):** `UploadService.createThumbnail`
+  reads an image under an opted-in purpose's `<prefix>/<organization public id>/` (the purpose's
+  `UPLOAD_PURPOSE_CONFIG.thumbnailTypes` — image types only; today `organization-file` opts in
+  JPEG, PNG and WebP) and writes a 320 px WebP (quality 80, EXIF orientation applied, metadata
+  stripped, never enlarged — `utils/upload-thumbnail.util.ts`, `sharp`) at
+  `<key without extension>.thumb.webp`; `deleteThumbnail` removes it; `createThumbnailReadUrls`
+  signs 15-minute links. A thumbnail is no upload row, so each call checks the key itself (the
+  organization's own prefix and the thumbnail suffix); none touches the database, so a worker
+  calls them between its database contexts. A missing or unreadable source is a `skipped` answer
+  (`UPLOAD_THUMBNAIL_SKIP_REASON_VALUES`, each final for the file), never an error. The decoder is
+  bounded before it decodes: from the header, a source over `UPLOAD_THUMBNAIL_MAX_INPUT_PIXELS`
+  (64 MP — a small PNG can claim gigapixels) or one that would decode to more than
+  `UPLOAD_THUMBNAIL_MAX_DECODED_BYTES` (192 MB, width × height × channels × bytes per sample — a
+  16-bit or alpha PNG takes more per pixel; a progressive JPEG counts its DCT coefficients, width ×
+  height × samples per pixel × 2, since it cannot shrink while it loads) is refused, and so is one
+  still running past
+  `UPLOAD_THUMBNAIL_TIMEOUT_SECONDS` (30 s); each is `source_unusable` (warn
+  `upload.thumbnail_source_refused` with the decoder's message). A worker that makes thumbnails sets the decoder up
+  once (`configureImageThumbnailDecoder`: no libvips cache, one thread).
+
+The upload domain is consumed by other domains rather than driving any flow itself. Notable consumers:
+
+- `user-data-export` (in [user/sub-domains/user-data-export/](src/domains/user/sub-domains/user-data-export/)) presigns the download URL for the GDPR export bundle.
+- Any future `attachments` feature on notifications or invitations would also flow through this domain.
+
+## External integrations
+
+- **S3 (or S3-compatible)** — production targets AWS S3 directly. `S3_ENDPOINT` is set for non-AWS providers (MinIO, R2, etc.). Requests use the AWS SDK v3 with SigV4.
+
+## Failure modes
+
+- **Confirm before upload landed** → S3 HEAD answers 404, a verdict on the object: the row is marked `failed` (422); the client creates a new upload.
+- **Confirm during an S3 outage** (timeout, throttling, open circuit) → error response; the row stays `pending`, so the client retries confirm — a storage failure is never a verdict on the upload.
+- **Pending object written again between verify and publish** (a second PUT through the still-valid presigned URL) → the ETag-pinned copy is refused: 409 `upload_changed_during_confirm`, the row stays `pending`, and confirming again verifies the new bytes. The pending sweep leaves such a row for its next pass.
+- **Confirm of a row that doesn't belong to the caller** → 404 (we deliberately don't reveal existence).
+- **Presign TTL exceeded** → S3 rejects the upload with a SignatureDoesNotMatch / ExpiredToken response; client must request a fresh presign.
+- **Delete after S3 outage** → DB row tombstones; the retention worker retries the S3 object delete on each pass and keeps the row until it succeeds.

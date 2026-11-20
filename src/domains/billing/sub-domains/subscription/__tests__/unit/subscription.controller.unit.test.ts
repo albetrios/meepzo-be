@@ -1,0 +1,224 @@
+import { describe, it, expect, vi } from 'vitest';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { createSubscriptionController } from '@/domains/billing/sub-domains/subscription/subscription.controller.js';
+import { ValidationError } from '@/shared/errors/index.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import { attachPrincipalScope } from '@/tests/helpers/principal-scope.helper.js';
+
+/** The active organization every fake request's token claims (no route carries one). */
+const ACTIVE_ORGANIZATION_PUBLIC_ID = generatePublicId('organization');
+function mockRequest(overrides: Partial<FastifyRequest> = {}): never {
+  return attachPrincipalScope({
+    auth: {
+      kind: 'user',
+      userId: generatePublicId('user'),
+      role: 'user',
+      organizationPublicId: ACTIVE_ORGANIZATION_PUBLIC_ID,
+    },
+    params: {},
+    body: {},
+    headers: {},
+    id: 'request-id',
+    ...overrides,
+  }) as never;
+}
+
+function mockReply(): FastifyReply {
+  const reply = { code: () => reply } as unknown as FastifyReply;
+  return reply;
+}
+
+describe('createSubscriptionController', () => {
+  const organizationPublicId = ACTIVE_ORGANIZATION_PUBLIC_ID;
+  const subscriptionPublicId = generatePublicId('subscription');
+  const service = {
+    list: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockResolvedValue({ public_id: subscriptionPublicId }),
+    create: vi.fn().mockResolvedValue({ public_id: subscriptionPublicId }),
+    update: vi.fn().mockResolvedValue({ public_id: subscriptionPublicId }),
+    changePlan: vi.fn().mockResolvedValue({ public_id: subscriptionPublicId }),
+    cancel: vi.fn().mockResolvedValue({ public_id: subscriptionPublicId }),
+    resume: vi.fn().mockResolvedValue({ public_id: subscriptionPublicId }),
+    listInvoices: vi.fn().mockResolvedValue({
+      items: [{ id: 'in_2' }],
+      total: null,
+      limit: 25,
+      has_more: true,
+      next_cursor: 'in_2',
+    }),
+  } as unknown as SubscriptionService;
+
+  const controller = createSubscriptionController(service);
+
+  it('listSubscriptions delegates to service', async () => {
+    const response = await controller.listSubscriptions(mockRequest({ params: {} }), mockReply());
+    expect(service.list).toHaveBeenCalledWith(expect.objectContaining({ organizationPublicId }));
+    expect(response).toMatchObject({ data: [] });
+  });
+
+  it('listInvoices maps the service page into a paginated envelope', async () => {
+    const response = await controller.listInvoices(
+      mockRequest({ params: {}, query: { limit: 25 } }),
+      mockReply(),
+    );
+    // The Stripe cursor + limit are validated in the service; the controller forwards request.query.
+    expect(service.listInvoices).toHaveBeenCalledWith({
+      scope: expect.objectContaining({ organizationPublicId }),
+      query: { limit: 25 },
+    });
+    expect(response).toMatchObject({
+      data: [{ id: 'in_2' }],
+      meta: { pagination: { per_page: 25, next: 'in_2', has_more: true } },
+    });
+  });
+
+  it('getSubscription delegates to service', async () => {
+    await controller.getSubscription(
+      mockRequest({
+        params: { subscription_id: subscriptionPublicId },
+      }),
+      mockReply(),
+    );
+    expect(service.get).toHaveBeenCalledWith({
+      scope: expect.objectContaining({ organizationPublicId }),
+      subscription_public_id: subscriptionPublicId,
+    });
+  });
+
+  it('createSubscription forwards the idempotency key to service.create', async () => {
+    await controller.createSubscription(
+      mockRequest({
+        params: {},
+        body: { plan_id: generatePublicId('plan'), billing_cycle: 'monthly' },
+        headers: { 'x-idempotency-key': 'idem-key-123456789012' }, // gitleaks:allow
+      }),
+      mockReply(),
+    );
+    // Money-path regression: the key must reach service.create — the service forwards it on to
+    // Stripe as the subscription-create idempotency key, so a dropped key lets a
+    // retry/double-click mint a second paid subscription.
+    const createCall = vi.mocked(service.create).mock.calls[0];
+    expect(createCall?.[0]).toMatchObject({
+      scope: { organizationPublicId },
+      idempotencyKey: 'idem-key-123456789012', // gitleaks:allow
+    });
+  });
+
+  it('changePlan passes idempotency key to service', async () => {
+    await controller.changePlan(
+      mockRequest({
+        params: { subscription_id: subscriptionPublicId },
+        body: { plan_id: generatePublicId('plan') },
+        headers: { 'x-idempotency-key': 'idem-key-123456789012' }, // gitleaks:allow
+      }),
+      mockReply(),
+    );
+    expect(service.changePlan).toHaveBeenCalledWith({
+      scope: expect.objectContaining({ organizationPublicId }),
+      subscription_public_id: subscriptionPublicId,
+      body: expect.anything(),
+      idempotencyKey: 'idem-key-123456789012', // gitleaks:allow
+    });
+  });
+
+  it('cancelSubscription passes idempotency key to service', async () => {
+    await controller.cancelSubscription(
+      mockRequest({
+        params: { subscription_id: subscriptionPublicId },
+        headers: { 'x-idempotency-key': 'idem-key-123456789012' }, // gitleaks:allow
+      }),
+      mockReply(),
+    );
+    expect(service.cancel).toHaveBeenCalledWith({
+      scope: expect.objectContaining({ organizationPublicId }),
+      subscription_public_id: subscriptionPublicId,
+      idempotencyKey: 'idem-key-123456789012', // gitleaks:allow
+    });
+  });
+
+  it('resumeSubscription passes idempotency key to service', async () => {
+    await controller.resumeSubscription(
+      mockRequest({
+        params: { subscription_id: subscriptionPublicId },
+        headers: { 'x-idempotency-key': 'idem-key-123456789012' }, // gitleaks:allow
+      }),
+      mockReply(),
+    );
+    expect(service.resume).toHaveBeenCalledWith({
+      scope: expect.objectContaining({ organizationPublicId }),
+      subscription_public_id: subscriptionPublicId,
+      idempotencyKey: 'idem-key-123456789012', // gitleaks:allow
+    });
+  });
+
+  // sec-B10: every handler validated `id` but threaded `subscriptionId` raw.
+  // Not an IDOR (the service uses exact-match WHERE), but attacker-controlled
+  // free-form input would otherwise flow into Sentry breadcrumbs / log payloads
+  // / metric labels — a small cardinality + content-exfiltration foot-gun that
+  // accumulates over time. Each mutating handler must refuse a malformed
+  // `subscriptionId` at the boundary, well before it can reach observability.
+  describe('subscriptionId path-param validation (sec-B10)', () => {
+    const malformedSubscriptionId = '‮"><script>alert(1)</script>';
+
+    it.each([
+      [
+        'getSubscription',
+        async () => {
+          await controller.getSubscription(
+            mockRequest({
+              params: {
+                subscription_id: malformedSubscriptionId,
+              },
+            }),
+            mockReply(),
+          );
+        },
+      ],
+      [
+        'changePlan',
+        async () => {
+          await controller.changePlan(
+            mockRequest({
+              params: {
+                subscription_id: malformedSubscriptionId,
+              },
+              headers: { 'x-idempotency-key': 'idem-key-123456789012' }, // gitleaks:allow
+            }),
+            mockReply(),
+          );
+        },
+      ],
+      [
+        'cancelSubscription',
+        async () => {
+          await controller.cancelSubscription(
+            mockRequest({
+              params: {
+                subscription_id: malformedSubscriptionId,
+              },
+              headers: { 'x-idempotency-key': 'idem-key-123456789012' }, // gitleaks:allow
+            }),
+            mockReply(),
+          );
+        },
+      ],
+      [
+        'resumeSubscription',
+        async () => {
+          await controller.resumeSubscription(
+            mockRequest({
+              params: {
+                subscription_id: malformedSubscriptionId,
+              },
+              headers: { 'x-idempotency-key': 'idem-key-123456789012' }, // gitleaks:allow
+            }),
+            mockReply(),
+          );
+        },
+      ],
+    ])('refuses a malformed subscriptionId in %s', async (_name, invoke) => {
+      await expect(invoke()).rejects.toBeInstanceOf(ValidationError);
+    });
+  });
+});

@@ -1,0 +1,97 @@
+import { randomUUID } from 'node:crypto';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type Stripe from 'stripe';
+import type * as StripeClientModule from '@/infrastructure/payment/stripe.client.js';
+
+const retrieveStripeEventMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/infrastructure/payment/stripe.client.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof StripeClientModule>();
+  return {
+    ...actual,
+    retrieveStripeEvent: (...arguments_: unknown[]) => retrieveStripeEventMock(...arguments_),
+  };
+});
+
+import { processStripeWebhookJob } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook.processor.js';
+import { StripeWebhookService } from '@/domains/billing/sub-domains/stripe-webhook/stripe-webhook.service.js';
+import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
+import { StripeWebhookEventRepository } from '@/domains/billing/sub-domains/stripe-webhook/stripe-webhook-event.repository.js';
+import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import { StripeWebhookRetryLaterError } from '@/domains/billing/sub-domains/stripe-webhook/stripe-webhook.types.js';
+import { sql } from 'drizzle-orm';
+import { database } from '@/infrastructure/database/connection.js';
+
+/** Rows of a `database.execute()` result. */
+function rowsOf<T>(result: unknown): T[] {
+  return Array.isArray(result) ? (result as T[]) : ((result as { rows?: T[] }).rows ?? []);
+}
+
+const PARALLEL_WORKER_COUNT = 10;
+
+describe('Integration: stripe-webhook worker concurrency race', () => {
+  beforeEach(async () => {
+    await cleanupDatabase();
+    retrieveStripeEventMock.mockReset();
+  });
+
+  it('records one processed Stripe ledger row; competing executions only defer for its lease', async () => {
+    const stripeEventId = `evt_race_${randomUUID()}`;
+    const eventPayload = {
+      id: stripeEventId,
+      type: 'account.updated',
+      created: Math.floor(Date.now() / 1000),
+      data: { object: {} },
+    } as Stripe.Event;
+
+    retrieveStripeEventMock.mockResolvedValue(eventPayload);
+
+    const stripeWebhookService = new StripeWebhookService(
+      {
+        syncFromStripeProviderSubscription: vi.fn(),
+        markCanceledByStripeProviderSubscriptionId: vi.fn(),
+        emitSubscriptionEvent: vi.fn().mockResolvedValue(undefined),
+        findStripeSubscriptionPublicState: vi.fn().mockResolvedValue(null),
+        logEntitlementLossAfterCommit: vi.fn().mockResolvedValue(undefined),
+      } as unknown as SubscriptionService,
+      new StripeWebhookEventRepository(),
+      // sec-B7: race test fires `account.updated` (not subscription.updated)
+      // so the plan-id resolver is never reached. Stub for type safety only.
+      { findByStripePriceId: vi.fn() } as never,
+    );
+
+    const results = await Promise.allSettled(
+      Array.from({ length: PARALLEL_WORKER_COUNT }, (_, index) =>
+        processStripeWebhookJob({
+          jobData: { stripeEventId, requestId: `req-race-${String(index)}` },
+          stripeWebhookService,
+          jobId: `job-race-${String(index)}`,
+        }),
+      ),
+    );
+
+    expect(results.some((result) => result.status === 'fulfilled')).toBe(true);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        expect(result.reason).toBeInstanceOf(StripeWebhookRetryLaterError);
+      }
+    }
+    // Once the winning execution completes, duplicate executions must finish without error.
+    await processStripeWebhookJob({
+      jobData: { stripeEventId },
+      stripeWebhookService,
+      jobId: 'job-after-race',
+    });
+
+    const processedCountRows = rowsOf<{ count: string }>(
+      await database.execute(sql`
+      SELECT COUNT(*)::text AS count
+      FROM billing.stripe_webhook_events
+      WHERE stripe_event_id = ${stripeEventId}
+        AND processing_status = 'processed'
+    `),
+    );
+
+    expect(Number(processedCountRows[0]?.count ?? 0)).toBe(1);
+  });
+});

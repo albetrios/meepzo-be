@@ -1,0 +1,12 @@
+---
+description: Auto-triggers be-dependency-security skill when dependencies, the lockfile, or the pinned agent-tool versions change.
+globs: package.json, pnpm-lock.yaml, tooling/setup/agent/tool-versions.sh
+alwaysApply: false
+---
+
+When any matching file is created or modified, read and follow the be-dependency-security skill:
+- Skill file: `agent-os/skills/be-dependency-security/SKILL.md`
+- Ensure zero vulnerabilities: run `pnpm audit` (CI fails on any finding)
+- Prefer safe updates (patch/minor); use `pnpm.overrides` for transitive vulns before major upgrades
+- After dependency changes: run `pnpm validate` and `pnpm test` before committing
+- `tooling/setup/agent/tool-versions.sh` (agent tool pins): paste the lines `pnpm tool:agent-tools --outdated` prints (version + checksums), then `bash tooling/setup/agent/install-<tool>.sh` and `pnpm tool:agent-tools --smoke` — see the skill's "Agent tool pins" section

@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "be-codegraph": {
+      "type": "stdio",
+      "command": "codegraph",
+      "args": [
+        "serve",
+        "--mcp"
+      ]
+    },
+    "be-headroom": {
+      "type": "stdio",
+      "command": "headroom",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}

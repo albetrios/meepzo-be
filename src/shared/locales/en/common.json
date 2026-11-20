@@ -1,0 +1,8 @@
+{
+  "notifications": {
+    "invitationAcceptedTitle": "Invitation accepted",
+    "invitationAcceptedMessage": "{{inviteeName}} accepted your invitation to join {{organizationName}}.",
+    "invitationDeclinedTitle": "Invitation declined",
+    "invitationDeclinedMessage": "{{inviteeName}} declined your invitation to join {{organizationName}}."
+  }
+}

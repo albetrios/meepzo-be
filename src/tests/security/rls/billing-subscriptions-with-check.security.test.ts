@@ -1,0 +1,173 @@
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import {
+  MAINTENANCE_SCOPE,
+  withMaintenanceDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
+import { sql as drizzleSql } from 'drizzle-orm';
+import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import {
+  grantMeepzoBeAppRoleForTests,
+  executeAsMeepzoBeAppTenant,
+  seedRlsMatrixFixtures,
+  tableKey,
+  type RlsTenantFixture,
+} from '@/tests/helpers/rls-matrix.helper.js';
+import { database } from '@/infrastructure/database/connection.js';
+
+/** Rows of a `database.execute()` result. */
+function rowsOf<T>(result: unknown): T[] {
+  return Array.isArray(result) ? (result as T[]) : ((result as { rows?: T[] }).rows ?? []);
+}
+
+/**
+ * audit #41: the `subscriptions_tenant_isolation` policy now declares an explicit
+ * WITH CHECK pinned to the active-organization GUC, while its USING arm keeps the
+ * `app.global_retention_cleanup` bypass. Two halves to prove:
+ *
+ *   1. Tenant context (organization B): reassigning a visible organization-B subscription to organization A
+ *      is rejected — the standard write-confinement backstop.
+ *   2. Retention context (`global_retention_cleanup='true'`, no organization GUC): a write
+ *      that sets a foreign `organization_id` is rejected by WITH CHECK. Before
+ *      this migration the implicit WITH CHECK reused USING (which carries the
+ *      retention bypass), so a retention-context process could have written a
+ *      subscription row under an arbitrary tenant. The USING bypass still permits
+ *      a retention DELETE (positive control), proving only the write side was
+ *      tightened.
+ */
+async function resolveOrganizationInternalId(organizationPublicId: string): Promise<number> {
+  const rows = rowsOf<{ id: number }>(
+    await database.execute(drizzleSql`
+    SELECT id FROM tenancy.organizations WHERE public_id = ${organizationPublicId}
+  `),
+  );
+  return Number(rows[0]!.id);
+}
+
+/**
+ * Walks the drizzle -> postgres error `cause` chain so the underlying
+ * "new row violates row-level security policy" message is visible.
+ */
+function flattenErrorChain(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current != null; depth += 1) {
+    const message = (current as { message?: unknown }).message;
+    parts.push(typeof message === 'string' ? message : String(current));
+    current = (current as { cause?: unknown }).cause;
+  }
+  return parts.join(' | ');
+}
+
+describe('Security: subscriptions RLS WITH CHECK confines cross-organization writes', () => {
+  let fixture: RlsTenantFixture;
+  let organizationAInternalId: number;
+  let organizationBInternalId: number;
+
+  beforeAll(async () => {
+    await grantMeepzoBeAppRoleForTests();
+  });
+
+  beforeEach(async () => {
+    await cleanupDatabase();
+    fixture = await seedRlsMatrixFixtures();
+    organizationAInternalId = await resolveOrganizationInternalId(fixture.organizationAPublicId);
+    organizationBInternalId = await resolveOrganizationInternalId(fixture.organizationBPublicId);
+  });
+
+  it('rejects reassigning an organization-B subscription to organization A under the organization-B tenant context', async () => {
+    const rowIds = fixture.rowIdsByTable.get(
+      tableKey({ schemaName: 'billing', tableName: 'subscriptions' }),
+    );
+    expect(rowIds, 'fixture seeds a subscriptions row for both orgs').toBeDefined();
+
+    let caught: unknown;
+    try {
+      await executeAsMeepzoBeAppTenant(fixture.organizationBPublicId, async (transaction) => {
+        await transaction.execute(
+          drizzleSql.raw(
+            `UPDATE "billing"."subscriptions" SET organization_id = ${organizationAInternalId} WHERE id = ${rowIds!.organizationB} RETURNING id`,
+          ),
+        );
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(
+      caught,
+      'expected RLS to reject reassigning a subscription to a foreign org',
+    ).toBeDefined();
+    expect(flattenErrorChain(caught)).toMatch(/row-level security/i);
+  });
+
+  it('rejects a retention-context write that sets a foreign organization_id (explicit WITH CHECK)', async () => {
+    const rowIds = fixture.rowIdsByTable.get(
+      tableKey({ schemaName: 'billing', tableName: 'subscriptions' }),
+    )!;
+
+    let caught: unknown;
+    try {
+      await withMaintenanceDatabaseContext({
+        scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+        callback: async (databaseHandle) =>
+          databaseHandle.execute(
+            drizzleSql.raw(
+              `UPDATE "billing"."subscriptions" SET organization_id = ${organizationAInternalId} WHERE id = ${rowIds.organizationB} RETURNING id`,
+            ),
+          ),
+        options: { useMaintenanceDatabaseRole: true },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(
+      caught,
+      'expected explicit WITH CHECK to reject a retention-context cross-organization write',
+    ).toBeDefined();
+    expect(flattenErrorChain(caught)).toMatch(/row-level security/i);
+  });
+
+  it('still allows a retention-context DELETE via the USING bypass (positive control)', async () => {
+    const rowIds = fixture.rowIdsByTable.get(
+      tableKey({ schemaName: 'billing', tableName: 'subscriptions' }),
+    )!;
+
+    const deletedCount = await withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+      callback: async (databaseHandle) => {
+        const result = await databaseHandle.execute(
+          drizzleSql.raw(
+            `DELETE FROM "billing"."subscriptions" WHERE id = ${rowIds.organizationB} RETURNING id`,
+          ),
+        );
+        const rows = Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? []);
+        return rows.length;
+      },
+      options: { useMaintenanceDatabaseRole: true },
+    });
+
+    expect(deletedCount).toBe(1);
+  });
+
+  it('allows a same-organization reassignment under the matching tenant context (positive control)', async () => {
+    const rowIds = fixture.rowIdsByTable.get(
+      tableKey({ schemaName: 'billing', tableName: 'subscriptions' }),
+    )!;
+
+    const affected = await executeAsMeepzoBeAppTenant(
+      fixture.organizationBPublicId,
+      async (transaction) => {
+        const result = await transaction.execute(
+          drizzleSql.raw(
+            `UPDATE "billing"."subscriptions" SET organization_id = ${organizationBInternalId} WHERE id = ${rowIds.organizationB} RETURNING id`,
+          ),
+        );
+        const rows = Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? []);
+        return rows.length;
+      },
+    );
+
+    expect(affected).toBe(1);
+  });
+});

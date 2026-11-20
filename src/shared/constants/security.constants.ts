@@ -1,0 +1,131 @@
+/** Authentication lockout, credential limits, and related security thresholds. */
+
+/**
+ * AES-256-GCM IV length in bytes — the recommended 96-bit nonce for GCM mode
+ * (`crypto.createCipheriv('aes-256-gcm', key, iv)`). Used by both the generic
+ * `encryptPayload`/`decryptPayload` helpers and the versioned field-secret
+ * encryption utility; centralized so the value is a single source of truth.
+ */
+export const AES_GCM_IV_LENGTH = 12;
+
+/** AES-256-GCM cipher identifier passed to Node `crypto.createCipheriv` / `createDecipheriv`. */
+export const AES_GCM_ALGORITHM = 'aes-256-gcm';
+
+/** Failed login attempts before the account is temporarily locked. */
+export const MAX_FAILED_LOGIN_ATTEMPTS = 10;
+
+/**
+ * Cloudflare's published Turnstile **test** secrets
+ * (developers.cloudflare.com/turnstile/troubleshooting/testing): `1x…AA` always passes, `2x…AA`
+ * always fails, `3x…AA` reports the token as already spent.
+ *
+ * @remarks
+ * A test-secret result always names the solving hostname `example.com`, whatever page solved it,
+ * so the verifier's hostname pin is skipped for these secrets (every token passes regardless); the
+ * production env refine refuses them, so a deployed backend always pins and never runs on a secret
+ * that passes every token.
+ */
+export const TURNSTILE_TEST_SECRET_PATTERN = /^[123]x0{31}AA$/;
+
+/** Cloudflare's always-pass Turnstile test secret — local CAPTCHA (`pnpm setup:local --with-captcha`). */
+export const TURNSTILE_ALWAYS_PASS_TEST_SECRET = '1x0000000000000000000000000000000AA';
+
+/**
+ * Maximum active (non-revoked) auth-method rows a single user may hold.
+ *
+ * @remarks
+ * `POST /auth/me/auth-methods` only ever inserts credential-less `EMAIL_CODE` rows, so the risk is
+ * benign self-bloat (a user accumulating rows that also truncate their own capped list view) rather
+ * than a credential issue. This ceiling — enforced under the credential-mutation advisory lock so
+ * concurrent creates cannot overshoot — bounds that growth well above any legitimate need.
+ */
+export const MAX_LINKED_AUTH_METHODS_PER_USER = 20;
+
+/**
+ * Maximum active (non-revoked) WebAuthn passkeys a single user may register.
+ *
+ * @remarks
+ * Each registration already requires an authenticated session, a recent step-up, and a real
+ * authenticator completing a cryptographic ceremony, so abuse potential is low; this cap simply
+ * bounds unbounded accumulation. Enforced under the credential-mutation advisory lock.
+ */
+export const MAX_WEBAUTHN_CREDENTIALS_PER_USER = 20;
+
+/** Account lockout duration after max failed login attempts (minutes). */
+export const ACCOUNT_LOCKOUT_MINUTES = 30;
+
+/**
+ * Password step-up attempts (`POST /auth/step-up` with a password) one user may make in a
+ * {@link PASSWORD_STEP_UP_ATTEMPT_WINDOW_SECONDS} window.
+ *
+ * @remarks
+ * A-3 — the step-up re-verifies the password of a caller who already holds a session, so without
+ * a budget a stolen session is an unlimited online password oracle. Each wrong password also
+ * counts toward {@link MAX_FAILED_LOGIN_ATTEMPTS}, and the session that spends the budget is
+ * revoked.
+ */
+export const MAX_PASSWORD_STEP_UP_ATTEMPTS = 5;
+
+/** Fixed window of the per-user password step-up budget ({@link MAX_PASSWORD_STEP_UP_ATTEMPTS}). */
+export const PASSWORD_STEP_UP_ATTEMPT_WINDOW_SECONDS = 15 * 60;
+
+/**
+ * How long a second factor enrolled under an email-code step-up window stays provisional (72 h).
+ *
+ * @remarks
+ * A-1 — brief access to the mailbox of a passwordless account opens an email-code step-up, which
+ * can enroll a factor. Until this period has passed — and never on the session that enrolled it —
+ * an MFA step-up with that factor opens only a weak window, so it cannot revoke the owner's
+ * sessions or remove their credentials; the owner is emailed about the enrollment meanwhile.
+ */
+export const PROVISIONAL_FACTOR_PERIOD_SECONDS = 72 * 60 * 60;
+
+/**
+ * Maximum concurrent active (non-revoked, non-expired) sessions per user.
+ *
+ * @remarks
+ * Each successful login mints a new session row. Without a ceiling a single account (or a holder of
+ * valid credentials) could mint unbounded sessions — table bloat plus a wide stolen-credential blast
+ * radius. On login the oldest sessions beyond this cap are evicted (revoked) rather than rejecting
+ * the login, so a legitimate multi-device user is never locked out — only their stalest session is
+ * dropped. Set generously so no normal user is affected; tune down for higher-assurance deployments.
+ */
+export const MAX_ACTIVE_SESSIONS_PER_USER = 30;
+
+/**
+ * Failed MFA verification attempts (TOTP or recovery code) per user before MFA
+ * verification is temporarily locked (audit-#12).
+ *
+ * @remarks
+ * The `/auth/me/mfa/verify` step-up and `/auth/mfa/login` second factor were gated only by
+ * a per-user rate limit with no account-level lockout, unlike the password path. With a
+ * stolen-but-valid bearer token an attacker could keep guessing TOTP codes indefinitely.
+ * This per-user counter mirrors {@link MAX_FAILED_LOGIN_ATTEMPTS} and locks verification
+ * for {@link MFA_VERIFICATION_LOCKOUT_TTL_SECONDS} after the threshold.
+ */
+export const MAX_MFA_VERIFICATION_ATTEMPTS = 10;
+
+/** Failed login attempts from a single IP after which every login from it gets 429 for the rest of the window. */
+export const IP_FAILED_LOGIN_THRESHOLD = 50;
+
+/** Window of the per-IP failed-login counter (seconds), fixed from the IP's first failure. */
+export const IP_FAILED_LOGIN_WINDOW_SECONDS = 15 * 60;
+
+/**
+ * How many leading bits of an IPv6 address one rate-limit bucket covers: a /64, the smallest
+ * allocation an ISP hands a single customer site (D-3 — see `rateLimitIpKey`).
+ */
+export const RATE_LIMIT_IPV6_SUBNET_PREFIX_LENGTH = 64;
+
+/**
+ * Grace window (ms) during which the refresh compare-and-swap also accepts the immediately-previous
+ * refresh hash (audit-#2).
+ *
+ * @remarks
+ * Two concurrent legitimate refreshes presenting the same cookie can race: one rotates the stored
+ * hash and the loser would otherwise observe a different hash and be misclassified as stolen-token
+ * reuse — revoking the user's whole session family. Accepting the just-rotated previous hash for a
+ * few seconds lets the concurrent duplicate succeed; a replay AFTER this window still falls through
+ * to reuse detection / family revocation. Kept short to bound the relaxation of reuse detection.
+ */
+export const REFRESH_TOKEN_REUSE_GRACE_MS = 10_000;

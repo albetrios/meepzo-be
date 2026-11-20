@@ -1,0 +1,114 @@
+# Local development: Postgres + Redis. Optional profile `smoke` runs API container (see docs/deployment/docker-images.md).
+# Pinned by tag and digest (H-12): a tag can be re-pointed at other bytes; the digest cannot. Bump
+# both together (`docker buildx imagetools inspect <image>:<tag>` prints the digest).
+# Every port is published on 127.0.0.1 only (H-8): published on every interface, the Postgres and
+# Redis below — fixed passwords, no Redis password — answered anyone on the same network.
+# Containers on this compose network keep reaching each other by service name.
+services:
+  postgres:
+    image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: unless-stopped
+    container_name: meepzo-be-postgres
+    command: postgres -c max_connections=500 -c shared_buffers=256MB -c work_mem=8MB -c effective_cache_size=1GB -c maintenance_work_mem=64MB
+    mem_limit: 2g
+    shm_size: 512m
+    environment:
+      POSTGRES_USER: meepzo
+      POSTGRES_PASSWORD: meepzo
+      POSTGRES_DB: meepzo
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - meepzo_be_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U meepzo -d meepzo']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.6.3-alpine@sha256:d146f83b1e0f02fc27c26a50cee39338c736674c5959db84363e6ae3cd9e02d2
+    restart: unless-stopped
+    container_name: meepzo-be-redis
+    ports:
+      - '127.0.0.1:6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api-smoke:
+    profiles: ['smoke']
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+      args:
+        GENERATE_MCP_DOCS: 'true'
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # NODE_ENV is only development | production. This local smoke stack runs as `development`;
+      # the boot-time safety checks default hardened, so relax them for the compose Postgres/Redis
+      # (plaintext, single replica, no reverse proxy).
+      NODE_ENV: development
+      # The compose Postgres is plaintext: no TLS on the connection, no TLS boot check.
+      DATABASE_SSL_ENABLED: 'false'
+      DATABASE_TLS_ENFORCED: 'false'
+      DATABASE_RLS_SAFETY_ENFORCED: 'false'
+      DATABASE_CONNECTION_BUDGET_ENFORCED: 'false'
+      REDIS_TLS_ENFORCED: 'false'
+      TRUST_PROXY_REQUIRED: 'false'
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://meepzo:meepzo@postgres:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@postgres:5432/meepzo
+      REDIS_URL: redis://redis:6379
+      # JWT_PRIVATE_KEY / JWT_PUBLIC_KEY come from the entrypoint below: the boot parses the RS256
+      # pair (assertJwtKeyMaterial), so a placeholder string cannot start the API.
+      # Required in every runtime by the env schema; a fixed all-zero test key is fine for smoke.
+      SECRETS_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      ALLOWED_ORIGINS: http://localhost:3000
+      AUDIT_RETENTION_DAYS: 90
+      AUTH_SESSION_RETENTION_DAYS: 30
+      # Disable metrics for smoke so a METRICS_SCRAPE_TOKEN is not required at boot.
+      METRICS_ENABLED: 'false'
+      LOG_LEVEL: info
+    # Mint a throwaway RS256 pair at start-up (no key is committed), then run the image's command.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        node -e "const { generateKeyPairSync } = require('node:crypto'); const fs = require('node:fs'); const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 }); fs.writeFileSync('/tmp/jwt-private.pem', privateKey.export({ type: 'pkcs8', format: 'pem' })); fs.writeFileSync('/tmp/jwt-public.pem', publicKey.export({ type: 'spki', format: 'pem' }));"
+        export JWT_PRIVATE_KEY="$$(cat /tmp/jwt-private.pem)" JWT_PUBLIC_KEY="$$(cat /tmp/jwt-public.pem)"
+        exec node dist/src/server.js
+
+  toxiproxy:
+    # Built locally from the official release binary (see tooling/chaos/toxiproxy.Dockerfile):
+    # the ghcr.io/shopify/toxiproxy blob CDN (pkg-containers.githubusercontent.com) is
+    # unreachable from some restricted dev networks, while github.com release assets are.
+    # CI provisions Toxiproxy via a GitHub Actions service container, not this compose service.
+    build:
+      context: ./tooling/chaos
+      dockerfile: toxiproxy.Dockerfile
+    image: meepzo-be-toxiproxy:2.12.0
+    container_name: meepzo-be-toxiproxy
+    profiles: ['chaos']
+    ports:
+      - '127.0.0.1:8474:8474'
+      - '127.0.0.1:25432:25432'
+      - '127.0.0.1:26379:26379'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  meepzo_be_postgres_data:

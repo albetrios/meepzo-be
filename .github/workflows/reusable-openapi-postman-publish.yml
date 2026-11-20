@@ -1,0 +1,96 @@
+name: Reusable — generate API docs
+
+on:
+  workflow_call:
+    inputs:
+      merge_commit_sha:
+        description: Commit SHA on the target branch after merge
+        required: true
+        type: string
+      target_branch:
+        description: Protected branch that received the merge (main)
+        required: true
+        type: string
+      github_environment:
+        description: GitHub Environment for Postman/Scalar secrets (development, production)
+        required: true
+        type: string
+      publish_hosted_docs:
+        description: Upload Postman collection and Scalar Registry after generation
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      POSTMAN_API_KEY:
+        required: false
+      POSTMAN_WORKSPACE_ID:
+        required: false
+      SCALAR_API_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      merge_commit_sha:
+        description: Commit SHA to generate docs from
+        required: false
+        type: string
+        default: ''
+      target_branch:
+        description: Branch context (main)
+        required: true
+        type: choice
+        options:
+          - main
+      github_environment:
+        description: GitHub Environment for Postman/Scalar secrets
+        required: true
+        type: choice
+        options:
+          - development
+          - production
+      publish_hosted_docs:
+        description: Upload Postman collection and Scalar Registry
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+jobs:
+  run:
+    name: Generate + publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.github_environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.merge_commit_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Export shared CI test env
+        uses: ./.github/actions/test-env
+
+      # The same two steps a production release runs (release-deploy.yml), where the deploy job
+      # publishes after the approved deploy is live.
+      - name: Generate API docs
+        uses: ./.github/actions/generate-api-docs
+        with:
+          artifact-name: api-docs-${{ inputs.github_environment }}
+
+      - name: Upload API docs (Postman + Scalar Registry)
+        if: inputs.publish_hosted_docs
+        uses: ./.github/actions/upload-api-docs
+        with:
+          postman-api-key: ${{ secrets.POSTMAN_API_KEY }}
+          postman-workspace-id: ${{ secrets.POSTMAN_WORKSPACE_ID }}
+          scalar-api-key: ${{ secrets.SCALAR_API_KEY }}
+          scalar-namespace: ${{ vars.SCALAR_NAMESPACE }}
+          scalar-slug: ${{ vars.SCALAR_SLUG }}

@@ -1,0 +1,1233 @@
+import { randomUUID } from 'node:crypto';
+import type { ObjectStoragePort } from '@/infrastructure/storage/object-storage.port.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { removeImageLocation } from '@/shared/utils/security/image-location.util.js';
+import { getEnv } from '@/shared/config/env.config.js';
+import {
+  ConfigurationError,
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '@/shared/errors/index.js';
+import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
+import type { UserService } from '@/domains/user/user.service.js';
+import {
+  UPLOAD_PURPOSE_CONFIG,
+  UPLOAD_PURPOSE_REQUIRED_TARGET,
+  UPLOAD_PURPOSES,
+  type UploadPurposeConfig,
+  PRESIGNED_URL_EXPIRY_SECONDS,
+  UPLOAD_OFFBOARDING_DELETE_BATCH_SIZE,
+  UPLOAD_OFFBOARDING_DELETE_CONCURRENCY,
+  UPLOAD_STATUS,
+  UPLOAD_TARGETS,
+  buildOrganizationLogoKeyPrefix,
+  buildPendingObjectKey,
+  buildUserAvatarKeyPrefix,
+  stripPendingObjectKeyPrefix,
+  type UploadThumbnailSkipReason,
+} from './upload.constants.js';
+import { getCanonicalExtensionForContentType } from './utils/upload-content-type.util.js';
+import { isSvgContentType, sanitizeSvgBuffer } from './utils/upload-svg.util.js';
+import {
+  buildThumbnailObjectKey,
+  createImageThumbnail,
+  UPLOAD_THUMBNAIL_CONTENT_TYPE,
+  UPLOAD_THUMBNAIL_KEY_SUFFIX,
+  UploadThumbnailSourceError,
+} from './utils/upload-thumbnail.util.js';
+import {
+  isMagicByteVerifiable,
+  MAGIC_BYTE_PREFIX_LENGTH,
+  verifyFileMagicBytes,
+} from '@/shared/utils/validation/file-magic.util.js';
+import type {
+  CreateUploadInput,
+  UploadCreateOutput,
+  UploadDetailOutput,
+  UploadPrincipal,
+} from './upload.types.js';
+import type { UploadRepository, UploadRow } from './upload.repository.js';
+import { serializeUploadCreate, serializeUploadDetail } from './upload.serializer.js';
+import { validateUploadPublicIdParam } from './upload.validator.js';
+import {
+  MAINTENANCE_SCOPE,
+  type OrganizationPrincipalDatabaseScope,
+  PRINCIPAL_SCOPE,
+  withAppDatabaseContext,
+  withMaintenanceDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
+
+/** A record an upload key is bound to — its kind and public id. */
+interface UploadRecordOwner {
+  resource: string;
+  publicId: string;
+}
+
+/** A link to sign: the upload's key and the record that must own it (C-2). */
+interface UploadRecordBinding extends UploadRecordOwner {
+  fileKey: string;
+}
+
+/**
+ * An upload together with the principal scope under which row-level security showed it.
+ *
+ * @remarks
+ * `upload.uploads` splits across two disjoint RLS arms — a user-owned arm (`organization_id IS
+ * NULL`) and a tenant arm (one organization) — so whichever scope FOUND a row is the only one
+ * that can also UPDATE it. Every write that follows a read must reuse this scope; a write under
+ * the other arm matches zero rows and surfaces as a 404 on a row that plainly exists.
+ */
+type LoadedUpload = {
+  row: UploadRow;
+  scope: ReturnType<typeof PRINCIPAL_SCOPE.VERIFIED>;
+};
+
+/** Inputs for {@link UploadService}'s private atomic PENDING-slot reservation. */
+interface ReservePendingUploadSlotParams {
+  userInternalId: number;
+  userPublicId: string;
+  organizationInternalId: number | null;
+  organizationPublicId: string | null;
+  fileName: string;
+  fileKey: string;
+  contentType: string;
+  fileSize: number;
+  bucket: string;
+}
+
+/** Whether a key is a thumbnail {@link UploadService.createThumbnail} writes. */
+function isThumbnailObjectKey(key: string): boolean {
+  return key.endsWith(UPLOAD_THUMBNAIL_KEY_SUFFIX);
+}
+
+/**
+ * The organization-target purpose that opts in to thumbnails and whose
+ * `<prefix>/<organization public id>/` holds `fileKey` — null for any other key (another
+ * organization's, a user's, a purpose without thumbnails, a path that climbs out).
+ */
+function organizationThumbnailPurpose(options: {
+  organizationPublicId: string;
+  fileKey: string;
+}): UploadPurposeConfig | null {
+  if (options.organizationPublicId === '' || options.fileKey.includes('..')) return null;
+  for (const purpose of Object.values(UPLOAD_PURPOSES)) {
+    const config = UPLOAD_PURPOSE_CONFIG[purpose];
+    if (UPLOAD_PURPOSE_REQUIRED_TARGET[purpose] !== UPLOAD_TARGETS.ORGANIZATION) continue;
+    if (config.thumbnailTypes.length === 0) continue;
+    const prefix = `${config.keyPrefix}/${options.organizationPublicId}/`;
+    if (options.fileKey.startsWith(prefix) && options.fileKey.length > prefix.length) {
+      return config;
+    }
+  }
+  return null;
+}
+
+/**
+ * Owns the upload lifecycle behind the public upload routes and the
+ * cross-domain offboarding hooks.
+ *
+ * @remarks
+ * - **Algorithm:** {@link UploadService.createUpload} resolves owner/organization
+ *   context, computes the S3 key from {@link UPLOAD_PURPOSE_CONFIG} + a canonical
+ *   extension, then atomically reserves the PENDING row inside
+ *   {@link withAppDatabaseContext (user scope)} (a per-user advisory lock guards the
+ *   pending-count check + insert in one transaction so the quota holds under
+ *   concurrency and the owner-access RLS policy authorizes the write) and only
+ *   AFTER the slot is committed requests a presigned URL (PUT or POST per
+ *   `UPLOAD_USE_PRESIGNED_POST`) from the storage adapter — concurrent callers
+ *   can never mint presigned slots beyond the quota.
+ *   {@link UploadService.confirmUpload} HEADs the object, compares
+ *   content-type/length against the declared values, and transitions
+ *   `PENDING` → `UPLOADED` (idempotent for already-confirmed rows) or
+ *   `FAILED` on mismatch. {@link UploadService.deleteUpload} performs a
+ *   best-effort S3 delete then soft-deletes the row.
+ * - **Failure modes:** quota exceeded → `ValidationError`; missing organization
+ *   permission → `ForbiddenError`; unknown public id or owner mismatch →
+ *   `NotFoundError`; S3 verification failure → row moved to `FAILED` and a
+ *   `ValidationError` raised so the caller does not attach an unverified
+ *   object; missing `S3_BUCKET` → `ConfigurationError`. A presign failure that
+ *   occurs AFTER a slot is reserved propagates to the caller and leaves the
+ *   PENDING row in place; it is never confirmed, so the pending-sweep worker
+ *   reclaims it once it ages past the sweep cutoff.
+ * - **Side effects:** issues presigned S3 URLs, HEADs/DELETEs S3 objects,
+ *   inserts/updates `upload.uploads`, and emits no in-process events.
+ *   Storage access is abstracted behind {@link ObjectStoragePort} so tests
+ *   can substitute an in-memory adapter.
+ * - **Notes:** both offboarding hooks
+ *   ({@link UploadService.tombstoneAllByUserId} /
+ *   {@link UploadService.tombstoneAllByOrganizationId}) delete the objects
+ *   inline with bounded concurrency, then soft-delete the rows; an object
+ *   delete that fails is retried by tombstone retention, which hard-deletes a
+ *   row only once its object is gone. {@link UploadService.assertKeyConfirmedForOwner}
+ *   is the gate cross-domain consumers (avatar/logo attach) call before touching
+ *   storage — it binds the confirmed upload to its owner.
+ */
+export class UploadService {
+  constructor(
+    private readonly repository: UploadRepository,
+    private readonly userService: UserService,
+    private readonly organizationService: OrganizationService,
+    private readonly objectStorage: ObjectStoragePort,
+  ) {}
+
+  async createUpload({
+    input,
+    principal,
+  }: {
+    input: CreateUploadInput;
+    principal: UploadPrincipal;
+  }): Promise<UploadCreateOutput> {
+    const { userPublicId } = principal;
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+
+    const organizationInternalId = await this.resolveUploadOrganizationInternalId({
+      input,
+      principal,
+    });
+    const config = UPLOAD_PURPOSE_CONFIG[input.purpose];
+    const extension = getCanonicalExtensionForContentType(input.content_type);
+    const ownerSegment =
+      input.for === UPLOAD_TARGETS.ORGANIZATION ? input.organization_id! : userPublicId;
+    let key: string;
+    if (input.purpose === UPLOAD_PURPOSES.AVATAR) {
+      key = `${buildUserAvatarKeyPrefix(userPublicId)}${randomUUID()}${extension}`;
+    } else if (input.purpose === UPLOAD_PURPOSES.ORGANIZATION_LOGO) {
+      key = `${buildOrganizationLogoKeyPrefix(input.organization_id!)}${randomUUID()}${extension}`;
+    } else {
+      key = `${config.keyPrefix}/${ownerSegment}/${randomUUID()}${extension}`;
+    }
+
+    const environment = getEnv();
+    const bucket = environment.S3_BUCKET;
+    if (!bucket) {
+      throw new ConfigurationError('S3_BUCKET is not configured');
+    }
+
+    // The client uploads to a `pending/<finalKey>` object via its presigned URL. On confirm the
+    // verified bytes are published to `finalKey` (which the client never holds a URL for), so the
+    // served object cannot be overwritten through the still-valid presigned upload URL.
+    const pendingKey = buildPendingObjectKey(key);
+
+    // Reserve the PENDING row BEFORE presigning so the per-user quota is enforced atomically
+    // against concurrent requests (advisory lock + count + insert in one transaction). The
+    // presigned URL is minted only after a slot is committed — concurrent callers can never
+    // over-provision presigned slots beyond the quota.
+    const row = await this.reservePendingUploadSlot({
+      userInternalId: user.id,
+      userPublicId,
+      organizationInternalId,
+      organizationPublicId:
+        input.for === UPLOAD_TARGETS.ORGANIZATION ? (input.organization_id ?? null) : null,
+      fileName: input.file_name,
+      fileKey: pendingKey,
+      contentType: input.content_type,
+      fileSize: input.file_size,
+      bucket,
+    });
+
+    let uploadUrl: string;
+    let uploadMethod: 'PUT' | 'POST';
+    let fields: Record<string, string> | undefined;
+    let headers: Record<string, string> | undefined;
+
+    if (environment.UPLOAD_USE_PRESIGNED_POST) {
+      // S3 enforces the content-length-range at upload time, rejecting empty/oversized bodies.
+      const post = await this.objectStorage.createPresignedUploadPost({
+        key: pendingKey,
+        contentType: input.content_type,
+        minContentLength: 1,
+        maxContentLength: config.maxSize,
+        expiresInSeconds: PRESIGNED_URL_EXPIRY_SECONDS,
+        metadata: {
+          purpose: input.purpose,
+          'declared-type': input.content_type,
+          owner: userPublicId,
+        },
+      });
+      uploadUrl = post.url;
+      fields = post.fields;
+      uploadMethod = 'POST';
+    } else {
+      const put = await this.objectStorage.createPresignedUploadUrl({
+        key: pendingKey,
+        contentType: input.content_type,
+        contentLength: input.file_size,
+        expiresInSeconds: PRESIGNED_URL_EXPIRY_SECONDS,
+      });
+      uploadUrl = put.url;
+      headers = put.headers;
+      uploadMethod = 'PUT';
+    }
+
+    const expiresAt = new Date(Date.now() + PRESIGNED_URL_EXPIRY_SECONDS * 1000);
+
+    return serializeUploadCreate({
+      id: row.public_id,
+      upload_url: uploadUrl,
+      key,
+      expires_at: expiresAt,
+      upload_method: uploadMethod,
+      ...(fields !== undefined ? { fields } : {}),
+      ...(headers !== undefined ? { headers } : {}),
+    });
+  }
+
+  /**
+   * Atomically reserves a PENDING upload row while enforcing the per-user (and, for organization
+   * uploads, the per-organization) quota.
+   *
+   * Runs the advisory lock, pending-count check, and insert inside a single RLS database
+   * transaction so concurrent create-upload requests are serialized: a request can only
+   * insert when the committed pending count is still below the cap. The advisory lock
+   * releases at COMMIT, after which the next waiter sees the freshly committed row. Stops
+   * storage/bandwidth cost abuse from a flood of presign requests that previously all
+   * passed a non-atomic count and then over-inserted.
+   *
+   * @remarks
+   * - **sec-r7/M4:** the RLS context MUST match the row being inserted. An organization-scoped
+   *   upload (`organization_id` set) only satisfies the `uploads_tenant_isolation`
+   *   `WITH CHECK` under `withAppDatabaseContext` (`app.current_organization_public_id`);
+   *   under `withAppDatabaseContext (user scope)` the INSERT is rejected by RLS as the production
+   *   `meepzo_be_app` role (FORCE RLS) — every organization-logo / organization-file upload would 500.
+   *   User-scoped uploads (`organization_id` NULL, e.g. avatars) run under
+   *   `withAppDatabaseContext (user scope)` so the `uploads_owner_access` policy applies. The organization cap
+   *   is the primary abuse guard for organization uploads (sec-UP4); the per-user cap is enforced
+   *   against the user's pending rows visible in the active context.
+   */
+  private async reservePendingUploadSlot(
+    params: ReservePendingUploadSlotParams,
+  ): Promise<UploadRow> {
+    const {
+      userInternalId,
+      userPublicId,
+      organizationInternalId,
+      organizationPublicId,
+      fileName,
+      fileKey,
+      contentType,
+      fileSize,
+      bucket,
+    } = params;
+    const environment = getEnv();
+    const pendingCap = environment.UPLOAD_MAX_PENDING_PER_USER;
+    const organizationPendingCap = environment.UPLOAD_MAX_PENDING_PER_ORGANIZATION;
+    // Org-scoped uploads must run under organization RLS context so the tenant-isolation
+    // WITH CHECK passes; user-scoped uploads run under user context for owner-access.
+    const runReservation = async (): Promise<UploadRow> => {
+      // audit-#7: take the ORG-scoped advisory lock BEFORE the per-user lock (a globally
+      // consistent organization-then-user order, deadlock-free) so concurrent reservations from
+      // DIFFERENT members of the same organization serialize on the organization cap. Previously the organization count
+      // was checked while holding only the per-user lock, so N members could each pass the
+      // same organization count and overshoot UPLOAD_MAX_PENDING_PER_ORGANIZATION by N.
+      if (organizationInternalId !== null) {
+        await this.repository.acquirePendingOrganizationQuotaLock(organizationInternalId);
+      }
+      await this.repository.acquirePendingUploadQuotaLock(userInternalId);
+      // sec-UP4: enforce the organization-level cap BEFORE the per-user cap so a single
+      // organization with many members cannot pile PENDING uploads across user accounts
+      // and exhaust storage. The organization-scoped lock above now makes this count + insert
+      // atomic across members (not just within a single user).
+      if (organizationInternalId !== null) {
+        const organizationPendingCount =
+          await this.repository.countPendingByOrganizationId(organizationInternalId);
+        if (organizationPendingCount >= organizationPendingCap) {
+          throw new ValidationError(
+            'errors:uploadPendingQuotaExceeded',
+            { limit: organizationPendingCap, pending: organizationPendingCount },
+            undefined,
+            [
+              {
+                field: 'file_size',
+                messageKey: 'errors:uploadPendingQuotaExceeded',
+                messageParams: { limit: organizationPendingCap, pending: organizationPendingCount },
+              },
+            ],
+          );
+        }
+      }
+      const pendingCount = await this.repository.countPendingByUserId(userInternalId);
+      if (pendingCount >= pendingCap) {
+        throw new ValidationError(
+          'errors:uploadPendingQuotaExceeded',
+          { limit: pendingCap, pending: pendingCount },
+          undefined,
+          [
+            {
+              field: 'file_size',
+              messageKey: 'errors:uploadPendingQuotaExceeded',
+              messageParams: { limit: pendingCap, pending: pendingCount },
+            },
+          ],
+        );
+      }
+      return this.repository.create({
+        user_id: userInternalId,
+        organization_id: organizationInternalId,
+        file_name: fileName,
+        file_key: fileKey,
+        mime_type: contentType,
+        file_size: fileSize,
+        storage_provider: 's3',
+        bucket,
+        status: 'PENDING',
+        created_by_user_id: userInternalId,
+      });
+    };
+
+    if (organizationInternalId !== null && organizationPublicId !== null) {
+      return withAppDatabaseContext({
+        scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organizationPublicId }),
+        callback: runReservation,
+      });
+    }
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+      callback: runReservation,
+    });
+  }
+
+  private async resolveUploadOrganizationInternalId({
+    input,
+    principal,
+  }: {
+    input: CreateUploadInput;
+    principal: UploadPrincipal;
+  }): Promise<number | null> {
+    if (input.for === UPLOAD_TARGETS.ORGANIZATION && input.organization_id) {
+      await principal.authorizeOrganization(input.organization_id);
+      /**
+       * `requireOrganizationByPublicId` reads `tenancy.organizations` which is FORCE RLS. The
+       * caller was just authorized in this organization (its active one), so its own context reads it.
+       */
+      const organization = await withAppDatabaseContext({
+        scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: input.organization_id }),
+        callback: () =>
+          this.organizationService.requireOrganizationByPublicId(input.organization_id!),
+      });
+      return organization.id;
+    }
+    return null;
+  }
+
+  /**
+   * Asserts that `fileKey` is a confirmed (UPLOADED) upload owned by the given user or
+   * organization (sec-UP5) and returns its declared content type. Callers must supply either
+   * `userInternalId` (user-scoped uploads like avatars) or `organizationInternalId`
+   * (organization-scoped uploads like logos). A mismatch yields the same ValidationError as a
+   * missing or unconfirmed row, so callers do not leak whether the row exists.
+   *
+   * @remarks
+   * Attach paths call this BEFORE touching storage: the key is caller-supplied, and a storage
+   * request per guessed key would let anyone spend S3 calls (and, before 4xx answers stopped
+   * counting, open the circuit for everyone). The returned `mimeType` is the type verified at
+   * confirm — magic bytes included — so attach paths check it rather than an S3 header.
+   */
+  async assertKeyConfirmedForOwner(options: {
+    fileKey: string;
+    userInternalId?: number;
+    organizationInternalId?: number;
+  }): Promise<{ mimeType: string; fileName: string; fileSize: number }> {
+    const { fileKey, userInternalId, organizationInternalId } = options;
+    if (userInternalId === undefined && organizationInternalId === undefined) {
+      throw new ValidationError('errors:validation.uploadNotConfirmed', undefined, undefined, [
+        { field: 'key', messageKey: 'errors:validation.uploadNotConfirmed' },
+      ]);
+    }
+    const row = await this.repository.findByFileKey(fileKey, {
+      user_id: userInternalId,
+      organization_id: organizationInternalId,
+    });
+    const notConfirmed = (): ValidationError =>
+      new ValidationError('errors:validation.uploadNotConfirmed', undefined, undefined, [
+        { field: 'key', messageKey: 'errors:validation.uploadNotConfirmed' },
+      ]);
+    // The owner is part of the read, so another user's or organization's key is no row at all;
+    // the row is checked again here, so the rule holds whatever the read returns.
+    if (!row || row.status !== UPLOAD_STATUS.UPLOADED) throw notConfirmed();
+    if (userInternalId !== undefined && row.user_id !== userInternalId) {
+      throw notConfirmed();
+    }
+    if (organizationInternalId !== undefined && row.organization_id !== organizationInternalId) {
+      throw notConfirmed();
+    }
+    return { mimeType: row.mime_type, fileName: row.file_name, fileSize: row.file_size };
+  }
+
+  /**
+   * A short-lived view link for each of the organization's confirmed uploads among the keys a
+   * record reads — a patient photo, a report's files (launch D86) — with the name the person
+   * uploaded it under. A key is signed only for the record it is bound to (C-2): a key bound to
+   * another record, or to none, has no link.
+   *
+   * @remarks
+   * - **Algorithm:** one read of the keys' live, confirmed upload rows of the organization (in the
+   *   caller's organization context); for each key whose bound record is the one named, a presigned
+   *   GET valid {@link PRESIGNED_URL_EXPIRY_SECONDS} that serves the object inline under its
+   *   `file_name`.
+   * - **Failure modes:** a storage presign error propagates (signing is local — no request).
+   * - **Side effects:** none; the caller's record gate decides who holds the links.
+   */
+  async createReadUrls(options: {
+    organizationInternalId: number;
+    bindings: readonly UploadRecordBinding[];
+  }): Promise<Map<string, { url: string; fileName: string }>> {
+    const ownerOf = new Map(options.bindings.map((binding) => [binding.fileKey, binding]));
+    const rows = await this.repository.findConfirmedByFileKeys(options.organizationInternalId, [
+      ...ownerOf.keys(),
+    ]);
+    const links = new Map<string, { url: string; fileName: string }>();
+    for (const row of rows) {
+      const owner = ownerOf.get(row.file_key);
+      if (
+        !owner ||
+        row.bound_resource !== owner.resource ||
+        row.bound_public_id !== owner.publicId
+      ) {
+        continue;
+      }
+      links.set(row.file_key, {
+        url: await this.objectStorage.createPresignedDownloadUrl({
+          key: row.file_key,
+          expiresInSeconds: PRESIGNED_URL_EXPIRY_SECONDS,
+          fileName: row.file_name,
+        }),
+        fileName: row.file_name,
+      });
+    }
+    return links;
+  }
+
+  /**
+   * Binds the organization's confirmed uploads among `fileKeys` to a record on its first attach
+   * (C-2); a key already bound to another record is left as it is.
+   *
+   * @remarks
+   * - **Algorithm:** one guarded `UPDATE` in the caller's organization context (the record write's
+   *   own transaction).
+   * - **Failure modes:** none; the caller compares the count with the keys and refuses a short one.
+   */
+  async bindKeysToRecord(options: {
+    organizationInternalId: number;
+    fileKeys: readonly string[];
+    owner: UploadRecordOwner;
+  }): Promise<number> {
+    return this.repository.bindKeysToRecord({
+      organizationId: options.organizationInternalId,
+      fileKeys: options.fileKeys,
+      owner: options.owner,
+    });
+  }
+
+  /**
+   * Rewrites an organization's confirmed photo without where it was taken (launch D79, WC-42) — the
+   * app files patient photos only after this.
+   *
+   * @remarks
+   * - **Algorithm:** checks the key is the organization's confirmed upload (in the caller's
+   *   organization context); for a JPEG or PNG reads the stored object, removes its GPS block and
+   *   XMP ({@link removeImageLocation}) and writes it back under the same key and type when
+   *   anything was removed. Any other type is left alone.
+   * - **Failure modes:** `ValidationError` (`uploadNotConfirmed`) for a key that is not the
+   *   organization's confirmed upload; a stored file that is gone has no location to remove (a
+   *   warning, no error); any other storage error propagates — the caller files nothing.
+   * - **Side effects:** one GET and at most one PUT on the object store; the upload row is not
+   *   changed (its `file_size` keeps the size the client sent).
+   */
+  async removeImageLocation(options: {
+    scope: OrganizationPrincipalDatabaseScope;
+    fileKey: string;
+    organizationInternalId: number;
+  }): Promise<void> {
+    const upload = await withAppDatabaseContext({
+      scope: options.scope,
+      callback: () =>
+        this.assertKeyConfirmedForOwner({
+          fileKey: options.fileKey,
+          organizationInternalId: options.organizationInternalId,
+        }),
+    });
+    if (upload.mimeType !== 'image/jpeg' && upload.mimeType !== 'image/png') return;
+    const stored = await this.readStoredObject(options.fileKey);
+    if (stored === null) {
+      // No stored file, no location to remove: the photo is filed as any attach files an upload
+      logger.warn({ fileKey: options.fileKey }, 'upload.image_location_object_missing');
+      return;
+    }
+    const cleaned = removeImageLocation({ image: stored.body, mimeType: upload.mimeType });
+    if (!cleaned.changed) return;
+    await this.objectStorage.putObject({
+      key: options.fileKey,
+      body: cleaned.body,
+      contentType: upload.mimeType,
+    });
+    logger.info({ fileKey: options.fileKey }, 'upload.image_location_removed');
+  }
+
+  /**
+   * Makes a thumbnail of an organization's stored image next to it (`<key without
+   * extension>.thumb.webp`) — any purpose that opts in through
+   * {@link UPLOAD_PURPOSE_CONFIG}'s `thumbnailTypes` (patient photos today).
+   *
+   * @remarks
+   * - **Algorithm:** checks the key sits under an opted-in purpose's prefix for the organization
+   *   ({@link isOrganizationThumbnailSource}); reads the stored object; when its type is one the
+   *   purpose opts in, makes the thumbnail ({@link createImageThumbnail}) and writes it. No
+   *   database access — it runs between a worker's database contexts.
+   * - **Failure modes:** answers `skipped` (never throws) for a key outside the organization's
+   *   opted-in prefixes (`not_opted_in`), a stored file that is gone (`source_missing`), a type
+   *   the purpose does not opt in, or bytes the decoder refuses — corrupt, over the pixel or
+   *   decoded-size cap, or past the time limit (`source_unusable`, warn-logged with the decoder's
+   *   message); each is
+   *   final for that file (`UPLOAD_THUMBNAIL_SKIP_REASON_VALUES`). Any other storage error
+   *   propagates (the caller retries).
+   * - **Side effects:** one GET and one PUT on the object store; overwrites an earlier thumbnail
+   *   of the same source (the same bytes — idempotent).
+   */
+  async createThumbnail(options: {
+    organizationPublicId: string;
+    fileKey: string;
+  }): Promise<
+    | { kind: 'created'; thumbnailKey: string }
+    | { kind: 'skipped'; reason: UploadThumbnailSkipReason }
+  > {
+    const purpose = organizationThumbnailPurpose(options);
+    if (purpose === null || isThumbnailObjectKey(options.fileKey)) {
+      return { kind: 'skipped', reason: 'not_opted_in' };
+    }
+    const stored = await this.readStoredObject(options.fileKey);
+    if (stored === null) return { kind: 'skipped', reason: 'source_missing' };
+    const contentType = stored.contentType?.toLowerCase();
+    if (contentType === undefined || !purpose.thumbnailTypes.includes(contentType)) {
+      return { kind: 'skipped', reason: 'source_unusable' };
+    }
+    let thumbnail: Buffer;
+    try {
+      thumbnail = await createImageThumbnail(stored.body);
+    } catch (error) {
+      if (error instanceof UploadThumbnailSourceError) {
+        logger.warn(
+          {
+            fileKey: options.fileKey,
+            detail: error.cause instanceof Error ? error.cause.message : String(error.cause),
+          },
+          'upload.thumbnail_source_refused',
+        );
+        return { kind: 'skipped', reason: 'source_unusable' };
+      }
+      throw error;
+    }
+    const thumbnailKey = buildThumbnailObjectKey(options.fileKey);
+    await this.objectStorage.putObject({
+      key: thumbnailKey,
+      body: thumbnail,
+      contentType: UPLOAD_THUMBNAIL_CONTENT_TYPE,
+    });
+    logger.info({ fileKey: options.fileKey, thumbnailKey }, 'upload.thumbnail_created');
+    return { kind: 'created', thumbnailKey };
+  }
+
+  /**
+   * Deletes a thumbnail {@link UploadService.createThumbnail} made — the organization's own only.
+   *
+   * @remarks
+   * - **Failure modes:** `ValidationError` (`uploadNotConfirmed`) for a key that is no thumbnail
+   *   of the organization; throws when the store refuses the delete (the caller retries). A
+   *   thumbnail already gone is a delete (S3 deletes are idempotent).
+   * - **Side effects:** one DELETE on the object store; no database access.
+   */
+  async deleteThumbnail(options: {
+    organizationPublicId: string;
+    thumbnailKey: string;
+  }): Promise<void> {
+    if (
+      !isThumbnailObjectKey(options.thumbnailKey) ||
+      organizationThumbnailPurpose({
+        organizationPublicId: options.organizationPublicId,
+        fileKey: options.thumbnailKey,
+      }) === null
+    ) {
+      throw new ValidationError('errors:validation.uploadNotConfirmed', undefined, undefined, [
+        { field: 'key', messageKey: 'errors:validation.uploadNotConfirmed' },
+      ]);
+    }
+    const result = await this.objectStorage.deleteObject(options.thumbnailKey);
+    if (result.kind === 'failed') throw new Error('upload.thumbnail_delete_failed');
+    logger.info({ thumbnailKey: options.thumbnailKey }, 'upload.thumbnail_deleted');
+  }
+
+  /**
+   * A short-lived view link for each of the organization's thumbnails among `thumbnailKeys` — a
+   * thumbnail is no upload row, so the key itself is checked: under an opted-in purpose's
+   * prefix for the organization, with the thumbnail suffix. Any other key gets no link.
+   *
+   * @remarks
+   * - **Algorithm:** a presigned GET valid {@link PRESIGNED_URL_EXPIRY_SECONDS} per key, served
+   *   inline. Signing is local — no request, no database access.
+   * - **Side effects:** none; the caller decides who may hold the links (the record's own gate).
+   */
+  async createThumbnailReadUrls(options: {
+    organizationPublicId: string;
+    thumbnailKeys: readonly string[];
+  }): Promise<Map<string, string>> {
+    const links = new Map<string, string>();
+    for (const thumbnailKey of new Set(options.thumbnailKeys)) {
+      const isOwn =
+        isThumbnailObjectKey(thumbnailKey) &&
+        organizationThumbnailPurpose({
+          organizationPublicId: options.organizationPublicId,
+          fileKey: thumbnailKey,
+        }) !== null;
+      if (!isOwn) continue;
+      links.set(
+        thumbnailKey,
+        await this.objectStorage.createPresignedDownloadUrl({
+          key: thumbnailKey,
+          expiresInSeconds: PRESIGNED_URL_EXPIRY_SECONDS,
+        }),
+      );
+    }
+    return links;
+  }
+
+  /**
+   * The stored object, or `null` when it is gone — a failed read is told apart from a missing
+   * object by a HEAD, only on the failure path; any other failure (an outage, a denial) throws.
+   */
+  private async readStoredObject(
+    key: string,
+  ): Promise<{ body: Buffer; contentType: string | undefined } | null> {
+    try {
+      return await this.objectStorage.getObject(key);
+    } catch (error) {
+      const head = await this.objectStorage.headObject(key).catch(() => undefined);
+      if (head === null) return null;
+      throw error;
+    }
+  }
+
+  private async assertUserCanAccessOrgScopedUpload({
+    row,
+    principal,
+  }: {
+    row: UploadRow;
+    principal: UploadPrincipal;
+  }): Promise<void> {
+    if (row.organization_id === null) {
+      return;
+    }
+
+    const organization = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: principal.userPublicId }),
+      callback: () => this.organizationService.findOrganizationByInternalId(row.organization_id!),
+    });
+    if (!organization) {
+      throw new NotFoundError('Upload');
+    }
+
+    await principal.authorizeOrganization(organization.public_id);
+  }
+
+  /**
+   * Loads an upload for a read/confirm/delete action, under a scope that can actually see it.
+   *
+   * @remarks
+   * `upload.uploads` is FORCE RLS with two disjoint arms: `uploads_owner_access` matches only
+   * `organization_id IS NULL AND user_id = <app.current_user_public_id>`, and
+   * `uploads_tenant_isolation` matches only rows of the organization in
+   * `app.current_organization_public_id`. A single scope therefore cannot see both kinds.
+   *
+   * This previously read under the user scope alone, so **every organization-scoped upload
+   * 404'd** on `GET /uploads/:upload_id`, `POST …/confirm` and `DELETE …` — organization logos
+   * included — and {@link assertUserCanAccessOrgScopedUpload}, written for exactly that case,
+   * was unreachable. `createUpload` had always branched on the target, so creating an
+   * organization upload worked and nothing afterwards did.
+   *
+   * Both arms are tried, cheapest first: the user arm, then — only if that finds nothing and
+   * the caller has an active organization — that organization's arm. A personal upload costs
+   * one query as before; an organization upload costs two rather than failing.
+   */
+  private async loadUploadForUserAction(input: {
+    public_id: string;
+    userInternalId: number;
+    principal: UploadPrincipal;
+  }): Promise<LoadedUpload> {
+    const { public_id, userInternalId, principal } = input;
+    const { userPublicId, organizationPublicId } = principal;
+    const userScope = PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId });
+    const ownRow = await withAppDatabaseContext({
+      scope: userScope,
+      callback: () => this.repository.findByPublicId(public_id),
+    });
+
+    // Only reached when the owner arm saw nothing AND the caller has an organization to try.
+    const organizationScope =
+      ownRow || !organizationPublicId
+        ? null
+        : PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organizationPublicId });
+    const row =
+      ownRow ??
+      (organizationScope
+        ? await withAppDatabaseContext({
+            scope: organizationScope,
+            callback: async () => {
+              // The organization arm names the organization in the read; RLS is the second filter.
+              const organization = await this.organizationService.requireOrganizationByPublicId(
+                organizationPublicId!,
+              );
+              return this.repository.findByPublicId(public_id, organization.id);
+            },
+          })
+        : null);
+    if (!row) throw new NotFoundError('Upload');
+    // The scope that FOUND the row is the one every follow-up write must use — see LoadedUpload.
+    const scope = ownRow ? userScope : (organizationScope ?? userScope);
+
+    // The authorization decision below is made on the ROW, never on which arm produced it.
+    // RLS is a second line here, not the first: dev and CI connect with roles that bypass it
+    // (Compose's superuser, the local operator's `rolbypassrls`), so a check that leaned on
+    // "the owner arm returned it, therefore it is mine" would be skipped in exactly the
+    // environments the tests run in.
+    if (row.organization_id === null) {
+      if (row.user_id !== userInternalId) {
+        throw new NotFoundError('Upload');
+      }
+      return { row, scope };
+    }
+
+    await this.assertUserCanAccessOrgScopedUpload({ row, principal });
+    return { row, scope };
+  }
+
+  async getUpload({
+    public_id,
+    principal,
+  }: {
+    public_id: string;
+    principal: UploadPrincipal;
+  }): Promise<UploadDetailOutput> {
+    const validatedPublicId = validateUploadPublicIdParam(public_id);
+    const { userPublicId } = principal;
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    const { row } = await this.loadUploadForUserAction({
+      public_id: validatedPublicId,
+      userInternalId: user.id,
+      principal,
+    });
+
+    return this.toUploadDetail({ row, userPublicId });
+  }
+
+  /**
+   * Verifies the uploaded object against its declared content type/length and, when valid,
+   * publishes the bytes from the pending key to the immutable final key.
+   *
+   * @remarks
+   * - **Algorithm:** the storage verdict (exists, declared length, declared type when S3 echoes
+   *   one); when verified, publish/sanitize to `finalKey`.
+   * - **Failure modes:** `false` only for a verdict on the object — missing, wrong length or type,
+   *   wrong magic bytes, an SVG that sanitizes to nothing — so the caller marks the row FAILED.
+   *   Anything thrown is storage failing (an `ExternalServiceError`, or the `CircuitBreakerOpenError`
+   *   of an open circuit — audit-#5) or a bug, and propagates: the row stays PENDING and the client
+   *   can retry confirm. Marking a valid upload FAILED because S3 was down cannot be undone.
+   * - **Side effects:** one storage HEAD; on success the publish/sanitize copy plus structured logs.
+   */
+  private async verifyAndPublishUploadedObject(options: {
+    sourceKey: string;
+    finalKey: string;
+    mimeType: string;
+    fileSize: number;
+    publicId: string;
+  }): Promise<boolean> {
+    const { sourceKey, finalKey, mimeType, fileSize, publicId } = options;
+    const verdict = await this.objectStorage.verifyUploadedObject({
+      key: sourceKey,
+      expected: {
+        contentType: mimeType,
+        contentLength: fileSize,
+      },
+    });
+    if (verdict.kind === 'rejected') {
+      logger.warn(
+        { id: publicId, fileKey: sourceKey, reason: verdict.reason },
+        'upload.confirm.verifyFailed',
+      );
+      return false;
+    }
+    const published = await this.publishConfirmedObject({
+      sourceKey,
+      finalKey,
+      contentType: mimeType,
+    });
+    if (!published) {
+      logger.warn({ id: publicId, fileKey: sourceKey }, 'upload.confirm.contentRejected');
+    }
+    return published;
+  }
+
+  /**
+   * Server-side finalization: HEAD the uploaded object and compare its content type/length
+   * against the values declared at create time. On success the row moves PENDING → UPLOADED;
+   * on mismatch/missing it moves to FAILED and a validation error is surfaced. SVG objects are
+   * sanitized in place (scripts/event handlers stripped) before being marked UPLOADED so the
+   * served bytes can never execute as stored XSS. Consumers must require UPLOADED before
+   * attaching the object. Idempotent for already-UPLOADED rows.
+   */
+  async confirmUpload({
+    public_id,
+    principal,
+  }: {
+    public_id: string;
+    principal: UploadPrincipal;
+  }): Promise<UploadDetailOutput> {
+    const validatedPublicId = validateUploadPublicIdParam(public_id);
+    const { userPublicId } = principal;
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    const { row, scope } = await this.loadUploadForUserAction({
+      public_id: validatedPublicId,
+      userInternalId: user.id,
+      principal,
+    });
+
+    if (row.status === UPLOAD_STATUS.UPLOADED) {
+      return this.toUploadDetail({ row, userPublicId });
+    }
+    if (row.status !== UPLOAD_STATUS.PENDING) {
+      throw new ValidationError('errors:uploadNotPending', undefined, undefined, [
+        { field: 'status', messageKey: 'errors:uploadNotPending' },
+      ]);
+    }
+
+    // The bytes live at the (still client-writable) pending key; the verified bytes are published
+    // to `finalKey`.
+    const sourceKey = row.file_key;
+    const finalKey = stripPendingObjectKeyPrefix(sourceKey);
+    // sec-UP1: confirm only a row that went through the pending-key indirection. Without it
+    // finalKey === sourceKey and the presigned PUT URL the client used stays valid for its whole
+    // TTL — a same-length, same-magic-byte payload swapped in after confirm would stay UPLOADED
+    // with hostile content. createUpload always issues a pending key, so such a row is a bug or
+    // hand-written data: fail it and require a re-upload to a fresh pending key.
+    if (finalKey === sourceKey) {
+      const failedRow = await withAppDatabaseContext({
+        scope,
+        callback: () => this.repository.markStatusById(row.id, UPLOAD_STATUS.FAILED),
+      });
+      if (!failedRow) throw new NotFoundError('Upload');
+      logger.warn(
+        { id: validatedPublicId, fileKey: sourceKey },
+        'upload.confirm.notPendingKeyedRefused',
+      );
+      throw new ValidationError('errors:uploadVerificationFailed', undefined, undefined, [
+        { field: 'file', messageKey: 'errors:uploadNotFromPendingKey' },
+      ]);
+    }
+
+    const verified = await this.verifyAndPublishUploadedObject({
+      sourceKey,
+      finalKey,
+      mimeType: row.mime_type,
+      fileSize: row.file_size,
+      publicId: validatedPublicId,
+    });
+
+    if (!verified) {
+      const failedRow = await withAppDatabaseContext({
+        scope,
+        callback: () => this.repository.markStatusById(row.id, UPLOAD_STATUS.FAILED),
+      });
+      if (!failedRow) throw new NotFoundError('Upload');
+      throw new ValidationError('errors:uploadVerificationFailed', undefined, undefined, [
+        { field: 'file', messageKey: 'errors:uploadVerificationFailed' },
+      ]);
+    }
+
+    // Repoint the row at the immutable final key in the same update that marks it UPLOADED, so a
+    // servable row never references the overwritable pending key.
+    const updated = await withAppDatabaseContext({
+      scope,
+      callback: () => this.repository.markConfirmedById(row.id, finalKey),
+    });
+    if (!updated) throw new NotFoundError('Upload');
+
+    // Best-effort: drop the now-published pending object so it is not billed or swept.
+    const pendingObjectDelete = await this.objectStorage.deleteObject(sourceKey);
+    if (pendingObjectDelete.kind !== 'deleted') {
+      logger.warn(
+        { id: validatedPublicId, pendingKey: sourceKey },
+        'upload.confirm.pendingObjectDeleteFailed',
+      );
+    }
+
+    return this.toUploadDetail({ row: updated, userPublicId });
+  }
+
+  /**
+   * Publishes the verified pending object to its immutable `finalKey`. SVGs are sanitized in
+   * transit (and rejected when hostile/empty); magic-byte-verifiable types have their leading bytes
+   * checked against the declared content-type, then the object is server-side copied to `finalKey`
+   * (always a different key: `confirmUpload` refuses a row without the pending prefix). Returns
+   * false when the content is rejected — wrong magic bytes, an SVG that sanitizes to nothing, an
+   * object gone since the HEAD — so the caller marks the row FAILED; storage failures throw, and
+   * so does a pending object written again between the verify and the copy (409, row stays
+   * PENDING so the client can confirm again and the new bytes get verified).
+   */
+  private async publishConfirmedObject({
+    sourceKey,
+    finalKey,
+    contentType,
+  }: {
+    sourceKey: string;
+    finalKey: string;
+    contentType: string;
+  }): Promise<boolean> {
+    // SVGs are active content: an uploaded <svg onload=…> served with an image/svg+xml type would
+    // execute as stored XSS. Neutralise the bytes before publishing them to the servable key.
+    if (isSvgContentType(contentType)) {
+      return this.publishSanitizedSvg({ sourceKey, finalKey, contentType });
+    }
+    // HEAD only echoes the client-declared content-type, which is trivially spoofable (e.g. an
+    // HTML/script payload uploaded as image/png). Verify the actual leading bytes before the object
+    // becomes servable. Ranged GET (first 32 bytes) avoids buffering the full upload.
+    let sourceETag: string | undefined;
+    if (isMagicByteVerifiable(contentType)) {
+      const header = await this.objectStorage.getObjectFirstBytes({
+        key: sourceKey,
+        byteCount: MAGIC_BYTE_PREFIX_LENGTH,
+      });
+      if (!(header && verifyFileMagicBytes({ buffer: header.body, contentType }))) {
+        return false;
+      }
+      // sec-re-10: pin the COPY to the exact object bytes we just verified.
+      // The presigned PUT/POST that minted `pending/<key>` remains replayable
+      // for the lifetime of the upload URL (~15 min), so an authenticated
+      // client could race a second PUT between this read and the copy and
+      // have the COPY pick up hostile bytes. `CopySourceIfMatch` makes S3
+      // refuse that race, so unverified bytes never reach `finalKey`.
+      sourceETag = header.eTag;
+    }
+    const copy = await this.objectStorage.copyObject({
+      sourceKey,
+      destinationKey: finalKey,
+      contentType,
+      ...(sourceETag === undefined ? {} : { sourceETag }),
+    });
+    if (copy.kind === 'source_changed') {
+      throw new ConflictError('errors:uploadChangedDuringConfirm').withReason(
+        'upload_changed_during_confirm',
+      );
+    }
+    return true;
+  }
+
+  /**
+   * Fetches the pending SVG, strips XSS vectors (scripts, event handlers, hostile filters) via
+   * {@link sanitizeSvgBuffer}, and writes the sanitized bytes to `finalKey`. Returns false when
+   * sanitization yields an empty document, so the caller fails verification for hostile or
+   * zero-byte SVGs.
+   */
+  private async publishSanitizedSvg({
+    sourceKey,
+    finalKey,
+    contentType,
+  }: {
+    sourceKey: string;
+    finalKey: string;
+    contentType: string;
+  }): Promise<boolean> {
+    const object = await this.objectStorage.getObject(sourceKey);
+    const sanitized = sanitizeSvgBuffer(object.body);
+    if (!sanitized) return false;
+    await this.objectStorage.putObject({ key: finalKey, body: sanitized, contentType });
+    return true;
+  }
+
+  private async toUploadDetail({
+    row,
+    userPublicId,
+  }: {
+    row: UploadRow;
+    userPublicId?: string | undefined;
+  }): Promise<UploadDetailOutput> {
+    let organizationPublicId: string | null = null;
+    if (row.organization_id !== null) {
+      /**
+       * `findOrganizationByInternalId` hits `tenancy.organizations` (FORCE RLS). When
+       * we have a user public id, wrap so the `organizations_user_discovery` policy
+       * is satisfied; otherwise make the bare call (for callers that already pin an
+       * organization context).
+       */
+      const organization =
+        userPublicId !== undefined && userPublicId.length > 0
+          ? await withAppDatabaseContext({
+              scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+              callback: () =>
+                this.organizationService.findOrganizationByInternalId(row.organization_id!),
+            })
+          : await this.organizationService.findOrganizationByInternalId(row.organization_id);
+      organizationPublicId = organization?.public_id ?? null;
+    }
+    return serializeUploadDetail({ row, organization_public_id: organizationPublicId });
+  }
+
+  async deleteUpload({
+    public_id,
+    principal,
+  }: {
+    public_id: string;
+    principal: UploadPrincipal;
+  }): Promise<void> {
+    const validatedPublicId = validateUploadPublicIdParam(public_id);
+    const { userPublicId } = principal;
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    const { row, scope } = await this.loadUploadForUserAction({
+      public_id: validatedPublicId,
+      userInternalId: user.id,
+      principal,
+    });
+
+    // S3 delete runs outside the DB context. A failure leaves the object for tombstone retention,
+    // which deletes the row only once its object is gone.
+    const objectDelete = await this.objectStorage.deleteObject(row.file_key);
+    if (objectDelete.kind !== 'deleted') {
+      logger.warn(
+        { id: validatedPublicId, fileKey: row.file_key },
+        'upload.delete.s3ObjectDeleteFailed',
+      );
+    }
+
+    const deleted = await withAppDatabaseContext({
+      scope,
+      callback: () => this.repository.softDeleteById(row.id),
+    });
+    if (!deleted) throw new NotFoundError('Upload');
+  }
+
+  /**
+   * Tombstones all active uploads for a user (offboarding) and removes S3 objects when possible.
+   *
+   * @remarks
+   * Every database statement here runs under
+   * {@link MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP}. Without it these calls reach
+   * `upload.uploads` — a FORCE RLS table — with no GUC set at all, and neither policy arm can
+   * match: `uploads_tenant_isolation` needs `app.current_organization_id` and
+   * `uploads_owner_access` needs `app.current_user_id`. The keyset read then returns zero rows,
+   * no S3 object is deleted, the soft-delete updates nothing, and offboarding reports success
+   * while every row and object survives. That is a GDPR Article 17 failure, and it is invisible
+   * in dev and CI because those roles bypass RLS (superuser in Compose, `rolbypassrls` on the
+   * local operator role) — it only misbehaves where it matters.
+   *
+   * The retention arm is the right authority: it is on `uploads_tenant_isolation`'s USING and
+   * WITH CHECK, covers organization-scoped and user-scoped (`organization_id IS NULL`) rows
+   * alike, and is what `organization.service.ts` already uses for the sibling soft-delete.
+   *
+   * The S3 deletions stay OUTSIDE the context so the offboarding path never holds a pooled
+   * connection across external I/O.
+   */
+  async tombstoneAllByUserId(user_id: number): Promise<number> {
+    // Stream the user's active uploads in bounded keyset batches and delete their S3 objects
+    // with bounded concurrency. This prevents a user with a large upload footprint from
+    // loading an unbounded result set into memory or serializing thousands of S3 round-trips
+    // in the offboarding path. Rows are not mutated during iteration, so keyset-by-id pages
+    // through the full set exactly once; the soft-delete at the end is the durable marker.
+    let afterId = 0;
+    for (;;) {
+      const rows = await withMaintenanceDatabaseContext({
+        scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+        callback: () =>
+          this.repository.findActiveByUserIdAfter(
+            user_id,
+            afterId,
+            UPLOAD_OFFBOARDING_DELETE_BATCH_SIZE,
+          ),
+      });
+      if (rows.length === 0) {
+        break;
+      }
+      await this.deleteObjectsWithBoundedConcurrency({
+        fileKeys: rows.map((row) => row.file_key),
+        userId: user_id,
+      });
+      afterId = rows[rows.length - 1]!.id;
+      if (rows.length < UPLOAD_OFFBOARDING_DELETE_BATCH_SIZE) {
+        break;
+      }
+    }
+    return withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+      callback: () => this.repository.softDeleteAllByUserId(user_id),
+    });
+  }
+
+  /** Deletes S3 objects in fixed-size concurrent chunks; failures are logged, never thrown. */
+  private async deleteObjectsWithBoundedConcurrency(options: {
+    fileKeys: readonly string[];
+    userId?: number;
+    organizationId?: number;
+  }): Promise<void> {
+    const { fileKeys, userId, organizationId } = options;
+    for (let index = 0; index < fileKeys.length; index += UPLOAD_OFFBOARDING_DELETE_CONCURRENCY) {
+      const chunk = fileKeys.slice(index, index + UPLOAD_OFFBOARDING_DELETE_CONCURRENCY);
+      await Promise.all(
+        chunk.map(async (fileKey) => {
+          const objectDelete = await this.objectStorage.deleteObject(fileKey);
+          if (objectDelete.kind !== 'deleted') {
+            logger.warn(
+              { userId, organizationId, fileKey },
+              'upload.offboarding.s3ObjectDeleteFailed',
+            );
+          }
+        }),
+      );
+    }
+  }
+
+  /**
+   * Tombstones all active uploads for an organization (offboarding) and removes
+   * S3 objects in the same bounded-concurrency pattern as
+   * {@link UploadService.tombstoneAllByUserId}.
+   *
+   * @remarks
+   * sec-UP8: the previous implementation only soft-deleted DB rows and relied
+   * on `UPLOAD_TOMBSTONE_RETENTION_CRON` to eventually clean S3. The cron is
+   * optional, so an operator who forgot to set it left organization-deletion S3 objects
+   * around indefinitely — a GDPR Article 17 violation and an unbounded
+   * storage cost. Object removal now happens synchronously in the same
+   * offboarding pass, matching the user-tombstone contract.
+   *
+   * Streams in bounded keyset batches so a tenant with a large upload
+   * footprint does not load an unbounded result set into memory or
+   * serialise thousands of S3 round-trips inline.
+   */
+  async tombstoneAllByOrganizationId(organization_id: number): Promise<number> {
+    // Same RLS reasoning as {@link tombstoneAllByUserId}: with no context these statements hit
+    // FORCE RLS `upload.uploads` GUC-less, match no policy arm, and silently tombstone nothing.
+    let afterId = 0;
+    for (;;) {
+      const rows = await withMaintenanceDatabaseContext({
+        scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+        callback: () =>
+          this.repository.findActiveByOrganizationIdAfter(
+            organization_id,
+            afterId,
+            UPLOAD_OFFBOARDING_DELETE_BATCH_SIZE,
+          ),
+      });
+      if (rows.length === 0) {
+        break;
+      }
+      // Outside the context on purpose — no pooled connection is held across S3 I/O.
+      await this.deleteObjectsWithBoundedConcurrency({
+        fileKeys: rows.map((row) => row.file_key),
+        organizationId: organization_id,
+      });
+      afterId = rows[rows.length - 1]!.id;
+      if (rows.length < UPLOAD_OFFBOARDING_DELETE_BATCH_SIZE) {
+        break;
+      }
+    }
+    return withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+      callback: () => this.repository.softDeleteAllByOrganizationId(organization_id),
+    });
+  }
+}

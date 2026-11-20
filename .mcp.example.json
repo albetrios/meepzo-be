@@ -1,0 +1,138 @@
+{
+  "mcpServers": {
+    "be-context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp@4.4.4",
+        "--api-key",
+        "${CONTEXT7_API_KEY}"
+      ]
+    },
+    "meepzo-be:api": {
+      "url": "http://localhost:3000/api/v1/mcp"
+    },
+    "neon": {
+      "url": "https://mcp.neon.tech/mcp",
+      "headers": {}
+    },
+    "sentry": {
+      "url": "https://mcp.sentry.dev/mcp",
+      "headers": {}
+    },
+    "railway": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@railway/mcp-server@0.1.12"
+      ]
+    },
+    "aws": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcp-proxy-for-aws==1.7.0",
+        "mcp-proxy-for-aws",
+        "https://aws-mcp.us-east-1.api.aws/mcp",
+        "--metadata",
+        "AWS_REGION=ap-south-1"
+      ]
+    },
+    "stripe": {
+      "url": "https://mcp.stripe.com",
+      "headers": {}
+    },
+    "be-semgrep": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "semgrep==1.179.0",
+        "semgrep",
+        "mcp"
+      ]
+    },
+    "be-sonarqube": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--init",
+        "--rm",
+        "-i",
+        "--network",
+        "host",
+        "-e",
+        "SONARQUBE_TOKEN",
+        "-e",
+        "SONARQUBE_URL",
+        "mcp/sonarqube@sha256:925c88bc7cab2a1e1025b0bd43f0af504cd8ce1b99e9663ececaca914fb632e7"
+      ]
+    },
+    "redis": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "redis-mcp-server==0.5.1",
+        "redis-mcp-server",
+        "--url",
+        "${REDIS_URL}"
+      ]
+    },
+    "postman": {
+      "url": "https://mcp.postman.com/mcp",
+      "headers": {}
+    },
+    "resend": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "RESEND_API_KEY",
+        "mcp/resend@sha256:2a786579214e118992c62875fd81488fee01918b10b06b447beb1acd5824e8ed"
+      ]
+    },
+    "ast-grep": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/ast-grep/ast-grep-mcp@1e41164726d7ead57c8aa25f74946c4badba7f8a",
+        "ast-grep-server"
+      ]
+    },
+    "serena": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "serena-agent==2.1.0",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "ide-assistant"
+      ]
+    },
+    "be-codegraph": {
+      "type": "stdio",
+      "command": "codegraph",
+      "args": [
+        "serve",
+        "--mcp"
+      ]
+    },
+    "be-headroom": {
+      "type": "stdio",
+      "command": "headroom",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    },
+    "dashboards": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "tooling/dev/dashboards/mcp.mjs"
+      ]
+    }
+  }
+}

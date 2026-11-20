@@ -1,0 +1,180 @@
+# Main-branch quality canary — nightly `pnpm ci:quality` on the trunk itself.
+#
+# Why this exists: the main ruleset intentionally has `strict up-to-date` OFF, so
+# two individually-green PRs can merge into a combined tree that no gate ever
+# tested (post-merge-ci's FAST lane deliberately skips re-testing single-PR
+# pushes). That is exactly how `validate:route-organization-scope` went red on main in
+# July 2026 without any PR failing. This canary re-runs the full static quality
+# slice on the merged trunk every night and raises a ci-failure issue on red —
+# a broken main becomes a next-morning notification instead of a surprise weeks
+# later. It also compares the files kept as true copies with meepzo-fe's main (the
+# mirrored-files job). Companion canaries: scheduled-release-guards.yml (settings drift),
+# codeql.yml (advisories), scheduled-k6-load-slo.yml (SLOs).
+name: Main quality canary
+
+on:
+  schedule:
+    - cron: '30 1 * * *' # nightly 01:30 UTC — before the 02:00 k6 run
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-quality-canary
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: ci:quality on main
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Some ci:quality validators (validate:sunset-dates, the route-schema/param
+    # validators) transitively import env.config.ts, which boot-validates the whole
+    # Zod env schema — so the required no-default vars must be present. These are
+    # dummy CI values: NO service container is started, DATABASE_URL/REDIS_URL point
+    # nowhere and are never dialed. The rest (JWT keypair, SECRETS_ENCRYPTION_KEY,
+    # ALLOWED_ORIGINS, …) come from the shared test-env action below.
+    env:
+      DATABASE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Export shared CI test env (JWT keys + secrets-encryption + origins)
+        uses: ./.github/actions/test-env
+
+      # The full static slice: audits, lint+typecheck, domain/route/docs/agent-os
+      # validators, contract + property tests, migration lint. No DB/Redis service
+      # is started — the env vars above only satisfy env.config.ts's boot check.
+      - name: Run static quality slice
+        run: pnpm ci:quality
+
+  # The daily dependency audit in its own lane: a new advisory against the production tree reads as
+  # what it is, not as merge skew inside ci:quality (which also starts with it).
+  dependency-audit:
+    name: Dependency audit (production tree)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Audit the production tree (blocking)
+        run: pnpm deps:audit:prod
+
+      - name: Audit the full tree (report-only)
+        if: always()
+        run: pnpm deps:audit:report
+
+  # The files kept as true copies in both repositories (mirrored-files.policy.unit.test.ts). A PR's
+  # CI checks out this repository only, so there the test can check the copies exist but not that
+  # they match; a PR that edits a copy cannot be told apart from one whose sibling PR is still open.
+  # Comparing the two mains each night catches a copy changed on one side only within a day.
+  mirrored-files:
+    name: Mirrored files match meepzo-fe main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout meepzo-fe main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/meepzo-fe
+          ref: main
+          path: .mirror-sibling
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Compare the mirrored files
+        env:
+          MIRROR_SIBLING_CHECKOUT: .mirror-sibling
+          VITEST_SKIP_DATABASE: 'true'
+        run: pnpm exec vitest run --project unit src/tests/unit/ci/mirrored-files.policy.unit.test.ts
+
+  resolve-success:
+    name: Close ci-failure issue
+    needs: [quality, dependency-audit, mirrored-files]
+    if: >-
+      always() && needs.quality.result == 'success' && needs.dependency-audit.result == 'success'
+      && needs.mirrored-files.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Close the open ci-failure issue
+        # `notify-failure` opens one issue and comments repeats onto it, but nothing
+        # ever closed it: a canary that went green left the issue open until a human
+        # noticed, so the tracker accumulated failures that had already been fixed
+        # forward. Closing on the first green run makes an open ci-failure issue mean
+        # "main is red right now" instead of "main was red at some point".
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: close
+          title: Main quality canary failing
+          close-comment: Canary is green again on main — closing automatically.
+
+  notify-failure:
+    name: Notify failure
+    needs: [quality, dependency-audit, mirrored-files]
+    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # the fix plan reads the failed jobs and their logs
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Open or update ci-failure issue
+        # A failed canary on a schedule is invisible unless someone checks the
+        # Actions tab; an issue produces a real notification. One open issue
+        # collects repeats as comments; closing it acknowledges the fix.
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: open
+          title: Main quality canary failing
+          body: |
+            A nightly lane is red on the current main tree (the run's summary names it):
+
+            - **ci:quality** — usually merge skew: two green PRs whose combined tree was never
+              tested together (strict up-to-date is intentionally off).
+            - **Dependency audit (production tree)** — `pnpm deps:audit:prod` found an advisory:
+              fix it with an `overrides` entry in `pnpm-workspace.yaml` (be-dependency-security).
+            - **Mirrored files match meepzo-fe main** — a true copy (mirrored-files.policy.unit.test.ts)
+              differs between the two mains: one side changed without its sibling PR. Copy the
+              change across in a sibling PR.
+
+            Reproduce locally on main: `pnpm ci:quality` (or `pnpm health` for a full PASS/FAIL table).
+            Fix forward with a short-lived branch + PR; close this issue once the canary is green.

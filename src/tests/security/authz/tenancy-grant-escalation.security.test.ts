@@ -1,0 +1,467 @@
+import { randomUUID } from 'node:crypto';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { createTestApp } from '@/tests/helpers/test-app.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
+import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
+import { createTestOrganization } from '@/tests/factories/organization.factory.js';
+import {
+  seedAllPermissions,
+  createRoleWithPermissions,
+  createMembership,
+  MEMBERSHIP_WRITE_PERMISSION_CODES,
+} from '@/domains/tenancy/__tests__/factories/permission.factory.js';
+import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
+import { generateTestToken } from '@/tests/helpers/test-auth.js';
+
+/**
+ * Grant-grantability at the **route** layer — closes items 3 and 5 of
+ * `docs/reference/security/authorization-coverage-gaps.md` for the two paths that were still open.
+ *
+ * The rule under test is one sentence: *a caller may only hand out permissions they themselves
+ * hold.* `assertCallerCanGrantPermissionCodes` implements it, and it was already asserted for role
+ * permission grants (`PUT /roles/:role_id/permissions`) and role creation. Two paths that call the
+ * same helper had no route-level assertion at all:
+ *
+ * 1. **API-key scopes.** `POST /organization/api-keys` mints a long-lived credential whose `scopes`
+ *    array is caller-supplied. `organization-api-key.validator.scopes` checks only *shape* — 1..50
+ *    strings — so if the grant check were dropped, a member holding nothing but `api-key:manage`
+ *    could mint a key carrying `organization:delete` and then act through it. That is a complete
+ *    privilege-escalation chain out of a single missing call.
+ * 2. **Membership role assignment.** Covered at the unit layer by
+ *    `membership.service.grantable-permissions` but never driven over HTTP, so a controller wired to
+ *    skip the service guard would have gone unnoticed.
+ *
+ * Also covers gap item 5 (caller-scope on `auth-self-mutation`): `POST /tenancy/organizations` must
+ * not let the request body redirect ownership to somebody else.
+ *
+ * e2e — runs in CI (Postgres + Redis required).
+ */
+describe('Security: tenancy grant escalation (API-key scopes, role assignment, ownership)', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    const created = await createTestApp();
+    app = created.app;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await cleanupDatabase();
+    await seedAllPermissions();
+  });
+
+  /**
+   * Builds an organization plus a member whose role holds exactly `permissionCodes` — deliberately
+   * *not* the owner-with-everything shortcut, because the whole point is a caller with a partial
+   * permission set.
+   */
+  async function createMemberHolding(permissionCodes: string[]) {
+    const owner = await createTestUser();
+    const organization = await createTestOrganization({ ownerUserId: owner.id });
+    const actor = await createTestUser();
+    const role = await createRoleWithPermissions({
+      organizationId: organization.id,
+      permissionCodes,
+    });
+    await createMembership({
+      userId: actor.id,
+      organizationId: organization.id,
+      roleId: role.id,
+    });
+    const token = await generateTestToken({
+      userId: actor.public_id,
+      organizationPublicId: organization.public_id,
+    });
+    return { owner, organization, actor, role, token };
+  }
+
+  describe('API-key scopes cannot exceed the caller permission set', () => {
+    it('denies minting a key whose scopes include a permission the caller does not hold', async () => {
+      // The caller can manage API keys but holds no organization:delete. Requesting it as a scope
+      // is an attempt to launder a permission through a credential.
+      const { token } = await createMemberHolding([
+        TENANCY_PERMISSIONS.API_KEY_MANAGE,
+        TENANCY_PERMISSIONS.API_KEY_READ,
+      ]);
+
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token,
+        payload: {
+          name: 'escalation-attempt',
+          scopes: [TENANCY_PERMISSIONS.ORGANIZATION_DELETE],
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.body).toContain('permission');
+    });
+
+    it('denies a scope set that mixes held and un-held permissions (no partial grant)', async () => {
+      // A single un-held code must poison the whole request — never "create the key with the
+      // subset it is allowed to have", which would silently issue a weaker key the caller did not
+      // ask for and would not audit.
+      const { token } = await createMemberHolding([
+        TENANCY_PERMISSIONS.API_KEY_MANAGE,
+        TENANCY_PERMISSIONS.API_KEY_READ,
+        TENANCY_PERMISSIONS.ORGANIZATION_READ,
+      ]);
+
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token,
+        payload: {
+          name: 'partial-escalation',
+          scopes: [TENANCY_PERMISSIONS.ORGANIZATION_READ, TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE],
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+
+      // And nothing was persisted — a 403 emitted after the insert would still read as a denial.
+      const list = await injectAuthenticated(app, {
+        method: 'GET',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token,
+      });
+      expect(list.statusCode).toBe(200);
+      expect((list.json() as { data: unknown[] }).data).toHaveLength(0);
+    });
+
+    it('denies a scope that is not in the permission catalog at all', async () => {
+      // The shape validator accepts any 1..100-char string, so an invented code reaches the guard.
+      // It must fail the `knownPermissionCodes` half of the check, not be quietly stored.
+      const { token } = await createMemberHolding([TENANCY_PERMISSIONS.API_KEY_MANAGE]);
+
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token,
+        payload: { name: 'invented-scope', scopes: ['organization:superuser'] },
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    it('permits a scope set fully contained in the caller permissions (the guard is not a blanket deny)', async () => {
+      const { token } = await createMemberHolding([
+        TENANCY_PERMISSIONS.API_KEY_MANAGE,
+        TENANCY_PERMISSIONS.API_KEY_READ,
+        TENANCY_PERMISSIONS.ORGANIZATION_READ,
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+      ]);
+
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token,
+        payload: {
+          name: 'legitimate-key',
+          scopes: [TENANCY_PERMISSIONS.ORGANIZATION_READ, TENANCY_PERMISSIONS.MEMBERSHIP_READ],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      // The serializer deliberately drops `scopes` (they are a server-side capability, not a
+      // display field), so the key's existence is asserted through the list route instead.
+      const body = response.json() as { data: { api_key: { id: string }; raw_key: string } };
+      expect(body.data.raw_key).toBeTruthy();
+
+      const list = await injectAuthenticated(app, {
+        method: 'GET',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token,
+      });
+      expect(list.statusCode).toBe(200);
+      const keys = (list.json() as { data: { id: string; name: string }[] }).data;
+      expect(keys).toHaveLength(1);
+      expect(keys[0]?.name).toBe('legitimate-key');
+    });
+  });
+
+  describe('reactivating a revoked API key is a fresh grant of its scopes', () => {
+    // PATCH status REVOKED → ACTIVE brings the key's old secret and stored scopes back to life. A
+    // member holding only `api-key:manage` must not be able to revive a broader key — whose
+    // retained secret then acts with authority they could neither mint nor rotate.
+    async function revokedBroadKeyInOrganization() {
+      const broad = await createMemberHolding([
+        TENANCY_PERMISSIONS.API_KEY_MANAGE,
+        TENANCY_PERMISSIONS.API_KEY_READ,
+        ...MEMBERSHIP_WRITE_PERMISSION_CODES,
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+      ]);
+      const created = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token: broad.token,
+        payload: { name: 'broad-key', scopes: [TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE] },
+      });
+      expect(created.statusCode).toBe(200);
+      const broadKeyId = (created.json() as { data: { api_key: { id: string } } }).data.api_key.id;
+      const revoked = await injectAuthenticated(app, {
+        method: 'PATCH',
+        url: testApiPath(`/tenancy/organization/api-keys/${broadKeyId}`),
+        token: broad.token,
+        payload: { status: 'REVOKED' },
+      });
+      expect(revoked.statusCode).toBe(200);
+      return { broad, broadKeyId };
+    }
+
+    it('denies a key manager who does not hold every scope on the key', async () => {
+      const { broad, broadKeyId } = await revokedBroadKeyInOrganization();
+      const limitedUser = await createTestUser();
+      const limitedRole = await createRoleWithPermissions({
+        organizationId: broad.organization.id,
+        permissionCodes: [TENANCY_PERMISSIONS.API_KEY_MANAGE, TENANCY_PERMISSIONS.API_KEY_READ],
+      });
+      await createMembership({
+        userId: limitedUser.id,
+        organizationId: broad.organization.id,
+        roleId: limitedRole.id,
+      });
+      const limitedToken = await generateTestToken({
+        userId: limitedUser.public_id,
+        organizationPublicId: broad.organization.public_id,
+      });
+
+      const response = await injectAuthenticated(app, {
+        method: 'PATCH',
+        url: testApiPath(`/tenancy/organization/api-keys/${broadKeyId}`),
+        token: limitedToken,
+        payload: { status: 'ACTIVE' },
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    it('denies an API-key principal (no acting user) even with api-key:manage', async () => {
+      const { broad, broadKeyId } = await revokedBroadKeyInOrganization();
+      const manager = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/api-keys'),
+        token: broad.token,
+        payload: {
+          name: 'manager-key',
+          scopes: [TENANCY_PERMISSIONS.API_KEY_MANAGE, TENANCY_PERMISSIONS.API_KEY_READ],
+        },
+      });
+      expect(manager.statusCode).toBe(200);
+      const managerRawKey = (manager.json() as { data: { raw_key: string } }).data.raw_key;
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: testApiPath(`/tenancy/organization/api-keys/${broadKeyId}`),
+        headers: { 'x-api-key': managerRawKey },
+        payload: { status: 'ACTIVE' },
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    it('permits a member holding every scope on the key (the guard is not a blanket deny)', async () => {
+      const { broad, broadKeyId } = await revokedBroadKeyInOrganization();
+
+      const response = await injectAuthenticated(app, {
+        method: 'PATCH',
+        url: testApiPath(`/tenancy/organization/api-keys/${broadKeyId}`),
+        token: broad.token,
+        payload: { status: 'ACTIVE' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect((response.json() as { data: { status: string } }).data.status).toBe('ACTIVE');
+    });
+  });
+
+  describe('membership role assignment cannot exceed the caller permission set', () => {
+    it('denies inviting a member into a role holding a permission the caller lacks', async () => {
+      // `membership:manage` lets you add people. It must not let you add them at a privilege level
+      // above your own — otherwise any member-manager can create an accomplice with more power
+      // than themselves, then act through that account.
+      const context = await createMemberHolding([
+        ...MEMBERSHIP_WRITE_PERMISSION_CODES,
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+        TENANCY_PERMISSIONS.ROLE_READ,
+      ]);
+      const privilegedRole = await createRoleWithPermissions({
+        organizationId: context.organization.id,
+        permissionCodes: [TENANCY_PERMISSIONS.ORGANIZATION_DELETE],
+      });
+
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/memberships'),
+        token: context.token,
+        headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
+        payload: {
+          email: `accomplice-${randomUUID()}@example.com`,
+          role_ids: [privilegedRole.public_id],
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    it('permits inviting into a role whose permissions the caller holds', async () => {
+      const context = await createMemberHolding([
+        ...MEMBERSHIP_WRITE_PERMISSION_CODES,
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+        TENANCY_PERMISSIONS.ORGANIZATION_READ,
+      ]);
+      const peerRole = await createRoleWithPermissions({
+        organizationId: context.organization.id,
+        permissionCodes: [TENANCY_PERMISSIONS.ORGANIZATION_READ],
+      });
+
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/memberships'),
+        token: context.token,
+        headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
+        payload: {
+          email: `peer-${randomUUID()}@example.com`,
+          role_ids: [peerRole.public_id],
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+  });
+
+  describe('a membership manager acts only on members whose role is a subset of its own', () => {
+    async function memberInRole(organizationId: number, permissionCodes: string[]) {
+      const user = await createTestUser();
+      const role = await createRoleWithPermissions({ organizationId, permissionCodes });
+      const membership = await createMembership({
+        userId: user.id,
+        organizationId,
+        roleId: role.id,
+      });
+      return { user, membership };
+    }
+
+    it('cannot suspend, re-role or remove a member holding a permission the manager lacks', async () => {
+      // `membership:update` / `membership:delete` must not let a manager lock out the people above them (an Admin
+      // holding `organization:delete`, say), even though it may manage its peers.
+      const context = await createMemberHolding([
+        TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE,
+        TENANCY_PERMISSIONS.MEMBERSHIP_DELETE,
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+      ]);
+      const above = await memberInRole(context.organization.id, [
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+        TENANCY_PERMISSIONS.ORGANIZATION_DELETE,
+      ]);
+      const peerRole = await createRoleWithPermissions({
+        organizationId: context.organization.id,
+        permissionCodes: [TENANCY_PERMISSIONS.MEMBERSHIP_READ],
+      });
+      const url = testApiPath(`/tenancy/organization/memberships/${above.membership.public_id}`);
+
+      for (const payload of [{ status: 'suspended' }, { role_ids: [peerRole.public_id] }]) {
+        const refused = await injectAuthenticated(app, {
+          method: 'PATCH',
+          url,
+          token: context.token,
+          payload,
+        });
+        expect(refused.statusCode, refused.body).toBe(403);
+      }
+      const removal = await injectAuthenticated(app, {
+        method: 'DELETE',
+        url: `${url}?reason=not_needed`,
+        token: context.token,
+      });
+      expect(removal.statusCode, removal.body).toBe(403);
+    });
+
+    it('may suspend and remove a member whose permissions it holds (the guard is not a blanket deny)', async () => {
+      const context = await createMemberHolding([
+        TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE,
+        TENANCY_PERMISSIONS.MEMBERSHIP_DELETE,
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+      ]);
+      const peer = await memberInRole(context.organization.id, [
+        TENANCY_PERMISSIONS.MEMBERSHIP_READ,
+      ]);
+      const url = testApiPath(`/tenancy/organization/memberships/${peer.membership.public_id}`);
+
+      const suspended = await injectAuthenticated(app, {
+        method: 'PATCH',
+        url,
+        token: context.token,
+        payload: { status: 'suspended' },
+      });
+      expect(suspended.statusCode, suspended.body).toBe(200);
+      const removed = await injectAuthenticated(app, {
+        method: 'DELETE',
+        url: `${url}?reason=not_needed`,
+        token: context.token,
+      });
+      expect(removed.statusCode, removed.body).toBe(204);
+    });
+  });
+
+  describe('POST /tenancy/organizations cannot redirect ownership', () => {
+    it('rejects an owner_user_id in the create body (strict DTO)', async () => {
+      // `auth-self-mutation`: the acting user is the only possible owner of a newly created organization.
+      // A body field that named someone else would let a caller plant an organization under another
+      // user's account — the strict DTO is what prevents it, so the rejection is asserted here.
+      const actor = await createTestUser();
+      const victim = await createTestUser();
+      const token = await generateTestToken({ userId: actor.public_id });
+
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organizations'),
+        token,
+        headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
+        payload: {
+          name: 'Planted Org',
+          slug: `planted-${randomUUID().slice(0, 8)}`,
+          owner_user_id: victim.public_id,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('makes the authenticated caller the owner regardless of what else is in the body', async () => {
+      const actor = await createTestUser();
+      const token = await generateTestToken({ userId: actor.public_id });
+
+      const created = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organizations'),
+        token,
+        headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
+        payload: { name: 'Own Org', slug: `own-${randomUUID().slice(0, 8)}` },
+      });
+      expect(created.statusCode).toBe(200);
+      const organizationId = (created.json() as { data: { id: string } }).data.id;
+
+      // The creator is bootstrapped as owner: they can read the organization through the organization claim and
+      // exercise an owner-only operation (transfer-ownership reaches the owner check, not a 403).
+      const organizationToken = await generateTestToken({
+        userId: actor.public_id,
+        organizationPublicId: organizationId,
+      });
+      const read = await injectAuthenticated(app, {
+        method: 'GET',
+        url: testApiPath('/tenancy/organization'),
+        token: organizationToken,
+      });
+      expect(read.statusCode).toBe(200);
+      expect((read.json() as { data: { id: string } }).data.id).toBe(organizationId);
+    });
+  });
+});

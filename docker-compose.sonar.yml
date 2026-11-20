@@ -1,0 +1,78 @@
+# Local SonarQube instance for code quality analysis.
+# Usage:
+#   docker compose -f docker-compose.sonar.yml up -d   # start SonarQube
+#   docker compose -f docker-compose.sonar.yml run --rm scanner  # run scan
+#   docker compose -f docker-compose.sonar.yml down -v           # teardown
+#
+# Dashboard: http://localhost:9000  (admin / admin on first login)
+# Pinned by tag and digest (H-12), and published on 127.0.0.1 only (H-8). The scanner reaches the
+# server by its service name on the compose network, so it needs no host port.
+
+# The project name is pinned, so a push from a git worktree reuses this checkout's containers and
+# volumes instead of colliding on their fixed container names (the default name is the folder's).
+# It is docker-compose.yml's project too, so each file would call the other's containers orphans:
+# the commands that run them set COMPOSE_IGNORE_ORPHANS=true. Never answer that warning here with
+# --remove-orphans, which deletes the other file's containers (Postgres and Redis, or SonarQube).
+name: meepzo-be
+
+services:
+  sonarqube:
+    # Pinned by digest (H-12): a tag can be re-pointed at other bytes; the digest cannot.
+    image: sonarqube:25.5.0.107428-community@sha256:26b5a4f25bc6cb27bffa3f6c6b737254b0ffea7168c379921070b7b769315f2c
+    container_name: meepzo-be-sonarqube
+    # Loopback only (H-8): published on every interface, the server — its admin password on first
+    # boot is admin/admin — answered anyone on the same network.
+    ports:
+      - '127.0.0.1:9000:9000'
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: 'true'
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_logs:/opt/sonarqube/logs
+      - sonarqube_extensions:/opt/sonarqube/extensions
+    # The Elasticsearch index lives in RAM. On a disk where under 10% of the size is free — a cloud
+    # session's disk allowance (22 GB free of 252 GB) — Elasticsearch's high watermark refuses to
+    # place the index, the cluster goes RED and SonarQube stops during start-up. The index is
+    # rebuilt from the database (the volume above) at every start, so nothing is lost.
+    tmpfs:
+      - /opt/sonarqube/data/es8:size=2g,uid=1000,gid=0,mode=0770
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:9000/api/system/status | grep -q "UP"']
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
+
+  scanner:
+    image: sonarsource/sonar-scanner-cli:11@sha256:46341f2c2dc560381414e90347885f5cddc716db080adcbafc1cac13e1473094
+    container_name: meepzo-be-sonar-scanner
+    profiles: ['scan']
+    depends_on:
+      sonarqube:
+        condition: service_healthy
+    volumes:
+      - .:/usr/src
+    working_dir: /usr/src
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    # SCM analysis is off: the gate fails on ANY open issue, so blame/new-code data never changes its
+    # verdict — and the scanner's JGit crashes ("Bare Repository has neither a working tree, nor an
+    # index") on a checkout whose shared .git/config sets core.bare=true with per-worktree overrides
+    # (extensions.worktreeConfig), which git itself handles.
+    # The token comes ONLY from the SONAR_TOKEN environment variable above, which the scanner reads
+    # natively. Passing it again as -Dsonar.token made the scanner log "Property 'sonar.token' with
+    # value '<token>' is overridden with value '<token>'" — the token in plain text in every
+    # pre-commit run's output. (No comments inside the folded block below: it is one command line.)
+    command: >
+      sonar-scanner
+        -Dsonar.scm.disabled=true
+        -Dsonar.projectKey=meepzo-be
+        -Dsonar.projectName="meepzo-be"
+        -Dsonar.projectVersion=3.5.1-dev.0
+        -Dsonar.host.url=http://sonarqube:9000
+
+volumes:
+  sonarqube_data:
+  sonarqube_logs:
+  sonarqube_extensions:

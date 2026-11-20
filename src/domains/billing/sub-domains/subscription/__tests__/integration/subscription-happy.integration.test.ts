@@ -1,0 +1,139 @@
+import { randomUUID } from 'node:crypto';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { createTestApp } from '@/tests/helpers/test-app.js';
+import { injectAuthenticated, injectRoute } from '@/tests/helpers/test-http-inject.helper.js';
+import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
+import { createTestOrganization } from '@/tests/factories/organization.factory.js';
+import { createTestPlan } from '@/tests/factories/plan.factory.js';
+import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
+import { generateTestToken } from '@/tests/helpers/test-auth.js';
+import {
+  seedPermissions,
+  createRoleWithPermissions,
+  createMembership,
+} from '@/domains/tenancy/__tests__/factories/permission.factory.js';
+import { buildStripeWebhookTestSignatureHeader } from '@/tests/contract/helpers/stripe-signature.js';
+import { env } from '@/shared/config/env.config.js';
+import type { FastifyInstance } from 'fastify';
+
+vi.mock('@/domains/billing/sub-domains/subscription/stripe-payment-provider.js', async () => {
+  const { FakePaymentProvider } = await import(
+    '@/domains/billing/__tests__/factories/fake-payment-provider.js'
+  );
+  return { StripePaymentProvider: FakePaymentProvider };
+});
+
+const SUBSCRIPTION_PERMISSIONS = ['subscription:read', 'subscription:manage'];
+
+/**
+ * Happy paths for subscription create (200) and update (200) with the payment
+ * provider mocked at the PaymentProvider port implementation, plus
+ * `POST /billing/webhook` with a properly signed Stripe event (200).
+ */
+describe('Billing subscription — happy paths (mocked payment provider)', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    const { app: testApplication } = await createTestApp();
+    app = testApplication;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await cleanupDatabase();
+  });
+
+  async function createAuthorizedBillingContext() {
+    await seedPermissions(SUBSCRIPTION_PERMISSIONS);
+    const user = await createTestUser();
+    const organization = await createTestOrganization({ ownerUserId: user.id });
+    const role = await createRoleWithPermissions({
+      organizationId: organization.id,
+      permissionCodes: SUBSCRIPTION_PERMISSIONS,
+      createdByUserId: user.id,
+    });
+    await createMembership({
+      userId: user.id,
+      organizationId: organization.id,
+      roleId: role.id,
+    });
+    const token = await generateTestToken({
+      userId: user.public_id,
+      organizationPublicId: organization.public_id,
+    });
+    return { user, organization, token };
+  }
+
+  it('POST /billing/subscriptions creates a subscription (200)', async () => {
+    const { token } = await createAuthorizedBillingContext();
+    const plan = await createTestPlan({ stripePriceMonthlyId: 'price_test_fake' });
+
+    const response = await injectAuthenticated(app, {
+      method: 'POST',
+      url: testApiPath('/billing/subscriptions'),
+      token,
+      headers: { 'x-idempotency-key': `subscription-happy-${randomUUID()}` },
+      payload: { plan_id: plan.public_id, billing_cycle: 'monthly' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+  });
+
+  it('POST /billing/webhook accepts a signed Stripe event (200)', async () => {
+    const webhookSigningSecret = env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSigningSecret) {
+      throw new Error('Signed webhook acceptance requires STRIPE_WEBHOOK_SECRET');
+    }
+
+    const user = await createTestUser();
+    const organization = await createTestOrganization({ ownerUserId: user.id });
+    const plan = await createTestPlan({ stripePriceMonthlyId: 'price_test_fake' });
+    const subscription = await createTestSubscription({
+      organizationId: organization.id,
+      planId: plan.id,
+      providerSubscriptionId: `sub_legacy_${Date.now()}`,
+    });
+
+    const eventPayload = {
+      id: `evt_legacy_${Date.now()}`,
+      object: 'event',
+      type: 'customer.subscription.updated',
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          id: subscription.provider_subscription_id,
+          object: 'subscription',
+          status: 'active',
+          items: {
+            data: [
+              {
+                current_period_start: Math.floor(Date.now() / 1000),
+                current_period_end: Math.floor(Date.now() / 1000) + 86_400,
+              },
+            ],
+          },
+        },
+      },
+    };
+    const rawPayload = JSON.stringify(eventPayload);
+    const stripeSignature = buildStripeWebhookTestSignatureHeader({
+      rawPayload,
+      webhookSigningSecret,
+    });
+
+    const response = await injectRoute(app, {
+      method: 'POST',
+      url: testApiPath('/billing/webhook'),
+      headers: {
+        'stripe-signature': stripeSignature,
+        'content-type': 'application/json',
+      },
+      payload: Buffer.from(rawPayload),
+    });
+    expect(response.statusCode, response.body).toBe(200);
+  });
+});

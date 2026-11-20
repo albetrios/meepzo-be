@@ -1,0 +1,44 @@
+{
+  "project": {
+    "name": "meepzo-be",
+    "displayName": "Meepzo Backend",
+    "brandName": "Meepzo",
+    "previousNames": [
+      "core-be",
+      "core-fe",
+      "clinovia-be",
+      "clinovia-fe",
+      "clinozy-be",
+      "clinozy-fe"
+    ],
+    "previousOwners": ["nikunjmavani"],
+    "packageName": "meepzo-be",
+    "securityContact": "nikunj.mavani@albetrios.com"
+  },
+  "git": {
+    "protectedBranches": ["main"],
+    "defaultBranch": "main"
+  },
+  "environments": [
+    {
+      "name": "development",
+      "label": "Development",
+      "nodeEnvironment": "development",
+      "protected": true,
+      "isDefault": true
+    },
+    {
+      "name": "production",
+      "label": "Production",
+      "nodeEnvironment": "production",
+      "protected": true
+    }
+  ],
+  "providers": {
+    "github": {
+      "enabled": true,
+      "repository": "albetrios/meepzo-be",
+      "owners": ["nikunjmavani"]
+    }
+  }
+}

@@ -1,0 +1,157 @@
+# Opens or updates a ci-failure issue when PR CI fails on a Dependabot pull request, and closes it
+# when that pull request's PR CI is green again — through the shared ci-failure-issue action, the
+# one way every workflow here reports a failure.
+# Low-risk (npm-non-major) Dependabot PRs auto-merge after approval
+# (dependabot-auto-merge.yml); majors / security / github-actions / docker are manual.
+
+name: Dependabot CI triage
+
+# workflow_run never checks out or runs PR code here — it only opens an issue, with the run's
+# fields passed through env.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    # Must match the `name:` of pr-ci.yml exactly — a stale name here means this
+    # workflow never fires (it silently listens for a name that no longer exists).
+    workflows: ["PR CI"]
+    types: [completed]
+
+concurrency:
+  group: dependabot-ci-triage-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+jobs:
+  ci-failed-triage:
+    name: CI failed triage
+    # A timed-out PR CI run ends `timed_out`; a superseded one ends `cancelled` and is not a failure.
+    if: >-
+      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') &&
+      github.event.workflow_run.event == 'pull_request' &&
+      (
+        github.event.workflow_run.actor.login == 'dependabot[bot]' ||
+        github.event.workflow_run.actor.login == 'app/dependabot'
+      ) &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # the fix plan reads the failed PR CI run's jobs and their logs
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Describe the failed Dependabot pull request
+        id: describe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          pr_number="$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")"
+          if [ -z "$pr_number" ]; then
+            echo "No pull request linked to failed workflow run; skipping issue."
+            exit 0
+          fi
+
+          author_login="$(gh pr view "$pr_number" --json author --jq '.author.login')"
+          if [ "$author_login" != "app/dependabot" ] && [ "$author_login" != "dependabot[bot]" ]; then
+            echo "PR author is not Dependabot: $author_login"
+            exit 0
+          fi
+
+          metadata_file="$(mktemp)"
+          gh pr view "$pr_number" --json url,title,body,labels,baseRefName > "$metadata_file"
+
+          is_security="$(jq -r '
+            ([.labels[]?.name] | index("security")) != null
+            or ((.title // "") + "\n" + (.body // "") | ascii_downcase | test("security update|security-updates group"))
+          ' "$metadata_file")"
+          pr_url="$(jq -r '.url' "$metadata_file")"
+          pr_title="$(jq -r '.title' "$metadata_file")"
+          base_ref="$(jq -r '.baseRefName' "$metadata_file")"
+
+          if [ "$is_security" = "true" ]; then
+            issue_title="Security Dependabot PR blocked by CI: PR #$pr_number"
+          else
+            issue_title="Dependabot PR blocked by CI: PR #$pr_number"
+          fi
+
+          delimiter="body_$(openssl rand -hex 8)"
+          {
+            echo "title=$issue_title"
+            echo "body<<$delimiter"
+            cat <<EOF
+          PR CI failed for a Dependabot pull request. Merge manually after checks pass and review.
+
+          - PR: $pr_url
+          - PR title: $pr_title
+          - Base branch: $base_ref
+          - Security update: $is_security
+
+          ## Triage checklist
+
+          - [ ] Open the failed PR CI run and identify which job(s) failed.
+          - [ ] Reproduce locally (\`pnpm ci:local\` or the failing job command).
+          - [ ] Fix the breakage on the Dependabot branch, or close the PR and apply the fix manually.
+          - [ ] For security updates, prioritize per \`SECURITY.md\` severity targets.
+          - [ ] Re-run PR CI — the next green run on this PR closes this issue.
+          EOF
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the ci-failure-issue action
+        if: steps.describe.outputs.title != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/actions/ci-failure-issue
+
+      - name: Open or update the ci-failure issue
+        if: steps.describe.outputs.title != ''
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: open
+          title: ${{ steps.describe.outputs.title }}
+          body: ${{ steps.describe.outputs.body }}
+          labels: dependencies
+          run-id: ${{ github.event.workflow_run.id }}
+          head-sha: ${{ github.event.workflow_run.head_sha }}
+
+  ci-passed-close:
+    name: CI passed — close the issue
+    # The phrase search in the action finds the security-titled issue too.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      (
+        github.event.workflow_run.actor.login == 'dependabot[bot]' ||
+        github.event.workflow_run.actor.login == 'app/dependabot'
+      ) &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.pull_requests[0] != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/actions/ci-failure-issue
+
+      - name: Close the open ci-failure issue
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: close
+          title: 'Dependabot PR blocked by CI: PR #${{ github.event.workflow_run.pull_requests[0].number }}'
+          close-comment: PR CI is green again on this Dependabot pull request — closing automatically.

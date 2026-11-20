@@ -1,0 +1,100 @@
+autoInstallPeers: true
+engineStrict: true
+
+allowBuilds:
+  # OpenAPI linter pulled in by @scalar/cli; its postinstall downloads a binary that only
+  # `scalar document lint` runs — the repo uses the CLI to publish, never to lint — so deny it.
+  '@quobix/vacuum': false
+  # Telemetry package pulled in transitively; deny its postinstall build so a
+  # strict install does not fail on an undecided build script (ERR_PNPM_IGNORED_BUILDS).
+  '@scarf/scarf': false
+  '@sentry/node-cpu-profiler': true
+  argon2: true
+  cpu-features: true
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
+  ssh2: true
+  vue-demi: false
+
+# Advisories accepted because no fixed version exists go under `auditConfig:` → `ignoreGhsas:`,
+# one `- GHSA-…` line each, under a comment naming its path and the condition for removing it.
+# Prefer an override below whenever a fix exists. None is accepted today: braces
+# (GHSA-vfj7-8cjw-p6xm) left on 2026-11-05 — the advisory database no longer reports the locked
+# 3.0.3, so `pnpm audit` is clean without it (as in meepzo-fe since 2026-10-24) — and minimatch
+# (GHSA-g3hv-75wg-m249) is fixed by the @stryker-mutator/core override below.
+
+overrides:
+  # Only advisories a dependency pins or caps below the fix. A version selector (`pkg@<fixed`)
+  # lifts just the vulnerable versions onto the patched release of the SAME major; a parent
+  # selector (`parent>pkg`) confines an unavoidable major jump to the one dependency that needs
+  # it. Never an open-ended floor: it moves every consumer onto whatever major is newest (up or,
+  # with a cap, down) without anyone choosing that. An entry no longer needed is removed — check
+  # by deleting it and re-resolving (`pnpm install --lockfile-only`), then `pnpm deps:audit`.
+  #
+  # js-yaml <4.3.2 — CVE-2026-59870 (high, !!omap quadratic CPU, fixed 4.3.1) and the
+  # maxTotalMergeKeys CPU advisory (high, fixed 4.3.2). openapi-to-postmanv2 pins 4.3.0.
+  'js-yaml@<4.3.2': '^4.3.2'
+  # katex <0.18.2 — GHSA-238p-pmpm-9mq7 (low). Dev tree only: micromark-extension-math caps
+  # ^0.16 and no 0.16 fix exists, so the jump is confined to it.
+  'micromark-extension-math>katex': '>=0.18.2 <1'
+  # qs <6.16.1 — GHSA-6pq8-jhm2-2vcw (moderate, `stringify` with arrayFormat 'comma' throws on a
+  # non-callable own `toString`) and the older GHSA-x5fp-wj9c-mxmx / GHSA-4mjr-xmp4-gh2g (moderate).
+  # express 5.2.1 (@modelcontextprotocol/sdk, the production tree) declares ^6.14.0 and resolved
+  # 6.16.0; typed-rest-client (@stryker-mutator/core) pins 6.15.1.
+  'qs@<6.16.1': '^6.16.1'
+  # @faker-js/faker <=10.4.0 — GHSA-qxc2-j82w-r537 (high, `helpers.fake` template injection).
+  # postman-collection pins 5.5.3 and no 5.x fix exists, so the jump is confined to it.
+  'postman-collection>@faker-js/faker': '^10.6.0'
+  # uuid <14.0.0 — GHSA-w5hq-g745-h8pq / GHSA-qmq6-f8pr-cx5x (buffer bounds in v3/v5/v6).
+  # postman-collection pins 8.3.2; confined to it.
+  'postman-collection>uuid': '^14.0.1'
+  # re2js <2.8.7 — GHSA-gg6h-894w-4m9c (high, quadratic-time lookbehind DoS). Dev tree only:
+  # markdownlint (via markdownlint-cli2) pins 2.8.6; confined to it, on the 2.8 patch line.
+  'markdownlint>re2js': '~2.8.7'
+  # smol-toml <1.9.0 — GHSA-r4xh-jqrq-34v2 (moderate, quadratic parse) and the older DoS fixes.
+  # markdownlint-cli2 pins 1.8.0.
+  'smol-toml@<1.9.0': '^1.9.0'
+  # undici <7.30.1 — GHSA-xjj6-f33q-929c (high, excessive content-encodings DoS),
+  # GHSA-4qv8-2p9j-2685 / GHSA-f72v-6w45-q472 (moderate) and the older 7.29.1 fixes.
+  # @scalar/json-magic pins 7.29.1; the 8.x consumers keep their major.
+  'undici@<7.30.1': '^7.30.1'
+  # undici 8.x <8.12.2 — the same three advisories on the 8 line. Dev tree only: @scalar/cli
+  # pins 8.10.2; confined to it (jsdom already resolves 8.12.2).
+  '@scalar/cli>undici': '^8.12.2'
+  # markdown-it <15.0.3 — GHSA-r7fv-28h4-cvq7 / GHSA-gfr2-rv44-r23c (high), GHSA-vfgh-jcmw-g37q
+  # (low). Dev tree only: markdownlint-cli2 pins 15.0.1.
+  'markdown-it@<15.0.3': '^15.0.3'
+  # yaml 1.10.2 — stack overflow on deeply nested collections (moderate), fixed in 1.10.3.
+  yaml@1.10.2: 1.10.3
+  # @hono/node-server <2.1.3 (moderate, fixed 2.1.3). Dev tree only: the @scalar/cli servers
+  # resolved 2.1.1; the same major.
+  '@hono/node-server@<2.1.3': '^2.1.3'
+  # esbuild <=0.24.2 — GHSA-67mh-4wv8-2f99 (moderate). @esbuild-kit/core-utils (via
+  # drizzle-kit) pins ~0.18.20; confined to it, on the 0.25 line drizzle-kit itself declares.
+  '@esbuild-kit/core-utils>esbuild': '^0.25.12'
+  # glob >=9.0.0 <=14.0.1 — GHSA-3g3m-2fjr-6pw4 (moderate, a walk keeps traversing after its
+  # AbortSignal fires). The production tree: @fastify/static (via @bull-board/fastify) and
+  # @sentry/bundler-plugins (via @sentry/node) declare glob 13 and no 13.x fix exists, so the
+  # jump is confined to those two. glob 14 brings minimatch 11, which clears minimatch <11.0.1 —
+  # GHSA-g3hv-75wg-m249 (moderate, globparts amplification DoS) — on the same paths.
+  '@fastify/static>glob': '^14.0.2'
+  '@sentry/bundler-plugins>glob': '^14.0.2'
+  # minimatch >=7.0.0 <11.0.1 — GHSA-g3hv-75wg-m249 (moderate, globparts amplification DoS). Dev
+  # tree only: @stryker-mutator/core pins ~10.2.4 and no 10.x fix exists, so the jump is confined to
+  # it; it imports only `minimatch` and `Minimatch`, both kept in 11. (@stoplight/spectral-core's
+  # minimatch 3 is outside the vulnerable range.)
+  '@stryker-mutator/core>minimatch': '^11.0.1'
+
+# Vitest 5 joins suite + test names with " > "; @stryker-mutator/vitest-runner 10.0.0 joins its test ids
+# with spaces, so no test matched and every mutant ran zero tests. Drop once the runner ships the fix
+# (the entry is version-keyed: bumping the runner without re-keying it fails the install).
+patchedDependencies:
+  # nock 15 intercepts every socket, not only HTTP, and its emulated "connect" reports a refused
+  # connection as established, with no "error" or "close" to follow (still present in 0.45.7), so the
+  # chaos suite's outages stop looking like outages. The patch lets loopback and local IPC
+  # connections — the test harness's own Postgres and Redis — reach Node.js as-is, as nock 14 did;
+  # nock still governs every other host. Re-key or drop it when nock moves to a newer interceptors
+  # line (the entry is version-keyed, so the install fails).
+  '@mswjs/interceptors@0.44.0': patches/@mswjs__interceptors@0.44.0.patch
+  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch

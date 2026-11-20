@@ -1,0 +1,172 @@
+{
+  "description": "Single source of truth for agent hook wiring. tooling/agent-os/generate.ts derives the platform hook configs under agent-os/platforms/ — claude/settings.json (hooks block), cursor/hooks.json, codex/hooks.json — which .claude/settings.json, .cursor/hooks.json, and .codex/hooks.json symlink to; agent-os:generate:check fails on drift. Each entry may target Claude, Cursor, and/or Codex; the generator emits a hook for an agent only when the agent supports that event (platforms/targets.json). Every hook FAILS OPEN except be-guardrails (the destructive-command and secret guard), which fails CLOSED: an error in it blocks the call (H-6).",
+  "hooks": [
+    {
+      "id": "be-session-start",
+      "script": "be-session-start.mjs",
+      "claude": {
+        "event": "SessionStart",
+        "matcher": "startup|resume"
+      },
+      "codex": {
+        "event": "SessionStart",
+        "matcher": "startup|resume",
+        "statusMessage": "Loading meepzo-be session context"
+      }
+    },
+    {
+      "id": "be-prompt-skill-router",
+      "script": "be-prompt-skill-router.mjs",
+      "claude": {
+        "event": "UserPromptSubmit"
+      },
+      "codex": {
+        "event": "UserPromptSubmit",
+        "statusMessage": "Checking meepzo-be skill routing"
+      }
+    },
+    {
+      "id": "be-guard-edits",
+      "script": "be-guard-edits.mjs",
+      "claude": {
+        "event": "PreToolUse",
+        "matcher": "Edit|Write|MultiEdit"
+      }
+    },
+    {
+      "id": "be-guardrails",
+      "script": "be-guardrails.mjs",
+      "claude": {
+        "event": "PreToolUse",
+        "matcher": "Bash|Read|Grep|Edit|Write|MultiEdit"
+      },
+      "codex": {
+        "event": "PreToolUse",
+        "matcher": "^Bash$",
+        "statusMessage": "Checking meepzo-be shell guardrails"
+      }
+    },
+    {
+      "id": "be-edit-hooks",
+      "script": "be-edit-hooks.mjs",
+      "claude": {
+        "event": "PostToolUse",
+        "matcher": "Edit|Write",
+        "if": [
+          "Edit(**)",
+          "Write(**)"
+        ]
+      }
+    },
+    {
+      "id": "be-large-read-nudge",
+      "script": "be-large-read-nudge.mjs",
+      "claude": {
+        "event": "PostToolUse",
+        "matcher": "Read|Grep"
+      }
+    },
+    {
+      "id": "be-injection-scan",
+      "script": "be-injection-scan.mjs",
+      "claude": {
+        "event": "PostToolUse",
+        "matcher": "WebFetch|WebSearch|mcp__.*"
+      },
+      "codex": {
+        "event": "PostToolUse",
+        "matcher": "web|fetch|search|mcp",
+        "statusMessage": "Scanning external content for prompt injection"
+      }
+    },
+    {
+      "id": "be-subagent-verify",
+      "script": "be-subagent-verify.mjs",
+      "claude": {
+        "event": "PostToolUse",
+        "matcher": "Agent|Task"
+      }
+    },
+    {
+      "id": "be-gate-failure-hint",
+      "script": "be-gate-failure-hint.mjs",
+      "claude": {
+        "event": "PostToolUseFailure",
+        "matcher": "Bash"
+      }
+    },
+    {
+      "id": "be-edit-hooks-stop",
+      "script": "be-edit-hooks.mjs",
+      "claude": {
+        "event": "Stop"
+      },
+      "codex": {
+        "event": "Stop",
+        "statusMessage": "Checking meepzo-be completion gates"
+      }
+    },
+    {
+      "id": "be-push-ci-watch",
+      "script": "be-push-ci-watch.mjs",
+      "claude": {
+        "event": "PostToolUse",
+        "matcher": "Bash",
+        "if": ["Bash(git push*)"],
+        "asyncRewake": true,
+        "timeout": 2700
+      }
+    },
+    {
+      "id": "be-turn-end-tests",
+      "script": "be-turn-end-tests.mjs",
+      "claude": {
+        "event": "Stop",
+        "asyncRewake": true,
+        "timeout": 120
+      }
+    },
+    {
+      "id": "be-pre-compact-preserve",
+      "script": "be-pre-compact-preserve.mjs",
+      "claude": {
+        "event": "PreCompact"
+      }
+    },
+    {
+      "id": "be-session-end",
+      "script": "be-session-end.mjs",
+      "claude": {
+        "event": "SessionEnd"
+      }
+    },
+    {
+      "id": "be-cursor-shell-guard",
+      "script": "be-cursor-shell-guard.mjs",
+      "cursor": {
+        "event": "beforeShellExecution"
+      }
+    },
+    {
+      "id": "be-cursor-edit-guard",
+      "script": "be-cursor-edit-guard.mjs",
+      "cursor": {
+        "event": "afterFileEdit"
+      }
+    },
+    {
+      "id": "be-cursor-read-guard",
+      "script": "be-cursor-read-guard.mjs",
+      "cursor": {
+        "event": "beforeReadFile"
+      }
+    },
+    {
+      "id": "be-cursor-mcp-guard",
+      "script": "be-cursor-mcp-guard.mjs",
+      "cursor": {
+        "event": "beforeMCPExecution"
+      }
+    }
+  ]
+}

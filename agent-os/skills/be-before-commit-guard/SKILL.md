@@ -1,0 +1,137 @@
+---
+name: be-before-commit-guard
+description: Ensures code is commit-ready. Invoked when the user runs git commit (enforced by Husky pre-commit) or when the user asks to fix a failed commit. Run the guard checks and fix any failures before committing.
+trigger: .husky/pre-commit, src/scripts/tooling/run-pre-commit-guard.ts
+triggerNote: The guard steps changed — or a commit failed: read the ✗ FAILED at step N/M line
+indexNote: make code commit-ready; run when a pre-commit guard step fails
+---
+
+# Before-commit guard (meepzo-be)
+
+## Purpose
+
+Ensure every **git commit** on this repo passes a fixed set of checks. The guard is **enforced** by the Husky pre-commit hook (`.husky/pre-commit`). When the hook fails or the user asks to fix commit/pre-commit errors, use this skill to resolve the failures.
+
+## When to Use
+
+- **Automatic:** The pre-commit hook runs on every `git commit`. If it fails, the commit is rejected.
+- **Invoke this skill when:**
+  - The user says their commit failed or pre-commit failed
+  - The user asks to "fix before commit", "resolve commit errors", or "make code commit-ready"
+  - The user edits `.husky/pre-commit` or `package.json` lint-staged config (sync the guard steps with this skill)
+
+## What Runs on Commit (Pre-Commit Hook)
+
+The hook in `.husky/pre-commit` delegates to **`pnpm guard:pre-commit`** (labeled steps). If any step fails, the commit is aborted — read the **`✗ FAILED at step N/M:`** line for the failing check. List all steps: **`pnpm guard:pre-commit:list`**.
+
+How it runs: the steps that change the working tree, the index or `node_modules` (lint-staged, the lockfile check, the route catalog, source tree and DBML regenerations) run first, one at a time; the read-only checks then run in parallel, up to four at a time, output captured (`pnpm test:global` and `pnpm docs:check` never together — both touch `docs/openapi/`). A check that fails in parallel runs again alone with its output, and that run decides; the in-process checks (secret/state files, conflict markers, large files) run last. If the parallel runner itself fails, every step runs one at a time; **`pnpm guard:pre-commit --serial`** does that from the start. `pnpm typecheck` is incremental (`node_modules/.cache/typecheck/`).
+
+| Step | Command / check | What to do if it fails |
+| ---- | --------------- | ---------------------- |
+| 1 | `pnpm lint-staged` | Biome on staged `src/**/*.ts` and `tooling/**/*.{ts,mjs,js}`; Biome format on `*.{json,yaml,yml}`; `markdownlint-cli2 --fix` on `*.md`. Run `pnpm lint` / `pnpm format`; for markdown run `pnpm docs:lint:fix`. Fix per **be-code-smells-and-best-practices**. |
+| 1b | When `package.json` / `pnpm-lock.yaml` / `pnpm-workspace.yaml` staged: `pnpm validate:lockfile` | Lockfile out of sync with the manifest — run `pnpm install` and stage `pnpm-lock.yaml`. |
+| 2 | `pnpm typecheck` | TypeScript errors in `src/`. Fix types (no `any`, correct imports). |
+| 3 | `pnpm validate:domain:strict` | Domain structure; warnings fail. Fix per **be-domain-generator** and CLAUDE.md. |
+| 3b | Architecture policy tests (conditional) | `pnpm test:global` — runs when `src/domains/**/*.ts` files are staged; skipped otherwise |
+| 4 | `pnpm validate:scripts-layout` | Scripts under `src/scripts/` layout + MCP optional dependency. Fix per **be-structure-maintainer** / scripts-layout docs. |
+| 5 | `pnpm routes:catalog` + stage `docs/routes.txt` | Regenerates route catalog on every commit; re-stages generated file. |
+| 6 | `pnpm routes:catalog:check` | Fails if `docs/routes.txt` drift after regeneration. |
+| 6b | When `src/**` or `tooling/**` staged: `pnpm tool:project-structure-tree` + stage `docs/reference/architecture/src-structure-tree.txt` | Regenerate committed src layout tree when layout changes. |
+| 6c | When 6b ran: `pnpm tool:project-structure-tree:check` | Fails if structure tree drift. |
+| 7 | When OpenAPI inputs staged: `pnpm docs:check` | Staged: `*.routes.ts`, locale `openapi.json`, `tooling/openapi/**`, codegen scripts. Run `pnpm docs:all` if drift. |
+| 8 | `pnpm tsdoc:check` | TSDoc coverage gate. Fix per **be-tsdoc-export-guard**; refresh budget when counts decrease. |
+| 9 | `pnpm validate:test-naming` (when script exists) | Test filename suffix policy. Fix per **be-test-generator** / be-testing-conventions. |
+| 10 | When `migrations/*.sql` staged: `pnpm db:migrate:lint` | Unsafe SQL. Fix per **be-db-migration-maintainer**. |
+| 10b | When migrations staged: `pnpm tool:generate-dbdiagram` + stage DBML | Local DBML regen (not enforced in CI). |
+| 11 | `pnpm tool:generate-project-identity:check` | Manifest ↔ constants ↔ workflows. Fix per **be-project-identity.mdc**. |
+| 12 | `pnpm tool:sync-env-example` | `.env.example` vs env schema. Run `pnpm tool:sync-env-example --fix` if needed. |
+| 13 | `gitleaks protect --staged` | Secrets in staged files (**required** — install gitleaks, e.g. `brew install gitleaks`; `pnpm setup:local` auto-installs it on macOS). |
+| 14 | No secret/state files staged | Hard-rejects a force-added `.env.<environment>` / `.setup-credentials` / `.setup-state.*` / `setup.secrets.json` (only `.env.example` is allowed). Unstage it — `git restore --staged <file>`. |
+| 15 | Conflict markers | Resolve `<<<<<<<` / `>>>>>>>` in staged files. |
+| 16 | Large files (>3MB; iterations/ exempt) | Unstage or use LFS. |
+| 18 | When a migration or `*.schema.ts` is staged: `pnpm validate:rls-policies` | RLS policy lint on the tables they touch: ENABLE + FORCE row level security, WITH CHECK on every tenant write policy, a migration for every declared table. Early check — a finding blocks. |
+| 19 | `pnpm routes:access-diff` | Who may call each route: the staged `docs/routes.txt` against HEAD's. A widening (new PUBLIC / TOKEN route, weaker gate, changed permission, team-only → both, idempotency dropped) is listed for the PR description to explain; it never blocks the commit. |
+| 20 | When `pnpm-lock.yaml` is staged: `pnpm deps:audit:prod` | Advisories in the production tree; fix with an `overrides` entry (**be-dependency-security**). An unreachable registry passes (the PR audits). Early check — an advisory blocks. |
+
+## Pre-push hook (`.husky/pre-push`)
+
+Runs before `git push` (fast compile gate; full suite is CI):
+
+| Step | Command | What it catches |
+| ---- | ------- | --------------- |
+| 1 | branch-name policy | Branch names outside the allowed prefixes (`main`/`claude/*` + `<type>/…`) — fail-fast; bypass once: `SKIP_BRANCH_CHECK=1 git push` (see `agent-os/rules/be-git-branch-naming.mdc`) |
+| 2–4 | `pnpm typecheck`, `pnpm build`, `pnpm build:check` | Type errors, compile failures, unresolved `@/` aliases in `dist/` |
+| 5 | `pnpm docs:lint:changed --base <push base>` | Markdown lint — when Markdown is pushed |
+| 6–8 | `pnpm tool:project-structure-tree:check`, `routes:catalog:check`, `validate:route-organization-scope` | Generated-doc drift — when `src/`, `tooling/` or a generated doc is pushed |
+| 9–10 | `pnpm agent-os:generate:check`, `pnpm agent-os:check` | Generated platform files drift, a stale skills lock and the other agent-os integrity evals — when `agent-os/` or `tooling/agent-os/` is pushed |
+| 11 | `pnpm security:semgrep:push --base <push base>` | Semgrep on every pushed TypeScript and JavaScript file under `src/` and `tooling/`, tests included: the registry `p/default` plus `tooling/semgrep/rules.yml` (a finding blocks; no semgrep → a warning) |
+| 12 | `pnpm test:pre-push --base <push base>` | The unit tests `pnpm test:select` picks — when unit-relevant files are pushed |
+| 13 | `pnpm test:rls-role:changed --base <push base>` | A statement that needs RLS bypassed (no database context) — the e2e and integration tests of pushed code under `src/domains/`, as the application role `meepzo_be_app`: `pnpm test:select`'s changed-only picks, or a tenancy, user, auth or audit change's own domain tests |
+| 14 | `pnpm sonar:scan` | SonarQube quality gate — when deployed-surface `src/**/*.ts` is pushed; any unresolved issue blocks. **Mandatory — no bypass.** |
+
+One list, `tooling/validate/pre-push-steps.ts`: `.husky/pre-push` is `pnpm guard:pre-push`
+(`tooling/validate/run-pre-push.ts`), and `pnpm test:affected` previews the same steps with why
+each runs. Every step measures the push from one base (`resolveBase`: the upstream, else
+`origin/<trunk>`).
+
+> The SonarQube quality gate runs at **pre-push** (`pnpm guard:pre-push`, the last step), as in meepzo-fe. It is mandatory and has no bypass.
+
+Full PR gate: `pnpm ci:local` or wait for CI (`quality` + `test` + `api-smoke` + …).
+
+## Commit message hook (after pre-commit)
+
+`.husky/commit-msg` runs **`pnpm exec commitlint --edit "$1"`** against [commitlint.config.cjs](../../../commitlint.config.cjs). If your commit is rejected, rewrite the subject line to [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat: …`, `fix: …`, `chore: …`).
+
+## Commands to Run Locally (Same as the Guard)
+
+Before committing, the user (or AI) can run:
+
+```bash
+pnpm guard:pre-commit          # same labeled steps as the hook
+pnpm guard:pre-commit --serial # the same steps, one at a time
+pnpm guard:pre-commit:list     # print step table without running
+pnpm validate                  # biome check + typecheck
+pnpm validate:domain:strict    # domain structure (warnings fail; hook step 3)
+pnpm routes:catalog:check      # docs/routes.txt in sync
+pnpm docs:check                # OpenAPI specs in sync (when routes or openapi inputs change)
+pnpm docs:lint                 # markdownlint (same config + cli2 version as the Docs lane)
+pnpm docs:lint:fix             # auto-fix the markdown nits markdownlint can repair
+pnpm db:migrate:lint           # when editing migrations/*.sql (CI always runs full migrations/)
+pnpm tool:generate-project-identity:check  # manifest ↔ constants ↔ workflows
+pnpm tool:sync-env-example     # .env.example vs env schema
+pnpm sonar:up && pnpm sonar:scan  # SonarQube gate (last pre-push step; when deployed-surface src/**/*.ts pushed) — mandatory, no bypass
+pnpm deps:audit                # optional; CI runs this (may have known moderate in dev deps)
+```
+
+If all pass, the pre-commit hook should pass. If `deps:audit` fails, see **be-dependency-security** (overrides, upgrades).
+
+## What Was Done Previously (Reference)
+
+These one-time or ongoing practices are part of keeping the repo commit-clean:
+
+1. **Format + lint** — Biome on `src/` and `tooling/`; `pnpm format` / `pnpm lint` to fix; `pnpm validate` runs `biome check` + typecheck.
+2. **Lint warnings** — Resolve per **be-code-smells-and-best-practices** / **be-lint-warnings-handler**.
+3. **Typecheck** — `tsc --noEmit --incremental` (`pnpm typecheck`); fix all type errors.
+4. **Domain structure** — `pnpm validate:domain`; domains and sub-domains must match CLAUDE.md layout.
+5. **Dependency audit** — `pnpm audit`; use `pnpm.overrides` for transitive vulns when safe; see **be-dependency-security**.
+6. **Runtime/test warnings (resolved in code):**
+   - **i18next** — `showSupportNotice: false` in `src/shared/middlewares/core/i18n.middleware.ts` so the Locize notice is not logged.
+   - **BullMQ Redis eviction** — In `src/tests/setup.ts`, `console.warn` is filtered for the "Eviction policy is volatile-lru" message so test output is clean; production Redis should use `noeviction` where possible.
+
+## How to Fix When the Hook Fails
+
+1. **Read the hook output** — It will show which step failed (lint-staged, typecheck, validate:domain:strict, be-route-catalog, docs:check, **migration SQL lint**, env-example sync, gitleaks, conflict markers, or large files).
+2. **Run the failing command** — e.g. `pnpm validate` or `pnpm validate:domain` or `gitleaks protect --staged`.
+3. **Apply the right skill** — Use **be-code-smells-and-best-practices**, **be-route-catalog**, **be-env-schema-add**, **be-dependency-security**, or **be-domain-generator** as needed.
+4. **Re-stage and commit** — After fixes, `git add` and `git commit` again.
+
+## Dependencies
+
+- **be-code-quality-guard** — Defines the 3-layer pipeline; pre-commit is Layer 2. When changing `.husky/pre-commit` or lint-staged, keep both skills in sync.
+- **be-code-smells-and-best-practices** — Fix lint/type issues when the hook fails.
+- **be-dependency-security** — For `pnpm audit` failures and overrides.
+
+## Maintaining This Skill
+
+- If new pre-commit steps are added to `.husky/pre-commit`, update the "What Runs on Commit" table and the fix instructions.
+- If the project adds new guard checks (e.g. env-example sync), add them to the hook and document them here.

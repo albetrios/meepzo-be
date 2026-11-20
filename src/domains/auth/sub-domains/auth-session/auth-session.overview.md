@@ -1,0 +1,50 @@
+`src/domains/auth/sub-domains/auth-session/`
+
+# Auth session
+
+Parent: [auth](../../auth.overview.md)
+
+## Purpose
+
+Session lifecycle: create on successful authentication, validate on every authenticated request, revoke on logout / admin-revoke / expiry, and prune on retention. The sub-domain owns the `auth_sessions` table, the JWT-hash-keyed cache used by the auth middleware, and the retention worker that purges expired sessions.
+
+## Key invariants
+
+- **One JWT per session**: `auth_sessions.token_hash = sha256(jwt)` is unique. A second `signAccessToken` call for the same user produces a fresh row, not an alias of an existing one.
+- **Revocation propagation ≤ 60 s**: the auth middleware's positive cache uses `SESSION_TOKEN_CACHE_TTL_SECONDS = 60`. A revoked session keeps working at most one minute past revocation.
+- **Origin-checked refresh**: the refresh path requires the `session_id` cookie + matching `Origin` header (CSRF defence). See [docs/reference/security/csrf-and-session-cookies.md](docs/reference/security/csrf-and-session-cookies.md).
+- **MFA assurance**: `auth_sessions.mfa_verified_at` is set when the session proves a second factor — created by the MFA login challenge, or marked by `markSessionMfaVerified` after an authenticated MFA verification or enrollment confirmation (only on a non-revoked, unexpired row). It is never cleared while the session lives; switch and refresh mint `amr: ['mfa']` from it.
+- **The live token names the session's organization**: a switch writes `token_hash` and `organization_id` together; a refresh signs for the organization it read, then rotates. A switch committing between that read and the rotation moves the session, so `refreshToken` compares the rotated row's `organization_id` with the one it signed for and, when they differ, re-mints for the row's organization and swaps it in (`replaceRefreshedAccessToken` — only while the refreshed token is still the live one). The refresh never answers with a token for the organization the caller just left.
+- **Server-side idle and absolute limits (E-2)**: `POST /auth/refresh` revokes and refuses a session whose `last_active_at` (bumped by every successful refresh) is `AUTH_SESSION_IDLE_TIMEOUT_SECONDS` old (401, `error.reason` `idle_timeout`) or that was created `AUTH_SESSION_ABSOLUTE_TIMEOUT_SECONDS` ago (401, `error.reason` `session_expired`; the row's `expires_at` is set to the same cap at sign-in) — `session-lifetime.ts`. The `session_id` and `csrf_token` cookies are browser-session cookies (no `Max-Age`); there is no "remember this device" option.
+- **Session retention**: rows past `expires_at + retention window` are hard-deleted by the [auth-session retention worker](src/domains/auth/sub-domains/auth-session/workers/).
+
+## Lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> active: signAccessToken + INSERT auth_sessions
+  active --> active: refresh (Origin-checked)
+  active --> revoked: explicit logout / admin revoke / lockout
+  active --> revoked: refresh after idle timeout / absolute cap
+  active --> expired: expires_at < NOW
+  revoked --> purged: retention worker
+  expired --> purged: retention worker
+  purged --> [*]
+```
+
+## Events
+
+This sub-domain neither emits nor consumes domain events. Session lifecycle is reflected in audit log writes via the broader auth flow.
+
+## Failure modes
+
+- **JWT verification fails** (signature, expiry, issuer/audience claims) → 401.
+- **Session row not found** (revoked or pruned) → 401; the cache miss falls through to Postgres and confirms.
+- **Concurrent revocation while the same JWT is in flight** → bounded by `SESSION_TOKEN_CACHE_TTL_SECONDS`; the in-flight request may succeed but the next request after the cache expires fails.
+
+## Policy constants
+
+- `SESSION_TOKEN_CACHE_TTL_SECONDS = 60`
+- `ACCESS_TOKEN_EXPIRY_SECONDS = 900`
+- `AUTH_SESSION_ABSOLUTE_TIMEOUT_SECONDS` (env-tunable; default 43200 — 12 h; the session's `expires_at`)
+- `AUTH_SESSION_IDLE_TIMEOUT_SECONDS` (env-tunable; default 1800 — 30 min since the last refresh)

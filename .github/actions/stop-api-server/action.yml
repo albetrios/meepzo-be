@@ -1,0 +1,43 @@
+name: Stop API server
+description: Stop background API server and optionally print logs on failure
+
+inputs:
+  log-file:
+    description: Server log file path
+    required: false
+    default: server.log
+  print-log-on-failure:
+    description: Print log tail when the workflow step failed
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Print server logs on failure
+      if: failure() && inputs.print-log-on-failure == 'true'
+      env:
+        SERVER_LOG_FILE: ${{ inputs.log-file }}
+      run: |
+        echo "--- ${SERVER_LOG_FILE} (tail 200) ---"
+        tail -n 200 "$SERVER_LOG_FILE" || true
+      shell: bash
+
+    - name: Stop API server
+      if: always()
+      run: |
+        stop_api_process_tree() {
+          local process_id="$1"
+          local child_id
+          while read -r child_id; do
+            if [ -n "$child_id" ]; then
+              stop_api_process_tree "$child_id"
+            fi
+          done < <(pgrep -P "$process_id" || true)
+          kill "$process_id" 2>/dev/null || true
+        }
+        if [ -f server.pid ]; then
+          stop_api_process_tree "$(cat server.pid)"
+          rm -f server.pid
+        fi
+      shell: bash

@@ -1,0 +1,15 @@
+---
+description: Regenerate route catalog and OpenAPI metadata when only routes change.
+globs: src/domains/**/*.routes.ts
+alwaysApply: false
+---
+
+## Route catalog sync
+
+When any `*.routes.ts` file is created or modified, run the **route-change** chain in its order —
+the `src/domains/**/*.routes.ts` row of [`agent-os/docs/skill-triggers.md`](../docs/skill-triggers.md), generated from `agent-os/skills/chains.json` (this
+rule keeps no copy of the steps). This rule's own step, **be-route-catalog**
+(`agent-os/skills/be-route-catalog/SKILL.md`): run `pnpm routes:catalog` once, and
+`pnpm docs:generate:multilang` when operation text changed.
+
+CI enforces drift via `pnpm routes:catalog:check`.

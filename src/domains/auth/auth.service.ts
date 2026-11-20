@@ -1,0 +1,643 @@
+import { createHash } from 'node:crypto';
+import type { Redis } from 'ioredis';
+import {
+  ForbiddenError,
+  NotFoundError,
+  RateLimitedError,
+  UnauthorizedError,
+  ValidationError,
+} from '@/shared/errors/index.js';
+import { assertUserAccountActive } from '@/shared/utils/auth/account-status.util.js';
+import { rateLimitIpKey } from '@/shared/utils/http/rate-limit-ip-key.util.js';
+import { isDisposableEmailBlocked } from '@/shared/utils/text/email.util.js';
+import { resolveAccessTokenRoleForUser } from '@/shared/utils/auth/global-admin-role.util.js';
+import { MFA_AUTHENTICATION_METHOD, signAccessToken } from '@/shared/utils/security/jwt.util.js';
+import { DUMMY_ARGON2_HASH, verifyPassword } from '@/shared/utils/security/password.util.js';
+import { enforceMinimumDuration } from '@/shared/utils/security/anti-enumeration.util.js';
+import {
+  ACCOUNT_LOCKOUT_MINUTES,
+  IP_FAILED_LOGIN_THRESHOLD,
+  IP_FAILED_LOGIN_WINDOW_SECONDS,
+  MAX_FAILED_LOGIN_ATTEMPTS,
+} from '@/shared/constants/index.js';
+import { captureMessage } from '@/infrastructure/observability/sentry/sentry.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { incrementWithExpiryOnFirst } from '@/shared/utils/infrastructure/redis-counter.util.js';
+import type { UserService } from '@/domains/user/user.service.js';
+import type { OrganizationSettingsService } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-settings.service.js';
+import type { AuthSessionService } from './sub-domains/auth-session/auth-session.service.js';
+import {
+  findSessionLapse,
+  SESSION_LAPSE_REASON,
+} from './sub-domains/auth-session/session-lifetime.js';
+import type { MfaService } from './sub-domains/auth-mfa/auth-mfa.service.js';
+import type { AuthMethodService } from './sub-domains/auth-method/auth-method.service.js';
+import { validateLogin } from './auth.validator.js';
+import { completeFirstFactorAuth } from './shared/complete-first-factor-auth.js';
+import {
+  resolveDefaultActiveOrganizationPublicId,
+  findUserActiveOrganizationByPublicId,
+  findUserActiveOrganizationPublicIdByInternalId,
+  ensurePersonalOrganization,
+  resolvePersonalOrganizationPublicId,
+} from '@/domains/tenancy/sub-domains/organization/resolve-active-organization.js';
+import { organizationRequiresMfa } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-mfa-policy.js';
+import type { UserAuthRecord } from '@/domains/user/user.types.js';
+import {
+  PRINCIPAL_SCOPE,
+  withAppDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
+
+const IP_FAILED_LOGIN_KEY_PREFIX = 'auth:failed_login:ip:';
+
+/**
+ * Discriminated result of {@link AuthService.login}: either a fresh access token + session
+ * public id, or an `mfa_required` envelope carrying a short-lived session token used by
+ * the MFA login verify step.
+ *
+ * @remarks
+ * - **Algorithm:** the password branch returns `{ access_token, session_public_id }`;
+ *   when MFA is required by user opt-in or organization policy, the password is consumed
+ *   without issuing a JWT and a Redis-backed MFA session token is returned instead.
+ * - **Failure modes:** consumers should disambiguate via the `mfa_required` field before
+ *   reading either union arm.
+ * - **Side effects:** none — purely the result shape.
+ * - **Notes:** the session is created server-side; clients use the session cookie for refresh.
+ */
+export type LoginResult =
+  | {
+      access_token: string;
+      session_public_id: string;
+      session_refresh_secret: string;
+    }
+  | { mfa_required: true; mfa_session_token: string };
+
+/**
+ * Outcome of {@link AuthService.resetPassword}: the auto-login it completed, plus the user whose
+ * password was reset.
+ *
+ * @remarks
+ * The controller attributes the `auth.password.reset` audit event to `userPublicId` — the MFA
+ * branch issues no access token to read the actor from — and returns only `loginResult`. Before
+ * this field existed the event carried no actor, and the audit service dropped every one.
+ */
+export interface PasswordResetResult {
+  /** Public id of the user whose password was reset. Never part of the response. */
+  userPublicId: string;
+  /** The auto-login: an access token + session, or an `mfa_required` challenge. */
+  loginResult: LoginResult;
+}
+
+/**
+ * Password-login orchestrator for the auth domain.
+ *
+ * @remarks
+ * - **Algorithm:** lookup user by email, verify password (argon2 with optional rehash),
+ *   then either issue a JWT + persisted session or return an `mfa_required` token when MFA
+ *   is enabled on the user or required by organization policy via
+ *   {@link OrganizationSettingsService.userHasOrganizationRequiringMfa}. The account-lockout
+ *   window is checked *after* password verification so a correct credential always bypasses
+ *   it — the lock only rejects further failed attempts, preventing a victim-account DoS.
+ * - **Failure modes:** disposable-email check throws `ValidationError`; bad password,
+ *   missing user, locked account, expired session, inactive user all throw
+ *   `UnauthorizedError` with i18n keys (`errors:invalidEmailOrPassword`,
+ *   `errors:accountLocked`, `errors:invalidOrExpiredSession`, `errors:accountNotActive`).
+ *   An IP over its failed-login budget ({@link IP_FAILED_LOGIN_THRESHOLD} per
+ *   {@link IP_FAILED_LOGIN_WINDOW_SECONDS}) gets `RateLimitedError` (429, `Retry-After` = the
+ *   window's remaining seconds) before any credential work.
+ * - **Side effects:** increments / clears `users.failed_login_count` and sets
+ *   `account_locked_until` after {@link MAX_FAILED_LOGIN_ATTEMPTS} failures; rehashes the
+ *   stored password when argon2 parameters drift; creates and rotates rows in
+ *   `auth.sessions` via {@link AuthSessionService}.
+ * - **Notes:** access tokens are signed RS256 with a SHA-256 hash persisted on the
+ *   session row (refresh uses the session, not the JWT, as the source of truth).
+ */
+export class AuthService {
+  constructor(
+    private readonly userService: UserService,
+    private readonly authSessionService: AuthSessionService,
+    private readonly mfaService: MfaService,
+    private readonly organizationSettingsService: OrganizationSettingsService,
+    private readonly redis: Redis,
+    private readonly authMethodService: AuthMethodService,
+  ) {}
+
+  private buildIpKey(ipAddress: string): string {
+    // The bucket is the caller's rate-limit identity (an IPv6 /64, not the full address — D-3).
+    const bucket = rateLimitIpKey(ipAddress);
+    return `${IP_FAILED_LOGIN_KEY_PREFIX}${createHash('sha256').update(bucket).digest('hex')}`;
+  }
+
+  /**
+   * Refuses the login with 429 + `Retry-After` (the counter's remaining TTL) once this IP has
+   * {@link IP_FAILED_LOGIN_THRESHOLD} failures in the window. Too fast, not unauthenticated: the
+   * caller can retry the same credentials after the wait. Fails open on Redis errors.
+   */
+  private async checkIpLoginLimit(ipAddress: string): Promise<void> {
+    const key = this.buildIpKey(ipAddress);
+    let retryAfterSeconds: number | null = null;
+    try {
+      const raw = await this.redis.get(key);
+      if (raw !== null && Number(raw) >= IP_FAILED_LOGIN_THRESHOLD) {
+        // TTL is whole seconds: 0 in the last second, -2 if the window just ended, -1 never (the
+        // counter always gets its expiry with its first increment) — fall back to the full window.
+        const remainingSeconds = await this.redis.ttl(key);
+        retryAfterSeconds =
+          remainingSeconds === -1 ? IP_FAILED_LOGIN_WINDOW_SECONDS : Math.max(1, remainingSeconds);
+      }
+    } catch (error) {
+      // Redis unavailable — fail open; per-user lockout and rate-limit middleware still protect.
+      logger.warn({ error }, 'auth.ip_limit.check.failed');
+    }
+    if (retryAfterSeconds !== null) {
+      throw new RateLimitedError().withRetryAfter(retryAfterSeconds);
+    }
+  }
+
+  private async recordIpFailedLogin(ipAddress: string): Promise<void> {
+    try {
+      const key = this.buildIpKey(ipAddress);
+      // Atomic INCR + first-increment EXPIRE (route-audit C5) — a crash between a separate INCR and
+      // EXPIRE would otherwise leave a no-TTL counter that throttles the IP indefinitely.
+      const count = await incrementWithExpiryOnFirst({
+        redis: this.redis,
+        key,
+        ttlSeconds: IP_FAILED_LOGIN_WINDOW_SECONDS,
+      });
+      if (count === IP_FAILED_LOGIN_THRESHOLD) {
+        captureMessage({
+          message: 'auth.ip_failed_login.threshold_reached',
+          options: {
+            level: 'warning',
+            extra: { ip_hash: this.buildIpKey(ipAddress), count },
+          },
+        });
+        logger.warn(
+          { ip_hash: this.buildIpKey(ipAddress), count },
+          'auth.ip_failed_login.threshold_reached',
+        );
+      }
+    } catch (error) {
+      logger.warn({ error }, 'auth.ip_limit.record.failed');
+    }
+  }
+
+  async login({
+    body,
+    ipAddress,
+    userAgent,
+  }: {
+    body: unknown;
+    ipAddress: string;
+    userAgent?: string | undefined;
+  }): Promise<LoginResult> {
+    const parsed = validateLogin(body);
+    if (isDisposableEmailBlocked(parsed.email)) {
+      throw new ValidationError('errors:disposableEmail', undefined, undefined, [
+        { field: 'email', messageKey: 'errors:disposableEmail' },
+      ]).withReason('disposable_email');
+    }
+
+    // Reject before expensive argon2 work when this IP has exceeded its failure budget.
+    // Fail open on Redis errors so a Redis outage never locks out legitimate users.
+    await this.checkIpLoginLimit(ipAddress);
+
+    // audit-#15d: floor every failure branch to a common minimum duration. argon2 is
+    // equalized between unknown-email and wrong-password, but the wrong-password branch
+    // additionally performs a Postgres write (registerFailedLoginAttempt) that the
+    // unknown-email branch lacks — a residual timing oracle the other anti-enumeration
+    // endpoints (email code, forgot-password) already mask. Measure from before the
+    // branch divergence (the user lookup) so both paths share the same floor.
+    const startedAtMillis = Date.now();
+
+    const user = await this.userService.findByEmail(parsed.email);
+    if (!user?.password_hash) {
+      // Run a verification against a fixed dummy hash and discard the result so
+      // the "unknown email" path takes the same ~argon2 time as a wrong password,
+      // preventing user enumeration via response timing.
+      await verifyPassword({ plaintext: parsed.password, storedHash: DUMMY_ARGON2_HASH });
+      await this.recordIpFailedLogin(ipAddress);
+      await enforceMinimumDuration({ startedAtMillis });
+      throw new UnauthorizedError('errors:invalidEmailOrPassword');
+    }
+
+    // Lockout is verified AFTER the password so that a correct credential always bypasses it.
+    // Keying the hard lockout purely on the account makes it a victim-DoS vector: anyone who
+    // knows the email could submit wrong passwords to lock the real owner out. Online brute
+    // force is already bounded by the per-IP + per-email rate limits and CAPTCHA on /login, so
+    // the lockout's job is narrowed to throttling *failed* attempts, never denying the owner.
+    const isLockedOut = Boolean(
+      user.account_locked_until && new Date(user.account_locked_until) > new Date(),
+    );
+
+    const { valid: isValid, needsRehash } = await verifyPassword({
+      plaintext: parsed.password,
+      storedHash: user.password_hash,
+    });
+
+    if (!isValid) {
+      // Atomic SQL increment + conditional lock — never a read-modify-write — so two
+      // simultaneous wrong-password attempts cannot both read the same stale count and
+      // collapse two failures into one, which would let an attacker undercount toward lockout.
+      await this.userService.registerFailedLoginAttempt({
+        public_id: user.public_id,
+        options: {
+          maxAttempts: MAX_FAILED_LOGIN_ATTEMPTS,
+          lockoutMinutes: ACCOUNT_LOCKOUT_MINUTES,
+        },
+      });
+      await this.recordIpFailedLogin(ipAddress);
+      // sec-A finding #23: surface a UNIFORM error message for unknown-email, wrong-
+      // password, and currently-locked-out wrong-password. The prior code returned
+      // `errors:accountLocked` only when the email was real AND inside the lockout
+      // window AND the password was wrong — a narrow enumeration oracle that a
+      // credential-stuffing operator could use to confirm "this account has recently
+      // received >= MAX_FAILED_LOGIN_ATTEMPTS failed logins". The lockout itself is
+      // still observable server-side via the structured log below for ops/security
+      // dashboards; the client sees the same response regardless of state.
+      if (isLockedOut) {
+        logger.info({ user_public_id: user.public_id }, 'auth.login.attempt_during_lockout');
+      }
+      // audit-#15d: same floor as the unknown-email branch so the extra Postgres write
+      // above is not observable as a latency difference.
+      await enforceMinimumDuration({ startedAtMillis });
+      throw new UnauthorizedError('errors:invalidEmailOrPassword');
+    }
+
+    // First factor verified — refuse to issue (or escalate to MFA for) a session
+    // for a suspended/locked/deleted account before any token is minted. Passing the row
+    // (not just `status`) also rejects soft-deleted users (sec-U1 defense in depth).
+    assertUserAccountActive({
+      status: user.status,
+      deleted_at: user.deleted_at,
+    });
+
+    // Correct password clears the failure counter and lifts any active lock so the owner is
+    // never held out by attacker-driven failed attempts.
+    if ((user.failed_login_count ?? 0) > 0 || isLockedOut) {
+      await this.userService.updateLoginAttempt({
+        public_id: user.public_id,
+        failed_login_count: 0,
+        account_locked_until: null,
+      });
+    }
+
+    if (needsRehash) {
+      const { hashPassword } = await import('@/shared/utils/security/password.util.js');
+      const newHash = await hashPassword(parsed.password);
+      await this.userService.updatePassword({ public_id: user.public_id, password_hash: newHash });
+    }
+
+    return completeFirstFactorAuth({
+      user: {
+        id: user.id,
+        public_id: user.public_id,
+        email: user.email,
+        status: user.status,
+        is_email_verified: user.is_email_verified,
+        is_mfa_enabled: user.is_mfa_enabled,
+      },
+      ipAddress,
+      userAgent,
+      organizationSettingsService: this.organizationSettingsService,
+      mfaService: this.mfaService,
+      authSessionService: this.authSessionService,
+      // Non-pinned path: self-heal a missing personal organization into the token (item #5).
+      ensurePersonalOrganizationOnMiss: true,
+    });
+  }
+
+  /**
+   * Completes `POST /auth/password/reset` and logs the user straight back in.
+   *
+   * @remarks
+   * - **Algorithm:** delegate the token-consume + password-update + revoke-all-sessions to
+   *   {@link AuthMethodService.resetPassword} (one pinned transaction), then mint a fresh session via
+   *   {@link completeFirstFactorAuth} AFTER that commits — so the resetter's new session is the only
+   *   live one, while any attacker-held session from before the reset is gone.
+   * - **Failure modes:** invalid/expired token → `UnauthorizedError` (from the delegate); a
+   *   suspended/locked/deleted account is refused a session via {@link assertUserAccountActive} even
+   *   though its password was reset (mirrors `login`); an MFA user gets the `mfa_required` arm of
+   *   {@link LoginResult} (the reset never bypasses MFA).
+   * - **Side effects:** the delegate's writes (password, token invalidation, session revoke) plus one
+   *   new `auth_sessions` row (unless MFA is required). The caller sets the session cookie + audits.
+   */
+  async resetPassword({
+    body,
+    ipAddress,
+    userAgent,
+  }: {
+    body: unknown;
+    ipAddress: string;
+    userAgent?: string | undefined;
+  }): Promise<PasswordResetResult> {
+    const user = await this.authMethodService.resetPassword(body);
+    // The password was reset, but a suspended/locked/deleted account is never issued a session.
+    assertUserAccountActive({
+      status: user.status,
+      deleted_at: user.deleted_at,
+    });
+    const loginResult = await completeFirstFactorAuth({
+      user: {
+        id: user.id,
+        public_id: user.public_id,
+        email: user.email,
+        status: user.status,
+        is_email_verified: user.is_email_verified,
+        is_mfa_enabled: user.is_mfa_enabled,
+      },
+      ipAddress,
+      userAgent,
+      organizationSettingsService: this.organizationSettingsService,
+      mfaService: this.mfaService,
+      authSessionService: this.authSessionService,
+      // Non-pinned path: self-heal a missing personal organization into the token (item #5).
+      ensurePersonalOrganizationOnMiss: true,
+    });
+    return { userPublicId: user.public_id, loginResult };
+  }
+
+  async logout(token: string): Promise<void> {
+    await this.authSessionService.revokeSessionByAccessToken(token);
+  }
+
+  async refreshToken({
+    sessionPublicId,
+    refreshSecret,
+  }: {
+    sessionPublicId: string;
+    refreshSecret: string;
+  }): Promise<{ access_token: string; refresh_secret: string }> {
+    // sec-re-05: look the session up via the INCLUDING-REVOKED path so a
+    // refresh-secret replay against an already-revoked session reaches
+    // `refreshSessionCredentials`'s reuse-detection block (the sec-A #9
+    // `findByPublicIdIncludingRevoked` lookup). The prior
+    // `findActiveSessionByPublicId` filtered `is_revoked = true` rows out
+    // here and threw `errors:invalidOrExpiredSession` before the rotation
+    // ran — silently disabling the Sentry `auth.refresh_token.reuse_detected`
+    // signal exactly when it is most informative. Revoked sessions still
+    // fail to refresh because `refreshSessionCredentials`'s rotation UPDATE
+    // filters `is_revoked = false` internally and throws after firing the
+    // reuse-detection block.
+    const session =
+      await this.authSessionService.findSessionByPublicIdIncludingRevoked(sessionPublicId);
+    if (!session) {
+      throw new UnauthorizedError('errors:invalidOrExpiredSession');
+    }
+
+    // E-2: the server owns the idle and absolute limits. A live session idle past
+    // AUTH_SESSION_IDLE_TIMEOUT_SECONDS, or older than AUTH_SESSION_ABSOLUTE_TIMEOUT_SECONDS, is
+    // revoked and refused with the `error.reason` meepzo-fe reads to say why. A revoked row skips
+    // this and reaches the reuse detection below (sec-re-05).
+    if (!session.is_revoked) {
+      const lapse = findSessionLapse({
+        createdAt: session.created_at,
+        lastActiveAt: session.last_active_at,
+        expiresAt: session.expires_at,
+      });
+      if (lapse !== null) {
+        await this.authSessionService.revokeLapsedSession({
+          sessionPublicId,
+          userId: session.user_id,
+        });
+        throw new UnauthorizedError(
+          lapse === SESSION_LAPSE_REASON.IDLE_TIMEOUT
+            ? 'errors:sessionIdleTimeout'
+            : 'errors:sessionExpired',
+        ).withReason(lapse);
+      }
+    }
+
+    if (new Date(session.expires_at) <= new Date()) {
+      throw new UnauthorizedError('errors:sessionExpired').withReason(
+        SESSION_LAPSE_REASON.SESSION_EXPIRED,
+      );
+    }
+
+    const user = await this.userService.findById(session.user_id);
+    if (!user) throw new UnauthorizedError('errors:userNotFound');
+
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedError('errors:accountNotActive');
+    }
+
+    // audit-#3: preserve the organization the caller switched to. The selected organization is
+    // persisted on the session (`organization_id`) by `rebindAccessToken`; refresh must
+    // revalidate it (the user could have lost membership, or the organization could have been
+    // deleted/suspended) and only fall back to the default when it is no longer valid —
+    // never silently move the caller to a different tenant while the UI still shows A.
+    const sessionMfaVerified = session.mfa_verified_at != null;
+    const signForSessionOrganization = async (organizationInternalId: number | null) => {
+      const persistedOrganizationPublicId =
+        organizationInternalId != null
+          ? await findUserActiveOrganizationPublicIdByInternalId({
+              userInternalId: user.id,
+              organizationInternalId,
+            })
+          : undefined;
+      const organizationPublicId = await this.withoutUnmetOrganizationMfa({
+        userId: user.id,
+        organizationPublicId:
+          persistedOrganizationPublicId ??
+          (await resolveDefaultActiveOrganizationPublicId(user.id)),
+        sessionMfaVerified,
+      });
+      return signAccessToken({
+        userId: user.public_id,
+        role: resolveAccessTokenRoleForUser({
+          email: user.email,
+          status: user.status,
+          isEmailVerified: user.is_email_verified,
+          isMfaEnabled: user.is_mfa_enabled,
+        }),
+        organizationPublicId,
+        authenticationMethods: sessionMfaVerified ? [MFA_AUTHENTICATION_METHOD] : undefined,
+      });
+    };
+
+    const jsonWebToken = await signForSessionOrganization(session.organization_id);
+    const rotated = await this.authSessionService.refreshSessionCredentials({
+      sessionPublicId,
+      userPublicId: user.public_id,
+      refreshSecret,
+      nextAccessToken: jsonWebToken,
+    });
+
+    // One live access token per session: a switch that committed between the read above and the
+    // rotation moved the session to another organization, and the token just made live names the
+    // one the caller left. Mint for the organization the session now names and swap it in. A
+    // switch always names an organization, so a null here is never a move.
+    if (rotated.organization_id == null || rotated.organization_id === session.organization_id) {
+      return { access_token: jsonWebToken, refresh_secret: rotated.refresh_secret };
+    }
+    const movedAccessToken = await signForSessionOrganization(rotated.organization_id);
+    await this.authSessionService.replaceRefreshedAccessToken({
+      sessionPublicId,
+      refreshedAccessToken: jsonWebToken,
+      nextAccessToken: movedAccessToken,
+    });
+    return { access_token: movedAccessToken, refresh_secret: rotated.refresh_secret };
+  }
+
+  /**
+   * Switch the active organization to a TEAM (or any) organization the caller is an active
+   * member of: validate membership, re-mint the access token with the new `org` claim, re-bind
+   * the session to it, then remember it as the caller's login default. Rejects with 403 when the
+   * caller is not an active member.
+   *
+   * @remarks
+   * Remembering (`auth.users.last_active_organization_id`, read back by
+   * `resolveDefaultActiveOrganizationPublicId`) runs after the session is re-bound and is
+   * best-effort: the old token is already retired, so failing the response here would strand the
+   * client without its new one. A failure is logged and the next switch writes it again.
+   */
+  async switchToOrganization({
+    userPublicId,
+    sessionPublicId,
+    organizationPublicId,
+  }: {
+    userPublicId: string;
+    sessionPublicId: string;
+    organizationPublicId: string;
+  }): Promise<{ access_token: string; organization_public_id: string }> {
+    // Both reads below run under `app.current_user_public_id` set to the SAME value, so they share one
+    // context instead of opening a transaction each. `findUserActiveOrganizationByPublicId` takes
+    // an INTERNAL id and resolves it back to the public id we already hold — inside the shared
+    // context that resolve is a plain query on an open checkout rather than a second BEGIN.
+    //
+    // `mintForActiveOrganization` stays OUTSIDE deliberately. It re-binds the session under
+    // `app.current_session_public_id`, a different guc, so it must own its transaction — and
+    // nesting it here would hold this checkout open across it, making the request peak at two
+    // concurrent connections instead of taking them one after another.
+    const { user, resolved } = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+      callback: async () => {
+        const record = await this.userService.requireUserRecordByPublicId(userPublicId);
+        if (record.status !== 'ACTIVE') throw new UnauthorizedError('errors:accountNotActive');
+        const organization = await findUserActiveOrganizationByPublicId({
+          userInternalId: record.id,
+          organizationPublicId,
+        });
+        if (!organization) throw new ForbiddenError('errors:insufficientOrganizationPermissions');
+        return { user: record, resolved: organization };
+      },
+    });
+    const switched = await this.mintForActiveOrganization({
+      user,
+      sessionPublicId,
+      organization: resolved,
+    });
+    await this.userService
+      .rememberLastActiveOrganization({ userPublicId, organizationId: resolved.id })
+      .catch((error: unknown) => {
+        logger.warn(
+          { err: error, userPublicId, organizationPublicId: resolved.public_id },
+          'auth.switch_to_organization.remember_failed',
+        );
+      });
+    return switched;
+  }
+
+  /**
+   * Switch the active organization to the caller's own PERSONAL organization. No body — the
+   * server resolves the personal organization from the authenticated user; it can never 403
+   * (you always own your personal organization). 404 only if personal is disabled / missing.
+   */
+  async switchToPersonal({
+    userPublicId,
+    sessionPublicId,
+  }: {
+    userPublicId: string;
+    sessionPublicId: string;
+  }): Promise<{ access_token: string; organization_public_id: string }> {
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    if (user.status !== 'ACTIVE') throw new UnauthorizedError('errors:accountNotActive');
+    // Self-heal: provision the personal organization on demand when personal is enabled but missing,
+    // so this can no longer 404 for a personal-enabled deployment. Returns undefined only when
+    // personal organizations are disabled → 404 as before.
+    const personal = await ensurePersonalOrganization(user);
+    if (!personal) throw new NotFoundError('Personal organization');
+    return this.mintForActiveOrganization({ user, sessionPublicId, organization: personal });
+  }
+
+  /**
+   * Refresh must never mint authority over an organization whose security policy requires MFA
+   * for a session that has not proved a second factor — the case of an invitation accepted after
+   * a first-factor login, or a policy turned on later. Such an organization is replaced by the
+   * user's personal organization when that one does not require MFA, otherwise by none; once the
+   * session completes MFA (step-up), the next refresh returns to the persisted organization.
+   */
+  private async withoutUnmetOrganizationMfa(options: {
+    userId: number;
+    organizationPublicId: string | undefined;
+    sessionMfaVerified: boolean;
+  }): Promise<string | undefined> {
+    const { organizationPublicId } = options;
+    if (
+      !organizationPublicId ||
+      options.sessionMfaVerified ||
+      !(await organizationRequiresMfa(organizationPublicId))
+    ) {
+      return organizationPublicId;
+    }
+    const personalOrganizationPublicId = await resolvePersonalOrganizationPublicId({
+      ownerUserInternalId: options.userId,
+    });
+    if (
+      personalOrganizationPublicId &&
+      personalOrganizationPublicId !== organizationPublicId &&
+      !(await organizationRequiresMfa(personalOrganizationPublicId))
+    ) {
+      return personalOrganizationPublicId;
+    }
+    return undefined;
+  }
+
+  /**
+   * Mint an access token scoped to the given organization and re-bind the session to it — the
+   * shared tail of both switch endpoints — persisting the active organization's internal id on the
+   * session so a later `/auth/refresh` preserves the selection (audit-#3).
+   *
+   * @remarks
+   * An organization whose security policy requires MFA admits only a session that has proved a
+   * second factor (`mfa_verified_at`); otherwise this throws `403 errors:organizationRequiresMfa`
+   * with reason `mfa_required`, and the client completes an MFA step-up (or enrollment) and
+   * retries. The minted token carries `amr: ['mfa']` for such a session.
+   */
+  private async mintForActiveOrganization({
+    user,
+    sessionPublicId,
+    organization,
+  }: {
+    user: UserAuthRecord;
+    sessionPublicId: string;
+    organization: { id: number; public_id: string };
+  }): Promise<{ access_token: string; organization_public_id: string }> {
+    const session = await this.authSessionService.findActiveSessionByPublicId(sessionPublicId);
+    if (!session) throw new UnauthorizedError('errors:invalidOrExpiredSession');
+    const sessionMfaVerified = session.mfa_verified_at != null;
+    if (!sessionMfaVerified && (await organizationRequiresMfa(organization.public_id))) {
+      throw new ForbiddenError('errors:organizationRequiresMfa').withReason('mfa_required');
+    }
+    const jsonWebToken = await signAccessToken({
+      userId: user.public_id,
+      role: resolveAccessTokenRoleForUser({
+        email: user.email,
+        status: user.status,
+        isEmailVerified: user.is_email_verified,
+        isMfaEnabled: user.is_mfa_enabled,
+      }),
+      organizationPublicId: organization.public_id,
+      authenticationMethods: sessionMfaVerified ? [MFA_AUTHENTICATION_METHOD] : undefined,
+    });
+    await this.authSessionService.rebindAccessToken({
+      sessionPublicId,
+      nextAccessToken: jsonWebToken,
+      activeOrganizationId: organization.id,
+    });
+    return {
+      access_token: jsonWebToken,
+      organization_public_id: organization.public_id,
+    };
+  }
+}

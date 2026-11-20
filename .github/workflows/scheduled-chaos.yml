@@ -1,0 +1,107 @@
+name: Scheduled chaos (Toxiproxy)
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-chaos-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+jobs:
+  resolve-target:
+    name: Resolve target
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      merge_commit_sha: ${{ steps.target.outputs.merge_commit_sha }}
+      target_branch: ${{ steps.target.outputs.target_branch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Resolve merge SHA
+        id: target
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          branch="${REF_NAME}"
+          case "$branch" in
+            main) ;;
+            *) branch="main" ;;
+          esac
+          git fetch origin "${branch}" --depth=1
+          sha="$(git rev-parse "origin/${branch}")"
+          echo "merge_commit_sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "target_branch=${branch}" >> "$GITHUB_OUTPUT"
+
+  run-chaos:
+    name: Toxiproxy chaos
+    needs: resolve-target
+    uses: ./.github/workflows/reusable-chaos-toxiproxy.yml
+    with:
+      merge_commit_sha: ${{ needs.resolve-target.outputs.merge_commit_sha }}
+      target_branch: ${{ needs.resolve-target.outputs.target_branch }}
+
+  resolve-success:
+    name: Close ci-failure issue
+    needs: [run-chaos]
+    if: always() && needs.run-chaos.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Close the open ci-failure issue
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: close
+          title: Weekly chaos suite failing
+          close-comment: The chaos suite is green again on main — closing automatically.
+
+  notify-failure:
+    name: Notify failure
+    needs: [resolve-target, run-chaos]
+    # Every run tests main (resolve-target pins it), whichever ref dispatched it.
+    if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # the fix plan reads the failed jobs and their logs
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Open or update ci-failure issue
+        # This suite was red on every weekly run from its first one — every test died in setup —
+        # and nothing said so. An issue produces a real notification; repeats collect as comments.
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: open
+          title: Weekly chaos suite failing
+          body: |
+            The Toxiproxy chaos suite is red on main. Every test failing within milliseconds means
+            setup (connection, proxy, env), not a resilience regression.
+
+            Reproduce locally: pnpm chaos:up && pnpm chaos:provision && pnpm test:chaos
+            (docs/reference/reliability/chaos-testing.md). The next green run closes this issue.

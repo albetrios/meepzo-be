@@ -1,0 +1,90 @@
+---
+name: be-pr-babysit
+description: Keep a meepzo-be PR merge-ready — triage review comments, resolve merge conflicts, and fix CI in a loop. Use when the user asks to babysit a PR, fix CI on a PR, or get a branch merge-ready.
+indexNote: keep a PR merge-ready — triage reviews, resolve conflicts, fix CI in a loop
+---
+
+# PR babysit (meepzo-be)
+
+Get the current PR to **mergeable + green CI + review comments addressed**, then **merge it when green** (on the user's go-ahead). This is meepzo-be's babysit skill: agent-os names carry the `be-` prefix, so there is no bare `babysit` (or `steward`) skill. meepzo-fe's is **fe-pr-babysit**.
+
+Command: `/be-watch-pr <n>` (the watch loop) · `/be-merge-pr <n>` (auto-merge once green).
+
+## Preconditions
+
+- Use `gh` (or the GitHub tools) for PR status, checks, and comments — to read them once, never in a polling loop.
+- Subscribe to the PR's activity (`subscribe_pr_activity` where it exists): CI results, reviews, conflicts and the merge wake the session; after a push from the CLI, the `be-push-ci-watch.mjs` hook wakes it when a run fails. Where neither exists, one safety-net check-in (`send_later`) replaces any timer.
+- Default branch: `main` (see `.github/workflows/pr-ci.yml`).
+- Review rubric: **`docs/process/pr-review.md`** (human + agent checklist, severity legend).
+
+## Workflow
+
+### 1. Assess PR state
+
+```bash
+gh pr view --json title,state,mergeable,statusCheckRollup,reviews,comments
+gh pr checks
+```
+
+- If the branch is behind the base branch and CI failures look unrelated, merge or rebase the latest base branch first.
+- Read only unresolved review threads; skip resolved threads.
+
+### 2. Merge conflicts
+
+- Resolve conflicts preserving intent on both sides.
+- If business intent conflicts, stop and ask the user.
+
+### 3. CI failures (fix in scope only)
+
+On a red check, start **be-ci-investigator** in the background — one per failing check (the PR,
+the check, its run id) — and act on its root cause and fix plan instead of reading the logs yourself.
+
+| Job / area                    | Typical fix                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Quality** | `pnpm ci:quality` locally — validate, domain, contract tests, routes catalog, migrate lint, Gitleaks/Semgrep |
+| **Tests**   | `pnpm db:migrate` then `pnpm test` or failing domain test                                                    |
+| **API smoke**                 | `pnpm verify:base` or `pnpm test:api-smoke` with compose up                                                  |
+| **Chaos (Toxiproxy)**         | `pnpm test:chaos` — see **be-chaos-test-maintainer**                                                            |
+| **Docker**                    | `node tooling/ci/check-dockerfile-sync.mjs`; image build errors                                              |
+| **API Docs** (push)           | `pnpm docs:all`, `pnpm docs:check`                                                                           |
+
+**Never** weaken CI workflows or skip checks to make red go green. If a failure needs infra or workflow changes outside the PR scope, report back.
+
+After fixes:
+
+```bash
+pnpm validate          # lint + format:check + typecheck
+pnpm validate:domain   # when domain layout touched
+git push
+```
+
+Then wait for the next PR event — the push's CI result arrives as one; do not re-run `gh pr checks` in a loop.
+
+### 4. Review comments
+
+- Apply **`docs/process/pr-review.md`** — classify feedback as Blocker / Major / Nit; fix Blockers and Majors in scope.
+- Validate Bugbot and human feedback; fix real issues in touched files.
+- Invoke **be-code-smells-and-best-practices** for `src/` edits.
+- Run skills from **be-skill-index** when the comment implies routes, migrations, seeds, or docs drift.
+
+### 5. Pre-merge local gate (optional)
+
+```bash
+pnpm ci:local
+```
+
+### 6. Merge when green
+
+"Merge-ready" is not the finish line — take it to merged once the user has asked you to merge (or to "merge when green"):
+
+- Merge only when **every required check is green** and the PR is mergeable (`mergeable_state: clean`).
+- Prefer **squash** so the base branch gets one conventional commit (release-please bumps from it).
+- If the branch is **behind** the base, update it first (re-runs CI), then re-check.
+- For a **transient** CI failure (e.g. an image-pull timeout), re-run the failed job / re-trigger CI rather than editing code.
+- Results, green and red, arrive as PR events; a lost event is covered by one safety-net check-in, not a timer. The watch is not finished until the PR is **merged or closed**.
+
+## Related skills
+
+- **be-ci-investigation** — single failing check root-cause summary
+- **be-before-commit-guard** — pre-commit hook failures before push
+- **be-split-to-prs** — if scope is too large to merge safely

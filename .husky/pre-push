@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Fast gate before push — the full suite runs in CI (pnpm ci:local / pnpm test).
+# One step list (tooling/validate/pre-push-steps.ts): the branch-name policy, typecheck, build,
+# then the checks the pushed files need — Markdown lint, generated-doc drift, Semgrep on auth /
+# tenancy / billing / database contexts, the selected unit tests, and the SonarQube gate (any
+# unresolved issue blocks; no bypass). Preview: pnpm test:affected. Branch-policy bypass once:
+# SKIP_BRANCH_CHECK=1 git push.
+pnpm guard:pre-push

@@ -1,0 +1,9 @@
+{
+  "name": "development",
+  "protection": {
+    "deploymentBranchPolicy": {
+      "protectedBranches": true,
+      "customBranchPolicies": false
+    }
+  }
+}

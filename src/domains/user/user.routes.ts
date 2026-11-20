@@ -1,0 +1,418 @@
+import type { FastifyPluginAsync } from 'fastify';
+import {
+  requireRecentStepUpPreHandler,
+  requireStrongRecentStepUpPreHandler,
+  requireStrongRecentStepUpWhenBodyHas,
+} from '@/shared/middlewares/core/recent-step-up.middleware.js';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import {
+  EXPENSIVE_AUTHED_RATE_LIMIT,
+  MODERATE_AUTHED_RATE_LIMIT,
+  STRICT_AUTHED_RATE_LIMIT,
+} from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
+import { GLOBAL_ROLES } from '@/shared/constants/index.js';
+import { requireRole } from '@/shared/utils/auth/authorization.util.js';
+import { listOrganizationsQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
+import { listMyMembershipInvitationsQueryDto } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.dto.js';
+import { createUserController } from './user.controller.js';
+import { createUserDataExportController } from './sub-domains/user-data-export/user-data-export.controller.js';
+import { createUserBugReportController } from './sub-domains/user-bug-report/user-bug-report.controller.js';
+import { CreateUserBugReportDto } from './sub-domains/user-bug-report/user-bug-report.dto.js';
+import { PutNotificationPreferencesDto } from './sub-domains/user-notification-preferences/user-notification-preferences.dto.js';
+import { UpdateUserSettingsDto } from './sub-domains/user-settings/user-settings.dto.js';
+import {
+  AdminUpdateUserDto,
+  dataExportIdParamsDto,
+  UpdateMeDto,
+  UpdateMyPresenceDto,
+  UploadAvatarDto,
+  userIdParamsDto,
+} from './user.dto.js';
+
+/**
+ * Fastify plugin that mounts the user domain HTTP surface: admin user management routes, the
+ * `/me` self-service routes (profile, settings, notification preferences, avatar, bug reports), and the GDPR
+ * data-export request/status endpoints. Admin routes require the `SUPER_ADMIN` or `ADMIN` global
+ * role; data-export request is rate-limited via {@link EXPENSIVE_AUTHED_RATE_LIMIT}.
+ */
+export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
+  // The caller's own organizations live at `/users/me/organizations`, and their pending
+  // invitations at `/users/me/membership-invitations` (launch D84); the data is tenancy's, so its
+  // services are injected here the same way the audit service is injected into the organization
+  // routes for `/tenancy/organization/audit-logs`. Every container is composed before routes
+  // register, so these are always present in production wiring.
+  const controller = createUserController({
+    ...app.userDomain,
+    organizationService: app.tenancyDomain?.organizationService,
+    membershipInvitationService: app.tenancyDomain?.membershipInvitationService,
+  });
+  const dataExportController = createUserDataExportController(app.userDomain.userDataExportService);
+  const bugReportController = createUserBugReportController(app.userDomain.userBugReportService);
+  const zodApplication = app.withTypeProvider<ZodTypeProvider>();
+  // ── Admin user routes (require admin+ role) ────────────────
+  zodApplication.get(
+    '/',
+    {
+      onRequest: [app.authenticate],
+      preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
+      schema: {
+        summary: 'List all users (admin)',
+        description: 'Returns a paginated list of all users. Requires the SUPER_ADMIN role.',
+        tags: ['User Management'],
+      },
+    },
+    controller.listUsers,
+  );
+  zodApplication.get(
+    '/:user_id',
+    {
+      onRequest: [app.authenticate],
+      preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
+      schema: {
+        summary: 'Get user by ID (admin)',
+        description: "Returns a specific user's profile. Requires the SUPER_ADMIN role.",
+        tags: ['User Management'],
+        params: userIdParamsDto,
+      },
+    },
+    controller.getUser,
+  );
+  zodApplication.patch(
+    '/:user_id',
+    {
+      // route-#4: bound admin user-mutations so a compromised admin token cannot bulk-edit accounts.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      onRequest: [app.authenticate],
+      // A-2: a `status` change suspends or reactivates the account — strong step-up, like suspend.
+      preHandler: [
+        requireRole(GLOBAL_ROLES.SUPER_ADMIN),
+        requireStrongRecentStepUpWhenBodyHas('status'),
+      ],
+      schema: {
+        summary: 'Update user (admin)',
+        description:
+          "Updates a user's profile or status. Requires the SUPER_ADMIN role on an MFA-verified session; a `status` change also requires a recent password or MFA step-up on this session.",
+        tags: ['User Management'],
+        params: userIdParamsDto,
+        body: AdminUpdateUserDto,
+      },
+    },
+    controller.updateUser,
+  );
+  zodApplication.delete(
+    '/:user_id',
+    {
+      // route-#4: stronger bound on the destructive admin delete (matches DELETE /me).
+      ...EXPENSIVE_AUTHED_RATE_LIMIT,
+      onRequest: [app.authenticate],
+      preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN), requireStrongRecentStepUpPreHandler],
+      schema: {
+        summary: 'Delete user (admin)',
+        description:
+          'Deletes a user account: sessions are revoked and the account disappears at once; the rows are hard-deleted after TOMBSTONE_RETENTION_DAYS (default 90). Requires the SUPER_ADMIN role on an MFA-verified session and a recent password or MFA step-up on this session.',
+        tags: ['User Management'],
+        params: userIdParamsDto,
+      },
+    },
+    controller.deleteUser,
+  );
+  zodApplication.post(
+    '/:user_id/suspend',
+    {
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      onRequest: [app.authenticate],
+      preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN), requireStrongRecentStepUpPreHandler],
+      schema: {
+        summary: 'Suspend user (admin)',
+        description:
+          'Suspends a user account, preventing login. Requires the SUPER_ADMIN role on an MFA-verified session and a recent password or MFA step-up on this session.',
+        tags: ['User Management'],
+        params: userIdParamsDto,
+      },
+    },
+    controller.suspendUser,
+  );
+  zodApplication.post(
+    '/:user_id/unsuspend',
+    {
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      onRequest: [app.authenticate],
+      preHandler: [requireRole(GLOBAL_ROLES.SUPER_ADMIN)],
+      schema: {
+        summary: 'Unsuspend user (admin)',
+        description: 'Reactivates a suspended user account. Requires the SUPER_ADMIN role.',
+        tags: ['User Management'],
+        params: userIdParamsDto,
+      },
+    },
+    controller.unsuspendUser,
+  );
+
+  // ── Self-service user routes (require authenticated) ───────
+  zodApplication.get(
+    '/me',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        summary: 'Get current user profile',
+        description:
+          "Returns the authenticated user's profile including name, email, avatar, and account status.",
+        tags: ['User'],
+      },
+    },
+    controller.getMe,
+  );
+  zodApplication.get(
+    '/me/organizations',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        summary: 'List my organizations',
+        description:
+          "Returns the organizations the authenticated user owns or is an active member of, newest last. Always the caller's own organizations, whatever their global role.",
+        // Tagged with the owning domain, like `/tenancy/organization/audit-logs` is tagged
+        // `Audit Log` — the tag follows the data, the path follows the scope.
+        tags: ['Organization'],
+        querystring: listOrganizationsQueryDto,
+      },
+    },
+    controller.listMyOrganizations,
+  );
+  zodApplication.get(
+    '/me/membership-invitations',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        summary: 'List my invitations',
+        description:
+          "Returns the authenticated user's pending invitations — not accepted, revoked or expired — matched on their verified email, oldest first: each with the organization (id, name, slug, logo_url), the role names (the main role first) and who invited them. An unverified email reads none. Accept or decline one with POST /tenancy/membership-invitations/{membership_invitation_id}/accept or /decline.",
+        // The data is tenancy's invitations; the path follows the caller's scope (see above).
+        tags: ['Invitation'],
+        querystring: listMyMembershipInvitationsQueryDto,
+      },
+    },
+    controller.listMyMembershipInvitations,
+  );
+  zodApplication.patch(
+    '/me',
+    {
+      onRequest: [app.authenticate],
+      // sec-r4-I1: bound profile-update writes per authenticated user — the field
+      // touches PII columns and downstream notification preferences, so cap at
+      // the moderate-authed tier (30 req / 60s) consistent with other authed
+      // mutation paths. Unauthenticated traffic is already rejected upstream.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Update current user profile',
+        description:
+          "Updates the authenticated user's profile fields (name, avatar). Email changes require verification.",
+        tags: ['User'],
+        body: UpdateMeDto,
+      },
+    },
+    controller.patchMe,
+  );
+  zodApplication.put(
+    '/me/presence',
+    {
+      onRequest: [app.authenticate],
+      // A self-service write like PATCH /me — the moderate-authed tier.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Set my presence',
+        description:
+          "Sets the authenticated user's presence — online, busy or away — the status dot the rest of the team sees. Returns the refreshed self profile.",
+        tags: ['User'],
+        body: UpdateMyPresenceDto,
+      },
+    },
+    controller.putMyPresence,
+  );
+  zodApplication.post(
+    '/me/onboarding/complete',
+    {
+      onRequest: [app.authenticate],
+      // Idempotent one-shot stamp on wizard finish; moderate-authed tier matches
+      // the other self-service mutations.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Mark onboarding complete',
+        description:
+          "Stamps the authenticated user's onboarding as finished (idempotent) and returns the refreshed self profile. Called when the onboarding wizard is completed so subsequent sign-ins route to the dashboard.",
+        tags: ['User'],
+      },
+    },
+    controller.completeOnboardingMe,
+  );
+  zodApplication.delete(
+    '/me',
+    {
+      onRequest: [app.authenticate],
+      // sec-r4-I1: account self-deletion is irreversible (cascades sessions,
+      // memberships, schedules retention sweep). Cap at the expensive-authed
+      // tier (5 req / 5 min) so a hijacked session cannot rip through victim
+      // accounts in bulk.
+      ...EXPENSIVE_AUTHED_RATE_LIMIT,
+      // Irreversible: a stolen access token alone must not be enough.
+      preHandler: [requireRecentStepUpPreHandler],
+      schema: {
+        summary: 'Delete my account',
+        description:
+          "Deletes the authenticated user's account: sessions are revoked and the account disappears at once; the rows are hard-deleted after TOMBSTONE_RETENTION_DAYS (default 90). Requires a recent step-up on this session (`POST /auth/step-up`, within 10 minutes).",
+        tags: ['User'],
+      },
+    },
+    controller.deleteMe,
+  );
+  zodApplication.get(
+    '/me/settings',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        summary: 'Get my settings',
+        description:
+          "Returns the authenticated user's personal settings (dark mode, language, notification preferences) and `default_organization_id` — the clinic pinned to open at sign-in, or `null` for the clinic used last (also while a pinned clinic is no longer one the caller actively belongs to).",
+        tags: ['User Settings'],
+      },
+    },
+    controller.getSettings,
+  );
+  zodApplication.patch(
+    '/me/settings',
+    {
+      onRequest: [app.authenticate],
+      // sec-r4-I1: moderate-authed tier for self-service settings mutations so a
+      // session-token holder cannot churn settings rows unbounded.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Update my settings',
+        description:
+          "Updates the authenticated user's personal settings. `default_organization_id` pins the clinic that opens at sign-in — an active clinic the caller is an active member of, else 422 with reason `default_organization_unavailable` — or `null` returns to the clinic used last.",
+        tags: ['User Settings'],
+        body: UpdateUserSettingsDto,
+      },
+    },
+    controller.patchSettings,
+  );
+  zodApplication.get(
+    '/me/notification-preferences',
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        summary: 'Get my notification preferences',
+        description:
+          "Returns the authenticated user's notification preferences per type and channel.",
+        tags: ['Notification Preferences'],
+      },
+    },
+    controller.getNotificationPreferences,
+  );
+  zodApplication.put(
+    '/me/notification-preferences',
+    {
+      onRequest: [app.authenticate],
+      // sec-r4-I1: cap notification-preference replacement at the moderate-authed
+      // tier — a PUT replaces the full set per call and could otherwise be looped
+      // to churn rows or trigger downstream cache invalidation storms.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Replace notification preferences',
+        description:
+          'Replaces all notification preferences for the authenticated user. Sends a complete set of preferences.',
+        tags: ['Notification Preferences'],
+        body: PutNotificationPreferencesDto,
+      },
+    },
+    controller.putNotificationPreferences,
+  );
+  zodApplication.put(
+    '/me/avatar',
+    {
+      onRequest: [app.authenticate],
+      // sec-r4-I1: each avatar upload writes to S3 and rewrites the user row;
+      // cap at moderate-authed (30 req / 60s) so a hijacked session cannot
+      // mint unbounded S3 objects.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Upload avatar',
+        description: "Uploads or replaces the authenticated user's avatar image.",
+        tags: ['User'],
+        body: UploadAvatarDto,
+      },
+    },
+    controller.uploadAvatar,
+  );
+  zodApplication.delete(
+    '/me/avatar',
+    {
+      onRequest: [app.authenticate],
+      // sec-r4-I1: avatar deletion calls S3 and rewrites the user row; same
+      // moderate-authed bound as the upload counterpart.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Remove avatar',
+        description: "Removes the authenticated user's avatar image.",
+        tags: ['User'],
+      },
+    },
+    controller.deleteAvatar,
+  );
+
+  // ── Bug reports (feat-bug-report-2026-10-13-dgnx) ──────────
+  zodApplication.post(
+    '/me/bug-reports',
+    {
+      onRequest: [app.authenticate],
+      // A report is a deliberate act: 10 a minute per person stops a stuck client or a script
+      // from flooding the table (feat-bug-report BR7).
+      ...STRICT_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Report a bug',
+        description:
+          "Files a bug report for the signed-in person: what went wrong (typed or dictated), how it was written, and optionally the in-app path and the frontend release. The reporter's id, name and email are taken from the session — never from the body, which refuses them. Works in a personal or a team workspace; the workspace is recorded when there is one.",
+        tags: ['User'],
+        body: CreateUserBugReportDto,
+      },
+    },
+    bugReportController.createBugReport,
+  );
+
+  // ── GDPR / Privacy ─────────────────────────────────────────
+  zodApplication.post(
+    '/me/data-export',
+    {
+      onRequest: [app.authenticate],
+      ...EXPENSIVE_AUTHED_RATE_LIMIT,
+      // The bundle is every piece of personal data: a stolen access token alone must not get it.
+      preHandler: [requireRecentStepUpPreHandler],
+      schema: {
+        summary: 'Request GDPR data export',
+        description:
+          'Enqueues an async export of all personal data. Poll GET /users/me/data-export/{data_export_id} for status and a time-limited download URL (15-minute lifetime). Requires a recent step-up on this session (`POST /auth/step-up`, within 10 minutes).',
+        tags: ['Privacy'],
+      },
+    },
+    dataExportController.requestExport,
+  );
+  zodApplication.get(
+    '/me/data-export/:data_export_id',
+    {
+      onRequest: [app.authenticate],
+      // sec-U6: every successful poll while status === COMPLETED mints a fresh
+      // presigned download URL. Without a rate limit, a session-token holder
+      // could spin the poll loop to mint URLs indefinitely; cap at the
+      // moderate-authed tier (30 req / 60s) so the typical UI poll cadence
+      // (a few seconds while the user waits) is unaffected but bulk-replay
+      // mints are bounded.
+      ...MODERATE_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Get GDPR data export status',
+        description:
+          'Returns export job status. When completed, includes a presigned download URL for the gzip JSON artifact (15-minute lifetime; every mint is audited as `user.data_export.url_minted`).',
+        tags: ['Privacy'],
+        params: dataExportIdParamsDto,
+      },
+    },
+    dataExportController.getExportStatus,
+  );
+};

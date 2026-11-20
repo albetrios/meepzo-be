@@ -1,0 +1,7 @@
+{
+  "name": "meepzo-be",
+  "schema": "./src",
+  "migrations": "./migrations",
+  "iterations": "./iterations",
+  "port": 4984
+}

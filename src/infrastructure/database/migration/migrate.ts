@@ -1,0 +1,357 @@
+import '@/shared/config/load-env-files.js';
+import pg from 'pg';
+import { resolve } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { describeMigrationConnectionError } from '@/infrastructure/database/migration/migration-error-hint.js';
+import { parseMigrationExecutionMode } from '@/infrastructure/database/migration/migration-execution-mode.js';
+import {
+  applyMigrationTimeouts,
+  retryOnMigrationLockTimeout,
+} from '@/infrastructure/database/migration/migration-lock-timeout.js';
+import {
+  isNeonPoolerConnection,
+  resolveDatabaseSsl,
+  withoutSslQueryParameters,
+} from '@/infrastructure/database/utils/connection-url.util.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+
+/**
+ * Uses DATABASE_MIGRATION_URL if available (elevated-privilege user),
+ * otherwise falls back to DATABASE_URL.
+ */
+const migrationUrl = process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL;
+
+if (!migrationUrl) {
+  throw new Error('DATABASE_URL or DATABASE_MIGRATION_URL must be set for migrations');
+}
+
+/**
+ * Migrations MUST run against a direct (non-pooler) endpoint. Through a transaction-mode
+ * PgBouncer/Neon pooler the session-level `pg_advisory_lock` acquired below is not pinned
+ * to a single backend across statements, so the serialization that prevents two concurrent
+ * deploys from double-applying a migration silently becomes a no-op. Fail fast instead of
+ * running with broken mutual exclusion. Set `DATABASE_MIGRATION_URL` to the direct host
+ * (no `-pooler` segment, no `pgbouncer=true`).
+ */
+if (isNeonPoolerConnection(migrationUrl)) {
+  throw new Error(
+    'Migrations must use a direct (non-pooler) DATABASE_MIGRATION_URL: the migration advisory ' +
+      'lock relies on a session pinned to one Postgres backend, which a transaction-mode pooler ' +
+      '(-pooler host or ?pgbouncer=true) does not provide. Point DATABASE_MIGRATION_URL at the ' +
+      'direct database host. See .env.example and docs/reference/data/migrations.md.',
+  );
+}
+
+/**
+ * Fail fast on a malformed URL (surrounding quotes, a trailing newline, or whitespace pasted into the
+ * secret) with a clear, secret-free message instead of a raw `TypeError: Invalid URL` from deep inside
+ * the driver.
+ */
+try {
+  new URL(migrationUrl);
+} catch {
+  throw new Error(
+    'DATABASE_MIGRATION_URL is not a valid URL. Common causes: surrounding quotes, a trailing ' +
+      'newline, or whitespace in the secret. Set it as the RAW connection string (no wrapping ' +
+      'quotes), e.g. postgresql://user:password@host:5432/db?sslmode=require.',
+  );
+}
+
+/**
+ * One connection, so every statement runs on the backend that holds the migration advisory lock.
+ * `connectionTimeoutMillis`: fail fast when the host is unreachable — a wrong/internal host, a
+ * firewall, or an IP allowlist that silently drops packets — instead of hanging until the CI job's
+ * timeout (a ~30-minute silent stall). TLS follows the URL's `sslmode` exactly as the application
+ * pool does ({@link resolveDatabaseSsl}). The error listener keeps a dropped connection from becoming
+ * an uncaught exception; the statement in flight still fails.
+ */
+const client = new pg.Client({
+  connectionString: withoutSslQueryParameters(migrationUrl),
+  ssl: resolveDatabaseSsl({
+    databaseUrl: migrationUrl,
+    sslEnabledByDefault: false,
+    rejectUnauthorizedOverride: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true',
+  }),
+  connectionTimeoutMillis: 15_000,
+});
+client.on('error', (error) => logger.error({ error }, 'Migration connection error'));
+
+/**
+ * Postgres 17+ is required project-wide (docker-compose, CI services,
+ * testcontainers, and managed providers like Neon are all pinned to 17).
+ * Refuse to apply migrations against older servers so test infra drift
+ * (e.g. someone pointing DATABASE_MIGRATION_URL at a local 15/16 cluster)
+ * is caught before it can produce a partially-applied schema.
+ */
+const MINIMUM_POSTGRES_SERVER_VERSION_NUM = 170000;
+
+/**
+ * Fixed 64-bit key for the session-level advisory lock that serializes the
+ * entire migration run.
+ *
+ * Without it, two deploy jobs or app instances starting migrations
+ * concurrently can both begin applying the same file: the `schema_migrations`
+ * primary key prevents a duplicate row, but non-idempotent or long-running DDL
+ * can still race, producing failed deploys or partially-applied state. Each
+ * runner calls `pg_advisory_lock(<this key>)` up front, so the second runner
+ * blocks until the first finishes and releases. Session-level advisory locks
+ * are NOT auto-released on COMMIT/ROLLBACK, so we always release explicitly in
+ * a `finally`. The value is an arbitrary but stable constant (well within the
+ * 53-bit safe-integer range and cast to `bigint` in SQL) — only its
+ * uniqueness within this application matters.
+ */
+const MIGRATION_ADVISORY_LOCK_KEY = 4_017_309_021;
+
+const isDryRun = process.argv.includes('--dry-run');
+
+/**
+ * Acquires the migration advisory lock on the one `client` session, so every statement in
+ * this process runs on the same Postgres backend/session that holds the lock.
+ */
+async function acquireMigrationAdvisoryLock(): Promise<void> {
+  await client.query('SELECT pg_advisory_lock($1::bigint)', [MIGRATION_ADVISORY_LOCK_KEY]);
+  logger.info({ lockKey: MIGRATION_ADVISORY_LOCK_KEY }, 'Acquired migration advisory lock');
+}
+
+/**
+ * Releases the migration advisory lock. Safe to call even if the lock was not
+ * held (`pg_advisory_unlock` simply returns false); never throws so it can run
+ * in a `finally` without masking the original error.
+ */
+async function releaseMigrationAdvisoryLock(): Promise<void> {
+  try {
+    await client.query('SELECT pg_advisory_unlock($1::bigint)', [MIGRATION_ADVISORY_LOCK_KEY]);
+    logger.info({ lockKey: MIGRATION_ADVISORY_LOCK_KEY }, 'Released migration advisory lock');
+  } catch (unlockError) {
+    logger.error({ error: unlockError }, 'Failed to release migration advisory lock');
+  }
+}
+
+async function assertPostgresMajorVersionAtLeast17(): Promise<void> {
+  const {
+    rows: [row],
+  } = await client.query<{ server_version_num: string; server_version: string }>(
+    "SELECT current_setting('server_version_num') AS server_version_num, current_setting('server_version') AS server_version",
+  );
+  const serverVersionNum = Number(row?.server_version_num ?? '0');
+  if (
+    !Number.isFinite(serverVersionNum) ||
+    serverVersionNum < MINIMUM_POSTGRES_SERVER_VERSION_NUM
+  ) {
+    throw new Error(
+      `Refusing to run migrations against Postgres ${row?.server_version ?? 'unknown'} (server_version_num=${row?.server_version_num ?? 'unknown'}). Postgres 17+ is required project-wide. See .cursor/skills/be-db-migration-maintainer/SKILL.md and docker-compose.yml.`,
+    );
+  }
+}
+
+/** The one migration connection, inside or outside a transaction. */
+interface MigrationStatementExecutor {
+  query: (text: string) => PromiseLike<unknown>;
+}
+
+interface RunMigrationStatementsInput {
+  filename: string;
+  statements: string[];
+  executor: MigrationStatementExecutor;
+}
+
+/**
+ * Executes the ordered statements of one migration against the provided
+ * executor (a transaction in the default lane, the connection itself in the
+ * non-transactional lane), logging the offending statement on failure.
+ */
+async function runMigrationStatements({
+  filename,
+  statements,
+  executor,
+}: RunMigrationStatementsInput): Promise<void> {
+  let statementIndex = 0;
+  for (const statement of statements) {
+    statementIndex += 1;
+    try {
+      await executor.query(statement);
+    } catch (statementError) {
+      logger.error(
+        {
+          filename,
+          statementIndex,
+          statementHead: statement.slice(0, 200),
+          error: statementError,
+        },
+        'Migration statement failed',
+      );
+      throw statementError;
+    }
+  }
+}
+
+/**
+ * Fails the migration when any INVALID/UNREADY index exists, which is the
+ * signature of a `CREATE INDEX CONCURRENTLY` that aborted mid-build. Only used
+ * by the non-transactional lane (the sole place concurrent indexes are built).
+ */
+async function assertNoInvalidIndexes({ filename }: { filename: string }): Promise<void> {
+  const { rows: invalidIndexes } = await client.query<{
+    schema_name: string;
+    index_name: string;
+  }>(`
+    SELECT n.nspname AS schema_name, c.relname AS index_name
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE (NOT i.indisvalid OR NOT i.indisready)
+      AND n.nspname NOT IN ('pg_catalog', 'pg_toast', 'information_schema')
+    ORDER BY n.nspname, c.relname
+  `);
+
+  if (invalidIndexes.length === 0) return;
+
+  const indexNames = invalidIndexes.map((row) => `${row.schema_name}.${row.index_name}`).join(', ');
+  throw new Error(
+    `Non-transactional migration ${filename} left INVALID/UNREADY index(es): ${indexNames}. ` +
+      'A CREATE INDEX CONCURRENTLY likely failed mid-build. Drop the invalid index ' +
+      '(DROP INDEX CONCURRENTLY IF EXISTS <schema>.<name>) and re-run pnpm db:migrate.',
+  );
+}
+
+/**
+ * Runs `work` inside one transaction on the migration connection: committed when it resolves,
+ * rolled back when it throws (the rollback's own failure never masks the original error).
+ */
+async function inTransaction(work: () => Promise<void>): Promise<void> {
+  await client.query('BEGIN');
+  try {
+    await work();
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  }
+}
+
+async function main() {
+  const migrationsFolder = resolve(process.cwd(), 'migrations');
+  logger.info({ migrationsFolder, dryRun: isDryRun }, 'Running migrations');
+
+  await client.connect();
+  await assertPostgresMajorVersionAtLeast17();
+
+  /**
+   * Serialize the whole run behind a session-level advisory lock so concurrent
+   * deploy jobs/instances cannot apply the same migration at the same time.
+   * The lock wraps BOTH the transactional and non-transactional
+   * (`CREATE INDEX CONCURRENTLY`) lanes and is released even on error.
+   */
+  await acquireMigrationAdvisoryLock();
+  try {
+    await client.query(`
+      create table if not exists public.schema_migrations (
+        filename text primary key,
+        applied_at timestamptz not null default now()
+      )
+    `);
+
+    const { rows: applied } = await client.query<{ filename: string }>(
+      'select filename from public.schema_migrations order by filename asc',
+    );
+    const appliedSet = new Set(applied.map((row) => row.filename));
+
+    const allFiles = await readdir(migrationsFolder);
+    const sqlFiles = allFiles
+      .filter((file) => file.endsWith('.sql'))
+      .sort((a, b) => a.localeCompare(b));
+
+    for (const filename of sqlFiles) {
+      if (appliedSet.has(filename)) continue;
+
+      const fullPath = resolve(migrationsFolder, filename);
+      const contents = await readFile(fullPath, 'utf8');
+
+      const { transactional, headerErrors } = parseMigrationExecutionMode(contents);
+      if (headerErrors.length > 0) {
+        throw new Error(
+          `Invalid migration-transaction header in ${filename}: ${headerErrors.join('; ')}`,
+        );
+      }
+
+      logger.info({ filename, transactional, dryRun: isDryRun }, 'Applying migration');
+      /**
+       * Drizzle-style splitter: SQL files use `--> statement-breakpoint` between
+       * statements so that each statement is sent independently. This prevents
+       * issues with the postgres simple-query protocol mis-reporting errors when
+       * a single batch contains many statements with DO blocks, dollar-quoting,
+       * and DDL that depend on prior statements in the same batch.
+       */
+      const statements = contents
+        .split(/\n--> statement-breakpoint\s*\n?/g)
+        .map((statement) => statement.trim())
+        .filter((statement) => statement.length > 0);
+
+      if (transactional) {
+        // Bounded lock waits (a blocked DDL must not queue the app's traffic behind it) and a
+        // statement cap; a file whose lock wait times out, or that deadlocks with the app's
+        // traffic, rolls back and is retried.
+        await retryOnMigrationLockTimeout({
+          filename,
+          run: () =>
+            inTransaction(async () => {
+              await applyMigrationTimeouts({ executor: client, scope: 'transaction' });
+              await runMigrationStatements({ filename, statements, executor: client });
+              if (!isDryRun) {
+                await client.query('insert into public.schema_migrations (filename) values ($1)', [
+                  filename,
+                ]);
+              }
+            }),
+        });
+        continue;
+      }
+
+      /**
+       * Non-transactional lane: each statement runs in its own implicit
+       * transaction (autocommit) so `CREATE INDEX CONCURRENTLY` is legal. Because
+       * there is no enclosing transaction to roll back, statements must be
+       * idempotent (`IF NOT EXISTS`). A concurrent index build that fails leaves
+       * an INVALID index behind, so we check for that before recording success —
+       * an operator must `DROP INDEX CONCURRENTLY` the invalid index and re-run.
+       */
+      // The lock wait is bounded here too; the statement cap is lifted for long index builds.
+      await applyMigrationTimeouts({ executor: client, scope: 'session' });
+      try {
+        await runMigrationStatements({ filename, statements, executor: client });
+        await assertNoInvalidIndexes({ filename });
+        if (!isDryRun) {
+          await client.query('insert into public.schema_migrations (filename) values ($1)', [
+            filename,
+          ]);
+        }
+      } finally {
+        await client.query('RESET lock_timeout');
+        await client.query('RESET statement_timeout');
+      }
+    }
+
+    logger.info({ dryRun: isDryRun }, 'Migrations complete');
+  } finally {
+    await releaseMigrationAdvisoryLock();
+  }
+}
+
+main()
+  .then(async () => {
+    await client.end();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    logger.error({ error }, 'Migrations failed');
+    const hint = describeMigrationConnectionError(error);
+    if (hint) {
+      logger.error({ hint }, 'Migration connection hint');
+    }
+    try {
+      await client.end();
+    } catch {
+      // ignore
+    }
+    process.exit(1);
+  });

@@ -1,0 +1,370 @@
+# Nightly k6 load tests against an ephemeral API (Postgres + Redis).
+# Gate: health-stress, api-stress, login-smoke, permission-cached, stripe-webhook-ingest, idempotency-storm (SLO thresholds); strict journeys on the seeded pool (multi-tenant reads, notifications, auth security; roles, API keys, policies, settings, webhooks, billing reads). Informational: auth, daily-ops, webhooks, admin, org-scoped routes (incl. rls-concurrency-beyond-pool), organization writes (roles, permissions, settings, API keys), fe-full-surface (every call meepzo-fe makes).
+name: Scheduled k6 API load & SLO
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+# Read-only at the top (H-14); the two issue jobs grant themselves `issues: write`.
+permissions:
+  contents: read
+
+concurrency:
+  group: load-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+jobs:
+  k6:
+    name: k6 SLO gate and scenarios
+    runs-on: ubuntu-latest
+    # ~48 min of k6 (gate ≈ 7, informational ≈ 9, organization-scoped ≈ 12, organization writes ≈ 10,
+    # fe-full-surface ≈ 3)
+    # plus setup; the headroom keeps one slow night from being cut off mid-scenario.
+    timeout-minutes: 60
+
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: meepzo
+          POSTGRES_PASSWORD: meepzo
+          POSTGRES_DB: meepzo
+        options: >-
+          --health-cmd="pg_isready -U meepzo -d meepzo"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+      redis:
+        image: redis:8.6.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      # `local`: a throwaway runner, never a deployed target.
+      NODE_ENV: local
+      LOG_LEVEL: warn
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      REDIS_URL: redis://localhost:6379
+      ENABLE_MCP_SERVER: 'true'
+      BASE_URL: http://localhost:3000
+      # Fixed demo account for db:seed:full + the k6 auth scenarios (password login).
+      DEMO_EMAIL: demo@example.com
+      DEMO_PASSWORD: DemoPassword123!
+      # Test-run gate: lets /auth/email/send-code echo debug_verification_code, the code the
+      # passwordless-signup scenario and fe-full-surface's logins present. A refine forbids
+      # TEST_MODE=true in production.
+      TEST_MODE: 'true'
+      # Every k6 request comes from one source IP, so the tight per-route caps (login, webhook)
+      # would answer 429 instead of measuring the route; the Vitest harness relaxes them the same
+      # way. A refine forbids RATE_LIMIT_RELAXED_CAPS=true in production.
+      RATE_LIMIT_RELAXED_CAPS: 'true'
+      # CI-only fixture, the one the Vitest harness uses. The webhook route answers 503 until a
+      # secret is configured, and stripe-webhook-ingest asserts the 400 for a missing signature.
+      STRIPE_WEBHOOK_SECRET: whsec_test_contract_fixture_secret_minimum_length_32_chars_xx
+      # The webhooks scenario creates webhooks pointing at example.com; the SSRF guard only accepts
+      # allowlisted hosts (the local load rig allowlists the same one). Nothing is delivered: this job
+      # runs no worker.
+      WEBHOOK_URL_ALLOWLIST: example.com
+      # CI-only fixtures, the Vitest harness's. /auth/email/send-code answers 503 until email is
+      # configured, which failed every passwordless-signup request. Mail only lands in the outbox —
+      # this job runs no worker — so nothing is sent. The results-email step keeps its own secret.
+      RESEND_API_KEY: re_test_contract_fixture_key
+      EMAIL_FROM_ADDRESS: noreply@example.com
+      # The admin and audit-list scenarios need a super_admin token. tool:admin-token signs in as the
+      # first GLOBAL_ADMIN_EMAILS entry (ops@example.com, exported by the shared test-env action) with
+      # DEMO_PASSWORD. Such a token lives 5 minutes by default, and the admin scenario runs about 10
+      # minutes after the refresh step that mints it. CI-only: the same 15 minutes as a user token.
+      GLOBAL_ADMIN_ACCESS_TOKEN_EXPIRY_SECONDS: '900'
+      # CI-only fixtures, the Vitest harness's. fe-full-surface starts a Google sign-in, which answers
+      # 302 to the authorize URL (string work, no outbound call) only once a provider is configured.
+      OAUTH_GOOGLE_CLIENT_ID: test-google-client-id
+      OAUTH_GOOGLE_CLIENT_SECRET: test-google-client-secret
+      OAUTH_GOOGLE_REDIRECT_URI: http://localhost:5173/callback/google
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Export shared CI test env (JWT keys + retention + secrets-encryption)
+        uses: ./.github/actions/test-env
+        # The global limiter keeps running, so its cost is measured, but never rejects the one k6
+        # source IP: the schema caps RATE_LIMIT_MAX at 100000, and a 1 s window makes that 100k req/s
+        # (the local load rig's setting). At 10000 per minute, api-stress had 97% of its requests
+        # answered 429 and starved the scenarios after it.
+        with:
+          rate-limit-max: '100000'
+          rate-limit-window-ms: '1000'
+
+      # The cloud installer, so CI and cloud sessions run the same k6: the version pinned in
+      # tooling/setup/agent/tool-versions.sh, SHA-256-verified. It never fails on its own
+      # (best-effort), so `k6 version` is the gate.
+      - name: Install k6
+        run: |
+          set -euo pipefail
+          sudo bash tooling/setup/agent/install-k6.sh
+          k6 version
+
+      - name: Prepare the database with the full demo data (migrations included)
+        run: pnpm db:seed:full
+
+      - name: Generate the demo admin's TOTP secret for this run
+        # A platform admin needs an enrolled MFA factor and an MFA-verified session (A-2). The
+        # demo-admin seed enrolls a TOTP factor with DEMO_TOTP_SECRET, and tool:admin-token completes
+        # POST /auth/mfa/login with a code computed from it. A fresh random secret per run, masked in
+        # the log, so no secret is stored in the repository.
+        run: |
+          secret="$(python3 -c 'import base64, os; print(base64.b32encode(os.urandom(20)).decode())')"
+          echo "::add-mask::${secret}"
+          echo "DEMO_TOTP_SECRET=${secret}" >> "$GITHUB_ENV"
+
+      - name: Seed the super_admin the admin scenarios sign in as
+        # Creates DEMO_EMAIL with DEMO_PASSWORD (the job's demo password) as an active member of the
+        # demo organization. GLOBAL_ADMIN_EMAILS (the test-env export) makes it a platform admin, so
+        # the seed also enrolls its TOTP factor with DEMO_TOTP_SECRET (job env) — without one,
+        # sign-in never grants super_admin (A-2).
+        run: pnpm db:seed:demo-admin
+        env:
+          DEMO_EMAIL: ops@example.com
+
+      - name: Start API server
+        uses: ./.github/actions/start-api-server
+        with:
+          rate-limit-max: '100000'
+          ready-timeout-seconds: '80'
+
+      - name: Export load-test credentials and admin token
+        run: bash src/tests/load/k6/export-load-test-credentials.sh
+
+      - name: Gate — health stress + API stress (k6 SLO)
+        id: gate
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          k6 run --summary-export=k6-health-stress.json src/tests/load/k6/scenarios/health-stress.js
+          k6 run --summary-export=k6-api-stress.json src/tests/load/k6/scenarios/api-stress.js
+          k6 run --summary-export=k6-login-smoke.json src/tests/load/k6/scenarios/login-smoke.js
+          k6 run --summary-export=k6-permission-cached.json src/tests/load/k6/scenarios/permission-cached.js
+          k6 run --summary-export=k6-stripe-webhook-ingest.json src/tests/load/k6/scenarios/stripe-webhook-ingest.js
+          k6 run --summary-export=k6-idempotency-storm.json src/tests/load/k6/scenarios/idempotency-storm.js
+
+      - name: Refresh load-test credentials (before the informational scenarios)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # Access tokens live 15 minutes; the block below would outlast one minted earlier.
+        run: bash src/tests/load/k6/export-load-test-credentials.sh
+
+      - name: k6 auth-onboarding (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: >
+          k6 run --summary-export=k6-auth-onboarding.json src/tests/load/k6/scenarios/auth-onboarding.js
+        env:
+          DEMO_EMAIL: demo@example.com
+          DEMO_PASSWORD: DemoPassword123!
+
+      - name: k6 passwordless-signup (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # Relies on TEST_MODE=true (job env) so /auth/email/send-code echoes debug_verification_code.
+        run: >
+          k6 run --summary-export=k6-passwordless-signup.json src/tests/load/k6/scenarios/passwordless-signup.js
+
+      - name: k6 daily-ops (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: k6 run --summary-export=k6-daily-ops.json src/tests/load/k6/scenarios/daily-ops.js
+
+      - name: k6 webhooks (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: k6 run --summary-export=k6-webhooks.json src/tests/load/k6/scenarios/webhooks.js
+
+      - name: k6 admin (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: k6 run --summary-export=k6-admin.json src/tests/load/k6/scenarios/admin.js
+
+      - name: Refresh load-test credentials (before the organization-scoped scenarios)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # Access tokens live 15 minutes; the block below would outlast one minted earlier.
+        run: bash src/tests/load/k6/export-load-test-credentials.sh
+
+      - name: k6 org-scoped routes (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # Every scenario runs even when an earlier one fails (bash -e stopped the block at the first
+        # failure, so the rest never ran); the step still fails when any of them did.
+        run: |
+          failed=0
+          k6 run --summary-export=k6-audit-list.json src/tests/load/k6/scenarios/audit-list.js || failed=1
+          k6 run --summary-export=k6-organization-membership-list.json src/tests/load/k6/scenarios/organization-membership-list.js || failed=1
+          k6 run --summary-export=k6-notification-policy.json src/tests/load/k6/scenarios/notification-policy-crud.js || failed=1
+          k6 run --summary-export=k6-billing-subscriptions-rls.json src/tests/load/k6/scenarios/billing-subscriptions-rls.js || failed=1
+          k6 run --summary-export=k6-user-data-export.json src/tests/load/k6/scenarios/user-data-export.js || failed=1
+          k6 run --summary-export=k6-rls-concurrency.json src/tests/load/k6/scenarios/rls-concurrency-beyond-pool.js || failed=1
+          exit "$failed"
+        env:
+          ADMIN_TOKEN: ${{ env.ADMIN_TOKEN }}
+          TEST_TOKEN: ${{ env.TEST_TOKEN }}
+          TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
+
+      - name: Refresh load-test credentials (before the organization-write scenarios)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # Access tokens live 15 minutes; the block below would outlast one minted earlier.
+        run: bash src/tests/load/k6/export-load-test-credentials.sh
+
+      - name: k6 organization writes (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # Every scenario runs even when an earlier one fails; the step still fails when any did.
+        run: |
+          failed=0
+          k6 run --summary-export=k6-member-role-permission-list.json src/tests/load/k6/scenarios/member-role-permission-list.js || failed=1
+          k6 run --summary-export=k6-permission-write.json src/tests/load/k6/scenarios/permission-write.js || failed=1
+          k6 run --summary-export=k6-tenancy-role-write.json src/tests/load/k6/scenarios/tenancy-role-write.js || failed=1
+          k6 run --summary-export=k6-organization-settings-write.json src/tests/load/k6/scenarios/organization-settings-write.js || failed=1
+          k6 run --summary-export=k6-organization-api-key-lifecycle.json src/tests/load/k6/scenarios/organization-api-key-lifecycle.js || failed=1
+          exit "$failed"
+
+      - name: Seed the fe-full-surface user pool
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # A bulk seed of 12 organizations × 10 users, then the credential pool fe-full-surface signs in
+        # from (src/tests/load/k6/data/credential-pool.json). Last, so the extra rows cannot shift the
+        # scenarios before it.
+        run: pnpm db:seed:loadtest
+
+      - name: Strict distinct-user notification, tenant and auth-security journeys
+        if: ${{ !cancelled() }}
+        # Run before FE scenarios consume the seeded unread notifications. The auth-security
+        # journeys (sessions, password change, MFA, recovery codes) restore every pool user.
+        run: |
+          failed=0
+          VUS=20 k6 run --summary-export=k6-multi-tenant-membership-read.json src/tests/load/k6/scenarios/multi-tenant-membership-read.js || failed=1
+          VUS=20 k6 run --summary-export=k6-notification-write.json src/tests/load/k6/scenarios/notification-write.js || failed=1
+          VUS=4 ITERATIONS=5 k6 run --summary-export=k6-auth-security-lifecycle.json src/tests/load/k6/scenarios/auth-security-lifecycle.js || failed=1
+          exit "$failed"
+
+      - name: Refresh credentials for strict lifecycle gate
+        if: ${{ !cancelled() }}
+        run: bash src/tests/load/k6/export-load-test-credentials.sh
+
+      - name: Strict lifecycle and persisted settings gate
+        if: ${{ !cancelled() }}
+        run: |
+          failed=0
+          DURATION=20s MIN_COMPLETED=20 k6 run --summary-export=k6-strict-roles.json src/tests/load/k6/scenarios/tenancy-role-write.js || failed=1
+          DURATION=20s MIN_COMPLETED=20 k6 run --summary-export=k6-strict-api-keys.json src/tests/load/k6/scenarios/organization-api-key-lifecycle.js || failed=1
+          VUS=4 ITERATIONS=5 k6 run --summary-export=k6-strict-policy.json src/tests/load/k6/scenarios/notification-policy-crud.js || failed=1
+          ITERATIONS=20 k6 run --summary-export=k6-strict-settings.json src/tests/load/k6/scenarios/organization-settings-write.js || failed=1
+          VUS=4 ITERATIONS=5 k6 run --summary-export=k6-strict-webhooks.json src/tests/load/k6/scenarios/webhooks.js || failed=1
+          VUS=4 ITERATIONS=5 k6 run --summary-export=k6-strict-billing-read.json src/tests/load/k6/scenarios/billing.js || failed=1
+          exit "$failed"
+
+      - name: k6 fe-full-surface (informational)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        # Every call meepzo-fe makes, walked once by each of 20 pool users; the scenario header lists the
+        # calls it cannot reach. Signs in with the code send-code echoes (TEST_MODE in the job env), so
+        # it needs no mail.
+        run: k6 run --summary-export=k6-fe-full-surface.json src/tests/load/k6/scenarios/fe-full-surface.js
+        env:
+          # Each user's new organization subscribes to the cheapest plan with a second seat, so the
+          # member steps run (the Free plan's one seat is the owner's). This job sets no
+          # STRIPE_SECRET_KEY, so the API records the subscription itself (TRIALING) — no Stripe call.
+          SUBSCRIBE: 'true'
+
+      - name: Upload k6 summaries and server log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: k6-load-test-artifacts
+          path: |
+            k6-*.json
+            server.log
+          retention-days: 14
+
+      - name: Stop API server
+        if: always()
+        uses: ./.github/actions/stop-api-server
+
+      - name: Enforce gate success (SLO)
+        if: always() && (steps.gate.outcome == 'failure' || steps.gate.outcome == 'cancelled')
+        run: |
+          echo "::error::k6 gate failed — a gate scenario breached its SLO thresholds (read the Gate step for which)."
+          exit 1
+
+  resolve-success:
+    name: Close ci-failure issue
+    needs: [k6]
+    # Only the nightly run speaks for main — a manual dispatch tests whatever ref it was started
+    # on, feature branches included.
+    if: always() && github.event_name == 'schedule' && needs.k6.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Close the open ci-failure issue
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: close
+          title: Nightly k6 load SLO failing
+          close-comment: The nightly k6 run is green again on main — closing automatically.
+
+  notify-failure:
+    name: Notify failure
+    needs: [k6]
+    if: always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # the fix plan reads the failed jobs and their logs
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout the ci-failure-issue action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github/actions/ci-failure-issue
+      - name: Open or update ci-failure issue
+        # This run was red every night from its first one — it never got past the seed step — and
+        # nothing said so. An issue produces a real notification; repeats collect as comments.
+        uses: ./.github/actions/ci-failure-issue
+        with:
+          mode: open
+          title: Nightly k6 load SLO failing
+          body: |
+            The nightly k6 run on main is red: a gate scenario breached its SLO thresholds, or the
+            run never reached k6 (migrate, seed or API boot failed — read the step list first).
+
+            The k6-load-test-artifacts upload holds every k6-*.json summary and server.log.
+            Reproduce: docs/reference/testing/load-testing.md. The next green nightly closes this issue.

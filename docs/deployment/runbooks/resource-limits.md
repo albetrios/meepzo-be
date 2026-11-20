@@ -1,0 +1,385 @@
+# Container resource quotas and predictable OOM behavior
+
+Set **platform memory limits** for every deployment (Railway **Memory** slider or Kubernetes `resources.limits.memory`) and align **Node heap** via `NODE_OPTIONS=--max-old-space-size=<MB>`.
+
+This repo ships a production [Dockerfile](../../../Dockerfile) with no baked-in heap cap: `NODE_OPTIONS` is injected at runtime by the hosting platform.
+
+---
+
+## Why set explicit limits
+
+| Without heap cap aligned to cgroup                                                       | With aligned heap cap (`--max-old-space-size`)                                                                                                             |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V8 grows the heap until RSS hits the cgroup cap; the Linux OOM killer sends **SIGKILL**  | GC runs before the cgroup cap; failures are typically **allocation errors**, **crash reports**, or **health check failure** rather than abrupt silent kill |
+| Hard to correlate with logs or error tracking (`OOMKilled` only in platform/kube events) | Easier tuning: correlate heap pressure with metrics and **Sentry** before the kernel intervenes                                                            |
+
+`--max-old-space-size` constrains **V8 old-generation heap**. **RSS still includes** native allocations, stacks, snapshots, buffers, and third-party addons — so heap must stay **below** container memory reserve (see heuristic below).
+
+---
+
+## Sizing heuristic: container memory versus `--max-old-space-size`
+
+**Rule of thumb:** set `--max-old-space-size` to approximately **75%** of container memory (**in megabytes**) so RSS can exceed heap for native allocations and spikes.
+
+Container memory (Railway slider / Kubernetes `limits.memory`) is often expressed as MiB/GiB. Convert to MiB (`1 GiB ≈ 1024 MiB`) then multiply by `0.75` and round down.
+
+| Container memory limit | Suggested `--max-old-space-size` (MiB, ~75%) |
+| ---------------------- | -------------------------------------------- |
+| 512 MiB                | 384                                          |
+| 1 GiB (1024 MiB)       | 768                                          |
+| 2 GiB                  | 1536                                         |
+| 4 GiB                  | 3072                                         |
+
+**Tune for your workload:** retention workers, large JSON payloads, or high BullMQ concurrency increase native RSS; use a **lower** heap fraction (for example 65–70%) or **raise** container memory.
+
+### Worker RSS warning
+
+The worker process logs a warning when **RSS** exceeds **512 MiB** ([`src/infrastructure/queue/bootstrap.ts`](../../../src/infrastructure/queue/bootstrap.ts)). If the container limit is **below ~768 MiB**, every healthy worker may trip that threshold — tune the deployment (more memory), lower concurrency (`WORKER_CONCURRENCY`), or eventually adjust the threshold in code if intentional.
+
+A thumbnail (`UploadService.createThumbnail`) is the one image decode: one image at a time, with
+the libvips cache off and one libvips thread. Before decoding, the header must show at most 64 MP
+(`UPLOAD_THUMBNAIL_MAX_INPUT_PIXELS`) and at most 192 MB decoded (`UPLOAD_THUMBNAIL_MAX_DECODED_BYTES`:
+width × height × channels × bytes per sample; for a progressive JPEG, its DCT coefficients — width ×
+height × samples per pixel × 2), and the work stops at 30 s. Peak RSS measured through the pipeline
+in a bare Node process of about 40 MiB:
+
+| Source (64 MP unless noted) | Peak RSS | Header check |
+| --------------------------- | -------- | ------------ |
+| baseline JPEG, 4:4:4 (shrinks while it loads) | 75 MiB | passes |
+| progressive JPEG, 4:2:0, 48 MP phone photo | 214 MiB | passes |
+| progressive JPEG, 4:2:0 | 258 MiB | passes |
+| interlaced PNG, 8-bit RGB | 280 MiB | passes |
+| progressive JPEG, 4:2:2 (reported as 4:2:0 by `sharp`) | 319 MiB | passes |
+| interlaced PNG, 8-bit RGBA | 357 MiB | refused |
+| progressive JPEG, 4:4:4 (1.1 MB of file) | 441 MiB | refused |
+| interlaced PNG, 16-bit RGB (570 KB of file) | 489 MiB (645 MiB in the worker) | refused |
+
+So a decode adds up to about 280 MiB to the process that runs it. Give a worker that makes
+thumbnails at least 768 MiB.
+
+### Postgres connection budget
+
+Each **API** and **worker** process opens **two** node-postgres pools: the primary one (`DATABASE_POOL_MAX`, default **70**) and the maintenance role's (`DATABASE_MAINTENANCE_POOL_MAX`, default **10** — mail outbox and ledger workers, retention purges, system audit inserts, all short checkouts). Size deployments so:
+
+```text
+DEPLOYMENT_TOTAL_REPLICA_COUNT × (DATABASE_POOL_MAX + DATABASE_MAINTENANCE_POOL_MAX) ≤ max_connections − POSTGRES_RESERVED_CONNECTIONS
+```
+
+If you set split counts instead of `DEPLOYMENT_TOTAL_REPLICA_COUNT`, the API and worker counts are added together before applying the two pools. The budget once counted only the primary pool, so a process could hold up to twice what it checked.
+
+Worked example at the defaults — production (Neon, `max_connections` 450, `POSTGRES_MAX_CONNECTIONS` unset so the live value is read), 2 API + 1 worker: `3 × (70 + 10) = 240 ≤ 450 − 10 = 440`. Do **not** override `POSTGRES_MAX_CONNECTIONS` to a number smaller than the server's real `max_connections` (the 2026-10-13 incident set it to 100) — the guard then refuses a pool the database would actually accept.
+
+**Production headroom at the defaults:** 440 usable connections hold at most **5** processes at
+`70 + 10` each (`5 × 80 = 400 ≤ 440`). A sixth — for example 4 API + 2 worker, `6 × 80 = 480` — is
+refused at boot with the `Postgres connection budget exceeded` error. Each process checks the whole
+cluster at **its own** pool size (process count × its own `DATABASE_POOL_MAX +
+DATABASE_MAINTENANCE_POOL_MAX`), so the service with the largest pool decides: lowering
+`DATABASE_POOL_MAX` on the API service alone still leaves the worker refusing to boot. Before scaling
+past five, either lower `DATABASE_POOL_MAX` on **every** service — at six processes to at most `63`
+(`6 × 73 = 438`), which still covers the worker's demand of 54 but not its burst headroom of 68, so
+the worker boot warns (see [Worker Postgres pool demand](#worker-postgres-pool-demand-per-process)
+below); seven processes cannot cover it — or raise the Neon compute size so `max_connections` grows.
+CI boots get the same arithmetic against the service Postgres (`100 − 10 = 90`):
+`src/tests/unit/ci/ci-boot-connection-budget.policy.unit.test.ts`.
+
+| Variable                          | Meaning                                                         | Default                                      |
+| --------------------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| `DEPLOYMENT_TOTAL_REPLICA_COUNT`  | Shorthand: `api_replicas + worker_replicas`                     | required in production (or use split counts) |
+| `DEPLOYMENT_API_REPLICA_COUNT`    | API service replica count                                       | optional split count                         |
+| `DEPLOYMENT_WORKER_REPLICA_COUNT` | Worker service replica count                                    | optional split count                         |
+| `DATABASE_POOL_MAX`               | primary pool `max`, per process                                 | `70`                                         |
+| `DATABASE_MAINTENANCE_POOL_MAX`   | maintenance-role pool `max`, per process                        | `10`                                         |
+| `POSTGRES_RESERVED_CONNECTIONS`   | Admin, migrations, monitoring headroom                          | `10`                                         |
+| `POSTGRES_MAX_CONNECTIONS`        | Optional override when `SHOW max_connections` is wrong (pooler) | query Postgres                               |
+
+At startup, API and worker processes call `assertPostgresConnectionBudget()` ([`assert-connection-budget.ts`](../../../src/infrastructure/database/safety/assert-connection-budget.ts)): when `DATABASE_CONNECTION_BUDGET_ENFORCED=true` (the default when deployed — production; a local `development` laptop defaults it off) the check **fails fast** without deployment counts. With it off, the process defaults to **1 API + 1 worker** when counts are unset.
+
+The pre-deploy CI step (`pnpm validate:github-env-runtime` in [`reusable-railway-deploy.yml`](../../../.github/workflows/reusable-railway-deploy.yml)) fails the workflow when schema-required keys are missing from the GitHub Environment, and a missing replica count is caught at boot by `assertPostgresConnectionBudget()` (fails fast when `DATABASE_CONNECTION_BUDGET_ENFORCED=true`) — so a misconfigured environment surfaces before or at container start, never as silent pool pressure.
+
+**The deploy fails on that boot failure.** A budget guard that throws logs `Worker failed to start` (or `Server failed to start`) with the `Postgres connection budget exceeded` message and exits with code 1; Railway then restart-loops the container while the deployment still reads **SUCCESS** — Railway sets SUCCESS when the container starts and runs no `HEALTHCHECK`, and the worker's `/livez` server starts only after the guards. On 2026-10-13 production lowered `DATABASE_POOL_MAX` to 20 (and overrode `POSTGRES_MAX_CONNECTIONS` to 100) under the worker's demand; five worker releases and one API release were then reported "fully live" while crash-looping. Since then the deploy's **boot verification** (`pnpm tool:railway-deploy-image` in [`reusable-railway-deploy.yml`](../../../.github/workflows/reusable-railway-deploy.yml)) watches each deployment's container logs for 90 s after SUCCESS and fails the job on that crash marker, on the status leaving SUCCESS, or when `Worker started` / `Server listening` never appears — the failing guard's message is printed in the job's "Railway container logs" group. Fix the budget (raise `DATABASE_POOL_MAX`, remove a wrong `POSTGRES_MAX_CONNECTIONS` override, or split the worker) and redeploy; the previous deployment keeps serving meanwhile.
+
+### Worker Postgres pool demand (per process)
+
+Every worker is registered exactly once in [`worker-registration.registry.ts`](../../../src/infrastructure/queue/worker-runtime/worker-registration.registry.ts) — the same registry drives **startup** (`bootstrap.ts`) and **budgeting** (`worker-connection-budget.ts`). At startup, `assertPostgresConnectionBudget({ assertWorkerConcurrency: true })` sums **enabled** workers that use Postgres and compares the peak to `DATABASE_POOL_MAX`.
+
+| Variable                                                       | Meaning                                                                                                 | Default                           |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `WORKER_QUEUE_FAMILIES`                                        | Comma-separated families: `mail`, `notify`, `webhook`, `stripe`, `retention`, `observability`, or `all` | `all` (schema default)            |
+| `WORKER_CONCURRENCY`                                           | Fallback BullMQ concurrency when `WORKER_CONCURRENCY_*` unset                                           | `4`                               |
+| `WORKER_CONCURRENCY_MAIL` / `_NOTIFY` / `_WEBHOOK` / `_STRIPE` | Per-family throughput caps                                                                              | fall back to `WORKER_CONCURRENCY` |
+| `SCHEDULER_ENABLED`                                            | Registers repeatable cron jobs for **active queues in this process** only                               | `true`                            |
+
+#### What "uses Postgres" means
+
+Workers process BullMQ jobs from Redis. A worker that talks to Postgres while processing a job holds **one pool checkout per concurrent job** (`usesPostgres: true`). A worker that only touches Redis or makes outbound HTTP calls consumes **zero** Postgres slots (`usesPostgres: false`).
+
+#### Per-registration metadata
+
+Each entry in [`worker-registration.registry.ts`](../../../src/infrastructure/queue/worker-runtime/worker-registration.registry.ts) declares operational metadata used by startup, budgeting, and alerting:
+
+| Field                             | Purpose                                                                                                                                                                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `usesPostgres`                    | Reserves a per-process pool slot when `true`                                                                                                                                                                                   |
+| `scheduled`                       | `true` for cron-driven workers, `false` for event-driven; cross-checked against `scheduler.ts` at startup (`worker.registry.scheduler_mismatch`)                                                                               |
+| `criticality`                     | `throughput` / `maintenance` / `observability` — surfaced in `worker.queue_families.selected` and pool alerts so operators can correlate latency-critical workloads with pool pressure                                         |
+| `holdsConnectionDuringExternalIo` | `true` when the Postgres checkout is held during an outbound HTTP/S3/Resend call — these workers turn slow externals into pool starvation, so their concurrency is also reported as `peakPostgresConcurrencyHoldingExternalIo` |
+
+#### Per-family registry breakdown (34 workers; 31 use Postgres)
+
+With default concurrency (`WORKER_CONCURRENCY=4`):
+
+| Family                 | Workers                                                                                                                                                                | Postgres | Peak demand     | External-IO holding                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------- | -------------------------------------------------------------------------------------- |
+| `mail`                 | `mail` (throughput), `mail-outbox-sweeper` (1), `commit-dispatch-recovery` (Redis-only)                                                                                | 2 / 3    | `4 + 1 = 5`     | `0`                                                                                    |
+| `notify`               | `notification` (throughput), `user-data-export` (throughput)                                                                                                           | 2 / 2    | `4 + 4 = 8`     | `0` (the export uploads between two short contexts)                                    |
+| `webhook`              | `webhook-delivery` (throughput), `webhook-delivery-reclaim` (1)                                                                                                        | 2 / 2    | `4 + 1 = 5`     | `0` (short transactions around the POST, not across it; the reclaim adds jobs after its read) |
+| `stripe`               | `stripe-webhook` (throughput), `subscription-seat-sync` (throughput), `stripe-webhook-event-retention` (1), `stripe-webhook-event-reclaim` (1), `stripe-webhook-event-catchup` (1) | 5 / 5    | `4 + 4 + 1 + 1 + 1 = 11` | `0`                                                                                    |
+| `retention`            | 19 single-concurrency workers (audit retention/export/drain, session cleanup, notification retention, 2 offboarding reconcilers, 11 tombstone/retention/sweep workers, the membership invitation expiry sweep) | 19 / 19  | `19 × 1 = 19`   | `0` (the audit export, the upload sweep and both S3 retention purges keep S3 calls outside their short contexts) |
+| `observability`        | `idempotency-cardinality`, `dlq-depth` (Redis-only), `dlq-auto-retry` (1)                                                                                              | 1 / 3    | `1`             | `0`                                                                                    |
+| **Total (monolithic)** | **34**                                                                                                                                                                 | **31**   | **`49`**        | **`0`**                                                                                |
+
+The `External-IO holding` column is the **at-risk slice** of the Postgres budget — these are the slots that can starve when Stripe, Resend, or S3 latency spikes. Watch the `workerPeakPostgresConcurrencyHoldingExternalIo` extra in the `database.pool.exhaustion.*` Sentry alerts.
+
+#### Monolithic vs split worker services
+
+**Template.** `.env.example` ships `DATABASE_POOL_MAX=70` (the default monolithic worker plus burst
+headroom) and leaves `POSTGRES_MAX_CONNECTIONS` unset, so the budget reads the live server's
+`max_connections`. `src/tests/unit/ci/worker-pool-budget.policy.unit.test.ts` fails if the real worker
+registry outgrows the template pool, or the template budget no longer fits the Compose stack.
+
+| Mode                                                 | Trigger                                | Enforcement                                                                                                                                                                                              |
+| ---------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Monolithic**                                       | `WORKER_QUEUE_FAMILIES` unset or `all` | **Fails fast** at startup when peak Postgres demand exceeds `DATABASE_POOL_MAX` (peak demand 49 with every optional queue on at the default concurrency; a pool lowered to 30 or 20 fails here — the 2026-10-13 production incident), and warns (`database.connection_budget.worker_demand_no_burst_headroom`) when demand fits but demand + 25% burst headroom (69) does not. The default pool of **70** covers both; raise `DATABASE_POOL_MAX` on the worker service if the registry grows, or split services. |
+| **Split** (e.g. `WORKER_QUEUE_FAMILIES=mail,notify`) | Explicit subset                        | **Fails fast** at startup when the subset's computed Postgres demand exceeds `DATABASE_POOL_MAX`; warns on missing burst headroom the same way. |
+
+#### Example Railway split (same image, different env per service)
+
+| Service              | `WORKER_QUEUE_FAMILIES`      | `SCHEDULER_ENABLED` | Postgres demand      | Suggested `DATABASE_POOL_MAX`                           |
+| -------------------- | ---------------------------- | ------------------- | -------------------- | ------------------------------------------------------- |
+| Worker throughput    | `mail,notify,webhook,stripe` | `true`              | `5 + 8 + 5 + 11 = 29` | `30`–`37`                                               |
+| Worker retention     | `retention`                  | `true`              | `19`                 | `20`–`26`                                               |
+| Worker observability | `observability`              | `true`              | `1`                  | `4` (mostly Redis-only; `dlq-auto-retry` uses Postgres) |
+
+Keep **`SCHEDULER_ENABLED=true` (the default) on every worker service.** Each process registers only the crons of the queues it runs, so a service with the scheduler off leaves its families' crons unregistered — on the throughput service that is the mail outbox sweeper, the commit-dispatch recovery, the Stripe reclaim, catch-up and retention and the webhook delivery reclaim: the sweeps that recover lost work. Registration is an idempotent upsert keyed by scheduler id, so services and replicas that register the same cron never double it. A process that runs cron queues with the scheduler off logs `scheduler.disabled.crons_not_registered` with the list.
+
+Worker processes also poll pool pressure (same intervals as API) and attach `workerQueueFamilies` / `workerPeakPostgresConcurrency` to Sentry pool alerts when `METRICS_ENABLED` is on.
+
+Use **`DATABASE_MIGRATION_URL`** (`meepzo_be_migrator`) for migrations and **`DATABASE_URL`** (`meepzo_be_app`, a non-superuser `NOBYPASSRLS` login) for runtime (see [Database runtime role](#database-runtime-role-row-level-security-safety) below). The [baseline migration](../../../migrations/00000000000000_init.sql) creates `meepzo_be_app` `NOLOGIN` only when it is missing; hosted environments get it as a login from meepzo-infra before the first deploy. RLS is enforced via `FORCE ROW LEVEL SECURITY`, also defined in the baseline.
+
+### Neon connection strings
+
+| Variable                     | Use                                       | Notes                                                                                                                                  |
+| ---------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **`DATABASE_URL`**           | API + worker runtime                      | Prefer **pooled** endpoint (`-pooler` host / `?pgbouncer=true` per Neon docs). Provisioning derives the pooled host (`<endpoint>-pooler`) from the direct one. |
+| **`DATABASE_MIGRATION_URL`** | `pnpm db:migrate`, deploy pre-deploy step | **Direct** (non-pooler) connection as `meepzo_be_migrator`.                                                                           |
+
+Size the connection budget against Neon `max_connections` (see formula above).
+
+**Enforcement:** `pnpm db:migrate` fails fast when `DATABASE_MIGRATION_URL` (or the `DATABASE_URL` fallback) resolves to a pooler endpoint — the migration advisory lock is meaningless through transaction-mode PgBouncer. Use the direct host for migrations only.
+
+**Transport security (TLS):** when `DATABASE_TLS_ENFORCED=true` (the default when deployed; off on a local `development` laptop) a boot assertion ([`assert-database-tls-safety.ts`](../../../src/infrastructure/database/safety/assert-database-tls-safety.ts)) refuses to start unless the Postgres client verifies the server certificate — set `?sslmode=verify-full` (preferred) or `?sslmode=verify-ca` in `DATABASE_URL`, or set `DATABASE_SSL_REJECT_UNAUTHORIZED=true`. Verification uses Node's system trust store; managed providers (Neon, Railway) present certificates chained to public CAs already in that store, so no custom CA file is needed. Neon's bare `sslmode=require` encrypts but does **not** validate the chain (MITM exposure) and will be rejected at boot. Local/CI only warns.
+
+**Backups:** enable automated backups and point-in-time recovery on your managed Postgres provider (Neon/Railway); test restore quarterly.
+
+### Row-level security (RLS) and the connection pool
+
+Organization-scoped HTTP routes hold **one pool checkout per unit of work** via `withAppDatabaseContext` (`BEGIN` + `SET LOCAL app.current_organization_public_id`, released at COMMIT).
+
+> **Throughput SLA (RLS ceiling).** Because each organization-scoped request holds its connection for the
+> whole request, a single process sustains at most `DATABASE_POOL_MAX` concurrent organization-scoped
+> requests. Steady-state RPS ≈ `DATABASE_POOL_MAX / avg_request_seconds` per process (e.g. 20 / 0.05s
+> ≈ 400 RPS). Beyond that, units of work queue for a connection. The overload guard sheds new requests
+> with 503 + `Retry-After` once ten times the pool is in flight, running plus waiting
+> (`OVERLOAD_DB_POOL_SHED_RATIO`, default 10), or once the oldest waiter has waited
+> `OVERLOAD_DB_ACQUIRE_WAIT_SHED_MS` (default 2 s — a slow database); a unit of work that still cannot get a connection within
+> `DATABASE_POOL_ACQUIRE_TIMEOUT_MS` gets the same 503, and a running statement past the 5s HTTP
+> statement timeout surfaces as a 504. Scale by raising `DATABASE_POOL_MAX` (within the connection budget above) or
+> adding API replicas; watch the `database.pool.exhaustion.*` Sentry alerts (warn 80% / crit 95%).
+
+| Concern                | Guidance                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| Effective concurrency  | Treat **`DATABASE_POOL_MAX` as the per-process ceiling** for concurrent organization-scoped requests            |
+| Workers                | Pass `organization_id` / `organizationPublicId` in queries — do not rely on session GUC                |
+| Billing tables         | PK / FK / RLS per table: [billing-database-schema.md](../../reference/data/billing-database-schema.md) |
+| System tables (no RLS) | [system-tables-without-tenant-rls.md](../../reference/security/system-tables-without-tenant-rls.md)    |
+
+### HTTP and database statement timeouts
+
+| Variable                             | Default | Scope                                                                                                                                                                                             |
+| ------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FASTIFY_REQUEST_TIMEOUT_MS`         | `30000` | Entire HTTP request (Fastify)                                                                                                                                                                     |
+| `FASTIFY_CONNECTION_TIMEOUT_MS`      | unset (off) | Socket inactivity — a socket with no bytes in or out this long is destroyed, a handler still waiting on the pool or Stripe included. When set, at least `DATABASE_POOL_ACQUIRE_TIMEOUT_MS` + `STRIPE_HTTP_TIMEOUT_MS` (env refine) |
+| `DATABASE_HTTP_STATEMENT_TIMEOUT_MS` | `5000`  | Connection-level `statement_timeout` for HTTP handlers (scoped RLS contexts only)                                                                                                                   |
+| `DATABASE_POOL_ACQUIRE_TIMEOUT_MS`   | `10000` | Getting a pooled connection for a unit of work — 503 + `Retry-After` past it, and a late connection rolls back unrun; `0` disables |
+| `DATABASE_STATEMENT_TIMEOUT_MS`      | `30000` | Connection-level default for workers and long-running queries                                                                                                                                     |
+
+Org-scoped HTTP handlers wrap database work in `withAppDatabaseContext` — there is no per-request transaction pin. Keep Stripe / S3 / Resend calls **outside** those callbacks (enforced by `rls-context-network-isolation.global.test.ts`).
+
+Cross-organization reads (organization list/get/getBySlug/create) and invitation flows MUST use a user principal scope (`withAppDatabaseContext`) or the `tenancy.resolve_membership_invitation_lookup_by_public_id` / `tenancy.list_pending_membership_invitations_for_email` SECURITY DEFINER helpers (see migration `20260520000004_organization_discovery_and_invitation_lookup_rls.sql`).
+
+### Pool exhaustion alerting (API)
+
+The API process polls every `DATABASE_POOL_ALERT_POLL_INTERVAL_MS` (default **5s**) and may emit Sentry messages after consecutive over-threshold samples:
+
+| Variable                                | Default | Meaning                                                              |
+| --------------------------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_POOL_ACTIVE_WARN_RATIO`       | `0.8`   | Warn when in-process organization RLS checkouts ≥ `DATABASE_POOL_MAX × ratio` |
+| `DATABASE_POOL_ACTIVE_CRITICAL_RATIO`   | `0.95`  | Critical threshold for same signal                                   |
+| `DATABASE_POOL_CLUSTER_WARN_RATIO`      | `0.8`   | Warn when cluster active+waiting connections exceed budget × ratio   |
+| `DATABASE_POOL_CLUSTER_CRITICAL_RATIO`  | `0.95`  | Critical cluster threshold                                           |
+| `DATABASE_POOL_ALERT_CONSECUTIVE_POLLS` | `2`     | Consecutive polls before alerting                                    |
+
+Alerting runs on API startup (`registerPostgresPoolMetrics` in `server.ts`, and in `worker.ts`) and does **not** require `METRICS_ENABLED`. Every alert carries the process's live pool counts from node-postgres as extras — `primaryPoolInUse`, `primaryPoolIdle`, `primaryPoolWaiting`, `primaryPoolMax`, and the same `maintenancePool*` once that pool is open — so the event shows whether units of work were already queuing for a connection. Optional Prometheus gauges (`postgres_pool_connections`, `postgres_pool_waiting`, `db_pool_connections`) use the same samples when metrics are enabled.
+
+---
+
+## Railway
+
+1. In **Railway** → Project → Service → **Settings** → **Resources**, choose a memory limit consistent with traffic and workers ([Railway resource limits documentation](https://docs.railway.com/reference/resources)).
+
+2. Set **Variables** per service (**API** and **worker are separate services**):
+
+   ```text
+   NODE_OPTIONS=--max-old-space-size=768
+   ```
+
+   Replace `768` using the table above (and your plan’s MiB allowance).
+
+3. **CD workflow:** `NODE_OPTIONS` can be synced from GitHub Environment variables (`NODE_OPTIONS`) via [reusable-railway-deploy.yml](../../../.github/workflows/reusable-railway-deploy.yml) to both API and worker services. Use equal or higher heap for workers if they run heavier jobs.
+
+4. **Graceful drain:** On `SIGTERM`/`SIGINT`, the API sets a process-wide draining flag before `app.close()`. **`GET /readyz` returns HTTP 503** with `status: "draining"` so the load balancer stops sending traffic while in-flight requests finish, while **`GET /livez` stays HTTP 200** until the process exits. Align platform **draining / health-check grace** with `SHUTDOWN_TIMEOUT_MS` (default 15 s) — one budget every close step shares (worker close, queue and pool drains each wait only for what is left of it), with the force-exit watchdog 5 s after it.
+
+---
+
+## Kubernetes appendix
+
+### Pod template sketch
+
+Declare **memory `limits`** (and generally **`requests`** for scheduling). Omit **CPU `limits`** for Node.js API/worker Pods when you see CPU throttling in metrics; **`requests`** still document expected share.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: meepzo-be-api
+spec:
+  terminationGracePeriodSeconds: 35
+  containers:
+    - name: api
+      image: your-registry/meepzo-be:latest
+      env:
+        - name: NODE_OPTIONS
+          value: '--max-old-space-size=768'
+      resources:
+        requests:
+          memory: '1Gi'
+          cpu: '1000m'
+        limits:
+          memory: '1Gi'
+```
+
+- **`terminationGracePeriodSeconds`** should exceed the application's shutdown budget plus its watchdog buffer (**`SHUTDOWN_TIMEOUT_MS`**, default **15000**, + 5 s, + the 3 s API drain pause — see [.env.example](../../../.env.example)) so in-flight Fastify drains and BullMQ workers close cleanly.
+
+### When a Pod exits with exit code **137**
+
+Often indicates **OOMKilled**:
+
+```bash
+kubectl describe pod "<pod>" -n "<namespace>"
+# Look under Last State → Reason: OOMKilled or exit code 137
+```
+
+Then increase `limits.memory` or decrease `--max-old-space-size`.
+
+---
+
+## API versus worker sizing
+
+| Process                            | Typical pressure                       | Recommendation                                                                                                          |
+| ---------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **API** (`node dist/server.js`)    | Concurrent HTTP + connection pools     | Baseline heap from heuristic; scale replicas before huge single-pod memory                                              |
+| **Worker** (`node dist/worker.js`) | BullMQ jobs, batches, outbound clients | Prefer **equal or larger** memory limit than API; tune **`WORKER_CONCURRENCY`** ([.env.example](../../../.env.example)) |
+
+Both processes should define **`NODE_OPTIONS`** on their respective Pods or Railway services.
+
+---
+
+## CPU guidance
+
+Node.js runs JavaScript on a **single main thread**. **1 vCPU** is a workable floor for light traffic; **2 vCPU** is a reasonable baseline for sustained API throughput. In Kubernetes prefer **`resources.requests.cpu`** and avoid aggressive **`limits.cpu`** unless you deliberately cap burst (throttling hurts latency-bound APIs).
+
+---
+
+## Why we do not set `ulimit` in the Dockerfile
+
+[Dockerfile](../../../Dockerfile) intentionally omits **`ulimit`**. Railway applies platform defaults; lowering `nofile` can starve Postgres pool + Redis + inbound connections. Kubernetes sets ulimits via the container runtime **or** **`securityContext`** on the Pod; treat that as deliberate platform policy rather than embedding limits in every image rebuild.
+
+---
+
+## Flow overview
+
+```mermaid
+flowchart TB
+  platform[Platform memory limit]
+  nodeops[NODE_OPTIONS max-old-space-size]
+  rss[RSS heap plus native alloc]
+  oom{Cgroup cap exceeded}
+
+  platform -->|"size container"| rss
+  nodeops -->|"cap V8 old space"| rss
+  rss -->|under cap| stable[Stable process]
+  rss -->|over cap| oom
+  oom -->|SIGKILL| killed[OOMKilled]
+```
+
+Set platform limit → set matching `NODE_OPTIONS` → monitor RSS and heap behaviour → tune concurrency or replica count.
+
+---
+
+## Database runtime role (Row-Level Security safety)
+
+`DATABASE_URL` must connect as a **dedicated non-superuser login role** — never a superuser or a role with `BYPASSRLS`. PostgreSQL **skips Row-Level Security entirely** (even when `FORCE`d) for superusers and `BYPASSRLS` roles, so a misconfigured `DATABASE_URL` silently collapses tenant isolation on every RLS-only read path with **zero error**.
+
+At startup, `assertDatabaseRoleRlsSafety()` ([`assert-database-rls-safety.ts`](../../../src/infrastructure/database/safety/assert-database-rls-safety.ts)) reads `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = session_user`. When `DATABASE_RLS_SAFETY_ENFORCED=true` (the default when deployed) and the role is unsafe, boot **fails closed**; locally (`false`) it only **warns**, so docker-compose's default `postgres` superuser keeps working.
+
+### Symptom
+
+The deploy's **"Deploy API and worker to Railway"** step fails: the image builds and migrations run, but the API/worker **crash-loop at boot** and the health check never passes:
+
+```text
+[ERROR] Server failed to start error="database.rls_safety.unsafe_role: DATABASE_URL connects as
+"meepzo_be_production_owner" with rolsuper=false rolbypassrls=true. ..."
+```
+
+Common triggers: **the Neon project's database owner** (`meepzo_be_<environment>_owner`, `BYPASSRLS=true`), **Railway's default `postgres`** superuser, or a role created through Neon's REST API / console / CLI (all of which grant `BYPASSRLS`) used directly as `DATABASE_URL`.
+
+### Fix — split the database URLs by role
+
+| Env var | Database user | Why |
+| --- | --- | --- |
+| `DATABASE_URL` (runtime, pooled) | `meepzo_be_app` — `LOGIN NOSUPERUSER NOBYPASSRLS` | enforces RLS / tenant isolation |
+| `DATABASE_MAINTENANCE_URL` (maintenance pool, pooled) | `meepzo_be_maintenance` — `LOGIN NOBYPASSRLS` | maintenance contexts stay RLS-subject ([runbook](maintenance-database-role.md)) |
+| `DATABASE_MIGRATION_URL` (migrations only, direct host) | `meepzo_be_migrator` — `LOGIN CREATEROLE BYPASSRLS` | DDL + role management; runs every migration, the first one on an empty database included |
+
+API and worker share these users (tenant jobs on `DATABASE_URL`, retention/cleanup on the maintenance pool). The provider owner (`meepzo_be_<environment>_owner` on Neon / `postgres` on Railway) is in none of them — it only creates the users. `BYPASSRLS` on the migrator mirrors the provider owner it replaces: SECURITY DEFINER resolvers run as the role that created them, and `FORCE ROW LEVEL SECURITY` would otherwise make them return zero rows (see the header of `migrations/20260827050000_role_taxonomy_owner_operator_migrator.sql`). Create the users **as the provider owner** with SQL `CREATE ROLE` — not Neon's REST API, which taints roles with `BYPASSRLS`:
+
+```sql
+-- The environment's database: meepzo_be_development or meepzo_be_production.
+CREATE ROLE meepzo_be_app LOGIN PASSWORD '<generated>';
+CREATE ROLE meepzo_be_maintenance LOGIN PASSWORD '<generated>';
+CREATE ROLE meepzo_be_migrator LOGIN CREATEROLE BYPASSRLS PASSWORD '<generated>';
+GRANT CONNECT ON DATABASE meepzo_be_production TO meepzo_be_app, meepzo_be_maintenance, meepzo_be_migrator;
+GRANT ALL ON DATABASE meepzo_be_production TO meepzo_be_migrator WITH GRANT OPTION;
+GRANT ALL ON SCHEMA public TO meepzo_be_migrator WITH GRANT OPTION;
+-- ADMIN only (no inherited privileges): the migrations grant these roles to others.
+GRANT meepzo_be_app TO meepzo_be_migrator WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+GRANT meepzo_be_maintenance TO meepzo_be_migrator WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+```
+
+The migrations create every role `NOLOGIN` only when it is missing, so they leave these users' attributes alone and attach the grants — including `meepzo_be_migrator`'s membership in `meepzo_be_owner`, the `NOLOGIN` group that owns the tables. Point each URL at its user (pooler host for the two runtime URLs, direct host for the migration URL) and re-deploy. Confirm with `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = session_user` on `DATABASE_URL` — both must be `false`.
+
+> meepzo-infra's Neon provisioning (`setup-neon`) creates one Neon project per environment (`meepzo-be-<environment>`: branch `<environment>`, database `meepzo_be_<environment>`, owner `meepzo_be_<environment>_owner`) and these three users in it before the first deploy — via SQL as that owner — and writes the three URLs into `.env.<environment>`. A database set up **outside** that flow (e.g. a hand-created Neon project) must have the users created and wired manually as above.
+
+### Do NOT disable the guard to "fix" it
+
+Setting `DATABASE_RLS_SAFETY_ENFORCED=false` in a hosted environment silences the check and ships with tenant isolation **actually broken** — every tenant can read every other tenant's rows. The role is the only correct fix.

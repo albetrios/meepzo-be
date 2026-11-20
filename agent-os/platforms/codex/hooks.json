@@ -1,0 +1,62 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_PROJECT_DIR=\"$(git rev-parse --show-toplevel)\" node \"$(git rev-parse --show-toplevel)/agent-os/hooks/be-session-start.mjs\"",
+            "statusMessage": "Loading meepzo-be session context"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_PROJECT_DIR=\"$(git rev-parse --show-toplevel)\" node \"$(git rev-parse --show-toplevel)/agent-os/hooks/be-prompt-skill-router.mjs\"",
+            "statusMessage": "Checking meepzo-be skill routing"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_PROJECT_DIR=\"$(git rev-parse --show-toplevel)\" node \"$(git rev-parse --show-toplevel)/agent-os/hooks/be-guardrails.mjs\"",
+            "statusMessage": "Checking meepzo-be shell guardrails"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "web|fetch|search|mcp",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_PROJECT_DIR=\"$(git rev-parse --show-toplevel)\" node \"$(git rev-parse --show-toplevel)/agent-os/hooks/be-injection-scan.mjs\"",
+            "statusMessage": "Scanning external content for prompt injection"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CLAUDE_PROJECT_DIR=\"$(git rev-parse --show-toplevel)\" node \"$(git rev-parse --show-toplevel)/agent-os/hooks/be-edit-hooks.mjs\"",
+            "statusMessage": "Checking meepzo-be completion gates"
+          }
+        ]
+      }
+    ]
+  }
+}

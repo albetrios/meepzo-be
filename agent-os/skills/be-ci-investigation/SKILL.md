@@ -1,0 +1,64 @@
+---
+name: be-ci-investigation
+description: Investigate a single failing PR CI check in meepzo-be and return a short root-cause summary with a fix plan. Use when the user asks why CI failed or to diagnose a specific GitHub Actions job.
+indexNote: diagnose one failing PR CI check → root cause + fix plan
+---
+
+# CI investigator (meepzo-be)
+
+Produce a **short root-cause summary** for **one** failing check (not full PR babysit — see **be-pr-babysit** for the full loop).
+
+Run it through the **be-ci-investigator** agent: CI logs are large and noisy, and the agent keeps them out of the main conversation and returns only the summary below. This skill is the one copy of the steps, the job map and the output format — the agent holds none of them.
+
+## Steps
+
+1. Identify the failing job:
+
+   ```bash
+   gh pr checks
+   gh run view <run-id> --log-failed
+   ```
+
+   A scheduled or post-merge failure has a `ci-failure` issue: its **Fix plan** (written by
+   `.github/actions/ci-failure-issue/fix-plan.mjs`) already names the failed jobs and steps, the
+   log tail up to the last error, the owning area and the skills the routing map names for the
+   files in it. Start from it, then confirm against the log — it reads paths, not causes.
+
+2. Map the job to local commands:
+
+   | CI job name | Workflow | Local reproduction |
+   | --- | --- | --- |
+   | PR CI (lint, security, …) | `pr-ci.yml` | `pnpm ci:quality` (local aggregate; CI splits jobs) |
+   | Tests | `reusable-vitest-postgres-redis.yml` | `pnpm compose:up` → `pnpm db:migrate` → `pnpm test` |
+   | Docker → API smoke against the container | `reusable-docker-build-trivy.yml` (post-merge, `api_smoke: true`) | `pnpm db:seed:full` (`DEMO_PASSWORD=DemoPassword123!`) then `pnpm test:api-smoke` against a running API — or `pnpm verify:base` |
+   | Chaos (Toxiproxy) | `reusable-chaos-toxiproxy.yml` | `pnpm chaos:up` → `pnpm chaos:provision` → `pnpm test:chaos` |
+   | Docker | `reusable-docker-build-trivy.yml` | `node tooling/ci/check-dockerfile-sync.mjs` + docker build |
+   | API Docs (post-merge publish) | `reusable-openapi-postman-publish.yml` | `pnpm docs:all` / `pnpm docs:check` |
+   | API Docs (PR-time check) | `pr-docs-lane.yml` | `pnpm docs:check` |
+
+3. Reproduce the **first** failing step locally when possible.
+4. Classify the failure:
+   - **Code** — fix in `src/`, tests, or migrations
+   - **Drift** — run generator once (`pnpm routes:catalog`, `pnpm tool:sync-env-example --fix`)
+   - **Flake** — note evidence; suggest re-run
+   - **Out of scope** — needs base-branch merge or infra change; do not hack CI
+
+## Output format
+
+```markdown
+## CI failure: <job name>
+
+**Root cause:** …
+
+**Evidence:** (log line or local command output)
+
+**Fix:** …
+
+**Commands:** `pnpm …`
+```
+
+## Related skills
+
+- **be-pr-babysit** — fix and push until green
+- **be-before-commit-guard** — local pre-commit mirror of quality checks
+- **be-contract-test-maintainer** / **be-chaos-test-maintainer** — specialized test slices

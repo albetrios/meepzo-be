@@ -1,0 +1,19 @@
+{
+  "id": "sub_fixture_contract_schedule_cancel",
+  "object": "subscription",
+  "customer": "cus_fixture_contract_aa",
+  "status": "active",
+  "cancel_at_period_end": false,
+  "items": {
+    "object": "list",
+    "data": [
+      {
+        "id": "si_fixture_contract_item_stable",
+        "object": "subscription_item",
+        "current_period_start": 1735600200,
+        "current_period_end": 1738278600,
+        "quantity": 1
+      }
+    ]
+  }
+}

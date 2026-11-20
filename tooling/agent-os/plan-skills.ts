@@ -1,0 +1,111 @@
+#!/usr/bin/env tsx
+/**
+ * agent-os plan-skills — given a changeset (explicit file args, or --diff vs a
+ * base branch), compute the exact ordered series of skill chains to run by
+ * matching changed files against the chain triggers in agent-os/skills/chains.json.
+ * Output is a checklist the agent (or a human) follows in order — turning "here
+ * are some skills" into "here is the precise ordered plan" for what changed.
+ *
+ * Usage:
+ *   tsx tooling/agent-os/plan-skills.ts <file> [<file> ...]
+ *   tsx tooling/agent-os/plan-skills.ts --diff [base]   # base default: the upstream, else origin/<trunk>
+ */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { resolveBase, tryGit } from '@tooling/setup/common/git-environment.js';
+import { parseCommandLine } from '@tooling/setup/common/script.js';
+
+const repositoryRoot = process.cwd();
+
+interface ChainDefinition {
+  description?: string;
+  trigger?: string;
+  steps?: string[];
+  optional?: string[];
+}
+
+/** Minimal glob -> RegExp supporting `**`, `*`, and `{a,b}` (enough for chain triggers). */
+function globToRegExp(glob: string): RegExp {
+  const globStar = '__GLOBSTAR__';
+  const pattern = glob
+    .replace(/[.+^$()|[\]\\]/g, '\\$&')
+    .replace(/\{([^}]+)\}/g, (_match, group: string) => `(?:${group.split(',').join('|')})`)
+    .replace(/\*\*/g, globStar)
+    .replace(/\*/g, '[^/]*')
+    .replaceAll(globStar, '.*');
+  return new RegExp(`^${pattern}$`);
+}
+
+/** Changed files from `git diff <base>...HEAD` plus the uncommitted working tree. */
+function changedFromGit(base: string): string[] {
+  // The shared git module sheds a hook's GIT_DIR/GIT_PREFIX, so `cwd` decides the repository and
+  // `status --porcelain` prints root-relative paths; its lines keep their leading status column.
+  const lines = (args: string[]): string[] =>
+    tryGit({ args, cwd: repositoryRoot }).output.split('\n').filter(Boolean);
+  const committed = lines(['diff', '--name-only', `${base}...HEAD`]);
+  const working = lines(['status', '--porcelain'])
+    .map((line) => line.slice(3))
+    .filter(Boolean);
+  return [...new Set([...committed, ...working])];
+}
+
+const PLAN_SKILLS_USAGE =
+  'usage: tsx tooling/agent-os/plan-skills.ts <file> [<file> ...] | --diff [base]';
+const commandLine = parseCommandLine({
+  args: process.argv.slice(2),
+  options: { diff: { type: 'boolean' } },
+  maxPositionals: Number.POSITIVE_INFINITY,
+  usage: PLAN_SKILLS_USAGE,
+});
+let files: string[];
+if (commandLine.values.diff) {
+  const [after, ...rest] = commandLine.positionals;
+  if (rest.length > 0) {
+    throw new Error(`Too many arguments: ${rest.join(' ')} — ${PLAN_SKILLS_USAGE}`);
+  }
+  files = changedFromGit(resolveBase({ base: after }));
+} else {
+  files = commandLine.positionals;
+}
+
+const chains =
+  (
+    JSON.parse(readFileSync(join(repositoryRoot, 'agent-os/skills/chains.json'), 'utf8')) as {
+      chains?: Record<string, ChainDefinition>;
+    }
+  ).chains ?? {};
+
+const applicable: Array<{ name: string; definition: ChainDefinition; matched: string[] }> = [];
+for (const [name, definition] of Object.entries(chains)) {
+  if (!definition.trigger) continue;
+  const regExp = globToRegExp(definition.trigger);
+  const matched = files.filter((file) => regExp.test(file));
+  if (matched.length) applicable.push({ name, definition, matched });
+}
+
+console.log(`\nagent-os plan-skills - ${files.length} changed file(s)\n`);
+if (!files.length) {
+  console.log('  (no files - pass file paths or use --diff)\n');
+  process.exit(0);
+}
+if (!applicable.length) {
+  console.log(
+    '  No chain trigger matched. For single-file changes consult agent-os/docs/skill-triggers.md',
+  );
+  console.log('  (the file->skill map) and run the listed skill(s) directly.\n');
+  process.exit(0);
+}
+
+const ordered: string[] = [];
+for (const { name, definition, matched } of applicable) {
+  console.log(`> ${name}  (trigger: ${definition.trigger}; ${matched.length} file[s])`);
+  (definition.steps ?? []).forEach((step, index) => {
+    console.log(`   ${index + 1}. ${step}`);
+    if (!ordered.includes(step)) ordered.push(step);
+  });
+  if (definition.optional?.length)
+    console.log(`   (+ optional: ${definition.optional.join(', ')})`);
+  console.log('');
+}
+console.log(`Ordered skill series (deduped): ${ordered.join(' -> ')}`);
+console.log('Then finish green: pnpm validate + pnpm agent-os:check.\n');

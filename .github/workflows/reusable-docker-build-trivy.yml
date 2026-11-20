@@ -1,0 +1,501 @@
+name: Reusable — Docker build and verify
+
+on:
+  workflow_call:
+    inputs:
+      merge_commit_sha:
+        description: Commit SHA on the target branch after merge
+        required: true
+        type: string
+      target_branch:
+        description: Protected branch that received the merge (main)
+        required: true
+        type: string
+      fresh_security_patches:
+        description: >-
+          Re-run the apk upgrade layer now (a fresh security patch epoch) instead of reusing
+          today's — for a fix published today that Trivy already flags.
+        required: false
+        type: boolean
+        default: false
+      api_smoke:
+        description: >-
+          After the /readyz boot, seed the full demo data and run `pnpm test:api-smoke` against the
+          API container (post-merge CI; a release build skips it).
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      api_image:
+        description: GHCR API image reference pushed for this commit
+        value: ${{ jobs.run.outputs.api_image }}
+      worker_image:
+        description: GHCR worker image reference pushed for this commit
+        value: ${{ jobs.run.outputs.worker_image }}
+  workflow_dispatch:
+    inputs:
+      merge_commit_sha:
+        description: Commit SHA to build
+        required: false
+        type: string
+        default: ''
+      target_branch:
+        description: Branch context (main)
+        required: true
+        type: choice
+        options:
+          - main
+      fresh_security_patches:
+        description: Re-run the apk upgrade layer now instead of reusing today's
+        required: false
+        type: boolean
+        default: false
+      api_smoke:
+        description: Seed the full demo data and run the API smoke against the booted container
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+jobs:
+  run:
+    name: Build + Trivy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # upload-sarif reads its own workflow run, which needs actions: read on a private repository.
+      actions: read
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    outputs:
+      api_image: ${{ steps.push.outputs.api_image }}
+      worker_image: ${{ steps.push.outputs.worker_image }}
+    env:
+      DOCKER_BUILDKIT: 1
+      MERGE_COMMIT_SHA: ${{ inputs.merge_commit_sha || github.sha }}
+      TARGET_BRANCH: ${{ inputs.target_branch || github.ref_name }}
+      # The service containers below, for the container boot, the seed and the API smoke.
+      DATABASE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      REDIS_URL: redis://localhost:6379
+
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: meepzo
+          POSTGRES_PASSWORD: meepzo
+          POSTGRES_DB: meepzo
+        options: >-
+          --health-cmd="pg_isready -U meepzo -d meepzo"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+      redis:
+        image: redis:8.6.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.MERGE_COMMIT_SHA }}
+          fetch-depth: 1
+
+      - name: Setup project identity
+        uses: ./.github/actions/setup-project-identity
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-pnpm
+        with:
+          # The seed and the API smoke run from this checkout (tsx); the image build needs nothing.
+          install: ${{ inputs.api_smoke && 'true' || 'false' }}
+
+      - name: Export shared CI test env (JWT keys + retention + secrets-encryption)
+        uses: ./.github/actions/test-env
+      # Like every DB lane: no crash safety on a throwaway database (.github/ci-services.yml).
+      - uses: ./.github/actions/tune-ci-postgres
+        with:
+          container: ${{ job.services.postgres.id }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Verify Dockerfile.worker sync
+        run: node tooling/ci/check-dockerfile-sync.mjs
+
+      # One security patch epoch per UTC day: the apk upgrade layer (and every layer after it) is
+      # rebuilt on the first build of the day and reused after that, instead of on every build.
+      # Trivy still scans every build; fresh_security_patches forces a new epoch when a fix
+      # published today is already flagged.
+      - name: Security patch epoch (one per UTC day)
+        id: patch_epoch
+        env:
+          FRESH: ${{ inputs.fresh_security_patches }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "${FRESH}" = "true" ]; then
+            epoch="run-${RUN_ID}"
+          else
+            epoch="$(date -u +%Y-%m-%d)"
+          fi
+          echo "epoch=${epoch}" >> "$GITHUB_OUTPUT"
+          echo "Security patch epoch: ${epoch}"
+
+      - name: Build API Docker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          target: api
+          load: true
+          tags: ${{ env.DOCKER_LOCAL_API_TAG }}:ci
+          build-args: |
+            SECURITY_PATCH_EPOCH=${{ steps.patch_epoch.outputs.epoch }}
+            GENERATE_MCP_DOCS=true
+            BUILD_REVISION=${{ env.MERGE_COMMIT_SHA }}
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ env.GHCR_CACHE_SCOPE_API }}
+          cache-to: type=gha,mode=max,scope=${{ env.GHCR_CACHE_SCOPE_API }}
+
+      - name: Build worker Docker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.worker
+          load: true
+          tags: ${{ env.WORKER_IMAGE }}:ci
+          build-args: |
+            SECURITY_PATCH_EPOCH=${{ steps.patch_epoch.outputs.epoch }}
+            BUILD_REVISION=${{ env.MERGE_COMMIT_SHA }}
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ env.GHCR_CACHE_SCOPE_WORKER }}
+          cache-to: type=gha,mode=max,scope=${{ env.GHCR_CACHE_SCOPE_WORKER }}
+
+      - name: Scan API image with Trivy (table)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.DOCKER_LOCAL_API_TAG }}:ci
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          ignore-unfixed: true
+          version: v0.69.2
+          scanners: vuln
+          skip-files: /app/package.json,/app/pnpm-lock.yaml
+
+      - name: Scan worker image with Trivy (table)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.WORKER_IMAGE }}:ci
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          ignore-unfixed: true
+          version: v0.69.2
+          scanners: vuln
+          skip-files: /app/package.json,/app/pnpm-lock.yaml
+
+      - name: Point at a fresh patch epoch when Trivy fails
+        if: failure()
+        env:
+          EPOCH: ${{ steps.patch_epoch.outputs.epoch }}
+        run: |
+          echo "::error title=Trivy found a fixable HIGH/CRITICAL vulnerability::The apk layer was built for patch epoch ${EPOCH}. If the fix was published since, rebuild with a fresh epoch: dispatch post-merge-ci.yml with fresh_security_patches=true. Otherwise update the base image or the dependency."
+
+      - name: Scan API image with Trivy (SARIF)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.DOCKER_LOCAL_API_TAG }}:ci
+          format: sarif
+          output: trivy-api.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          ignore-unfixed: true
+          version: v0.69.2
+          scanners: vuln
+          skip-files: /app/package.json,/app/pnpm-lock.yaml
+
+      - name: Scan worker image with Trivy (SARIF)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.WORKER_IMAGE }}:ci
+          format: sarif
+          output: trivy-worker.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          ignore-unfixed: true
+          version: v0.69.2
+          scanners: vuln
+          skip-files: /app/package.json,/app/pnpm-lock.yaml
+
+      - name: Upload API Trivy SARIF
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v3
+        with:
+          sarif_file: trivy-api.sarif
+          category: trivy-api
+
+      - name: Upload worker Trivy SARIF
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v3
+        with:
+          sarif_file: trivy-worker.sarif
+          category: trivy-worker
+
+      - name: Verify worker image
+        run: |
+          set -euo pipefail
+          docker run --rm ${{ env.WORKER_IMAGE }}:ci node --check dist/src/worker.js
+          docker run --rm ${{ env.WORKER_IMAGE }}:ci node -e "import('argon2').then(()=>import('@sentry/profiling-node')).then(()=>console.log('native ok'))"
+
+      - name: Generate API image SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.DOCKER_LOCAL_API_TAG }}:ci
+          format: spdx-json
+          output-file: api-image.spdx.json
+          upload-artifact: false
+
+      - name: Generate worker image SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.WORKER_IMAGE }}:ci
+          format: spdx-json
+          output-file: worker-image.spdx.json
+          upload-artifact: false
+
+      # CycloneDX image SBOMs for the cosign attestations below, which work on any plan
+      # (GitHub's own attestations need Enterprise Cloud on a private repository).
+      - name: Generate API image CycloneDX SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.DOCKER_LOCAL_API_TAG }}:ci
+          format: cyclonedx-json
+          output-file: api-image.cyclonedx.json
+          upload-artifact: false
+
+      - name: Generate worker image CycloneDX SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.WORKER_IMAGE }}:ci
+          format: cyclonedx-json
+          output-file: worker-image.cyclonedx.json
+          upload-artifact: false
+
+      - name: Login to GitHub Container Registry
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Install Cosign
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH)
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Push images to GHCR (main)
+        id: push
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH)
+        run: |
+          set -euo pipefail
+          repository_lowercase="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          API_IMAGE="ghcr.io/${repository_lowercase}/${{ env.API_IMAGE }}"
+          WORKER_IMAGE="ghcr.io/${repository_lowercase}/${{ env.WORKER_IMAGE }}"
+          docker tag ${{ env.DOCKER_LOCAL_API_TAG }}:ci "${API_IMAGE}:${MERGE_COMMIT_SHA}"
+          docker tag ${{ env.WORKER_IMAGE }}:ci "${WORKER_IMAGE}:${MERGE_COMMIT_SHA}"
+          docker push "${API_IMAGE}:${MERGE_COMMIT_SHA}"
+          docker push "${WORKER_IMAGE}:${MERGE_COMMIT_SHA}"
+          api_digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${API_IMAGE}:${MERGE_COMMIT_SHA}")"
+          worker_digest="$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "${WORKER_IMAGE}:${MERGE_COMMIT_SHA}")"
+          {
+            echo "api_image=${API_IMAGE}:${MERGE_COMMIT_SHA}"
+            echo "worker_image=${WORKER_IMAGE}:${MERGE_COMMIT_SHA}"
+            echo "api_image_base=${API_IMAGE}"
+            echo "worker_image_base=${WORKER_IMAGE}"
+            echo "api_digest=${api_digest}"
+            echo "worker_digest=${worker_digest}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Pushed ${API_IMAGE}:${MERGE_COMMIT_SHA}"
+          echo "Pushed ${WORKER_IMAGE}:${MERGE_COMMIT_SHA}"
+          if [ "${TARGET_BRANCH}" = "main" ]; then
+            docker tag ${{ env.DOCKER_LOCAL_API_TAG }}:ci "${API_IMAGE}:latest"
+            docker tag ${{ env.WORKER_IMAGE }}:ci "${WORKER_IMAGE}:latest"
+            docker push "${API_IMAGE}:latest"
+            docker push "${WORKER_IMAGE}:latest"
+            echo "Pushed ${API_IMAGE}:latest"
+            echo "Pushed ${WORKER_IMAGE}:latest"
+          fi
+
+      - name: Sign API image
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH)
+        env:
+          COSIGN_EXPERIMENTAL: '1'
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${{ steps.push.outputs.api_image }}"
+
+      - name: Sign worker image
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH)
+        env:
+          COSIGN_EXPERIMENTAL: '1'
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${{ steps.push.outputs.worker_image }}"
+
+      # Signed SBOM + provenance that work on a private repository on any plan: cosign stores the
+      # attestations next to the image in GHCR. release-deploy.yml verifies the signature and
+      # both attestations before the production deploy (`cosign verify-attestation`).
+      - name: Attest SBOM + provenance onto the images (cosign)
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH)
+        env:
+          COSIGN_EXPERIMENTAL: '1'
+          SOURCE_COMMIT: ${{ env.MERGE_COMMIT_SHA }}
+          API_IMAGE_DIGEST_REF: ${{ steps.push.outputs.api_image_base }}@${{ steps.push.outputs.api_digest }}
+          WORKER_IMAGE_DIGEST_REF: ${{ steps.push.outputs.worker_image_base }}@${{ steps.push.outputs.worker_digest }}
+        run: |
+          set -euo pipefail
+          node tooling/ci/slsa-provenance-predicate.mjs > provenance.slsa.json
+          cosign attest --yes --type cyclonedx --predicate api-image.cyclonedx.json "${API_IMAGE_DIGEST_REF}"
+          cosign attest --yes --type slsaprovenance1 --predicate provenance.slsa.json "${API_IMAGE_DIGEST_REF}"
+          cosign attest --yes --type cyclonedx --predicate worker-image.cyclonedx.json "${WORKER_IMAGE_DIGEST_REF}"
+          cosign attest --yes --type slsaprovenance1 --predicate provenance.slsa.json "${WORKER_IMAGE_DIGEST_REF}"
+
+      # Artifact attestations need GitHub Enterprise Cloud on a private repository; on any
+      # other plan GitHub refuses to store them and the step fails. There, set the repository
+      # variable ARTIFACT_ATTESTATIONS=disabled (meepzo-infra's `pnpm setup:infra:deploy`
+      # sets it from the plan) to skip them with this warning instead.
+      - name: Artifact attestations disabled
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH) && vars.ARTIFACT_ATTESTATIONS == 'disabled'
+        run: echo "::warning title=Artifact attestations skipped::ARTIFACT_ATTESTATIONS=disabled — GitHub stores attestations for a private repository only on GitHub Enterprise Cloud."
+
+      - name: Attest API build provenance
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH) && vars.ARTIFACT_ATTESTATIONS != 'disabled'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.api_image_base }}
+          subject-digest: ${{ steps.push.outputs.api_digest }}
+          push-to-registry: true
+
+      - name: Attest worker build provenance
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH) && vars.ARTIFACT_ATTESTATIONS != 'disabled'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.worker_image_base }}
+          subject-digest: ${{ steps.push.outputs.worker_digest }}
+          push-to-registry: true
+
+      - name: Attest API SBOM
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH) && vars.ARTIFACT_ATTESTATIONS != 'disabled'
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.push.outputs.api_image_base }}
+          subject-digest: ${{ steps.push.outputs.api_digest }}
+          sbom-path: api-image.spdx.json
+          push-to-registry: true
+
+      - name: Attest worker SBOM
+        if: contains(fromJSON(env.PROTECTED_BRANCHES_JSON), env.TARGET_BRANCH) && vars.ARTIFACT_ATTESTATIONS != 'disabled'
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.push.outputs.worker_image_base }}
+          subject-digest: ${{ steps.push.outputs.worker_digest }}
+          sbom-path: worker-image.spdx.json
+          push-to-registry: true
+
+      - name: Boot API container and verify /readyz
+        run: |
+          set -euo pipefail
+          # The one database step, compiled (create if missing, migrate; no seed): the same command
+          # meepzo-fe's e2e-backend job runs in this image with --seed minimal.
+          docker run --rm --network host \
+            -e NODE_ENV=development \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e DATABASE_MAINTENANCE_URL="$DATABASE_MAINTENANCE_URL" \
+            -e DATABASE_SSL_ENABLED="$DATABASE_SSL_ENABLED" \
+            -e REDIS_URL="$REDIS_URL" \
+            -e JWT_PRIVATE_KEY="$JWT_PRIVATE_KEY" \
+            -e JWT_PUBLIC_KEY="$JWT_PUBLIC_KEY" \
+            -e ALLOWED_ORIGINS="$ALLOWED_ORIGINS" \
+            -e AUDIT_RETENTION_DAYS="$AUDIT_RETENTION_DAYS" \
+            -e AUTH_SESSION_RETENTION_DAYS="$AUTH_SESSION_RETENTION_DAYS" \
+            -e METRICS_SCRAPE_TOKEN="$METRICS_SCRAPE_TOKEN" \
+            -e SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" \
+            ${{ env.DOCKER_LOCAL_API_TAG }}:ci node dist/src/scripts/ops/db-prepare.js
+          # Boot-time safety checks default HARDENED (see the Policy-flags section of
+          # .env.example); relax them here like local dev does — this smoke boot runs
+          # against the plaintext CI Postgres (superuser role, no TLS, no proxy, no
+          # replica counts) and would otherwise fail before binding the listener.
+          # The connection budget is still checked with the flag off: it then assumes one API
+          # plus one worker, 2 × (70 + 10) = 160 against the service's 100 − 10 = 90. This boot
+          # is one API process and nothing else, so it says so: 1 × 80 = 80 fits.
+          docker run -d --name ${{ env.DOCKER_LOCAL_API_TAG }}-health --network host \
+            -e NODE_ENV=development \
+            -e HOST=0.0.0.0 \
+            -e PORT=3000 \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e DATABASE_MAINTENANCE_URL="$DATABASE_MAINTENANCE_URL" \
+            -e REDIS_URL="$REDIS_URL" \
+            -e DATABASE_SSL_ENABLED="$DATABASE_SSL_ENABLED" \
+            -e DATABASE_TLS_ENFORCED=false \
+            -e DATABASE_RLS_SAFETY_ENFORCED=false \
+            -e DATABASE_CONNECTION_BUDGET_ENFORCED=false \
+            -e DEPLOYMENT_TOTAL_REPLICA_COUNT=1 \
+            -e REDIS_TLS_ENFORCED=false \
+            -e TRUST_PROXY_REQUIRED=false \
+            -e JWT_PRIVATE_KEY="$JWT_PRIVATE_KEY" \
+            -e JWT_PUBLIC_KEY="$JWT_PUBLIC_KEY" \
+            -e ALLOWED_ORIGINS="$ALLOWED_ORIGINS" \
+            -e AUDIT_RETENTION_DAYS="$AUDIT_RETENTION_DAYS" \
+            -e AUTH_SESSION_RETENTION_DAYS="$AUTH_SESSION_RETENTION_DAYS" \
+            -e METRICS_SCRAPE_TOKEN="$METRICS_SCRAPE_TOKEN" \
+            -e SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" \
+            -e RESEND_API_KEY=re_test_contract_fixture_key \
+            -e EMAIL_FROM_ADDRESS=noreply@example.com \
+            ${{ env.DOCKER_LOCAL_API_TAG }}:ci
+          if ! bash tooling/ci/wait-for-ready.sh --url http://localhost:3000/readyz --timeout 90; then
+            docker logs ${{ env.DOCKER_LOCAL_API_TAG }}-health --tail 200 || true
+            docker rm -f ${{ env.DOCKER_LOCAL_API_TAG }}-health || true
+            exit 1
+          fi
+
+      # The API smoke (task 15): every domain's key routes answer (no 5xx) for the seeded demo
+      # account, against the image this run built. The demo account is the k6 workflow's pair: the
+      # full seed creates DEMO_EMAIL with DEMO_PASSWORD, and the smoke signs in with them.
+      - name: Seed the full demo data for the API smoke
+        if: inputs.api_smoke
+        env:
+          NODE_ENV: development
+          DEMO_EMAIL: demo@example.com
+          DEMO_PASSWORD: DemoPassword123!
+        run: pnpm db:seed:full
+
+      - name: API smoke against the container
+        if: inputs.api_smoke
+        env:
+          BASE_URL: http://localhost:3000
+          DEMO_EMAIL: demo@example.com
+          DEMO_PASSWORD: DemoPassword123!
+        run: pnpm test:api-smoke
+
+      - name: Stop the API container
+        if: always()
+        run: |
+          docker logs ${{ env.DOCKER_LOCAL_API_TAG }}-health --tail 100 || true
+          docker rm -f ${{ env.DOCKER_LOCAL_API_TAG }}-health || true

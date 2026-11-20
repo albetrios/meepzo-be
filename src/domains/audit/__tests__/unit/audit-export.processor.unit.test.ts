@@ -1,0 +1,455 @@
+import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { brandWorkerContextDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
+import type { PostgresDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
+import {
+  AUDIT_EXPORT_MANIFEST_FILENAME,
+  AUDIT_EXPORT_SCHEMA_VERSION,
+  type AuditExportManifest,
+} from '@/domains/audit/workers/audit-export.constants.js';
+
+/**
+ * Mutable env stand-in. `runAuditExportJob` reads `env.*` at call time (the prefix is resolved
+ * per invocation), so flipping fields between tests is enough — no module reset needed.
+ */
+const environmentMock = vi.hoisted(() => ({
+  AUDIT_EXPORT_ENABLED: true,
+  S3_BUCKET: 'audit-export-test-bucket' as string | undefined,
+  AUDIT_EXPORT_S3_PREFIX: 'audit/export/',
+  AUDIT_EXPORT_BATCH_SIZE: 2,
+}));
+
+vi.mock('@/shared/config/env.config.js', () => ({ env: environmentMock }));
+
+vi.mock('@/infrastructure/database/connection.js', () => ({
+  database: { selectDistinct: vi.fn(), select: vi.fn() },
+}));
+
+// Every case passes its own `runInDatabaseContext`; the production default opens retention contexts.
+vi.mock('@/infrastructure/queue/worker-runtime/worker-processor.util.js', () => ({
+  runGlobalRetentionWorkerJob: vi.fn(),
+}));
+
+const headObjectMock = vi.hoisted(() => vi.fn());
+const putObjectMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/infrastructure/storage/s3-adapter.js', () => ({
+  getDefaultS3ObjectStorageAdapter: () => ({
+    headObject: (...args: unknown[]) => headObjectMock(...args),
+    putObject: (...args: unknown[]) => putObjectMock(...args),
+  }),
+}));
+
+vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+/** One row as the processor's keyset query selects it (actor/target joined to public ids). */
+interface AuditRowFixture {
+  id: number;
+  public_id: string;
+  actor_user_public_id: string | null;
+  target_user_public_id: string | null;
+  action: string;
+  resource_type: string;
+  severity: string;
+  metadata: Record<string, unknown>;
+  created_at: Date;
+}
+
+function buildAuditRow(id: number, _organizationId: number): AuditRowFixture {
+  return {
+    id,
+    public_id: `aud_${String(id).padStart(21, '0')}`,
+    actor_user_public_id: 'usr_actor000000000000000',
+    target_user_public_id: null,
+    action: 'user.login',
+    resource_type: 'user',
+    severity: 'INFO',
+    metadata: { source: 'audit-export.unit' },
+    created_at: new Date('2024-05-01T12:00:00.000Z'),
+  };
+}
+
+interface PutObjectCall {
+  key: string;
+  body: Buffer;
+  contentType: string;
+  metadata?: Record<string, string>;
+}
+
+interface FakeDatabaseHandle {
+  selectDistinct: ReturnType<typeof vi.fn>;
+  select: ReturnType<typeof vi.fn>;
+  /** How many keyset batch queries the processor issued. */
+  batchQueryCount: () => number;
+  /** Every `limit(n)` argument, in call order — proves batching stays bounded. */
+  requestedLimits: () => number[];
+}
+
+/** A deterministic `org_…` public id per bigserial, as the discovery join returns it. */
+function organizationPublicIdFor(organizationId: number): string {
+  return `org_${String(organizationId).padStart(21, '0')}`;
+}
+
+/**
+ * Fake Drizzle handle. `selectDistinct` yields the tenant discovery rows; `select` yields the
+ * keyset batches in the order the caller supplies them, so a test states exactly how the
+ * processor's `while (true)` loop should unfold (a short batch, or an empty one, ends it).
+ */
+function buildDatabaseHandle(options: {
+  organizationIds: number[];
+  batches: AuditRowFixture[][];
+}): FakeDatabaseHandle {
+  const remainingBatches = [...options.batches];
+  const requestedLimits: number[] = [];
+
+  const selectDistinct = vi.fn(() => ({
+    from: vi.fn(() => ({
+      innerJoin: vi.fn(() => ({
+        where: vi.fn(async () =>
+          options.organizationIds.map((organization_id) => ({
+            organization_id,
+            organization_public_id: organizationPublicIdFor(organization_id),
+          })),
+        ),
+      })),
+    })),
+  }));
+
+  const keysetQuery = {
+    where: vi.fn(() => ({
+      orderBy: vi.fn(() => ({
+        limit: vi.fn(async (limit: number) => {
+          requestedLimits.push(limit);
+          return remainingBatches.shift() ?? [];
+        }),
+      })),
+    })),
+  };
+  // `from(logs).leftJoin(actor).leftJoin(target).where(...)`.
+  const select = vi.fn(() => ({
+    from: vi.fn(() => ({
+      leftJoin: vi.fn(() => ({ leftJoin: vi.fn(() => keysetQuery) })),
+    })),
+  }));
+
+  return {
+    selectDistinct,
+    select,
+    batchQueryCount: () => requestedLimits.length,
+    requestedLimits: () => requestedLimits,
+  };
+}
+
+function asWorkerHandle(handle: FakeDatabaseHandle) {
+  return brandWorkerContextDatabaseHandle(handle as unknown as PostgresDatabaseHandle);
+}
+
+/**
+ * Options that run every database read on the fake handle — one context per read in production —
+ * and export yesterday only, as the cases below expect.
+ */
+function exportOptions(handle: FakeDatabaseHandle, lookbackDays = 1) {
+  return {
+    runInDatabaseContext: <TResult>(
+      work: (databaseHandle: ReturnType<typeof asWorkerHandle>) => Promise<TResult>,
+    ) => work(asWorkerHandle(handle)),
+    lookbackDays,
+  };
+}
+
+function putCalls(): PutObjectCall[] {
+  return putObjectMock.mock.calls.map(([argument]) => argument as PutObjectCall);
+}
+
+function manifestCall(): PutObjectCall | undefined {
+  return putCalls().find((call) => call.key.endsWith(AUDIT_EXPORT_MANIFEST_FILENAME));
+}
+
+function partCalls(): PutObjectCall[] {
+  return putCalls().filter((call) => !call.key.endsWith(AUDIT_EXPORT_MANIFEST_FILENAME));
+}
+
+describe('audit-export.processor', () => {
+  let runAuditExportJob: typeof import('@/domains/audit/workers/audit-export.processor.js').runAuditExportJob;
+
+  beforeAll(async () => {
+    ({ runAuditExportJob } = await import('@/domains/audit/workers/audit-export.processor.js'));
+  }, 60_000);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    environmentMock.AUDIT_EXPORT_ENABLED = true;
+    environmentMock.S3_BUCKET = 'audit-export-test-bucket';
+    environmentMock.AUDIT_EXPORT_S3_PREFIX = 'audit/export/';
+    environmentMock.AUDIT_EXPORT_BATCH_SIZE = 2;
+    // Default: nothing has been exported yet for this organization+date.
+    headObjectMock.mockResolvedValue(null);
+    putObjectMock.mockResolvedValue(undefined);
+  });
+
+  it('skips when export is disabled', async () => {
+    environmentMock.AUDIT_EXPORT_ENABLED = false;
+    const databaseHandle = buildDatabaseHandle({ organizationIds: [], batches: [] });
+
+    const result = await runAuditExportJob(exportOptions(databaseHandle));
+
+    expect(result).toEqual({ exportedOrganizations: 0, skipped: 0 });
+    expect(databaseHandle.selectDistinct).not.toHaveBeenCalled();
+    expect(putObjectMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The manifest is the contract a restore path reads before touching a single part file. If the
+   * version literal silently drifts (or is dropped), every consumer pinned to its version breaks at
+   * read time, long after the export ran. Nothing pinned its shape before this case.
+   */
+  it('writes a manifest carrying AUDIT_EXPORT_SCHEMA_VERSION, the export date, and the organization public id', async () => {
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [42],
+      batches: [[buildAuditRow(1, 42)]],
+    });
+
+    await runAuditExportJob(exportOptions(databaseHandle));
+
+    const manifest = manifestCall();
+    expect(manifest).toBeDefined();
+    const parsed = JSON.parse(manifest!.body.toString('utf8')) as AuditExportManifest;
+    expect(parsed.schema_version).toBe(AUDIT_EXPORT_SCHEMA_VERSION);
+    expect(parsed.organization_public_id).toBe(organizationPublicIdFor(42));
+    // The archive outlives the database; a bigserial in it is meaningless after a restore.
+    expect(parsed).not.toHaveProperty('organization_id');
+    // The window is the previous UTC calendar day, so the label is always a bare ISO date.
+    expect(parsed.export_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(manifest!.contentType).toBe('application/json');
+  });
+
+  /**
+   * The manifest filename is the idempotency key: the processor `headObject`s exactly this name
+   * to decide whether a tenant+day is already done. A rename on the write side without the read
+   * side would silently re-export every day forever.
+   */
+  it('names the manifest AUDIT_EXPORT_MANIFEST_FILENAME and probes that same key first', async () => {
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [42],
+      batches: [[buildAuditRow(1, 42)]],
+    });
+
+    await runAuditExportJob(exportOptions(databaseHandle));
+
+    const probedKey = headObjectMock.mock.calls[0]?.[0] as string;
+    expect(probedKey.endsWith(`/${AUDIT_EXPORT_MANIFEST_FILENAME}`)).toBe(true);
+    expect(manifestCall()?.key).toBe(probedKey);
+  });
+
+  /**
+   * The Hive-style layout (`organization_public_id=`/`dt=`) is what gives Athena partition pruning
+   * and makes a per-tenant retention delete a prefix delete. A flattened key would still upload
+   * fine and quietly break both.
+   */
+  it('writes part objects under the partitioned organization/date key convention', async () => {
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [42],
+      batches: [[buildAuditRow(1, 42)]],
+    });
+
+    await runAuditExportJob(exportOptions(databaseHandle));
+
+    const [part] = partCalls();
+    expect(part).toBeDefined();
+    // The trailing slash on AUDIT_EXPORT_S3_PREFIX is normalized away, not doubled.
+    expect(part!.key).toMatch(
+      /^audit\/export\/organization_public_id=org_0+42\/dt=\d{4}-\d{2}-\d{2}\/part-[0-9a-f-]{36}\.jsonl\.gz$/,
+    );
+    expect(part!.contentType).toBe('application/gzip');
+    expect(manifestCall()!.key).toMatch(
+      /^audit\/export\/organization_public_id=org_0+42\/dt=\d{4}-\d{2}-\d{2}\/manifest\.json$/,
+    );
+  });
+
+  /**
+   * The bigserial restarts at 1 after a restore or reset, and every database writing to a shared
+   * bucket counts from 1. Partitioned by it, a second organization 42 found the first one's
+   * manifest, skipped its own day as already exported, and its parts landed in the same partition.
+   */
+  it('keeps two organizations with the same bigserial in different partitions', async () => {
+    const { buildManifestKey } = await import('@/domains/audit/workers/audit-export.processor.js');
+    const dateLabel = '2026-10-03';
+    expect(
+      buildManifestKey({ organizationPublicId: 'org_aaaaaaaaaaaaaaaaaaaaa', dateLabel }),
+    ).not.toBe(buildManifestKey({ organizationPublicId: 'org_bbbbbbbbbbbbbbbbbbbbb', dateLabel }));
+    // The same organization and day is the same manifest — the idempotency key holds.
+    expect(buildManifestKey({ organizationPublicId: 'org_aaaaaaaaaaaaaaaaaaaaa', dateLabel })).toBe(
+      buildManifestKey({ organizationPublicId: 'org_aaaaaaaaaaaaaaaaaaaaa', dateLabel }),
+    );
+  });
+
+  /**
+   * A tenant discovered by `selectDistinct` but returning no rows in the window (e.g. every row
+   * purged by retention between the two queries) is counted as `skipped` and writes NOTHING —
+   * not an empty manifest. This is deliberate: the manifest doubles as the "already done" marker,
+   * so writing an empty one would permanently suppress a legitimate re-run for that day.
+   */
+  it('writes no manifest for a tenant with zero rows in the window and counts it as skipped', async () => {
+    const databaseHandle = buildDatabaseHandle({ organizationIds: [42], batches: [[]] });
+
+    const result = await runAuditExportJob(exportOptions(databaseHandle));
+
+    expect(result).toEqual({ exportedOrganizations: 0, skipped: 1 });
+    expect(putObjectMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A part upload that rejects must propagate so BullMQ retries the job. The dangerous failure
+   * mode is the opposite: swallowing the error, writing the manifest anyway, and permanently
+   * marking an incomplete day as exported. Asserts both halves — the throw, and no manifest.
+   */
+  it('rethrows a failed part upload and does not write the manifest', async () => {
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [42],
+      batches: [[buildAuditRow(1, 42)]],
+    });
+    putObjectMock.mockRejectedValueOnce(new Error('s3-put-failed'));
+
+    await expect(runAuditExportJob(exportOptions(databaseHandle))).rejects.toThrow('s3-put-failed');
+
+    expect(manifestCall()).toBeUndefined();
+  });
+
+  /**
+   * The manifest's `row_count` / `sha256` are what a consumer verifies a part against without
+   * re-downloading it. Decompress the uploaded body and check the manifest describes the bytes
+   * that were actually written, not what the processor intended to write.
+   */
+  it('records per-part row_count and sha256 in the manifest that match the uploaded bytes', async () => {
+    const rows = [buildAuditRow(1, 42), buildAuditRow(2, 42), buildAuditRow(3, 42)];
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [42],
+      batches: [rows.slice(0, 2), rows.slice(2)],
+    });
+
+    await runAuditExportJob(exportOptions(databaseHandle));
+
+    const parsed = JSON.parse(manifestCall()!.body.toString('utf8')) as AuditExportManifest;
+    const parts = partCalls();
+    expect(parsed.objects).toHaveLength(parts.length);
+    expect(parsed.objects.reduce((total, object) => total + object.row_count, 0)).toBe(rows.length);
+
+    for (const [index, object] of parsed.objects.entries()) {
+      const part = parts[index]!;
+      expect(object.key).toBe(part.key);
+      expect(object.format).toBe('ndjson');
+      expect(object.content_type).toBe('application/gzip');
+      // NDJSON: one JSON object per line, trailing newline on every line.
+      const lines = gunzipSync(part.body).toString('utf8').split('\n').filter(Boolean);
+      expect(lines).toHaveLength(object.row_count);
+      expect((JSON.parse(lines[0]!) as { id: string }).id).toMatch(/^aud_[a-z0-9]{21}$/);
+      // The object metadata a consumer reads from S3 HEAD must agree with the manifest.
+      const expectedSha256 = createHash('sha256').update(part.body).digest('hex');
+      expect(object.sha256).toBe(expectedSha256);
+      expect(part.metadata?.sha256).toBe(expectedSha256);
+      expect(part.metadata?.row_count).toBe(String(object.row_count));
+      expect(part.metadata?.schema_version).toBe(AUDIT_EXPORT_SCHEMA_VERSION);
+    }
+  });
+
+  /**
+   * The archive outlives the database, and a restore reissues bigserials: an exported line keyed
+   * by them would point at a different event. Every id on a line is a public id, and metadata is
+   * sanitized like the audit API's (internal-id keys dropped, secrets redacted).
+   */
+  it('writes lines that carry public ids only and sanitized metadata', async () => {
+    const row = {
+      ...buildAuditRow(1, 42),
+      target_user_public_id: 'usr_target00000000000000',
+      metadata: { mfa_method_id: 99, api_token: 'live-secret', member_public_id: 'mem_x' },
+    };
+    const databaseHandle = buildDatabaseHandle({ organizationIds: [42], batches: [[row]] });
+
+    await runAuditExportJob(exportOptions(databaseHandle));
+
+    const [part] = partCalls();
+    const line = JSON.parse(gunzipSync(part!.body).toString('utf8').split('\n')[0]!) as Record<
+      string,
+      unknown
+    >;
+    expect(line).toEqual({
+      id: 'aud_000000000000000000001',
+      organization_id: organizationPublicIdFor(42),
+      actor_user_id: 'usr_actor000000000000000',
+      target_user_id: 'usr_target00000000000000',
+      action: 'user.login',
+      resource_type: 'user',
+      severity: 'INFO',
+      metadata: { api_token: '[REDACTED]', member_public_id: 'mem_x' },
+      created_at: '2024-05-01T12:00:00.000Z',
+    });
+  });
+
+  /**
+   * Every keyset query is capped at AUDIT_EXPORT_BATCH_SIZE — the whole point of streaming a
+   * ledger table rather than selecting it. A regression to an unbounded select would still pass
+   * every other case here while OOM-ing on a real tenant's day.
+   */
+  it('bounds every keyset query at AUDIT_EXPORT_BATCH_SIZE and stops on a short batch', async () => {
+    const rows = [1, 2, 3, 4, 5].map((id) => buildAuditRow(id, 42));
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [42],
+      batches: [rows.slice(0, 2), rows.slice(2, 4), rows.slice(4)],
+    });
+
+    await runAuditExportJob(exportOptions(databaseHandle));
+
+    expect(databaseHandle.requestedLimits()).toEqual([2, 2, 2]);
+    // The third batch was short (1 < 2), so the loop stopped without a fourth probe.
+    expect(databaseHandle.batchQueryCount()).toBe(3);
+    expect(partCalls()).toHaveLength(3);
+  });
+
+  /**
+   * Idempotency by manifest: a re-run over an already-exported organization+date must not re-read the
+   * ledger or re-upload a byte. The scheduler retries this job, so a non-idempotent run would
+   * duplicate a full day of data in S3 on every retry.
+   */
+  it('is idempotent — an existing manifest skips the tenant without reading rows or uploading', async () => {
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [42],
+      batches: [[buildAuditRow(1, 42)]],
+    });
+    headObjectMock.mockResolvedValue({ ContentLength: 128 });
+
+    const result = await runAuditExportJob(exportOptions(databaseHandle));
+
+    expect(result).toEqual({ exportedOrganizations: 0, skipped: 1 });
+    expect(databaseHandle.batchQueryCount()).toBe(0);
+    expect(putObjectMock).not.toHaveBeenCalled();
+  });
+
+  it('exports the earlier days of its lookback that have no manifest yet — a failed run is not lost', async () => {
+    const referenceDate = new Date('2024-05-10T06:00:00.000Z');
+    const exportedDay = '2024-05-09';
+    headObjectMock.mockImplementation(async (key: string) =>
+      key.includes(`dt=${exportedDay}/`) ? { contentType: 'application/json' } : null,
+    );
+    const databaseHandle = buildDatabaseHandle({
+      organizationIds: [7],
+      batches: [[buildAuditRow(1, 7)], [buildAuditRow(2, 7)]],
+    });
+
+    const result = await runAuditExportJob({
+      ...exportOptions(databaseHandle, 3),
+      referenceDate,
+    });
+
+    // Yesterday was already exported; the two days before it were not, and now are.
+    expect(result).toEqual({ exportedOrganizations: 2, skipped: 1 });
+    const manifestKeys = putCalls()
+      .map((call) => call.key)
+      .filter((key) => key.endsWith(AUDIT_EXPORT_MANIFEST_FILENAME));
+    expect(manifestKeys).toHaveLength(2);
+    expect(manifestKeys.some((key) => key.includes('dt=2024-05-08/'))).toBe(true);
+    expect(manifestKeys.some((key) => key.includes('dt=2024-05-07/'))).toBe(true);
+  });
+});

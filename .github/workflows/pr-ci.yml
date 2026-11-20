@@ -1,0 +1,1018 @@
+name: PR CI
+
+# Fast merge gate (~2–3 min target). All jobs run in parallel; no Postgres/Redis on PR.
+# Lint, typecheck, unit, migration safety lint, and TS/Docker build verification run here.
+# Security + contract/property tests stay on PR. Post-merge CI handles Docker publish,
+# deploy, release automation after merge (same commit SHA already passed PR CI).
+#
+# Required checks: see docs/deployment/ci-cd/branch-protection.md
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ vars.FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 || 'true' }}
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      src-code: ${{ steps.filter.outputs.src-code }}
+      docker: ${{ steps.filter.outputs.docker }}
+      ci-config: ${{ steps.filter.outputs.ci-config }}
+      agent-os: ${{ steps.filter.outputs.agent-os }}
+      iterations: ${{ steps.filter.outputs.iterations }}
+      docs-only-md: ${{ steps.filter.outputs.docs-only-md == 'true' && steps.filter.outputs.src-code == 'false' && steps.filter.outputs.docker == 'false' && steps.filter.outputs.ci-config == 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Path filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            src-code:
+              - 'src/**'
+              - 'migrations/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              # Dependency overrides and patches change what installs and how it behaves.
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - 'vitest.config.ts'
+              - 'tooling/**'
+            docker:
+              - 'Dockerfile'
+              - 'Dockerfile.worker'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - 'tooling/ci/check-dockerfile-sync.mjs'
+            ci-config:
+              - '.github/**'
+            agent-os:
+              - 'agent-os/**'
+              - '.claude/**'
+              - 'tooling/agent-os/**'
+            iterations:
+              - 'iterations/**'
+              - 'tooling/iterations/**'
+            docs-only-md:
+              - '**/*.md'
+              - 'docs/**'
+
+  agent-os-gate:
+    name: agent-os evals
+    needs: [changes]
+    if: needs.changes.outputs.agent-os == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Integrity gate (counts, frontmatter, paths, hooks)
+        run: pnpm agent-os:check
+      - name: Trigger evals (routing map)
+        run: pnpm agent-os:triggers:strict
+      - name: Platform wiring drift gate (generated adapters in sync with source)
+        # A contributor who skips the local gate cannot land drifted
+        # .cursor/.claude/.codex adapters — they must match agent-os/ source.
+        run: pnpm agent-os:generate:check
+      # These two ran only in the nightly `ci:quality`.
+      - name: Outcome evals (expected skill routing per fixture)
+        run: pnpm agent-os:outcomes
+      - name: Guard evals (hook decisions + fail-open smokes)
+        run: pnpm agent-os:guards
+
+  iteration-freeze:
+    name: Iteration freeze
+    # Merge-time half of the iteration lifecycle: every iteration this PR changes merges frozen,
+    # and a merged frozen iteration takes no edit but a hash-keeping --compact
+    # (tooling/iterations/iteration-freeze.util.ts). Skipped — a pass — when no iteration changed.
+    needs: [changes]
+    if: needs.changes.outputs.iterations == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Every changed iteration merges frozen
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: pnpm iteration:freeze-check --base "$BASE_SHA"
+
+  lint:
+    name: Lint
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-node-pnpm
+      - run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-node-pnpm
+      - run: pnpm typecheck
+
+  static-sync:
+    name: Static sync
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/setup-node-pnpm
+
+      - name: Validate domain structure (strict)
+        run: pnpm validate:domain:strict
+
+      - name: Validate domain integration test coverage
+        run: pnpm validate:domain:coverage
+
+      - name: Scripts layout (no root-level .ts)
+        run: pnpm validate:scripts-layout
+
+      - name: Route catalog in sync
+        run: pnpm routes:catalog:check
+
+      - name: Validate route HTTP coverage
+        run: pnpm validate:route-http-coverage
+
+      - name: Validate route success-status map in sync
+        run: pnpm validate:route-success-statuses
+
+      - uses: ./.github/actions/test-env
+
+      - name: OpenAPI specs in sync
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/meepzo
+          DATABASE_MAINTENANCE_URL: postgresql://postgres:postgres@localhost:5432/meepzo
+          REDIS_URL: redis://localhost:6379
+        run: pnpm docs:check
+
+      - name: Env example in sync with schema
+        run: |
+          pnpm tool:sync-env-example || (echo "::error::.env.example is out of sync with env schema or is missing the # GitHub Secrets / # GitHub Variables top-level halves. See log above. Run pnpm tool:sync-env-example (with --fix if needed)." && exit 1)
+
+      # Ran only inside `ci:quality` (the post-merge canary), so a PR could go green and
+      # redden main — which is exactly what happened twice in a row while landing the gate
+      # itself. Enforcing it here makes the failure land on the PR that causes it.
+      - name: Project identity artifacts in sync
+        run: pnpm tool:generate-project-identity:check
+
+      # Same story: both ran only in `ci:quality`, so #69 (a second hard-coded 2048) and #70 (a
+      # sub-domain without its unit tests) each merged green and reddened the main canary (#72).
+      - name: Constants centralized
+        run: pnpm validate:constants
+
+      - name: Sub-domain unit-test matrix
+        run: pnpm validate:domain:unit-matrix
+
+      # The rest ran only in `ci:quality` (the nightly canary on main), so a PR that broke one
+      # merged green and reddened main the next night — validate:api-docs-hub did, after the
+      # docs steps moved into composite actions. About a second each.
+      - name: TSDoc coverage budget
+        run: pnpm tsdoc:check
+
+      - name: Test filename suffixes
+        run: pnpm validate:test-naming
+
+      - name: API version prefix in tests
+        run: pnpm validate:test-api-prefix
+
+      - name: API docs hub wiring
+        run: pnpm validate:api-docs-hub
+
+      - name: Route schema docs (summary, description, tags)
+        run: pnpm validate:route-schema-docs
+
+      - name: Route param schemas
+        run: pnpm validate:route-param-schemas
+
+      - name: Route organization-scope map in sync
+        run: pnpm validate:route-organization-scope
+
+      - name: Source tree doc in sync
+        run: pnpm tool:project-structure-tree:check
+
+      # After "OpenAPI specs in sync": docs:check generates the gitignored Postman collection
+      # the docs cite.
+      - name: Docs cite paths that exist
+        run: pnpm docs:links:check
+
+  unit-tests:
+    needs: [changes]
+    if: |
+      needs.changes.outputs.docs-only-md != 'true' &&
+      (needs.changes.outputs.src-code == 'true' || needs.changes.outputs.ci-config == 'true')
+    uses: ./.github/workflows/reusable-vitest-unit-only.yml
+
+  # Required-status-check gate: satisfies the branch-protection rule
+  # "unit / Unit + global" on every PR — including docs-only PRs where
+  # unit-tests is legitimately skipped by the path filter.
+  unit:
+    needs: [changes, unit-tests]
+    if: always()
+    uses: ./.github/workflows/reusable-unit-gate.yml
+    with:
+      unit-tests-result: ${{ needs.unit-tests.result }}
+
+  # Authoritative DB-backed matrix ON THE PR (D10 — migration item 1.31): the full
+  # e2e / integration / unit-db / performance / security suite runs here so the
+  # post-merge FAST lane can trust a single-PR merge without re-testing. The same
+  # reusable runs post-merge only in the FULL (batched) lane. It tests `github.sha`, the PR
+  # merged with main — the tree every other lane here checks out — never the PR head: strict
+  # up-to-date is off, so a head behind main is a tree that never lands (#134's head re-ran a
+  # hang main had already fixed, and the gate went red). A red matrix blocks the merge through
+  # the `matrix` gate below. Pinned by src/tests/unit/ci/pr-merge-commit.policy.unit.test.ts.
+  matrix-tests:
+    needs: [changes]
+    if: |
+      needs.changes.outputs.docs-only-md != 'true' &&
+      (needs.changes.outputs.src-code == 'true' || needs.changes.outputs.ci-config == 'true')
+    uses: ./.github/workflows/reusable-vitest-postgres-redis.yml
+    with:
+      merge_commit_sha: ${{ github.sha }}
+      target_branch: main
+
+  # Required-status-check gate: satisfies the branch-protection rule
+  # "matrix / Integration" on every PR — including docs-only PRs where
+  # matrix-tests is legitimately skipped by the path filter. This is what makes
+  # the authoritative matrix (D10) a merge-blocking required check.
+  matrix:
+    needs: [changes, matrix-tests]
+    if: always()
+    uses: ./.github/workflows/reusable-matrix-gate.yml
+    with:
+      matrix-tests-result: ${{ needs.matrix-tests.result }}
+
+  # Not a gate — an early signal beside the matrix: the database tests pnpm test:select picks for
+  # this PR's changed and connected domains (--changed-only: no always-run tests; nothing when the
+  # change selects everything, as a core-domain one does). It starts with the matrix and runs a
+  # fraction of it, so a red result arrives first; the matrix above still decides the merge.
+  affected-db-tests:
+    name: Affected database tests (early signal)
+    needs: [changes]
+    if: |
+      needs.changes.outputs.docs-only-md != 'true' &&
+      needs.changes.outputs.src-code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: meepzo
+          POSTGRES_PASSWORD: meepzo
+          POSTGRES_DB: meepzo
+        options: >-
+          --health-cmd="pg_isready -U meepzo -d meepzo"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:8.6.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: development
+      LOG_LEVEL: warn
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      REDIS_URL: redis://localhost:6379
+      RATE_LIMIT_MAX: 1000
+      RATE_LIMIT_WINDOW_MS: 60000
+      RUN_DB_TESTS: 1
+      RUN_REDIS_TESTS: 1
+      ENABLE_MCP_SERVER: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Export shared CI test env (JWT keys + retention + secrets-encryption)
+        uses: ./.github/actions/test-env
+      - uses: ./.github/actions/tune-ci-postgres
+        with:
+          container: ${{ job.services.postgres.id }}
+      # The RLS tests run in their own lanes (rls-security, rls-application-role), as in the matrix.
+      - name: The database tests this change selects
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >-
+          pnpm test:select --base "$BASE_SHA" --changed-only --exclude 'src/tests/security/rls/**'
+          --lane db-bound --why --run
+
+  # Not a gate: after the full suite, the failed test files pnpm test:select would have skipped for
+  # this PR's changes — each is a selector miss (or a flake); its fixture line goes into
+  # tooling/vitest/selector-fixtures.json so the selection includes it next time.
+  selector-miss-check:
+    name: Selector miss check
+    needs: [unit-tests, matrix-tests]
+    if: always() && (needs.unit-tests.result == 'failure' || needs.matrix-tests.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-pnpm
+
+      - name: Download the test results of every job and shard
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: test-results-*
+          path: test-results
+          merge-multiple: true
+
+      - name: Failed tests the selection would have skipped
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: pnpm test:selector-misses --base "$BASE_SHA" --results test-results
+
+  migration-lint:
+    name: Migration lint
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-node-pnpm
+      - run: pnpm db:migrate:lint
+
+  knip:
+    name: Knip (dead code)
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-node-pnpm
+      # Dead-code / unused-export / unused-dependency gate. Scoped to the high-signal
+      # rules (files, dependencies, binaries, duplicates); the noisy cross-file
+      # exports/types analysis is deferred (see knip.jsonc).
+      - run: pnpm knip
+
+  sonarqube:
+    name: SonarQube
+    needs: [changes]
+    # The SonarQube Community Build and rules the pre-commit gate uses: the same
+    # docker-compose.sonar.yml server and the same `pnpm sonar:scan` (tooling/sonar/sonar-gate.ts),
+    # which fails on any open issue or hotspot on the deployed-app surface. Free on a private
+    # repository, unlike SonarQube Cloud. Only on source changes: the server takes 1-2 min to start.
+    # The Elasticsearch index sits on tmpfs (docker-compose.sonar.yml), so no runner sysctl or disk
+    # headroom is needed.
+    if: needs.changes.outputs.src-code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: SonarQube gate (start the server, scan, fail on any issue)
+        run: pnpm sonar:scan
+
+  rls-security:
+    name: RLS security (non-superuser)
+    needs: [changes]
+    if: |
+      needs.changes.outputs.docs-only-md != 'true' &&
+      (needs.changes.outputs.src-code == 'true' || needs.changes.outputs.ci-config == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Policy-level RLS coverage. These tests opt INTO the non-superuser `meepzo_be_app` role per
+    # statement (`SET LOCAL ROLE`, via the rls-matrix helpers), which is what lets them assert what
+    # a FORCE ROW LEVEL SECURITY policy does and does not permit — the CI superuser below is
+    # RLS-exempt, so without that opt-in they would assert nothing (this is how the
+    # org-mandated-MFA bypass reached production). Note the scope: only the statements that opt in
+    # are RLS-subject. Application code paths on this connection are NOT — a path that forgets a
+    # database context still reads rows here and returns none in production. The
+    # `rls-application-role` job below covers that half. Stays scoped to `src/tests/security/rls`
+    # (the rest of `--project security` runs post-merge) to keep the gate fast. Required-check
+    # wiring: docs/deployment/ci-cd/branch-protection.md.
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: meepzo
+          POSTGRES_PASSWORD: meepzo
+          POSTGRES_DB: meepzo
+        options: >-
+          --health-cmd="pg_isready -U meepzo -d meepzo"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:8.6.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: development
+      LOG_LEVEL: warn
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      REDIS_URL: redis://localhost:6379
+      RATE_LIMIT_MAX: 1000
+      RATE_LIMIT_WINDOW_MS: 60000
+      RUN_DB_TESTS: 1
+      RUN_REDIS_TESTS: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/setup-node-pnpm
+
+      - name: Export shared CI test env (JWT keys + retention + secrets-encryption)
+        uses: ./.github/actions/test-env
+
+      - uses: ./.github/actions/tune-ci-postgres
+        with:
+          container: ${{ job.services.postgres.id }}
+
+      - name: Run non-superuser RLS security tests
+        run: |
+          set -euo pipefail
+          pnpm exec vitest run --project security src/tests/security/rls
+
+  rls-application-role:
+    name: RLS application role (whole connection) ${{ matrix.shard }}/3 (${{ matrix.domains }})
+    needs: [changes]
+    if: |
+      needs.changes.outputs.docs-only-md != 'true' &&
+      (needs.changes.outputs.src-code == 'true' || needs.changes.outputs.ci-config == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # The whole e2e + integration suite no longer fits one runner's budget, so it runs in three
+    # shards of domain groups (`VITEST_DOMAIN_FILTER`), balanced by recorded test time (CI run
+    # 39035942120, 17 Oct: 17.8 min; the even by-file-count `--shard` split ran 2.8-5.7 min).
+    # The groups must cover every domain plus `rest` exactly once — pinned by
+    # src/tests/unit/ci/db-shard-balance.policy.unit.test.ts. Every shard migrates its own
+    # database and runs as the application role; the aggregate result is red if any shard is.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1
+            domains: tenancy,upload,audit
+          - shard: 2
+            domains: auth,billing
+          - shard: 3
+            domains: rest,user,notify
+    # The job above proves the POLICIES are right. This one proves the APPLICATION obeys them.
+    # The pool under test is opened as `meepzo_be_app` via libpq's `options=-c role=...`, so the
+    # role applies to every statement — including ones inside the app's own transactions —
+    # rather than only where a test opts in. A path that reaches a FORCE RLS table without a
+    # database context matches no policy arm, reads zero rows and reports success; that is how
+    # organization and account deletion came to erase no uploads with every check green, and it
+    # is invisible on the RLS-exempt superuser every other job uses. Harness fixtures use the
+    # operator connection (`src/tests/helpers/operator-database.ts`) because TRUNCATE and
+    # cross-tenant seeding are not things the application role may do.
+    services:
+      postgres:
+        image: postgres:17.10-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: meepzo
+          POSTGRES_PASSWORD: meepzo
+          POSTGRES_DB: meepzo
+        options: >-
+          --health-cmd="pg_isready -U meepzo -d meepzo"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:8.6.3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: development
+      LOG_LEVEL: warn
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      DATABASE_MAINTENANCE_URL: postgresql://meepzo:meepzo@localhost:5432/meepzo
+      REDIS_URL: redis://localhost:6379
+      RATE_LIMIT_MAX: 1000
+      RATE_LIMIT_WINDOW_MS: 60000
+      RUN_DB_TESTS: 1
+      RUN_REDIS_TESTS: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/setup-node-pnpm
+
+      - name: Export shared CI test env (JWT keys + retention + secrets-encryption)
+        uses: ./.github/actions/test-env
+
+      # Migrations run on the superuser URL above, BEFORE the role is applied — the application
+      # role is deliberately not a schema owner.
+      - uses: ./.github/actions/tune-ci-postgres
+        with:
+          container: ${{ job.services.postgres.id }}
+
+      # The harness opens the pool under test as meepzo_be_app and the maintenance pool as
+      # meepzo_be_maintenance (`-c role=` on each URL), so both run the production RLS posture.
+      - name: Run e2e + integration as the RLS-subject application role
+        env:
+          VITEST_DOMAIN_FILTER: ${{ matrix.domains }}
+        run: |
+          set -euo pipefail
+          pnpm test:rls-role --project e2e --project integration
+
+  build-verify:
+    name: Build verify
+    needs: [changes]
+    if: |
+      needs.changes.outputs.docs-only-md != 'true' &&
+      (
+        needs.changes.outputs.src-code == 'true' ||
+        needs.changes.outputs.docker == 'true' ||
+        needs.changes.outputs.ci-config == 'true'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DOCKER_BUILDKIT: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Setup project identity
+        uses: ./.github/actions/setup-project-identity
+
+      - uses: ./.github/actions/setup-node-pnpm
+
+      - run: pnpm build
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Verify Dockerfile.worker sync
+        run: node tooling/ci/check-dockerfile-sync.mjs
+
+      - name: Build API Docker image (load only)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          target: api
+          load: true
+          push: false
+          tags: ${{ env.DOCKER_LOCAL_API_TAG }}:pr-verify
+          build-args: |
+            GENERATE_MCP_DOCS=true
+            BUILD_REVISION=${{ github.sha }}
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
+          # Shared cache scope with post-merge (no -pr suffix) so the post-merge
+          # build is a warm cache hit instead of a cold rebuild (item C4/1.34).
+          cache-from: type=gha,scope=${{ env.GHCR_CACHE_SCOPE_API }}
+          cache-to: type=gha,mode=max,scope=${{ env.GHCR_CACHE_SCOPE_API }}
+
+      - name: Build worker Docker image (load only)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.worker
+          load: true
+          push: false
+          tags: ${{ env.WORKER_IMAGE }}:pr-verify
+          build-args: |
+            BUILD_REVISION=${{ github.sha }}
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=${{ env.GHCR_CACHE_SCOPE_WORKER }}
+          cache-to: type=gha,mode=max,scope=${{ env.GHCR_CACHE_SCOPE_WORKER }}
+
+  security-audit:
+    name: Security audit
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/setup-node-pnpm
+
+      # The PRODUCTION tree is the blocking gate: those packages ship in the image.
+      # Ordered first so it is always evaluated — with the full-tree sweep first, a
+      # dev-only failure SKIPPED this step and the audit that matters went unreported.
+      - name: Production dependency audit
+        run: pnpm deps:audit:prod
+
+      # The full tree (incl. devDependencies) is reported but non-blocking: a dev-only
+      # advisory with no published fix would otherwise wedge every PR with no honest way
+      # out. Same policy as meepzo-fe's Security audit. Failures stay visible in this
+      # step's log; make it blocking again once the dev-only backlog is empty.
+      - name: Dependency audit (all deps, advisory)
+        continue-on-error: true
+        run: pnpm deps:audit
+
+  security-secrets:
+    name: Security secrets
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # One pin for CI and cloud sessions: tooling/setup/agent/tool-versions.sh.
+      - name: Load pinned tool versions
+        run: grep -E '^[A-Z][A-Z0-9_]*=' tooling/setup/agent/tool-versions.sh >> "$GITHUB_ENV"
+
+      - name: Cache gitleaks binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        with:
+          path: /usr/local/bin/gitleaks
+          key: gitleaks-${{ env.GITLEAKS_VERSION }}-${{ runner.os }}
+
+      # The cloud installer: the pinned release, SHA-256-verified; a no-op on a cache hit.
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          sudo bash tooling/setup/agent/install-gitleaks.sh
+          gitleaks version
+
+      # The scan below is only as good as its rules: a config without `[extend] useDefault = true`
+      # loads none and passes everything. Plant a freshly generated key outside the checkout
+      # and fail unless this repository's config finds it.
+      - name: Gitleaks canary (the config finds a planted key)
+        run: |
+          set -euo pipefail
+          canary="$(mktemp -d)"
+          # The same key in three places: the source tree and a workflow file must be found, an
+          # installed package skipped (H-5: an unanchored `\.git` entry once skipped .github/).
+          mkdir -p "$canary/.github/workflows" "$canary/node_modules/planted"
+          line="$(printf 'export const STRIPE_SECRET_KEY = "sk_live_%s";' "$(head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)")"
+          for file in canary.ts .github/workflows/canary.yml node_modules/planted/canary.js; do
+            printf '%s\n' "$line" > "$canary/$file"
+          done
+          gitleaks detect --no-git --source "$canary" --config .gitleaks.toml --redact --no-banner \
+            --exit-code 0 --report-format json --report-path "$canary-report.json"
+          found="$(jq -r --arg root "$canary/" '[.[].File | ltrimstr($root)] | sort | join(",")' "$canary-report.json")"
+          if [ "$found" != ".github/workflows/canary.yml,canary.ts" ]; then
+            echo "::error title=Secret scan misses or over-skips::gitleaks with .gitleaks.toml found [$found], expected the planted key in canary.ts and .github/workflows/canary.yml only"
+            exit 1
+          fi
+
+      - name: Gitleaks (secret detection)
+        run: gitleaks detect --redact --verbose --no-banner --config .gitleaks.toml
+
+  security-sast:
+    name: Security SAST
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The baseline scan below needs the PR's base commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
+      # One pin for CI and cloud sessions: tooling/setup/agent/tool-versions.sh.
+      - name: Load pinned tool versions
+        run: grep -E '^[A-Z][A-Z0-9_]*=' tooling/setup/agent/tool-versions.sh >> "$GITHUB_ENV"
+
+      - name: Install Semgrep
+        run: pip install "semgrep==${SEMGREP_VERSION}"
+
+      # Fails on the findings this PR introduces: `--baseline-commit` reports only what is new since
+      # the base (the findings already on main are known), `--error` turns them into a red job.
+      - name: Semgrep SAST
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: semgrep scan --config p/default --config tooling/semgrep/rules.yml --metrics off --error --baseline-commit "$BASE_SHA"
+
+  security-iac:
+    # Trivy config (IaC misconfiguration scan) — closes the Dockerfile/compose
+    # gap left by CodeQL/semgrep/pnpm audit, which don't inspect container
+    # build configuration. Post-merge Trivy already scans built images for OS
+    # CVEs; this job runs PR-time on Dockerfiles + compose for misconfigs
+    # (running as root, missing HEALTHCHECK, etc.) so they don't reach main.
+    # Action + CLI versions match reusable-docker-build-trivy.yml.
+    #
+    # skip-files: Dockerfile.agent is intentionally excluded. It is a
+    # development-only image for Cursor cloud agents (see header comment in
+    # Dockerfile.agent) where the host platform manages user identity and a
+    # USER directive would conflict with the agent's apt-installed tooling
+    # workflow. Deployed images (Dockerfile, Dockerfile.worker) are scanned.
+    name: Security IaC (Trivy config)
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Scan IaC for misconfigurations (table — blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          version: v0.69.2
+          skip-files: Dockerfile.agent
+
+      - name: Scan IaC for misconfigurations (SARIF — non-blocking, for Security tab)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+          version: v0.69.2
+          skip-files: Dockerfile.agent
+
+      - name: Upload IaC Trivy SARIF
+        if: always() && hashFiles('trivy-config.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v3
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+  dependency-review:
+    name: Dependency review
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0
+
+  actionlint:
+    name: Actionlint
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+
+  # Workflow injection scan: template injection (a `${{ }}` expanded into a script), dangerous
+  # triggers, GITHUB_ENV writes, broad permissions. High findings fail the job; a meant one
+  # carries `# zizmor: ignore[<audit>]` with its reason on the flagged line.
+  workflow-security:
+    name: Workflow security (zizmor)
+    needs: [changes]
+    if: needs.changes.outputs.ci-config == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
+      # CI-only, so the pin lives here (1.30.1, released 2026-09-09); bump it by hand.
+      - name: Install zizmor
+        run: pip install "zizmor==1.30.1"
+
+      - name: Scan workflows and actions
+        run: zizmor --offline --min-severity high --format github .github/
+
+  contract-property:
+    name: Contract + property
+    needs: [changes]
+    if: needs.changes.outputs.docs-only-md != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/setup-node-pnpm
+
+      - name: Outbound contract tests (nock, offline)
+        run: pnpm test:contract
+
+      - name: Property tests (bounded)
+        env:
+          FAST_CHECK_NUM_RUNS: 50
+        run: pnpm test:property
+
+  early-failure-alert:
+    name: Early failure alert
+    # Advisory, NOT in the Quality gate: starts with the run, watches its lanes, and the moment one
+    # fails posts a red `Early failure alert` commit status on the PR head (the lane's name and a
+    # link). Every lane still runs to the end, and `Quality gate` still decides the merge
+    # (tooling/ci/early-failure-alert.mjs). Posts nothing when every lane passes.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          # tooling/setup/common holds script.ts, the command-line helper the watcher imports.
+          sparse-checkout: |
+            tooling/ci
+            tooling/setup/common
+      - name: Watch the lanes; post a status on the first failure
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node tooling/ci/early-failure-alert.mjs
+
+  quality-gate:
+    name: Quality gate
+    # ── Single aggregate required check ──────────────────────────────────────
+    # Branch protection (.github/rulesets/main.json) requires only "Quality gate"
+    # + "Checks" (from pr-governance.yml). This job rolls up every required PR-CI
+    # lane, so adding, removing, or renaming a lane changes ONLY this `needs:` list
+    # — never the ruleset, and never a `pnpm github:sync`. That removes the whole
+    # class of "a job rename silently disabled a required check" drift that the
+    # 13-explicit-context model was exposed to.
+    #
+    # A lane that is legitimately skipped (docs-only PR path filter) counts as a
+    # pass; a real failure or cancellation fails the gate. The ruleset ↔ needs
+    # invariant is pinned by src/tests/unit/ci/pr-quality-gate.policy.unit.test.ts.
+    #
+    # agent-os-gate IS required: it only runs on agent-os/** changes (skip → pass
+    # otherwise) and blocks a broken routing map or drifted .cursor/.claude/.codex
+    # adapters. Promote a lane to blocking by adding it here AND to REQUIRED_LANES
+    # in the policy test.
+    needs:
+      - changes
+      - lint
+      - typecheck
+      - static-sync
+      - agent-os-gate
+      - iteration-freeze
+      - unit
+      - matrix
+      - migration-lint
+      - knip
+      - sonarqube
+      - build-verify
+      - security-audit
+      - security-secrets
+      - security-sast
+      - security-iac
+      - dependency-review
+      - contract-property
+      - rls-security
+      - rls-application-role
+      - actionlint
+      - workflow-security
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Aggregate required-lane results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          {
+            echo "| lane | result |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          while IFS=$'\t' read -r lane result; do
+            echo "| ${lane} | ${result} |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::Required lane '${lane}' did not pass (result: ${result})"
+              failed=1
+            fi
+          done < <(printf '%s' "$NEEDS_JSON" | jq -r 'to_entries[] | [.key, .value.result] | @tsv')
+          if [ "$failed" -ne 0 ]; then
+            echo "Quality gate FAILED — one or more required lanes did not pass."
+            exit 1
+          fi
+          echo "Quality gate PASSED — all required lanes succeeded or were skipped."
+      # Every lane passed. A red `Early failure alert` left on the head commit by an earlier
+      # attempt (re-running failed jobs never re-runs the watcher) is now stale: turn it green.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          # tooling/setup/common holds script.ts, the command-line helper the alert imports.
+          sparse-checkout: |
+            tooling/ci
+            tooling/setup/common
+      - name: Clear a stale early failure alert
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node tooling/ci/early-failure-alert.mjs --clear

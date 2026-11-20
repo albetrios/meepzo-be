@@ -1,0 +1,188 @@
+# Upload storage runbook
+
+How the direct-to-S3 upload flow is hardened in production: server-side validation, presigned POST, the orphan-PENDING sweeper, per-user quota, and the S3 bucket lifecycle policy that bounds storage cost when other safeguards regress.
+
+## Flow at a glance
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as meepzo-be API
+    participant S3
+    participant Sweeper as upload-pending-sweep worker
+
+    Client->>API: POST /api/v1/uploads (metadata only)
+    API->>API: validate purpose/content-type/extension/size, count PENDING quota
+    API->>API: row PENDING + return presigned URL (PUT or POST)
+    Client->>S3: upload bytes directly
+    Client->>API: POST /api/v1/uploads/{upload_id}/confirm
+    API->>S3: HEAD object (verify type/length)
+    API->>API: row UPLOADED (or FAILED on mismatch)
+    Note over Sweeper,S3: Hourly cron reconciles rows whose<br/>client skipped the confirm step.
+    Sweeper->>S3: HEAD each stale PENDING
+    Sweeper->>API: UPLOADED / FAILED / hard delete
+```
+
+The API never receives the file bytes — only the metadata, then the confirm event after the client has uploaded directly to S3.
+
+## Server-side validation (per upload create)
+
+Applied in [src/domains/upload/upload.validator.ts](../../../src/domains/upload/upload.validator.ts) before the presigned URL is signed:
+
+| Check                  | Behavior                                                                                                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purpose                | Must be one of the four `UPLOAD_PURPOSES` values (avatar, organization-logo, user-file, organization-file).                                                                                                                           |
+| Content type           | Must be in the purpose allowlist (`UPLOAD_PURPOSE_CONFIG[purpose].allowedTypes`). `image/svg+xml` is gated by `UPLOAD_ALLOW_SVG`.                                                                                                     |
+| Filename extension     | Must match the declared content type via `CONTENT_TYPE_TO_EXTENSIONS` (e.g. `image/png` → `.png`). Filenames without an extension are allowed. Prevents misleading filenames such as `evil.exe` paired with `content_type: image/png`. |
+| File size              | Must be `> 0` and `<= UPLOAD_PURPOSE_CONFIG[purpose].maxSize`.                                                                                                                                                                        |
+| Ownership              | `for: 'user'` rejects `organization_id`; `for: 'organization'` requires `organization_id` and `upload:manage` permission on that organization.                                                                                          |
+| Per-user PENDING quota | Enforced **atomically** in `UploadService.reservePendingUploadSlot`: inside one user-scoped `withAppDatabaseContext` transaction it takes a per-user `pg_advisory_xact_lock` (namespace `UPLOAD_PENDING_QUOTA_ADVISORY_LOCK_NAMESPACE` + user internal id), checks `countPendingByUserId(user.id) < UPLOAD_MAX_PENDING_PER_USER` (default 100), then inserts the PENDING row. The presigned URL is minted **only after** the slot commits, so concurrent create-upload requests can never over-provision presigned slots beyond the quota. Stops a single authed user from looping create-without-confirm and exhausting storage. Reconciled by the sweeper (see below). |
+
+## Presigned PUT vs presigned POST
+
+`UPLOAD_USE_PRESIGNED_POST` (default `true`) selects the upload mechanism:
+
+| Mode           | Pros                                                                                                                                             | Notes                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Presigned PUT  | Simplest client integration; signed `Content-Type` + `Content-Length`.                                                                           | Response carries `upload_method: 'PUT'` plus `headers` (`content-type`, `x-amz-server-side-encryption`) the PUT must send — the URL signs them, so a PUT without them is refused with `SignatureDoesNotMatch`. S3 enforces the signed headers, but the client may omit `Content-Length` on some HTTP stacks and still upload via chunked encoding. |
+| Presigned POST | S3 enforces a `content-length-range` policy condition and explicit `eq` on `$Content-Type`; ideal for browser uploads via `multipart/form-data`. | Response carries `upload_method: 'POST'` plus `fields` the client must submit alongside the file.                                    |
+
+**Production default:** leave `UPLOAD_USE_PRESIGNED_POST=true` unless a client compatibility rollback is needed. If you must fall back to presigned PUT temporarily, update the value via `pnpm github:sync <environment>` and file a follow-up to restore POST once clients consume the discriminated upload response. See [environment-variables.md](environment-variables.md) for the sync workflow.
+
+## Bucket CORS
+
+The browser sends the bytes **straight to S3**, so the bucket's CORS configuration — not the API —
+decides whether the page may. A bucket that does not admit the web app's origin fails every browser
+upload (avatar, organization logo, organization files) with a CORS error in the console,
+while every API step still answers 200: `POST /uploads` succeeds and the confirm never arrives.
+
+**meepzo-infra owns the bucket's CORS** — its AWS provisioning creates the bucket and writes the
+rule; this repository neither checks nor applies it, and the app's own keys cannot (the development
+IAM user is denied even `s3:GetBucketCORS`). What this repository defines is what the rule must
+admit, because these are the requests the upload flow makes:
+
+| Key              | What the upload flow needs                                                            |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `AllowedOrigins` | every web-app origin (`ALLOWED_ORIGINS`; `http://localhost:5173` locally) — not only the API's |
+| `AllowedMethods` | `POST` (the presigned form — the default, and required in production), `PUT` (the fallback), `GET`, `HEAD` |
+| `AllowedHeaders` | at least `content-type` and `x-amz-server-side-encryption` — the headers a presigned PUT sends |
+| `ExposeHeaders`  | `ETag`                                                                                |
+
+To see what the bucket admits, send the browser's preflight yourself — `200` with an
+`Access-Control-Allow-Origin` for the origin means admitted, `403` means refused:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X OPTIONS "https://<bucket>.s3.<region>.amazonaws.com/" \
+  -H 'Origin: http://localhost:5173' -H 'Access-Control-Request-Method: POST'
+```
+
+## Confirm and attach gate
+
+`POST /api/v1/uploads/{upload_id}/confirm` runs:
+
+1. Refuse a row whose `file_key` lacks the `pending/` prefix (`FAILED`) — every upload is created on a pending key.
+2. Ask the storage port for a **verdict**: the object exists, its `Content-Length` equals the declared size, and its `Content-Type` (when S3 reports one) equals the declared type.
+3. Publish: magic-byte types (PNG, JPEG, WebP, PDF) have their first 32 bytes read back with a ranged GET and checked, then are server-side copied to the final key **pinned to the ETag just read** (`CopySourceIfMatch`), so a replayed presigned PUT between check and copy fails the copy; SVG is downloaded, sanitized and written to the final key; other types are copied as-is.
+4. Mark the row `UPLOADED`, repointing `file_key` at the final key in the same update; then delete the pending object (best-effort).
+
+Only a **verdict** marks the row `FAILED`: missing object, size or type mismatch, wrong magic bytes, an SVG that sanitizes to nothing. A storage failure — timeout, throttling, a 403, an **open S3 circuit** — is an error response and leaves the row `PENDING`, so the client can retry confirm and the sweeper reconciles it if it never does.
+
+Avatar and organization-logo attach call `UploadService.assertKeyConfirmedForOwner` **before any storage call**: the key is caller-supplied, and only a confirmed upload of that user or organization may cost an S3 request. The content type checked is the confirmed row's verified type, not an S3 header; a HEAD afterwards only proves the object still exists. **Never** add a consumer that attaches an upload key without going through this gate.
+
+## PENDING sweeper (orphan reconciliation)
+
+Hourly BullMQ repeatable, defined in [src/domains/upload/workers/upload-pending-sweep.worker.ts](../../../src/domains/upload/workers/upload-pending-sweep.worker.ts) and scheduled from [src/infrastructure/queue/scheduler.ts](../../../src/infrastructure/queue/scheduler.ts). Cron pattern: `UPLOAD_PENDING_SWEEP_CRON` (default `15 * * * *`).
+
+For each PENDING row older than `PRESIGNED_URL_EXPIRY_SECONDS + UPLOAD_PENDING_SWEEP_GRACE_SECONDS` (default 15 min + 1 h = 75 minutes — every presigned URL of a candidate has expired):
+
+| Verdict        | Trigger                                                                                                                                  | Action                                                                                         |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `auto_confirm` | `HEAD` finds the object, size matches, type matches when reported, and magic bytes verify (magic-byte types).                            | Copy pending → final key (pinned to the ETag read), set `UPLOADED` + final `file_key`, delete the pending object. |
+| `fail`         | No `pending/` prefix, SVG (published only through confirm, which sanitizes), size/type mismatch, no size reported, wrong magic bytes.    | `UPDATE uploads SET status='FAILED'`.                                                          |
+| `orphan`       | `HEAD` answers 404 — or the object is gone by the time its bytes are read.                                                               | Idempotent `deleteObject`, then `DELETE FROM uploads`.                                         |
+| `transient`    | `HEAD`, the magic-byte read or the copy failed (timeout, throttling, 403, open circuit).                                                 | Nothing — the row stays `PENDING` for the next sweep. Never deleted or failed on an outage.    |
+
+Log lines for ops:
+
+- `upload-pending-sweep.starting` — start of a sweep (cutoff + counts).
+- `upload-pending-sweep.autoConfirmed` — per row promoted to `UPLOADED`.
+- `upload-pending-sweep.verificationFailed` — per row demoted to `FAILED`.
+- `upload-pending-sweep.transientStorageSkipped`, `upload-pending-sweep.magicByteReadFailed`, `upload-pending-sweep.copyToFinalKeyFailed` — per row left `PENDING` because storage failed.
+- `upload-pending-sweep.s3DeleteFailed` — the defensive delete of an orphan's object failed; the row is still deleted (S3 had already reported the object missing).
+- `upload-pending-sweep.pendingDeleteFailedAfterPublish` — the pending copy of an auto-confirmed upload could not be removed (the lifecycle rule below reaps it).
+- `upload-pending-sweep.completed` — final counts (`scannedCount`, `autoConfirmedCount`, `failedCount`, `deletedCount`, `transientCount`).
+
+Database context: every database step runs in its own short `MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP` context, so the RLS tenant policy on `upload.uploads` is satisfied without per-tenant fan-out — and every S3 call runs outside them, so no pooled connection or open transaction waits on S3.
+
+## Tombstone retention
+
+`upload-tombstone-retention` hard-deletes uploads soft-deleted more than `TOMBSTONE_RETENTION_DAYS` ago, and **deletes a row only once its object is gone**: a failed S3 delete keeps the row for the next run (`upload-tombstone-retention.objectDeleteFailed`), because a row deleted first would leave an object nothing references — user content kept past its deletion date. An open S3 circuit ends the run early. The GDPR export retention (`user-data-export-retention`) follows the same rule for expired export bundles. Both page by id, each page read and deleted in its own short context with the S3 deletes outside.
+
+## S3 bucket lifecycle policy (defense in depth)
+
+Server-side controls cap **how much** a single user can upload, but the bucket lifecycle is the last line of defense against orphaned bytes when code regresses or when an outage prevents the sweeper from running. Apply a lifecycle rule per upload prefix:
+
+```text
+Prefix:          avatars/
+                 organization-logos/
+                 user-files/
+                 organization-files/
+Action:          Expire current versions after N days (suggested: 7)
+Filter:          Object Tag "confirmed" != "true"  (when supported by the bucket configuration)
+```
+
+A future iteration will set an `x-amz-meta-confirmed=true` tag on `confirmUpload`, so the lifecycle can target unconfirmed objects only. Until then, scope the lifecycle rule conservatively (longer TTL, or smaller scope) so confirmed objects are not affected.
+
+Additional bucket hardening:
+
+- Public access block enabled (Block all public access).
+- Server-side encryption (`AES256` or KMS) default.
+- CORS admits the web app's origins (`ALLOWED_ORIGINS`) for `POST`, `PUT`, `GET` and `HEAD` — set by meepzo-infra, see [Bucket CORS](#bucket-cors); `*` is acceptable for development only.
+
+### Every object is private — reads are presigned
+
+The bucket holds avatars (`avatars/`), organization logos (`organization-logos/`) and files
+(`user-files/`, `organization-files/`), and **none of them is public**. The database stores the
+object KEY (an avatar or logo column never holds a URL); every read mints a short-lived presigned
+GET URL from that key (`resolveStoredMediaReadUrl`, TTL 1 hour), so the bucket keeps "Block all
+public access" on and needs no CDN or public distribution. **Do not** disable the public-access
+block to make images load — a broken image means the client is holding an expired signed URL;
+re-fetching the resource returns a fresh one. The one absolute URL a column can hold is an
+OAuth-provider avatar (Google / GitHub), which is returned as-is.
+
+## Malware scanning — not done (known gap)
+
+Nothing scans uploaded files for malware: confirm checks size, MIME type and (for SVG) sanitizes, but a
+malicious PDF or Office file is stored and served as uploaded. Deferred by decision on 2026-10-06; revisit
+before organization files are opened to sensitive documents. The two options weighed:
+
+| Option | How | Trade-off |
+| ------ | --- | --------- |
+| Scanner port + ClamAV | Confirm streams the object to a `clamd` sidecar; infected or unscanned files are never served | Works with any S3-compatible store; one more container per environment |
+| AWS GuardDuty Malware Protection for S3 | AWS scans each object and tags it; downloads are refused until the tag says clean | Least code; AWS S3 only, billed per GB scanned |
+
+## Configuration reference
+
+| Variable                             | Default      | Purpose                                                                                                                         |
+| ------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `S3_BUCKET`                          | *required*   | Object storage bucket name.                                                                                                     |
+| `S3_REGION`                          | `us-east-1`  | AWS region.                                                                                                                     |
+| `S3_MAX_ATTEMPTS`                    | `3`          | AWS SDK retry attempts.                                                                                                         |
+| `UPLOAD_USE_PRESIGNED_POST`          | `true`       | When `true`, return a presigned POST with `content-length-range` instead of a presigned PUT URL.                                |
+| `UPLOAD_ALLOW_SVG`                   | `false`      | Allow `image/svg+xml` uploads (sanitized via DOMPurify on confirm).                                                             |
+| `UPLOAD_MAX_PENDING_PER_USER`        | `100`        | Per-user cap on concurrent PENDING uploads. New `createUpload` calls return `400 errors:uploadPendingQuotaExceeded` at the cap. |
+| `UPLOAD_PENDING_SWEEP_CRON`          | `15 * * * *` | Cron pattern for the PENDING sweeper.                                                                                           |
+| `UPLOAD_PENDING_SWEEP_GRACE_SECONDS` | `3600`       | Extra seconds beyond presigned URL expiry before a PENDING row becomes eligible for sweeping.                                   |
+| `UPLOAD_TOMBSTONE_RETENTION_CRON`    | `45 5 * * *` | Cron for hard-deleting soft-deleted uploads after `TOMBSTONE_RETENTION_DAYS`.                                                   |
+| `TOMBSTONE_RETENTION_DAYS`           | `90`         | TTL for soft-deleted upload rows (and their S3 objects).                                                                        |
+
+## Troubleshooting
+
+| Symptom                                                   | First checks                                                                                                                                                                                                          |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser upload fails at once ("Couldn't send the file to storage", console: `blocked by CORS policy`); the API logged `POST /uploads` 200 and no confirm | The bucket's CORS refuses the web app's origin or the method (often `POST`, the default upload): preflight it ([Bucket CORS](#bucket-cors)), then fix the rule in meepzo-infra's AWS provisioning. |
+| Many uploads stuck in `PENDING`                           | Inspect sweeper logs (`upload-pending-sweep.completed`); verify the worker process is running and the scheduler is enabled (`SCHEDULER_ENABLED=true`).                                                                |
+| Client reports `400 errors:uploadPendingQuotaExceeded`    | Expected when a buggy or malicious client loops `createUpload` without `confirmUpload`. Increase `UPLOAD_MAX_PENDING_PER_USER` only after confirming the workload is legitimate; otherwise let the sweeper reconcile. |
+| `confirmUpload` returns `errors:uploadVerificationFailed` | S3 `HEAD` returned a content type or length that does not match what the client declared. Verify the client actually uploaded to the returned key/method and did not strip the `Content-Type` header.                 |
+| Lifecycle policy deleted a recently confirmed object      | Lifecycle scope is too aggressive — verify the rule excludes objects with `x-amz-meta-confirmed=true` (or extend the TTL) before re-enabling.                                                                         |
+| `s3.headObject.failed` / `s3.deleteObject.failed` in logs | S3 outage or IAM regression. Circuit breaker (`s3Circuit`) will short-circuit further calls. Investigate via AWS console or the contract test (`pnpm test:contract -- s3-object-storage-adapter`).                    |

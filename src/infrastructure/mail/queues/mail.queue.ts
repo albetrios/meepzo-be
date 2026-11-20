@@ -1,0 +1,171 @@
+import { Queue } from 'bullmq';
+import {
+  getBullMQKeyPrefix,
+  getBullMQProducerConnectionOptions,
+} from '@/infrastructure/queue/connection.js';
+import { DEFAULT_JOB_RETENTION_COUNT } from '@/infrastructure/queue/queue.constants.js';
+import { insertMailOutbox } from '@/infrastructure/mail/mail-outbox.repository.js';
+import { captureTraceContextForPropagation } from '@/infrastructure/observability/tracing/trace-context.util.js';
+import { FIFTEEN_SECONDS_MS, SEVEN_DAYS_SECONDS } from '@/shared/constants/ttl.constants.js';
+import { parseBullMQJobData } from '@/shared/utils/validation/bullmq-job-validation.util.js';
+import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { mailJobDataSchema, type MailJobDataValidated } from './mail.job.schema.js';
+
+/** BullMQ queue name for outbox-driven mail send jobs (`mail/send-email`). */
+export const MAIL_QUEUE_NAME = 'mail';
+
+/**
+ * BullMQ attempts per mail job — about ten minutes of exponential backoff (`mailBackoffStrategy`)
+ * for send errors that are not an outage. A Resend outage spends none: the worker pauses the queue.
+ */
+export const MAIL_QUEUE_MAX_ATTEMPTS = 8;
+
+/**
+ * Which mail goes out first. `transactional` — sign-in codes, password resets, invitations — runs
+ * ahead of every `bulk` email (notification fan-out): a broadcast to an organization cannot hold a
+ * sign-in code behind it.
+ */
+export type MailDeliveryLane = 'transactional' | 'bulk';
+
+/**
+ * BullMQ priority of a `bulk` email. BullMQ takes a job without a priority before any prioritized
+ * one, so `transactional` mail (no priority) always goes first, and bulk mail keeps its order.
+ */
+export const MAIL_BULK_LANE_PRIORITY = 10;
+
+/** Payload stored in Postgres mail_outbox; only the row's token is stored in Redis. */
+export type MailJobData = MailJobDataValidated;
+
+/** Input for enqueueing — persisted to auth.mail_outbox before the BullMQ job is added. */
+export interface MailEnqueueInput {
+  to: string | string[];
+  subject: string;
+  html: string;
+  text?: string;
+  replyTo?: string;
+  tags?: { name: string; value: string }[];
+  /**
+   * reaudit-#4: optional idempotency key. When set, {@link recordOutboxEmail} dedupes the
+   * insert at the DB level so concurrent producers cannot create two outbox rows for the same
+   * logical email. Used by the notification worker
+   * (`notification:<notification public id>:email:<recipient>`).
+   */
+  dedupeKey?: string;
+}
+
+let mailQueue: Queue<MailJobData> | null = null;
+
+function getMailQueue(): Queue<MailJobData> {
+  if (mailQueue) return mailQueue;
+  mailQueue = new Queue<MailJobData>(MAIL_QUEUE_NAME, {
+    // Shared producer options pin `enableOfflineQueue: false` so a Redis partition fails the
+    // enqueue fast instead of buffering it; the explicit 15s deadline in `enqueueMailOutboxJob`
+    // additionally bounds how long a single enqueue can wait during graceful shutdown.
+    connection: getBullMQProducerConnectionOptions(),
+    prefix: getBullMQKeyPrefix(),
+    defaultJobOptions: {
+      removeOnComplete: { count: DEFAULT_JOB_RETENTION_COUNT, age: SEVEN_DAYS_SECONDS },
+      removeOnFail: { count: 500, age: SEVEN_DAYS_SECONDS },
+      attempts: MAIL_QUEUE_MAX_ATTEMPTS,
+      backoff: { type: 'custom' },
+    },
+  });
+  return mailQueue;
+}
+
+/**
+ * Enqueue a BullMQ send job for an existing mail_outbox row (no new Postgres insert), named by
+ * the row's token.
+ *
+ * @remarks
+ * - **Algorithm:** one live job per row — the add is deduplicated on the row's token for as long
+ *   as a job for it is waiting, delayed or active (BullMQ `deduplication`, released when that job
+ *   completes or fails). A `bulk` email gets {@link MAIL_BULK_LANE_PRIORITY}, so `transactional`
+ *   mail (the default) is taken first.
+ * - **Failure modes:** an add slower than fifteen seconds (Redis partition) rejects with
+ *   `mail.enqueue.deadline_exceeded`; any Redis error is logged and rethrown.
+ * - **Side effects:** one BullMQ add, or none when a job for the row is still live.
+ * - **Notes:** during a Resend outage the row's job sits paused for hours while the outbox sweeper
+ *   keeps re-enqueueing the row on every pass; without the deduplication each pass added another
+ *   job per row, all of them sent — or skipped — once Resend came back. A re-enqueue that does not
+ *   know the lane (the sweeper, a replay) uses `transactional`.
+ */
+export async function enqueueMailOutboxJob({
+  mailOutboxToken,
+  options,
+}: {
+  mailOutboxToken: string;
+  options?: { requestId?: string; lane?: MailDeliveryLane } | undefined;
+}): Promise<void> {
+  let deadlineTimer: NodeJS.Timeout | undefined;
+  try {
+    const queue = getMailQueue();
+    const jobData = parseBullMQJobData({
+      schema: mailJobDataSchema,
+      data: omitUndefined({
+        mailOutboxToken,
+        requestId: options?.requestId,
+        ...captureTraceContextForPropagation(),
+      }),
+      queueName: MAIL_QUEUE_NAME,
+    });
+    await new Promise<void>((resolve, reject) => {
+      const enqueueJobPromise = queue.add('send-email', jobData, {
+        deduplication: { id: mailOutboxToken },
+        ...(options?.lane === 'bulk' ? { priority: MAIL_BULK_LANE_PRIORITY } : {}),
+      });
+      deadlineTimer = setTimeout(() => {
+        reject(new Error('mail.enqueue.deadline_exceeded'));
+      }, FIFTEEN_SECONDS_MS);
+      void enqueueJobPromise
+        .then(() => {
+          if (deadlineTimer) clearTimeout(deadlineTimer);
+          resolve();
+        })
+        .catch((error: unknown) => {
+          if (deadlineTimer) clearTimeout(deadlineTimer);
+          reject(
+            error instanceof Error ? error : new Error('mail.enqueue.failed', { cause: error }),
+          );
+        });
+    });
+  } catch (error) {
+    logger.error({ error, mailOutboxToken }, 'mail.enqueue.failed');
+    throw error;
+  } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+  }
+}
+
+/**
+ * Inserts a mail_outbox row using the active unit-of-work transaction when present and returns its
+ * token. Does **not** enqueue BullMQ — pair with `dispatchOutboxEmail` via `eventBus.onCommit`
+ * for HTTP flows, or call `dispatchOutboxEmail` immediately in worker runtime.
+ */
+export async function recordOutboxEmail(data: MailEnqueueInput): Promise<string> {
+  return insertMailOutbox(data);
+}
+
+/**
+ * Enqueues async delivery for an existing mail_outbox row (post-commit side effect).
+ */
+export async function dispatchOutboxEmail({
+  mailOutboxToken,
+  options,
+}: {
+  mailOutboxToken: string;
+  options?: { requestId?: string; lane?: MailDeliveryLane } | undefined;
+}): Promise<void> {
+  await enqueueMailOutboxJob({ mailOutboxToken, options });
+}
+
+/**
+ * Close the mail queue connection (for graceful shutdown).
+ */
+export async function closeMailQueue(): Promise<void> {
+  if (mailQueue) {
+    await mailQueue.close();
+    mailQueue = null;
+  }
+}

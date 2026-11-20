@@ -1,0 +1,602 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { NotFoundError, UnauthorizedError } from '@/shared/errors/index.js';
+import { MAX_ACTIVE_SESSIONS_PER_USER } from '@/shared/constants/security.constants.js';
+import { captureMessage } from '@/infrastructure/observability/sentry/sentry.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import type { UserService } from '@/domains/user/user.service.js';
+import { generateRefreshSecret, isIssuedRefreshSecret } from '@/domains/auth/auth.http.util.js';
+import {
+  PRINCIPAL_SCOPE,
+  SESSION_SCOPE,
+  withAppDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
+import type { AuthSessionRepository } from './auth-session.repository.js';
+import type { AuthSessionCreateData } from './auth-session.types.js';
+import {
+  getCachedSessionTokenValid,
+  invalidateCachedSessionToken,
+  setCachedSessionTokenValid,
+} from './session-token-cache.service.js';
+import { runReadWithTransientRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
+
+function hashAccessToken(rawToken: string): string {
+  return createHash('sha256').update(rawToken).digest('hex');
+}
+
+function hashRefreshSecret(refreshSecret: string): string {
+  return createHash('sha256').update(refreshSecret).digest('hex');
+}
+
+/** Constant-time equality of two hex digests (equal length when both are SHA-256 hex). */
+function refreshHashesEqual({ left, right }: { left: string; right: string }): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+/**
+ * Owns the lifecycle of `auth.sessions` rows used for bearer-token refresh,
+ * device listing, and revocation.
+ *
+ * @remarks
+ * - **Algorithm:** each access token is paired with a session row whose
+ *   `token_hash` (SHA-256 of the JWT) is the join key. On refresh the row stays
+ *   put while the hash is rotated (see {@link rotateSessionTokenHash}); on
+ *   logout the row is revoked. All reads/writes run under user- or
+ *   session-scoped database contexts so Postgres RLS lets them through.
+ * - **Failure modes:** missing user / missing session surface `NotFoundError`;
+ *   `revokeSessionByAccessToken` and `verifyActiveAccessToken` throw
+ *   `UnauthorizedError` with `errors:invalidOrRevokedToken` / `errors:invalidOrExpiredSession`.
+ * - **Side effects:** writes to `auth.sessions`; invalidates the Redis token
+ *   cache via {@link invalidateCachedSessionToken} on every revoke / rotate so
+ *   downstream bearer checks see the change immediately. On refresh-secret reuse
+ *   (an already-rotated secret replayed), {@link refreshSessionCredentials}
+ *   revokes the user's entire session family, not just the targeted session.
+ * - **Notes:** {@link verifyActiveAccessToken} is hot-pathed by the auth
+ *   middleware and uses a 60-second Redis cache to amortise DB round-trips.
+ */
+export class AuthSessionService {
+  constructor(
+    private readonly userService: UserService,
+    private readonly sessionRepository: AuthSessionRepository,
+  ) {}
+
+  async list(userPublicId: string) {
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    if (!user) throw new NotFoundError('User');
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+      callback: (_databaseHandle) => this.sessionRepository.listByUserId(user.id),
+    });
+  }
+
+  /**
+   * Lists session metadata for a GDPR data-export bundle (includes revoked sessions; capped by
+   * caller).
+   */
+  async listForUserDataExport(options: { userPublicId: string; limit: number }) {
+    const user = await this.userService.requireUserRecordByPublicId(options.userPublicId);
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: options.userPublicId }),
+      callback: (_databaseHandle) =>
+        this.sessionRepository.listForUserDataExport(user.id, options.limit),
+    });
+  }
+
+  async revoke({
+    userPublicId,
+    sessionPublicId,
+  }: {
+    userPublicId: string;
+    sessionPublicId: string;
+  }) {
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    if (!user) throw new NotFoundError('User');
+    const revoked = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+      callback: (_databaseHandle) => this.sessionRepository.revoke(sessionPublicId, user.id),
+    });
+    if (!revoked) throw new NotFoundError('Session');
+    if (revoked.token_hash) {
+      await invalidateCachedSessionToken(revoked.token_hash);
+    }
+  }
+
+  private async invalidateRevokedSessionCaches(
+    revokedSessions: { token_hash: string | null }[],
+  ): Promise<void> {
+    await Promise.all(
+      revokedSessions
+        .map((session) => session.token_hash)
+        .filter((sessionTokenHash): sessionTokenHash is string => Boolean(sessionTokenHash))
+        .map((sessionTokenHash) => invalidateCachedSessionToken(sessionTokenHash)),
+    );
+  }
+
+  /**
+   * Revokes a session `POST /auth/refresh` found lapsed (idle or past its absolute lifetime) and
+   * drops its access token from the validity cache.
+   *
+   * @remarks
+   * - **Algorithm:** one `UPDATE … SET is_revoked = true` by session public id and owner, under the
+   *   session's own artifact context (the caller holds no bearer), then a cache purge.
+   * - **Failure modes:** none — an already-revoked or missing row is a no-op.
+   * - **Side effects:** writes `auth.sessions`; invalidates the session-token cache entry.
+   * - **Notes:** E-2 — a lapsed session is ended, not merely refused, so its last access token stops
+   *   authenticating within the cache window too.
+   */
+  async revokeLapsedSession({
+    sessionPublicId,
+    userId,
+  }: {
+    sessionPublicId: string;
+    userId: number;
+  }): Promise<void> {
+    const revoked = await withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: (_databaseHandle) => this.sessionRepository.revoke(sessionPublicId, userId),
+    });
+    if (revoked?.token_hash) {
+      await invalidateCachedSessionToken(revoked.token_hash);
+    }
+  }
+
+  async revokeAllSessions(userPublicId: string): Promise<void> {
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    if (!user) throw new NotFoundError('User');
+    const revokedSessions = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+      callback: (_databaseHandle) => this.sessionRepository.revokeAllByUserId(user.id),
+    });
+    await this.invalidateRevokedSessionCaches(revokedSessions);
+  }
+
+  /**
+   * Revokes every active session for a user except the one identified by the
+   * supplied bearer access token, and invalidates their token caches.
+   *
+   * @remarks
+   * - **Algorithm:** hashes `currentAccessToken` (SHA-256) and runs a single
+   *   `UPDATE … WHERE user_id = ? AND is_revoked = false AND token_hash <> ?`,
+   *   then invalidates the Redis token cache for each revoked hash.
+   * - **Failure modes:** throws `NotFoundError('User')` when the user no longer
+   *   exists. If the current token's session was already rotated/revoked, this
+   *   simply revokes the remaining sessions.
+   * - **Side effects:** writes `auth.sessions` rows; invalidates cached
+   *   token-validity entries so revocation takes effect immediately.
+   * - **Notes:** used by the authenticated change-password flow to terminate all
+   *   other devices while keeping the caller's current session alive.
+   */
+  async revokeAllSessionsExceptCurrent({
+    userPublicId,
+    currentAccessToken,
+  }: {
+    userPublicId: string;
+    currentAccessToken: string;
+  }): Promise<void> {
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    if (!user) throw new NotFoundError('User');
+    const currentTokenHash = hashAccessToken(currentAccessToken);
+    const revokedSessions = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+      callback: (_databaseHandle) =>
+        this.sessionRepository.revokeAllByUserIdExcept(user.id, currentTokenHash),
+    });
+    await this.invalidateRevokedSessionCaches(revokedSessions);
+  }
+
+  async createSessionForUser({
+    userPublicId,
+    data,
+  }: {
+    userPublicId: string;
+    data: Omit<AuthSessionCreateData, 'user_id' | 'refresh_token_hash'>;
+  }): Promise<{ public_id: string; refresh_secret: string }> {
+    const user = await this.userService.requireUserRecordByPublicId(userPublicId);
+    if (!user) throw new NotFoundError('User');
+    const refreshSecret = generateRefreshSecret({ userPublicId });
+    const { session, evictedSessions } = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
+      callback: async (_databaseHandle) => {
+        // Bound the user's concurrent live sessions. Under a per-user advisory lock (so concurrent
+        // logins cannot overshoot), evict the oldest sessions beyond MAX_ACTIVE_SESSIONS_PER_USER - 1
+        // so there is room for this new one. Evicting (not rejecting) means a legitimate multi-device
+        // user is never locked out — only their stalest session is dropped — while a single account
+        // can no longer mint unbounded sessions (bloat + stolen-credential blast radius).
+        await this.sessionRepository.acquireCreationQuotaLock(user.id);
+        const evicted = await this.sessionRepository.revokeOldestActiveBeyond(
+          user.id,
+          MAX_ACTIVE_SESSIONS_PER_USER - 1,
+        );
+        const created = await this.sessionRepository.create({
+          user_id: user.id,
+          refresh_token_hash: hashRefreshSecret(refreshSecret),
+          ...data,
+        });
+        return { session: created, evictedSessions: evicted };
+      },
+    });
+    // Purge the session-token cache for any evicted session so its access token stops authenticating
+    // on the next request (a revocation tombstone), mirroring explicit logout/revoke.
+    await this.invalidateRevokedSessionCaches(evictedSessions);
+    return { public_id: session.public_id, refresh_secret: refreshSecret };
+  }
+
+  async revokeSessionByAccessToken(token: string): Promise<void> {
+    const sessionTokenHash = hashAccessToken(token);
+    await invalidateCachedSessionToken(sessionTokenHash);
+    const revoked = await withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionTokenHash: sessionTokenHash }),
+      callback: (_databaseHandle) => this.sessionRepository.revokeByTokenHash(sessionTokenHash),
+    });
+    if (!revoked) {
+      throw new UnauthorizedError('errors:invalidOrRevokedToken');
+    }
+  }
+
+  /**
+   * Ensures the bearer token matches an active, non-revoked session row AND that
+   * the owning user is still active (not suspended or soft-deleted).
+   *
+   * @remarks
+   * Returns `{ sessionPublicId }` so callers (auth middleware) can attach session
+   * identity to `request.auth` for step-up binding (sec-A2). The positive result is
+   * cached in Redis for up to 60s — the cache value is the session's `public_id`, so a
+   * cache hit avoids the Postgres round-trip AND still produces the session id.
+   * The cache TTL is capped to the session's remaining lifetime so a cached "valid"
+   * entry can never outlive the session (see {@link setCachedSessionTokenValid}).
+   *
+   * **sec-new-A2:** `userPublicId` (from the JWT payload) is used to verify user
+   * status on every DB-path validation (cache miss). A suspended or deleted user will
+   * receive `errors:accountNotActive` instead of being allowed to continue using their
+   * still-valid access token. The Redis cache caps the propagation window at ≤60 s
+   * (same TTL as session validity), down from the prior ≤15 min access-token lifetime.
+   */
+  async verifyActiveAccessToken({
+    rawToken,
+    userPublicId,
+  }: {
+    rawToken: string;
+    userPublicId: string;
+  }): Promise<{ sessionPublicId: string }> {
+    const sessionTokenHash = hashAccessToken(rawToken);
+    const cachedSessionPublicId = await getCachedSessionTokenValid(sessionTokenHash);
+    if (cachedSessionPublicId !== null) {
+      // Cache hit: session was valid ≤60 s ago; user status is implicitly valid at
+      // that point. Suspension propagates on the next cache miss (≤60 s window).
+      return { sessionPublicId: cachedSessionPublicId };
+    }
+
+    // These two reads run in the auth pre-handler, outside any service transaction (autocommit), so
+    // a transient managed-Postgres connection drop is safe to retry rather than spuriously 401 an
+    // otherwise-authenticated request. Only connection-level errors are retried (see
+    // runReadWithTransientRetry); an invalid/expired session still returns null on the first attempt.
+    const session = await runReadWithTransientRetry({
+      read: () =>
+        withAppDatabaseContext({
+          scope: SESSION_SCOPE.ARTIFACT({ sessionTokenHash: sessionTokenHash }),
+          callback: (_databaseHandle) =>
+            this.sessionRepository.findActiveByTokenHash(sessionTokenHash),
+        }),
+    });
+
+    if (!session) {
+      throw new UnauthorizedError('errors:invalidOrExpiredSession');
+    }
+
+    // sec-new-A2: verify the owning user is still active. Runs only on cache miss
+    // (first request per 60 s window) to avoid a per-request DB round-trip.
+    // findUserRecordByPublicId wraps withAppDatabaseContext (user scope) internally.
+    const user = await runReadWithTransientRetry({
+      read: () => this.userService.findUserRecordByPublicId(userPublicId),
+    });
+    if (user?.status !== 'ACTIVE' || user.deleted_at !== null) {
+      throw new UnauthorizedError('errors:accountNotActive');
+    }
+
+    // E-2: the idle timeout counts from the session's last REQUEST, not only its last refresh —
+    // with reactive refresh a reader's token lapses mid-page, and without this the idle clock would
+    // have started at the previous refresh. Runs on the cache-miss path only, so at most once per
+    // cache window per token. Best-effort: a failed touch never refuses an authenticated request.
+    await this.touchSessionActivity({ sessionTokenHash, sessionPublicId: session.public_id });
+
+    await setCachedSessionTokenValid({
+      sessionTokenHash,
+      sessionPublicId: session.public_id,
+      sessionExpiresAt: session.expires_at,
+    });
+    return { sessionPublicId: session.public_id };
+  }
+
+  private async touchSessionActivity({
+    sessionTokenHash,
+    sessionPublicId,
+  }: {
+    sessionTokenHash: string;
+    sessionPublicId: string;
+  }): Promise<void> {
+    try {
+      await withAppDatabaseContext({
+        scope: SESSION_SCOPE.ARTIFACT({ sessionTokenHash: sessionTokenHash }),
+        callback: (_databaseHandle) => this.sessionRepository.updateLastActiveAt(sessionPublicId),
+      });
+    } catch (error) {
+      // safe-catch: the touch only moves the idle clock; the request is already authenticated.
+      logger.warn({ error, session_public_id: sessionPublicId }, 'auth.session.touch.failed');
+    }
+  }
+
+  /**
+   * Records that the session just proved a second factor (MFA step-up or enrollment), so
+   * organizations whose security policy requires MFA admit it on the next switch or refresh.
+   *
+   * @remarks
+   * Only a live session (not revoked, not expired) is marked; returns whether one was. The
+   * current access token is unchanged — the next switch or refresh mints one with `amr: ['mfa']`.
+   */
+  async markSessionMfaVerified(sessionPublicId: string): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: (_databaseHandle) => this.sessionRepository.markMfaVerified(sessionPublicId),
+    });
+  }
+
+  async findActiveSessionByPublicId(sessionPublicId: string) {
+    return withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: (_databaseHandle) => this.sessionRepository.findByPublicId(sessionPublicId),
+    });
+  }
+
+  /**
+   * Lookup wrapper that returns the session row even when `is_revoked = true`.
+   * Used by `auth.service.refreshToken` so a refresh-secret replay against an
+   * already-revoked session reaches `refreshSessionCredentials`'
+   * reuse-detection block (sec-re-05). The narrow active-only
+   * `findActiveSessionByPublicId` is retained for callers that genuinely need
+   * to filter revoked rows.
+   */
+  async findSessionByPublicIdIncludingRevoked(sessionPublicId: string) {
+    return withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: (_databaseHandle) =>
+        this.sessionRepository.findByPublicIdIncludingRevoked(sessionPublicId),
+    });
+  }
+
+  async rotateSessionTokenHash({
+    sessionPublicId,
+    sessionTokenHash,
+  }: {
+    sessionPublicId: string;
+    sessionTokenHash: string;
+  }): Promise<void> {
+    await withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: async (_databaseHandle) => {
+        const existing = await this.sessionRepository.findByPublicId(sessionPublicId);
+        if (existing?.token_hash) {
+          await invalidateCachedSessionToken(existing.token_hash);
+        }
+        await this.sessionRepository.rotateTokenHash(sessionPublicId, sessionTokenHash);
+      },
+    });
+  }
+
+  async refreshSessionCredentials({
+    sessionPublicId,
+    userPublicId,
+    refreshSecret,
+    nextAccessToken,
+  }: {
+    sessionPublicId: string;
+    /** The session's user — the refresh secrets' issuance MACs are bound to it. */
+    userPublicId: string;
+    refreshSecret: string;
+    nextAccessToken: string;
+  }): Promise<{ refresh_secret: string; organization_id: number | null }> {
+    const currentRefreshHash = hashRefreshSecret(refreshSecret);
+    const nextTokenHash = hashAccessToken(nextAccessToken);
+
+    const nextRefreshSecret = await withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: async (_databaseHandle) => {
+        const existing = await this.sessionRepository.findByPublicId(sessionPublicId);
+        if (!existing?.refresh_token_hash) {
+          return null;
+        }
+        const minted = generateRefreshSecret({ userPublicId });
+        const rotated = await this.sessionRepository.rotateSessionCredentials(
+          sessionPublicId,
+          currentRefreshHash,
+          nextTokenHash,
+          hashRefreshSecret(minted),
+        );
+        if (!rotated) {
+          return null;
+        }
+        // Only a successful rotation retires the previous access token, so only then is its
+        // cache entry dropped — a rejected secret must leave the session and its cache alone.
+        if (existing.token_hash) {
+          await invalidateCachedSessionToken(existing.token_hash);
+        }
+        // The organization the rotated row names — a switch that committed after the caller read
+        // the session has moved it (see `AuthService.refreshToken`).
+        return { minted, organizationId: rotated.organization_id };
+      },
+    });
+    if (nextRefreshSecret !== null) {
+      return {
+        refresh_secret: nextRefreshSecret.minted,
+        organization_id: nextRefreshSecret.organizationId,
+      };
+    }
+
+    // Reuse detection (OAuth refresh-token rotation reuse-detection per RFC 9700): a secret this
+    // server ISSUED for the session's user, presented after it stopped rotating, is a replay of a
+    // retired (possibly stolen) secret — revoke the user's entire session family so it cannot keep
+    // or regain access on any device. Proof of issuance is required: the secret's MAC verifies
+    // (isIssuedRefreshSecret), or it is the session's stored previous secret. A secret that
+    // merely differs from the current one proves nothing — anyone who learns a session id could
+    // invent one — so it only gets the 401 below, with no revocation and no cache change.
+    //
+    // sec-A finding #9: include ALREADY-REVOKED rows in the lookup. A user who clicks "Log out
+    // everywhere" revokes the row but an attacker may still hold the stale refresh secret; the
+    // replay is still reported (Sentry), separate from whether we re-revoke.
+    const reuseDetection = await withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: async (_databaseHandle) => {
+        const existing =
+          await this.sessionRepository.findByPublicIdIncludingRevoked(sessionPublicId);
+        if (!existing?.refresh_token_hash) return null;
+        if (refreshHashesEqual({ left: existing.refresh_token_hash, right: currentRefreshHash }))
+          return null;
+        const provenIssued =
+          isIssuedRefreshSecret({ userPublicId, refreshSecret }) ||
+          (existing.previous_refresh_token_hash !== null &&
+            refreshHashesEqual({
+              left: existing.previous_refresh_token_hash,
+              right: currentRefreshHash,
+            }));
+        return {
+          userId: existing.user_id,
+          wasAlreadyRevoked: existing.is_revoked,
+          provenIssued,
+        };
+      },
+    });
+    if (reuseDetection?.provenIssued) {
+      captureMessage({
+        message: 'auth.refresh_token.reuse_detected',
+        options: {
+          level: 'warning',
+          extra: {
+            session_public_id: sessionPublicId,
+            was_already_revoked: reuseDetection.wasAlreadyRevoked,
+          },
+        },
+      });
+      if (!reuseDetection.wasAlreadyRevoked) {
+        await this.revokeAllSessionsForReusedRefreshSecret(reuseDetection.userId);
+      }
+    } else if (reuseDetection !== null) {
+      captureMessage({
+        message: 'auth.refresh_token.unrecognized_secret',
+        options: {
+          level: 'info',
+          extra: { session_public_id: sessionPublicId },
+        },
+      });
+    }
+    throw new UnauthorizedError('errors:invalidOrExpiredSession');
+  }
+
+  /**
+   * Make `nextAccessToken` the session's live token in place of `refreshedAccessToken`, the one a
+   * refresh has just rotated in — only while that one is still live.
+   *
+   * @remarks
+   * - **Why:** the server keeps one live access token per session. A refresh signs for the
+   *   organization it read, then rotates; a switch committing in between moves the session, so
+   *   the refresh re-mints for the session's organization and swaps it in here.
+   * - **Failure modes:** none thrown. Returns `false` when another rotation (a switch or a
+   *   refresh) replaced the token first — that rotation's token stays live.
+   * - **Side effects:** at most one conditional UPDATE on `auth.sessions`. No cache entry to drop:
+   *   the refreshed token was never handed out, so it was never cached.
+   */
+  async replaceRefreshedAccessToken({
+    sessionPublicId,
+    refreshedAccessToken,
+    nextAccessToken,
+  }: {
+    sessionPublicId: string;
+    refreshedAccessToken: string;
+    nextAccessToken: string;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: (_databaseHandle) =>
+        this.sessionRepository.replaceTokenHashIfCurrent(
+          sessionPublicId,
+          hashAccessToken(refreshedAccessToken),
+          hashAccessToken(nextAccessToken),
+        ),
+    });
+  }
+
+  /**
+   * Re-bind the session's active access token to a freshly minted one — used by the
+   * organization-switch endpoints, which re-mint the token with a different `org` claim.
+   *
+   * @remarks
+   * - **Algorithm:** under the session's RLS context, confirm the session is present and not
+   *   revoked, invalidate the previous token's Redis cache entry, then point `token_hash` at
+   *   the new token AND persist `activeOrganizationId` on the session (audit-#3) so a later
+   *   `/auth/refresh` preserves the switched organization instead of recomputing the default.
+   *   Unlike refresh, the refresh secret is NOT rotated — the caller is already authenticated
+   *   via a valid access token for this session; only the access token moves. The previously
+   *   held token immediately fails `verifyActiveAccessToken` (hash drift).
+   * - **Failure modes:** `UnauthorizedError` when the session is gone or revoked.
+   * - **Side effects:** one UPDATE on `auth.sessions`; one Redis cache invalidation — the
+   *   PREVIOUS token's entry. The new token's key is left untouched so it stays cacheable.
+   */
+  async rebindAccessToken({
+    sessionPublicId,
+    nextAccessToken,
+    activeOrganizationId,
+  }: {
+    sessionPublicId: string;
+    nextAccessToken: string;
+    activeOrganizationId: number;
+  }): Promise<void> {
+    const nextTokenHash = hashAccessToken(nextAccessToken);
+    await withAppDatabaseContext({
+      scope: SESSION_SCOPE.ARTIFACT({ sessionPublicId: sessionPublicId }),
+      callback: async (_databaseHandle) => {
+        const existing = await this.sessionRepository.findByPublicId(sessionPublicId);
+        if (!existing) {
+          throw new UnauthorizedError('errors:invalidOrExpiredSession');
+        }
+        if (existing.token_hash) {
+          await invalidateCachedSessionToken(existing.token_hash);
+        }
+        await this.sessionRepository.rotateTokenHashAndOrganization(
+          sessionPublicId,
+          nextTokenHash,
+          activeOrganizationId,
+        );
+        // The NEW hash is deliberately NOT invalidated here. `signAccessToken` sets
+        // `jti: randomUUID()`, so a freshly minted token's hash is globally unique and cannot
+        // have a stale cache entry to clear. Writing the revocation tombstone under it instead
+        // poisoned the key for SESSION_TOKEN_CACHE_TTL_SECONDS, and because
+        // `setCachedSessionTokenValid` populates with `NX` the new token could not be cached at
+        // all for that window — every authenticated request after an organization switch fell
+        // through to Postgres for a full minute.
+      },
+    });
+  }
+
+  /**
+   * Revokes every session for the owner of a replayed refresh secret.
+   *
+   * @remarks
+   * - **Algorithm:** resolves the owner's public id from the internal `userId`
+   *   via {@link UserService.findById} (RLS-safe SECURITY DEFINER resolver),
+   *   then revokes all of that user's sessions under their own `app.current_user_public_id`
+   *   context so the `sessions_user_access` policy authorizes the family-wide update.
+   * - **Failure modes:** if the owner can no longer be resolved (already
+   *   hard-deleted) the revoke is skipped — the replay is rejected regardless by
+   *   the `UnauthorizedError` thrown by the caller.
+   * - **Side effects:** writes `auth.sessions` rows and invalidates each revoked
+   *   token's Redis cache entry.
+   */
+  private async revokeAllSessionsForReusedRefreshSecret(userId: number): Promise<void> {
+    const user = await this.userService.findById(userId);
+    if (!user) return;
+    const revokedSessions = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: user.public_id }),
+      callback: (_databaseHandle) => this.sessionRepository.revokeAllByUserId(user.id),
+    });
+    await this.invalidateRevokedSessionCaches(revokedSessions);
+  }
+}

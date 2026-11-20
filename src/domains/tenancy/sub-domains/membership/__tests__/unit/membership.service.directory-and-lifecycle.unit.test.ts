@@ -40,10 +40,9 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
     ),
   };
 });
-import { ConfigurationError, NotFoundError, ValidationError } from '@/shared/errors/index.js';
+import { NotFoundError, ValidationError } from '@/shared/errors/index.js';
 import {
   MembershipService,
-  type MembershipBranchAccessPort,
   type MembershipLeavePort,
 } from '@/domains/tenancy/sub-domains/membership/membership.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
@@ -194,12 +193,7 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
   // D5: the roles a member holds besides the main one — none here.
   const membershipAdditionalRolesRepository = emptyMembershipAdditionalRolesRepository();
 
-  // Launch ROUTE #4 / K4: the app domain's ports, late-wired by the composition root.
-  const branchAccess: MembershipBranchAccessPort = {
-    listBranchPublicIdsByMembershipIds: vi.fn(async () => new Map([[3, ['bra_one']]])),
-    listMembershipIdsAtBranch: vi.fn().mockResolvedValue([3, 4]),
-    replaceBranchesForMembership: vi.fn().mockResolvedValue(undefined),
-  };
+  // K4: the product domain's leave step, late-wired by the composition root.
   const leaveStep: MembershipLeavePort = {
     releaseEndedMembership: vi.fn().mockResolvedValue(undefined),
   };
@@ -223,7 +217,7 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
     membershipAdditionalRolesRepository,
   );
 
-  /** The container's wiring: locale defaults, API keys, branch access, the leave step, seats. */
+  /** The container's wiring: locale defaults, API keys, the leave step, seats. */
   const wiredService = new MembershipService(
     organizationService,
     memberRoleService,
@@ -239,7 +233,6 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
     membershipInvitationService,
     membershipAdditionalRolesRepository,
   );
-  wiredService.wireBranchAccess(branchAccess);
   wiredService.wireLeaveStep(leaveStep);
   wiredService.wireSeatEnforcement({ reserveSeatCeilingForMemberAdd, enqueueSeatQuantitySync });
 
@@ -263,7 +256,6 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
     vi.mocked(membershipRepository.softDelete).mockResolvedValue(membershipRow as never);
     vi.mocked(membershipRepository.countActiveByOrganization).mockResolvedValue(0);
     vi.mocked(membershipAdditionalRolesRepository.listRoleIdsForMembership).mockResolvedValue([]);
-    vi.mocked(branchAccess.listMembershipIdsAtBranch).mockResolvedValue([3, 4]);
     vi.mocked(userSettingsService.getForInvitedUser).mockResolvedValue({
       language: 'en',
       preferred_locales: ['en'],
@@ -297,17 +289,13 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
         includeEnded: false,
       });
       expect(result).toMatchObject({ total: null, limit: 25, has_more: false, next_cursor: null });
-      // The page is serialized like the team list: public ids only, branches from the app's port.
+      // The page is serialized like the team list: public ids only.
       expect(result.items).toHaveLength(1);
       expect(result.items[0]).toMatchObject({
         id: 'mem_public',
         organization_id: 'org_public',
         role_ids: ['role_public_2'],
-        branch_ids: ['bra_one'],
         user: { id: 'user_public_10', email: 'user10@example.com' },
-      });
-      expect(branchAccess.listBranchPublicIdsByMembershipIds).toHaveBeenCalledWith({
-        membershipIds: [membershipRow.id],
       });
     });
 
@@ -364,41 +352,6 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
           query: { ...directoryQuery, rolePublicId: 'role_public' },
         }),
       ).rejects.toThrow('role lookup failed');
-    });
-
-    it('narrows to the members who work at a branch through the app port (T2)', async () => {
-      await wiredService.listDirectory({
-        scope: asScope('org_public'),
-        query: { ...directoryQuery, branchPublicId: 'bra_one' },
-      });
-      expect(branchAccess.listMembershipIdsAtBranch).toHaveBeenCalledWith({
-        organizationId: organization.id,
-        branchPublicId: 'bra_one',
-      });
-      expect(membershipRepository.list).toHaveBeenCalledWith(
-        organization.id,
-        expect.objectContaining({ membershipIds: [3, 4] }),
-      );
-    });
-
-    it('an unknown branch is an empty page', async () => {
-      vi.mocked(branchAccess.listMembershipIdsAtBranch).mockResolvedValueOnce(null);
-      const result = await wiredService.listDirectory({
-        scope: asScope('org_public'),
-        query: { ...directoryQuery, branchPublicId: 'bra_unknown' },
-      });
-      expect(result.items).toEqual([]);
-      expect(result.limit).toBe(25);
-      expect(membershipRepository.list).not.toHaveBeenCalled();
-    });
-
-    it('a branch filter without the app port wired is an empty page too', async () => {
-      const result = await service.listDirectory({
-        scope: asScope('org_public'),
-        query: { ...directoryQuery, branchPublicId: 'bra_one' },
-      });
-      expect(result.items).toEqual([]);
-      expect(membershipRepository.list).not.toHaveBeenCalled();
     });
 
     it('throws when the organization is missing', async () => {
@@ -763,34 +716,6 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
           user_public_id: 'member_public',
         }),
       ).rejects.toBeInstanceOf(NotFoundError);
-    });
-  });
-
-  describe('the wired branch access (launch ROUTE #4)', () => {
-    it('update replaces the branches a member works in through the port', async () => {
-      await wiredService.update({
-        scope: asScope('org_public'),
-        membership_public_id: 'mem_public',
-        body: { branch_ids: ['bra_one', 'bra_two'] },
-        updated_by_user_public_id: 'updater_public',
-      });
-      expect(branchAccess.replaceBranchesForMembership).toHaveBeenCalledWith({
-        organizationId: organization.id,
-        membershipId: membershipRow.id,
-        branchPublicIds: ['bra_one', 'bra_two'],
-        createdByUserId: 10,
-      });
-    });
-
-    it('a branch write without the port wired is a ConfigurationError', async () => {
-      await expect(
-        service.update({
-          scope: asScope('org_public'),
-          membership_public_id: 'mem_public',
-          body: { branch_ids: ['bra_one'] },
-          updated_by_user_public_id: 'updater_public',
-        }),
-      ).rejects.toBeInstanceOf(ConfigurationError);
     });
   });
 

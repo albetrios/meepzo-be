@@ -236,7 +236,7 @@ export class SubscriptionRepository {
   }
 
   /**
-   * What a clinic's plan access is decided from (owner decision D3): the organization's type and
+   * What an organization's plan access is decided from (owner decision D3): the organization's type and
    * `created_at`, and its current subscription — the live (non-terminal) row when it has one, else
    * its most recent — with that subscription plan's prices.
    *

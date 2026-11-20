@@ -4,7 +4,7 @@
 // Mermaid `erDiagram` blocks (overview + per-feature entities), written on the go while planning
 // (agent-os/skills/be-iteration-planning). Entity labels carry the change marker and, once the user
 // has chosen them, the table's domain and name (`name["name · NEW|CHANGED|EXISTING|REMOVED"]` or
-// `name["name · NEW · clinical.patients"]`); fields use logical types, and field comments say what
+// `name["name · NEW · crm.customers"]`); fields use logical types, and field comments say what
 // changes ("ADDED", "CHANGED: …", "REMOVED").
 
 import fs from 'node:fs';
@@ -17,7 +17,7 @@ const PLAN_FILE = path.join('plans', 'db-changes.md');
 /** The domain (Postgres schema) a planned table is drawn under until the plan names one. */
 const DEFAULT_PLAN_SCHEMA = 'app';
 
-/** `clinical.patients` or `patients` — the optional third label segment. */
+/** `crm.customers` or `customers` — the optional third label segment. */
 const TABLE_TARGET = /^(?:([a-z_][a-z0-9_]*)\.)?([a-z_][a-z0-9_]*)$/;
 
 const STATUSES = new Set(['NEW', 'CHANGED', 'EXISTING', 'REMOVED']);
@@ -42,8 +42,8 @@ function erDiagramBlocks(markdown) {
 }
 
 /**
- * `"patient · NEW"` → `{ status: 'NEW', target: null }`;
- * `"patient · NEW · clinical.patients"` → `{ status: 'NEW', target: { schema: 'clinical', table: 'patients' } }`.
+ * `"customer · NEW"` → `{ status: 'NEW', target: null }`;
+ * `"customer · NEW · crm.customers"` → `{ status: 'NEW', target: { schema: 'crm', table: 'customers' } }`.
  */
 function parseLabel(label) {
   const segments = (label || '').split('·').map((part) => part.trim());

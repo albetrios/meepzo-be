@@ -100,47 +100,16 @@ type ResolvedRole = Awaited<ReturnType<MemberRoleService['requireRoleRecordForOr
 type SerializingOrganization = Pick<OrganizationMembershipContext, 'public_id' | 'owner_user_id'>;
 
 /**
- * The app domain's branch access, as the membership routes need it (launch ROUTE #4): read and
- * replace the branches a member works in (`app.branch_members`).
- *
- * @remarks
- * - **Algorithm:** the app domain is built on the tenancy membership service, so the reverse
- *   dependency is late-wired by the composition root via
- *   {@link MembershipService.wireBranchAccess} — never a constructor param.
- * - **Failure modes:** `replaceBranchesForMembership` throws a `ValidationError` on `branch_ids`
- *   for an id that is no live branch of the organization.
- * - **Side effects:** a replace deletes and inserts access rows, inside the caller's context.
- */
-export type MembershipBranchAccessPort = {
-  listBranchPublicIdsByMembershipIds(options: {
-    membershipIds: readonly number[];
-  }): Promise<Map<number, string[]>>;
-  /** The memberships that work at a branch (the list filter, T2); null for an unknown branch. */
-  listMembershipIdsAtBranch(options: {
-    organizationId: number;
-    branchPublicId: string;
-  }): Promise<number[] | null>;
-  replaceBranchesForMembership(options: {
-    organizationId: number;
-    membershipId: number;
-    branchPublicIds: readonly string[];
-    createdByUserId: number | null;
-  }): Promise<void>;
-};
-
-/**
- * What ending a membership does in the app (launch K4), satisfied by the app domain.
+ * What ending a membership does in a product domain, satisfied by that domain when it is built.
  *
  * @remarks
  * - **Algorithm:** {@link MembershipService} calls `releaseEndedMembership` inside the same
  *   organization transaction that ends the membership — for a removal, for leaving and for a
- *   deleted account alike — so what the person *does now* (branch access, default staff, contact
- *   handling, lead ownership, open tasks) is cleared and what is *theirs alone* (preferences, saved
- *   views, prescription kits) goes in one step, while what they *did* stays. Each app sub-domain
- *   adds its part to the app's leave step as it is built.
+ *   deleted account alike — so what the person *does now* is cleared and what is *theirs alone*
+ *   goes in one step, while what they *did* stays.
  * - **Failure modes:** an error rolls the whole leave back — the membership is not ended.
- * - **Notes:** late-wired via {@link MembershipService.wireLeaveStep}, like the branch access, so
- *   tenancy does not import the app domain; a minimal harness without it ends the membership only.
+ * - **Notes:** late-wired via {@link MembershipService.wireLeaveStep}, so tenancy does not import
+ *   a product domain; without it (today, and in a minimal harness) only the membership ends.
  */
 export type MembershipLeavePort = {
   releaseEndedMembership(options: { organizationId: number; membershipId: number }): Promise<void>;
@@ -188,13 +157,12 @@ export interface MembershipPermissionsOutput {
  * the app's `GET /app/memberships` DTO.
  *
  * @remarks
- * - **Notes:** a role and a branch are public ids — an unknown one is an empty page, never a 400;
+ * - **Notes:** a role is a public id — an unknown one is an empty page, never a 400;
  *   `includeEnded` lists every membership (any status, live or ended), otherwise live active ones.
  */
 export interface MembershipDirectoryQuery {
   q?: string | undefined;
   rolePublicId?: string | undefined;
-  branchPublicId?: string | undefined;
   /** Only members one of whose roles grants this code (T8); an unknown code matches nobody. */
   holdsPermissionCode?: string | undefined;
   /** Every membership — any status, live or ended; otherwise live active members only. */
@@ -261,7 +229,7 @@ function assertLiveMembershipEdit(options: {
    * them out of all RBAC-gated routes with no self-recovery path. The ownership
    * transfer endpoint is the correct mechanism for any ownership-adjacent change.
    */
-  // The owner's staff profile (phone, tone, hours, branches) and extra roles stay editable; their
+  // The owner's staff profile (phone, tone, hours) and extra roles stay editable; their
   // status is locked, and so is their main role (assertOwnerKeepsMainRole).
   if (parsed.status !== undefined && options.ownerUserId === membership.user_id) {
     throw ownerMembershipFixedError('errors:ownerMembershipCannotBeModified');
@@ -366,14 +334,6 @@ export class MembershipService {
     // Launch ROUTE #4 (D5): the roles a person holds besides the main one.
     private readonly membershipAdditionalRolesRepository: MembershipAdditionalRolesRepository = new MembershipAdditionalRolesRepository(),
   ) {}
-
-  /** The app domain's branch access (launch ROUTE #4); null in minimal test harnesses. */
-  private branchAccess: MembershipBranchAccessPort | null = null;
-
-  /** Late-wires the app domain's branch access; see {@link MembershipBranchAccessPort}. */
-  wireBranchAccess(branchAccess: MembershipBranchAccessPort): void {
-    this.branchAccess = branchAccess;
-  }
 
   /** The app domain's part of the leave step (launch K4); null in minimal test harnesses. */
   private leaveStep: MembershipLeavePort | null = null;
@@ -540,12 +500,11 @@ export class MembershipService {
     });
   }
 
-  /** Writes the additional roles and, when sent, the branches of a membership just created or edited. */
+  /** Writes the additional roles of a membership just created or edited, when sent. */
   private async writeMembershipAccess(options: {
     organizationId: number;
     membershipId: number;
     additionalRoles: readonly ResolvedRole[] | undefined;
-    branchPublicIds: readonly string[] | undefined;
     actingUserId: number | null;
   }): Promise<void> {
     if (options.additionalRoles !== undefined) {
@@ -554,19 +513,6 @@ export class MembershipService {
         organization_id: options.organizationId,
         role_ids: options.additionalRoles.map((role) => role.id),
         created_by_user_id: options.actingUserId,
-      });
-    }
-    if (options.branchPublicIds !== undefined) {
-      if (!this.branchAccess) {
-        throw new ConfigurationError(
-          'The branch access port must be wired on MembershipService (domain-containers.plugin).',
-        );
-      }
-      await this.branchAccess.replaceBranchesForMembership({
-        organizationId: options.organizationId,
-        membershipId: options.membershipId,
-        branchPublicIds: options.branchPublicIds,
-        createdByUserId: options.actingUserId,
       });
     }
   }
@@ -752,7 +698,7 @@ export class MembershipService {
   }
 
   /**
-   * Resolves user summaries, the main role's public id, the extra roles, the branches and (for
+   * Resolves user summaries, the main role's public id, the extra roles and (for
    * live `invited` rows) the pending invitation for a page of memberships, and serializes them. The
    * internal `user_id`/`role_id` are never emitted; user summaries go through the SECURITY DEFINER
    * resolver (auth.users is FORCE RLS and unreachable by a plain join under organization-only
@@ -766,8 +712,8 @@ export class MembershipService {
     const { rows, organization } = options;
     if (rows.length === 0) return [];
     const membershipIds = rows.map((row) => row.id);
-    const [userSummaryRows, roleSummaryRows, invitationRows, additionalRoleIds, branchIds] =
-      await Promise.all([
+    const [userSummaryRows, roleSummaryRows, invitationRows, additionalRoleIds] = await Promise.all(
+      [
         this.membershipRepository.resolveUserSummariesByInternalIds(rows.map((row) => row.user_id)),
         this.membershipRepository.resolveRoleSummariesByInternalIds(rows.map((row) => row.role_id)),
         this.membershipRepository.resolveLiveInvitationsByMembershipIds(
@@ -776,10 +722,8 @@ export class MembershipService {
             .map((row) => row.id),
         ),
         this.membershipAdditionalRolesRepository.listRolePublicIdsByMembershipIds(membershipIds),
-        this.branchAccess
-          ? this.branchAccess.listBranchPublicIdsByMembershipIds({ membershipIds })
-          : Promise.resolve(new Map<number, string[]>()),
-      ]);
+      ],
+    );
     const userSummaries = new Map<number, MembershipUserSummary>();
     for (const [userInternalId, row] of userSummaryRows) {
       userSummaries.set(userInternalId, {
@@ -808,7 +752,6 @@ export class MembershipService {
       const mainRolePublicId = roleSummaryRows.get(row.role_id)?.public_id ?? String(row.role_id);
       const access: MembershipAccessRefs = {
         role_ids: [mainRolePublicId, ...(additionalRoleIds.get(row.id) ?? [])],
-        branch_ids: branchIds.get(row.id) ?? [],
       };
       return serializeMembership({
         row,
@@ -869,15 +812,14 @@ export class MembershipService {
   }
 
   /**
-   * Turns a role and a branch named by public id into the list filters; `null` when either is not
-   * of this organization — the list is then empty, never a 400 (a filter, not a write).
+   * Turns a role named by public id into the list filter; `null` when it is not of this
+   * organization — the list is then empty, never a 400 (a filter, not a write).
    */
   private async resolveListFilters(options: {
     organizationId: number;
     rolePublicId: string | undefined;
-    branchPublicId: string | undefined;
-  }): Promise<Pick<MembershipListQuery, 'roleId' | 'membershipIds'> | null> {
-    const filters: Pick<MembershipListQuery, 'roleId' | 'membershipIds'> = {};
+  }): Promise<Pick<MembershipListQuery, 'roleId'> | null> {
+    const filters: Pick<MembershipListQuery, 'roleId'> = {};
     if (options.rolePublicId !== undefined) {
       try {
         const role = await this.memberRoleService.requireRoleRecordForOrganization({
@@ -890,22 +832,11 @@ export class MembershipService {
         throw error;
       }
     }
-    if (options.branchPublicId !== undefined) {
-      const membershipIds = this.branchAccess
-        ? await this.branchAccess.listMembershipIdsAtBranch({
-            organizationId: options.organizationId,
-            branchPublicId: options.branchPublicId,
-          })
-        : null;
-      if (membershipIds === null) return null;
-      filters.membershipIds = membershipIds;
-    }
     return filters;
   }
 
   /**
-   * The team list (launch §2.B route 2): every status, filtered by `status`, `role_id`,
-   * `branch_id` (T2) and `q`; ended members with `include_ended=true` (D58); the capped total on
+   * The team list (launch §2.B route 2): every status, filtered by `status`, `role_id` and `q`; ended members with `include_ended=true` (D58); the capped total on
    * the first page.
    */
   async list({ scope, query }: { scope: OrganizationPrincipalDatabaseScope; query: unknown }) {
@@ -921,7 +852,6 @@ export class MembershipService {
         const filters = await this.resolveListFilters({
           organizationId: organization.id,
           rolePublicId: parsed.role_id,
-          branchPublicId: parsed.branch_id,
         });
         if (filters === null) {
           return { items: [], total: 0, limit: parsed.limit, has_more: false, next_cursor: null };
@@ -953,7 +883,7 @@ export class MembershipService {
    *
    * @remarks
    * - **Algorithm:** the same keyset list as {@link MembershipService.list}, sorted by
-   *   `display_name`; an unknown role or branch is an empty page; `holdsPermissionCode` keeps the
+   *   `display_name`; an unknown role is an empty page; `holdsPermissionCode` keeps the
    *   members one of whose live roles grants it (T8 — e.g. who can be given a task).
    * - **Failure modes:** none beyond the query.
    */
@@ -975,7 +905,6 @@ export class MembershipService {
         const filters = await this.resolveListFilters({
           organizationId: organization.id,
           rolePublicId: query.rolePublicId,
-          branchPublicId: query.branchPublicId,
         });
         if (filters === null) {
           return { items: [], total: null, limit: query.limit, has_more: false, next_cursor: null };
@@ -1178,7 +1107,6 @@ export class MembershipService {
           organizationId: organization.id,
           membershipId: created.id,
           additionalRoles,
-          branchPublicIds: parsed.branch_ids,
           actingUserId: inviterId,
         });
         // Issue the invitation (token + email) in this same organization transaction.
@@ -1230,8 +1158,8 @@ export class MembershipService {
    *   After commit: the permission cache and, when a seat changed, the Stripe quantity.
    * - **Failure modes:** `NotFoundError('Membership')`; `ValidationError` on `display_name` (a live
    *   member's name follows the profile), `membership_ended` (anything but a rename on an ended
-   *   member), `status` (a move other than `active` ↔ `suspended`), `work_ends_at`, `role_ids`,
-   *   `branch_ids`; `ForbiddenError` (`owner_membership_fixed`) for the owner's status or main role
+   *   member), `status` (a move other than `active` ↔ `suspended`), `work_ends_at`, `role_ids`;
+   *   `ForbiddenError` (`owner_membership_fixed`) for the owner's status or main role
    *   and for a code the caller does not hold; `ConflictError` `record_changed` and
    *   `seat_limit_reached`.
    */
@@ -1348,7 +1276,6 @@ export class MembershipService {
           organizationId: organization.id,
           membershipId: updated.id,
           additionalRoles,
-          branchPublicIds: parsed.branch_ids,
           actingUserId: userId ?? null,
         });
         affectedUserInternalId = updated.user_id;

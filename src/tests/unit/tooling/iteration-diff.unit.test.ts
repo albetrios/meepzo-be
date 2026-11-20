@@ -32,12 +32,12 @@ const BASELINE_SCHEMA = `# schema-routes.md
 
 | Route (full path) | Screen | Kind |
 | ----------------- | ------ | ---- |
-| \`/patients\` | Patients | page |
+| \`/customers\` | Customers | page |
 | \`/sales\` | Sales | page |
 
 # Entities
 
-## Entity: Patient
+## Entity: Customer
 
 | Field | Type | Required |
 | ----- | ---- | -------- |
@@ -74,8 +74,8 @@ const CURRENT_SCHEMA = BASELINE_SCHEMA.replace(
   '| `/sales` | Sales | page (tabs) |',
 )
   .replace(
-    '| `/patients` | Patients | page |',
-    '| `/patients` | Patients | page |\n| `/returns` | Returns | page |',
+    '| `/customers` | Customers | page |',
+    '| `/customers` | Customers | page |\n| `/returns` | Returns | page |',
   )
   .replace('| note | string \\| null | no |\n', '| phone | string | yes |\n')
   .replace('| name | string | yes |', '| name | string | no |')
@@ -92,11 +92,11 @@ const CURRENT_SCHEMA = BASELINE_SCHEMA.replace(
 describe('parseSchemaRoutes', () => {
   it('reads entities and fields, enums, routes and operations', () => {
     const model = parseSchemaRoutes(BASELINE_SCHEMA);
-    expect([...model.entities.keys()]).toEqual(['Patient', 'SaleItem']);
-    expect([...(model.entities.get('Patient')?.keys() ?? [])]).toEqual(['id', 'name', 'note']);
-    expect(model.entities.get('Patient')?.get('note')).toBe('string | null | no');
+    expect([...model.entities.keys()]).toEqual(['Customer', 'SaleItem']);
+    expect([...(model.entities.get('Customer')?.keys() ?? [])]).toEqual(['id', 'name', 'note']);
+    expect(model.entities.get('Customer')?.get('note')).toBe('string | null | no');
     expect([...(model.enums.get('sale_status')?.keys() ?? [])]).toEqual(['open', 'paid']);
-    expect([...model.routes.keys()]).toEqual(['/patients', '/sales']);
+    expect([...model.routes.keys()]).toEqual(['/customers', '/sales']);
     expect([...model.operations.keys()]).toEqual(['Sales › createSale']);
   });
 });
@@ -110,12 +110,12 @@ describe('compareSchemaRoutes', () => {
     expect(changes.entities).toEqual({
       added: ['ReturnRequest'],
       removed: [],
-      changed: ['Patient'],
+      changed: ['Customer'],
     });
     expect(changes.fields).toEqual({
-      added: ['Patient.phone'],
-      removed: ['Patient.note'],
-      changed: ['Patient.name'],
+      added: ['Customer.phone'],
+      removed: ['Customer.note'],
+      changed: ['Customer.name'],
     });
     expect(changes.enums).toEqual({ added: [], removed: [], changed: ['sale_status'] });
     expect(changes.routes).toEqual({ added: ['/returns'], removed: [], changed: ['/sales'] });
@@ -134,9 +134,9 @@ describe('summarizeIntakeDiff', () => {
         'PRD.md': '# PRD\n',
         'schema-routes.md': BASELINE_SCHEMA,
         '_index.md':
-          '| Screen | Slug |\n| --- | --- |\n| Sales | `sales` |\n| Patients | `patients` |\n',
+          '| Screen | Slug |\n| --- | --- |\n| Sales | `sales` |\n| Customers | `customers` |\n',
         'sales.md': '# Sales\n',
-        'patients.md': '# Patients\n',
+        'customers.md': '# Customers\n',
         'prototype.html': '<html></html>',
       },
     });
@@ -148,9 +148,9 @@ describe('summarizeIntakeDiff', () => {
         'PRD.md': '# PRD\n',
         'schema-routes.md': CURRENT_SCHEMA,
         '_index.md':
-          '| Screen | Slug |\n| --- | --- |\n| Sales | `sales` |\n| Patients | `patients` |\n| Returns | `returns` |\n',
+          '| Screen | Slug |\n| --- | --- |\n| Sales | `sales` |\n| Customers | `customers` |\n| Returns | `returns` |\n',
         'sales.md': '# Sales (tabs)\n',
-        'patients.md': '# Patients\n',
+        'customers.md': '# Customers\n',
         'returns.md': '# Returns\n',
         'prototype.html': '<html></html>',
       },

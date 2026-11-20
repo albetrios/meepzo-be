@@ -199,8 +199,8 @@ function removePngLocation(image: Buffer): ImageLocationRemoval {
 }
 
 /**
- * A photo without where it was taken (launch D79, WC-42) — the clinic files patient photos, and a
- * phone's photo carries the patient's home or the clinic's GPS position.
+ * A photo without where it was taken (launch D79, WC-42) — a phone's photo carries the GPS
+ * position it was taken at (someone's home, a workplace), which a stored file must not keep.
  *
  * @remarks
  * - **Algorithm:** JPEG — walks the segments up to the image data: each EXIF APP1 keeps its tags

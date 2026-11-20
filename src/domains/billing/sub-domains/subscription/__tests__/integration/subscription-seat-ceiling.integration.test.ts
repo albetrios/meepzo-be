@@ -28,7 +28,7 @@ import { createWorkerContainers } from '@/worker-containers.js';
  * The seat ceiling after the seat sync has run (launch ROUTE #165, D82).
  *
  * Every member add enqueues the seat sync, which writes the member count into
- * `subscriptions.seats` (the Stripe quantity the clinic is billed for). The add check used to read
+ * `subscriptions.seats` (the Stripe quantity the organization is billed for). The add check used to read
  * that same column as the limit (`seats ?? included_seats`), so one add plus one sync capped a
  * subscribed organization at its current size — and an unlimited plan at its headcount. The
  * ceiling is now the plan's `included_seats` alone — the billed quantity never raises it (more

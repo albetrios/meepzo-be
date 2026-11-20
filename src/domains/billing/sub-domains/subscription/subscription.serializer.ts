@@ -93,9 +93,9 @@ export const SubscriptionSerializer = {
 };
 
 /**
- * Serializes a clinic's {@link PlanAccess} into the public `plan_access` body
+ * Serializes an organization's {@link PlanAccess} into the public `plan_access` body
  * (`active_organization.plan_access` on `GET /auth/me/context`): snake_case keys and an ISO 8601
- * `grace_ends_at`, `null` when the clinic is `active`.
+ * `grace_ends_at`, `null` when the organization is `active`.
  */
 export function serializePlanAccess(access: PlanAccess): PlanAccessOutput {
   return {

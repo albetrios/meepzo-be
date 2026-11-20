@@ -203,14 +203,14 @@ export interface ProvisionOrganizationResult {
  *   its WITH CHECK with 42501 in deployed environments). One transaction keeps the owner-bootstrap
  *   atomic — a partial failure can never leave an organization whose owner has no access. TEAM
  *   organizations additionally insert the default {@link DEFAULT_TEAM_ROLES}
- *   (the clinic roles) and their grants so a new team can assign a role and invite members
+ *   (the default team roles) and their grants so a new team can assign a role and invite members
  *   immediately; PERSONAL organizations get Owner only. This is a server-side bootstrap only;
  *   the inputs are not user-controlled beyond name/slug/type.
  * - **Failure modes:** the whole transaction rolls back on any insert failure (unique slug,
  *   one-personal-per-owner index, missing permission reference rows). Callers map
  *   `unique_violation` to a 409.
  * - **Side effects:** table inserts (organizations, roles, role_permissions, memberships); TEAM
- *   organizations additionally insert the default clinic roles (Admin locked) and their grants.
+ *   organizations additionally insert the default team roles (Admin locked) and their grants.
  * - **Notes:** the owner and default roles are `is_system: true` so they cannot be deleted via the
  *   role API; the Owner role is also `is_locked` (launch D81 (4) — its codes never change through
  *   the API, `PUT …/roles/{role_id}/permissions` answers 403 `role_locked`). Permission reference

@@ -47,7 +47,7 @@ describe('Organization status — owner only, consistent effects (B2-3)', () => 
     await seedAllPermissions();
   });
 
-  async function clinicWithAdmin() {
+  async function organizationWithAdmin() {
     const owner = await createTestUser();
     const organization = await createTestOrganization({ ownerUserId: owner.id });
     const role = await createRoleWithPermissions({
@@ -93,7 +93,7 @@ describe('Organization status — owner only, consistent effects (B2-3)', () => 
   }
 
   it('refuses an Admin (organization:update, fresh step-up) who sends status — 403 owner_only', async () => {
-    const { admin, organization, tokenFor } = await clinicWithAdmin();
+    const { admin, organization, tokenFor } = await organizationWithAdmin();
     const response = await patchStatus({
       token: await tokenFor(admin.public_id, true),
       status: 'SUSPENDED',
@@ -104,7 +104,7 @@ describe('Organization status — owner only, consistent effects (B2-3)', () => 
   });
 
   it('refuses the owner without a recent step-up (403) and leaves the status alone', async () => {
-    const { owner, organization, tokenFor } = await clinicWithAdmin();
+    const { owner, organization, tokenFor } = await organizationWithAdmin();
     const response = await patchStatus({
       token: await tokenFor(owner.public_id, false),
       status: 'SUSPENDED',
@@ -114,19 +114,19 @@ describe('Organization status — owner only, consistent effects (B2-3)', () => 
   });
 
   it('still lets an Admin rename the organization without a step-up (status is the only gated field)', async () => {
-    const { admin, tokenFor } = await clinicWithAdmin();
+    const { admin, tokenFor } = await organizationWithAdmin();
     const response = await injectAuthenticated(app, {
       method: 'PATCH',
       url: testApiPath('/tenancy/organization'),
       token: await tokenFor(admin.public_id, false),
       headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
-      payload: { name: 'Renamed Clinic' },
+      payload: { name: 'Renamed Organization' },
     });
     expect(response.statusCode, response.body).toBe(200);
   });
 
   it('suspends for everyone but the owner, who can still switch in and reactivate it', async () => {
-    const { owner, admin, organization, tokenFor } = await clinicWithAdmin();
+    const { owner, admin, organization, tokenFor } = await organizationWithAdmin();
     const adminToken = await tokenFor(admin.public_id, false);
     // Cached before the suspension: the purge after commit must drop it.
     expect((await listMembers(adminToken)).statusCode).toBe(200);

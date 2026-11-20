@@ -77,8 +77,8 @@ async function initOptions(): Promise<InitOptions> {
   return (await initialize()).options;
 }
 
-/** A patient search's URL, as a request that answered 5xx carries it. */
-const SEARCH_URL = 'https://api.x.dev/api/v1/app/patients?limit=50&q=Priya%20Sharma';
+/** A customer search's URL, as a request that answered 5xx carries it. */
+const SEARCH_URL = 'https://api.x.dev/api/v1/app/customers?limit=50&q=Priya%20Sharma';
 
 describe('initSentry integrations', () => {
   /**
@@ -103,7 +103,7 @@ describe('initSentry — no query string reaches Sentry (SEC-01)', () => {
     expect(options.dataCollection.urlQueryParams).toBe(false);
   });
 
-  it('beforeSend strips the query from a 5xx event on a patient search (SEC-01)', async () => {
+  it('beforeSend strips the query from a 5xx event on a customer search (SEC-01)', async () => {
     const { beforeSend } = await initOptions();
 
     const sent = beforeSend({
@@ -113,7 +113,7 @@ describe('initSentry — no query string reaches Sentry (SEC-01)', () => {
     });
 
     expect(JSON.stringify(sent)).not.toContain('Priya');
-    expect(sent?.request?.url).toBe('https://api.x.dev/api/v1/app/patients');
+    expect(sent?.request?.url).toBe('https://api.x.dev/api/v1/app/customers');
   });
 
   it('beforeSendTransaction strips the query from the request of a kept 5xx transaction (SEC-01)', async () => {
@@ -121,7 +121,7 @@ describe('initSentry — no query string reaches Sentry (SEC-01)', () => {
 
     const sent = beforeSendTransaction({
       type: 'transaction',
-      transaction: 'GET /api/v1/app/patients',
+      transaction: 'GET /api/v1/app/customers',
       tags: { 'http.response.status_code': 503 },
       start_timestamp: 1,
       timestamp: 2,
@@ -130,6 +130,6 @@ describe('initSentry — no query string reaches Sentry (SEC-01)', () => {
 
     expect(sent).not.toBeNull();
     expect(JSON.stringify(sent)).not.toContain('Priya');
-    expect(sent?.request?.url).toBe('https://api.x.dev/api/v1/app/patients');
+    expect(sent?.request?.url).toBe('https://api.x.dev/api/v1/app/customers');
   });
 });

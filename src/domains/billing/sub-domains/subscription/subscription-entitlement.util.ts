@@ -27,8 +27,8 @@ const TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>(INACTIVE_SUBSCRIP
 
 /**
  * When a subscription's entitlement grace ends: `current_period_end + BILLING_DUNNING_GRACE_DAYS`.
- * A dunning subscription keeps its plan until then (F4); a lapsed paid one keeps writing in the
- * clinic rooms until then (D3).
+ * A dunning subscription keeps its plan until then (F4); a lapsed paid one keeps writing under the
+ * app routes until then (D3).
  */
 export function entitlementGraceEndsAt({ currentPeriodEnd }: { currentPeriodEnd: Date }): Date {
   return new Date(
@@ -103,15 +103,15 @@ export function holdsPaidEntitlement({
 }
 
 /**
- * Decides a clinic's plan access (owner decision D3, 2026-10-17) from its organization and current
+ * Decides an organization's plan access (owner decision D3, 2026-10-17) from its organization and current
  * subscription.
  *
  * @remarks
  * - **Algorithm:** a PERSONAL organization, an organization not found, or one with a paid entitlement
  *   ({@link holdsPaidEntitlement}) is `active`. Any other TEAM organization is unpaid and gets a
  *   grace: a lapsed paid subscription (cancelled, expired, paused, never paid, or dunning past its
- *   period) until {@link entitlementGraceEndsAt}; a clinic that never paid — no subscription, or one
- *   on the Free plan — until `created_at + NEW_ORGANIZATION_TRIAL_DAYS`, a new clinic's trial. Up to
+ *   period) until {@link entitlementGraceEndsAt}; an organization that never paid — no subscription, or one
+ *   on the Free plan — until `created_at + NEW_ORGANIZATION_TRIAL_DAYS`, a new organization's trial. Up to
  *   that instant it is `grace`; after it, `read_only`, `graceEndsAt` then being when read-only began.
  * - **Failure modes:** none — pure.
  * - **Notes:** whether read-only is enforced at all (`BILLING_READ_ONLY_ENFORCED`) is the caller's

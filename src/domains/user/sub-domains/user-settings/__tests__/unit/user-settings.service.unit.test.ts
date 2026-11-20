@@ -34,7 +34,7 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
   };
 });
 
-// The pinned clinic is checked and resolved through the tenancy membership lookups (real queries).
+// The pinned organization is checked and resolved through the tenancy membership lookups (real queries).
 vi.mock('@/domains/tenancy/sub-domains/organization/resolve-active-organization.js', () => ({
   findUserActiveOrganizationByPublicId: vi.fn(),
   findUserActiveOrganizationPublicIdByInternalId: vi.fn(),
@@ -114,30 +114,30 @@ describe('UserSettingsService', () => {
       service.update({ scope: asUserScope('missing'), body: { language: 'de' } }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
-  describe('default_organization_id (the clinic at sign-in)', () => {
-    it('pins an active clinic the caller actively belongs to, stored by internal id', async () => {
+  describe('default_organization_id (the organization at sign-in)', () => {
+    it('pins an active organization the caller actively belongs to, stored by internal id', async () => {
       vi.mocked(findUserActiveOrganizationByPublicId).mockResolvedValue({
         id: 7,
-        public_id: 'org_clinic',
+        public_id: 'org_team',
         type: 'TEAM',
       });
       vi.mocked(settingsRepository.upsert).mockResolvedValueOnce({
         ...settingsRow,
         default_organization_id: 7,
       } as never);
-      vi.mocked(findUserActiveOrganizationPublicIdByInternalId).mockResolvedValue('org_clinic');
+      vi.mocked(findUserActiveOrganizationPublicIdByInternalId).mockResolvedValue('org_team');
 
       const result = await service.update({
         scope: asUserScope('user_public'),
-        body: { default_organization_id: 'org_clinic' },
+        body: { default_organization_id: 'org_team' },
       });
 
       expect(findUserActiveOrganizationByPublicId).toHaveBeenCalledWith({
         userInternalId: 1,
-        organizationPublicId: 'org_clinic',
+        organizationPublicId: 'org_team',
       });
       expect(settingsRepository.upsert).toHaveBeenCalledWith(1, { default_organization_id: 7 });
-      expect(result.default_organization_id).toBe('org_clinic');
+      expect(result.default_organization_id).toBe('org_team');
     });
 
     it('null clears the pin without a membership lookup', async () => {

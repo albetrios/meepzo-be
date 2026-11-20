@@ -26,7 +26,7 @@ const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 /**
  * Losing the paid entitlement keeps the team (owner decision, 2026-10-17): when Stripe cancels the
  * subscription, or a dunning one's grace ends with no event at all, the loss is logged and no member
- * is suspended — suspending everyone past the Free allowance locked a clinic's staff out mid-day.
+ * is suspended — suspending everyone past the Free allowance locked an organization's members out mid-day.
  * The hourly reconcile also re-enqueues a seat sync where Stripe bills a quantity other than the
  * seats in use.
  * Built from the worker's own composition root, so the membership port is wired as in production.

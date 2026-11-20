@@ -102,7 +102,7 @@ export class PlanService {
  * Free plan.
  *
  * @remarks
- * The one definition of "paid plan": annual billing ({@link supportsPlanBillingCycle}) and a clinic's
+ * The one definition of "paid plan": annual billing ({@link supportsPlanBillingCycle}) and an organization's
  * paid entitlement (`holdsPaidEntitlement` in the subscription sub-domain) both read it. Catalog
  * prices are never negative (`chk_plans_price_m` / `chk_plans_price_y`).
  */

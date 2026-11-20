@@ -456,7 +456,7 @@ export class UploadService {
 
   /**
    * A short-lived view link for each of the organization's confirmed uploads among the keys a
-   * record reads — a patient photo, a report's files (launch D86) — with the name the person
+   * record reads — a photo, a report's files (launch D86) — with the name the person
    * uploaded it under. A key is signed only for the record it is bound to (C-2): a key bound to
    * another record, or to none, has no link.
    *
@@ -520,8 +520,8 @@ export class UploadService {
   }
 
   /**
-   * Rewrites an organization's confirmed photo without where it was taken (launch D79, WC-42) — the
-   * app files patient photos only after this.
+   * Rewrites an organization's confirmed photo without where it was taken (launch D79, WC-42) — a
+   * record files a photo only after this.
    *
    * @remarks
    * - **Algorithm:** checks the key is the organization's confirmed upload (in the caller's
@@ -567,7 +567,7 @@ export class UploadService {
   /**
    * Makes a thumbnail of an organization's stored image next to it (`<key without
    * extension>.thumb.webp`) — any purpose that opts in through
-   * {@link UPLOAD_PURPOSE_CONFIG}'s `thumbnailTypes` (patient photos today).
+   * {@link UPLOAD_PURPOSE_CONFIG}'s `thumbnailTypes` (organization files today).
    *
    * @remarks
    * - **Algorithm:** checks the key sits under an opted-in purpose's prefix for the organization

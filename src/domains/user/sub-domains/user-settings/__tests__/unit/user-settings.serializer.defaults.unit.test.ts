@@ -15,7 +15,7 @@ describe('user-settings.serializer defaults', () => {
     });
   });
 
-  it('serializeUserSettings returns the pinned clinic the service resolved', () => {
+  it('serializeUserSettings returns the pinned organization the service resolved', () => {
     const result = serializeUserSettings({
       is_dark_mode_enabled: false,
       is_notifications_enabled: true,
@@ -24,9 +24,9 @@ describe('user-settings.serializer defaults', () => {
       analytics_consent: null,
       analytics_consent_version: null,
       analytics_consent_at: null,
-      default_organization_public_id: 'org_clinic',
+      default_organization_public_id: 'org_team',
     });
-    expect(result.default_organization_id).toBe('org_clinic');
+    expect(result.default_organization_id).toBe('org_team');
   });
 
   it('serializeUserSettings preserves explicit false toggles', () => {

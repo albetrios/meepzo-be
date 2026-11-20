@@ -399,22 +399,12 @@ CREATE TABLE "tenancy"."organization_settings" (
 	"is_email_notifications_enabled" boolean DEFAULT true NOT NULL,
 	"default_locale" varchar(5) DEFAULT 'en' NOT NULL,
 	"security_policy" jsonb DEFAULT '{}'::jsonb NOT NULL,
-	"default_day_float" numeric(12, 2) DEFAULT '2000.00' NOT NULL,
-	"lead_hold_days" integer DEFAULT 3 NOT NULL,
-	"reminder_hour" smallint DEFAULT 16 NOT NULL,
-	"retarget_after_days" integer DEFAULT 90 NOT NULL,
-	"deleted_record_purge_days" integer DEFAULT 7 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"created_by_user_id" bigint,
 	"updated_by_user_id" bigint,
 	CONSTRAINT "chk_org_settings_updated" CHECK ("tenancy"."organization_settings"."updated_at" >= "tenancy"."organization_settings"."created_at"),
-	CONSTRAINT "chk_organization_settings_default_locale" CHECK ("tenancy"."organization_settings"."default_locale" IN ('en', 'es')),
-	CONSTRAINT "chk_organization_settings_default_day_float" CHECK ("tenancy"."organization_settings"."default_day_float" >= 0),
-	CONSTRAINT "chk_organization_settings_lead_hold_days" CHECK ("tenancy"."organization_settings"."lead_hold_days" >= 1),
-	CONSTRAINT "chk_organization_settings_reminder_hour" CHECK ("tenancy"."organization_settings"."reminder_hour" BETWEEN 0 AND 23),
-	CONSTRAINT "chk_organization_settings_retarget_after_days" CHECK ("tenancy"."organization_settings"."retarget_after_days" >= 1),
-	CONSTRAINT "chk_organization_settings_deleted_record_purge_days" CHECK ("tenancy"."organization_settings"."deleted_record_purge_days" >= 1)
+	CONSTRAINT "chk_organization_settings_default_locale" CHECK ("tenancy"."organization_settings"."default_locale" IN ('en', 'es'))
 );
 --> statement-breakpoint
 ALTER TABLE "tenancy"."organization_settings" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint

@@ -342,12 +342,12 @@ describe('dead-letter helpers', () => {
       const driverError = Object.assign(new Error('insert or update violates foreign key'), {
         code: '23503',
         severity: 'ERROR',
-        constraint: 'notes_patient_id_fkey',
-        table: 'patient_notes',
-        detail: 'Key (patient_id)=(4711) is not present in table "patients".',
+        constraint: 'notes_customer_id_fkey',
+        table: 'customer_notes',
+        detail: 'Key (customer_id)=(4711) is not present in table "customers".',
       });
       const finalError = new DrizzleQueryError(
-        'insert into "app"."patient_notes" ("patient_id", "body") values ($1, $2)',
+        'insert into "app"."customer_notes" ("customer_id", "body") values ($1, $2)',
         [4711, 'Priya Sharma, +91 98200 00000, diabetic'],
         driverError,
       );
@@ -378,9 +378,9 @@ describe('dead-letter helpers', () => {
       }
       expect(insertDeadLetterJobMock.mock.calls[0]![0]).toMatchObject({
         failed_reason:
-          'Database query failed (SQLSTATE 23503, constraint notes_patient_id_fkey, table patient_notes)',
+          'Database query failed (SQLSTATE 23503, constraint notes_customer_id_fkey, table customer_notes)',
       });
-      expect(reported).toMatchObject({ code: '23503', constraint: 'notes_patient_id_fkey' });
+      expect(reported).toMatchObject({ code: '23503', constraint: 'notes_customer_id_fkey' });
       errorSpy.mockRestore();
     });
 

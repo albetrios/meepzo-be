@@ -51,20 +51,20 @@ TEAM_ORGANIZATION_ENABLED       (default true)   — at least one must be true
 
 | Mode   | PERSONAL | TEAM | Signup                                 | Login default                                                                                   |
 | ------ | -------- | ---- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Hybrid | on       | on   | personal organization auto-provisioned | pinned clinic, else last clinic switched to, else most-recent team, else the personal organization |
+| Hybrid | on       | on   | personal organization auto-provisioned | pinned organization, else last organization switched to, else most-recent team, else the personal organization |
 | B2C    | on       | off  | personal organization auto-provisioned | personal organization                                                                           |
-| B2B    | off      | on   | nothing provisioned                    | pinned clinic, else last clinic switched to, else most-recent team, else **none** → frontend redirects to "create your own" |
+| B2B    | off      | on   | nothing provisioned                    | pinned organization, else last organization switched to, else most-recent team, else **none** → frontend redirects to "create your own" |
 
-A person can also **pin** a clinic: `PATCH /users/me/settings { default_organization_id }` (an
-`org_…` id of a clinic they actively belong to, or `null` for automatic). A pinned clinic comes first
-— ahead of the last clinic switched to — while that membership and the clinic are active; it is
+A person can also **pin** an organization: `PATCH /users/me/settings { default_organization_id }` (an
+`org_…` id of an organization they actively belong to, or `null` for automatic). A pinned organization comes first
+— ahead of the last organization switched to — while that membership and the organization are active; it is
 `auth.user_settings.default_organization_id`, and only a TEAM may be pinned.
 
-"Last clinic switched to" is `auth.users.last_active_organization_id`: every successful
+"Last organization switched to" is `auth.users.last_active_organization_id`: every successful
 `POST /auth/switch-to-organization` remembers its organization (only when it changes; a failed
 write is logged and never fails the switch), and the login opens it while that membership and the
-organization are still active — otherwise it is skipped, never cleared. A clinic beats the personal
-organization because a personal workspace has no clinic and the frontend answers it with the
+organization are still active — otherwise it is skipped, never cleared. An organization beats the personal
+organization because a personal workspace has no organization and the frontend answers it with the
 organization picker, which would otherwise greet every login. The same default is the refresh
 fallback when a session's organization is no longer valid.
 

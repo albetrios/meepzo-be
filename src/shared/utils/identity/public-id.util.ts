@@ -17,7 +17,6 @@ export const PUBLIC_ID_PREFIXES = {
   membershipInvitation: 'inv',
   memberRole: 'rol',
   organizationApiKey: 'key',
-  branch: 'brn',
   organizationNotificationPolicy: 'pol',
   authSession: 'ses',
   authMethod: 'am',

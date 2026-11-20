@@ -146,7 +146,7 @@ describe('compress.middleware — G2-7: private responses are never stored', () 
     await app.register(compressMiddleware);
     app.get(testApiPath('/users/me'), async () => ({ data: { display_name: 'Me' } }));
     app.get(testApiPath('/users/me/settings'), async () => ({ data: { theme: 'dark' } }));
-    app.get(testApiPath('/tenancy/organization'), async () => ({ data: { name: 'Clinic' } }));
+    app.get(testApiPath('/tenancy/organization'), async () => ({ data: { name: 'Acme' } }));
     app.get(testApiPath('/tenancy/permissions'), async (_request, reply) => {
       reply.header('cache-control', 'public, max-age=300');
       return { data: [] };

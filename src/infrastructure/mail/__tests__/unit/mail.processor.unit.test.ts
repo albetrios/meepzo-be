@@ -247,7 +247,7 @@ describe('mail.processor', () => {
       const { logger } = await import('@/shared/utils/infrastructure/logger.util.js');
       tryClaimPendingMailOutboxMock.mockResolvedValue('claimed');
       findMailOutboxByTokenMock.mockResolvedValue(
-        outboxRow({ to_addresses: ['demo@example.com', 'staff@clinic.test'] }),
+        outboxRow({ to_addresses: ['demo@example.com', 'staff@acme.test'] }),
       );
 
       const result = await processMailOutboxJob({
@@ -267,7 +267,7 @@ describe('mail.processor', () => {
     it('sends to the real recipients only when the list also holds a reserved one', async () => {
       tryClaimPendingMailOutboxMock.mockResolvedValue('claimed');
       findMailOutboxByTokenMock.mockResolvedValue(
-        outboxRow({ to_addresses: ['demo@example.com', 'owner@clinic.in'] }),
+        outboxRow({ to_addresses: ['demo@example.com', 'owner@acme.in'] }),
       );
       sendEmailMock.mockResolvedValue('msg_real');
 
@@ -276,7 +276,7 @@ describe('mail.processor', () => {
       });
 
       expect(sendEmailMock).toHaveBeenCalledWith(
-        expect.objectContaining({ to: ['owner@clinic.in'] }),
+        expect.objectContaining({ to: ['owner@acme.in'] }),
       );
       expect(markMailOutboxSentMock).toHaveBeenCalledWith(MAIL_OUTBOX_TOKEN, 'msg_real');
       expect(result).toEqual({ outcome: 'sent', messageId: 'msg_real' });

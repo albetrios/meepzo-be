@@ -50,7 +50,7 @@ const roleRow = {
   deleted_at: null,
 };
 /** The role a new one copies its access from (RC-142). */
-const sourceRole = { ...roleRow, id: 9, public_id: generatePublicId('memberRole'), name: 'Doctor' };
+const sourceRole = { ...roleRow, id: 9, public_id: generatePublicId('memberRole'), name: 'Editor' };
 /** A role within its restore window (launch §2.D route 17, T12). */
 const deletedRole = { ...roleRow, deleted_at: new Date('2026-02-01T00:00:00.000Z') };
 

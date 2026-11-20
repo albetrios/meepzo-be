@@ -26,11 +26,11 @@ import { resolveDefaultActiveOrganizationPublicId } from '@/domains/tenancy/sub-
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 
 /**
- * The login default (iteration `feat-default-clinic-at-login`): the clinic the user last switched
- * to, else the newest clinic, else the personal workspace — and the personal workspace first when
+ * The login default (iteration `feat-default-organization-at-login`): the organization the user last switched
+ * to, else the newest organization, else the personal workspace — and the personal workspace first when
  * team organizations are off. Runs the real query under the user's own verified context.
  */
-describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (database)', () => {
+describe('resolveDefaultActiveOrganizationPublicId — the remembered organization (database)', () => {
   // Remembering only needs the repository; object storage is never touched.
   const userService = new UserService(new UserRepository(), {} as ObjectStoragePort);
   const settingsService = new UserSettingsService(userService, new UserSettingsRepository());
@@ -60,7 +60,13 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     env.PERSONAL_ORGANIZATION_ENABLED = originalPersonalEnabled;
   });
 
-  async function clinic({ ownerUserId, name }: { ownerUserId: number; name: string }) {
+  async function createTeamOrganization({
+    ownerUserId,
+    name,
+  }: {
+    ownerUserId: number;
+    name: string;
+  }) {
     const { organization } = await provisionOrganizationWithOwner({
       name,
       slug: `${name.toLowerCase()}-${generatePublicId('organization').slice(4, 14)}`,
@@ -94,11 +100,11 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     return row?.id ?? null;
   }
 
-  it('opens the remembered clinic over a clinic joined later and over the personal workspace', async () => {
+  it('opens the remembered organization over an organization joined later and over the personal workspace', async () => {
     const user = await createTestUser();
     await provisionPersonalOrganization({ ownerUserId: user.id });
-    const older = await clinic({ ownerUserId: user.id, name: 'Older' });
-    const newer = await clinic({ ownerUserId: user.id, name: 'Newer' });
+    const older = await createTeamOrganization({ ownerUserId: user.id, name: 'Older' });
+    const newer = await createTeamOrganization({ ownerUserId: user.id, name: 'Newer' });
     await joinedAt({ userId: user.id, organizationId: older.id, at: '2026-01-01T00:00:00Z' });
     await joinedAt({ userId: user.id, organizationId: newer.id, at: '2026-06-01T00:00:00Z' });
 
@@ -110,11 +116,11 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     expect(await resolveDefaultActiveOrganizationPublicId(user.id)).toBe(older.public_id);
   });
 
-  it('with nothing remembered, opens the most recently joined clinic — not the personal workspace', async () => {
+  it('with nothing remembered, opens the most recently joined organization — not the personal workspace', async () => {
     const user = await createTestUser();
     await provisionPersonalOrganization({ ownerUserId: user.id });
-    const older = await clinic({ ownerUserId: user.id, name: 'Older' });
-    const newer = await clinic({ ownerUserId: user.id, name: 'Newer' });
+    const older = await createTeamOrganization({ ownerUserId: user.id, name: 'Older' });
+    const newer = await createTeamOrganization({ ownerUserId: user.id, name: 'Newer' });
     await joinedAt({ userId: user.id, organizationId: older.id, at: '2026-01-01T00:00:00Z' });
     await joinedAt({ userId: user.id, organizationId: newer.id, at: '2026-06-01T00:00:00Z' });
 
@@ -122,11 +128,11 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     expect(await resolveDefaultActiveOrganizationPublicId(user.id)).toBe(newer.public_id);
   });
 
-  it('skips a remembered clinic whose membership is no longer active', async () => {
+  it('skips a remembered organization whose membership is no longer active', async () => {
     const user = await createTestUser();
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
-    const remembered = await clinic({ ownerUserId: user.id, name: 'Remembered' });
-    const other = await clinic({ ownerUserId: user.id, name: 'Other' });
+    const remembered = await createTeamOrganization({ ownerUserId: user.id, name: 'Remembered' });
+    const other = await createTeamOrganization({ ownerUserId: user.id, name: 'Other' });
     await userService.rememberLastActiveOrganization({
       userPublicId: user.public_id,
       organizationId: remembered.id,
@@ -151,7 +157,7 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     env.TEAM_ORGANIZATION_ENABLED = false;
     const user = await createTestUser();
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
-    const leftover = await clinic({ ownerUserId: user.id, name: 'Leftover' });
+    const leftover = await createTeamOrganization({ ownerUserId: user.id, name: 'Leftover' });
     await userService.rememberLastActiveOrganization({
       userPublicId: user.public_id,
       organizationId: leftover.id,
@@ -162,10 +168,10 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     );
   });
 
-  it('remembers only on a change — a repeat switch to the same clinic writes nothing', async () => {
+  it('remembers only on a change — a repeat switch to the same organization writes nothing', async () => {
     const user = await createTestUser();
-    const first = await clinic({ ownerUserId: user.id, name: 'First' });
-    const second = await clinic({ ownerUserId: user.id, name: 'Second' });
+    const first = await createTeamOrganization({ ownerUserId: user.id, name: 'First' });
+    const second = await createTeamOrganization({ ownerUserId: user.id, name: 'Second' });
 
     const remember = (organizationId: number) =>
       userService.rememberLastActiveOrganization({ userPublicId: user.public_id, organizationId });
@@ -176,13 +182,13 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     expect(await remember(second.id)).toBe(true);
     expect(await rememberedId(user.id)).toBe(second.id);
   });
-  describe('a pinned clinic (feat-choose-default-clinic)', () => {
-    it('opens the pinned clinic over the remembered one, a newer one and the personal workspace', async () => {
+  describe('a pinned organization (feat-choose-default-organization)', () => {
+    it('opens the pinned organization over the remembered one, a newer one and the personal workspace', async () => {
       const user = await createTestUser();
       await provisionPersonalOrganization({ ownerUserId: user.id });
-      const pinned = await clinic({ ownerUserId: user.id, name: 'Pinned' });
-      const remembered = await clinic({ ownerUserId: user.id, name: 'Remembered' });
-      const newest = await clinic({ ownerUserId: user.id, name: 'Newest' });
+      const pinned = await createTeamOrganization({ ownerUserId: user.id, name: 'Pinned' });
+      const remembered = await createTeamOrganization({ ownerUserId: user.id, name: 'Remembered' });
+      const newest = await createTeamOrganization({ ownerUserId: user.id, name: 'Newest' });
       await joinedAt({ userId: user.id, organizationId: pinned.id, at: '2026-01-01T00:00:00Z' });
       await joinedAt({
         userId: user.id,
@@ -208,10 +214,10 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
       expect(await resolveDefaultActiveOrganizationPublicId(user.id)).toBe(remembered.public_id);
     });
 
-    it('skips a pinned clinic once the membership is suspended, and reports the pin as null', async () => {
+    it('skips a pinned organization once the membership is suspended, and reports the pin as null', async () => {
       const user = await createTestUser();
-      const pinned = await clinic({ ownerUserId: user.id, name: 'Pinned' });
-      const other = await clinic({ ownerUserId: user.id, name: 'Other' });
+      const pinned = await createTeamOrganization({ ownerUserId: user.id, name: 'Pinned' });
+      const other = await createTeamOrganization({ ownerUserId: user.id, name: 'Other' });
       await pin({ userPublicId: user.public_id, organizationPublicId: pinned.public_id });
 
       await getOperatorDatabase()
@@ -226,11 +232,11 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
       expect(settings.default_organization_id).toBeNull();
     });
 
-    it("refuses another person's clinic and the personal workspace, storing nothing", async () => {
+    it("refuses another person's organization and the personal workspace, storing nothing", async () => {
       const user = await createTestUser();
       const stranger = await createTestUser();
       const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
-      const theirs = await clinic({ ownerUserId: stranger.id, name: 'Theirs' });
+      const theirs = await createTeamOrganization({ ownerUserId: stranger.id, name: 'Theirs' });
 
       for (const organizationPublicId of [theirs.public_id, personal.organization.public_id]) {
         await expect(
@@ -246,7 +252,7 @@ describe('resolveDefaultActiveOrganizationPublicId — the remembered clinic (da
     it('keeps the personal workspace first when team organizations are disabled', async () => {
       const user = await createTestUser();
       const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
-      const pinned = await clinic({ ownerUserId: user.id, name: 'Pinned' });
+      const pinned = await createTeamOrganization({ ownerUserId: user.id, name: 'Pinned' });
       await pin({ userPublicId: user.public_id, organizationPublicId: pinned.public_id });
 
       env.TEAM_ORGANIZATION_ENABLED = false;

@@ -63,11 +63,6 @@ export const organizationSettingsSchema = {
     organization_id: { type: 'string' },
     is_email_notifications_enabled: { type: 'boolean' },
     security_policy: { type: 'object' },
-    default_day_float: { type: 'number', example: 2000, description: 'Rupees' },
-    lead_hold_days: { type: 'integer', example: 3 },
-    reminder_hour: { type: 'integer', example: 16, description: '0–23, organization time zone' },
-    retarget_after_days: { type: 'integer', example: 90 },
-    deleted_record_purge_days: { type: 'integer', example: 7 },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
   },
@@ -77,11 +72,6 @@ export const organizationSettingsExample = {
   organization_id: 'org_k7x9m2pqr4w8n1v3a1b2c',
   is_email_notifications_enabled: true,
   security_policy: { mfa_required: true, session_timeout_minutes: 30 },
-  default_day_float: 2000,
-  lead_hold_days: 3,
-  reminder_hour: 16,
-  retarget_after_days: 90,
-  deleted_record_purge_days: 7,
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-02-10T12:00:00.000Z',
 };
@@ -248,7 +238,6 @@ export const membershipSchema = {
       items: { type: 'string' },
       description: 'Every role held, the main role first.',
     },
-    branch_ids: { type: 'array', items: { type: 'string' } },
     working_days: {
       type: 'array',
       items: { type: 'string', enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
@@ -283,7 +272,6 @@ export const membershipExample = {
   phone: '+919825044120',
   tone: 'sky',
   role_ids: ['rol_m3n7p2q8w5k1r4t6a1b2c'],
-  branch_ids: ['brn_k7x9m2pqr4w8n1v3a1b2c'],
   working_days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
   work_starts_at: '10:00',
   work_ends_at: '19:00',
@@ -362,11 +350,11 @@ export const myInvitationExample = {
   id: 'inv_r4t6m3n7p2q8w5k1a1b2c',
   organization: {
     id: 'org_k7x9m2pqr4w8n1v3a1b2c',
-    name: 'Skin Studio Adajan',
-    slug: 'skin-studio-adajan',
+    name: 'Acme Studio',
+    slug: 'acme-studio',
     logo_url: null,
   },
-  role_names: ['Doctor', 'Counsellor'],
+  role_names: ['Admin', 'Editor'],
   inviter_name: 'Nikunj Mavani',
   expires_at: '2026-02-21T10:30:00.000Z',
   created_at: '2026-02-14T10:30:00.000Z',
@@ -384,7 +372,7 @@ export const memberRoleSchema = {
     is_locked: {
       type: 'boolean',
       description:
-        "Its codes never change (`PUT /tenancy/organization/roles/{role_id}/permissions` is a 403 `role_locked`) — Owner and Admin as a clinic is provisioned. Not the only fixed role: the role the organization's owner holds as their main role is a 403 `owner_role_fixed` whatever this says — it is the first of `role_ids` on the `is_owner` membership (USERS-M3)",
+        "Its codes never change (`PUT /tenancy/organization/roles/{role_id}/permissions` is a 403 `role_locked`) — Owner and Admin as an organization is provisioned. Not the only fixed role: the role the organization's owner holds as their main role is a 403 `owner_role_fixed` whatever this says — it is the first of `role_ids` on the `is_owner` membership (USERS-M3)",
     },
     member_count: {
       type: 'integer',

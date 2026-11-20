@@ -88,8 +88,8 @@ const compressMiddlewareInner: FastifyPluginAsync = async (app) => {
     'recovery_code', // recovery_codes
     'download_url',
     'upload_url',
-    'file_url', // C-5: signed patient photo / report URL
-    'thumbnail_url', // C-5: signed patient photo thumbnail URL
+    'file_url', // C-5: signed stored-file read URL
+    'thumbnail_url', // C-5: signed thumbnail read URL
   ];
   function likelyContainsSecretFields(body: string): boolean {
     const lower = body.toLowerCase();
@@ -115,8 +115,8 @@ const compressMiddlewareInner: FastifyPluginAsync = async (app) => {
       reply.header('content-encoding', 'identity-no-compress');
       return;
     }
-    // G2-7: patient and account responses carried no Cache-Control at all, so a shared proxy or
-    // the browser's disk cache could keep a patient file after sign-out.
+    // G2-7: organization and account responses carried no Cache-Control at all, so a shared proxy
+    // or the browser's disk cache could keep a customer's record after sign-out.
     if (isPrivateResponse({ request, reply })) {
       reply.header('cache-control', PRIVATE_RESPONSE_CACHE_CONTROL);
     }

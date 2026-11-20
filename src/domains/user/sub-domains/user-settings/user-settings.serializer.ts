@@ -11,7 +11,7 @@ export interface UserSettingsRow {
   analytics_consent_version: number | null;
   analytics_consent_at: Date | null;
   /**
-   * The pinned clinic's public id, resolved by the service only while the pin is usable; absent or
+   * The pinned organization's public id, resolved by the service only while the pin is usable; absent or
    * `null` reads as automatic.
    */
   default_organization_public_id?: string | null;

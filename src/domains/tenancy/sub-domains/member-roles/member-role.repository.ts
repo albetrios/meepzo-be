@@ -206,7 +206,7 @@ export class MemberRoleRepository {
   }
 
   /**
-   * The organization's live system role with this name (`Owner`, `Admin`, the clinic roles), or
+   * The organization's live system role with this name (`Owner`, `Admin`, the default team roles), or
    * null — system role names are fixed, so the name identifies the role.
    */
   async findSystemRoleByName(name: string, organization_id: number): Promise<MemberRoleRow | null> {

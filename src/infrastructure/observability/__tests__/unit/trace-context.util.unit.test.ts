@@ -53,14 +53,14 @@ describe('runWithPropagatedTraceContext — error + tracestate branches', () => 
   });
 
   it('records a database error on the span without its statement or bound values (C-1)', async () => {
-    const marker = 'PATIENT-NAME-MARKER';
+    const marker = 'CUSTOMER-NAME-MARKER';
     const driverError = Object.assign(
-      new Error('insert or update on table "patients" violates foreign key constraint'),
-      { code: '23503', severity: 'ERROR', constraint: 'patients_lead_fk', table: 'patients' },
+      new Error('insert or update on table "customers" violates foreign key constraint'),
+      { code: '23503', severity: 'ERROR', constraint: 'customers_lead_fk', table: 'customers' },
     );
     const queryError = Object.assign(
-      new Error(`Failed query: update app.patients set name = $1\nparams: ${marker}`),
-      { query: 'update app.patients set name = $1', params: [marker], cause: driverError },
+      new Error(`Failed query: update app.customers set name = $1\nparams: ${marker}`),
+      { query: 'update app.customers set name = $1', params: [marker], cause: driverError },
     );
 
     const tracer = trace.getTracer('test');
@@ -85,7 +85,7 @@ describe('runWithPropagatedTraceContext — error + tracestate branches', () => 
     const recorded = JSON.stringify({ status: workerSpan?.status, events: workerSpan?.events });
     expect(recorded).toContain('23503');
     expect(recorded).not.toContain(marker);
-    expect(recorded).not.toContain('update app.patients');
+    expect(recorded).not.toContain('update app.customers');
   });
 
   it('propagates tracestate through the carrier when present', async () => {

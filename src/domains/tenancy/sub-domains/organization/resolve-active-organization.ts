@@ -60,8 +60,8 @@ async function withUserContextForInternalId<T>({
 /**
  * Resolve the default active organization for a user at login (every login path, and the
  * refresh fallback when a session's organization is no longer valid). When TEAM organizations
- * are enabled: the clinic the user pinned (`auth.user_settings.default_organization_id`, set
- * through `PATCH /users/me/settings`), else the clinic they last switched to
+ * are enabled: the organization the user pinned (`auth.user_settings.default_organization_id`, set
+ * through `PATCH /users/me/settings`), else the organization they last switched to
  * (`auth.users.last_active_organization_id`, stamped by `switch-to-organization`) — each only while
  * that membership is still active — else the most-recently-joined active TEAM membership, else the
  * PERSONAL organization (when `PERSONAL_ORGANIZATION_ENABLED`). With TEAM organizations disabled the PERSONAL organization
@@ -71,9 +71,9 @@ async function withUserContextForInternalId<T>({
  * @remarks
  * - **Algorithm:** one read under the user's own verified context —
  *   {@link OrganizationRepository.findDefaultActiveOrganizationPublicId}.
- * - **Notes:** a clinic is preferred over the personal workspace because a personal workspace has
- *   no clinic of its own and the frontend answers it with the organization picker — the login
- *   would otherwise stop there every time. A pinned or remembered clinic the user has left, or
+ * - **Notes:** an organization is preferred over the personal workspace because a personal workspace has
+ *   no organization of its own and the frontend answers it with the organization picker — the login
+ *   would otherwise stop there every time. A pinned or remembered organization the user has left, or
  *   that is no longer active, fails the membership filter and is skipped; it never needs clearing.
  * - **Side effects:** none (read-only).
  */
@@ -95,7 +95,7 @@ export async function resolveDefaultActiveOrganizationPublicId(
 /**
  * Confirm the user holds a live ACTIVE membership in the given organization (and the organization is
  * not deleted and either ACTIVE or owned by the user — the owner's way back into a suspended
- * clinic, B2-3), returning its internal `id`, `public_id` and `type`. Runs under the caller's own
+ * organization, B2-3), returning its internal `id`, `public_id` and `type`. Runs under the caller's own
  * user RLS context (no organization context at switch time) so the tenancy discovery policies match,
  * and the query is additionally constrained to the caller's own `user_id`.
  *

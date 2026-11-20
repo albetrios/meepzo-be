@@ -64,8 +64,8 @@ describe('email.util', () => {
         'demo@example.com',
         'someone@example.net',
         'someone@example.org',
-        'someone@clinic.example',
-        'someone@clinic.test',
+        'someone@acme.example',
+        'someone@acme.test',
         'someone@nowhere.invalid',
         'someone@app.localhost',
       ]) {
@@ -82,7 +82,7 @@ describe('email.util', () => {
     it('leaves real domains alone, including ones that only contain a reserved name', () => {
       for (const email of [
         'user@gmail.com',
-        'owner@clinic.in',
+        'owner@acme.in',
         'someone@myexample.com',
         'someone@example.com.au',
         'someone@testing.io',

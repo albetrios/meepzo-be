@@ -75,17 +75,15 @@ function suffixSequence(suffixes: readonly string[]): () => string {
 
 describe('parseNewIterationArguments', () => {
   it('reads the type, topic and flags; --sibling implies --both', () => {
-    expect(parseNewIterationArguments(['feat', 'pharmacy-returns', '--both', '--dry-run'])).toEqual(
-      {
-        type: 'feat',
-        topic: 'pharmacy-returns',
-        createInSibling: true,
-        siblingPath: undefined,
-        lite: false,
-        dryRun: true,
-        help: false,
-      },
-    );
+    expect(parseNewIterationArguments(['feat', 'order-returns', '--both', '--dry-run'])).toEqual({
+      type: 'feat',
+      topic: 'order-returns',
+      createInSibling: true,
+      siblingPath: undefined,
+      lite: false,
+      dryRun: true,
+      help: false,
+    });
     expect(parseNewIterationArguments(['fix', 'rounding', '--lite']).lite).toBe(true);
     const parsed = parseNewIterationArguments(['fix', 'rounding', '--sibling', '../other-fe']);
     expect(parsed.createInSibling).toBe(true);
@@ -102,15 +100,15 @@ describe('parseNewIterationArguments', () => {
 describe('names', () => {
   it('validates the type and topic', () => {
     expect(validateTypeAndTopic({ type: 'launch', topic: undefined }).type).toBe('launch');
-    expect(validateTypeAndTopic({ type: 'change', topic: 'patient-consent' }).topic).toBe(
-      'patient-consent',
+    expect(validateTypeAndTopic({ type: 'change', topic: 'customer-consent' }).topic).toBe(
+      'customer-consent',
     );
     expect(() => validateTypeAndTopic({ type: 'release', topic: 'x' })).toThrow(/Unknown type/);
-    expect(() => validateTypeAndTopic({ type: 'launch', topic: 'clinic' })).toThrow(/no topic/);
+    expect(() => validateTypeAndTopic({ type: 'launch', topic: 'product' })).toThrow(/no topic/);
     expect(() => validateTypeAndTopic({ type: 'fix', topic: undefined })).toThrow(/needs a topic/);
   });
 
-  it.each(['returns2', 'Pharmacy', 'pharmacy_returns', '-returns', 'pharmacy--returns'])(
+  it.each(['returns2', 'Orders', 'order_returns', '-returns', 'order--returns'])(
     'rejects the topic %s',
     (topic) => {
       expect(() => validateTypeAndTopic({ type: 'feat', topic })).toThrow(/no digits/);
@@ -120,14 +118,14 @@ describe('names', () => {
   it('builds and parses names; only the date carries digits', () => {
     const name = buildIterationName({
       type: 'feat',
-      topic: 'pharmacy-returns',
+      topic: 'order-returns',
       opened: '2026-10-06',
       suffix: 'kqzx',
     });
-    expect(name).toBe('feat-pharmacy-returns-2026-10-06-kqzx');
+    expect(name).toBe('feat-order-returns-2026-10-06-kqzx');
     expect(parseIterationName(name)).toEqual({
       type: 'feat',
-      topic: 'pharmacy-returns',
+      topic: 'order-returns',
       opened: '2026-10-06',
     });
     expect(parseIterationName('launch-2026-09-30-jxmr')?.topic).toBeUndefined();
@@ -143,10 +141,10 @@ describe('README', () => {
   const fields = {
     type: 'feat',
     process: 'full',
-    topic: 'pharmacy-returns',
+    topic: 'order-returns',
     owner: TEST_GIT_OWNER,
     opened: '2026-10-06',
-    branch: 'feat/pharmacy-returns',
+    branch: 'feat/order-returns',
     baseline: 'launch-2026-09-30-jxmr',
     status: 'planning',
     summary: '—',
@@ -160,10 +158,10 @@ describe('README', () => {
 
   it('renders exactly the field rows, in order, and reads them back', () => {
     const markdown = renderIterationReadme({
-      name: 'feat-pharmacy-returns-2026-10-06-kqzx',
+      name: 'feat-order-returns-2026-10-06-kqzx',
       fields,
     });
-    expect(markdown.startsWith('# feat-pharmacy-returns-2026-10-06-kqzx\n')).toBe(true);
+    expect(markdown.startsWith('# feat-order-returns-2026-10-06-kqzx\n')).toBe(true);
     const parsed = parseIterationReadme(markdown);
     expect([...parsed.keys()]).toEqual([...README_FIELD_LABELS]);
     expect(parsed.get('Drop placed')).toBe('—');

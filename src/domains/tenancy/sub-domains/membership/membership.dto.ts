@@ -33,19 +33,10 @@ const roleIds = z
   .max(MEMBERSHIP_ROLE_IDS_MAX)
   .refine((ids) => new Set(ids).size === ids.length, { message: 'errors:validation.eachRoleOnce' });
 
-/** Branch ids the member works in (`brn_…`); `[]` for none. */
-const branchIds = z
-  .array(trimmedStringMinMax({ min: 1, max: 28 }))
-  .max(100)
-  .refine((ids) => new Set(ids).size === ids.length, {
-    message: 'errors:validation.eachBranchOnce',
-  });
-
 /** The staff profile fields a create or update accepts (launch ROUTE #4, D3). */
 const staffProfileFields = {
   phone: phoneNumberSchema.nullable().optional(),
   tone: chipToneSchema.optional(),
-  branch_ids: branchIds.optional(),
   working_days: workingDaysSchema.optional(),
   work_starts_at: hourMinuteSchema.optional(),
   work_ends_at: hourMinuteSchema.optional(),
@@ -96,8 +87,8 @@ export const createMembershipDto = z
 /**
  * Zod schema for the `PATCH /organization/memberships/:membership_id` request body (launch §2.B.8):
  * for a live member, the `status` (`active` ↔ `suspended` only, T10), its roles (`role_ids` replaces
- * the whole list, main first) and any staff profile field (`branch_ids` replaces the whole list;
- * `phone: null` clears it); for an ended member, `display_name` only (K6, D58). At least one field
+ * the whole list, main first) and any staff profile field (`phone: null`
+ * clears it); for an ended member, `display_name` only (K6, D58). At least one field
  * besides `expected_updated_at` (T14) must be provided — the service enforces which ones apply.
  */
 export const updateMembershipDto = z
@@ -126,15 +117,14 @@ export const deleteMembershipQueryDto = recordDeleteQuerySchema;
 /**
  * Zod schema for the `GET /organization/memberships` list query (launch §2.B.8): cursor pagination,
  * `q` (the member's name or email), `sort` (`name` — the membership's `display_name` — or
- * `created_at`, the default), `order`, and the filters `status`, `role_id` (main or extra role),
- * `branch_id` (T2) and `include_ended` (ended members too, D58). `sort` / `order` stay optional (a
+ * `created_at`, the default), `order`, and the filters `status`, `role_id` (main or extra role)
+ * and `include_ended` (ended members too, D58). `sort` / `order` stay optional (a
  * defaulted param serializes as `required` in OpenAPI).
  */
 export const listMembershipsQueryDto = listSearchSortSchema(['name', 'created_at'] as const)
   .extend({
     status: z.enum(MEMBERSHIP_STATUS_VALUES).optional(),
     role_id: recordIdSchema.optional(),
-    branch_id: recordIdSchema.optional(),
     include_ended: z.enum(['true', 'false']).optional().default('false'),
   })
   .strict();

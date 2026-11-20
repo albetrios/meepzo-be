@@ -19,13 +19,13 @@ export interface BulkBugReportProfile {
 
 const SAMPLE_PROBLEMS = [
   'The invoice total does not update after I remove a line.',
-  'The appointment I moved still shows at the old time until I refresh.',
-  'The patient search finds nothing when the name has an accent.',
-  'The prescription print cuts off the last medicine.',
-  'The stock count screen freezes when I scan two items quickly.',
+  'The event I moved still shows at the old time until I refresh.',
+  'The member search finds nothing when the name has an accent.',
+  'The PDF export cuts off the last row of the table.',
+  'The settings screen freezes when I save twice quickly.',
 ] as const;
 
-const SAMPLE_PATHS = ['/today', '/patients', '/appointments', '/billing', '/stock'] as const;
+const SAMPLE_PATHS = ['/dashboard', '/members', '/settings', '/billing', '/reports'] as const;
 
 /** Builds one realistic report: a known kind of problem, a path, a release and a recent time. */
 export function generateBulkBugReport(faker: Faker): BulkBugReportProfile {

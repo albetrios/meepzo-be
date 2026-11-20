@@ -31,7 +31,7 @@ export interface SubscriptionSeatReconcileResult {
  * - **Why:** the seat sync is enqueued after the member change commits — an enqueue lost to a Redis
  *   blip left Stripe billing the old quantity until the next change. A lapsed organization keeps
  *   its whole team (owner decision, 2026-10-17): this job used to suspend everyone past the Free
- *   allowance, which locked a clinic's staff out mid-day with no explanation.
+ *   allowance, which locked an organization's members out mid-day with no explanation.
  * - **Failure modes:** a database error propagates (the job retries); enqueue is best-effort and
  *   logged.
  * - **Notes:** a repeatable job on the seat-sync queue, run by the seat-sync worker — no worker or

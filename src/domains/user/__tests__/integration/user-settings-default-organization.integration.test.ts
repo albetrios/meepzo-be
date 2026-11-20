@@ -13,9 +13,9 @@ import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permis
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 
 /**
- * The clinic at sign-in (feat-choose-default-clinic): `PATCH /users/me/settings` pins a clinic the
- * caller actively belongs to (or `null` for the clinic used last), `GET` reports it, and the next
- * login mints its token for the pinned clinic — ahead of the clinic last switched to.
+ * The organization at sign-in (feat-choose-default-organization): `PATCH /users/me/settings` pins an organization the
+ * caller actively belongs to (or `null` for the organization used last), `GET` reports it, and the next
+ * login mints its token for the pinned organization — ahead of the organization last switched to.
  */
 describe('PATCH /users/me/settings — default_organization_id', () => {
   let app: FastifyInstance;
@@ -59,7 +59,13 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
     });
   }
 
-  async function clinic({ ownerUserId, name }: { ownerUserId: number; name: string }) {
+  async function createTeamOrganization({
+    ownerUserId,
+    name,
+  }: {
+    ownerUserId: number;
+    name: string;
+  }) {
     const { organization } = await provisionOrganizationWithOwner({
       name,
       slug: `${name.toLowerCase()}-${generatePublicId('organization').slice(4, 14)}`,
@@ -69,11 +75,11 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
     return organization;
   }
 
-  it('pins a clinic, reports it, opens it at the next login, and null returns to the clinic used last', async () => {
+  it('pins an organization, reports it, opens it at the next login, and null returns to the organization used last', async () => {
     const { user, password } = await createTestUserWithPassword();
     await provisionPersonalOrganization({ ownerUserId: user.id });
-    const pinned = await clinic({ ownerUserId: user.id, name: 'Pinned' });
-    const other = await clinic({ ownerUserId: user.id, name: 'Other' });
+    const pinned = await createTeamOrganization({ ownerUserId: user.id, name: 'Pinned' });
+    const other = await createTeamOrganization({ ownerUserId: user.id, name: 'Other' });
 
     const token = await login({ email: user.email, password });
     const switched = await app.inject({
@@ -105,7 +111,7 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
         .default_organization_id,
     ).toBe(pinned.public_id);
 
-    // The clinic last switched to is `other`; the pin wins.
+    // The organization last switched to is `other`; the pin wins.
     expect(decodeOrgClaim(await login({ email: user.email, password }))).toBe(pinned.public_id);
 
     const nextToken = await login({ email: user.email, password });
@@ -121,12 +127,12 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
     expect(decodeOrgClaim(await login({ email: user.email, password }))).toBe(other.public_id);
   });
 
-  it("answers 422 default_organization_unavailable for someone else's clinic, a personal workspace or an unknown id", async () => {
+  it("answers 422 default_organization_unavailable for someone else's organization, a personal workspace or an unknown id", async () => {
     const { user, password } = await createTestUserWithPassword();
     const stranger = await createTestUser();
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
-    await clinic({ ownerUserId: user.id, name: 'Mine' });
-    const theirs = await clinic({ ownerUserId: stranger.id, name: 'Theirs' });
+    await createTeamOrganization({ ownerUserId: user.id, name: 'Mine' });
+    const theirs = await createTeamOrganization({ ownerUserId: stranger.id, name: 'Theirs' });
     const token = await login({ email: user.email, password });
 
     for (const organizationPublicId of [

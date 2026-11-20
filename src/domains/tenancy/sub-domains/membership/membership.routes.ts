@@ -59,7 +59,7 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'List memberships',
           description:
-            'The team list — every status, with roles, branches and the pending invite. Filters: q (name or email), status, role_id (main or extra role), branch_id; include_ended=true adds ended members. Sort by created_at (default) or name. Requires membership:read.',
+            'The team list — every status, with roles and the pending invite. Filters: q (name or email), status, role_id (main or extra role); include_ended=true adds ended members. Sort by created_at (default) or name. Requires membership:read.',
           tags: ['Membership'],
         },
       },
@@ -73,7 +73,7 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Get membership',
           description:
-            'One member — live or ended — with the login summary, roles, branches and staff profile. Requires membership:read.',
+            'One member — live or ended — with the login summary, roles and staff profile. Requires membership:read.',
           tags: ['Membership'],
           params: membershipIdParamsDto,
         },
@@ -106,7 +106,7 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Add member by email',
           description:
-            'Adds a member by email: provisions or resolves the login, creates an invited membership with the given roles (role_ids, main first) and staff profile (phone, tone, branch_ids, working days and hours, commission), and emails an invitation token. The same login added again gets its ended membership back. The invitee becomes active on accept. Outside production, with MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED on, invitation.debug_invitation_token carries the raw accept token (for local QA — the email never arrives). Requires membership:create.',
+            'Adds a member by email: provisions or resolves the login, creates an invited membership with the given roles (role_ids, main first) and staff profile (phone, tone, working days and hours, commission), and emails an invitation token. The same login added again gets its ended membership back. The invitee becomes active on accept. Outside production, with MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED on, invitation.debug_invitation_token carries the raw accept token (for local QA — the email never arrives). Requires membership:create.',
           tags: ['Membership'],
           body: createMembershipDto,
         },
@@ -159,7 +159,7 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Restore membership',
           description:
-            "Undoes a member's removal — the membership is live again with its status, roles, branches and profile, and its name follows the profile again; its API keys stay revoked. A live membership is a 409, as is a person who rejoined since, or no free seat; so is an end only the person can undo (409 `membership_not_restorable`: they left, deleted their account, declined, or their invite expired or was revoked). Restoring hands the roles back, so you must hold every code they grant (403). Requires membership:delete.",
+            "Undoes a member's removal — the membership is live again with its status, roles and profile, and its name follows the profile again; its API keys stay revoked. A live membership is a 409, as is a person who rejoined since, or no free seat; so is an end only the person can undo (409 `membership_not_restorable`: they left, deleted their account, declined, or their invite expired or was revoked). Restoring hands the roles back, so you must hold every code they grant (403). Requires membership:delete.",
           tags: ['Membership'],
           params: membershipIdParamsDto,
         },

@@ -176,7 +176,7 @@ describe('restore drill automation policy', () => {
 
     // A Postgres message that quotes a stored value prints nothing.
     expect(
-      refusedKeysFrom('error: invalid input syntax for type integer: "patient note 42"\n'),
+      refusedKeysFrom('error: invalid input syntax for type integer: "customer note 42"\n'),
     ).toBe('');
     // Nor does anything after the phrase that is not a schema key.
     expect(

@@ -7,7 +7,7 @@ import { user_settings } from '@/domains/user/sub-domains/user-settings/user-set
  * Drizzle data-access for `auth.user_settings`. Implements an upsert-merge for the singleton
  * row keyed by `user_id`: missing fields fall back to the existing row, then to the platform
  * factory defaults (light mode, notifications on, `en` language, `['en']` preferred locales, no
- * analytics consent receipt, no pinned clinic). A consent receipt writes its three columns together, stamped by the
+ * analytics consent receipt, no pinned organization). A consent receipt writes its three columns together, stamped by the
  * database.
  */
 export class UserSettingsRepository {

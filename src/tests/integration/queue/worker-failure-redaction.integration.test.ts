@@ -15,7 +15,7 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 /**
  * C-1 (the BullMQ remainder): BullMQ stores a failed job's `failedReason` (the error message) and
  * `stacktrace` (its stack) in Redis. A processor that hit a database failure stored Drizzle's
- * `Failed query: <sql> params: <values>` there — a bound patient name, readable by anyone with the
+ * `Failed query: <sql> params: <values>` there — a bound customer name, readable by anyone with the
  * dashboards or Redis. Every worker the runtime registers goes through `buildWorkerHandle`, which
  * now records the sanitized error. This fails a real job on a real foreign-key violation with a
  * recognisable value bound into the statement, then reads the job back from Redis.
@@ -43,7 +43,7 @@ describe('Integration: a failed job stores no bound value in Redis (C-1)', () =>
   }
 
   beforeEach(async () => {
-    marker = `Patient-${randomUUID()}`;
+    marker = `Customer-${randomUUID()}`;
     queue = new Queue(`test-worker-failure-redaction-${randomUUID()}`, {
       connection,
       prefix: getBullMQKeyPrefix(),

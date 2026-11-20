@@ -85,14 +85,14 @@ export interface SubscriptionUpdateData {
 }
 
 /**
- * A clinic's plan access (owner decision D3, 2026-10-17): `active` with a paid entitlement (or while
+ * An organization's plan access (owner decision D3, 2026-10-17): `active` with a paid entitlement (or while
  * `BILLING_READ_ONLY_ENFORCED` is off, and always for a PERSONAL organization), `grace` while an
- * unpaid clinic's grace runs, `read_only` once it has ended — every write under `/api/v1/app/` is then
+ * unpaid organization's grace runs, `read_only` once it has ended — every write under `/api/v1/app/` is then
  * refused.
  */
 export type PlanAccessState = 'active' | 'grace' | 'read_only';
 
-/** A clinic's plan access as the service decides it — produced by `resolvePlanAccess`. */
+/** An organization's plan access as the service decides it — produced by `resolvePlanAccess`. */
 export interface PlanAccess {
   state: PlanAccessState;
   /** When the grace ends (`grace`) or ended, i.e. when read-only began (`read_only`); `null` when `active`. */
@@ -107,7 +107,7 @@ export interface PlanAccessOutput {
 }
 
 /**
- * What a clinic's plan access is decided from — read by
+ * What an organization's plan access is decided from — read by
  * `SubscriptionRepository.findPlanAccessSubject` in one query.
  */
 export interface PlanAccessSubject {

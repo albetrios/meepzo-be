@@ -109,7 +109,7 @@ export function createTenancyContainer({
     membershipRepository,
     membershipInvitationRepository,
     userService,
-    // D84: presign the clinic logo on the invitee's own invitation list.
+    // D84: presign the organization logo on the invitee's own invitation list.
     objectStorage,
     // An invitee has no language yet: invitations are written in the organization's.
     organizationSettingsService,

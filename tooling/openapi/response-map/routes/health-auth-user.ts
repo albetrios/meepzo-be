@@ -8,7 +8,7 @@ import * as schemas from '@tooling/openapi/response-map/resource-schemas.js';
 
 /**
  * The active organization in `GET /auth/me/context` and the organization switches: the organization
- * plus its plan access (owner decision D3 — read-only mode for unpaid clinics).
+ * plus its plan access (owner decision D3 — read-only mode for unpaid organizations).
  */
 const activeOrganizationSchema = {
   ...schemas.organizationSchema,

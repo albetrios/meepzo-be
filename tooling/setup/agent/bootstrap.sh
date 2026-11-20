@@ -419,7 +419,7 @@ else
 fi
 
 # The full demo set — it includes the minimal reference data and upserts, so a re-run is safe,
-# and it dates the demo clinic's day to today.
+# and it dates the demo organization's data to today.
 step "[7/${TOTAL}] Seed (full demo data; API + worker starting alongside)"
 pnpm db:seed:full >&2 || die "db:seed:full failed"
 ok "[7/${TOTAL}] seed complete"

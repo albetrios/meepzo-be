@@ -42,7 +42,7 @@ NEON_MIGRATION_ROLE_NAME="${NEON_ROLE_PREFIX}_migrator"
 NEON_APPLICATION_ROLE_NAME="${NEON_ROLE_PREFIX}_app"
 NEON_MAINTENANCE_ROLE_NAME="${NEON_ROLE_PREFIX}_maintenance"
 PITR_LOOKBACK_MINUTES="${PITR_LOOKBACK_MINUTES:-15}"
-# The drill branch is a full copy of production, patient rows included: it expires an hour after
+# The drill branch is a full copy of production, customer rows included: it expires an hour after
 # creation even if the delete step never runs (a drill takes minutes).
 BRANCH_TTL_HOURS="${BRANCH_TTL_HOURS:-1}"
 OPERATION_POLL_INTERVAL_SECONDS="${OPERATION_POLL_INTERVAL_SECONDS:-2}"
@@ -230,7 +230,7 @@ create_restore_drill_branch() {
   local branch_id endpoint_id
   branch_id="$(printf '%s' "$create_json" | jq -r '.branch.id')"
   endpoint_id="$(printf '%s' "$create_json" | jq -r '.endpoints[0].id // empty')"
-  # Hand the branch to the delete step before anything else can fail: the copy holds patient rows.
+  # Hand the branch to the delete step before anything else can fail: the copy holds customer rows.
   echo "branch_id=${branch_id}" >> "$GITHUB_OUTPUT"
   # This repository's Actions logs are public — keep the copy's endpoint out of them.
   if [ -n "$endpoint_id" ]; then

@@ -1,8 +1,8 @@
 import type { RouteAccess } from './types.js';
 
 /**
- * Joins the codes of a route that requires more than one (`PERM: patient:update +
- * patient:clinical_record:read`) — the catalogue's readers split on it.
+ * Joins the codes of a route that requires more than one (`PERM: member:update +
+ * member:role:read`) — the catalogue's readers split on it.
  */
 export const PERMISSION_CODE_SEPARATOR = ' + ';
 
@@ -47,8 +47,8 @@ export function classifyAccess(snippet: string, permissionMap: Map<string, strin
     return `ROLE: ${uniqueRoles.join(', ')}`;
   }
 
-  // Every code the route's gates require, in their order — a clinical note's write stacks
-  // `patient:update` and `patient:clinical_record:read` (launch D83 (6), QA B1).
+  // Every code the route's gates require, in their order — a route can stack two codes,
+  // e.g. `member:update` and `member:role:read` (launch D83 (6), QA B1).
   const codes = [...snippet.matchAll(/requireOrganizationPermission\(\s*([\w.]+\.[\w]+)/g)].map(
     (match) => permissionMap.get(match[1] ?? '') ?? match[1] ?? '',
   );

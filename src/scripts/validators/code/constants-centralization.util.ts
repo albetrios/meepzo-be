@@ -15,7 +15,7 @@ function getConstantsRoot(): string {
 
 /** Values that legitimately repeat (HTTP status, radix, time bases, byte units). */
 const ALLOWED_DUPLICATE_NUMBERS = new Set([
-  4, // small independent thresholds (phone-search digits, a check-in score scale, a patient number's digits)
+  4, // small independent thresholds (phone-search digits, a score scale, a record number's digits)
   5, // small independent counters (webhook delivery max attempts, postgres-error cause-chain depth)
   6, // small independent sizes (a verification code's length, an organization's specialties)
   10, // parseInt radix, deciles

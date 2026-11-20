@@ -553,7 +553,7 @@ function inviteChangeRemoveRevoke(uniq, invitee) {
     true,
   ).json('data.id');
   if (!roleForMember) return;
-  // The roles a new clinic is provisioned with; Owner and Admin are `is_locked`.
+  // The roles a new organization is provisioned with; Owner and Admin are `is_locked`.
   const provisioned = req('list-roles', 'GET', '/tenancy/organization/roles').json('data') || [];
   const nextRole = provisioned.find((role) => !role.is_locked && role.id !== roleForMember);
   const invite = () =>

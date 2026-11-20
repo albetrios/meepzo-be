@@ -780,7 +780,7 @@ function membershipBlock(auth, inviteeEmail, seatCeiling) {
   );
 
   // The invite takes the member's roles (`role_ids`, the main role first — launch D5), from the roles
-  // a new clinic is provisioned with. Owner and Admin are `is_locked`; any other one this Owner may
+  // a new organization is provisioned with. Owner and Admin are `is_locked`; any other one this Owner may
   // grant. Step 45 then moves the member to a second role.
   const roleList = http.get(`${API}/tenancy/organization/roles`, {
     headers: auth,

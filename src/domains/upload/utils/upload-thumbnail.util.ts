@@ -166,7 +166,7 @@ export async function createImageThumbnail(image: Buffer): Promise<Buffer> {
  *
  * @remarks
  * - **Side effects:** `sharp.cache(false)` and `sharp.concurrency(1)` — global to the process, so
- *   call it from the worker's start (`createPatientImageThumbnailWorker`), never from the API.
+ *   call it from the thumbnail worker's start, never from the API.
  */
 export function configureImageThumbnailDecoder(): void {
   sharp.cache(false);

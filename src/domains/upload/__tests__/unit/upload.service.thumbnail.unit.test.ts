@@ -17,7 +17,7 @@ const ORGANIZATION = 'org_aaaaaaaaaaaaaaaaaaaa1';
 const FILE_KEY = `organization-files/${ORGANIZATION}/photo.jpg`;
 const THUMBNAIL_KEY = `organization-files/${ORGANIZATION}/photo.thumb.webp`;
 
-/** The common thumbnail capability of the upload domain (patient photos use it first). */
+/** The common thumbnail capability of the upload domain (any purpose that opts in). */
 describe('UploadService thumbnails', () => {
   const storage = createObjectStoragePortMock();
   const service = new UploadService(

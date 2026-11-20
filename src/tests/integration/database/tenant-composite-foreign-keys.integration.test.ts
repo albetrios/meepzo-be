@@ -9,13 +9,13 @@ import {
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 
 /**
- * B2-5: a clinic record cannot point at another clinic's record.
+ * B2-5: an organization record cannot point at another organization's record.
  *
  * Each foreign key below was a single column (`<child>.<column>` -> `<parent>.id`), so a row of one
- * clinic could name the row of another. It is now the composite key
+ * organization could name the row of another. It is now the composite key
  * `(organization_id, <column>) -> <parent> (organization_id, id)` — see
  * `20261101101100_tenant_composite_foreign_keys.sql`. The catalog test pins each constraint; the
- * behaviour test points a row of one clinic at the matching record of a second clinic and expects that
+ * behaviour test points a row of one organization at the matching record of a second organization and expects that
  * exact constraint to refuse it, for every converted link. Under the old single-column keys the same
  * update succeeds, since the record it names exists.
  */
@@ -183,7 +183,7 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
 
   it.each(
     CONVERSIONS.map((conversion) => [`${conversion.table}.${conversion.column}`, conversion]),
-  )("refuses a %s that names another clinic's record", async (_label, conversion) => {
+  )("refuses a %s that names another organization's record", async (_label, conversion) => {
     const { table, column, parent } = conversion;
     // A victim row, preferring one whose link is set.
     const [child] = rowsOf<{ location: string }>(
@@ -204,7 +204,10 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
         [other.id],
       ),
     );
-    expect(foreignRecord, `the seed creates no ${parent} row in the other clinic`).toBeDefined();
+    expect(
+      foreignRecord,
+      `the seed creates no ${parent} row in the other organization`,
+    ).toBeDefined();
 
     const failure = await operatorQuery
       .unsafe(`UPDATE ${table} SET ${column} = $1 WHERE ctid = $2::tid`, [
@@ -215,7 +218,10 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
         () => null,
         (error: unknown) => error as { code?: string; constraint?: string; message?: string },
       );
-    expect(failure, `${table}.${column} accepted another clinic's ${parent} row`).not.toBeNull();
+    expect(
+      failure,
+      `${table}.${column} accepted another organization's ${parent} row`,
+    ).not.toBeNull();
     expect(failure?.code, failure?.message).toBe('23503');
     expect(failure?.constraint).toBe(conversion.constraint);
   });

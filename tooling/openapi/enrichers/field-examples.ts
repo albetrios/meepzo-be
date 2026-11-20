@@ -16,7 +16,7 @@ export function generateFieldExample(fieldName: string, schema: Record<string, u
   // The schema's own example (Zod metadata) beats every guess below
   if (schema.example !== undefined) return schema.example;
 
-  // A comma-separated public-id list: two ids of the entity its name says (`brn_…,brn_…`)
+  // A comma-separated public-id list: two ids of the entity its name says (`mem_…,mem_…`)
   if (schema[COMMA_SEPARATED_ID_LIST_OPENAPI_EXTENSION] === true) {
     const listExample = getPublicIdExample({ name: fieldName.toLowerCase(), isList: true });
     if (listExample !== undefined) return listExample;

@@ -12,7 +12,7 @@ const user = {
   last_name: 'Doe',
   avatar_url: 'https://signed.example.com/avatar.png',
 };
-const access = { role_ids: ['role-main', 'role-extra'], branch_ids: ['brn-vesu'] };
+const access = { role_ids: ['role-main', 'role-extra'] };
 
 /** The serializer's options for a row, as a non-owner unless said otherwise. */
 function serialize(
@@ -59,7 +59,7 @@ describe('membership serializer', () => {
     });
   });
 
-  it('emits public ids, the role and branch lists and never the internal sequential ids', () => {
+  it('emits public ids, the role list and never the internal sequential ids', () => {
     const joinedAt = new Date('2026-01-03T00:00:00.000Z');
     const serialized = serialize(membershipRow({ joined_at: joinedAt }));
 
@@ -81,7 +81,6 @@ describe('membership serializer', () => {
       phone: null,
       tone: 'sky',
       role_ids: ['role-main', 'role-extra'],
-      branch_ids: ['brn-vesu'],
       working_days: ['mon', 'tue'],
       work_starts_at: '10:00',
       work_ends_at: '19:00',

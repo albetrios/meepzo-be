@@ -78,7 +78,7 @@ export const UPLOAD_PURPOSE_CONFIG: Record<UploadPurpose, UploadPurposeConfig> =
     allowedTypes: ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
     maxSize: 10 * 1024 * 1024, // 10 MB
     keyPrefix: 'organization-files',
-    // Patient photos (app patient images) are organization files
+    // An organization's photos may have a thumbnail made next to them
     thumbnailTypes: ['image/jpeg', 'image/png', 'image/webp'],
   },
 } as const;
@@ -157,7 +157,7 @@ export { PRESIGNED_URL_EXPIRY_SECONDS } from '@/shared/constants/ttl.constants.j
  *
  * @remarks
  * - **Notes:** a record that keeps a thumbnail stores the reason so its sweep stops asking again
- *   (`app.patient_images.thumbnail_skip_reason`, `chk_patient_images_thumbnail_skip_reason`). Kept
+ *   (a `thumbnail_skip_reason` column with a CHECK over these values). Kept
  *   free of `sharp` so schema modules can import it.
  */
 export const UPLOAD_THUMBNAIL_SKIP_REASON_VALUES = [

@@ -17,12 +17,12 @@ import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permis
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 
 /**
- * Sign-in opens the clinic the person last worked in: `switch-to-organization` remembers the
- * clinic, and the next login mints its token for it — ahead of a clinic joined later and of the
- * personal workspace, which the frontend would answer with the clinic picker. Drives the real
+ * Sign-in opens the organization the person last worked in: `switch-to-organization` remembers the
+ * organization, and the next login mints its token for it — ahead of an organization joined later and of the
+ * personal workspace, which the frontend would answer with the organization picker. Drives the real
  * HTTP login → switch → login flow and reads the minted `org` claim.
  */
-describe('login restores the last clinic', () => {
+describe('login restores the last organization', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -71,21 +71,21 @@ describe('login restores the last clinic', () => {
     expect(response.statusCode, response.body).toBe(200);
   }
 
-  /** A person with a personal workspace, an older clinic and a newer one. */
-  async function personWithTwoClinics() {
+  /** A person with a personal workspace, an older organization and a newer one. */
+  async function personWithTwoOrganizations() {
     const { user, password } = await createTestUserWithPassword();
     await provisionPersonalOrganization({ ownerUserId: user.id });
-    const clinic = async (name: string) =>
+    const teamOrganization = async (name: string) =>
       (
         await provisionOrganizationWithOwner({
           name,
-          slug: `${name.toLowerCase()}-clinic-${generatePublicId('organization').slice(4, 14)}`,
+          slug: `${name.toLowerCase()}-organization-${generatePublicId('organization').slice(4, 14)}`,
           type: 'TEAM',
           ownerUserId: user.id,
         })
       ).organization;
-    const older = await clinic('Older');
-    const newer = await clinic('Newer');
+    const older = await teamOrganization('Older');
+    const newer = await teamOrganization('Newer');
     await getOperatorDatabase()
       .update(memberships)
       .set({ joined_at: new Date('2026-01-01T00:00:00Z') })
@@ -93,8 +93,8 @@ describe('login restores the last clinic', () => {
     return { user, password, older, newer };
   }
 
-  it('the first login opens the newest clinic, and after a switch the next login opens the switched-to clinic', async () => {
-    const { user, password, older, newer } = await personWithTwoClinics();
+  it('the first login opens the newest organization, and after a switch the next login opens the switched-to organization', async () => {
+    const { user, password, older, newer } = await personWithTwoOrganizations();
 
     const firstToken = await login({ email: user.email, password });
     expect(decodeOrgClaim(firstToken)).toBe(newer.public_id);
@@ -107,8 +107,8 @@ describe('login restores the last clinic', () => {
     expect(decodeOrgClaim(thirdToken)).toBe(older.public_id);
   });
 
-  it('skips the remembered clinic once the membership is no longer active', async () => {
-    const { user, password, older, newer } = await personWithTwoClinics();
+  it('skips the remembered organization once the membership is no longer active', async () => {
+    const { user, password, older, newer } = await personWithTwoOrganizations();
     const firstToken = await login({ email: user.email, password });
     await switchTo({ accessToken: firstToken, organizationPublicId: older.public_id });
 

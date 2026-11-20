@@ -72,7 +72,7 @@ export const subscriptionExample = {
 };
 
 // ── Stripe webhook acknowledgement (protocol-owned 200) ──
-// ── Plan access (owner decision D3: read-only mode for unpaid clinics) ──
+// ── Plan access (owner decision D3: read-only mode for unpaid organizations) ──
 export const planAccessSchema = {
   type: 'object',
   description:

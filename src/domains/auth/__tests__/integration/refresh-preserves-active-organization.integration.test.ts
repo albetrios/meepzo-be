@@ -60,8 +60,8 @@ describe('refresh preserves the switched active organization (audit-#3)', () => 
   it('refresh keeps the organization claim on the organization the caller switched to', async () => {
     const { user, password } = await createTestUserWithPassword();
     // The personal organization is the only one at login, so it is the login default; the caller
-    // then joins TEAM organization B and switches to it. (A clinic that exists at login would be
-    // the default itself — a clinic beats the personal workspace.)
+    // then joins TEAM organization B and switches to it. (An organization that exists at login would be
+    // the default itself — an organization beats the personal workspace.)
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
 
     const loginResponse = await injectUnauthenticated(app, {

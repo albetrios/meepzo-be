@@ -57,7 +57,7 @@ function redactSentryRequestInPlace(request: NonNullable<Sentry.ErrorEvent['requ
   if (request.data !== undefined) {
     request.data = redactSensitive(request.data);
   }
-  // SEC-01: a query is what someone typed — a patient search's `?q=` holds a name, a mobile number
+  // SEC-01: a query is what someone typed — a customer search's `?q=` holds a name, a phone number
   // or a record number — and a key-based deny list cannot know every name it comes under, so no
   // query leaves at all (`dataCollection.urlQueryParams: false` drops it first; this is the backstop).
   delete request.query_string;
@@ -203,7 +203,7 @@ export function initSentry(): void {
         response: { deny: [...PERSONAL_DATA_KEY_DENY_TERMS] },
       },
       httpBodies: [],
-      // SEC-01: no query parameter at all — a search's `q` is a patient's name or number, under a
+      // SEC-01: no query parameter at all — a search's `q` is a person's name or number, under a
       // name no deny list holds. Events, server spans and outgoing breadcrumbs carry no query.
       urlQueryParams: false,
       genAI: { inputs: false, outputs: false },

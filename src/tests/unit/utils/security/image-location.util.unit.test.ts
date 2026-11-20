@@ -59,7 +59,7 @@ function chunk(type: string, data: Buffer): Buffer {
 }
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-/** A patient photo without where it was taken (launch D79, WC-42). */
+/** A photo without where it was taken (launch D79, WC-42). */
 describe('removeImageLocation', () => {
   it('JPEG: empties the GPS IFD in place, keeps the orientation, drops XMP, keeps the image data', () => {
     const exif = exifWithGps();
@@ -92,7 +92,7 @@ describe('removeImageLocation', () => {
     const header = chunk('IHDR', Buffer.alloc(13, 1));
     const data = chunk('IDAT', Buffer.from([1, 2, 3]));
     const end = chunk('IEND', Buffer.alloc(0));
-    const comment = chunk('tEXt', Buffer.from('Comment\0taken at the clinic', 'latin1'));
+    const comment = chunk('tEXt', Buffer.from('Comment\0taken at the office', 'latin1'));
     const image = Buffer.concat([
       PNG_SIGNATURE,
       header,

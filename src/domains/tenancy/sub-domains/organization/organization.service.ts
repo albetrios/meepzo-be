@@ -651,7 +651,7 @@ export class OrganizationService {
         const organization = await this.repository.findByPublicId(public_id);
         if (!organization) throw new NotFoundError('Organization');
         if (parsed.status !== undefined) {
-          // B2-3: suspending or archiving decides whether anyone can use the clinic — the owner's
+          // B2-3: suspending or archiving decides whether anyone can use the organization — the owner's
           // call alone, never an Admin's (who could otherwise lock the owner out).
           await this.assertCallerOwnsOrganization({
             organization,
@@ -731,7 +731,7 @@ export class OrganizationService {
    * @remarks
    * - **Algorithm:** the {@link OrganizationService.offboardOrganization} sequence, after checking
    *   the caller is the organization's owner — holding `organization:delete` is not enough (B2-1:
-   *   a former owner, or a role edited to carry the code, must not delete the clinic).
+   *   a former owner, or a role edited to carry the code, must not delete the organization).
    * - **Failure modes:** `ForbiddenError('errors:onlyOwnerCanDeleteOrganization')` (`owner_only`)
    *   for anyone but the owner, an API key included; `NotFoundError('Organization')`;
    *   `ConflictError` for a PERSONAL organization.

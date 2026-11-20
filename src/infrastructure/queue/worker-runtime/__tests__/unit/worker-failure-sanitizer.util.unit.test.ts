@@ -29,7 +29,7 @@ function postgresForeignKeyError(marker: string): Error {
 
 describe('sanitizeWorkerFailures', () => {
   it('rethrows a database failure as its code, constraint and table only', async () => {
-    const marker = 'Patient-marker-value';
+    const marker = 'Customer-marker-value';
     const worker = workerDouble(async () => {
       throw postgresForeignKeyError(marker);
     });

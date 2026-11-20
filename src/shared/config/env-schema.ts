@@ -1016,8 +1016,8 @@ const envSchemaBase = z.object({
    * sec-U10: a bounded retention, default 1 year. The previous `min(1)` with no max + no default
    * meant a typo (365 → 36500) silently disabled retention; once audit.logs is unbounded the table
    * becomes the largest in the DB and trips autovacuum / search-path bloat thresholds. G2-3: the
-   * cap is 7 years (2557 days) — a clinic's record of who read or exported a patient's file may
-   * have to outlive the 6-year medical-record retention; the daily S3 export is the archive either
+   * cap is 7 years (2557 days) — a record of who read or exported a customer's data may have to
+   * outlive a regulated record-retention period (often 6 years); the daily S3 export is the archive either
    * way (docs/reference/security/audit-export.md).
    */
   AUDIT_RETENTION_DAYS: z.coerce.number().int().min(1).max(2557).default(365),

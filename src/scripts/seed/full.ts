@@ -19,7 +19,6 @@ import {
   seedMembership,
   seedRolePermissions,
   seedMembershipInvitation,
-  seedOrganizationSetupLive,
 } from '@/domains/tenancy/seed/tenancy.seed.js';
 import {
   initFakerSeed,
@@ -104,10 +103,6 @@ export async function runFullSeed(): Promise<void> {
     created_by_user_id: demoUser.id,
   });
   logger.info('seed.full: demo membership created');
-
-  // The demo organization is set up (feat-clinic-setup OSC7): signing in as the demo never opens the
-  // setup drawer. The extra organization below stays as a new one would be, to try the setup.
-  await seedOrganizationSetupLive({ organization_id: demoOrganization.id });
 
   const extraUserPayload = generateUserPayload();
   const extraUser = await seedUser(extraUserPayload);

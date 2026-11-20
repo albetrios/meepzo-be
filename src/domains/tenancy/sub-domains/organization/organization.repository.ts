@@ -296,7 +296,7 @@ export class OrganizationRepository {
 
   /**
    * Resolve the login-default organization `public_id` for a user among their ACTIVE memberships
-   * in active organizations: with {@link preferTeamOrganizations}, the pinned clinic
+   * in active organizations: with {@link preferTeamOrganizations}, the pinned organization
    * (`auth.user_settings.default_organization_id`, chosen by the user), else the remembered one
    * (`auth.users.last_active_organization_id`, the last one switched to), else the
    * most-recently-joined TEAM, else the PERSONAL organization; without it, the PERSONAL
@@ -399,7 +399,7 @@ export class OrganizationRepository {
    * Confirm the user holds a live ACTIVE membership in the given non-deleted organization — one
    * that is `ACTIVE`, or that the user owns (B2-3) — and return its internal `id`, `public_id` and
    * `type`, or `null` when no such membership exists. Used when the caller needs the internal id (e.g. persisting it on the session row at
-   * switch time — audit-#3) or the type (a pinned default clinic must be a TEAM). Constrained to
+   * switch time — audit-#3) or the type (a pinned default organization must be a TEAM). Constrained to
    * the caller's own `user_id`.
    */
   async findActiveMembershipOrganizationByPublicId(

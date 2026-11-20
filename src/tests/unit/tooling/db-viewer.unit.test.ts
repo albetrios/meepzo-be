@@ -341,8 +341,8 @@ describe('db-viewer plan mode', () => {
     '```mermaid',
     'erDiagram',
     '  organization["organization · CHANGED"]',
-    '  patient["patient · NEW"]',
-    '  organization ||--o{ patient : "has"',
+    '  customer["customer · NEW"]',
+    '  organization ||--o{ customer : "has"',
     '```',
     '',
     '```mermaid',
@@ -353,7 +353,7 @@ describe('db-viewer plan mode', () => {
     '    text name "CHANGED: trimmed, 1–120 chars"',
     '    boolean legacy_flag "REMOVED"',
     '  }',
-    '  patient["patient · NEW"] {',
+    '  customer["customer · NEW"] {',
     '    id id PK',
     '    id organization_id FK',
     '    text first_name',
@@ -362,7 +362,7 @@ describe('db-viewer plan mode', () => {
     '    id id PK',
     '  }',
     '  ghost["ghost · REMOVED"]',
-    '  user }o--o{ patient : "ADDED: cares for"',
+    '  user }o--o{ customer : "ADDED: manages"',
     '  this line is not mermaid',
     '```',
   ].join('\n');
@@ -412,7 +412,7 @@ describe('db-viewer plan mode', () => {
     const plan = parseErDiagrams(planMarkdown);
     const byName = new Map(plan.entities.map((e) => [e.name, e]));
     expect(byName.get('organization')?.status).toBe('CHANGED');
-    expect(byName.get('patient')?.status).toBe('NEW');
+    expect(byName.get('customer')?.status).toBe('NEW');
     expect(byName.get('ghost')?.status).toBe('REMOVED');
     const organization = byName.get('organization')!;
     expect(organization.fields.map((f) => [f.name, f.change])).toEqual([
@@ -422,11 +422,11 @@ describe('db-viewer plan mode', () => {
       ['legacy_flag', 'removed'],
     ]);
     expect(organization.fields.find((f) => f.name === 'name')?.note).toBe('trimmed, 1–120 chars');
-    expect(byName.get('patient')?.fields.find((f) => f.name === 'organization_id')?.fk).toBe(true);
+    expect(byName.get('customer')?.fields.find((f) => f.name === 'organization_id')?.fk).toBe(true);
 
-    // `organization ||--o{ patient` — patient is the many side, so it is drawn from patient
+    // `organization ||--o{ customer` — customer is the many side, so it is drawn from customer
     const has = plan.relations.find((r) => r.label === 'has')!;
-    expect([has.fromEntity, has.toEntity]).toEqual(['patient', 'organization']);
+    expect([has.fromEntity, has.toEntity]).toEqual(['customer', 'organization']);
     expect(has.card).toEqual({
       fromKind: 'many',
       fromOptional: true,
@@ -456,19 +456,19 @@ describe('db-viewer plan mode', () => {
     expect(warnings).toContain('ghost: marked REMOVED, but no single live table matches');
 
     // no domain chosen yet: drawn under `app`, named the way the repository names tables
-    const patient = schema.tables.find((t) => t.name === 'patients')!;
-    expect(patient).toMatchObject({ schema: 'app', planned: true, planStatus: 'NEW' });
-    expect(patient.columns.find((c) => c.name === 'organization_id')?.references?.table).toBe(
+    const customer = schema.tables.find((t) => t.name === 'customers')!;
+    expect(customer).toMatchObject({ schema: 'app', planned: true, planStatus: 'NEW' });
+    expect(customer.columns.find((c) => c.name === 'organization_id')?.references?.table).toBe(
       'organizations',
     );
     const relation = schema.relations.find(
-      (r) => r.from === 'patients' && r.to === 'organizations',
+      (r) => r.from === 'customers' && r.to === 'organizations',
     )!;
     expect(relation).toMatchObject({ fromKey: 'organization_id', toColumn: 'id', planned: true });
 
     const diff = diffSchemas(live, schema);
     const statusOf = (name: string) => diff.tables.find((t) => t.name === name)?.status;
-    expect(statusOf('patients')).toBe('added');
+    expect(statusOf('customers')).toBe('added');
     expect(statusOf('organizations')).toBe('modified');
     expect(statusOf('users')).toBe('unchanged');
     const organizations = diff.tables.find((t) => t.name === 'organizations')!;
@@ -489,14 +489,14 @@ describe('db-viewer plan mode', () => {
     const markdown = [
       '```mermaid',
       'erDiagram',
-      '  patient["patient · NEW · clinical.patients"] {',
+      '  customer["customer · NEW · crm.customers"] {',
       '    id id PK',
       '  }',
       '  visit["visit · NEW"]',
       '```',
     ].join('\n');
     const { schema } = buildPlanSchema(live, parseErDiagrams(markdown));
-    expect(schema.tables.find((t) => t.name === 'patients')).toMatchObject({ schema: 'clinical' });
+    expect(schema.tables.find((t) => t.name === 'customers')).toMatchObject({ schema: 'crm' });
     expect(schema.tables.find((t) => t.name === 'visits')).toMatchObject({ schema: 'app' });
   });
 
@@ -504,9 +504,9 @@ describe('db-viewer plan mode', () => {
     const markdown = [
       '```mermaid',
       'erDiagram',
-      '  appointment["appointment · NEW"] {',
+      '  booking["booking · NEW"] {',
       '    id id PK',
-      '    id doctor_id FK "→ user"',
+      '    id assignee_id FK "→ user"',
       '    id branch_id FK "ADDED → branch"',
       '  }',
       '  branch["branch · NEW"]',
@@ -514,28 +514,28 @@ describe('db-viewer plan mode', () => {
       '```',
     ].join('\n');
     const plan = parseErDiagrams(markdown);
-    const fields = plan.entities.find((e) => e.name === 'appointment')!.fields;
+    const fields = plan.entities.find((e) => e.name === 'booking')!.fields;
     expect(fields.find((f) => f.name === 'branch_id')).toMatchObject({
       change: 'added',
       referenceTo: 'branch',
     });
     const { schema } = buildPlanSchema(live, plan);
-    const appointments = schema.tables.find((t) => t.name === 'appointments')!;
+    const bookings = schema.tables.find((t) => t.name === 'bookings')!;
     const reference = (name: string) =>
-      appointments.columns.find((c) => c.name === name)?.references?.table;
-    expect(reference('doctor_id')).toBe('users');
+      bookings.columns.find((c) => c.name === name)?.references?.table;
+    expect(reference('assignee_id')).toBe('users');
     expect(reference('branch_id')).toBe('branches');
   });
 
   it('names tables the way the repository does — plural snake_case', () => {
-    const names = ['branch', 'category', 'day_close', 'check_in', 'status', 'medicine', 'day'];
+    const names = ['branch', 'category', 'day_close', 'check_in', 'status', 'invoice', 'day'];
     expect(names.map(tableNameFor)).toEqual([
       'branches',
       'categories',
       'day_closes',
       'check_ins',
       'statuses',
-      'medicines',
+      'invoices',
       'days',
     ]);
   });

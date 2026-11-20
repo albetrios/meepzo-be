@@ -139,7 +139,9 @@ describe('tenancy audit trail — organization governance changes reach the audi
     const patch = (path: string, payload: Record<string, unknown>) =>
       send({ token, method: 'PATCH', path, payload });
 
-    expect((await patch('/tenancy/organization', { name: 'Renamed Clinic' })).statusCode).toBe(200);
+    expect(
+      (await patch('/tenancy/organization', { name: 'Renamed Organization' })).statusCode,
+    ).toBe(200);
     expect((await patch('/tenancy/organization', { status: 'ACTIVE' })).statusCode).toBe(200);
     expect(
       (await patch('/tenancy/organization/settings', { default_locale: 'es' })).statusCode,
@@ -508,7 +510,10 @@ describe('tenancy audit trail — organization governance changes reach the audi
       token,
       method: 'POST',
       path: '/tenancy/organizations',
-      payload: { name: 'Second Clinic', slug: `second-clinic-${randomUUID().slice(0, 8)}` },
+      payload: {
+        name: 'Second Organization',
+        slug: `second-organization-${randomUUID().slice(0, 8)}`,
+      },
     });
     expect(created.statusCode).toBe(200);
     const createdId = (created.json() as { data: { id: string } }).data.id;

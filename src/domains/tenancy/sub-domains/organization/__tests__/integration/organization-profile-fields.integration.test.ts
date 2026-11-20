@@ -9,24 +9,16 @@ import {
   ORGANIZATION_DEFAULT_TIMEZONE,
   ORGANIZATION_SPECIALTIES,
 } from '@/domains/tenancy/sub-domains/organization/organization.constants.js';
-import {
-  ORGANIZATION_SETTINGS_DEFAULT_DAY_FLOAT,
-  ORGANIZATION_SETTINGS_DEFAULT_DELETED_RECORD_PURGE_DAYS,
-  ORGANIZATION_SETTINGS_DEFAULT_LEAD_HOLD_DAYS,
-  ORGANIZATION_SETTINGS_DEFAULT_REMINDER_HOUR,
-  ORGANIZATION_SETTINGS_DEFAULT_RETARGET_AFTER_DAYS,
-} from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-settings.constants.js';
 
 /** Postgres `check_violation`. */
 const CHECK_VIOLATION = '23514';
 
 /**
- * The organization profile on `tenancy.organizations` and the operating settings on
- * `tenancy.organization_settings` (launch ROUTE #1): the column defaults match the constants the
- * services read when no settings row exists, and every CHECK rejects what it should. Fixtures and
+ * The organization profile on `tenancy.organizations` (launch ROUTE #1): the column defaults match
+ * the constants the services read, and every CHECK rejects what it should. Fixtures and
  * assertions run on the operator connection, so the suite holds in the RLS-role lane too.
  */
-describe('Integration: organization profile fields and settings', () => {
+describe('Integration: organization profile fields', () => {
   let organizationId: number;
 
   beforeEach(async () => {
@@ -80,53 +72,5 @@ describe('Integration: organization profile fields and settings', () => {
     await expect(operatorQuery.unsafe(statement, [organizationId])).rejects.toMatchObject({
       code: CHECK_VIOLATION,
     });
-  });
-
-  it('gives a new settings row the launch operating settings', async () => {
-    await operatorQuery`
-      INSERT INTO tenancy.organization_settings (organization_id) VALUES (${organizationId})
-      ON CONFLICT (organization_id) DO NOTHING
-    `;
-    const [row] = await operatorQuery<
-      {
-        default_day_float: string;
-        lead_hold_days: number;
-        reminder_hour: number;
-        retarget_after_days: number;
-        deleted_record_purge_days: number;
-      }[]
-    >`
-      SELECT default_day_float, lead_hold_days, reminder_hour, retarget_after_days,
-             deleted_record_purge_days
-      FROM tenancy.organization_settings WHERE organization_id = ${organizationId}
-    `;
-
-    expect(row).toEqual({
-      default_day_float: ORGANIZATION_SETTINGS_DEFAULT_DAY_FLOAT,
-      lead_hold_days: ORGANIZATION_SETTINGS_DEFAULT_LEAD_HOLD_DAYS,
-      reminder_hour: ORGANIZATION_SETTINGS_DEFAULT_REMINDER_HOUR,
-      retarget_after_days: ORGANIZATION_SETTINGS_DEFAULT_RETARGET_AFTER_DAYS,
-      deleted_record_purge_days: ORGANIZATION_SETTINGS_DEFAULT_DELETED_RECORD_PURGE_DAYS,
-    });
-  });
-
-  it.each([
-    ['a negative day float', 'default_day_float = -1'],
-    ['zero lead hold days', 'lead_hold_days = 0'],
-    ['a reminder hour of 24', 'reminder_hour = 24'],
-    ['a negative reminder hour', 'reminder_hour = -1'],
-    ['zero re-target days', 'retarget_after_days = 0'],
-    ['zero purge days', 'deleted_record_purge_days = 0'],
-  ])('rejects %s on the settings', async (_case, assignment) => {
-    await operatorQuery`
-      INSERT INTO tenancy.organization_settings (organization_id) VALUES (${organizationId})
-      ON CONFLICT (organization_id) DO NOTHING
-    `;
-    await expect(
-      operatorQuery.unsafe(
-        `UPDATE tenancy.organization_settings SET ${assignment} WHERE organization_id = $1`,
-        [organizationId],
-      ),
-    ).rejects.toMatchObject({ code: CHECK_VIOLATION });
   });
 });

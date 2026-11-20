@@ -44,7 +44,7 @@ const productionRequiredBase = {
   CAPTCHA_PROVIDER: 'turnstile',
   CAPTCHA_SECRET: 'turnstile-secret',
   // Production cannot start without object storage or Resend; the WebAuthn relying party is optional.
-  S3_BUCKET: 'clinic-uploads',
+  S3_BUCKET: 'app-uploads',
   S3_REGION: 'us-east-1',
   RESEND_API_KEY: 're_production_fixture_key',
   EMAIL_FROM_ADDRESS: 'noreply@example.com',

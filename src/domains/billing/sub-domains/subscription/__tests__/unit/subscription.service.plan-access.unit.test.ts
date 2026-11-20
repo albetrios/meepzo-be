@@ -35,8 +35,8 @@ function serviceReading(subject: PlanAccessSubject | null) {
   return { service, repository };
 }
 
-/** A TEAM clinic created `days` ago with no subscription. */
-const unpaidClinic = (days: number): PlanAccessSubject => ({
+/** A TEAM organization created `days` ago with no subscription. */
+const unpaidOrganization = (days: number): PlanAccessSubject => ({
   organization: { type: 'TEAM', created_at: new Date(Date.now() - days * DAY) },
   subscription: null,
 });
@@ -47,9 +47,9 @@ describe('SubscriptionService plan access (owner decision D3)', () => {
     env.BILLING_READ_ONLY_ENFORCED = originalEnforced;
   });
 
-  it('with BILLING_READ_ONLY_ENFORCED off, every clinic is active and nothing is read', async () => {
+  it('with BILLING_READ_ONLY_ENFORCED off, every organization is active and nothing is read', async () => {
     env.BILLING_READ_ONLY_ENFORCED = false;
-    const { service, repository } = serviceReading(unpaidClinic(400));
+    const { service, repository } = serviceReading(unpaidOrganization(400));
 
     await expect(service.getPlanAccess({ organizationPublicId: 'org_old' })).resolves.toEqual({
       state: 'active',
@@ -63,7 +63,7 @@ describe('SubscriptionService plan access (owner decision D3)', () => {
 
   it('with it on, reads the organization once and decides from it', async () => {
     env.BILLING_READ_ONLY_ENFORCED = true;
-    const { service, repository } = serviceReading(unpaidClinic(3));
+    const { service, repository } = serviceReading(unpaidOrganization(3));
 
     const access = await service.getPlanAccess({ organizationPublicId: 'org_new' });
 
@@ -72,9 +72,9 @@ describe('SubscriptionService plan access (owner decision D3)', () => {
     expect(access.graceEndsAt).toBeInstanceOf(Date);
   });
 
-  it('refuses a write from a read-only clinic with 403 organization_read_only', async () => {
+  it('refuses a write from a read-only organization with 403 organization_read_only', async () => {
     env.BILLING_READ_ONLY_ENFORCED = true;
-    const { service } = serviceReading(unpaidClinic(40));
+    const { service } = serviceReading(unpaidOrganization(40));
 
     const refusal = await service
       .assertOrganizationWritable({ organizationPublicId: 'org_old' })
@@ -88,9 +88,9 @@ describe('SubscriptionService plan access (owner decision D3)', () => {
     });
   });
 
-  it('lets a clinic in its grace write', async () => {
+  it('lets an organization in its grace write', async () => {
     env.BILLING_READ_ONLY_ENFORCED = true;
-    const { service } = serviceReading(unpaidClinic(3));
+    const { service } = serviceReading(unpaidOrganization(3));
 
     await expect(
       service.assertOrganizationWritable({ organizationPublicId: 'org_new' }),

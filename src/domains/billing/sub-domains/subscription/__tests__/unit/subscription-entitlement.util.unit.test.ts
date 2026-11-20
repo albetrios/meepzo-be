@@ -19,7 +19,7 @@ const daysAfter = (base: Date, days: number): Date => new Date(base.getTime() + 
 const PAID_PLAN = { price_monthly: '1999.00', price_yearly: '19990.00' };
 const FREE_PLAN = { price_monthly: '0.00', price_yearly: '0.00' };
 
-function clinic(options: {
+function organizationSubject(options: {
   createdDaysAgo: number;
   type?: 'TEAM' | 'PERSONAL';
   subscription?: PlanAccessSubject['subscription'];
@@ -43,7 +43,7 @@ function subscription(options: {
 }
 
 /**
- * Read-only mode for unpaid clinics (owner decision D3, 2026-10-17): a TEAM organization with a paid
+ * Read-only mode for unpaid organizations (owner decision D3, 2026-10-17): a TEAM organization with a paid
  * entitlement is `active`; an unpaid one gets 14 days of grace — from its `created_at` when it never
  * paid, from the lapsed subscription's `current_period_end` otherwise — then turns `read_only`.
  */
@@ -56,16 +56,16 @@ describe('resolvePlanAccess (owner decision D3)', () => {
     env.BILLING_DUNNING_GRACE_DAYS = originalLapseGrace;
   });
 
-  it('a new clinic with no subscription is in its trial grace, ending 14 days after created_at', () => {
-    const subject = clinic({ createdDaysAgo: 3 });
+  it('a new organization with no subscription is in its trial grace, ending 14 days after created_at', () => {
+    const subject = organizationSubject({ createdDaysAgo: 3 });
     expect(resolvePlanAccess({ subject, now: NOW })).toEqual({
       state: 'grace',
       graceEndsAt: daysAfter(daysAgo(3), NEW_ORGANIZATION_TRIAL_DAYS),
     });
   });
 
-  it('an old clinic with no subscription is read-only since its trial ended', () => {
-    const subject = clinic({ createdDaysAgo: 40 });
+  it('an old organization with no subscription is read-only since its trial ended', () => {
+    const subject = organizationSubject({ createdDaysAgo: 40 });
     expect(resolvePlanAccess({ subject, now: NOW })).toEqual({
       state: 'read_only',
       graceEndsAt: daysAfter(daysAgo(40), NEW_ORGANIZATION_TRIAL_DAYS),
@@ -73,7 +73,7 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   });
 
   it('is still grace at the very instant the grace ends, read-only just after', () => {
-    const subject = clinic({ createdDaysAgo: NEW_ORGANIZATION_TRIAL_DAYS });
+    const subject = organizationSubject({ createdDaysAgo: NEW_ORGANIZATION_TRIAL_DAYS });
     expect(resolvePlanAccess({ subject, now: NOW }).state).toBe('grace');
     expect(resolvePlanAccess({ subject, now: new Date(NOW.getTime() + 1) }).state).toBe(
       'read_only',
@@ -81,9 +81,9 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   });
 
   it.each(['ACTIVE', 'TRIALING'])(
-    '%s on a paid plan is active, however old the clinic',
+    '%s on a paid plan is active, however old the organization',
     (status) => {
-      const subject = clinic({
+      const subject = organizationSubject({
         createdDaysAgo: 400,
         subscription: subscription({ status, periodEndDaysAgo: -20 }),
       });
@@ -94,8 +94,8 @@ describe('resolvePlanAccess (owner decision D3)', () => {
     },
   );
 
-  it('the Free plan is no paid entitlement: a new clinic on it is in its trial grace', () => {
-    const subject = clinic({
+  it('the Free plan is no paid entitlement: a new organization on it is in its trial grace', () => {
+    const subject = organizationSubject({
       createdDaysAgo: 5,
       subscription: subscription({ status: 'ACTIVE', periodEndDaysAgo: -25, plan: FREE_PLAN }),
     });
@@ -105,8 +105,8 @@ describe('resolvePlanAccess (owner decision D3)', () => {
     });
   });
 
-  it('the Free plan is no paid entitlement: an old clinic on it is read-only (trial from created_at)', () => {
-    const subject = clinic({
+  it('the Free plan is no paid entitlement: an old organization on it is read-only (trial from created_at)', () => {
+    const subject = organizationSubject({
       createdDaysAgo: 90,
       subscription: subscription({ status: 'ACTIVE', periodEndDaysAgo: -25, plan: FREE_PLAN }),
     });
@@ -119,7 +119,7 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   it.each(['PAST_DUE', 'UNPAID'])(
     '%s within its dunning grace keeps the paid entitlement (active)',
     (status) => {
-      const subject = clinic({
+      const subject = organizationSubject({
         createdDaysAgo: 200,
         subscription: subscription({ status, periodEndDaysAgo: LAPSE_GRACE_DAYS - 1 }),
       });
@@ -133,7 +133,7 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   it.each(['PAST_DUE', 'UNPAID'])(
     '%s past its dunning grace is read-only since period end + 14 days',
     (status) => {
-      const subject = clinic({
+      const subject = organizationSubject({
         createdDaysAgo: 200,
         subscription: subscription({ status, periodEndDaysAgo: LAPSE_GRACE_DAYS + 1 }),
       });
@@ -145,7 +145,7 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   );
 
   it('CANCELED within 14 days of its period end is in grace until period end + 14 days', () => {
-    const subject = clinic({
+    const subject = organizationSubject({
       createdDaysAgo: 200,
       subscription: subscription({ status: 'CANCELED', periodEndDaysAgo: 4 }),
     });
@@ -156,7 +156,7 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   });
 
   it('CANCELED more than 14 days after its period end is read-only', () => {
-    const subject = clinic({
+    const subject = organizationSubject({
       createdDaysAgo: 200,
       subscription: subscription({ status: 'CANCELED', periodEndDaysAgo: 30 }),
     });
@@ -169,7 +169,7 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   it.each(['INCOMPLETE', 'INCOMPLETE_EXPIRED', 'PAUSED'])(
     '%s on a paid plan is unpaid: grace runs from its period end',
     (status) => {
-      const subject = clinic({
+      const subject = organizationSubject({
         createdDaysAgo: 200,
         subscription: subscription({ status, periodEndDaysAgo: 2 }),
       });
@@ -181,7 +181,7 @@ describe('resolvePlanAccess (owner decision D3)', () => {
   );
 
   it('a PERSONAL organization is never read-only', () => {
-    const subject = clinic({ createdDaysAgo: 400, type: 'PERSONAL' });
+    const subject = organizationSubject({ createdDaysAgo: 400, type: 'PERSONAL' });
     expect(resolvePlanAccess({ subject, now: NOW })).toEqual({
       state: 'active',
       graceEndsAt: null,

@@ -105,7 +105,7 @@ describe('team organization provisioning (database)', () => {
     expect(granted).not.toContain(NOTIFY_PERMISSIONS.WEBHOOK_MANAGE);
   });
 
-  it('provisions the clinic preset roles as system roles for a TEAM org (launch D5, D40)', async () => {
+  it('provisions the default team roles as system roles for a TEAM org (launch D5, D40)', async () => {
     const user = await createTestUser();
 
     const result = await provisionOrganizationWithOwner({

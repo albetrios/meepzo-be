@@ -15,7 +15,7 @@ export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 /**
  * The HTTP methods that write — every one but `GET`, `HEAD` and `OPTIONS`. The one list behind the
- * idempotency claim, the queue dashboard's mutation gate, a read-only clinic's write refusal and the
+ * idempotency claim, the queue dashboard's mutation gate, a read-only organization's write refusal and the
  * route-coverage tooling.
  */
 export const WRITE_HTTP_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);

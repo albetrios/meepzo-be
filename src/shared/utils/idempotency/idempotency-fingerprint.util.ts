@@ -45,7 +45,7 @@ const IDEMPOTENCY_SECRET_RESPONSE_FIELD_NAMES = new Set([
   'recovery_codes',
   'download_url',
   'upload_url',
-  // C-5: a patient photo's or report's signed read URL (`file_url`) and a photo's signed
+  // C-5: a stored file's signed read URL (`file_url`) and a photo's signed
   // thumbnail (`thumbnail_url`) — the same `X-Amz-Signature` grant, minted on every read.
   'file_url',
   'thumbnail_url',
@@ -113,9 +113,9 @@ function canonicalSerializeForFingerprint(value: unknown): string {
  * sec-M6: uses {@link canonicalSerializeForFingerprint} so `undefined`
  * values and key ordering can't produce silent collisions.
  *
- * G2-6: `routePath` is the route TEMPLATE (`/app/patients/:patient_id`), so without the path
- * parameters a key reused on another record — the same body sent to `PATCH …/pat_B` — matched
- * `PATCH …/pat_A`'s fingerprint and replayed patient A's response. The canonical
+ * G2-6: `routePath` is the route TEMPLATE (`/tenancy/organization/memberships/:membership_id`), so
+ * without the path parameters a key reused on another record — the same body sent to
+ * `PATCH …/mem_B` — matched `PATCH …/mem_A`'s fingerprint and replayed member A's response. The canonical
  * `pathParameters` (Fastify's `request.params`) now join the fingerprint; a route without path
  * parameters fingerprints exactly as before.
  */

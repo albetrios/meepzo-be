@@ -43,7 +43,7 @@ import {
 const LAUNCH = 'launch-2026-09-30-jxmr';
 const FEATURE = 'feat-returns-2026-10-06-kqzx';
 const PRD = '# PRD\n';
-const SCHEMA_ROUTES = '# schema-routes\n\n## Entity: Patient\n';
+const SCHEMA_ROUTES = '# schema-routes\n\n## Entity: Customer\n';
 const COMPLETE = { 'PRD.md': PRD, 'schema-routes.md': SCHEMA_ROUTES };
 const BRIEF = `# Brief — returns\n\n${BRIEF_SECTIONS.map((section) => `## ${section}\n\nnone\n`).join('\n')}`;
 

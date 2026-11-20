@@ -611,22 +611,10 @@ Note tenancy.organization_notification_policies {
 Table tenancy.organization_settings {
   created_at timestamptz [not null]
   created_by_user_id bigint
-  default_day_float numeric(12, 2) [not null]
   default_locale varchar(5) [not null]
-  deleted_record_purge_days int [not null]
   is_email_notifications_enabled boolean [not null]
-  lead_hold_days int [not null]
   organization_id bigint [pk, not null]
-  reminder_hour smallint [not null]
-  retarget_after_days int [not null]
   security_policy jsonb [not null]
-  setup_answered_steps text [not null]
-  setup_completed_at timestamptz
-  setup_completed_by_membership_id bigint
-  setup_deferred_at timestamptz
-  setup_guide_done_at timestamptz
-  setup_guide_hidden_at timestamptz
-  setup_skipped_items text [not null]
   updated_at timestamptz [not null]
   updated_by_user_id bigint
 }

@@ -1,8 +1,5 @@
 import { z } from 'zod';
 import {
-  GST_NUMBER_PATTERN,
-  HSN_CODE_PATTERN,
-  MOBILE_NUMBER_PATTERN,
   PHONE_NUMBER_PATTERN,
   CHIP_TONE_VALUES,
   type ChipTone,
@@ -15,7 +12,6 @@ import {
 } from '@/shared/constants/record-fields.constants.js';
 import { ConflictError } from '@/shared/errors/index.js';
 import { trimmedString, trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
-import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 
 /** `HH:mm`, 00:00–23:59. */
 const HOUR_MINUTE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -38,32 +34,14 @@ export const workingDaysSchema = z
     message: 'errors:validation.eachDayOnce',
   });
 
-/** An Indian mobile or landline as `+91` and ten digits ({@link PHONE_NUMBER_PATTERN}). */
+/** A phone number as {@link PHONE_NUMBER_PATTERN} describes it. */
 export const phoneNumberSchema = trimmedString().regex(
   new RegExp(PHONE_NUMBER_PATTERN),
   'errors:validation.indianPhoneFormat',
 );
 
-/** An Indian mobile, no landline: `+91` and ten digits starting 6–9 ({@link MOBILE_NUMBER_PATTERN}). */
-export const mobileNumberSchema = trimmedString().regex(
-  new RegExp(MOBILE_NUMBER_PATTERN),
-  'errors:validation.indianMobileFormat',
-);
-
-/** A GSTIN ({@link GST_NUMBER_PATTERN}) — a branch's, a supplier's. */
-export const gstNumberSchema = trimmedString().regex(
-  new RegExp(GST_NUMBER_PATTERN),
-  'errors:validation.invalidGstin',
-);
-
-/** An HSN code: 4, 6 or 8 digits ({@link HSN_CODE_PATTERN}) — a medicine's, a bill line's. */
-export const hsnCodeSchema = trimmedString().regex(
-  new RegExp(HSN_CODE_PATTERN),
-  'errors:validation.hsnCodeFormat',
-);
-
 /**
- * The reason and note an app record's soft delete carries — the query string of a
+ * The reason and note an record's soft delete carries — the query string of a
  * `DELETE` route (a `DELETE` has no body).
  *
  * @remarks
@@ -76,8 +54,8 @@ export const recordDeleteQuerySchema = recordDeleteQuerySchemaOf(
 );
 
 /**
- * The `DELETE` query for a record with its own reasons — an order's cancel, a sale's void (launch
- * #153, MD15, MD20): `reason` one of `reasons`, `note` required for `other`.
+ * The `DELETE` query for a record with its own reasons (a cancel, a void): `reason` one of
+ * `reasons`, `note` required for `other`.
  *
  * @remarks
  * - **Algorithm:** as {@link recordDeleteQuerySchema}, on the given reason list.
@@ -147,15 +125,14 @@ export function toHourMinute(value: string): string {
   return value.slice(0, 5);
 }
 
-/** Rupees with paise (`numeric(12,2)`), as a number with at most two decimals. */
+/** A non-negative amount (`numeric(12,2)`), as a number with at most two decimals. */
 export const moneySchema = z.number().min(0).max(9_999_999_999.99).multipleOf(0.01);
 
 /** A percent with at most two decimals (`numeric(5,2)`, 0–100). */
 export const percentSchema = z.number().min(0).max(100).multipleOf(0.01);
 
 /**
- * An `https://` web address of at most `maxLength` characters (a branch's map or review link, a
- * patient review's link — TR11); any other scheme is refused.
+ * An `https://` web address of at most `maxLength` characters; any other scheme is refused.
  */
 export function httpsLinkSchema(maxLength: number): z.ZodType<string> {
   return trimmedString()
@@ -170,7 +147,7 @@ export function httpsLinkSchema(maxLength: number): z.ZodType<string> {
 /** A calendar date as `YYYY-MM-DD` (Postgres `date`). */
 export const calendarDateSchema = z.iso.date();
 
-/** A calendar month as `YYYY-MM` — a batch's expiry, a report's month. */
+/** A calendar month as `YYYY-MM` — an expiry, a report's month. */
 export const yearMonthSchema = z
   .string()
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'errors:validation.yearMonthFormat');
@@ -178,18 +155,18 @@ export const yearMonthSchema = z
 /** An instant as ISO 8601 with an offset (the validator turns it into a `Date` for `timestamptz`). */
 export const instantSchema = z.iso.datetime({ offset: true });
 
-/** A referenced record's public id (`pat_…`); the service resolves it inside the organization. */
+/** A referenced record's public id (`mem_…`); the service resolves it inside the organization. */
 export const recordIdSchema = trimmedStringMinMax({ min: 1, max: 28 });
 
 /**
  * The OpenAPI extension key a comma-separated public-id query list carries (`true`): the document
  * generator reads it to give the parameter a list of prefixed ids as its example
- * (`brn_…,brn_…`) — the list itself does not know which entity its ids name.
+ * (`mem_…,mem_…`) — the list itself does not know which entity its ids name.
  */
 export const COMMA_SEPARATED_ID_LIST_OPENAPI_EXTENSION = 'x-comma-separated-id-list';
 
 /**
- * A query list of up to `maximum` public ids, comma-separated (`?ids=con_…,con_…`); split it with
+ * A query list of up to `maximum` public ids, comma-separated (`?ids=mem_…,mem_…`); split it with
  * {@link splitRecordIds}.
  *
  * @remarks
@@ -212,7 +189,7 @@ export function recordIdListSchemaOf(maximum: number): z.ZodString {
 }
 
 /**
- * A query list of up to 20 public ids, comma-separated (`?branch_ids=brn_…,brn_…`); split it
+ * A query list of up to 20 public ids, comma-separated (`?membership_ids=mem_…,mem_…`); split it
  * with {@link splitRecordIds}.
  */
 export const recordIdListSchema = recordIdListSchemaOf(20);
@@ -258,7 +235,7 @@ export const expectedUpdatedAtSchema = z.iso.datetime({ offset: true }).optional
 /**
  * D43: a save sent with `expected_updated_at` older than the stored row is refused — `409
  * record_changed`, naming who changed it and when. The one check behind every `PATCH` that takes
- * `expected_updated_at`: the app record kernel, branches, memberships and roles.
+ * `expected_updated_at`: memberships and roles.
  *
  * @remarks
  * - **Algorithm:** no `expected` (not a string) → no check; equal instants → allowed; otherwise the
@@ -284,17 +261,6 @@ export async function assertRecordNotChangedSince(options: {
 }
 
 /**
- * `₹1,500.00` — an amount as an activity entry, an event or a message shows it.
- *
- * @remarks
- * - **Algorithm:** Indian digit grouping (`en-IN`), always two decimals.
- * - **Failure modes:** none.
- */
-export function rupees(amount: number): string {
-  return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-/**
  * A stored `numeric` (decimal text) as the number the API speaks.
  *
  * @remarks
@@ -303,29 +269,6 @@ export function rupees(amount: number): string {
  */
 export function toAmount(value: unknown): number | null {
   return value === null || value === undefined ? null : Number(value);
-}
-
-/**
- * An amount in whole paise — the exact integer the money rules add and compare.
- *
- * @remarks
- * - **Algorithm:** {@link toAmount} of a number or a stored `numeric` (decimal text), × 100, rounded;
- *   `null` / missing is 0.
- * - **Failure modes:** none.
- */
-export function paiseOf(value: unknown): number {
-  return Math.round((toAmount(value) ?? 0) * 100);
-}
-
-/**
- * An amount rounded to whole paise (two decimals), as the API answers money.
- *
- * @remarks
- * - **Algorithm:** `Math.round(value × 100) / 100`.
- * - **Failure modes:** none.
- */
-export function roundToPaise(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 /**
@@ -380,13 +323,6 @@ export function toText(value: unknown): string {
   return JSON.stringify(value) ?? '';
 }
 
-/** Rupees that may be negative (an adjustment, a reversal), with at most two decimals. */
-export const signedMoneySchema = z
-  .number()
-  .min(-9_999_999_999.99)
-  .max(9_999_999_999.99)
-  .multipleOf(0.01);
-
 /**
  * A parsed body with its instant fields as `Date`s (Postgres `timestamptz`).
  *
@@ -410,25 +346,6 @@ export function withInstants<T extends Record<string, unknown>>({
   return out as T;
 }
 
-/**
- * The calendar date (`YYYY-MM-DD`) it is at `at` in an IANA time zone — "today" for an
- * organization whose timed work runs in its own zone (D41).
- */
-export function calendarDateInTimeZone({
-  timeZone,
-  at = new Date(),
-}: {
-  timeZone: string;
-  at?: Date | undefined;
-}): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(at);
-}
-
 /** Whether `value` is an IANA time zone this runtime knows (`Asia/Kolkata`). */
 export function isKnownTimeZone(value: string): boolean {
   try {
@@ -437,109 +354,4 @@ export function isKnownTimeZone(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** The wall-clock time (`HH:mm`, 24-hour) it is at `at` in an IANA time zone — a clinic's "now". */
-export function clockTimeInTimeZone({
-  timeZone,
-  at = new Date(),
-}: {
-  timeZone: string;
-  at?: Date | undefined;
-}): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(at);
-}
-
-/** Minutes in a day — the clock arithmetic of slots. */
-const MINUTES_PER_DAY = 1440;
-/** `Date#getUTCDay()` order (Sunday first) of the {@link Weekday} values. */
-const WEEKDAY_BY_UTC_DAY: readonly Weekday[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-
-/** Minutes since midnight of an `HH:mm` (or `HH:mm:ss`) clock time. */
-export function minutesOfClockTime(value: string): number {
-  const [hours, minutes] = value.split(':');
-  return Number(hours) * 60 + Number(minutes);
-}
-
-/** The `HH:mm` clock time of minutes since midnight (wrapping past midnight). */
-export function clockTimeOfMinutes(minutes: number): string {
-  const wrapped = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-  const hours = String(Math.floor(wrapped / 60)).padStart(2, '0');
-  return `${hours}:${String(wrapped % 60).padStart(2, '0')}`;
-}
-
-/** The weekday (`mon` … `sun`) of a calendar date (`YYYY-MM-DD`). */
-export function weekdayOfCalendarDate(date: string): Weekday {
-  return WEEKDAY_BY_UTC_DAY[new Date(`${date}T00:00:00Z`).getUTCDay()] as Weekday;
-}
-
-/** Whole days from the calendar date `from` to `to` (negative when `to` is earlier). */
-export function daysBetweenCalendarDates(options: { from: string; to: string }): number {
-  return Math.round(
-    (Date.parse(`${options.to}T00:00:00Z`) - Date.parse(`${options.from}T00:00:00Z`)) /
-      MILLISECONDS_PER_DAY,
-  );
-}
-
-/** `2026-10-08` → `8 Oct` — a date as a label names it (patient file TR9, PK8; the demo seed's task notes). */
-export function shortCalendarDate(date: string): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(`${date}T00:00:00Z`));
-}
-
-/** The calendar date `days` after `date` (negative for before). */
-export function addDaysToCalendarDate(options: { date: string; days: number }): string {
-  const at = new Date(`${options.date}T00:00:00Z`);
-  at.setUTCDate(at.getUTCDate() + options.days);
-  return at.toISOString().slice(0, 10);
-}
-
-/**
- * The calendar date `years` before `date` — 29 February lands on 28 February in a non-leap year,
- * as Postgres's `date - interval 'n years'` does (a typed age's approximate birth date).
- */
-export function subtractYearsFromCalendarDate(options: { date: string; years: number }): string {
-  const [year, month, day] = options.date.split('-').map(Number) as [number, number, number];
-  const targetYear = year - options.years;
-  const lastDayOfMonth = new Date(Date.UTC(targetYear, month, 0)).getUTCDate();
-  const at = new Date(Date.UTC(targetYear, month - 1, Math.min(day, lastDayOfMonth)));
-  at.setUTCFullYear(targetYear);
-  return at.toISOString().slice(0, 10);
-}
-
-/**
- * Whole years from the calendar date `from` to `to` — a person's age on `to` when born on `from`
- * (one less until the month and day are reached; someone born on 29 February turns a year older on
- * 1 March in a non-leap year).
- */
-export function wholeYearsBetweenCalendarDates(options: { from: string; to: string }): number {
-  const years = Number(options.to.slice(0, 4)) - Number(options.from.slice(0, 4));
-  return options.to.slice(5) < options.from.slice(5) ? years - 1 : years;
-}
-
-/**
- * The instant a wall-clock date and time in an IANA time zone names (`2026-10-07` `10:30` in
- * `Asia/Kolkata` → `2026-10-07T05:00:00Z`).
- *
- * @remarks
- * - **Algorithm:** reads the zone's offset at the naive UTC guess, then once more at the corrected
- *   instant, so a date across a daylight-saving change lands on the zone's own reading.
- * - **Failure modes:** a time skipped by a daylight-saving jump resolves to the later offset.
- */
-export function instantInTimeZone(options: { date: string; time: string; timeZone: string }): Date {
-  const naive = Date.parse(`${options.date}T${options.time.slice(0, 5)}:00Z`);
-  const offsetAt = (instant: number): number => {
-    const reading = `${calendarDateInTimeZone({ timeZone: options.timeZone, at: new Date(instant) })}T${clockTimeInTimeZone({ timeZone: options.timeZone, at: new Date(instant) })}:00Z`;
-    return Date.parse(reading) - instant;
-  };
-  const firstGuess = naive - offsetAt(naive);
-  return new Date(naive - offsetAt(firstGuess));
 }

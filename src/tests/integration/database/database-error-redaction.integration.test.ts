@@ -29,12 +29,12 @@ import {
  *
  * Drizzle 0.45 throws `Failed query: <sql>\nparams: <values>` and keeps `query` / `params`; the
  * driver error on its `cause` has a `detail` quoting the key values. Redaction by key name cannot
- * see a value, so a patient's name in an INSERT reached every log line, Sentry event and
+ * see a value, so a customer's name in an INSERT reached every log line, Sentry event and
  * dead-letter row that carried the error — and a foreign-key violation was a 500. This runs a real
  * statement that violates a foreign key, with a recognisable value bound into it.
  */
 describe('Integration: a database failure leaves no bound value behind (C-1)', () => {
-  const marker = `Clinic-${randomUUID()}`;
+  const marker = `Customer-${randomUUID()}`;
   const missingUserId = 2_000_000_000;
   let application: FastifyInstance;
 

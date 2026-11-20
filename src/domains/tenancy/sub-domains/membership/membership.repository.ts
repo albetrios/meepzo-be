@@ -72,7 +72,7 @@ export interface MembershipListQuery {
   roleId?: number | undefined;
   /** Only members one of whose live roles grants this permission code (T8 — the `holds` filter). */
   holdsPermissionCode?: string | undefined;
-  /** Only these memberships (internal ids) — e.g. the members of one branch. */
+  /** Only these memberships (internal ids). */
   membershipIds?: readonly number[] | undefined;
   /** Only these memberships (public ids). */
   publicIds?: readonly string[] | undefined;

@@ -243,7 +243,7 @@ function stackFramesOf(error: Error): string | undefined {
  * - **Side effects:** none — returns a new error; the input is not touched.
  * - **Notes:** C-1 — Drizzle 0.45 throws `Failed query: <sql>\nparams: <values>` and keeps
  *   `query` / `params` on the error; the driver error's `detail` quotes key values or the whole
- *   failing row (a patient's name, phone, notes). Key-based redaction cannot see a value, so every
+ *   failing row (a customer's name, phone, notes). Key-based redaction cannot see a value, so every
  *   place an error leaves the process — the logger, Sentry, the dead-letter ledger — goes through
  *   this. `code`, `constraint` and `table` stay so `postgres-error.util.ts` keeps classifying it.
  */

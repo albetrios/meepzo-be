@@ -32,10 +32,10 @@ describe('Organization membership lookups — live memberships, usable organizat
     await seedAllPermissions();
   });
 
-  async function clinicWithMember() {
+  async function organizationWithMember() {
     const owner = await createTestUser();
     const { organization, roleId } = await provisionOrganizationWithOwner({
-      name: 'Lookup Clinic',
+      name: 'Lookup Organization',
       slug: `lookup-${generatePublicId('organization').slice(4, 14)}`,
       type: 'TEAM',
       ownerUserId: owner.id,
@@ -66,7 +66,7 @@ describe('Organization membership lookups — live memberships, usable organizat
   }
 
   it('finds a live membership for switch, refresh and the login default', async () => {
-    const { member, organization } = await clinicWithMember();
+    const { member, organization } = await organizationWithMember();
     expect(
       await findUserActiveOrganizationPublicId({
         userInternalId: member.id,
@@ -83,7 +83,7 @@ describe('Organization membership lookups — live memberships, usable organizat
   });
 
   it('never counts a removed membership — switch, refresh and the login default all skip it (B2-4)', async () => {
-    const { member, organization } = await clinicWithMember();
+    const { member, organization } = await organizationWithMember();
     await removeMembership({ userId: member.id, organizationId: organization.id });
 
     expect(
@@ -104,7 +104,7 @@ describe('Organization membership lookups — live memberships, usable organizat
   });
 
   it('lets only the owner switch into, or keep, a suspended organization (B2-3)', async () => {
-    const { owner, member, organization } = await clinicWithMember();
+    const { owner, member, organization } = await organizationWithMember();
     await setOrganizationStatus(organization.id, 'SUSPENDED');
 
     expect(

@@ -93,12 +93,11 @@ export interface MembershipProfileData {
 }
 
 /**
- * A membership's role and branch lists as public ids (launch ROUTE #4): every role it holds, the
- * main role first (D5), and the branches it works in.
+ * A membership's role list as public ids (launch ROUTE #4): every role it holds, the main role
+ * first (D5).
  */
 export interface MembershipAccessRefs {
   role_ids: string[];
-  branch_ids: string[];
 }
 
 /**
@@ -158,8 +157,6 @@ export interface MembershipOutput {
   tone: string;
   /** Every role held, the main role first. */
   role_ids: string[];
-  /** The branches this member works in (`brn_…`). */
-  branch_ids: string[];
   working_days: string[];
   /** `HH:mm`. */
   work_starts_at: string;

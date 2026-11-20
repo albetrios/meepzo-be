@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
  * - `audit.logs` — `audit_logs_user_export_select` (the caller's own activity, for an export);
  * - `notify.notifications` — `notifications_owner_select` (the caller's own notifications).
  *
- * A clinic request runs with the organization GUC AND the user GUC set. Postgres ORs the tenant
+ * An organization request runs with the organization GUC AND the user GUC set. Postgres ORs the tenant
  * arm with the user arm, so a read of one of these tables without an organization filter returns
  * the caller's rows from EVERY organization they belong to, not only the active one (B2-10). RLS
  * cannot be narrowed here without breaking the user-discovery features, so the filter is written
@@ -85,9 +85,9 @@ const TRACKED_TABLES: readonly TrackedTable[] = [
  */
 const ORGANIZATION_FILTER_EXCEPTIONS: Readonly<Record<string, string>> = {
   'src/domains/audit/audit.repository.ts#findWithFilters#audit.logs':
-    'platform-admin audit search (listForAdmin, GLOBAL_ADMIN context); the organization filter is optional by design, the super admin reads every clinic',
+    'platform-admin audit search (listForAdmin, GLOBAL_ADMIN context); the organization filter is optional by design, the super admin reads every organization',
   'src/domains/audit/audit.repository.ts#findRecent#audit.logs':
-    'no caller under src/domains today; a platform-wide recent-rows read. Add an organization filter before it is wired to a clinic request',
+    'no caller under src/domains today; a platform-wide recent-rows read. Add an organization filter before it is wired to an organization request',
   'src/domains/audit/audit.repository.ts#listActivityForUserDataExport#audit.logs':
     'the caller own activity across organizations for the GDPR export (audit_logs_user_export_select); keyed by actor, not by organization, by design',
   'src/domains/notify/sub-domains/notification/notification.repository.ts#findByUser#notify.notifications':
@@ -245,7 +245,7 @@ describe('Global: user-identity policy tables are read with an organization filt
     const unlisted = found.filter((key) => !(key in ORGANIZATION_FILTER_EXCEPTIONS)).sort();
     expect(
       unlisted,
-      'Add `eq(<table>.organization_id, <organization id>)` to the query (the tenant arm and the user arm are OR-ed, so a read without it returns other clinics). Only a read that is safe by design goes in ORGANIZATION_FILTER_EXCEPTIONS, with its reason.',
+      'Add `eq(<table>.organization_id, <organization id>)` to the query (the tenant arm and the user arm are OR-ed, so a read without it returns other organizations). Only a read that is safe by design goes in ORGANIZATION_FILTER_EXCEPTIONS, with its reason.',
     ).toEqual([]);
 
     const stale = Object.keys(ORGANIZATION_FILTER_EXCEPTIONS)

@@ -110,7 +110,7 @@ export class MemberRoleService {
 
   /**
    * One page of the organization's live roles in the order they were made — Owner, Admin, the
-   * clinic presets, then the custom roles — for the role directory every member reads
+   * default team roles, then the custom roles — for the role directory every member reads
    * (`GET /app/roles`, launch D81 (4)), as the member directory is `GET /app/memberships`.
    *
    * @remarks

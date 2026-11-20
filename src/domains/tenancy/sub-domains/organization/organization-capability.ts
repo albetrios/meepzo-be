@@ -10,7 +10,7 @@ export const ACTIVE_ORGANIZATION_STATUS = 'ACTIVE';
  *
  * @remarks
  * Every other member of such an organization resolves no permission at all and cannot switch into
- * it; its API keys are refused. The owner can still switch in, so the clinic is never locked out
+ * it; its API keys are refused. The owner can still switch in, so the organization is never locked out
  * for good.
  */
 export const INACTIVE_ORGANIZATION_OWNER_PERMISSION_CODES: readonly string[] = [
@@ -42,13 +42,7 @@ const CAPABILITY_REJECTION_KEY: Record<OrganizationCapability, string> = {
 };
 
 /**
- * The machine-readable `reason` a rejection carries, where a route's contract names one
- * (feat-clinic-setup routes-final §2.A.9: `team_organization_required`).
- */
-const CAPABILITY_REJECTION_REASON: Partial<Record<OrganizationCapability, string>> = {};
-
-/**
- * Whether `organization` is a single-owner PERSONAL workspace (no collaboration, no clinic) — the
+ * Whether `organization` is a single-owner PERSONAL workspace (no collaboration) — the
  * test {@link assertTeamOrganization} applies, for a read that refuses a personal workspace with a
  * status of its own (a GET is never a 422 — the response-code policy keeps 422 for writes).
  */
@@ -68,8 +62,7 @@ export function isPersonalOrganization(organization: { type: string }): boolean 
  *
  * @remarks
  * - **Algorithm:** if `type === 'PERSONAL'`, throw `UnprocessableEntityError`
- *   keyed by {@link CAPABILITY_REJECTION_KEY} (with its {@link CAPABILITY_REJECTION_REASON}, when
- *   the capability has one); otherwise no-op.
+ *   keyed by {@link CAPABILITY_REJECTION_KEY}; otherwise no-op.
  * - **Failure modes:** PERSONAL organization ⇒ 422 `unprocessable_entity`.
  * - **Side effects:** none (pure guard; throws or returns).
  * - **Notes:** single point of enforcement for the personal-vs-team rule, shared by
@@ -87,8 +80,6 @@ export function assertTeamOrganization({
   capability: OrganizationCapability;
 }): void {
   if (isPersonalOrganization(organization)) {
-    const error = new UnprocessableEntityError(CAPABILITY_REJECTION_KEY[capability]);
-    const reason = CAPABILITY_REJECTION_REASON[capability];
-    throw reason === undefined ? error : error.withReason(reason);
+    throw new UnprocessableEntityError(CAPABILITY_REJECTION_KEY[capability]);
   }
 }

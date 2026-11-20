@@ -9,9 +9,9 @@ describe('user-settings.validator', () => {
     });
   });
 
-  it('validateUpdateUserSettings takes a clinic id or null for default_organization_id', () => {
-    expect(validateUpdateUserSettings({ default_organization_id: 'org_clinic' })).toEqual({
-      default_organization_id: 'org_clinic',
+  it('validateUpdateUserSettings takes an organization id or null for default_organization_id', () => {
+    expect(validateUpdateUserSettings({ default_organization_id: 'org_team' })).toEqual({
+      default_organization_id: 'org_team',
     });
     expect(validateUpdateUserSettings({ default_organization_id: null })).toEqual({
       default_organization_id: null,

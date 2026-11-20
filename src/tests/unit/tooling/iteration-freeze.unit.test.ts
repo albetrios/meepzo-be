@@ -27,7 +27,7 @@ import {
 const LAUNCH = 'launch-2026-09-30-jxmr';
 const FEATURE = 'feat-returns-2026-10-06-kqzx';
 const PRD = '# PRD\n';
-const SCHEMA_ROUTES = '# schema-routes\n\n## Entity: Patient\n';
+const SCHEMA_ROUTES = '# schema-routes\n\n## Entity: Customer\n';
 
 afterEach(() => {
   removeScratchFolders();

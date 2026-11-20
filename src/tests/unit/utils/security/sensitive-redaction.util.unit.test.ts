@@ -251,7 +251,7 @@ describe('redactSensitiveUrl — relative paths', () => {
 
 /**
  * C-1 — Drizzle's `Failed query: <sql>\nparams: <values>` and the driver error's row `detail`
- * carry patient data; key-based redaction cannot see a value, so database failures are reduced to
+ * carry customer data; key-based redaction cannot see a value, so database failures are reduced to
  * `{ name, code, constraint, table }` before they reach a log, Sentry or the dead-letter ledger.
  */
 describe('sanitizeDatabaseError', () => {
@@ -261,12 +261,12 @@ describe('sanitizeDatabaseError', () => {
     const driverError = Object.assign(new Error('insert violates foreign key constraint'), {
       code: '23503',
       severity: 'ERROR',
-      constraint: 'patients_branch_id_fkey',
-      table: 'patients',
+      constraint: 'customers_region_id_fkey',
+      table: 'customers',
       detail: `Failing row contains (17, ${boundValue}).`,
     });
     return new DrizzleQueryError(
-      'insert into "app"."patients" ("name", "branch_id") values ($1, $2)',
+      'insert into "app"."customers" ("name", "region_id") values ($1, $2)',
       [boundValue, 99],
       driverError,
     );
@@ -278,12 +278,12 @@ describe('sanitizeDatabaseError', () => {
 
     expect(sanitized.name).toBe('DatabaseQueryError');
     expect(sanitized.message).toBe(
-      'Database query failed (SQLSTATE 23503, constraint patients_branch_id_fkey, table patients)',
+      'Database query failed (SQLSTATE 23503, constraint customers_region_id_fkey, table customers)',
     );
     expect({ ...sanitized }).toEqual({
       code: '23503',
-      constraint: 'patients_branch_id_fkey',
-      table: 'patients',
+      constraint: 'customers_region_id_fkey',
+      table: 'customers',
     });
     expect(sanitized.cause).toBeUndefined();
     expect(sanitized.stack).toMatch(/^DatabaseQueryError: Database query failed \(SQLSTATE 23503/);
@@ -331,7 +331,7 @@ describe('sanitizeDatabaseError', () => {
       nested: { cause: foreignKeyViolation() },
     });
 
-    expect(redacted.error).toMatchObject({ code: '23503', table: 'patients' });
+    expect(redacted.error).toMatchObject({ code: '23503', table: 'customers' });
     expect(redacted.error.message).toMatch(/^Database query failed/);
     expect(JSON.stringify(redacted)).not.toContain('Priya');
   });
@@ -372,12 +372,12 @@ describe('sanitizeDatabaseError', () => {
       {
         message: error.message,
         sanitizedMessage:
-          'Database query failed (SQLSTATE 23503, constraint patients_branch_id_fkey, table patients)',
+          'Database query failed (SQLSTATE 23503, constraint customers_region_id_fkey, table customers)',
       },
       {
         message: 'insert violates foreign key constraint',
         sanitizedMessage:
-          'Database query failed (SQLSTATE 23503, constraint patients_branch_id_fkey, table patients)',
+          'Database query failed (SQLSTATE 23503, constraint customers_region_id_fkey, table customers)',
       },
     ]);
   });

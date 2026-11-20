@@ -1,5 +1,5 @@
 /**
- * Value lists every app record table shares (launch-2026-09-30-jxmr): the chip tones, the weekdays and
+ * Value lists every record table shares (launch-2026-09-30-jxmr): the chip tones, the weekdays and
  * the soft-delete reasons. Each is the single source for the schema CHECKs and the validators.
  *
  * @remarks
@@ -45,7 +45,7 @@ export type Weekday = (typeof WEEKDAY)[keyof typeof WEEKDAY];
 
 /** All weekdays, Monday first, used to derive the `chk_<table>_working_days_allowed` constraints. */
 export const WEEKDAY_VALUES = Object.values(WEEKDAY) as Weekday[];
-/** The days a new branch or staff member works: Monday to Saturday. */
+/** The default working days: Monday to Saturday. */
 export const DEFAULT_WORKING_DAYS: readonly Weekday[] = [
   WEEKDAY.MONDAY,
   WEEKDAY.TUESDAY,
@@ -57,20 +57,7 @@ export const DEFAULT_WORKING_DAYS: readonly Weekday[] = [
 /** A phone number: `+91` and ten digits (`chk_<table>_phone`). */
 export const PHONE_NUMBER_PATTERN = '^\\+91\\d{10}$';
 
-/**
- * An Indian mobile number: `+91` and ten digits starting 6–9. A branch's phone is a mobile, never a
- * landline — the product's rule, which the app's Branch drawer applies too. Narrower than
- * {@link PHONE_NUMBER_PATTERN}, the column's own check (`chk_branches_phone`).
- */
-export const MOBILE_NUMBER_PATTERN = '^\\+91[6-9]\\d{9}$';
-
-/** GSTIN: state code, PAN, entity number, `Z`, check character (`chk_<table>_gst_number` — branches, suppliers). */
-export const GST_NUMBER_PATTERN = '^\\d{2}[A-Z]{5}\\d{4}[A-Z]\\d[Z][A-Z\\d]$';
-
-/** An HSN code: 4, 6 or 8 digits (`chk_medicines_hsn_code`, `chk_invoice_items_hsn_code`). */
-export const HSN_CODE_PATTERN = '^[0-9]{4}([0-9]{2}){0,2}$';
-
-/** Why an app record was soft-deleted (the confirm drawer's choices). */
+/** Why an record was soft-deleted (the confirm drawer's choices). */
 export const RECORD_DELETE_REASON = {
   MISTAKE: 'mistake',
   DUPLICATE: 'duplicate',
@@ -90,7 +77,6 @@ export const RECORD_DELETE_REASON_VALUES = Object.values(
 export const RECORD_DELETE_NOTE_MAX_LENGTH = 280;
 
 /**
- * The longest short text a record carries — a diagnosis or clinical item, a file or display name,
- * an MR visit's samples.
+ * The longest short text a record carries — a label, a file or display name.
  */
 export const RECORD_SHORT_TEXT_MAX = 120;

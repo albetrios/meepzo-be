@@ -384,7 +384,7 @@ export class SubscriptionService {
   }
 
   /**
-   * A clinic's plan access (owner decision D3, 2026-10-17): `active`, `grace` (unpaid, its grace
+   * An organization's plan access (owner decision D3, 2026-10-17): `active`, `grace` (unpaid, its grace
    * still running) or `read_only` (unpaid, its grace over).
    *
    * @remarks
@@ -392,7 +392,7 @@ export class SubscriptionService {
    *   indexed read of the organization and its current subscription
    *   ({@link SubscriptionRepository.findPlanAccessSubject}) decided by `resolvePlanAccess`: a paid
    *   entitlement keeps it `active`; otherwise the grace runs 14 days from a lapsed paid
-   *   subscription's `current_period_end` (`BILLING_DUNNING_GRACE_DAYS`) or, for a clinic that never
+   *   subscription's `current_period_end` (`BILLING_DUNNING_GRACE_DAYS`) or, for an organization that never
    *   paid, from its `created_at` (`NEW_ORGANIZATION_TRIAL_DAYS`). PERSONAL organizations are always
    *   `active`.
    * - **Failure modes:** a query failure propagates; an organization that does not exist reads
@@ -418,7 +418,7 @@ export class SubscriptionService {
   }
 
   /**
-   * Refuses a write from a read-only clinic: 403 with `error.reason` `organization_read_only`.
+   * Refuses a write from a read-only organization: 403 with `error.reason` `organization_read_only`.
    *
    * @remarks
    * - **Algorithm:** {@link getPlanAccess}; throws only for `read_only` — `active` and `grace` pass.
@@ -427,7 +427,7 @@ export class SubscriptionService {
    * - **Side effects:** none.
    * - **Notes:** the app domain runs it as a `preHandler` on every POST / PUT / PATCH / DELETE
    *   under `/api/v1/app/` (`app-plan-access.ts`). Billing, auth, user, tenancy and upload stay open,
-   *   so a read-only clinic can still pay, sign in, manage its team and export its data.
+   *   so a read-only organization can still pay, sign in, manage its team and export its data.
    */
   async assertOrganizationWritable({
     organizationPublicId,
@@ -1083,7 +1083,7 @@ export class SubscriptionService {
   /**
    * After a Stripe event leaves a subscription without its paid entitlement (cancelled, expired,
    * paused, never paid), logs the loss once the event's unit of work commits. Nobody is
-   * suspended: a clinic that stops paying keeps its whole team (owner decision, 2026-10-17).
+   * suspended: an organization that stops paying keeps its whole team (owner decision, 2026-10-17).
    *
    * @remarks
    * - **Algorithm:** returns at once for a status that keeps the entitlement; otherwise resolves

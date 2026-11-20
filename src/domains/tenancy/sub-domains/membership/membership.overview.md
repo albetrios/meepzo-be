@@ -30,8 +30,8 @@ One code set (launch T8): `membership:read|create|update|delete`; every `POST` t
 
 | Route | Gate | Note |
 | --- | --- | --- |
-| `GET /tenancy/organization/memberships` | `membership:read` | every status; `q`, `status`, `role_id`, `branch_id` (T2), `include_ended` (D58), `sort` `created_at` / `name`; `estimated_total` on the first page; a bad filter is 400 invalid input on the field (USERS-M5) |
-| `POST /tenancy/organization/memberships` | `membership:create` | invite + `role_ids` + profile + `branch_ids`; the same login added again gets its ended membership back (K7); the dev-only `invitation.debug_invitation_token` echo (ROUTE #164) |
+| `GET /tenancy/organization/memberships` | `membership:read` | every status; `q`, `status`, `role_id`, `include_ended` (D58), `sort` `created_at` / `name`; `estimated_total` on the first page; a bad filter is 400 invalid input on the field (USERS-M5) |
+| `POST /tenancy/organization/memberships` | `membership:create` | invite + `role_ids` + profile; the same login added again gets its ended membership back (K7); the dev-only `invitation.debug_invitation_token` echo (ROUTE #164) |
 | `GET /tenancy/organization/memberships/{membership_id}` | `membership:read` | live or ended (D58) |
 | `PATCH /tenancy/organization/memberships/{membership_id}` | `membership:update` | live: `status` `active` ↔ `suspended` (T10), `role_ids`, profile; ended: `display_name` only (K6, D58); `expected_updated_at` (T14) |
 | `DELETE /tenancy/organization/memberships/{membership_id}?reason=&note=` | `membership:delete` | soft delete with `delete_reason` (+ `delete_note` for `other`) |
@@ -43,7 +43,7 @@ One code set (launch T8): `membership:read|create|update|delete`; every `POST` t
 ## Response shape
 
 The Membership object (launch §2.B.6) carries the staff profile (`staff_number`, `phone`, `tone`,
-`role_ids`, `branch_ids`, `working_days`, `work_starts_at`, `work_ends_at`, `commission_percent`),
+`role_ids`, `working_days`, `work_starts_at`, `work_ends_at`, `commission_percent`),
 the organization's name for the member (`display_name`, K3), `ended_at` / `end_reason` (D58) and
 the member's `user` summary (`id`, `email`, `first_name`, `last_name`, presigned `avatar_url`), so a
 members table renders without an N+1 per-row fetch. `is_owner` names the organization's owner (from

@@ -186,7 +186,7 @@ describe('Integration: organization resource events reach subscribed webhooks', 
       method: 'PATCH',
       url: testApiPath('/tenancy/organization'),
       token,
-      payload: { name: 'Renamed Clinic' },
+      payload: { name: 'Renamed Organization' },
     });
     expect(response.statusCode, response.body).toBe(200);
 
@@ -206,7 +206,7 @@ describe('Integration: organization resource events reach subscribed webhooks', 
         url: testApiPath('/tenancy/organizations'),
         token,
         headers: { 'x-idempotency-key': `organization-${randomUUID()}` },
-        payload: { name: 'Second Clinic', slug: `second-clinic-${Date.now()}` },
+        payload: { name: 'Second Organization', slug: `second-organization-${Date.now()}` },
       });
       expect(response.statusCode, response.body).toBe(200);
       const created = (response.json() as { data: { id: string } }).data;
@@ -377,7 +377,7 @@ describe('Integration: organization resource events reach subscribed webhooks', 
       method: 'PATCH',
       url: testApiPath('/tenancy/organization'),
       token,
-      payload: { name: 'Fan-out Clinic' },
+      payload: { name: 'Fan-out Organization' },
     });
     expect(response.statusCode, response.body).toBe(200);
 

@@ -9,7 +9,7 @@ import type {
 /**
  * Shapes a `memberships` row into the HTTP response (launch §2.B.6). Every identifier is an
  * external public id: the membership's own `public_id`, the organization public id, the user summary
- * and the role and branch lists resolved by the caller. The internal sequential `user_id` /
+ * and the role list resolved by the caller. The internal sequential `user_id` /
  * `role_id` on the row are NEVER emitted (they leak enumerable ids and row counts). `invitation` is
  * the live pending invite (present only on `invited` rows); `ended_at` / `end_reason` are the
  * soft delete (D58); `is_owner` names the organization's owner (launch D81 (4)). Timestamps become
@@ -46,7 +46,6 @@ export function serializeMembership(options: {
     phone: row.phone,
     tone: row.tone,
     role_ids: access.role_ids,
-    branch_ids: access.branch_ids,
     working_days: row.working_days,
     work_starts_at: toHourMinute(row.work_starts_at),
     work_ends_at: toHourMinute(row.work_ends_at),

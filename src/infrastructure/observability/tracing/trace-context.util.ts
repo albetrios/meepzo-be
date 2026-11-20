@@ -63,7 +63,7 @@ export async function runWithPropagatedTraceContext<T>({
         span.setStatus({ code: SpanStatusCode.OK });
         return result;
       } catch (error) {
-        // A database error's message carries its SQL and bound values (patient data); the span
+        // A database error's message carries its SQL and bound values (customer data); the span
         // and its exception event leave the process, so they get the sanitized form (C-1). The
         // caller still receives the original error.
         const recorded = sanitizeDatabaseError(error);

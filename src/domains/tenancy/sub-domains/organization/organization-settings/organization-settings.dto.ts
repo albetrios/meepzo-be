@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { SUPPORTED_LANGUAGES } from '@/shared/constants/i18n.constants.js';
-import { moneySchema } from '@/shared/utils/validation/record-fields.util.js';
 
 /**
  * Prototype-pollution-prone keys rejected from the `security_policy` JSONB record (route-audit
@@ -28,12 +27,6 @@ export const updateOrganizationSettingsDto = z
   .object({
     is_email_notifications_enabled: z.boolean().optional(),
     default_locale: z.enum(SUPPORTED_LANGUAGES).optional(),
-    default_day_float: moneySchema.optional(),
-    lead_hold_days: z.number().int().min(1).max(30).optional(),
-    reminder_hour: z.number().int().min(0).max(23).optional(),
-    retarget_after_days: z.number().int().min(7).max(730).optional(),
-    // The restore window of a deleted app record; clinical and financial ones are never purged (G2-4)
-    deleted_record_purge_days: z.number().int().min(1).max(90).optional(),
     security_policy: z
       .record(
         z.string().min(1).max(100),

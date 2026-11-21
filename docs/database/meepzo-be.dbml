@@ -7,6 +7,12 @@ Project meepzo_be {
   database_type: 'PostgreSQL'
 }
 
+TableGroup app {
+  app.instagram_account_settings
+  app.instagram_account_tokens
+  app.instagram_accounts
+}
+
 TableGroup audit {
   audit.dead_letter_jobs
   audit.logs
@@ -56,6 +62,74 @@ TableGroup tenancy {
 
 TableGroup upload {
   upload.uploads
+}
+
+Table app.instagram_account_settings {
+  created_at timestamptz [not null]
+  id bigint [pk, increment]
+  instagram_account_id bigint [not null]
+  is_automation_enabled boolean [not null]
+  is_public_reply_safety_enabled boolean [not null]
+  organization_id bigint [not null]
+  public_reply_chance_percent smallint [not null]
+  public_reply_gap_max_seconds smallint [not null]
+  public_reply_gap_min_seconds smallint [not null]
+  public_reply_hour_limit smallint [not null]
+  updated_at timestamptz [not null]
+  updated_by_user_id bigint
+}
+
+Note app.instagram_account_settings {
+  'RLS: enabled\nPolicies: instagram_account_settings_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_account_tokens {
+  created_at timestamptz [not null]
+  encrypted_access_token text [not null]
+  expires_at timestamptz
+  id bigint [pk, increment]
+  instagram_account_id bigint [not null]
+  last_refresh_error varchar(500)
+  last_refreshed_at timestamptz
+  organization_id bigint [not null]
+  token_type varchar(20) [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.instagram_account_tokens {
+  'RLS: enabled\nPolicies: instagram_account_tokens_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_accounts {
+  biography text
+  connected_at timestamptz [not null]
+  connected_by_user_id bigint
+  connection_status varchar(20) [not null]
+  connection_status_changed_at timestamptz [not null]
+  created_at timestamptz [not null]
+  disconnected_at timestamptz
+  followers_count int [not null]
+  follows_count int [not null]
+  id bigint [pk, increment]
+  instagram_app_user_id varchar(64) [not null]
+  instagram_user_id varchar(64) [not null]
+  media_count int [not null]
+  name varchar(255)
+  organization_id bigint [not null]
+  profile_erased_at timestamptz
+  profile_picture_url text
+  profile_synced_at timestamptz
+  public_id varchar(28) [not null]
+  scopes text [not null]
+  token_expires_at timestamptz
+  updated_at timestamptz [not null]
+  username varchar(64)
+  webhook_subscribed_at timestamptz
+  website text
+}
+
+Note app.instagram_accounts {
+  'RLS: enabled\nPolicies: instagram_accounts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table audit.dead_letter_jobs {

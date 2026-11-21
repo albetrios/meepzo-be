@@ -70,6 +70,7 @@ Bounded contexts live under [src/domains/](src/domains/). Each domain owns its r
 
 | Domain | Routes | Purpose |
 | --- | --- | --- |
+| [app](src/domains/app/) | `/api/v1/app` | Instagram automation: a team's connected Instagram account, its comment / DM / story-reply automations and their contacts (Postgres schema `app`). The Instagram account sub-domain (connect, read, disconnect; its token kept encrypted) is built; contacts, automations and the Instagram webhook land with launch-2026-11-20-ujai. |
 | [audit](src/domains/audit/) | `/api/v1/audit` | Append-only audit log of security- and governance-relevant actions (`audit-emission` pattern). Read API is global-admin only. |
 | [auth](src/domains/auth/) | `/api/v1/auth` | Authentication: passwords (argon2id), email verification-code login, OAuth, MFA (TOTP), WebAuthn, sessions. Issues short-lived JWTs and Origin-checked session cookies. |
 | [billing](src/domains/billing/) | `/api/v1/billing` | Plans, subscriptions, and the Stripe integration. Stripe is authoritative; webhooks reconcile state via the `subscription-change-flow` and `dunning-flow`. |
@@ -104,6 +105,7 @@ Top user journeys that touch more than one domain. Full sequence diagrams and fa
 - **`subscription-change-flow`** — Stripe webhook reconciliation across `billing` (subscription state) → `notify` (in-app + email) → `audit`.
 - **`dunning-flow`** — billing-failure handling driven by Stripe across `billing` → `notify` → potentially `subscription-change-flow` to cancellation.
 - **`unpaid-organization-read-only-flow`** — read-only mode for unpaid organizations (owner decision D3, behind `BILLING_READ_ONLY_ENFORCED`, off by default) across `billing` (plan access from the subscription, and the `assertOrganizationWritable` write guard refusing with 403 `organization_read_only` past the grace) → `auth` (`active_organization.plan_access` on `GET /auth/me/context` and the switches).
+- **`instagram-account-connect-flow`** — a team connects its Instagram professional account across `app` (account, encrypted token, default settings) → the Instagram client (code exchange, `/me`, webhook subscription) → `tenancy` (permission gate, team check) → `audit`.
 
 ## Policies
 
@@ -134,7 +136,7 @@ Deliberate business, UX, and security trade-offs encoded as constants. Full rati
 - **Email**: [Resend 6](https://resend.com)
 - **Storage**: AWS SDK v3 S3 (`@aws-sdk/client-s3`, `@aws-sdk/s3-presigned-post`, `@aws-sdk/s3-request-presigner`) — works against any S3-compatible store
 - **Observability**: [Pino 10](https://getpino.io), [Sentry 11](https://sentry.io) (errors + tracing + profiling), [OpenTelemetry API](https://opentelemetry.io) trace context across queued jobs (under Sentry's tracing), [@prometheus-io/client](https://github.com/prometheus/client_js) metrics
-- **Resilience**: a Redis-backed, cluster-wide circuit breaker (`src/infrastructure/resilience/`) around Stripe / S3 / Resend / Turnstile; [opossum](https://nodeshift.dev/opossum/) per destination for customer webhooks
+- **Resilience**: a Redis-backed, cluster-wide circuit breaker (`src/infrastructure/resilience/`) around Stripe / S3 / Resend / Turnstile / Instagram; [opossum](https://nodeshift.dev/opossum/) per destination for customer webhooks
 - **i18n**: [i18next 26](https://www.i18next.com) with file-system backend (English + Spanish today)
 - **MCP**: [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/sdk) (optional dependency, gated by `ENABLE_MCP_SERVER`)
 - **Testing**: [Vitest 5](https://vitest.dev), [fast-check](https://fast-check.dev) (property-based), [nock](https://github.com/nock/nock) (contract), [Toxiproxy](https://github.com/Shopify/toxiproxy) (chaos), [k6](https://k6.io) (load), [Stryker](https://stryker-mutator.io) (mutation)

@@ -59,6 +59,7 @@ describe('restore smoke checks', () => {
       'notify',
       'audit',
       'upload',
+      'app',
     ]);
   });
 

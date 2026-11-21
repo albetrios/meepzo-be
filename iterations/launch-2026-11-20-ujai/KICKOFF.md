@@ -99,9 +99,9 @@ flows → `/be-build-requirement`. Assignee: Rimeet Mavani.
 
 | # | Work item | Kind | Depends on | Skill/driver | Acceptance | Assignee | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| R1 | The `app` domain, the nine codes, the locked Member role and the backfill, the team-only guards — `routes-final.md` § 1 IA1–IA3 (IAC1–IAC3) | sub-domain | — | staged-build prompt | AC-1.* | Rimeet Mavani | open |
-| R2 | The one Instagram client and its settings — § 1 IA4 (IAC4) | sub-domain | R1 | `/be-build-requirement` | AC-2.* (connect) | Rimeet Mavani | open |
-| R3 | 1.A Instagram account and token: routes 1, 2, 4, the two resolvers, token isolation, audit — § 1.A, IA5–IA7, IA10 (IAC5–IAC7) | sub-domain | R1, R2 | staged-build prompt | AC-2.* | Rimeet Mavani | open |
+| R1 | The `app` domain, the nine codes, the locked Member role and the backfill, the team-only guards — `routes-final.md` § 1 IA1–IA3 (IAC1–IAC3) | sub-domain | — | staged-build prompt | AC-1.* | Rimeet Mavani | done |
+| R2 | The one Instagram client and its settings — § 1 IA4 (IAC4) | sub-domain | R1 | `/be-build-requirement` | AC-2.* (connect) | Rimeet Mavani | done |
+| R3 | 1.A Instagram account and token: routes 1, 2, 4, the two resolvers, token isolation, audit — § 1.A, IA5–IA7, IA10 (IAC5–IAC7) | sub-domain | R1, R2 | staged-build prompt | AC-2.* | Rimeet Mavani | done |
 | R4 | 1.B Instagram account settings: route 3 — § 1.B | sub-domain | R3 | staged-build prompt | AC-2.* (settings) | Rimeet Mavani | open |
 | R5 | 1.C Instagram media: routes 5–6 and the stored posts — § 1.C | sub-domain | R3 | staged-build prompt | AC-3.* | Rimeet Mavani | open |
 | R6 | 1.D Meta callbacks: routes 7–8 — § 1.D | sub-domain | R3, R5 | `/be-build-requirement` | AC-2.* (Meta) | Rimeet Mavani | open |

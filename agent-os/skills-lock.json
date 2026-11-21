@@ -5,7 +5,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-api-contract-guard/SKILL.md",
-      "computedHash": "f9fd3195a656135e04a45ded99466778539067b20f1568be3cc9cd73b6c9c0df"
+      "computedHash": "df2ba69dd064b28c2a218afba8247a62af95524ba8f539f734f315262f8d9c13"
     },
     "be-auto-implement": {
       "source": "local",
@@ -95,7 +95,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-domain-generator/SKILL.md",
-      "computedHash": "cf9db9a8279688099eea50a17cfe947ff20b12c4527fccdabe322d62b87abba4"
+      "computedHash": "529f1e66eb5538bc09b87e04f48a791edc423d7684f6702bd103f7d6fc46bd47"
     },
     "be-env-schema-add": {
       "source": "local",
@@ -203,13 +203,13 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-schema-generator/SKILL.md",
-      "computedHash": "a785152fde8548a3021ec8cc162bdebdbcd27a4ee11b0427b144ffe005882ff1"
+      "computedHash": "f384663cd048ceb756706dd24e8fed3f7ba31e1fa3cafda3df334175652889a1"
     },
     "be-seed-maintainer": {
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-seed-maintainer/SKILL.md",
-      "computedHash": "e5e6216288d20b85f3c22ea2214b7ee748185f2b4a893bd490c824ae7cc05440"
+      "computedHash": "d7f95e09fdd80037de3f5db39bf3b7beee05049b6ba162d97764e9eee3f40d6f"
     },
     "be-skill-index": {
       "source": "local",
@@ -239,7 +239,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-supabase-porting/SKILL.md",
-      "computedHash": "6f27b44e6bc8734db5d487ac78e3ae3b7b7729ba51c506b386d782b7f2fe758b"
+      "computedHash": "0d8e4ba806e8e838f6d74a03534776a6b1321679fc6fa685ba12c83bb2755c20"
     },
     "be-system-narrative-maintainer": {
       "source": "local",

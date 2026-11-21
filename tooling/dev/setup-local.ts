@@ -30,7 +30,7 @@
  * seed — is one step, `pnpm db:migrate` / `db:seed` / `db:seed:full` (`src/scripts/ops/db-prepare.ts`).
  *
  * Targeted `.env.local` updates, every run:
- * - Third-party API keys (Stripe, Resend, S3, PostHog — `external-credentials.ts`)
+ * - Third-party API keys (Stripe, Resend, S3, PostHog, Instagram — `external-credentials.ts`)
  *   still on their `.env.example` placeholder are copied from the hosted development target's env
  *   file, else from the process environment; key names are printed, never values.
  * - `--with-captcha` / `--without-captcha` turn local CAPTCHA on (Cloudflare test keys) or off.

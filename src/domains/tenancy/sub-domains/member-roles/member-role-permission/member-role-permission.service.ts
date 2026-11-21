@@ -24,7 +24,7 @@ import { assertCallerCanGrantPermissionCodes } from '@/domains/tenancy/sub-domai
  * - **Failure modes:** `NotFoundError` when the organization or role does not
  *   exist (or has been soft-deleted); Zod `ValidationError` from
  *   {@link validatePutMemberRolePermissions} for malformed input; `ForbiddenError` on a locked
- *   role (`role_locked` — Owner, Admin) and on the role the owner holds as their main one
+ *   role (`role_locked` — Owner, Admin, Member) and on the role the owner holds as their main one
  *   (`owner_role_fixed`).
  * - **Side effects:** {@link put} replaces the role's entire permission set
  *   (DELETE then INSERT) in a single repository call, then calls
@@ -99,7 +99,8 @@ export class MemberRolePermissionService {
           organization.id,
         );
         if (!role) throw new NotFoundError('Role');
-        // Launch RC-6 (D40, D81 (4)): a locked role's access is fixed — Owner and Admin are locked.
+        // Launch RC-6 (D40, D81 (4)): a locked role's access is fixed — Owner, Admin and Member (launch
+        // D3) are locked.
         if (role.is_locked) {
           throw new ForbiddenError('errors:roleLocked').withReason('role_locked');
         }

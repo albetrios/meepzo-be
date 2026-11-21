@@ -95,6 +95,9 @@ import {
   UpdateWebhookDto,
 } from '@/domains/notify/sub-domains/webhook/webhook.dto.js';
 
+// ─── App: Instagram account ────────────────────────────────────────────
+import { ConnectInstagramAccountDto } from '@/domains/app/sub-domains/instagram-account/instagram-account.dto.js';
+
 /**
  * Route key format: "METHOD /openapi/path" (with {param} placeholders).
  * Value: Zod schema for the request body.
@@ -175,4 +178,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── User: Avatar & export ──
   'PUT /api/v1/users/me/avatar': UploadAvatarDto,
   'POST /api/v1/users/me/data-export': exportUserDataBodyDto,
+
+  // ── App: Instagram account ──
+  'POST /api/v1/app/social/instagram/connect': ConnectInstagramAccountDto,
 };

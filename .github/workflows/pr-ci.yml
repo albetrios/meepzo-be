@@ -521,7 +521,7 @@ jobs:
       matrix:
         include:
           - shard: 1
-            domains: tenancy,upload,audit
+            domains: tenancy,upload,audit,app
           - shard: 2
             domains: auth,billing
           - shard: 3

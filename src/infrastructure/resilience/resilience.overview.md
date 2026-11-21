@@ -12,14 +12,15 @@ which adds the per-attempt timeout and the error classification.
 ## Design decisions
 
 - **One Redis-backed breaker per upstream, shared by every instance**: `stripeCircuit`, `s3Circuit`,
-  `resendCircuit` and `turnstileCircuit` keep their state in Redis and mutate it with a Lua script
+  `resendCircuit`, `turnstileCircuit` and `instagramCircuit` keep their state in Redis and mutate it with a Lua script
   (`lua/circuit-mutate.lua`), so a failing upstream opens the circuit for the whole cluster at once
   rather than per process.
 - **Consecutive failures open it**: any success resets the count. Thresholds and reset windows are
-  constants in `circuit-breaker.ts` (Stripe 5 / 30 s, S3 3 / 15 s, Resend 5 / 60 s, Turnstile 5 / 30 s);
+  constants in `circuit-breaker.ts` (Stripe 5 / 30 s, S3 3 / 15 s, Resend 5 / 60 s, Turnstile 5 / 30 s,
+  Instagram 5 / 30 s);
   half-open lets up to two probe failures through before re-opening.
 - **A refusal is not a failure**: an error the upstream answered on purpose (a declined card, a missing
-  object, a rejected email) carries `countsAsCircuitFailure: false` and counts as a success, so a burst
+  object, a rejected email, a dead Instagram token or an Instagram throttle) carries `countsAsCircuitFailure: false` and counts as a success, so a burst
   of bad requests can never open the circuit for everyone.
 - **Jitter on retry**: every queue backoff and `retryWithBackoff` adds up to 20% random jitter
   (`addRetryJitter`) so a brief outage doesn't end in a synchronized retry storm.

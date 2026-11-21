@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import { BILLING_PERMISSIONS } from '@/domains/billing/billing.permissions.js';
 import { NOTIFY_PERMISSIONS } from '@/domains/notify/notify.permissions.js';
 import { ownerPermissionCodesForOrganizationType } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
@@ -49,6 +50,23 @@ describe('ownerPermissionCodesForOrganizationType', () => {
   it('withholds the notify codes from a personal owner', () => {
     const personal = ownerPermissionCodesForOrganizationType('PERSONAL');
     for (const code of Object.values(NOTIFY_PERMISSIONS)) {
+      expect(personal).not.toContain(code);
+    }
+  });
+
+  // Launch IA2: a TEAM Owner holds all nine app codes (Instagram, automations, contacts).
+  it('gives a team owner every app code', () => {
+    const codes = ownerPermissionCodesForOrganizationType('TEAM');
+    for (const code of Object.values(APP_PERMISSIONS)) {
+      expect(codes).toContain(code);
+    }
+  });
+
+  // Launch IA3: the app surface is team-only, so a personal owner holds none of the nine — the
+  // permission gate answers 403 before the team-only check.
+  it('withholds every app code from a personal owner', () => {
+    const personal = ownerPermissionCodesForOrganizationType('PERSONAL');
+    for (const code of Object.values(APP_PERMISSIONS)) {
       expect(personal).not.toContain(code);
     }
   });

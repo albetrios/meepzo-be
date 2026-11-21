@@ -158,16 +158,22 @@ async function enableLogins(): Promise<string> {
 }
 
 /**
- * Step 4 — seeds up to `level`, in this process.
+ * Step 4 — seeds up to `level`, in this process, then reconciles every TEAM organization's default
+ * roles against the catalog it just seeded.
  *
  * @remarks
  * The seeds and the database pool are imported only now, so they read the URLs the steps above
  * settled; the seed URL rule (`seed-runtime-url.ts`: the operator login when one is set) applies
- * first. The pool is drained before returning.
+ * first. Every level seeds the permission catalog first; `reconcileDefaultTeamRoles`
+ * (`organization-provisioning.ts`) then gives each existing TEAM organization the default roles
+ * and codes a new one is provisioned with (launch IA2) — so every deploy and test database gets
+ * them, and the demo organizations the full seed creates too. The pool and the Redis client (the
+ * reconcile's permission-cache invalidation) are closed before returning.
  */
 async function seed(level: Exclude<SeedLevel, 'none'>): Promise<string> {
   await import('@/scripts/seed/seed-runtime-url.js');
   const { closeDatabase } = await import('@/infrastructure/database/connection.js');
+  const { closeRedis } = await import('@/infrastructure/cache/redis.client.js');
   try {
     if (level === 'permissions') {
       const { seedPermissions } = await import(
@@ -181,9 +187,14 @@ async function seed(level: Exclude<SeedLevel, 'none'>): Promise<string> {
       const { runFullSeed } = await import('@/scripts/seed/full.js');
       await runFullSeed();
     }
-    return 'rows upserted';
+    const { reconcileDefaultTeamRoles } = await import(
+      '@/domains/tenancy/sub-domains/organization/organization-provisioning.js'
+    );
+    const reconciled = await reconcileDefaultTeamRoles();
+    return `rows upserted; default team roles reconciled (${reconciled.changedOrganizations} of ${reconciled.organizations} team organizations changed)`;
   } finally {
     await closeDatabase();
+    await closeRedis();
   }
 }
 

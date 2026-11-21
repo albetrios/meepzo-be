@@ -20,6 +20,11 @@ export const notifySchema = pgSchema('notify');
 export const auditSchema = pgSchema('audit');
 /** Drizzle handle for the Postgres `upload` schema — S3 upload metadata + tombstone retention. */
 export const uploadSchema = pgSchema('upload');
+/**
+ * Drizzle handle for the Postgres `app` schema — the Instagram automation domain (accounts,
+ * contacts, automations, webhook events). A schema, not the `app.*` session settings (GUCs).
+ */
+export const appSchema = pgSchema('app');
 
 /** The `app.*` GUC each GUC-backed maintenance kind arms — the selector of one RLS bypass arm. */
 export type MaintenanceBypassGuc =

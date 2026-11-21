@@ -82,7 +82,7 @@ connections that open stay, a warning names the rest, and only a database that a
 the boot), so a freshly started process does not pay
 every connection handshake under its first burst.
 
-The structured `request.service_unavailable` log identifies the triggering signal
+The structured `request.overload_shed` warning identifies the triggering signal
 as `event_loop_overload`, `database_pool_overload` or `database_pool_wait_overload`
 in its `reason` field. When several cross their thresholds, they take precedence in
 that order. Internal

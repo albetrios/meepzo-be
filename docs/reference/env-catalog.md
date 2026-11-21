@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**15 / 242** variables migrated to an explicit `{ allowed, description }` entry.
+**18 / 245** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -101,6 +101,9 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `IDEMPOTENCY_CARDINALITY_WARN_THRESHOLD` | — | `50000` |  | — |
 | `IDEMPOTENCY_PER_ACTOR_CAP` | — | `1000` |  | — |
 | `IDEMPOTENCY_PER_ACTOR_CAP_WINDOW_SECONDS` | — | `3600` |  | — |
+| `INSTAGRAM_APP_ID` | non-empty string (the Instagram app ID from the Meta App Dashboard) | — *(optional)* | ✓ | The Instagram app id: the client_id of the code exchange (public — the frontend's authorize link carries it too). Unset, the Instagram routes answer 503 instagram_not_configured. |
+| `INSTAGRAM_APP_SECRET` | non-empty string (the Instagram app secret; a GitHub Secret) | — *(optional)* | ✓ | The Instagram app's one secret: the client_secret of the code exchanges and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503. |
+| `INSTAGRAM_REDIRECT_URI` | absolute URL | — *(optional)* | ✓ | The frontend's /auth/instagram/callback page. It must equal one of the Instagram app's OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured. |
 | `INVITATION_MAX_PENDING_PER_ORG` | — | `100` |  | — |
 | `JWT_PRIVATE_KEY` | — | — *(required)* |  | — |
 | `JWT_PUBLIC_KEY` | — | — *(required)* |  | — |

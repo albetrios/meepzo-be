@@ -70,7 +70,7 @@ System-level narratives sit at the `src/` root only: `src/OVERVIEW.md`, `src/PAT
 
 | File             | Domain (root)                                            | Sub-domain (no API)                                                                                                              | Sub-domain (has API)                                                                                                                                                                  |
 | ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.routes.ts`     | ✅ (audit, auth, billing, notify, tenancy, upload, user) | ❌                                                                                                                               | ✅ (tenancy: organization, membership, member-roles, permission). Billing/notify sub-domains register via parent composers (`billing.routes.ts`, `notify.routes.ts`) — see Section 7. |
+| `.routes.ts`     | ✅ (app, audit, auth, billing, notify, tenancy, upload, user) | ❌                                                                                                                               | ✅ (tenancy: organization, membership, member-roles, permission). Billing/notify sub-domains register via parent composers (`billing.routes.ts`, `notify.routes.ts`) — see Section 7. |
 | `.controller.ts` | ✅ where domain has HTTP API                             | ✅ (e.g. membership-invitation, organization-settings, stripe-webhook, user-data-export, webhook-event)              | ✅                                                                                                                                                                                    |
 | `.validator.ts`  | ✅ where domain has input                                | ✅ or ❌ by sub-domain                                                                                                           | ✅                                                                                                                                                                                    |
 | `.dto.ts`        | ✅ where domain has input                                | ✅ or ❌ by sub-domain                                                                                                           | ✅                                                                                                                                                                                    |
@@ -238,6 +238,7 @@ Always use `.js` extensions in import specifiers. CI gate: `src/tests/global/imp
 | `/api/v1/billing`                   | `billingRoutes(billing)` from `@/domains/billing/billing.routes.js`                              |
 | `/api/v1/notify`                    | `notifyRoutes(notify)` from `@/domains/notify/notify.routes.js`                                  |
 | `/api/v1/uploads`                   | `uploadRoutes(upload.uploadService)` from `@/domains/upload/upload.routes.js`                    |
+| `/api/v1/app`                       | `appRoutesPlugin` from `@/domains/app/app.routes.js` (no routes yet — the Instagram automation sub-domains land in it) |
 | (conditional) `/admin/queues`       | `registerQueueDashboard({ app, deps: { auditService } })` from `@/infrastructure/queue/queue-dashboard.js` |
 | (conditional) `/api/v1/mcp`, `/mcp` | MCP server from `@/infrastructure/mcp/mcp-server.js`                                             |
 
@@ -254,7 +255,7 @@ Always use `.js` extensions in import specifiers. CI gate: `src/tests/global/imp
 
 ## 8. DB Schema to Domain Mapping
 
-**Shared namespaces:** `src/infrastructure/database/pg-schemas.ts` defines `authSchema`, `tenancySchema`, `billingSchema`, `notifySchema`, `auditSchema`, `uploadSchema`.
+**Shared namespaces:** `src/infrastructure/database/pg-schemas.ts` defines `authSchema`, `tenancySchema`, `billingSchema`, `notifySchema`, `auditSchema`, `uploadSchema`, `appSchema`.
 
 **Infrastructure exception:** `src/infrastructure/mail/mail-outbox.schema.ts` — transactional outbox table shared across domains (not under `domains/`).
 

@@ -10,7 +10,7 @@ src/infrastructure/
     connection.ts             # Exports: database, pool (node-postgres), closeDatabase
     transaction.ts            # withTransaction() helper
     resource-quota-lock.util.ts # Advisory-lock guard for resource caps (per-scope count+insert serialization)
-    pg-schemas.ts             # Shared pgSchema definitions (auth, tenancy, billing, notify, audit, upload)
+    pg-schemas.ts             # Shared pgSchema definitions (auth, tenancy, billing, notify, audit, upload, app)
     migration/migrate.ts      # Migration runner (+ migration-version.ts, migration-execution-mode.ts)
     contexts/                 # DB context wrappers (request / organization / tenant / user / retention / worker / system-audit-insert / global-admin / audit-outbox-drain) that set the RLS GUC
     pool/                     # Pool instrumentation (organization-rls-checkout-counter.ts)
@@ -45,6 +45,12 @@ src/infrastructure/
       mail.worker.ts          # BullMQ processor for email delivery (+ mail-outbox-sweeper.worker.ts)
   payment/
     stripe.client.ts          # Stripe SDK client + helpers (customer, subscription, webhook)
+  social/
+    instagram.client.ts       # The one Instagram client (Graph API v24.0, `instagram` integration + instagramCircuit):
+                              #   code / token exchanges, renewal, /me, media, stories, subscribed_apps, messages, replies,
+                              #   profile + follow check; takes encrypted tokens, returns new ones encrypted
+    instagram-error.util.ts   # InstagramApiError — Instagram's error read once into auth / throttled / refused / outage
+    meta-signature.util.ts    # Constant-time Meta checks: X-Hub-Signature-256 (webhook) and signed_request (callbacks)
   storage/
     object-storage.port.ts    # ObjectStoragePort — the one storage contract (services inject it; workers use the default adapter)
     s3-adapter.ts             # Its S3 implementation, getDefaultS3ObjectStorageAdapter() (+ s3-error.util.ts: not-found +

@@ -5,6 +5,7 @@ import {
   THIRTY_SECONDS_MS,
 } from '@/shared/constants/ttl.constants.js';
 import {
+  instagramCircuit,
   resendCircuit,
   s3Circuit,
   stripeCircuit,
@@ -27,7 +28,8 @@ export type OutboundIntegrationName =
   | 'webhook-test'
   | 'oauth-google'
   | 'oauth-github'
-  | 'captcha-turnstile';
+  | 'captcha-turnstile'
+  | 'instagram';
 
 /** Per-integration defaults (HTTP timeout + circuit breaker) applied when call sites omit overrides. */
 export interface OutboundIntegrationDefaults {
@@ -48,6 +50,8 @@ const WEBHOOK_TEST_TIMEOUT_MS = TEN_SECONDS_MS;
 const TURNSTILE_HTTP_TIMEOUT_MS = FIVE_SECONDS_MS;
 /** Wall-clock cap for S3 SDK calls (SDK also uses maxAttempts). */
 const S3_HTTP_TIMEOUT_MS = THIRTY_SECONDS_MS;
+/** Per-attempt cap for one Instagram Graph API call (`src/infrastructure/social/instagram.client.ts`). */
+const INSTAGRAM_HTTP_TIMEOUT_MS = TEN_SECONDS_MS;
 
 type OutboundDefaultsFactory = () => OutboundIntegrationDefaults;
 
@@ -81,6 +85,12 @@ const OUTBOUND_DEFAULT_FACTORIES: Record<OutboundIntegrationName, OutboundDefaul
   'captcha-turnstile': () => ({
     timeoutMs: TURNSTILE_HTTP_TIMEOUT_MS,
     circuit: turnstileCircuit,
+  }),
+  // A refusal of one request (a bad code, a dead token, a throttle) carries its own
+  // `countsAsCircuitFailure: false` on `InstagramApiError`, as Resend's errors do — no classifier here.
+  instagram: () => ({
+    timeoutMs: INSTAGRAM_HTTP_TIMEOUT_MS,
+    circuit: instagramCircuit,
   }),
 };
 

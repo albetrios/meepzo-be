@@ -47,7 +47,7 @@ const opsMiddleware: FastifyPluginAsync = async (application) => {
       schema: {
         summary: 'List circuit breaker states',
         description:
-          'Returns Redis-backed circuit breaker states for Stripe, S3, Resend, and Turnstile. Requires the same bearer token as GET /metrics (`METRICS_SCRAPE_TOKEN`).',
+          'Returns Redis-backed circuit breaker states for Stripe, S3, Resend, Turnstile, and Instagram. Requires the same bearer token as GET /metrics (`METRICS_SCRAPE_TOKEN`).',
         tags: ['Operations'],
       },
     },

@@ -1,5 +1,6 @@
 import 'fastify';
 import type { TFunction } from 'i18next';
+import type { AppContainer } from '@/domains/app/app.container.js';
 import type { AuditContainer } from '@/domains/audit/audit.container.js';
 import type { AuthContainer } from '@/domains/auth/auth.container.js';
 import type { BillingContainer } from '@/domains/billing/billing.container.js';
@@ -61,5 +62,6 @@ declare module 'fastify' {
     billingDomain: BillingContainer;
     notifyDomain: NotifyContainer;
     uploadDomain: UploadContainer;
+    appDomain: AppContainer;
   }
 }

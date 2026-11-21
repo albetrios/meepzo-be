@@ -1,4 +1,4 @@
-# Outbound contract tests (Stripe, Resend, S3)
+# Outbound contract tests (Stripe, Resend, S3, Instagram)
 
 Vitest specs under **`src/tests/contract/`** assert our wrappers stay aligned with third-party HTTP behavior using **nock 15** and **curated JSON fixtures**—no real network in CI. Every Vitest run, not just this slice, refuses non-loopback hosts (`src/tests/helpers/harness-provider-env.ts`); the opt-in live provider run (`pnpm test:contract:live`, below) is the one mode that reaches the network.
 

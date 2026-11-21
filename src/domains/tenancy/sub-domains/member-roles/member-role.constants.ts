@@ -9,3 +9,11 @@ export const ROLE_DEFAULT_TONE = CHIP_TONE.SKY;
  * is handed over and the request names no other.
  */
 export const ADMIN_ROLE_NAME = 'Admin';
+
+/**
+ * Name of the Member system role every TEAM organization holds (launch D2, D3): locked like Admin,
+ * it does the daily automation work — views the Instagram account, views, creates and edits
+ * automations, views contacts. An organization whose own custom role already carried this name
+ * keeps that role as "Member (custom)" (launch IQ5).
+ */
+export const MEMBER_ROLE_NAME = 'Member';

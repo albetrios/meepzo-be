@@ -291,7 +291,7 @@ An organization has an immutable `type` — `PERSONAL` (single-owner workspace) 
 
 - **No `capabilities` object** — the organization `type` (`PERSONAL` / `TEAM`) is the sole signal. A client gates a team-only action on `type === 'TEAM'` **and** the caller's permission (e.g. `subscription:manage`); permissions/roles govern what the caller may do, separately. (A redundant type-derived `capabilities` object was removed; reintroduce a purpose-built `features`/`entitlements` object only if availability ever stops being purely type-derived.)
 - **The team-only routes** are the ones marked `team` in the `O` column of [`docs/routes.txt`](../../routes.txt) — organization deletion, transfer of ownership, adding and restoring members, creating roles and the billing writes. Each route with the guard it uses: **[route-consistency-and-organization-model.md §1.2](../api/route-consistency-and-organization-model.md#12-the-team-only-routes-and-the-assertteamorganization-backstop)**.
-- **Backstop guard** — `assertTeamOrganization({ organization, capability })` (capability buckets `MEMBERS | ROLES | MUTATION | BILLING`) is the single point of enforcement shared by those routes. It returns 422 (not 409) because the organization `type` is immutable, so an identical retry can never succeed. See **[response-codes.md](../api/response-codes.md)** (`409 vs 422`) and **[route-consistency-and-organization-model.md](../api/route-consistency-and-organization-model.md)**.
+- **Backstop guard** — `assertTeamOrganization({ organization, capability })` (capability buckets `MEMBERS | ROLES | MUTATION | BILLING | INSTAGRAM`) is the single point of enforcement shared by those routes. It returns 422 (not 409) because the organization `type` is immutable, so an identical retry can never succeed. See **[response-codes.md](../api/response-codes.md)** (`409 vs 422`) and **[route-consistency-and-organization-model.md](../api/route-consistency-and-organization-model.md)**.
 
 ### 4.3 billing — sub-domains: plans, subscriptions
 
@@ -318,7 +318,7 @@ An organization has an immutable `type` — `PERSONAL` (single-owner workspace) 
 - **Body field casing:** Request body and response body property keys are **snake_case** (`file_name`, `created_at`, `avatar_key`) — matching the DB columns and the `meta`/`pagination` envelope; the single external identifier is `id`. Validation `error.errors[].field` values are snake_case too. Internal TypeScript identifiers may stay camelCase. Verbatim third-party / browser-native payloads (Stripe webhooks, OAuth, WebAuthn W3C JSON) and JWT claims are the only exceptions. Enforced by `src/tests/unit/api/snake-case-body-keys.policy.unit.test.ts`.
 - **API prefix:** `/api/v1/`.
 - **Request ID:** Every response (success and error) includes `meta.request_id` (UUID).
-- **Drizzle:** snake_case columns; DB schema names auth, tenancy, billing, notify, audit, upload (match domain folder names).
+- **Drizzle:** snake_case columns; DB schema names auth, tenancy, billing, notify, audit, upload, app (match domain folder names).
 - **JWT:** `sub` = user `public_id` for consistency.
 - **Env files:** Root only — `.env` at project root (local, never committed); `.env.example` at root (committed). No `env/` directory.
 

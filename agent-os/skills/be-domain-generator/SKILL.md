@@ -19,6 +19,7 @@ Before scaffolding, confirm:
    - **billing** — sub-domains: `plan/`, `subscription/`, `stripe-webhook/`
    - **notify** — sub-domains: `notification/`, `webhook/` (nested: `webhook-event/` (event types) and `webhook-delivery/` (delivery attempts, queues, workers, DLQ))
    - **audit**, **upload** — flat domains (no `sub-domains/`)
+   - **app** — Instagram automation; skeleton only so far (sub-domains `instagram-account/`, `contact/`, `automation/`, `instagram-webhook/` land with launch-2026-11-20-ujai)
 
 2. **Top-level or nested sub-domain?**
    - **Top-level:** `src/domains/<domain>/sub-domains/<resource>/`
@@ -96,7 +97,7 @@ Flat domains (`audit`, `upload`) keep all layers at domain root with no `sub-dom
 
 ## Naming rules
 
-- **Domain folder** = DB schema name: `auth`, `user`, `tenancy`, `billing`, `notify`, `audit`, `upload`.
+- **Domain folder** = DB schema name: `auth`, `user`, `tenancy`, `billing`, `notify`, `audit`, `upload`, `app`.
 - **Sub-domain folder** = domain-prefixed resource name, kebab-case: `user-settings`, `auth-method`, `organization-settings`, `member-role-permission`, `webhook-event`.
 - **Files**: named after the resource — `<resource>.service.ts`, `<resource>.repository.ts`, `<resource>.controller.ts`.
 - **Full names only**: `repository` not `repo`, `organization` not `org`, `database` not `db`, `request` not `req` (except Fastify conventions).

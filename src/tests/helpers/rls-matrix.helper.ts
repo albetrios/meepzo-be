@@ -25,6 +25,9 @@ import { webauthn_credentials } from '@/domains/auth/sub-domains/auth-webauthn/w
 import { mfa_recovery_codes } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-recovery-code.schema.js';
 import { mfa_methods } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-method.schema.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
+import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
+import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -521,6 +524,55 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     organizationA: uploadA!.id,
     organizationB: uploadB!.id,
   });
+
+  // The Instagram account sub-domain (launch R3): one connected account per organization, with its
+  // token (ciphertext placeholder — never decrypted here) and its default settings.
+  const instagramAccountIds = { organizationA: 0, organizationB: 0 };
+  const instagramTokenIds = { organizationA: 0, organizationB: 0 };
+  const instagramSettingsIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const instagramUserId = side === 'organizationA' ? '17841400000000001' : '17841400000000002';
+    const [account] = await database
+      .insert(instagram_accounts)
+      .values({
+        public_id: generatePublicId('instagramAccount'),
+        organization_id: organization.id,
+        instagram_user_id: instagramUserId,
+        instagram_app_user_id: `9${instagramUserId}`,
+        username: `rls_${side.toLowerCase()}`,
+      })
+      .returning();
+    const [token] = await database
+      .insert(instagram_account_tokens)
+      .values({
+        organization_id: organization.id,
+        instagram_account_id: account!.id,
+        encrypted_access_token: `v1:rls-matrix-placeholder-${side}`,
+      })
+      .returning();
+    const [settings] = await database
+      .insert(instagram_account_settings)
+      .values({ organization_id: organization.id, instagram_account_id: account!.id })
+      .returning();
+    instagramAccountIds[side] = account!.id;
+    instagramTokenIds[side] = token!.id;
+    instagramSettingsIds[side] = settings!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_accounts' }),
+    instagramAccountIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_account_tokens' }),
+    instagramTokenIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_account_settings' }),
+    instagramSettingsIds,
+  );
 
   return {
     organizationAPublicId: organizationA.public_id,

@@ -79,7 +79,7 @@ function registerQueueMetrics(registry: Registry): void {
 
   bullmqProviderOutageParkedJobsTotal = new Counter({
     name: 'bullmq_provider_outage_parked_jobs_total',
-    help: "Jobs parked because their third-party provider was down (reason=outage — each one re-arms the queue's five-minute pause) or throttling us (reason=throttle — paused for the provider's Retry-After), by queue and provider (resend | stripe | s3). An outage rate that keeps rising is an outage still in progress: the queue is waiting for the provider, not losing jobs",
+    help: "Jobs parked because their third-party provider was down (reason=outage — each one re-arms the queue's five-minute pause) or throttling us (reason=throttle — paused for the provider's Retry-After), by queue and provider (resend | stripe | s3 | instagram). An outage rate that keeps rising is an outage still in progress: the queue is waiting for the provider, not losing jobs",
     labelNames: ['queue', 'provider', 'reason'],
     registers: [registry],
   });
@@ -543,7 +543,7 @@ export function recordReadCacheRequest({
  *
  * @remarks
  * Called by the provider-pausable worker each time a job waits out its provider. Every label is
- * bounded: a queue name, one of three providers, `outage` or `throttle`.
+ * bounded: a queue name, one of the pausable providers (`QueueProvider`), `outage` or `throttle`.
  */
 export function recordProviderOutageParkedJob(options: {
   queue: string;

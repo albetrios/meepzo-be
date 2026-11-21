@@ -150,6 +150,10 @@ function payloadForPermissionRoute(
   if (route.path.endsWith('/tenancy/organization')) {
     return { name: 'Matrix organization' };
   }
+  if (route.path.endsWith('/app/social/instagram/connect')) {
+    // A well-formed code, so body validation (400) does not preempt the permission check (403).
+    return { code: 'AQB-permission-matrix-code' };
+  }
   return {};
 }
 

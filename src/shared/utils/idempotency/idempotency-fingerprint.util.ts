@@ -49,6 +49,9 @@ const IDEMPOTENCY_SECRET_RESPONSE_FIELD_NAMES = new Set([
   // thumbnail (`thumbnail_url`) — the same `X-Amz-Signature` grant, minted on every read.
   'file_url',
   'thumbnail_url',
+  // Launch IA5: the Instagram token's ciphertext column. No serializer returns it (route 2 never
+  // does); named here so a body that ever carried it is neither cached nor served without no-store.
+  'encrypted_access_token',
 ]);
 
 /**

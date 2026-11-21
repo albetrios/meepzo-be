@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import { AUDIT_PERMISSIONS } from '@/domains/audit/audit.permissions.js';
 import { BILLING_PERMISSIONS } from '@/domains/billing/billing.permissions.js';
 import { NOTIFY_PERMISSIONS } from '@/domains/notify/notify.permissions.js';
@@ -13,6 +14,7 @@ const DECLARED_CODES = [
   BILLING_PERMISSIONS,
   NOTIFY_PERMISSIONS,
   UPLOAD_PERMISSIONS,
+  APP_PERMISSIONS,
 ].flatMap((codes) => Object.values(codes) as string[]);
 
 /**
@@ -26,5 +28,23 @@ describe('permission catalog (policy)', () => {
     const seeded = SYSTEM_PERMISSIONS.map((permission) => permission.code);
     expect(new Set(seeded).size).toBe(seeded.length);
     expect([...seeded].sort()).toEqual([...new Set(DECLARED_CODES)].sort());
+  });
+
+  // Launch IA2 / AC-1.1: the nine app codes sit in three Roles-matrix rows.
+  it('files the app codes under the Instagram, Automations and Contacts rows', () => {
+    const categoryOf = new Map(
+      SYSTEM_PERMISSIONS.map((permission) => [permission.code as string, permission.category]),
+    );
+    expect(Object.values(APP_PERMISSIONS).map((code) => [code, categoryOf.get(code)])).toEqual([
+      ['instagram-account:read', 'instagram'],
+      ['instagram-account:manage', 'instagram'],
+      ['instagram-webhook-event:read', 'instagram'],
+      ['automation:read', 'automations'],
+      ['automation:create', 'automations'],
+      ['automation:update', 'automations'],
+      ['automation:delete', 'automations'],
+      ['contact:read', 'contacts'],
+      ['contact:delete', 'contacts'],
+    ]);
   });
 });

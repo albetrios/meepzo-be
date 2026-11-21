@@ -93,7 +93,7 @@ describe('role taxonomy (owner / operator / migrator / app / maintenance)', () =
                         has_function_privilege('meepzo_be_app', p.oid, 'EXECUTE') AS app_can_execute,
                         has_function_privilege('meepzo_be_maintenance', p.oid, 'EXECUTE') AS maintenance_can_execute
                  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                 WHERE p.prosecdef AND n.nspname IN ('auth','tenancy','billing','notify','audit','upload')`,
+                 WHERE p.prosecdef AND n.nspname IN ('auth','tenancy','billing','notify','audit','upload','app')`,
     );
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {

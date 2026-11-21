@@ -295,7 +295,10 @@ function handleAppErrorResponse({
   // shed), already signalled where it happens — the circuit opening alerts once. Capturing it per
   // request paged Sentry on every call during an outage, and masking its detail hid the message
   // the client needs ("the payment provider is temporarily unavailable"). Only a real server
-  // error stays masked and captured.
+  // error stays masked, captured and stripped of its reason. A 503 keeps its stable `reason`
+  // (launch D34): `instagram_unavailable` (retry later) and `instagram_not_configured` (an
+  // operator must set the app) need different client handling, and a reason slug names a cause,
+  // never an internal detail.
   const isServerError = error.statusCode >= 500 && error.statusCode !== SERVICE_UNAVAILABLE_STATUS;
   if (isServerError) {
     captureException({
@@ -340,7 +343,7 @@ function handleAppErrorResponse({
       code,
       detail,
       errors,
-      reason: error.statusCode >= 500 ? undefined : error.reason,
+      reason: isServerError ? undefined : error.reason,
     }),
     meta: { request_id: requestId },
   };

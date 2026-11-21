@@ -35,7 +35,8 @@ The same grid, as reference data: [db-changes.md › Reference data](../db-chang
 
 Every team organization has a third default role, **Member**, next to Owner and Admin. Like Admin it is
 locked: no one can edit or delete it. Member holds `instagram-account:read`, `automation:read`,
-`automation:create`, `automation:update` and `contact:read` — so a member sees the Instagram content,
+`automation:create`, `automation:update` and `contact:read`, plus the existing `organization:read` so a member can
+view the organization itself ([D31](../decisions.md)) — so a member sees the Instagram content,
 builds and edits automations and sees contacts (emails and phones included), but cannot connect or
 disconnect Instagram, delete an automation or a contact, or see the webhook events. A new team gets the
 Member role when it is set up; a team that exists today gets it through `access.existing-team-backfill`.
@@ -56,7 +57,7 @@ none of them, since a personal organization can never use Instagram (`access.tea
 ### `access.existing-team-backfill` — CHANGED
 
 Every team organization that exists today gets exactly what a new team gets: its Owner and Admin gain
-the nine codes, and it gets the locked Member role with its five codes. It is done once for every team,
+the nine codes, and it gets the locked Member role with its codes (the five app codes and `organization:read`). It is done once for every team,
 safe to run again (running it twice changes nothing more than running it once), so old and new teams
 never drift apart.
 

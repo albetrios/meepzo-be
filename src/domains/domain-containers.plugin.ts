@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
+import { registerAppContainer } from '@/domains/app/app.container.js';
 import { registerAuditContainer } from '@/domains/audit/audit.container.js';
 import { registerAuthContainer } from '@/domains/auth/auth.container.js';
 import { registerBillingContainer } from '@/domains/billing/billing.container.js';
@@ -18,6 +19,9 @@ async function registerDomainContainers(application: FastifyInstance): Promise<v
   registerAuthContainer(application);
   registerNotifyContainer(application);
   registerUploadContainer(application);
+  // The app domain (Instagram automation) reads user, tenancy, audit and notify services as its
+  // sub-domains land, so it is built after them.
+  registerAppContainer(application);
 
   application.userDomain.userService.wireOffboardingServices({
     authSessionService: application.authDomain.authSessionService,

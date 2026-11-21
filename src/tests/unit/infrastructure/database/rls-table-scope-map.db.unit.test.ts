@@ -36,6 +36,14 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'billing.stripe_webhook_events': [],
   'tenancy.permissions': [],
 
+  // The Instagram account and its settings: organization-scoped, plus the daily sweep's read
+  // (IA8). The token: the organization arm only — no sweep arm reads a token (IA5).
+  'app.instagram_account_settings': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.instagram_account_tokens': ['app.current_organization_public_id'],
+  'app.instagram_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'audit.logs': [
     'app.current_organization_public_id',
     'app.current_user_public_id',

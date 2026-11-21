@@ -133,6 +133,25 @@ describe('compress.middleware — C-5: signed media URLs are secrets', () => {
   );
 });
 
+describe('compress.middleware — launch IA5: the Instagram token ciphertext is a secret', () => {
+  it('marks a body carrying encrypted_access_token no-store and uncompressed', async () => {
+    const app = fastify();
+    await app.register(compressMiddleware);
+    app.get('/account', async () => ({
+      data: { encrypted_access_token: 'v1:ciphertext', note: 'x'.repeat(2048) },
+    }));
+    const response = await app.inject({
+      method: 'GET',
+      url: '/account',
+      headers: { 'accept-encoding': 'gzip, br' },
+    });
+    await app.close();
+
+    expect(response.headers['cache-control']).toContain('no-store');
+    expect(response.headers['content-encoding']).toBe('identity-no-compress');
+  });
+});
+
 describe('compress.middleware — G2-7: private responses are never stored', () => {
   async function buildApp() {
     const app = fastify();

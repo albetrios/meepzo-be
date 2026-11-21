@@ -70,7 +70,7 @@ Canonical examples to copy: `src/domains/user/seed/` and `src/domains/tenancy/se
 - **`minimal.ts` / `full.ts`** — orchestration entry points for the reference-only and fixed-demo tiers; call domain seeds + cross-domain flows. No entity lists or insert helpers here.
 - **`helpers.ts`** — re-exports like `closeDatabase`. **`faker-data.ts`** — `initFakerSeed()` and shared faker helpers.
 
-Dependency order (declared via `dependsOn` at the domain level): `user` first; then `auth` and `tenancy` (both depend on `user`); then `billing` (on `tenancy`) and `notify` / `upload` / `audit` (on `tenancy` + `user`). `seedReference` (permissions, plans) runs for all domains before any `seedBulk`.
+Dependency order (declared via `dependsOn` at the domain level): `user` first; then `auth` and `tenancy` (both depend on `user`); then `billing` (on `tenancy`) and `notify` / `upload` / `audit` (on `tenancy` + `user`) and `app` (on `tenancy`). `seedReference` (permissions, plans) runs for all domains before any `seedBulk`.
 
 ## Idempotency and reproducibility (required)
 

@@ -23,6 +23,7 @@ describe('generate-route-catalog', () => {
     expect(prefixByDomainFolder.get('upload')).toBe('/api/v1/uploads');
     expect(prefixByDomainFolder.get('billing')).toBe('/api/v1/billing');
     expect(prefixByDomainFolder.get('notify')).toBe('/api/v1/notify');
+    expect(prefixByDomainFolder.get('app')).toBe('/api/v1/app');
   });
 
   it('inferSubDomain returns nested folder name for sub-domain route files', () => {

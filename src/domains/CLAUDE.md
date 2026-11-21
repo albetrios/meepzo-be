@@ -66,6 +66,7 @@ Flat domains (`audit`, `upload`) keep layers at domain root (no `sub-domains/`).
 | **billing**     | plan, subscription, stripe-webhook                                                                                                                                                                                                                                                          |
 | **notify**      | notification, webhook (webhook-event, webhook-delivery)                                                                                                                                                                                                                                     |
 | **upload**      | (single domain, no sub-domains)                                                                                                                                                                                                                                                             |
+| **app**         | instagram-account (instagram-account-settings; the token is a persistence part at the folder root — schema/repository/service, no routes) — Instagram automation, landing one ROUTE row at a time (`iterations/launch-2026-11-20-ujai/`; contact, automation, instagram-webhook to come) |
 
 **Permission resolution** (tenancy domain, not under `shared/`):
 

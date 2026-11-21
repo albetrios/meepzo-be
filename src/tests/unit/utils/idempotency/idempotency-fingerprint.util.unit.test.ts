@@ -149,6 +149,17 @@ describe('responseBodyContainsSecretFields', () => {
     }
   });
 
+  it('launch IA5: flags the Instagram token ciphertext (never cached, never stored)', () => {
+    expect(
+      responseBodyContainsSecretFields(
+        JSON.stringify({ data: { instagram_account: { encrypted_access_token: 'v1:abc' } } }),
+      ),
+    ).toBe(true);
+    expect(
+      responseBodyContainsSecretFields('<<<not json "encrypted_access_token": "v1:abc" >>>'),
+    ).toBe(true);
+  });
+
   it('sec-C/M #12: catches sensitive fields via the isSensitiveKey backstop (beyond the named allowlist)', () => {
     // Fields NOT in IDEMPOTENCY_SECRET_RESPONSE_FIELD_NAMES but caught by the substring matcher.
     expect(responseBodyContainsSecretFields(JSON.stringify({ data: { client_secret: 's' } }))).toBe(

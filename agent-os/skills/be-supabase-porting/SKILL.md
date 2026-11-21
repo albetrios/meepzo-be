@@ -17,7 +17,7 @@ Port logic from `supabase/functions/` (or similar) into this repo while preservi
 
 - **Domain layout:** `src/domains/<domain>/<domain>.{routes,controller,validator,dto,serializer,service,repository,container,types}.ts` at domain root; sub-domains in `src/domains/<domain>/<sub-domain>/`.
 - **Sub-domain directories** always domain-prefixed: `user-settings`, `auth-method`, `organization-settings`, `member-role-permission`, `webhook-event`.
-- Domains: auth, user, tenancy, billing, notify, audit, upload. See `CLAUDE.md` or **be-domain-generator**.
+- Domains: auth, user, tenancy, billing, notify, audit, upload, app. See `CLAUDE.md` or **be-domain-generator**.
 - Optional per sub-domain: `events/`, `queues/`, `workers/`.
 - Drizzle schemas: **co-located** at `src/domains/<domain>/<sub-domain>/<sub-domain>.schema.ts` (not under `infrastructure/database/schemas/`).
 - Queue infrastructure (`connection.ts`, `bootstrap.ts`) in `src/infrastructure/queue/` — central start only; processors live in domains.

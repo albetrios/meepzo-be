@@ -16,6 +16,9 @@ const EXAMPLE = [
   'S3_SECRET_ACCESS_KEY=xxx',
   'POSTHOG_KEY=phc_...',
   'POSTHOG_HOST=https://us.i.posthog.com',
+  'INSTAGRAM_APP_ID=...',
+  'INSTAGRAM_APP_SECRET=...',
+  'INSTAGRAM_REDIRECT_URI=http://localhost:5173/auth/instagram/callback',
   'LOG_LEVEL=debug',
   '',
 ].join('\n');
@@ -44,6 +47,9 @@ describe('setup:local — third-party API keys for .env.local', () => {
         'S3_SECRET_ACCESS_KEY=real/secret+key=',
         'POSTHOG_KEY=phc_realProjectKey',
         'POSTHOG_HOST=https://eu.i.posthog.com',
+        'INSTAGRAM_APP_ID=instagram-app-id-from-file',
+        'INSTAGRAM_APP_SECRET=instagram-app-secret-from-file',
+        'INSTAGRAM_REDIRECT_URI=https://development.example.test/auth/instagram/callback',
         'LOG_LEVEL=info',
       ].join('\n'),
     );
@@ -56,8 +62,12 @@ describe('setup:local — third-party API keys for .env.local', () => {
     expect(result.STRIPE_SECRET_KEY).toBe('stripe-key-from-file');
     expect(result.EMAIL_FROM_ADDRESS).toBe('Example Sender <no-reply@mail.example.test>');
     expect(result.S3_SECRET_ACCESS_KEY).toBe('real/secret+key=');
+    expect(result.INSTAGRAM_APP_SECRET).toBe('instagram-app-secret-from-file');
     // Not an external credential: the local value stays even though the source differs.
     expect(result.LOG_LEVEL).toBe('debug');
+    // Per environment, like the OAuth redirects: the local callback is never replaced by the
+    // development one, which would send a local connect to the hosted frontend.
+    expect(result.INSTAGRAM_REDIRECT_URI).toBe('http://localhost:5173/auth/instagram/callback');
   });
 
   it('falls back to the process environment, per key, when the env file is absent or lacks a key', () => {

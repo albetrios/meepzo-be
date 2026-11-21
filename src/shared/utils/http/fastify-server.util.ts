@@ -19,11 +19,13 @@ import {
 /**
  * Explicit NESTED Pino redact paths (header/body shapes Pino cannot reach by bare key name).
  * The bare top-level keys come from the single source {@link SENSITIVE_KEY_FRAGMENTS}; this list
- * only adds the dotted/bracketed paths plus `secret_access_key` (caught recursively by the
- * `secret` fragment, but pinned here for the exact Pino fast-path).
+ * only adds the dotted/bracketed paths plus `secret_access_key` and `encrypted_access_token` (caught
+ * recursively by the `secret` / `token` fragments, but pinned here for the exact Pino fast-path).
  */
 const PINO_REDACT_NESTED_PATHS = [
   'secret_access_key',
+  // The Instagram token's ciphertext column (launch IA5): never logged, even encrypted.
+  'encrypted_access_token',
   'req.headers.authorization',
   'req.headers.cookie',
   'req.headers["x-api-key"]',

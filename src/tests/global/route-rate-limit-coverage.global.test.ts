@@ -51,6 +51,7 @@ const GLOBAL_LIMITER_ONLY_ALLOWLIST = new Set<string>([
   'src/domains/user/user.routes.ts → GET /me',
   'src/domains/user/user.routes.ts → GET /me/settings',
   'src/domains/user/user.routes.ts → GET /me/notification-preferences',
+  'src/domains/app/sub-domains/instagram-account/instagram-account.routes.ts → GET /social/instagram/account',
   // (The organization-switch POSTs previously lived here as a flagged follow-up; they now carry
   //  MODERATE_AUTHED_RATE_LIMIT, so they are enforced by the preset check below, not allowlisted.)
 ]);

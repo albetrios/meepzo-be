@@ -23,7 +23,7 @@ Alongside them, **`pnpm db:seed:stripe-catalog`** (`stripe-catalog.ts`, the sync
 - **`composeContributions(...)`** — folds children up the tree (nested sub-domain → sub-domain → domain): runs each part's `seedReference` first, then each part's `seedBulk`.
 - **`orderModules(...)`** — topologically orders domain modules by `dependsOn`.
 - **`SeedContext`** — `{ counts, faker, registry, logger }` handed to every seeder.
-- **`SeedRegistry`** — cross-domain parents. The user and tenancy bulk seeders append created users/organizations; downstream domains (billing, notify, upload, audit) read them. Each domain seeds **only its own tables** — cross-domain wiring lives only here, never inside a domain seeder.
+- **`SeedRegistry`** — cross-domain parents. The user and tenancy bulk seeders append created users/organizations; downstream domains (billing, notify, upload, audit, app) read them. Each domain seeds **only its own tables** — cross-domain wiring lives only here, never inside a domain seeder.
 
 ## Orchestrator and config
 
@@ -33,7 +33,7 @@ Alongside them, **`pnpm db:seed:stripe-catalog`** (`stripe-catalog.ts`, the sync
 - **`seed-registry.ts`** — in-memory `createSeedRegistry()`.
 - **`faker-data.ts`** — `initFakerSeed()` and shared faker helpers. **`helpers.ts`** — re-exports such as `closeDatabase`.
 
-Dependency order: `user` → `tenancy` → `billing` / `notify` / `upload` / `audit`. `seedReference` runs for all domains before any `seedBulk`.
+Dependency order: `user` → `tenancy` → `billing` / `notify` / `upload` / `audit` / `app`. `seedReference` runs for all domains before any `seedBulk`.
 
 ## Determinism and idempotency
 

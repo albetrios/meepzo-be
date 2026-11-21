@@ -55,9 +55,9 @@ jobs:
           - group: security-rest
             suite: security
             security_slice: rest
-          - group: tenancy-upload-audit
+          - group: tenancy-upload-audit-app
             suite: e2e-integration
-            domains: tenancy,upload,audit
+            domains: tenancy,upload,audit,app
           - group: auth-billing
             suite: e2e-integration
             domains: auth,billing

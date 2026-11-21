@@ -135,6 +135,26 @@ async function createApp(): Promise<FastifyInstance> {
   app.get('/app-error-503-retry-after', async () => {
     throw new ServiceUnavailableError().withRetryAfter(5);
   });
+  // D34: two 503s that differ only by their reason — the client must be able to tell them apart.
+  app.get('/app-error-503-reason', async () => {
+    throw new ServiceUnavailableError('errors:externalServiceUnavailable')
+      .withReason('dependency_down')
+      .withRetryAfter(30);
+  });
+  app.get('/app-error-503-other-reason', async () => {
+    throw new ServiceUnavailableError('errors:serviceUnavailable').withReason(
+      'dependency_not_configured',
+    );
+  });
+  app.get('/app-error-502-reason', async () => {
+    throw new AppError(
+      'INTERNAL_ERROR',
+      502,
+      'errors:internal',
+      undefined,
+      'Bad gateway boom',
+    ).withReason('should_not_leak');
+  });
 
   // Raw third-party failures — what outboundCall rethrows as-is.
   app.get('/circuit-open', async () => {
@@ -210,6 +230,38 @@ describe('error-handler.middleware status + body mapping', () => {
 
       expect(response.statusCode).toBe(503);
       expect(response.headers['retry-after']).toBe('5');
+    });
+
+    it('keeps the stable reason on a 503, with its detail and Retry-After, and no Sentry event (D34)', async () => {
+      const response = await app.inject({ method: 'GET', url: '/app-error-503-reason' });
+      const body = response.json();
+
+      expect(response.statusCode).toBe(503);
+      expect(body.error.code).toBe('service_unavailable');
+      expect(body.error.reason).toBe('dependency_down');
+      expect(body.error.detail).toBe('translated:errors:externalServiceUnavailable');
+      expect(response.headers['retry-after']).toBe('30');
+      expect(mockedCaptureException).not.toHaveBeenCalled();
+    });
+
+    it('lets a client tell two 503s apart by their reason alone (D34)', async () => {
+      const first = await app.inject({ method: 'GET', url: '/app-error-503-reason' });
+      const second = await app.inject({ method: 'GET', url: '/app-error-503-other-reason' });
+
+      expect(first.statusCode).toBe(503);
+      expect(second.statusCode).toBe(503);
+      expect(second.json().error.reason).toBe('dependency_not_configured');
+      expect(second.json().error.reason).not.toBe(first.json().error.reason);
+    });
+
+    it('still drops the reason on any other 5xx, masked and captured (D34)', async () => {
+      const response = await app.inject({ method: 'GET', url: '/app-error-502-reason' });
+      const body = response.json();
+
+      expect(response.statusCode).toBe(502);
+      expect(body.error).not.toHaveProperty('reason');
+      expect(body.error.detail).toBe('translated:errors:internal');
+      expect(mockedCaptureException).toHaveBeenCalledTimes(1);
     });
 
     it('does NOT capture a 401 AppError to Sentry', async () => {

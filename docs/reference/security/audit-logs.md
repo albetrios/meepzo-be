@@ -20,7 +20,7 @@ changed; a security-policy change; a new webhook destination — plus every deni
 
 **Organization log.** A row carries `organization_id` — and so appears in that organization's own
 `GET /tenancy/organization/audit-logs` — when the change belongs to an organization: everything under
-Tenancy, Billing and Notify below. Auth, User and operations rows are tenantless. A deleted
+Tenancy, Billing, Notify and App below. Auth, User and operations rows are tenantless. A deleted
 organization's pending rows still land: the `audit.logs` insert policy resolves the organization
 through a resolver that sees deleted organizations.
 
@@ -99,6 +99,15 @@ through a resolver that sees deleted organizations.
 | `notify.webhook.delete` | `webhook` | Webhook deleted |
 
 A webhook URL is recorded as its origin only — the path and query can carry the receiver's secret.
+
+### App
+
+| Action | Resource type | When |
+| ------ | ------------- | ---- |
+| `app.instagram_account.connect` | `instagram_account` | Instagram account connected or reconnected (`WARNING`, `metadata.instagram_account_public_id`, `metadata.is_new_connection`) — recorded after the connect commits, best-effort |
+| `app.instagram_account.disconnect` | `instagram_account` | Instagram account disconnected — revoked, its token erased (`WARNING`, `metadata.instagram_account_public_id`) |
+
+Neither row ever holds the Instagram token or the authorization code.
 
 ### User
 

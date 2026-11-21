@@ -30,6 +30,10 @@ const ALLOWED_PATH_FRAGMENTS: Record<MaintenanceContextKind, readonly string[]> 
     // Account deletion: a departing user's membership rows span tenants, so they are listed under
     // the retention arm (read only); each removal then runs under its organization's own context.
     'membership/membership.service.ts',
+    // The default-team-roles reconcile (launch IA2): lists the live TEAM organizations' public ids
+    // under the retention arm (read only); each organization's roles are then written under its
+    // own context. Run by `prepareDatabase`, where no organization GUC exists yet.
+    'organization/organization-provisioning.ts',
   ],
   SESSION_RETENTION_CLEANUP: ['auth-session/workers/'],
   GLOBAL_ADMIN: [

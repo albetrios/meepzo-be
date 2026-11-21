@@ -108,7 +108,7 @@ export function countsAsCircuitFailure(error: unknown): boolean {
 }
 
 /**
- * Redis-backed circuit breaker for external service calls (Stripe, S3, Resend).
+ * Redis-backed circuit breaker for external service calls (Stripe, S3, Resend, Turnstile, Instagram).
  * State is shared across all API instances so the circuit trips cluster-wide.
  * Falls back to in-memory state when Redis is unavailable.
  *
@@ -386,6 +386,8 @@ export const S3_CIRCUIT_RESET_TIMEOUT_MS = FIFTEEN_SECONDS_MS;
 export const RESEND_CIRCUIT_RESET_TIMEOUT_MS = MILLISECONDS_PER_MINUTE;
 /** Reset window (ms) for {@link turnstileCircuit}. */
 export const TURNSTILE_CIRCUIT_RESET_TIMEOUT_MS = THIRTY_SECONDS_MS;
+/** Reset window (ms) for {@link instagramCircuit}; exported for Instagram queue backoff alignment. */
+export const INSTAGRAM_CIRCUIT_RESET_TIMEOUT_MS = THIRTY_SECONDS_MS;
 
 /** Shared circuit breaker for all Stripe API calls — trips after 5 failures, half-opens after 30s. */
 export const stripeCircuit = new CircuitBreaker({
@@ -415,6 +417,17 @@ export const turnstileCircuit = new CircuitBreaker({
   failureThreshold: 5,
   resetTimeoutMs: TURNSTILE_CIRCUIT_RESET_TIMEOUT_MS,
 });
+/**
+ * Shared circuit breaker for every Instagram Graph API call (`src/infrastructure/social/`) — trips
+ * after 5 failures, half-opens after 30s. Instagram refusing one request (a bad code, a dead token,
+ * a throttle) is not a failure: `InstagramApiError` carries `countsAsCircuitFailure: false`.
+ */
+export const instagramCircuit = new CircuitBreaker({
+  name: 'instagram',
+  redis: redisConnection,
+  failureThreshold: 5,
+  resetTimeoutMs: INSTAGRAM_CIRCUIT_RESET_TIMEOUT_MS,
+});
 
 /** Named circuit breakers exposed to ops admin endpoints. */
 export const MANAGED_CIRCUIT_BREAKERS = {
@@ -422,6 +435,7 @@ export const MANAGED_CIRCUIT_BREAKERS = {
   s3: s3Circuit,
   resend: resendCircuit,
   turnstile: turnstileCircuit,
+  instagram: instagramCircuit,
 } as const;
 
 /** Union of circuit breaker names exposed on ops admin endpoints. */
@@ -435,7 +449,7 @@ export type ManagedCircuitBreakerSnapshot = {
 
 /**
  * Reads the current state of every managed external circuit breaker (Stripe, S3, Resend,
- * Turnstile) in parallel.
+ * Turnstile, Instagram) in parallel.
  *
  * @remarks
  * Surfaces external-dependency health without issuing any outbound call — state is read from the

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 import { env } from '@/shared/config/env.config.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { getSharedEventLoopHistogram } from '@/shared/utils/infrastructure/event-loop-monitor.js';
 import {
   getActiveOrganizationRlsCheckoutCount,
@@ -87,10 +88,10 @@ function resolveShedReason(options: Parameters<typeof shouldShedRequest>[0]) {
  *   {@link ServiceUnavailableError} with `Retry-After`.
  * - **Why:** without a valve, a backlog grows an unbounded queue and tail latency runs to multiple
  *   seconds. Shedding bounds the tail — requests the box cannot serve promptly get a fast, cheap
- *   503 instead of occupying a worker for seconds. Rejections carry an internal reason
- *   (`event_loop_overload`, `database_pool_overload` or `database_pool_wait_overload`) in the
- *   structured error-handler log;
- *   the 5xx response does not expose it. The event-loop signal alone is blind to pool
+ *   503 instead of occupying a worker for seconds. Each rejection logs its internal signal
+ *   (`event_loop_overload`, `database_pool_overload` or `database_pool_wait_overload`) as the
+ *   `reason` of a `request.overload_shed` warning; the 503 itself carries no `reason` — the error
+ *   handler shows a 503's stable reason to the client (launch D34), and this signal is internal. The event-loop signal alone is blind to pool
  *   exhaustion: a request awaiting a pooled connection leaves the loop *idle*, so without the pool
  *   condition requests would queue for a pooled connection until `DATABASE_POOL_ACQUIRE_TIMEOUT_MS`. The pool ratio (`env.OVERLOAD_DB_POOL_SHED_RATIO`,
  *   `0` disables) is decoupled from the alerter's `DATABASE_POOL_ACTIVE_CRITICAL_RATIO` so shedding
@@ -139,10 +140,10 @@ const overloadGuardMiddleware: FastifyPluginAsync = async (application) => {
       connectionWaitShedMs: env.OVERLOAD_DB_ACQUIRE_WAIT_SHED_MS,
     });
     if (shedReason !== null) {
-      // Internal reason is logged by the error handler; 5xx responses never expose it.
-      throw new ServiceUnavailableError()
-        .withReason(shedReason)
-        .withRetryAfter(OVERLOAD_RETRY_AFTER_SECONDS);
+      // The signal is internal: logged here, never set as the error's `reason` — the error handler
+      // shows a 503's reason to the client (launch D34).
+      logger.warn({ requestId: request.id, reason: shedReason }, 'request.overload_shed');
+      throw new ServiceUnavailableError().withRetryAfter(OVERLOAD_RETRY_AFTER_SECONDS);
     }
   });
 };

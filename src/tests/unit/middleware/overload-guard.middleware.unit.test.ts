@@ -169,7 +169,7 @@ describe('overload-guard.middleware', () => {
         expect(response.json().error.reason).toBeUndefined();
         expect(warning).toHaveBeenCalledWith(
           expect.objectContaining({ reason: 'database_pool_overload' }),
-          'request.service_unavailable',
+          'request.overload_shed',
         );
       } finally {
         vi.restoreAllMocks();
@@ -196,9 +196,10 @@ describe('overload-guard.middleware', () => {
         const response = await app.inject({ method: 'GET', url: '/x' });
         expect(response.statusCode).toBe(503);
         expect(response.headers['retry-after']).toBe('1');
+        expect(response.json().error.reason).toBeUndefined();
         expect(warning).toHaveBeenCalledWith(
           expect.objectContaining({ reason: 'database_pool_wait_overload' }),
-          'request.service_unavailable',
+          'request.overload_shed',
         );
       } finally {
         vi.restoreAllMocks();
@@ -229,7 +230,7 @@ describe('overload-guard.middleware', () => {
         expect(response.json().error.reason).toBeUndefined();
         expect(warning).toHaveBeenCalledWith(
           expect.objectContaining({ reason: 'event_loop_overload' }),
-          'request.service_unavailable',
+          'request.overload_shed',
         );
       } finally {
         vi.restoreAllMocks();

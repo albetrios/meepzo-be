@@ -17,10 +17,24 @@ const DATABASE_CONTEXT_WRAPPERS = [
 ] as const;
 
 /**
+ * Every call of the one Instagram client (K10, 1.10: no Instagram call inside a database context),
+ * read from the client's own `export async function` declarations so a new call is covered at once.
+ */
+const INSTAGRAM_CLIENT_CALL_NAMES = [
+  ...readFileSync(join(ROOT, 'src/infrastructure/social/instagram.client.ts'), 'utf-8').matchAll(
+    /^export async function (\w+)/gm,
+  ),
+].map((match) => match[1]);
+
+/**
  * Outbound network / external SDK calls that must not run inside a DB context
  * callback — they would hold a checkout across remote round trips.
  */
 const OUTBOUND_IN_CONTEXT_PATTERNS: { pattern: RegExp; label: string }[] = [
+  {
+    pattern: new RegExp(`\\b(?:${INSTAGRAM_CLIENT_CALL_NAMES.join('|')})\\s*\\(`),
+    label: 'Instagram client call',
+  },
   { pattern: /\bfetch\s*\(/, label: 'fetch(' },
   { pattern: /\bfetchWebhook\w*\s*\(/, label: 'fetchWebhook*(' },
   { pattern: /\bthis\.objectStorage\.\w+\s*\(/, label: 'this.objectStorage.*(' },
@@ -149,6 +163,12 @@ function findViolations(content: string, relativePath: string): string[] {
 }
 
 describe('RLS database context network isolation (production-readiness finding #5)', () => {
+  it('reads the Instagram client calls it guards', () => {
+    expect(INSTAGRAM_CLIENT_CALL_NAMES).toEqual(
+      expect.arrayContaining(['exchangeInstagramAuthorizationCode', 'sendInstagramMessage']),
+    );
+  });
+
   it('should forbid outbound network calls inside database context callbacks in domain code', () => {
     const allViolations: string[] = [];
 

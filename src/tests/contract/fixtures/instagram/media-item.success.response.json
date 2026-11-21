@@ -1,0 +1,25 @@
+{
+  "id": "18030000000000004",
+  "caption": "Three colours, one price — comment SHOP",
+  "media_type": "CAROUSEL_ALBUM",
+  "media_product_type": "FEED",
+  "media_url": "https://scontent.cdninstagram.com/v/t51.29350-15/contract-fixture-carousel-cover.jpg",
+  "permalink": "https://www.instagram.com/p/ContractFixtureCarousel/",
+  "timestamp": "2026-11-18T12:00:00+0000",
+  "comments_count": 31,
+  "like_count": 512,
+  "children": {
+    "data": [
+      {
+        "id": "18030000000000005",
+        "media_type": "IMAGE",
+        "media_url": "https://scontent.cdninstagram.com/v/t51.29350-15/contract-fixture-carousel-red.jpg"
+      },
+      {
+        "id": "18030000000000006",
+        "media_type": "VIDEO",
+        "media_url": "https://scontent.cdninstagram.com/o1/v/t16/contract-fixture-carousel-blue.mp4"
+      }
+    ]
+  }
+}

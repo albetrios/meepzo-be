@@ -5,8 +5,8 @@
  *
  * @remarks
  * Keys are forced with `=`, never `??=`: the env loader layers the machine-local env file over the
- * shell, and `pnpm setup:local` copies the hosted development Stripe, Resend, S3 and PostHog
- * keys into it. With `??=` the suite ran with those real keys.
+ * shell, and `pnpm setup:local` copies the hosted development Stripe, Resend, S3, PostHog and
+ * Instagram keys into it. With `??=` the suite ran with those real keys.
  *
  * Fake keys alone were not enough: a suite that created a subscription still reached
  * api.stripe.com, and one confirm path reached AWS S3 — passing only because the fake key was
@@ -26,6 +26,7 @@
  * bucket whose name says production, and any lane but the contract slice.
  */
 import nock from 'nock';
+import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
 
 /** `host` or `host:port` of this machine — the only destinations a Vitest run may connect to. */
 const LOOPBACK_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|::1)(:\d+)?$/;
@@ -64,6 +65,11 @@ function useFakeProviderKeys(): void {
   process.env.S3_REGION = 'us-east-1';
   process.env.S3_ACCESS_KEY_ID = 'test-s3-access-key-id';
   process.env.S3_SECRET_ACCESS_KEY = 'test-s3-secret-access-key';
+  // A complete fake Instagram app, so the Instagram client and Meta's signature checks run against
+  // nock stubs (and a computed HMAC), never the hosted development app setup:local copies in.
+  process.env.INSTAGRAM_APP_ID = 'test-instagram-app-id';
+  process.env.INSTAGRAM_APP_SECRET = 'test-instagram-app-secret-for-nock-stubs';
+  process.env.INSTAGRAM_REDIRECT_URI = `${DEFAULT_FRONTEND_URL}/auth/instagram/callback`;
 
   for (const key of ['S3_ENDPOINT', 'SENTRY_DSN', 'POSTHOG_KEY', 'POSTHOG_HOST']) {
     delete process.env[key];

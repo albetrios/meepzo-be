@@ -37,6 +37,11 @@ const ORG_SCOPED_TABLES = [
   { schemaName: 'tenancy', tableName: 'roles' },
   { schemaName: 'tenancy', tableName: 'api_keys' },
   { schemaName: 'tenancy', tableName: 'organization_notification_policies' },
+  // The Instagram account and its settings carry the sweep arm in USING only (launch R3). The
+  // token table carries none, so a retention context does not even see a token (IA5) — covered by
+  // instagram-account-resolvers.security.test.ts.
+  { schemaName: 'app', tableName: 'instagram_accounts' },
+  { schemaName: 'app', tableName: 'instagram_account_settings' },
 ] as const;
 
 async function resolveOrganizationInternalId(organizationPublicId: string): Promise<number> {

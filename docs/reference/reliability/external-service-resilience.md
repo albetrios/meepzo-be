@@ -1,6 +1,6 @@
 # External service resilience
 
-Outbound HTTP to Stripe, Resend, and S3 uses a **Redis-backed circuit breaker** ([`circuit-breaker.ts`](../../../src/infrastructure/resilience/circuit-breaker.ts)) shared across API replicas. State changes are logged and reported to Sentry via `captureMessage`.
+Outbound HTTP to Stripe, Resend, S3 and Instagram uses a **Redis-backed circuit breaker** ([`circuit-breaker.ts`](../../../src/infrastructure/resilience/circuit-breaker.ts)) shared across API replicas. State changes are logged and reported to Sentry via `captureMessage`.
 
 Notify **outbound webhooks** (customer URLs) use a separate **in-memory** [opossum](https://github.com/nodeshift/opossum) circuit per destination webhook in [`webhook-outbound-circuit.ts`](../../../src/domains/notify/sub-domains/webhook/webhook-delivery/workers/webhook-outbound-circuit.ts) — not cluster-wide. Breakers are cached in a bounded LRU+TTL map keyed by webhook public id (cap 5,000, idle TTL 1h), so URL churn and multi-tenant growth cannot leak breakers and a URL update reuses the same breaker rather than orphaning it. The public id rather than the bigserial, so a webhook created after an id restart (`TRUNCATE ... RESTART IDENTITY`, a database restore) cannot inherit another webhook's open breaker.
 
@@ -13,6 +13,7 @@ Notify **outbound webhooks** (customer URLs) use a separate **in-memory** [oposs
 | **Stripe** | All SDK calls in [`stripe.client.ts`](../../../src/infrastructure/payment/stripe.client.ts) except webhook HMAC | `constructStripeWebhookEvent` (local signature verify) |
 | **Resend** | `sendEmail` in [`mail.service.ts`](../../../src/infrastructure/mail/mail.service.ts) | — |
 | **S3** | every call in [`s3-adapter.ts`](../../../src/infrastructure/storage/s3-adapter.ts), the one implementation of `ObjectStoragePort` (a 4xx answer to one request — 404, 412, 416 — does not count against the circuit: `countsS3ErrorAsCircuitFailure`) | `createPresignedUploadUrl` (local signing only) |
+| **Instagram** | every call in [`instagram.client.ts`](../../../src/infrastructure/social/instagram.client.ts) — the one Instagram client (`instagram` integration, 10 s timeout); Instagram refusing one request does not count against the circuit (`InstagramApiError.countsAsCircuitFailure`) | `verifyMetaWebhookSignature` / `parseMetaSignedRequest` in [`meta-signature.util.ts`](../../../src/infrastructure/social/meta-signature.util.ts) (local signature checks) |
 | **Notify webhooks** | `fetchWebhookWithCircuitBreaker` (opossum, per process) | — |
 
 OAuth provider `fetch` calls (Google/GitHub) are **not** circuit-wrapped today.
@@ -21,9 +22,9 @@ OAuth provider `fetch` calls (Google/GitHub) are **not** circuit-wrapped today.
 
 ## External calls and database transactions
 
-HTTP handlers do **not** pin a Postgres checkout for the full request: each unit of work holds one only inside its `withAppDatabaseContext`. Still avoid awaiting Stripe / S3 / Resend inside `withAppDatabaseContext` / `withTransaction` callbacks — network latency should not run while a DB transaction is open.
+HTTP handlers do **not** pin a Postgres checkout for the full request: each unit of work holds one only inside its `withAppDatabaseContext`. Still avoid awaiting Stripe / S3 / Resend / Instagram inside `withAppDatabaseContext` / `withTransaction` callbacks — network latency should not run while a DB transaction is open.
 
-**CI guard:** `pnpm test:global` runs [`rls-context-network-isolation.global.test.ts`](../../../src/tests/global/rls-context-network-isolation.global.test.ts) — fails when outbound network calls appear inside database context callbacks under `src/domains/`.
+**CI guard:** `pnpm test:global` runs [`rls-context-network-isolation.global.test.ts`](../../../src/tests/global/rls-context-network-isolation.global.test.ts) — fails when outbound network calls appear inside database context callbacks under `src/domains/`, including any call of the Instagram client (read from its exported functions).
 
 **Pattern:** resolve provider state first (or after DB writes), then call external APIs outside the scoped DB wrapper. Subscription create already calls `paymentProvider.createSubscription` before `repository.create`.
 
@@ -44,10 +45,11 @@ HTTP handlers do **not** pin a Postgres checkout for the full request: each unit
 | `stripe` | 5 | 30_000 |
 | `s3` | 3 | 15_000 |
 | `resend` | 5 | 60_000 |
+| `instagram` | 5 | 30_000 |
 
 When Redis is unavailable, breakers fall back to in-memory state per process.
 
-**What counts as a failure.** Every error an operation throws counts against its circuit, except one that carries `countsAsCircuitFailure: false` ([`countsAsCircuitFailure`](../../../src/infrastructure/resilience/circuit-breaker.ts)) — the dependency answered and refused that one request. Such a call counts as a success, so a burst of bad requests can neither open a circuit nor keep a half-open one from closing. Our own error classes set the property (a Resend per-email rejection on `ResendApiError`, below); for a third-party error, `outboundCall`'s `countsAsCircuitFailure` option tags it. Every Stripe call passes [`countsStripeErrorAsCircuitFailure`](../../../src/infrastructure/payment/stripe.client.ts): a declined card, an invalid or not-found request (`resource_missing`) and an idempotency-key conflict do not count; outages, timeouts, connection, authentication and permission errors and rate limits do. Every S3 error still counts.
+**What counts as a failure.** Every error an operation throws counts against its circuit, except one that carries `countsAsCircuitFailure: false` ([`countsAsCircuitFailure`](../../../src/infrastructure/resilience/circuit-breaker.ts)) — the dependency answered and refused that one request. Such a call counts as a success, so a burst of bad requests can neither open a circuit nor keep a half-open one from closing. Our own error classes set the property (a Resend per-email rejection on `ResendApiError`, below); for a third-party error, `outboundCall`'s `countsAsCircuitFailure` option tags it. Every Stripe call passes [`countsStripeErrorAsCircuitFailure`](../../../src/infrastructure/payment/stripe.client.ts): a declined card, an invalid or not-found request (`resource_missing`) and an idempotency-key conflict do not count; outages, timeouts, connection, authentication and permission errors and rate limits do. Every S3 error still counts. Every Instagram failure is an [`InstagramApiError`](../../../src/infrastructure/social/instagram-error.util.ts) read once into four classes: `auth` (a dead token or a missing permission), `refused` (any other 4xx — a bad code, a refused send) and `throttled` (codes 4, 17, 32, 613 or HTTP 429, with `Retry-After`) do not count — Instagram answered, and one account's throttle must not open the circuit for every organization; only an `outage` (timeout, network, 5xx) does.
 
 ---
 

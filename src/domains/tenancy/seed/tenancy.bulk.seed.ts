@@ -1,8 +1,9 @@
 /**
  * Tenancy bulk seeder — gives every pool user the personal organization signup provisions, then
  * creates organizations (deterministic slugs `bulk-organization-<index>`), each with an Admin role +
- * full permission grant and a faker-sized set of ACTIVE memberships drawn from the user pool in the
- * registry. Created organizations are appended to the registry for downstream domains (billing,
+ * full permission grant, a faker-sized set of ACTIVE memberships drawn from the user pool in the
+ * registry, and the default team roles a provisioned team holds (the locked Member — launch IA2 —
+ * through `reconcileTeamOrganizationDefaultRoles`, the definition provisioning uses). Created organizations are appended to the registry for downstream domains (billing,
  * notify, upload, audit).
  *
  * Idempotency: a user who already has a personal organization keeps it, and only organization
@@ -13,7 +14,10 @@ import { and, eq, isNull, like } from 'drizzle-orm';
 import { env } from '@/shared/config/env.config.js';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
-import { provisionPersonalOrganization } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
+import {
+  provisionPersonalOrganization,
+  reconcileTeamOrganizationDefaultRoles,
+} from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { SYSTEM_PERMISSIONS } from '@/domains/tenancy/sub-domains/permission/seed/permission.reference.seed.js';
 import type { SeedContext, SeededUser } from '@/scripts/seed/seed-contract.js';
 import { generateBulkOrganizationName } from './tenancy.faker.js';
@@ -46,9 +50,10 @@ async function seedPersonalOrganizations(pool: readonly SeededUser[]): Promise<v
  * Algorithm: when `PERSONAL_ORGANIZATION_ENABLED`, provision the personal organization of each pool
  * user who has none (`provisionPersonalOrganization`, the signup path), so a seeded user's first
  * profile read does not self-heal one under load; then count existing bulk organizations, create
- * only the missing higher indices (each with an Admin role, full grant, owner membership, and
- * additional members), then re-select all bulk organizations into the registry. Side effects:
- * inserts into organizations / roles / role_permissions / memberships. Failure modes: warns and
+ * only the missing higher indices (each with an Admin role, full grant, owner membership, additional
+ * members, then the missing default team roles — Member — from the shared provisioning definition),
+ * then re-select all bulk organizations into the registry. Side effects: inserts into organizations /
+ * roles / role_permissions / memberships. Failure modes: warns and
  * returns early if the user pool is empty; otherwise propagates DB errors.
  */
 export async function seedOrganizationsBulk(context: SeedContext): Promise<void> {
@@ -106,6 +111,10 @@ export async function seedOrganizationsBulk(context: SeedContext): Promise<void>
         created_by_user_id: owner.id,
       });
     }
+
+    // The default team roles a provisioned team holds (Member, launch IA2), from the same
+    // definition; a new organization has no cached permission set, so nothing to invalidate.
+    await reconcileTeamOrganizationDefaultRoles({ organizationPublicId: organization.public_id });
   }
 
   const rows = await database

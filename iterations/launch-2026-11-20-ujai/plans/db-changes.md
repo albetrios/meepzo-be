@@ -121,7 +121,7 @@ New rows in existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
 - Owner and Admin hold every new code ([D2](decisions.md)).
 - **Member** is a new default role, locked like Admin: it cannot be edited or deleted. It holds the
   drop's Member grants — view Instagram content, view / create / edit automations, view contacts
-  ([D2](decisions.md), [D3](decisions.md)).
+  ([D2](decisions.md), [D3](decisions.md)) — plus the existing view-organization code ([D31](decisions.md)).
 - Every team organization gets the Member role and the new grants, the ones that exist today
   included ([D3](decisions.md)).
 

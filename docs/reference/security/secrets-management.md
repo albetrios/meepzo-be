@@ -40,7 +40,7 @@ Application-level encryption for short secrets at rest (MFA TOTP seeds, webhook 
 
 4. Once no `v1` rows remain, drop `v1` from `SECRETS_ENCRYPTION_KEYS` (and rotate `SECRETS_ENCRYPTION_KEY` to the `v2` value).
 
-The script walks `auth.mfa_methods.encrypted_secret` and `notify.webhooks.encrypted_secret`, decrypting each value by its stored version and re-encrypting with the current version.
+The script walks every column in its `FIELD_SECRET_ROTATION_COLUMNS` list — `auth.mfa_methods.encrypted_secret`, `notify.webhooks.encrypted_secret` and `app.instagram_account_tokens.encrypted_access_token` (the Instagram access token) — decrypting each value by its stored version and re-encrypting with the current version. A new `encryptFieldSecret` column joins that list. The script reads the tables outside any database context, so it must connect as a role that bypasses RLS: all three are FORCE RLS, and the Instagram token table has no maintenance arm, so as the `meepzo_be_app` role it finds no rows.
 
 ## Envelope format
 

@@ -11,6 +11,66 @@ src/
     │   └── register-event-handlers.ts
     └── core.overview.md
 ├── domains/
+    ├── app/
+    │   ├── __tests__/
+    │   │   ├── integration/
+    │   │   │   └── app-route-smoke.integration.test.ts
+    │   │   └── unit/
+    │   │   │   └── app.domain-wiring.unit.test.ts
+    │   ├── seed/
+    │   │   └── index.ts
+    │   ├── sub-domains/
+    │   │   └── instagram-account/
+    │   │   │   ├── __tests__/
+    │   │   │       ├── e2e/
+    │   │   │       │   └── instagram-account-connection.e2e.test.ts
+    │   │   │       ├── factories/
+    │   │   │       │   └── instagram-account.factory.ts
+    │   │   │       ├── integration/
+    │   │   │       │   └── instagram-account.integration.test.ts
+    │   │   │       └── unit/
+    │   │   │       │   ├── instagram-account-seed.db.unit.test.ts
+    │   │   │       │   ├── instagram-account-token-isolation.policy.unit.test.ts
+    │   │   │       │   ├── instagram-account-token.service.db.unit.test.ts
+    │   │   │       │   ├── instagram-account.repository.db.unit.test.ts
+    │   │   │       │   ├── instagram-account.serializer.unit.test.ts
+    │   │   │       │   └── instagram-account.validator.unit.test.ts
+    │   │   │   ├── instagram-account-settings/
+    │   │   │       ├── __tests__/
+    │   │   │       │   └── unit/
+    │   │   │       │   │   ├── instagram-account-settings.serializer.unit.test.ts
+    │   │   │       │   │   └── instagram-account-settings.service.db.unit.test.ts
+    │   │   │       ├── seed/
+    │   │   │       │   ├── index.ts
+    │   │   │       │   └── instagram-account-settings.bulk.seed.ts
+    │   │   │       ├── instagram-account-settings.overview.md
+    │   │   │       ├── instagram-account-settings.repository.ts
+    │   │   │       ├── instagram-account-settings.schema.ts
+    │   │   │       ├── instagram-account-settings.serializer.ts
+    │   │   │       ├── instagram-account-settings.service.ts
+    │   │   │       └── instagram-account-settings.types.ts
+    │   │   │   ├── seed/
+    │   │   │       ├── index.ts
+    │   │   │       ├── instagram-account.bulk.seed.ts
+    │   │   │       └── instagram-account.faker.ts
+    │   │   │   ├── instagram-account-token.repository.ts
+    │   │   │   ├── instagram-account-token.schema.ts
+    │   │   │   ├── instagram-account-token.service.ts
+    │   │   │   ├── instagram-account.constants.ts
+    │   │   │   ├── instagram-account.controller.ts
+    │   │   │   ├── instagram-account.dto.ts
+    │   │   │   ├── instagram-account.overview.md
+    │   │   │   ├── instagram-account.repository.ts
+    │   │   │   ├── instagram-account.routes.ts
+    │   │   │   ├── instagram-account.schema.ts
+    │   │   │   ├── instagram-account.serializer.ts
+    │   │   │   ├── instagram-account.service.ts
+    │   │   │   ├── instagram-account.types.ts
+    │   │   │   └── instagram-account.validator.ts
+    │   ├── app.container.ts
+    │   ├── app.overview.md
+    │   ├── app.permissions.ts
+    │   └── app.routes.ts
     ├── audit/
     │   ├── __tests__/
     │   │   ├── integration/
@@ -689,6 +749,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── member-roles.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── default-team-role-locks.unit.test.ts
     │   │   │   │   │   ├── member-role-tombstone-retention.processor.boundary.unit.test.ts
     │   │   │   │   │   ├── member-role-tombstone-retention.worker.unit.test.ts
     │   │   │   │   │   ├── member-role.controller.unit.test.ts
@@ -841,6 +902,7 @@ src/
     │   │   │   │   │   ├── organization.validator.unit.test.ts
     │   │   │   │   │   ├── owner-permission-codes.unit.test.ts
     │   │   │   │   │   ├── personal-organization-provisioning.db.unit.test.ts
+    │   │   │   │   │   ├── team-organization-default-roles-reconcile.db.unit.test.ts
     │   │   │   │   │   └── team-organization-provisioning.db.unit.test.ts
     │   │   │   ├── events/
     │   │   │   │   └── organization.events.ts
@@ -1475,6 +1537,16 @@ src/
     │   ├── circuit-breaker.ts
     │   ├── resilience.overview.md
     │   └── retry-with-backoff.util.ts
+    ├── social/
+    │   ├── __tests__/
+    │   │   └── unit/
+    │   │   │   ├── instagram-error.util.unit.test.ts
+    │   │   │   ├── instagram.client.unit.test.ts
+    │   │   │   └── meta-signature.util.unit.test.ts
+    │   ├── instagram-error.util.ts
+    │   ├── instagram.client.ts
+    │   ├── meta-signature.util.ts
+    │   └── social.overview.md
     ├── storage/
     │   ├── __tests__/
     │   │   └── unit/
@@ -1810,6 +1882,29 @@ src/
     │   └── webhook-delivery.chaos.test.ts
     ├── contract/
     │   ├── fixtures/
+    │   │   ├── instagram/
+    │   │   │   ├── access-token.success.response.json
+    │   │   │   ├── comment-replies.success.response.json
+    │   │   │   ├── graph-error.application-throttled.response.json
+    │   │   │   ├── graph-error.outside-messaging-window.response.json
+    │   │   │   ├── graph-error.quick-reply-refused.response.json
+    │   │   │   ├── graph-error.recipient-not-found.response.json
+    │   │   │   ├── graph-error.token-expired.response.json
+    │   │   │   ├── graph-error.token-invalidated.response.json
+    │   │   │   ├── graph-error.unexpected.response.json
+    │   │   │   ├── me.success.response.json
+    │   │   │   ├── me.wrapped.success.response.json
+    │   │   │   ├── media-item.success.response.json
+    │   │   │   ├── media.first-page.response.json
+    │   │   │   ├── media.last-page.response.json
+    │   │   │   ├── messages.success.response.json
+    │   │   │   ├── oauth-access-token.error.response.json
+    │   │   │   ├── oauth-access-token.flat.success.response.json
+    │   │   │   ├── oauth-access-token.success.response.json
+    │   │   │   ├── refresh-access-token.success.response.json
+    │   │   │   ├── stories.success.response.json
+    │   │   │   ├── subscribed-apps.success.response.json
+    │   │   │   └── user-profile.success.response.json
     │   │   ├── oauth/
     │   │   │   ├── github.emails.success.response.json
     │   │   │   ├── github.token.success.response.json
@@ -1857,6 +1952,7 @@ src/
     │   ├── contract.overview.md
     │   ├── github-oauth.contract.test.ts
     │   ├── google-oauth.contract.test.ts
+    │   ├── instagram.contract.test.ts
     │   ├── request-id-eventbus.contract.test.ts
     │   ├── resend.contract.test.ts
     │   ├── resend.live.contract.test.ts
@@ -2203,6 +2299,7 @@ src/
     │   │   ├── bola-cross-tenant.security.test.ts
     │   │   ├── bypass-arm-role-binding.security.test.ts
     │   │   ├── force-rls-policies-restrict.security.test.ts
+    │   │   ├── instagram-account-resolvers.security.test.ts
     │   │   ├── meepzo-be-app-role-privileges.security.test.ts
     │   │   ├── membership-name-sort.security.test.ts
     │   │   ├── membership-search-resolver.security.test.ts
@@ -2485,6 +2582,7 @@ src/
     │   │   ├── route-success-coverage.unit.test.ts
     │   │   ├── route-success-status.unit.test.ts
     │   │   ├── run-pre-commit-guard.unit.test.ts
+    │   │   ├── secrets-key-rotate.db.unit.test.ts
     │   │   ├── settle-check.config.unit.test.ts
     │   │   ├── settle-check.evaluate.unit.test.ts
     │   │   ├── validate-domain.unit.test.ts

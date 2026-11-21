@@ -12,7 +12,16 @@ describe('SEED_MODULES registry', () => {
     const names = SEED_MODULES.map((module) => module.name);
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual(
-      expect.arrayContaining(['user', 'auth', 'tenancy', 'billing', 'notify', 'upload', 'audit']),
+      expect.arrayContaining([
+        'user',
+        'auth',
+        'tenancy',
+        'billing',
+        'notify',
+        'upload',
+        'audit',
+        'app',
+      ]),
     );
   });
 
@@ -30,6 +39,7 @@ describe('SEED_MODULES registry', () => {
     expect(ordered.indexOf('user')).toBeLessThan(ordered.indexOf('tenancy'));
     expect(ordered.indexOf('tenancy')).toBeLessThan(ordered.indexOf('billing'));
     expect(ordered.indexOf('user')).toBeLessThan(ordered.indexOf('auth'));
+    expect(ordered.indexOf('tenancy')).toBeLessThan(ordered.indexOf('app'));
   });
 
   it('every module exposes a seedBulk function', () => {

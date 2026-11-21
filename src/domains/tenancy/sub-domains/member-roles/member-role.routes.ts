@@ -164,7 +164,7 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Replace role permissions',
           description:
-            "Replaces a role's codes with the given set (each code once) and returns them. You can only hand out — or take away — codes you hold (a 403). A role with `is_locked` (Owner and Admin, as an organization is provisioned) is a 403 `role_locked`; the role the organization's owner holds as their main role is a 403 `owner_role_fixed`, whatever its `is_locked` says. Requires role:update.",
+            "Replaces a role's codes with the given set (each code once) and returns them. You can only hand out — or take away — codes you hold (a 403). A role with `is_locked` (Owner, Admin and Member, as an organization is provisioned) is a 403 `role_locked`; the role the organization's owner holds as their main role is a 403 `owner_role_fixed`, whatever its `is_locked` says. Requires role:update.",
           tags: ['Permission'],
           params: roleIdParamsDto,
           body: putMemberRolePermissionsDto,

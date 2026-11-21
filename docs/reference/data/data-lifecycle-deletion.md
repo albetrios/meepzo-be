@@ -116,6 +116,8 @@ Batch deletes use `deleteInBatchesByCondition` with per-row FK fallback (`blocke
 
 **`deleted_at`** (where applicable): `auth.users`, `tenancy.organizations`, `tenancy.memberships`, `tenancy.roles`, `tenancy.api_keys`, `tenancy.organization_notification_policies`, `notify.webhooks`, `upload.uploads`.
 
+**No `deleted_at` in `app`** (the Instagram automation domain): an Instagram account is revoked, never deleted or tombstoned, and its token is erased on every disconnect; the account, its token and its settings leave only with their organization's hard delete (`ON DELETE CASCADE`, a referential action that runs whatever the table's RLS policy).
+
 | Postgres table                       | Schema  | Primary class           | Deletion / inactive signal today          | Notes                                                                           |
 | ------------------------------------ | ------- | ----------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- |
 | `users`                              | auth    | Tombstone + offboarding | `deleted_at`, `status`                    | Offboarding: sessions, auth methods, avatar S3, upload S3+tombstone, GDPR export S3+rows; purge last |
@@ -144,6 +146,9 @@ Batch deletes use `deleteInBatchesByCondition` with per-row FK fallback (`blocke
 | `subscriptions`                      | billing | Immutable ledger        | `status`, `canceled_at`, provider ids     |                                                                                 |
 | `stripe_webhook_events`              | billing | System ledger           | `processing_status`                       | No tenant RLS; deny-all + `meepzo_be_app` policy                                  |
 | `uploads`                            | upload  | Tombstone               | `deleted_at`                              | Per-upload DELETE + user offboarding S3 sweep; retention purge deletes S3+row   |
+| `instagram_accounts`                 | app     | Revocation              | `connection_status = 'revoked'`, `disconnected_at` | Never deleted: a disconnect (route 4) revokes the row and keeps the profile (Meta's data deletion erases it, with ROUTE row R6) and settings, so a reconnect of the same account reuses it; `connected_by_user_id` is `SET NULL` with the user; goes only with the organization (`ON DELETE CASCADE` on its hard delete) |
+| `instagram_account_tokens`           | app     | Ephemeral / high-risk   | row deleted                               | `encryptFieldSecret` ciphertext only (IA5); hard-deleted on **every** disconnect, not only on Meta's data deletion — a revoked account holds no token; cascades with the account and the organization; RLS has no retention sweep arm |
+| `instagram_account_settings`         | app     | Tenant-config           | none (one row per account)                | Kept on a disconnect and reused on a reconnect; `updated_by_user_id` is `SET NULL` with the user; goes with the account and the organization (`ON DELETE CASCADE`) |
 
 ---
 

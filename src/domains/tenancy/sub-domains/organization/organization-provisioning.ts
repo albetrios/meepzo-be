@@ -1,21 +1,35 @@
 import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/membership.constants.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import { AUDIT_PERMISSIONS } from '@/domains/audit/audit.permissions.js';
 import { BILLING_PERMISSIONS } from '@/domains/billing/billing.permissions.js';
 import { NOTIFY_PERMISSIONS } from '@/domains/notify/notify.permissions.js';
 import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
 import { UPLOAD_PERMISSIONS } from '@/domains/upload/upload.permissions.js';
-import { ADMIN_ROLE_NAME } from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
+import {
+  ADMIN_ROLE_NAME,
+  MEMBER_ROLE_NAME,
+} from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
+import { MemberRoleRepository } from '@/domains/tenancy/sub-domains/member-roles/member-role.repository.js';
 import { roles } from '@/domains/tenancy/sub-domains/member-roles/member-role.schema.js';
 import { role_permissions } from '@/domains/tenancy/sub-domains/member-roles/member-role-permission/member-role-permission.schema.js';
 import { memberships } from '@/domains/tenancy/sub-domains/membership/membership.schema.js';
+import {
+  listLiveTeamOrganizationPublicIds,
+  OrganizationRepository,
+} from '@/domains/tenancy/sub-domains/organization/organization.repository.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import type { Organization } from '@/domains/tenancy/sub-domains/organization/organization.types.js';
+import { invalidateOrganizationPermissions } from '@/domains/tenancy/sub-domains/permission/permission-cache.service.js';
 import {
+  MAINTENANCE_SCOPE,
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
+  withMaintenanceDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
+import type { WorkerContextDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
 import { CHIP_TONE, type ChipTone } from '@/shared/constants/record-fields.constants.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 
 /** Name of the auto-provisioned, undeletable owner role created with every organization. */
 export const OWNER_ROLE_NAME = 'Owner';
@@ -55,12 +69,21 @@ const ALL_AUDIT_PERMISSION_CODES: readonly string[] = Object.values(AUDIT_PERMIS
 const ALL_UPLOAD_PERMISSION_CODES: readonly string[] = Object.values(UPLOAD_PERMISSIONS);
 
 /**
+ * Every app permission code — Instagram, automations and contacts are a TEAM organization surface
+ * (launch IA2, IA3), so like the notify codes only a TEAM Owner and Admin hold them all.
+ */
+const ALL_APP_PERMISSION_CODES: readonly string[] = Object.values(APP_PERMISSIONS);
+
+/**
  * Permission codes granted to the auto-provisioned Owner role.
  *
  * @remarks
  * Every owner receives the tenancy, audit and upload codes, plus **`subscription:read`**.
  * TEAM organizations additionally receive `subscription:manage` so the creator can use the
- * billing write routes, and notify read/manage so they can use `/notify/webhooks/*`.
+ * billing write routes, notify read/manage so they can use `/notify/webhooks/*`, and the nine app
+ * codes (Instagram, automations, contacts — launch IA2). A PERSONAL owner holds none of the app
+ * codes: the surface is team-only, so its permission gate answers 403 before the team-only check
+ * (launch IA3).
  *
  * A PERSONAL owner gets the billing READ code because Billing is an **account-level**
  * surface they reach, and the route catalog already says so: every `subscription:read`
@@ -93,6 +116,7 @@ export function ownerPermissionCodesForOrganizationType(
       ...everyOwnerCodes,
       BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE,
       ...ALL_NOTIFY_PERMISSION_CODES,
+      ...ALL_APP_PERMISSION_CODES,
     ];
   }
   return everyOwnerCodes;
@@ -113,8 +137,8 @@ export interface DefaultTeamRole {
 }
 
 /**
- * Admin's codes: every team code but `organization:delete` (D8), billing, webhooks, audit logs
- * and uploads.
+ * Admin's codes: every team code but `organization:delete` (D8), billing, webhooks, audit logs,
+ * uploads and the nine app codes (launch IA2).
  *
  * @remarks
  * Escalation to Owner stays closed on three independent paths —
@@ -144,18 +168,35 @@ const ADMIN_PERMISSION_CODES: readonly string[] = [
   NOTIFY_PERMISSIONS.WEBHOOK_MANAGE,
   AUDIT_PERMISSIONS.AUDIT_LOG_READ,
   UPLOAD_PERMISSIONS.UPLOAD_MANAGE,
+  ...ALL_APP_PERMISSION_CODES,
 ];
 
 /**
- * Non-owner system roles seeded into every TEAM organization at provisioning time — Admin — so a
- * new organization can invite its team straight away.
+ * Member's codes (launch D2, K4, D31): view the organization, view the Instagram account, view,
+ * create and edit automations, view contacts — exactly these six. Connecting or managing Instagram,
+ * deleting an automation or a contact and the Instagram webhook-event list stay with Owner and Admin.
+ */
+const MEMBER_PERMISSION_CODES: readonly string[] = [
+  TENANCY_PERMISSIONS.ORGANIZATION_READ,
+  APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ,
+  APP_PERMISSIONS.AUTOMATION_READ,
+  APP_PERMISSIONS.AUTOMATION_CREATE,
+  APP_PERMISSIONS.AUTOMATION_UPDATE,
+  APP_PERMISSIONS.CONTACT_READ,
+];
+
+/**
+ * Non-owner system roles every TEAM organization holds — Admin and Member — so a new organization
+ * can invite its team straight away.
  *
  * @remarks
- * - Every entry is `is_system: true`: its name is fixed and it cannot be deleted. Its access is
- *   each organization's to edit (D5), except Admin's — the one locked preset (D40); the Owner role
- *   is locked as well (D81 (4)).
+ * - Every entry is `is_system: true`: its name is fixed and it cannot be deleted. Both are locked
+ *   (Admin D40, Member launch D3): their codes never change through the API — the guards read the
+ *   row's `is_system` / `is_locked` flags, not its name. The Owner role is locked as well (D81 (4)).
  * - PERSONAL organizations are single-member and reject custom roles, so they receive only Owner;
  *   these defaults apply to TEAM organizations exclusively.
+ * - The one definition both provisioning and {@link reconcileDefaultTeamRoles} apply, so a team
+ *   created before a change here gets exactly what a new one gets.
  * - Every permission code must exist in the seeded `tenancy.permissions` reference table (the grant
  *   insert carries an FK to it).
  */
@@ -166,6 +207,13 @@ export const DEFAULT_TEAM_ROLES: readonly DefaultTeamRole[] = [
     tone: CHIP_TONE.LAVENDER,
     isLocked: true,
     permissionCodes: ADMIN_PERMISSION_CODES,
+  },
+  {
+    name: MEMBER_ROLE_NAME,
+    description: 'Does the daily work: Instagram content, automations and contacts.',
+    tone: CHIP_TONE.SAGE,
+    isLocked: true,
+    permissionCodes: MEMBER_PERMISSION_CODES,
   },
 ];
 
@@ -187,8 +235,8 @@ export interface ProvisionOrganizationResult {
 
 /**
  * Atomically bootstrap an organization with full owner access: organization row →
- * system, locked `Owner` role (slate) → every tenancy, audit and upload permission granted to it (plus billing
- * and notify read/manage for TEAM organizations) → the owner's ACTIVE membership. Without this, a freshly created
+ * system, locked `Owner` role (slate) → every tenancy, audit and upload permission granted to it (plus billing,
+ * notify read/manage and the app codes for TEAM organizations) → the owner's ACTIVE membership. Without this, a freshly created
  * organization's owner resolves zero permissions (the permission path is a strict
  * role→membership join with no owner shortcut).
  *
@@ -210,7 +258,8 @@ export interface ProvisionOrganizationResult {
  *   one-personal-per-owner index, missing permission reference rows). Callers map
  *   `unique_violation` to a 409.
  * - **Side effects:** table inserts (organizations, roles, role_permissions, memberships); TEAM
- *   organizations additionally insert the default team roles (Admin locked) and their grants.
+ *   organizations additionally insert the default team roles (Admin and Member, both locked) and
+ *   their grants.
  * - **Notes:** the owner and default roles are `is_system: true` so they cannot be deleted via the
  *   role API; the Owner role is also `is_locked` (launch D81 (4) — its codes never change through
  *   the API, `PUT …/roles/{role_id}/permissions` answers 403 `role_locked`). Permission reference
@@ -307,32 +356,15 @@ async function provisionOrganization(
         })
         .returning();
 
-      // TEAM organizations also receive the default Admin role so the team can invite straight
-      // away. PERSONAL organizations are single-member and reject custom roles, so they get Owner only.
+      // TEAM organizations also receive the default roles (Admin, Member) so the team can invite
+      // straight away — through the same step the reconcile runs for teams that already exist.
+      // PERSONAL organizations are single-member and reject custom roles, so they get Owner only.
       if (input.type === 'TEAM') {
-        for (const defaultRole of DEFAULT_TEAM_ROLES) {
-          const [defaultRoleRow] = await databaseHandle
-            .insert(roles)
-            .values({
-              public_id: generatePublicId('memberRole'),
-              organization_id: organization!.id,
-              name: defaultRole.name,
-              description: defaultRole.description,
-              tone: defaultRole.tone,
-              is_system: true,
-              is_locked: defaultRole.isLocked,
-              created_by_user_id: input.ownerUserId,
-            })
-            .returning();
-
-          await databaseHandle.insert(role_permissions).values(
-            defaultRole.permissionCodes.map((permission_code) => ({
-              role_id: defaultRoleRow!.id,
-              permission_code,
-              created_by_user_id: input.ownerUserId,
-            })),
-          );
-        }
+        await ensureDefaultTeamRoles({
+          databaseHandle,
+          organizationId: organization!.id,
+          actorUserId: input.ownerUserId,
+        });
       }
 
       return {
@@ -342,4 +374,248 @@ async function provisionOrganization(
       };
     },
   });
+}
+
+/** Reads and renames for the default-team-roles step; the inserts stay on the unit of work's handle. */
+const memberRoleRepository = new MemberRoleRepository();
+
+/** Reads the organization the per-organization reconcile works on. */
+const organizationRepository = new OrganizationRepository();
+
+/** What {@link ensureDefaultTeamRoles} changed in one TEAM organization; all empty when nothing. */
+export interface DefaultTeamRolesChange {
+  /** Names of the default roles it added. */
+  addedRoleNames: string[];
+  /** Custom roles it renamed because they held a default role's name (launch IQ5). */
+  renamedRoles: Array<{ rolePublicId: string; fromName: string; toName: string }>;
+  /** Permission grants it added to the Owner and the default roles. */
+  grantedCodeCount: number;
+}
+
+/** The name a custom role moves to when a default role needs its name: "Member (custom)". */
+function customRoleNameFor({
+  name,
+  takenNames,
+}: {
+  name: string;
+  takenNames: ReadonlySet<string>;
+}): string {
+  const preferred = `${name} (custom)`;
+  if (!takenNames.has(preferred)) return preferred;
+  // The organization already has a "Member (custom)" too: count on until a name is free.
+  let counter = 2;
+  while (takenNames.has(`${name} (custom ${counter})`)) counter += 1;
+  return `${name} (custom ${counter})`;
+}
+
+/**
+ * The one step that gives a TEAM organization its default roles — run by provisioning (a new team)
+ * and by the reconcile (a team that already exists), so the two never drift.
+ *
+ * @remarks
+ * - **Algorithm:** inside the caller's organization-scoped unit of work: reads the live roles; for
+ *   each {@link DEFAULT_TEAM_ROLES} entry with no live system role of its name, renames a live
+ *   custom role holding that name to "<name> (custom)" — keeping its id, people and codes (launch
+ *   IQ5) — and inserts the system role (tone, description, lock from the definition); then grants
+ *   the TEAM Owner codes to the live `Owner` system role and each default role its codes, `ON
+ *   CONFLICT DO NOTHING`, so only missing grants land. Owner, Admin and Member are all locked, so
+ *   adding their missing codes never undoes an organization's own choice.
+ * - **Failure modes:** propagates database errors; the caller's transaction rolls back whole.
+ * - **Side effects:** may update `tenancy.roles` (the rename), insert `tenancy.roles` and
+ *   `tenancy.role_permissions`. Invalidating the permission cache is the caller's (after commit).
+ */
+async function ensureDefaultTeamRoles({
+  databaseHandle,
+  organizationId,
+  actorUserId,
+}: {
+  databaseHandle: WorkerContextDatabaseHandle;
+  organizationId: number;
+  /** Who the rows are attributed to — the owner at provisioning, nobody for the reconcile. */
+  actorUserId: number | null;
+}): Promise<DefaultTeamRolesChange> {
+  const liveRoles = await memberRoleRepository.findLiveRoleSummariesForOrganization(organizationId);
+  const takenNames = new Set(liveRoles.map((role) => role.name));
+  const change: DefaultTeamRolesChange = {
+    addedRoleNames: [],
+    renamedRoles: [],
+    grantedCodeCount: 0,
+  };
+  const grants: Array<{ roleId: number; permissionCodes: readonly string[] }> = [];
+
+  const ownerRole = liveRoles.find((role) => role.is_system && role.name === OWNER_ROLE_NAME);
+  if (ownerRole) {
+    grants.push({
+      roleId: ownerRole.id,
+      permissionCodes: ownerPermissionCodesForOrganizationType('TEAM'),
+    });
+  }
+
+  for (const defaultRole of DEFAULT_TEAM_ROLES) {
+    const holder = liveRoles.find((role) => role.name === defaultRole.name);
+    if (holder?.is_system) {
+      grants.push({ roleId: holder.id, permissionCodes: defaultRole.permissionCodes });
+      continue;
+    }
+    if (holder) {
+      const toName = customRoleNameFor({ name: defaultRole.name, takenNames });
+      await memberRoleRepository.update(
+        holder.public_id,
+        organizationId,
+        { name: toName },
+        actorUserId,
+      );
+      takenNames.add(toName);
+      change.renamedRoles.push({
+        rolePublicId: holder.public_id,
+        fromName: holder.name,
+        toName,
+      });
+    }
+    const [created] = await databaseHandle
+      .insert(roles)
+      .values({
+        public_id: generatePublicId('memberRole'),
+        organization_id: organizationId,
+        name: defaultRole.name,
+        description: defaultRole.description,
+        tone: defaultRole.tone,
+        is_system: true,
+        is_locked: defaultRole.isLocked,
+        created_by_user_id: actorUserId,
+      })
+      .returning({ id: roles.id });
+    change.addedRoleNames.push(defaultRole.name);
+    grants.push({ roleId: created!.id, permissionCodes: defaultRole.permissionCodes });
+  }
+
+  for (const grant of grants) {
+    if (grant.permissionCodes.length === 0) continue;
+    const inserted = await databaseHandle
+      .insert(role_permissions)
+      .values(
+        grant.permissionCodes.map((permission_code) => ({
+          role_id: grant.roleId,
+          permission_code,
+          created_by_user_id: actorUserId,
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ permission_code: role_permissions.permission_code });
+    change.grantedCodeCount += inserted.length;
+  }
+  return change;
+}
+
+/** Whether {@link ensureDefaultTeamRoles} changed anything. */
+function hasDefaultTeamRolesChange(change: DefaultTeamRolesChange): boolean {
+  return (
+    change.addedRoleNames.length > 0 ||
+    change.renamedRoles.length > 0 ||
+    change.grantedCodeCount > 0
+  );
+}
+
+/**
+ * Brings one existing TEAM organization's default roles up to {@link DEFAULT_TEAM_ROLES} and its
+ * Owner's codes up to {@link ownerPermissionCodesForOrganizationType}, inside that organization's
+ * own scope.
+ *
+ * @remarks
+ * - **Algorithm:** one `withAppDatabaseContext(PRINCIPAL_SCOPE.VERIFIED(...))` unit of work — the
+ *   organization was resolved by the caller (the reconcile's lister, or the seed that created it) —
+ *   reads the live organization and, when it is TEAM, runs {@link ensureDefaultTeamRoles}. After the
+ *   commit it logs each renamed custom role (launch IQ5).
+ * - **Failure modes:** propagates database errors (that organization's changes roll back).
+ * - **Side effects:** see {@link ensureDefaultTeamRoles}.
+ * - **Notes:** returns null for an organization that is gone or PERSONAL. Safe to repeat: a second
+ *   run finds nothing to add and changes nothing. It does not touch the permission cache: a caller
+ *   that changes an organization whose members may hold cached sets invalidates it after (as
+ *   {@link reconcileDefaultTeamRoles} does); the bulk seed, whose organizations are new, needs not.
+ */
+export async function reconcileTeamOrganizationDefaultRoles({
+  organizationPublicId,
+}: {
+  organizationPublicId: string;
+}): Promise<DefaultTeamRolesChange | null> {
+  const change = await withAppDatabaseContext({
+    scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
+    callback: async (databaseHandle) => {
+      const organization = await organizationRepository.findByPublicId(organizationPublicId);
+      if (organization?.type !== 'TEAM') return null;
+      return ensureDefaultTeamRoles({
+        databaseHandle,
+        organizationId: organization.id,
+        actorUserId: null,
+      });
+    },
+  });
+  for (const renamed of change?.renamedRoles ?? []) {
+    logger.info(
+      { organizationPublicId, ...renamed },
+      'tenancy.default_team_roles.custom_role_renamed',
+    );
+  }
+  return change;
+}
+
+/** What {@link reconcileDefaultTeamRoles} did across every TEAM organization. */
+export interface DefaultTeamRolesReconcileResult {
+  /** Live TEAM organizations it checked. */
+  organizations: number;
+  /** Of those, the ones where something changed. */
+  changedOrganizations: number;
+  /** Default roles added. */
+  addedRoles: number;
+  /** Custom roles renamed to free a default role's name (launch IQ5). */
+  renamedRoles: number;
+  /** Permission grants added. */
+  grantedCodes: number;
+}
+
+/**
+ * Gives every existing TEAM organization what provisioning gives a new one (launch IA2, D3, IQ5):
+ * any missing default role (Member), the missing codes on Owner and the default roles, and a fresh
+ * permission cache where something changed. Run by `prepareDatabase` right after the permission
+ * catalog is seeded, so every deploy and test database gets it.
+ *
+ * @remarks
+ * - **Algorithm:** lists the public ids of the live TEAM organizations under the
+ *   `app.global_retention_cleanup` arm (read only — the account-deletion pattern: a cross-tenant
+ *   list on the maintenance pool, since the tenant policies show no organization before a GUC is
+ *   set), then reconciles each one in its OWN `VERIFIED` scope through
+ *   {@link reconcileTeamOrganizationDefaultRoles}, one transaction per organization, and invalidates
+ *   the permission cache of each organization that changed, after its commit. No write runs under
+ *   the bypass arm.
+ * - **Failure modes:** propagates the first failing organization's error; organizations reconciled
+ *   before it keep their changes, and a re-run picks up the rest. A cache invalidation failure is
+ *   logged and closed by the permission cache itself, never thrown.
+ * - **Side effects:** see {@link reconcileTeamOrganizationDefaultRoles}; one permission-cache
+ *   version bump per changed organization.
+ * - **Notes:** idempotent — a second run reports zero changes. Needs the permission catalog seeded
+ *   first (the grants carry an FK to it).
+ */
+export async function reconcileDefaultTeamRoles(): Promise<DefaultTeamRolesReconcileResult> {
+  const teamOrganizationPublicIds = await withMaintenanceDatabaseContext({
+    scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+    callback: (databaseHandle) => listLiveTeamOrganizationPublicIds(databaseHandle),
+  });
+  const result: DefaultTeamRolesReconcileResult = {
+    organizations: teamOrganizationPublicIds.length,
+    changedOrganizations: 0,
+    addedRoles: 0,
+    renamedRoles: 0,
+    grantedCodes: 0,
+  };
+  for (const organizationPublicId of teamOrganizationPublicIds) {
+    const change = await reconcileTeamOrganizationDefaultRoles({ organizationPublicId });
+    if (change === null || !hasDefaultTeamRolesChange(change)) continue;
+    // After its commit: members of an existing organization may hold a cached permission set.
+    await invalidateOrganizationPermissions(organizationPublicId);
+    result.changedOrganizations += 1;
+    result.addedRoles += change.addedRoleNames.length;
+    result.renamedRoles += change.renamedRoles.length;
+    result.grantedCodes += change.grantedCodeCount;
+  }
+  return result;
 }

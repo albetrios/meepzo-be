@@ -60,6 +60,20 @@ describe('redactSensitive', () => {
     expect(result.raw_key).toBe(SENSITIVE_REDACTION_PLACEHOLDER);
   });
 
+  it('redacts the Instagram token ciphertext in either casing (launch IA5)', () => {
+    // The exact Pino fast-path, and the recursive formatter for the column and the code's name.
+    expect(PINO_REDACT_PATHS).toContain('encrypted_access_token');
+    const result = redactSensitive({
+      row: { encrypted_access_token: 'v1:abc', expires_at: '2027-01-01' },
+      encryptedAccessToken: 'v1:def',
+    });
+    expect(result.row).toEqual({
+      encrypted_access_token: SENSITIVE_REDACTION_PLACEHOLDER,
+      expires_at: '2027-01-01',
+    });
+    expect(result.encryptedAccessToken).toBe(SENSITIVE_REDACTION_PLACEHOLDER);
+  });
+
   it('redacts email PII keys (object and query string)', () => {
     const result = redactSensitive({
       email: 'user@example.com',

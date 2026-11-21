@@ -32,6 +32,8 @@ export const PUBLIC_ID_PREFIXES = {
   /** The `id` of an outbound webhook event envelope, shared by every endpoint it is delivered to. */
   webhookEvent: 'evt',
   auditLog: 'aud',
+  /** The organization's connected Instagram account (`app.instagram_accounts`, IA1). */
+  instagramAccount: 'iga',
 } as const;
 
 /** Entity keys of {@link PUBLIC_ID_PREFIXES}. */

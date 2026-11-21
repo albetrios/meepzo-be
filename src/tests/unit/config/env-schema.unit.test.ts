@@ -89,6 +89,52 @@ describe('env-schema', () => {
     });
   });
 
+  describe('Instagram app settings (IA4)', () => {
+    const instagramApp = {
+      INSTAGRAM_APP_ID: 'instagram-app-id',
+      INSTAGRAM_APP_SECRET: 'instagram-app-secret',
+      INSTAGRAM_REDIRECT_URI: 'https://app.example.com/auth/instagram/callback',
+    };
+
+    it('lets production boot without them — the Instagram routes answer 503 instead', () => {
+      const parsed = envSchema.parse(productionRequiredBase);
+      expect(parsed.INSTAGRAM_APP_ID).toBeUndefined();
+      expect(parsed.INSTAGRAM_APP_SECRET).toBeUndefined();
+      expect(parsed.INSTAGRAM_REDIRECT_URI).toBeUndefined();
+    });
+
+    it('reads all three when set, in production too', () => {
+      const parsed = envSchema.parse({ ...productionRequiredBase, ...instagramApp });
+      expect(parsed).toMatchObject(instagramApp);
+    });
+
+    it.each(Object.keys(instagramApp))(
+      'accepts %s on its own (no cross-field rule: a missing one is a 503 at the route)',
+      (key) => {
+        const value = instagramApp[key as keyof typeof instagramApp];
+        expect(() => envSchema.parse({ ...commonRequiredBase, [key]: value })).not.toThrow();
+      },
+    );
+
+    it('refuses an INSTAGRAM_REDIRECT_URI that is not an absolute URL', () => {
+      const parsed = envSchema.safeParse({
+        ...commonRequiredBase,
+        INSTAGRAM_REDIRECT_URI: '/auth/instagram/callback',
+      });
+      expect(parsed.success).toBe(false);
+      const issue = parsed.success
+        ? undefined
+        : parsed.error.issues.find((candidate) =>
+            candidate.path.includes('INSTAGRAM_REDIRECT_URI'),
+          );
+      expect(issue).toBeDefined();
+    });
+
+    it.each(['INSTAGRAM_APP_ID', 'INSTAGRAM_APP_SECRET'])('refuses a blank %s', (key) => {
+      expect(() => envSchema.parse({ ...commonRequiredBase, [key]: '' })).toThrow();
+    });
+  });
+
   describe('COOKIE_SAMESITE', () => {
     it('defaults to strict', () => {
       const parsed = envSchema.parse({ ...commonRequiredBase });

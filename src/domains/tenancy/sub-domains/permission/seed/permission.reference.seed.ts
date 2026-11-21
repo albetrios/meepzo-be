@@ -50,6 +50,20 @@ export const SYSTEM_PERMISSIONS = [
   { code: 'audit-log:read', name: 'View Audit Logs', category: 'audit' },
   // Upload
   { code: 'upload:manage', name: 'Manage Uploads', category: 'upload' },
+  // App (APP_PERMISSIONS, launch IA2): the Instagram, Automations and Contacts rows of the Roles matrix.
+  { code: 'instagram-account:read', name: 'View Instagram Account', category: 'instagram' },
+  { code: 'instagram-account:manage', name: 'Manage Instagram Account', category: 'instagram' },
+  {
+    code: 'instagram-webhook-event:read',
+    name: 'View Instagram Webhook Events',
+    category: 'instagram',
+  },
+  { code: 'automation:read', name: 'View Automations', category: 'automations' },
+  { code: 'automation:create', name: 'Create Automations', category: 'automations' },
+  { code: 'automation:update', name: 'Update Automations', category: 'automations' },
+  { code: 'automation:delete', name: 'Delete Automations', category: 'automations' },
+  { code: 'contact:read', name: 'View Contacts', category: 'contacts' },
+  { code: 'contact:delete', name: 'Delete Contacts', category: 'contacts' },
 ] as const;
 
 /**

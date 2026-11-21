@@ -51,6 +51,17 @@ vi.mock('@/infrastructure/database/connection.js', () => ({
     calls.push('close pool');
   }),
 }));
+vi.mock('@/infrastructure/cache/redis.client.js', () => ({
+  closeRedis: vi.fn(async () => {
+    calls.push('close redis');
+  }),
+}));
+vi.mock('@/domains/tenancy/sub-domains/organization/organization-provisioning.js', () => ({
+  reconcileDefaultTeamRoles: vi.fn(async () => {
+    calls.push('reconcile default team roles');
+    return { organizations: 0, changedOrganizations: 0 };
+  }),
+}));
 vi.mock('@/domains/tenancy/sub-domains/permission/seed/permission.reference.seed.js', () => ({
   seedPermissions: vi.fn(async () => {
     calls.push('seed permissions');
@@ -104,7 +115,9 @@ describe('prepareDatabase', () => {
       'migrate',
       'logins',
       'seed full',
+      'reconcile default team roles',
       'close pool',
+      'close redis',
       'connect /postgres',
       'DROP DATABASE IF EXISTS "app_database_worker_1" WITH (FORCE)',
       'CREATE DATABASE "app_database_worker_1" TEMPLATE "app_database"',
@@ -135,7 +148,13 @@ describe('prepareDatabase', () => {
   it('never creates or drops a database on a server that is not local', async () => {
     process.env.DATABASE_MIGRATION_URL = 'postgresql://owner:secret@db.example.com:5432/production';
     await prepareDatabase({ seed: 'minimal', reset: true, enableLocalLogins: false });
-    expect(calls).toEqual(['migrate', 'seed minimal', 'close pool']);
+    expect(calls).toEqual([
+      'migrate',
+      'seed minimal',
+      'reconcile default team roles',
+      'close pool',
+      'close redis',
+    ]);
     // From the sources the runner starts through tsx; from dist/ it is the compiled migrate.js.
     const childProcess = await import('node:child_process');
     expect(vi.mocked(childProcess.spawnSync).mock.calls.at(-1)?.slice(0, 2)).toEqual([
@@ -147,7 +166,25 @@ describe('prepareDatabase', () => {
   it('seeds the permission catalog only for the test harness level', async () => {
     existingDatabases.add('app_database');
     await prepareDatabase({ seed: 'permissions', enableLocalLogins: false });
-    expect(calls.slice(-2)).toEqual(['seed permissions', 'close pool']);
+    expect(calls.slice(-4)).toEqual([
+      'seed permissions',
+      'reconcile default team roles',
+      'close pool',
+      'close redis',
+    ]);
+  });
+
+  // Launch IA2: every TEAM organization that already exists gets the default roles and codes a new
+  // one is provisioned with, right after the catalog they reference is seeded — at every level.
+  it('reconciles the default team roles right after the seed, before the pool closes', async () => {
+    existingDatabases.add('app_database');
+    for (const seed of ['permissions', 'minimal', 'full'] as const) {
+      calls.length = 0;
+      await prepareDatabase({ seed, enableLocalLogins: false });
+      const reconcileAt = calls.indexOf('reconcile default team roles');
+      expect(calls[reconcileAt - 1]).toMatch(/^seed /);
+      expect(calls[reconcileAt + 1]).toBe('close pool');
+    }
   });
 
   it('points the process at the logins it turned on, so the seed connects the way the app will', async () => {

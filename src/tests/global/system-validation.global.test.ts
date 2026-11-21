@@ -144,6 +144,7 @@ describe('System Validation', () => {
       expect(content).toContain('stripeCircuit');
       expect(content).toContain('s3Circuit');
       expect(content).toContain('resendCircuit');
+      expect(content).toContain('instagramCircuit');
     });
   });
 

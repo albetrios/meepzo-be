@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 137
+  Total routes: 140
 ================================================================================
 
 Legend:
@@ -10,6 +10,16 @@ Legend:
   PERM    = Organization-scoped permission required
   TOKEN   = Credential enforced in-handler (non-JWT bearer token or session cookie)
   Columns after the path: S = success status · I = idempotency (req | -) · O = organization scope (both | team-only, 422 on personal)
+
+================================================================================
+  DOMAIN: APP (/api/v1/app)
+  Routes: 3
+================================================================================
+
+  — Sub Domains —
+  GET    /api/v1/app/social/instagram/account                     200  -    team  PERM: instagram-account:read
+  DELETE /api/v1/app/social/instagram/account                     204  -    team  PERM: instagram-account:manage
+  POST   /api/v1/app/social/instagram/connect                     200  req  team  PERM: instagram-account:manage
 
 ================================================================================
   DOMAIN: AUDIT (/api/v1/audit)
@@ -221,21 +231,22 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 137
+  Total routes    : 140
   Public          : 16
   Authenticated   : 54
   Role-guarded    : 9
-  Perm-guarded    : 53
+  Perm-guarded    : 56
   Token-guarded   : 5
-  Team-only (O)   : 10
+  Team-only (O)   : 13
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (18) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (19) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
   accepts an optional key (24h Redis cache).
 
+    POST /api/v1/app/social/instagram/connect
     POST /api/v1/billing/payment-methods/setup
     POST /api/v1/billing/subscriptions
     POST /api/v1/billing/subscriptions/:subscription_id/cancel
@@ -279,6 +290,11 @@ Legend:
 
   Upload:
     upload:manage
+
+  App:
+    automation:create             automation:delete             automation:read
+    automation:update             contact:delete                contact:read
+    instagram-account:manage      instagram-account:read        instagram-webhook-event:read
 
   Global Roles:
     super_admin                   user

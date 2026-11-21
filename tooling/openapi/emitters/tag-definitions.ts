@@ -35,6 +35,8 @@ export function buildTagDefinitions(
     Notification: 'User notification feed',
     Webhook: 'Webhook endpoint management and delivery history',
     Upload: 'Pre-signed URL generation for file uploads',
+    'Instagram account':
+      "The organization's connected Instagram professional account — connect, read, disconnect",
   };
   const tagDescriptions = tagStrings ?? builtInTagDescriptions;
 
@@ -71,6 +73,7 @@ export function buildTagDefinitions(
     'Notification',
     'Webhook',
     'Upload',
+    'Instagram account',
   ];
 
   const sortedTags = [...tagSet].sort((left, right) => {

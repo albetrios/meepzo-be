@@ -11,6 +11,7 @@
   "personalOrganizationNoMembers": "Tu organización personal no puede tener miembros adicionales; crea una organización de equipo para colaborar con otros.",
   "personalOrganizationNoRoles": "Tu organización personal no puede definir roles personalizados; crea una organización de equipo para gestionar roles y miembros.",
   "personalOrganizationNoBilling": "Tu organización personal no puede gestionar una suscripción; crea una organización de equipo para configurar la facturación.",
+  "personalOrganizationNoInstagram": "Tu organización personal no puede usar la automatización de Instagram; crea una organización de equipo para conectar Instagram y automatizar respuestas.",
   "teamOrganizationsDisabled": "Las organizaciones de equipo no están habilitadas en este despliegue.",
   "mfaStepUpRequired": "Se requiere autenticación multifactor para esta confirmación; verifica a través del endpoint MFA en lugar de la contraseña.",
   "lastMfaRequiredByOrganization": "No puedes eliminar tu último método MFA mientras tu organización requiere MFA. Desactiva primero el requisito de MFA a nivel de organización o transfiere tu membresía.",
@@ -191,6 +192,13 @@
   "webhookUrlAllowlistRequired": "La entrega de webhooks requiere WEBHOOK_URL_ALLOWLIST en producción",
   "webhookUrlDnsFailed": "No se pudo resolver el nombre de host de la URL del webhook",
   "stripeNotConfigured": "Stripe no está configurado",
+  "instagramNotConfigured": "Instagram no está configurado",
+  "instagramUnavailable": "Instagram no está disponible temporalmente. Vuelve a intentarlo más tarde.",
+  "instagramCodeInvalid": "Instagram no aceptó este código de conexión. Puede haber caducado o ya haberse usado; vuelve a conectar Instagram.",
+  "instagramAccountNotProfessional": "Esta cuenta de Instagram es personal. Cámbiala a una cuenta profesional (de empresa o de creador) y vuelve a conectarla.",
+  "instagramScopesMissing": "No se concedió un permiso que necesita la automatización de Instagram. Vuelve a conectar Instagram y acepta todos los permisos que solicita.",
+  "organizationAlreadyHasInstagramAccount": "Esta organización ya tiene una cuenta de Instagram conectada. Desconéctala antes de conectar otra.",
+  "instagramAccountConnectedElsewhere": "Esta cuenta de Instagram está conectada a otra organización. Desconéctala allí primero.",
   "missingStripeSignature": "Falta el encabezado stripe-signature",
   "missingRawBody": "Falta el cuerpo sin procesar de la solicitud",
   "stripeWebhookVerificationFailed": "Error al verificar la firma del webhook",
@@ -241,6 +249,8 @@
     "Passkey": "la llave de acceso",
     "Owner membership": "la membresía del propietario",
     "OAuth provider": "el proveedor OAuth",
-    "Circuit breaker": "el disyuntor"
+    "Circuit breaker": "el disyuntor",
+    "Team organization": "la organización de equipo",
+    "Instagram account": "la cuenta de Instagram"
   }
 }

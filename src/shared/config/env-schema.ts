@@ -314,6 +314,41 @@ const BILLING_POLICY_VARS = {
   }),
 } satisfies Record<string, EnvVarSpec>;
 
+/**
+ * The Instagram app's settings (the Instagram automation launch, IA4; full names and one app secret,
+ * D20). Only the one Instagram client (`src/infrastructure/social/`) and Meta's signature checks read
+ * them. All three are optional everywhere, production included: unset, every route that needs one
+ * answers 503 (`instagram_not_configured`) — it fails closed, as the Stripe webhook does without its
+ * secret — so no refine pins them. The app id and redirect URI are GitHub Variables, the secret a
+ * GitHub Secret (`classifyKey`).
+ */
+const INSTAGRAM_VARS = {
+  INSTAGRAM_APP_ID: envVar({
+    schema: z.string().min(1).optional(),
+    meta: {
+      allowed: 'non-empty string (the Instagram app ID from the Meta App Dashboard)',
+      description:
+        "The Instagram app id: the client_id of the code exchange (public — the frontend's authorize link carries it too). Unset, the Instagram routes answer 503 instagram_not_configured.",
+    },
+  }),
+  INSTAGRAM_APP_SECRET: envVar({
+    schema: z.string().min(1).optional(),
+    meta: {
+      allowed: 'non-empty string (the Instagram app secret; a GitHub Secret)',
+      description:
+        "The Instagram app's one secret: the client_secret of the code exchanges and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503.",
+    },
+  }),
+  INSTAGRAM_REDIRECT_URI: envVar({
+    schema: z.url().optional(),
+    meta: {
+      allowed: 'absolute URL',
+      description:
+        "The frontend's /auth/instagram/callback page. It must equal one of the Instagram app's OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured.",
+    },
+  }),
+} satisfies Record<string, EnvVarSpec>;
+
 const envSchemaBase = z.object({
   // Server & process — declared in the SERVER_VARS registry above (allowed values + description).
   ...toSchemaShape(SERVER_VARS),
@@ -597,7 +632,7 @@ const envSchemaBase = z.object({
   HEALTH_VERBOSE_BODY_ENABLED: booleanString('false'),
   /**
    * Opt-in (default off): when true, `/readyz` returns 503 if any managed external circuit breaker
-   * (Stripe/S3/Resend/Turnstile) is OPEN. Off by default so an external-dependency blip is reported
+   * (Stripe/S3/Resend/Turnstile/Instagram) is OPEN. Off by default so an external-dependency blip is reported
    * as `degraded` in the body without pulling the API out of load-balancer rotation.
    */
   READYZ_503_ON_OPEN_CIRCUIT: booleanString('false'),
@@ -744,6 +779,9 @@ const envSchemaBase = z.object({
   OAUTH_GITHUB_CLIENT_ID: z.string().min(1).optional(),
   OAUTH_GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   OAUTH_GITHUB_REDIRECT_URI: z.url().optional(),
+
+  // Instagram — declared in the INSTAGRAM_VARS registry above (allowed values + description).
+  ...toSchemaShape(INSTAGRAM_VARS),
 
   // Stripe
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
@@ -2140,6 +2178,7 @@ export const envSchema = envSchemaBase
 export const ENV_VAR_REGISTRY: Readonly<Record<string, EnvVarSpec>> = {
   ...SERVER_VARS,
   ...BILLING_POLICY_VARS,
+  ...INSTAGRAM_VARS,
 };
 
 /** Ordered list of env var names from the schema (for .env.example sync and scripts). */

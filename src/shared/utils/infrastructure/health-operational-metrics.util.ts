@@ -34,7 +34,7 @@ export type HealthOperationalMetrics = {
   draining: boolean;
   worker_queues: WorkerQueueHeartbeat[];
   worker_queue_manifest: readonly WorkerQueueOperationalManifestEntry[];
-  /** External-dependency circuit breaker states (Stripe/S3/Resend/Turnstile) — visibility only. */
+  /** External-dependency circuit breaker states (Stripe/S3/Resend/Turnstile/Instagram) — visibility only. */
   circuit_breakers: ManagedCircuitBreakerSnapshot[];
   /** Waiting/delayed depth of the throughput queues (mail, webhook-delivery, notification, stripe-webhook). */
   queue_depths: QueueDepth[];

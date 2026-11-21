@@ -6,6 +6,11 @@ import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
+import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import {
+  ADMIN_ROLE_NAME,
+  MEMBER_ROLE_NAME,
+} from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
 import {
   DEFAULT_TEAM_ROLES,
   ownerPermissionCodesForOrganizationType,
@@ -103,6 +108,10 @@ describe('team organization provisioning (database)', () => {
     expect(granted).not.toContain(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE);
     expect(granted).not.toContain(NOTIFY_PERMISSIONS.WEBHOOK_READ);
     expect(granted).not.toContain(NOTIFY_PERMISSIONS.WEBHOOK_MANAGE);
+    // Launch IA3: the app surface is team-only — a personal owner holds none of the nine.
+    for (const code of Object.values(APP_PERMISSIONS)) {
+      expect(granted).not.toContain(code);
+    }
   });
 
   it('provisions the default team roles as system roles for a TEAM org (launch D5, D40)', async () => {
@@ -134,15 +143,22 @@ describe('team organization provisioning (database)', () => {
       expect(row.public_id.startsWith('rol_')).toBe(true);
     }
 
-    // Every preset carries organization:read so an assigned member can load the dashboard.
-    for (const defaultRole of DEFAULT_TEAM_ROLES) {
-      const row = roleRows.find((candidate) => candidate.name === defaultRole.name)!;
-      const grants = await database
-        .select({ code: role_permissions.permission_code })
-        .from(role_permissions)
-        .where(eq(role_permissions.role_id, row.id));
-      expect(grants.map((grant) => grant.code)).toContain(TENANCY_PERMISSIONS.ORGANIZATION_READ);
-    }
+    // Admin and Member carry organization:read so an assigned admin or member can load the
+    // organization (launch D31). Member's app codes are exactly its five, pinned below.
+    const adminRow = roleRows.find((candidate) => candidate.name === ADMIN_ROLE_NAME)!;
+    const adminGrants = await database
+      .select({ code: role_permissions.permission_code })
+      .from(role_permissions)
+      .where(eq(role_permissions.role_id, adminRow.id));
+    expect(adminGrants.map((grant) => grant.code)).toContain(TENANCY_PERMISSIONS.ORGANIZATION_READ);
+    const memberRow = roleRows.find((candidate) => candidate.name === MEMBER_ROLE_NAME)!;
+    const memberGrants = await database
+      .select({ code: role_permissions.permission_code })
+      .from(role_permissions)
+      .where(eq(role_permissions.role_id, memberRow.id));
+    expect(memberGrants.map((grant) => grant.code)).toContain(
+      TENANCY_PERMISSIONS.ORGANIZATION_READ,
+    );
 
     // Each default role's granted codes match its catalog entry exactly.
     for (const defaultRole of DEFAULT_TEAM_ROLES) {
@@ -155,6 +171,46 @@ describe('team organization provisioning (database)', () => {
         [...defaultRole.permissionCodes].sort(),
       );
     }
+  });
+
+  it('gives a new team Owner and Admin all nine app codes and Member exactly its five (launch IA2)', async () => {
+    const user = await createTestUser();
+
+    const result = await provisionOrganizationWithOwner({
+      name: 'Acme App Codes',
+      slug: 'acme-team-app-codes',
+      type: 'TEAM',
+      ownerUserId: user.id,
+    });
+
+    const roleRows = await database
+      .select({ id: roles.id, name: roles.name })
+      .from(roles)
+      .where(eq(roles.organization_id, result.organization.id));
+    const appCodes = new Set<string>(Object.values(APP_PERMISSIONS));
+    const appGrantsOf = async (name: string): Promise<string[]> => {
+      const row = roleRows.find((candidate) => candidate.name === name)!;
+      const grants = await database
+        .select({ code: role_permissions.permission_code })
+        .from(role_permissions)
+        .where(eq(role_permissions.role_id, row.id));
+      return grants
+        .map((grant) => grant.code)
+        .filter((code) => appCodes.has(code))
+        .sort();
+    };
+
+    expect(await appGrantsOf('Owner')).toEqual([...appCodes].sort());
+    expect(await appGrantsOf(ADMIN_ROLE_NAME)).toEqual([...appCodes].sort());
+    expect(await appGrantsOf(MEMBER_ROLE_NAME)).toEqual(
+      [
+        APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ,
+        APP_PERMISSIONS.AUTOMATION_READ,
+        APP_PERMISSIONS.AUTOMATION_CREATE,
+        APP_PERMISSIONS.AUTOMATION_UPDATE,
+        APP_PERMISSIONS.CONTACT_READ,
+      ].sort(),
+    );
   });
 
   it("locks the Owner role and gives every role the design's tone (D81 (4))", async () => {
@@ -181,7 +237,7 @@ describe('team organization provisioning (database)', () => {
         .filter((row) => row.is_locked)
         .map((row) => row.name)
         .sort(),
-    ).toEqual(['Admin', 'Owner']);
+    ).toEqual(['Admin', 'Member', 'Owner']);
   });
 
   it('provisions only the Owner role for a PERSONAL organization (no default team roles)', async () => {

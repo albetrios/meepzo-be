@@ -20,6 +20,14 @@ The top-level tenancy aggregate. Owns the `organizations` table (id, public id, 
   owner's user public id, resolved in one batch per response (`auth.resolve_user_public_ids_by_ids`;
   null only if the login is gone). Provisioning makes the `Owner` role `is_system`, `is_locked` and
   slate (`organization-provisioning.ts`).
+- **A TEAM organization's default roles are one definition (launch IA2)**: `DEFAULT_TEAM_ROLES` —
+  Admin (lav) and Member (sage), both `is_system` and `is_locked` — plus the TEAM Owner codes. A new
+  team gets them at provisioning; a team that already exists gets anything missing from
+  `reconcileDefaultTeamRoles`, which `prepareDatabase` runs after every seed: it lists the live TEAM
+  organizations under the retention arm (read only), then in each organization's own scope adds a
+  missing default role, grants the missing codes (`ON CONFLICT DO NOTHING`) and invalidates its
+  permission cache. A custom role already holding a default role's name is renamed
+  `<name> (custom)` with its people and codes (launch IQ5). Twice is once.
 - **Organization soft-delete cascades to child resources**: settings, API keys, and notification policy tombstone with the organization. Memberships are handled separately.
 
 ## Lifecycle

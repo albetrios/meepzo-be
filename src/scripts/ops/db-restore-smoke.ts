@@ -38,6 +38,7 @@ import {
   withoutSslQueryParameters,
 } from '@/infrastructure/database/utils/connection-url.util.js';
 import {
+  appSchema,
   auditSchema,
   authSchema,
   billingSchema,
@@ -55,9 +56,15 @@ import { isMain, parseCommandLine } from '@tooling/setup/common/script.js';
 /** Every schema the app's tables live in: `public` (the migration ledger, permissions) and each `pgSchema`. */
 export const RESTORE_SMOKE_SCHEMA_NAMES: readonly string[] = [
   'public',
-  ...[authSchema, tenancySchema, billingSchema, notifySchema, auditSchema, uploadSchema].map(
-    (schema) => schema.schemaName,
-  ),
+  ...[
+    authSchema,
+    tenancySchema,
+    billingSchema,
+    notifySchema,
+    auditSchema,
+    uploadSchema,
+    appSchema,
+  ].map((schema) => schema.schemaName),
 ];
 
 /** A table named by its schema, as {@link findEmptyReferenceTables} reads it. */

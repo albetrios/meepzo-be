@@ -647,3 +647,20 @@ export async function findOrganizationsStuckInOffboarding(
     )
     .limit(options.limit);
 }
+
+/**
+ * The public ids of every live TEAM organization, oldest first — the default-team-roles
+ * reconcile's read (`reconcileDefaultTeamRoles`, launch IA2), across tenants under the retention
+ * maintenance context (read only; each organization is then written in its own scope).
+ */
+export async function listLiveTeamOrganizationPublicIds(
+  databaseHandle: WorkerDatabaseHandle,
+): Promise<string[]> {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  const rows = await databaseHandle
+    .select({ public_id: organizations.public_id })
+    .from(organizations)
+    .where(and(eq(organizations.type, 'TEAM'), isNull(organizations.deleted_at)))
+    .orderBy(asc(organizations.id));
+  return rows.map((row) => row.public_id);
+}

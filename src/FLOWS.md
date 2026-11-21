@@ -426,3 +426,56 @@ sequenceDiagram
 - **The organization is deleted** → organization offboarding emits no `subscription.cancelled` (nothing could deliver it); `webhook-delivery-reclaim` skips its pending attempts, and a delivery job already queued completes as skipped (`attempt_missing`).
 - **`organization.created`** → cannot reach a webhook: the new organization has none yet. It is emitted for completeness.
 - **Ownership transfer, organization settings, seat-quantity sync** → no event: the organization's public JSON does not change, settings are another resource, and Stripe's quantity update returns as a `customer.subscription.updated` that emits `subscription.updated`.
+
+## instagram-account-connect-flow
+
+### Trigger
+
+A team member holding `instagram-account:manage` clicks "Connect Instagram" in the frontend, approves the Instagram app on Instagram's consent screen, and lands on the frontend's `/auth/instagram/callback` (the `INSTAGRAM_REDIRECT_URI`). The page drops a callback whose OAuth `state` differs from the one it sent (IQ6), then posts the code: `POST /api/v1/app/social/instagram/connect { code }` with `X-Idempotency-Key` (route 1). The same call reconnects an `expired` or `error` account, or a revoked one of the same organization. Built by ROUTE row R3 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA12).
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+  participant Client as Frontend (/auth/instagram/callback)
+  participant Gate as auth + tenancy (permission, team check)
+  participant Service as InstagramAccountService
+  participant Instagram as instagram.client (Instagram API)
+  participant Resolver as app.resolve_organization_public_id_for_instagram_user
+  participant DB as Postgres (organization scope)
+
+  Client->>Gate: POST /app/social/instagram/connect {code} + X-Idempotency-Key
+  Gate->>Service: instagram-account:manage held, team organization
+  Service->>Instagram: exchange the code (trailing #_ stripped), then the long-lived token, then /me
+  Instagram-->>Service: profile, granted scopes, token already encrypted, expires_at
+  Service->>Service: refuse a personal Instagram account or a missing scope (422)
+  Service->>Resolver: who holds this instagram_user_id (not revoked)?
+  Resolver-->>Service: an organization public id, or none
+  Service->>DB: BEGIN — upsert the account (connected, profile, scopes, token_expires_at)
+  Service->>DB: default settings if none (InstagramAccountSettingsService)
+  Service->>DB: store the encrypted token (InstagramAccountTokenService); COMMIT
+  Service->>Instagram: subscribe the webhook fields (only while webhook_subscribed_at is empty)
+  Service->>DB: stamp webhook_subscribed_at (on success)
+  Service->>DB: the controller stages the audit entry app.instagram_account.connect (after commit, best-effort)
+  Service-->>Client: 200 { is_new_connection, instagram_account }
+```
+
+No Instagram call runs inside the database context: Instagram first, then one transaction, then the subscription.
+
+### Side effects
+
+- `app.instagram_accounts` — a new row, or this organization's existing row of the same Instagram account (any status, revoked included) set back to `connected`, with the profile, the granted scopes, `connected_at`, `connected_by_user_id` and the token's expiry copied to `token_expires_at`; `disconnected_at` and `profile_erased_at` cleared. `is_new_connection` is `false` when the organization had this account before.
+- `app.instagram_account_settings` — the default row on a first connect; a reconnect keeps the team's settings.
+- `app.instagram_account_tokens` — the long-lived token (about 60 days), stored only as `encryptFieldSecret` ciphertext; the plain token exists only inside the Instagram client (IA5).
+- Audit `app.instagram_account.connect` (WARNING, resource type `instagram_account`), recorded after the connect commits, best-effort — an audit failure never fails the connect (audit-emission, D36).
+- The account subscribed to the webhook fields `comments`, `messages` and `messaging_postbacks`, so its events start to arrive (sub-domain 4).
+- The idempotency layer stores the answer: a repeated key replays the first response without calling Instagram again (no key in it names a token — the expiry is `access_expires_at`, D35).
+
+### Failure modes
+
+- **A bad, used or expired code, or another redirect address** → `422 instagram_code_invalid`; **a personal Instagram account** → `422 instagram_account_not_professional`; **a permission unticked on the consent screen** → `422 instagram_scopes_missing`. Nothing is stored.
+- **This Instagram account is live in another organization** → `409 instagram_account_connected_elsewhere`; **this organization holds another account that is not revoked** → `409 organization_already_has_instagram_account`. Two organizations racing for one account are decided by the unique indexes, the loser gets the same 409s.
+- **Instagram down, failing or throttling** → `503 instagram_unavailable` (with `Retry-After` on a throttle); **the Instagram app settings unset** → `503 instagram_not_configured`. Nothing is stored.
+- **The webhook subscription fails after the commit** → logged (`app.instagram_account.webhook_subscription_failed`), never fails the connect; `webhook_subscribed_at` stays empty, route 2 shows `is_webhook_subscribed: false`, and the next connect (or the daily check, R7) retries it.
+- **No `instagram-account:manage`** → `403 missing_permission`; **a personal organization** → `422` (a personal organization's Owner never holds the code, so the 403 comes first).
+- **A missing or reused `X-Idempotency-Key`** → `422`; **the same key still running** → `409`.

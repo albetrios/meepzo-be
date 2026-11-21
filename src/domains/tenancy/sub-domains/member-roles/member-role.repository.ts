@@ -225,6 +225,25 @@ export class MemberRoleRepository {
     return (rows[0] ?? null) as MemberRoleRow | null;
   }
 
+  /**
+   * The id, public id, name and system flag of every live role of the organization — what the
+   * default-team-roles step (`organization-provisioning.ts`) needs to see which default role is
+   * missing and which custom role holds its name.
+   */
+  async findLiveRoleSummariesForOrganization(
+    organization_id: number,
+  ): Promise<Array<{ id: number; public_id: string; name: string; is_system: boolean }>> {
+    return getRequestDatabase()
+      .select({
+        id: roles.id,
+        public_id: roles.public_id,
+        name: roles.name,
+        is_system: roles.is_system,
+      })
+      .from(roles)
+      .where(and(eq(roles.organization_id, organization_id), isNull(roles.deleted_at)));
+  }
+
   async findByInternalId(
     role_internal_id: number,
     organization_id: number,

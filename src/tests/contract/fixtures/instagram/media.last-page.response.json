@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "id": "18030000000000003",
+      "caption": "Our first post",
+      "media_type": "IMAGE",
+      "media_product_type": "FEED",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.29350-15/contract-fixture-first-post.jpg",
+      "permalink": "https://www.instagram.com/p/ContractFixtureFirst/",
+      "timestamp": "2026-01-02T09:00:00+0000",
+      "comments_count": 0,
+      "like_count": 21
+    }
+  ],
+  "paging": {
+    "cursors": {
+      "before": "QVFIUmlwbnFsM3N2cV9lZAFdCa0hDeV9qMVliT0Vu",
+      "after": "QVFIUnNIYTZAPRUJxbm1sZAkxRQnVKN0lUVE5n"
+    }
+  }
+}

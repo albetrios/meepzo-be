@@ -13,6 +13,7 @@ import { tenancyRoutesPlugin } from '@/domains/tenancy/tenancy.routes.js';
 import { billingRoutesPlugin } from '@/domains/billing/billing.routes.js';
 import { notifyRoutesPlugin } from '@/domains/notify/notify.routes.js';
 import { uploadRoutesPlugin } from '@/domains/upload/upload.routes.js';
+import { appRoutesPlugin } from '@/domains/app/app.routes.js';
 
 /**
  * Central route registration. Domain services are decorated on the Fastify instance
@@ -30,6 +31,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(billingRoutesPlugin, { prefix: `${apiV1}/billing` });
   await app.register(notifyRoutesPlugin, { prefix: `${apiV1}/notify` });
   await app.register(uploadRoutesPlugin, { prefix: `${apiV1}/uploads` });
+  await app.register(appRoutesPlugin, { prefix: `${apiV1}/app` });
 
   if (getEnv().ENABLE_QUEUE_DASHBOARD) {
     await registerQueueDashboard({ app, deps: { auditService: app.auditDomain.auditService } });

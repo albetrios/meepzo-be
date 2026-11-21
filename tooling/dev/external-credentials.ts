@@ -27,8 +27,11 @@ export type ExternalCredential = {
  * @remarks
  * Deliberately not listed: `SENTRY_DSN` (local errors would count against the hosted project's
  * quota), OAuth clients (their redirect URIs are registered per environment, so a
- * copied client would not complete a local login), and CAPTCHA (local CAPTCHA uses Cloudflare's test
- * keys — `--with-captcha`). Add a key here when a new integration needs an account value locally.
+ * copied client would not complete a local login), `INSTAGRAM_REDIRECT_URI` (per environment too —
+ * the local value ships in `.env.example` and must also be registered on the Instagram app), and
+ * CAPTCHA (local CAPTCHA uses Cloudflare's test keys — `--with-captcha`). The Instagram app ID and
+ * secret ARE copied: the webhook and Meta's signed requests are checked with that one secret. Add a
+ * key here when a new integration needs an account value locally.
  */
 export const EXTERNAL_CREDENTIALS: readonly ExternalCredential[] = [
   {
@@ -68,6 +71,16 @@ export const EXTERNAL_CREDENTIALS: readonly ExternalCredential[] = [
     key: 'POSTHOG_HOST',
     integration: 'PostHog — the project’s region host',
     reportMissing: false,
+  },
+  {
+    key: 'INSTAGRAM_APP_ID',
+    integration: 'Instagram — the Instagram app ID (the connect code exchange)',
+    reportMissing: true,
+  },
+  {
+    key: 'INSTAGRAM_APP_SECRET',
+    integration: 'Instagram — the app secret (code exchanges, Meta signature checks)',
+    reportMissing: true,
   },
 ];
 

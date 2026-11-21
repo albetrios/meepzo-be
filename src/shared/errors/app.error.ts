@@ -46,7 +46,8 @@ export class AppError extends Error {
    * Optional stable, machine-readable sub-code (snake_case) the frontend can branch on
    * (e.g. `membership_already_exists`, `organization_slug_exists`) — distinct from the
    * status-class `code`. Set via {@link AppError.withReason}; the error handler serializes it as
-   * `error.reason` on non-5xx responses only.
+   * `error.reason` on every 4xx and on a 503 (a dependency down or unset — launch D34), never on
+   * another 5xx. A stable cause the client can act on, so never internal detail.
    */
   reason?: string;
   /**

@@ -35,11 +35,11 @@ BullMQ workers run as a **separate process** (`node dist/worker.js` / `Dockerfil
 
 ## Splitting worker services by family
 
-Workers are grouped into six families in the [worker registry](../../reference/runtime/workers-and-events.md#worker-registry-and-queue-families): `mail`, `notify`, `webhook`, `stripe`, `retention`, `observability`. `WORKER_QUEUE_FAMILIES` (default `all` = monolithic) selects which families a process runs.
+Workers are grouped into seven families in the [worker registry](../../reference/runtime/workers-and-events.md#worker-registry-and-queue-families): `mail`, `notify`, `webhook`, `stripe`, `instagram`, `retention`, `observability`. `WORKER_QUEUE_FAMILIES` (default `all` = monolithic) selects which families a process runs.
 
 | When to split                                              | Why                                                                                                                     |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Monolithic worker exceeds `DATABASE_POOL_MAX`              | Default demand is 54 Postgres slots; splitting reduces per-process demand and avoids contention.                       |
+| Monolithic worker exceeds `DATABASE_POOL_MAX`              | Default demand is 64 Postgres slots; splitting reduces per-process demand and avoids contention.                       |
 | Retention crons compete with throughput jobs at peak hours | Isolate `retention` to its own service so audit/tombstone runs do not steal connections from `mail`/`webhook`/`stripe`. |
 | Need to size memory or replicas differently per workload   | Throughput families benefit from more replicas; retention typically needs only one replica.                             |
 
@@ -47,7 +47,7 @@ Recommended layout (see [resource-limits.md → Example Railway split](resource-
 
 | Service                | `WORKER_QUEUE_FAMILIES`      | `SCHEDULER_ENABLED` | Notes                                                                            |
 | ---------------------- | ---------------------------- | ------------------- | -------------------------------------------------------------------------------- |
-| `worker-throughput`    | `mail,notify,webhook,stripe` | `true`              | Horizontal-scale freely; replicas multiply pool demand.                          |
+| `worker-throughput`    | `mail,notify,webhook,stripe,instagram` | `true`              | Horizontal-scale freely; replicas multiply pool demand.                          |
 | `worker-retention`     | `retention`                  | `true`              | Run **one replica** — cron jobs are not idempotent across overlapping processes. |
 | `worker-observability` | `observability`              | `true`              | Mostly Redis-only (`dlq-auto-retry` takes one Postgres connection); tiny footprint. |
 

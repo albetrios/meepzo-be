@@ -22,11 +22,15 @@ import {
 export const INSTAGRAM_CONNECT_PATH = testApiPath('/app/social/instagram/connect');
 /** `GET` / `DELETE /app/social/instagram/account` (routes 2 and 4). */
 export const INSTAGRAM_ACCOUNT_PATH = testApiPath('/app/social/instagram/account');
+/** `PATCH /app/social/instagram/account/settings` (route 3). */
+export const INSTAGRAM_ACCOUNT_SETTINGS_PATH = testApiPath(
+  '/app/social/instagram/account/settings',
+);
 
 /** The plain long-lived token every mocked connect issues — it must never reach a response. */
 export const TEST_INSTAGRAM_LONG_LIVED_TOKEN = 'IGAA-test-long-lived-token-never-returned';
 /** The plain short-lived token every mocked code exchange issues. */
-const TEST_INSTAGRAM_SHORT_LIVED_TOKEN = 'IGAA-test-short-lived-token';
+export const TEST_INSTAGRAM_SHORT_LIVED_TOKEN = 'IGAA-test-short-lived-token';
 /** About 60 days, as Instagram grants a long-lived token. */
 export const TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS = 5_184_000;
 /** The three permissions a connect needs (IA12). */
@@ -210,12 +214,19 @@ export async function createInstagramTeam(): Promise<InstagramTeamFixture> {
 }
 
 /**
- * A PERSONAL organization whose caller holds both Instagram account codes through a custom role —
- * a shape the API never builds (a personal Owner holds none, IA2), made so a test reaches the
- * team-only guard behind the permission gate: `422` on a write, `404 team_organization_required`
- * on the read.
+ * A PERSONAL organization whose caller holds app codes through a custom role — both Instagram
+ * account codes unless `permissionCodes` names others (the contact routes pass theirs) — a shape
+ * the API never builds (a personal Owner holds none, IA2), made so a test reaches the team-only
+ * guard behind the permission gate: `422` on a write, `404 team_organization_required` on a read.
  */
-export async function createPersonalOrganizationWithInstagramCodes(): Promise<{
+export async function createPersonalOrganizationWithInstagramCodes({
+  permissionCodes = [
+    APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ,
+    APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE,
+  ],
+}: {
+  permissionCodes?: readonly string[];
+} = {}): Promise<{
   organization: { id: number; public_id: string };
   token: string;
 }> {
@@ -223,10 +234,7 @@ export async function createPersonalOrganizationWithInstagramCodes(): Promise<{
   const organization = await createTestOrganization({ ownerUserId: owner.id, type: 'PERSONAL' });
   const role = await createRoleWithPermissions({
     organizationId: organization.id,
-    permissionCodes: [
-      APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ,
-      APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE,
-    ],
+    permissionCodes: [...permissionCodes],
   });
   await createMembership({ userId: owner.id, organizationId: organization.id, roleId: role.id });
   const token = await generateTestToken({
@@ -234,6 +242,16 @@ export async function createPersonalOrganizationWithInstagramCodes(): Promise<{
     organizationPublicId: organization.public_id,
   });
   return { organization, token };
+}
+
+/**
+ * Puts a team past its 14-day trial without it ever paying: with `BILLING_READ_ONLY_ENFORCED` on,
+ * its plan is read-only (AQ8, D27).
+ */
+export async function endTrialWithoutPaying(organizationId: number): Promise<void> {
+  await operatorQuery`
+    UPDATE tenancy.organizations SET created_at = now() - interval '30 days'
+    WHERE id = ${organizationId}`;
 }
 
 /** The account rows of an organization, read as the operator (any status). */

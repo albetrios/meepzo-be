@@ -1,0 +1,719 @@
+import { randomUUID } from 'node:crypto';
+import { Queue } from 'bullmq';
+import type { FastifyInstance } from 'fastify';
+import nock from 'nock';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  getBullMQConnectionOptions,
+  getBullMQKeyPrefix,
+} from '@/infrastructure/queue/connection.js';
+import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import {
+  INSTAGRAM_AUTHORIZATION_BASE_URL,
+  INSTAGRAM_GRAPH_API_VERSION,
+  INSTAGRAM_GRAPH_BASE_URL,
+} from '@/infrastructure/social/instagram.client.js';
+import { env, getEnv } from '@/shared/config/env.config.js';
+import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
+import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
+import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { processInstagramAccountDailyCheckJob } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
+import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
+import {
+  AUTOMATIONS_PATH,
+  type AutomationFixtureRow,
+  automationPath,
+  commentAutomationBody,
+} from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
+import { nextInstagramObjectId } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
+import { readAccountContactRows } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
+import {
+  INSTAGRAM_ACCOUNT_PATH,
+  INSTAGRAM_CONNECT_PATH,
+  TEST_INSTAGRAM_LONG_LIVED_TOKEN,
+  TEST_INSTAGRAM_SHORT_LIVED_TOKEN,
+  TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
+  buildInstagramProfile,
+  createInstagramTeam,
+  endTrialWithoutPaying,
+  mockInstagramConnect,
+  readInstagramAccountRows,
+  readInstagramTokenCiphertexts,
+} from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
+import { createTestApp } from '@/tests/helpers/test-app.js';
+import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import {
+  type InjectHttpResult,
+  injectAuthenticated,
+} from '@/tests/helpers/test-http-inject.helper.js';
+import {
+  countStoredEvents,
+  deauthorizeOnInstagram,
+  deliverButtonClick,
+  deliverHandSentEcho,
+  disconnectOverRoute,
+  readAutomationState,
+  reconnectSameAccount,
+  runOfPerson,
+} from './instagram-acceptance-gaps.helper.js';
+import {
+  type FakeInstagram,
+  InstagramCommentFlow,
+  type TestInstagramPerson,
+} from './instagram-comment-flow.helper.js';
+import { captureLogLines } from './instagram-retention-erasure.helper.js';
+
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
+/**
+ * The acceptance rules that cross two features, end to end (launch acceptance AC-2.15, AC-2.24,
+ * AC-5.20, AC-5.24, AC-7.19): a disconnect and a reconnect around a waiting run, a read-only plan
+ * and an inactive automation around open and new runs, a DM the team sends by hand around the
+ * 24-hour opening-message rule, and the log lines of everything that handles the Instagram token.
+ * The database, auth, permissions, queues and every app service are real; the run engine's
+ * Instagram is the recording fake of the comment flow, the rest of Instagram is nocked.
+ */
+describe('Instagram acceptance across features (e2e)', () => {
+  let app: FastifyInstance;
+  let flow: InstagramCommentFlow;
+  let instagram: FakeInstagram;
+  let jordan: TestInstagramPerson;
+  let casey: TestInstagramPerson;
+  let postId: string;
+  /** The queue route 17 adds the processing jobs to — emptied at the end, never worked here. */
+  let processingQueue: Queue;
+
+  beforeAll(async () => {
+    ({ app } = await createTestApp());
+    await initializeI18nextForBackgroundWork();
+    processingQueue = new Queue(INSTAGRAM_WEBHOOK_QUEUE_NAME, {
+      connection: getBullMQConnectionOptions(),
+      prefix: getBullMQKeyPrefix(),
+    });
+  });
+
+  afterAll(async () => {
+    await processingQueue.obliterate({ force: true });
+    await processingQueue.close();
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await cleanupDatabase();
+    await seedAllPermissions();
+    flow = await InstagramCommentFlow.open(app);
+    instagram = flow.instagram;
+    jordan = instagram.person('jordan.lee');
+    casey = instagram.person('casey.doe');
+    postId = nextInstagramObjectId();
+  });
+
+  afterEach(async () => {
+    nock.cleanAll();
+    await instagramCircuit.reset();
+    // Instagram takes one private reply per comment — the flow never sends a second one.
+    expect(instagram.commentsAnsweredPrivatelyTwice()).toEqual([]);
+  });
+
+  /** A live automation that sends its opening button, then asks for the email. */
+  const emailAutomation = {
+    name: 'Guide',
+    keywords: ['guide'],
+    is_email_collection_enabled: true,
+    email_request_message: { text: 'Your email?' },
+  };
+
+  /** A person's run waits for its opening button, another's for the email it asked for. */
+  async function leaveTwoRunsWaiting(): Promise<AutomationFixtureRow> {
+    const automation = await flow.createAutomation(emailAutomation);
+    await flow.commentAndProcess({ person: jordan, postId, text: 'guide' });
+    await flow.commentAndProcess({ person: casey, postId, text: 'guide' });
+    await flow.clickLastButton(casey);
+    expect(await runOfPerson({ flow, automation, person: jordan })).toMatchObject({
+      status: 'waiting',
+      waiting_for: 'opening_message_button',
+    });
+    expect(await runOfPerson({ flow, automation, person: casey })).toMatchObject({
+      status: 'waiting',
+      waiting_for: 'email',
+    });
+    return automation;
+  }
+
+  /** Both waiting runs go on to their final message: a click and an answer, then an answer. */
+  async function finishBothRuns(automation: AutomationFixtureRow): Promise<void> {
+    const waiting = await runOfPerson({ flow, automation, person: jordan });
+    await deliverButtonClick({ flow, automation, run: waiting, person: jordan });
+    await flow.processEvents();
+    expect(await runOfPerson({ flow, automation, person: jordan })).toMatchObject({
+      id: waiting.id,
+      status: 'waiting',
+      waiting_for: 'email',
+    });
+    await flow.answer({ person: jordan, text: 'jordan@example.com' });
+    await flow.answer({ person: casey, text: 'casey@example.com' });
+
+    for (const person of [jordan, casey]) {
+      expect(await runOfPerson({ flow, automation, person })).toMatchObject({
+        status: 'completed',
+        waiting_for: null,
+        cancel_reason: null,
+        error_message: null,
+      });
+      expect(instagram.directMessages.at(person === casey ? -1 : -2)).toMatchObject({
+        recipient: { id: person.instagramUserId },
+      });
+    }
+    expect(await flow.readAutomation(automation.public_id)).toMatchObject({
+      completed_run_count: 2,
+    });
+  }
+
+  function errorOf(response: InjectHttpResult): { reason?: string } {
+    return (response.json() as { error: { reason?: string } }).error;
+  }
+
+  describe('a disconnect and a reconnect (AC-2.15, D24)', () => {
+    it.each([
+      { way: 'a disconnect (route 4)', disconnect: disconnectOverRoute },
+      { way: "Meta's deauthorize (route 7)", disconnect: deauthorizeOnInstagram },
+    ])(
+      '$way cancels no run and leaves every automation live; the waiting runs go on once the same account is back',
+      async ({ disconnect }) => {
+        const automation = await leaveTwoRunsWaiting();
+        const draft = await flow.createAutomation({ name: 'Draft', status: 'inactive' });
+        const before = await readAutomationState(flow);
+        const accountPublicId = flow.account.publicId;
+
+        await disconnect({ app, flow });
+
+        expect(await flow.connectionStatus()).toBe('revoked');
+        expect(await readInstagramTokenCiphertexts(flow.team.organization.id)).toEqual([]);
+        expect(await readAutomationState(flow)).toEqual(before);
+        expect((await flow.readAutomation(automation.public_id)).status).toBe('live');
+        expect((await flow.readAutomation(draft.public_id)).status).toBe('inactive');
+
+        // Nothing runs while no account is connected: the click reaches nobody.
+        const storedEvents = await countStoredEvents(flow);
+        const sentBefore = instagram.calls.length;
+        await deliverButtonClick({
+          flow,
+          automation,
+          run: await runOfPerson({ flow, automation, person: jordan }),
+          person: jordan,
+        });
+        await flow.processEvents();
+        expect(await countStoredEvents(flow)).toBe(storedEvents);
+        expect(instagram.calls).toHaveLength(sentBefore);
+        expect(await readAutomationState(flow)).toEqual(before);
+
+        const reconnected = await reconnectSameAccount({ app, flow });
+
+        expect(reconnected).toMatchObject({
+          is_new_connection: false,
+          instagram_account: { id: accountPublicId, connection_status: 'connected' },
+        });
+        expect(await readAutomationState(flow)).toEqual(before);
+
+        // Each waiting run's next event — a click, an answer — goes on with that very run.
+        await finishBothRuns(automation);
+        // And the automations are live again for new people.
+        const morgan = instagram.person('morgan.kim');
+        await flow.commentAndProcess({ person: morgan, postId, text: 'guide' });
+        expect(await runOfPerson({ flow, automation, person: morgan })).toMatchObject({
+          status: 'waiting',
+          waiting_for: 'opening_message_button',
+        });
+      },
+    );
+  });
+
+  describe('a read-only plan (AC-5.20, AQ8, D27)', () => {
+    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+
+    afterEach(() => {
+      env.BILLING_READ_ONLY_ENFORCED = enforced;
+    });
+
+    it('refuses the automation writes while live automations run on: waiting runs finish and a new comment starts one', async () => {
+      const automation = await leaveTwoRunsWaiting();
+      await endTrialWithoutPaying(flow.team.organization.id);
+      env.BILLING_READ_ONLY_ENFORCED = true;
+
+      const asOwner = { token: flow.team.ownerToken };
+      for (const refused of [
+        await injectAuthenticated(app, {
+          ...asOwner,
+          method: 'POST',
+          url: AUTOMATIONS_PATH,
+          payload: commentAutomationBody(),
+          headers: { 'x-idempotency-key': `acceptance-gaps-${randomUUID()}` },
+        }),
+        await injectAuthenticated(app, {
+          ...asOwner,
+          method: 'PATCH',
+          url: automationPath(automation.public_id),
+          payload: { name: 'Blocked' },
+        }),
+        await injectAuthenticated(app, {
+          ...asOwner,
+          method: 'DELETE',
+          url: `${automationPath(automation.public_id)}?reason=not_needed`,
+        }),
+      ]) {
+        expect(refused.statusCode).toBe(403);
+        expect(errorOf(refused).reason).toBe('organization_read_only');
+      }
+      const read = await injectAuthenticated(app, {
+        ...asOwner,
+        url: automationPath(automation.public_id),
+      });
+      expect(read.statusCode).toBe(200);
+
+      await finishBothRuns(automation);
+
+      const morgan = instagram.person('morgan.kim');
+      const commentId = await flow.commentAndProcess({
+        person: morgan,
+        postId,
+        text: 'the guide please',
+      });
+      expect(await flow.eventOf(`comment:${commentId}`)).toMatchObject({
+        status: 'processed',
+        skip_reason: null,
+        error_message: null,
+      });
+      expect(await flow.logsOf(commentId)).toEqual([
+        expect.objectContaining({ automation_id: automation.id, opening_dm_status: 'waiting' }),
+      ]);
+      expect(await runOfPerson({ flow, automation, person: morgan })).toMatchObject({
+        status: 'waiting',
+        waiting_for: 'opening_message_button',
+      });
+      expect(instagram.directMessages.at(-1)?.recipient).toEqual({ comment_id: commentId });
+      await flow.clickLastButton(morgan);
+      await flow.answer({ person: morgan, text: 'morgan@example.com' });
+      expect(await runOfPerson({ flow, automation, person: morgan })).toMatchObject({
+        status: 'completed',
+      });
+      expect(await flow.readAutomation(automation.public_id)).toMatchObject({
+        name: automation.name,
+        status: 'live',
+        completed_run_count: 3,
+        deleted_at: null,
+      });
+    });
+  });
+
+  describe('an automation turned inactive (AC-5.24, AU14)', () => {
+    it('starts no new run and lets its open runs finish', async () => {
+      const automation = await leaveTwoRunsWaiting();
+      const before = await readAutomationState(flow);
+
+      await flow.editAutomation({ automation, body: { status: 'inactive' } });
+
+      // The edit itself moves no run.
+      const inactive = await flow.readAutomation(automation.public_id);
+      expect(inactive.status).toBe('inactive');
+      const after = await readAutomationState(flow);
+      expect({ ...after, automations: [] }).toEqual({ ...before, automations: [] });
+
+      // No new run: not on a comment, not on a DM — and none for a person with an open run.
+      const morgan = instagram.person('morgan.kim');
+      const sentBefore = instagram.directMessages.length;
+      const commentId = await flow.commentAndProcess({ person: morgan, postId, text: 'guide' });
+      const eventKey = await flow.answer({ person: morgan, text: 'guide' });
+      const secondComment = await flow.commentAndProcess({
+        person: jordan,
+        postId,
+        text: 'guide again',
+      });
+      for (const key of [`comment:${commentId}`, eventKey, `comment:${secondComment}`]) {
+        expect(await flow.eventOf(key)).toMatchObject({ status: 'processed' });
+      }
+      expect(await flow.logsOf(commentId)).toEqual([]);
+      expect(await flow.logsOf(secondComment)).toEqual([]);
+      expect(instagram.directMessages).toHaveLength(sentBefore);
+      expect((await flow.runsOf(automation)).map((run) => run.id)).toEqual(
+        before.runs.map((run) => run.id),
+      );
+      expect((await flow.readAutomation(automation.public_id)).last_triggered_at).toEqual(
+        inactive.last_triggered_at,
+      );
+
+      // The open runs finish, each to its final message.
+      await finishBothRuns(automation);
+      expect((await flow.readAutomation(automation.public_id)).status).toBe('inactive');
+
+      // Live again, the very comment that started nothing starts a run.
+      await flow.editAutomation({ automation, body: { status: 'live' } });
+      await flow.commentAndProcess({ person: morgan, postId, text: 'guide' });
+      expect(await runOfPerson({ flow, automation, person: morgan })).toMatchObject({
+        status: 'waiting',
+      });
+    });
+  });
+
+  describe('a DM the team sends by hand (AC-7.19, WQ4, D28)', () => {
+    const handSentText = 'Hi, this is the shop writing by hand';
+
+    /** Our own last DM to Jordan went `hoursAgo` hours ago; the contact as it is then. */
+    async function ownDirectMessageSentHoursAgo(hoursAgo: number) {
+      await flow.createFinalMessageAutomation({ name: 'Gift', keywords: ['gift'] });
+      await flow.commentAndProcess({ person: jordan, postId, text: 'gift' });
+      await flow.updateContact({
+        person: jordan,
+        values: { last_message_sent_at: new Date(Date.now() - hoursAgo * MILLISECONDS_PER_HOUR) },
+      });
+      return flow.contactOf(jordan);
+    }
+
+    /** The echo comes in, is stored skipped, and the job finds nothing to handle. */
+    async function receiveEcho(person: TestInstagramPerson): Promise<void> {
+      const sentBefore = instagram.calls.length;
+      const eventKey = await deliverHandSentEcho({ flow, person, text: handSentText });
+      expect(await flow.processEvents()).toEqual({
+        outcome: 'drained',
+        processedEventCount: 0,
+        skippedEventCount: 0,
+        failedEventCount: 0,
+      });
+      expect(await flow.eventOf(eventKey)).toMatchObject({
+        event_kind: 'echo',
+        status: 'skipped',
+        skip_reason: 'echo',
+        contact_instagram_user_id: person.instagramUserId,
+        attempt_count: 0,
+        error_message: null,
+      });
+      expect(instagram.calls).toHaveLength(sentBefore);
+    }
+
+    it('25 hours after our last DM: the echo moves nothing, so a comment gets the opening message', async () => {
+      const contact = await ownDirectMessageSentHoursAgo(25);
+      const guide = await flow.createAutomation({ name: 'Guide', keywords: ['guide'] });
+      const before = await readAutomationState(flow);
+
+      await receiveEcho(jordan);
+
+      // The whole contact — `last_message_sent_at` with it — and every run are as they were.
+      expect(await flow.contactOf(jordan)).toEqual(contact);
+      expect(await readAutomationState(flow)).toEqual(before);
+
+      const commentId = await flow.commentAndProcess({ person: jordan, postId, text: 'guide' });
+      expect(await flow.logsOf(commentId)).toEqual([
+        expect.objectContaining({ automation_id: guide.id, opening_dm_status: 'waiting' }),
+      ]);
+      expect(await runOfPerson({ flow, automation: guide, person: jordan })).toMatchObject({
+        status: 'waiting',
+        waiting_for: 'opening_message_button',
+      });
+      // Sent as if the team had never written: the private reply to that comment.
+      expect(instagram.directMessages.at(-1)?.recipient).toEqual({ comment_id: commentId });
+    });
+
+    it('2 hours after our last DM: the opening message is skipped because of our own DM, echo or not', async () => {
+      const contact = await ownDirectMessageSentHoursAgo(2);
+      const guide = await flow.createAutomation({ name: 'Guide', keywords: ['guide'] });
+
+      await receiveEcho(jordan);
+
+      expect(await flow.contactOf(jordan)).toEqual(contact);
+      const commentId = await flow.commentAndProcess({ person: jordan, postId, text: 'guide' });
+      expect(await flow.logsOf(commentId)).toEqual([
+        expect.objectContaining({
+          automation_id: guide.id,
+          opening_dm_status: 'skipped',
+          final_dm_status: 'sent',
+        }),
+      ]);
+      expect(await runOfPerson({ flow, automation: guide, person: jordan })).toMatchObject({
+        status: 'completed',
+      });
+    });
+
+    it('to a person who never wrote: it makes no contact, and starts no run even with a keyword in it', async () => {
+      await flow.createAutomation({ name: 'Any keyword', keywords: ['shop'] });
+
+      await receiveEcho(casey);
+
+      expect(
+        await readAccountContactRows({
+          organizationId: flow.team.organization.id,
+          instagramAccountId: flow.account.id,
+        }),
+      ).toEqual([]);
+      expect(await flow.runs()).toEqual([]);
+    });
+  });
+
+  describe('no log line holds the token, the app secret or the code (AC-2.24)', () => {
+    /** Instagram's error answer, quoting what it was sent — as an error text may. */
+    function errorAnswerQuoting({ quoted, code }: { quoted: string; code: number }) {
+      return {
+        error: { message: `Cannot parse ${quoted}`, type: 'OAuthException', code },
+        error_type: 'OAuthException',
+        error_message: `Cannot use ${quoted}`,
+      };
+    }
+
+    /** The code exchange answering the short-lived token, as every connect starts. */
+    function mockCodeExchange(): void {
+      nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
+        .post('/oauth/access_token')
+        .reply(200, {
+          data: [
+            {
+              access_token: TEST_INSTAGRAM_SHORT_LIVED_TOKEN,
+              user_id: '17841400000000001',
+              permissions:
+                'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments',
+            },
+          ],
+        });
+    }
+
+    /** The long-lived exchange answering the token. */
+    function mockLongLivedExchange(): void {
+      nock(INSTAGRAM_GRAPH_BASE_URL).get('/access_token').query(true).reply(200, {
+        access_token: TEST_INSTAGRAM_LONG_LIVED_TOKEN,
+        token_type: 'bearer',
+        expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
+      });
+    }
+
+    /** The app secret the Instagram calls and Meta's signatures use. */
+    function appSecret(): string {
+      const secret = getEnv().INSTAGRAM_APP_SECRET;
+      if (!secret) throw new Error('the test harness sets no Instagram app secret');
+      return secret;
+    }
+
+    /** Runs `act` with every log line captured, and expects none of them to hold a secret. */
+    async function expectNoSecretLogged({
+      code,
+      act,
+      expectedMessages,
+    }: {
+      code: string;
+      act: () => Promise<void>;
+      /** Log messages that must be among the lines — the capture saw the work. */
+      expectedMessages: string[];
+    }): Promise<void> {
+      const captured = captureLogLines(app);
+      try {
+        await act();
+      } finally {
+        captured.restore();
+      }
+      const written = captured.lines.join('\n');
+      for (const message of expectedMessages) expect(written).toContain(message);
+      for (const secret of [
+        TEST_INSTAGRAM_SHORT_LIVED_TOKEN,
+        TEST_INSTAGRAM_LONG_LIVED_TOKEN,
+        appSecret(),
+        code,
+      ]) {
+        expect(written).not.toContain(secret);
+        expect(written).not.toContain(encodeURIComponent(secret));
+        expect(written).not.toContain(Buffer.from(secret).toString('base64'));
+      }
+    }
+
+    /** Connects (route 1) with `code` as a fresh team's Owner. */
+    async function connect({
+      code,
+      token,
+      payload = { code: `${code}#_` },
+    }: {
+      code: string;
+      token: string;
+      payload?: unknown;
+    }): Promise<InjectHttpResult> {
+      return injectAuthenticated(app, {
+        method: 'POST',
+        url: INSTAGRAM_CONNECT_PATH,
+        token,
+        payload,
+        headers: { 'x-idempotency-key': `acceptance-gaps-${randomUUID()}` },
+      });
+    }
+
+    it.each<{
+      outcome: string;
+      mock: (input: { code: string }) => void;
+      statusCode: number;
+      payload?: (input: { code: string }) => unknown;
+    }>([
+      {
+        outcome: 'a connect that works',
+        mock: () => mockInstagramConnect({ profile: buildInstagramProfile() }),
+        statusCode: 200,
+      },
+      {
+        outcome: 'a connect whose webhook subscription fails',
+        mock: () =>
+          mockInstagramConnect({ profile: buildInstagramProfile(), subscription: 'failure' }),
+        statusCode: 200,
+      },
+      {
+        outcome: 'a code Instagram refuses, quoting it',
+        mock: ({ code }) =>
+          nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
+            .post('/oauth/access_token')
+            .reply(400, errorAnswerQuoting({ quoted: `${code} ${appSecret()}`, code: 400 })),
+        statusCode: 422,
+      },
+      {
+        outcome: 'a code exchange that answers no JSON but the token',
+        mock: () =>
+          nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
+            .post('/oauth/access_token')
+            .reply(200, TEST_INSTAGRAM_SHORT_LIVED_TOKEN),
+        statusCode: 503,
+      },
+      {
+        outcome: 'a code exchange that breaks off, naming its request body',
+        mock: ({ code }) =>
+          nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
+            .post('/oauth/access_token')
+            .replyWithError(`socket hang up after client_secret=${appSecret()}&code=${code}`),
+        statusCode: 503,
+      },
+      {
+        outcome: 'a long-lived exchange Instagram refuses, quoting the token',
+        mock: () => {
+          mockCodeExchange();
+          nock(INSTAGRAM_GRAPH_BASE_URL)
+            .get('/access_token')
+            .query(true)
+            .reply(
+              400,
+              errorAnswerQuoting({
+                quoted: `${TEST_INSTAGRAM_SHORT_LIVED_TOKEN} ${appSecret()}`,
+                code: 190,
+              }),
+            );
+        },
+        statusCode: 422,
+      },
+      {
+        outcome: 'a long-lived exchange that breaks off, naming its address',
+        mock: () => {
+          mockCodeExchange();
+          nock(INSTAGRAM_GRAPH_BASE_URL)
+            .get('/access_token')
+            .query(true)
+            .replyWithError(
+              `getaddrinfo failed for ${INSTAGRAM_GRAPH_BASE_URL}/access_token?client_secret=${appSecret()}&access_token=${TEST_INSTAGRAM_SHORT_LIVED_TOKEN}`,
+            );
+        },
+        // The one-time code is spent: restart, never retry (D56).
+        statusCode: 409,
+      },
+      {
+        outcome: 'a profile read that fails, quoting the token',
+        mock: () => {
+          mockCodeExchange();
+          mockLongLivedExchange();
+          nock(INSTAGRAM_GRAPH_BASE_URL)
+            .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+            .query(true)
+            .reply(500, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 2 }));
+        },
+        statusCode: 409,
+      },
+      {
+        outcome: 'a connect body with an unknown field',
+        mock: () => undefined,
+        payload: ({ code }) => ({ code, state: code }),
+        statusCode: 400,
+      },
+    ])('$outcome ($statusCode)', async ({ mock, payload, statusCode }) => {
+      const team = await createInstagramTeam();
+      const code = `AQB-${randomUUID()}`;
+      mock({ code });
+
+      await expectNoSecretLogged({
+        code,
+        act: async () => {
+          const response = await connect({
+            code,
+            token: team.ownerToken,
+            ...(payload === undefined ? {} : { payload: payload({ code }) }),
+          });
+          expect(response.statusCode, response.body).toBe(statusCode);
+        },
+        expectedMessages: ['request.complete', INSTAGRAM_CONNECT_PATH],
+      });
+      expect(nock.pendingMocks()).toEqual([]);
+    });
+
+    it('the daily renewal, refused and then done, and the disconnect whose unsubscribe fails', async () => {
+      const team = await createInstagramTeam();
+      const code = `AQB-${randomUUID()}`;
+      const profile = buildInstagramProfile();
+      mockInstagramConnect({ profile });
+      expect((await connect({ code, token: team.ownerToken })).statusCode).toBe(200);
+      const [account] = await readInstagramAccountRows(team.organization.id);
+      /** The account's daily check a day before its token ends — the renewal is due. */
+      const checkDaily = () =>
+        processInstagramAccountDailyCheckJob({
+          jobData: {
+            organizationPublicId: team.organization.public_id,
+            instagramAccountPublicId: account?.public_id ?? '',
+          },
+          accountService: app.appDomain.instagramAccountService,
+          requestId: 'acceptance-gaps-daily-check',
+          now: new Date((account?.token_expires_at?.getTime() ?? 0) - MILLISECONDS_PER_DAY),
+        });
+
+      await expectNoSecretLogged({
+        code,
+        act: async () => {
+          nock(INSTAGRAM_GRAPH_BASE_URL)
+            .get('/refresh_access_token')
+            .query(true)
+            .reply(400, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 100 }))
+            .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+            .query(true)
+            .reply(200, profile);
+          expect(await checkDaily()).toMatchObject({ outcome: 'checked', renewal: 'refused' });
+
+          nock(INSTAGRAM_GRAPH_BASE_URL)
+            .get('/refresh_access_token')
+            .query(true)
+            .reply(200, {
+              access_token: TEST_INSTAGRAM_LONG_LIVED_TOKEN,
+              token_type: 'bearer',
+              expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
+            })
+            .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+            .query(true)
+            .reply(200, profile);
+          expect(await checkDaily()).toMatchObject({ outcome: 'checked', renewal: 'renewed' });
+
+          nock(INSTAGRAM_GRAPH_BASE_URL)
+            .delete(`/${INSTAGRAM_GRAPH_API_VERSION}/${profile.id}/subscribed_apps`)
+            .reply(500, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 2 }));
+          const disconnected = await injectAuthenticated(app, {
+            method: 'DELETE',
+            url: INSTAGRAM_ACCOUNT_PATH,
+            token: team.ownerToken,
+          });
+          expect(disconnected.statusCode).toBe(204);
+        },
+        expectedMessages: [
+          'outbound.call.failed',
+          'app.instagram_account.daily_check.completed',
+          'request.complete',
+          INSTAGRAM_ACCOUNT_PATH,
+        ],
+      });
+      expect(nock.pendingMocks()).toEqual([]);
+      expect((await readInstagramAccountRows(team.organization.id))[0]?.connection_status).toBe(
+        'revoked',
+      );
+    });
+  });
+});

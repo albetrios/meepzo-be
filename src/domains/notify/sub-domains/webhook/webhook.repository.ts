@@ -1,6 +1,9 @@
 import { getTableColumns, and, asc, count, eq, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { finishKeysetPage } from '@/shared/utils/http/list-query.util.js';
-import { databaseNowTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
+import {
+  databaseNowTimestamp,
+  databaseUpdatedAtTimestamp,
+} from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { DEFAULT_REPOSITORY_LIST_LIMIT } from '@/shared/constants/query-limits.constants.js';
 import { webhooks } from '@/domains/notify/sub-domains/webhook/webhook.schema.js';
@@ -27,7 +30,7 @@ import {
  * (`updated_at >= created_at`) CHECK on soft-delete/update. `greatest` keeps the invariant — and
  * "updated_at never precedes created_at" — true regardless of transaction-start timing.
  */
-const webhookUpdatedAtTimestamp: SQL = sql`greatest(${webhooks.created_at}, now())`;
+const webhookUpdatedAtTimestamp = databaseUpdatedAtTimestamp(webhooks.created_at);
 
 /** Drizzle row type inferred from the `notify.webhooks` table. */
 export type WebhookRow = typeof webhooks.$inferSelect;

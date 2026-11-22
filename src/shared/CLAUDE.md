@@ -19,8 +19,8 @@ src/shared/
     index.ts                  # Re-exports all
   types/
     index.ts                  # AuthContext, PaginatedResult (minimal by design)
-  constants/                  # index.ts + billing, i18n, limits, notification, pagination,
-                              # project-identity, query-limits, roles, security, ttl
+  constants/                  # index.ts + billing, i18n, instagram, limits, notification,
+                              # pagination, project-identity, query-limits, roles, security, ttl
   utils/                      # sub-categorized helpers (import full paths below)
     auth/ http/ i18n/ idempotency/ identity/ infrastructure/ security/ text/ validation/
     infrastructure/logger.util.ts   # Pino logger

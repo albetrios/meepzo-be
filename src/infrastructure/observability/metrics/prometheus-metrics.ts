@@ -38,6 +38,7 @@ let commitDispatchDurabilityFallbacksTotal: Counter | null = null;
 let readCacheRequestsTotal: Counter<'cache' | 'result'> | null = null;
 let databaseUnscopedQueriesTotal: Counter | null = null;
 let bullmqProviderOutageParkedJobsTotal: Counter<'queue' | 'provider' | 'reason'> | null = null;
+let instagramWebhookUnknownAccountEntriesTotal: Counter | null = null;
 
 /** The BullMQ queue and job metrics — split out of {@link registerOn} to keep each short. */
 function registerQueueMetrics(registry: Registry): void {
@@ -201,6 +202,12 @@ function registerOn(registry: Registry): void {
     registers: [registry],
   });
 
+  instagramWebhookUnknownAccountEntriesTotal = new Counter({
+    name: 'instagram_webhook_unknown_account_entries_total',
+    help: 'Instagram webhook delivery entries for an Instagram account no organization holds (never connected, or revoked) — answered 200 and stored nowhere (WH4). A steady trickle is normal after a disconnect while Meta still delivers; a jump means a live account stopped resolving',
+    registers: [registry],
+  });
+
   readCacheRequestsTotal = new Counter({
     name: 'read_cache_requests_total',
     help: 'Read-through cache lookups by cache name and result (hit | miss). A cache whose hit ratio sits near zero is pure overhead — it is paying a Redis round trip to still ask Postgres — and one whose ratio collapses after a deploy usually means an invalidation became too broad. Alert on a sustained drop, not on an absolute value: the right ratio differs per cache',
@@ -257,6 +264,9 @@ function bindMetricHandlesFromRegistry(registry: Registry): void {
   readCacheRequestsTotal = registry.getSingleMetric('read_cache_requests_total') as Counter<
     'cache' | 'result'
   >;
+  instagramWebhookUnknownAccountEntriesTotal = registry.getSingleMetric(
+    'instagram_webhook_unknown_account_entries_total',
+  ) as Counter;
   registeredMetricsRegistry = registry;
 }
 
@@ -498,6 +508,18 @@ export function recordEventBusHandlerFailure(eventType: string): void {
   ensurePrometheusMetricsRegistered(getMetricsRegistry());
   if (!eventBusHandlerFailuresTotal) return;
   eventBusHandlerFailuresTotal.inc({ event_type: eventType });
+}
+
+/**
+ * Increments `instagram_webhook_unknown_account_entries_total` for one Instagram webhook delivery
+ * entry whose account no organization holds (never connected, or revoked) — WH4, WQ1. No-op when
+ * metrics are disabled; the receiver still logs `instagram.webhook.unknown_account` for it.
+ */
+export function recordInstagramWebhookUnknownAccountEntry(): void {
+  if (!isMetricsEnabled()) return;
+  ensurePrometheusMetricsRegistered(getMetricsRegistry());
+  if (!instagramWebhookUnknownAccountEntriesTotal) return;
+  instagramWebhookUnknownAccountEntriesTotal.inc();
 }
 
 /**

@@ -37,7 +37,7 @@ export const instagram_account_tokens = appSchema
       /** About 60 days after issue or renewal; copied onto the account's `token_expires_at`. */
       expires_at: timestamp('expires_at', { withTimezone: true }),
       last_refreshed_at: timestamp('last_refreshed_at', { withTimezone: true }),
-      /** Instagram's code and message from the last failed renewal — never the token. */
+      /** Instagram's class, code, subcode and HTTP status from the last failed renewal — never its text. */
       last_refresh_error: varchar('last_refresh_error', { length: 500 }),
       created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
       updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

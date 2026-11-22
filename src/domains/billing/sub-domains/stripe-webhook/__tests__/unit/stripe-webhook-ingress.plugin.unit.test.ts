@@ -15,22 +15,32 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-async function loadPreHandlerHooks(): Promise<Array<(request: FastifyRequest) => Promise<void>>> {
+type IngressHook = (
+  request: FastifyRequest,
+  reply?: unknown,
+  payload?: unknown,
+) => Promise<unknown>;
+
+async function loadHooks(hookName: 'preHandler' | 'preParsing'): Promise<IngressHook[]> {
   const { stripeWebhookIngressPlugin } = await import(
     '@/domains/billing/sub-domains/stripe-webhook/stripe-webhook-ingress.plugin.js'
   );
 
-  const preHandlerHooks: Array<(request: FastifyRequest) => Promise<void>> = [];
+  const hooks: IngressHook[] = [];
   const application = {
-    addHook: (name: string, hook: (request: FastifyRequest) => Promise<void>): void => {
-      if (name === 'preHandler') {
-        preHandlerHooks.push(hook);
+    addHook: (name: string, hook: IngressHook): void => {
+      if (name === hookName) {
+        hooks.push(hook);
       }
     },
   };
 
   await stripeWebhookIngressPlugin(application as never, {} as never);
-  return preHandlerHooks;
+  return hooks;
+}
+
+function loadPreHandlerHooks(): Promise<IngressHook[]> {
+  return loadHooks('preHandler');
 }
 
 describe('stripeWebhookIngressPlugin', () => {
@@ -135,5 +145,47 @@ describe('stripeWebhookIngressPlugin', () => {
       signature: 'sig_test',
     });
     expect(request.stripeWebhookEvent).toEqual(verifiedEvent);
+    // The body is the event parsed from the verified bytes — the parser left it unparsed (D53).
+    expect(request.body).toEqual(verifiedEvent);
+  });
+
+  describe('a request without the signature header is refused before its body is read (D53)', () => {
+    const PAYLOAD = { stream: 'the unread request body' };
+
+    it('preParsing lets a request with the header on, its body stream untouched', async () => {
+      const [preParsing] = await loadHooks('preParsing');
+      const request = {
+        headers: { 'stripe-signature': 'sig_test' },
+      } as unknown as FastifyRequest;
+
+      await expect(preParsing?.(request, {}, PAYLOAD)).resolves.toBe(PAYLOAD);
+      expect(constructStripeWebhookEventMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['missing', {}],
+      ['empty', { 'stripe-signature': '' }],
+      ['not a string', { 'stripe-signature': ['sig_a', 'sig_b'] }],
+    ])(
+      'preParsing answers the missing-signature 400 when the header is %s',
+      async (_case, headers) => {
+        const [preParsing] = await loadHooks('preParsing');
+        const attempt = preParsing?.({ headers } as unknown as FastifyRequest, {}, PAYLOAD);
+
+        await expect(attempt).rejects.toBeInstanceOf(ValidationError);
+        await expect(attempt).rejects.toMatchObject({ message: 'errors:missingStripeSignature' });
+        expect(constructStripeWebhookEventMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it('preParsing answers 503 first when Stripe webhook ingress is not configured', async () => {
+      isStripeWebhookIngressConfiguredMock.mockReturnValue(false);
+      const [preParsing] = await loadHooks('preParsing');
+      const request = { headers: {} } as unknown as FastifyRequest;
+
+      await expect(preParsing?.(request, {}, PAYLOAD)).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+    });
   });
 });

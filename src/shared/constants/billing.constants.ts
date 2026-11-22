@@ -26,8 +26,8 @@ export const STRIPE_WEBHOOK_MAX_PROCESSING_ATTEMPTS = 25;
 export const STRIPE_WEBHOOK_FAILED_COUNT_CAP = 10_000;
 
 /**
- * A new organization's trial: the days a TEAM organization that has never paid keeps writing under the
- * app routes, counted from its `created_at`. Past it, with `BILLING_READ_ONLY_ENFORCED` on, the organization is
+ * A new organization's trial: the days a TEAM organization that has never paid keeps writing its
+ * automations, counted from its `created_at`. Past it, with `BILLING_READ_ONLY_ENFORCED` on, the organization is
  * read-only until it pays (owner decision D3, 2026-10-17). A lapsed paid subscription has its own
  * grace instead — `BILLING_DUNNING_GRACE_DAYS` after its `current_period_end`.
  *

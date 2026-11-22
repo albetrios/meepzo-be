@@ -10,6 +10,8 @@ import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains
 import { STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-retention.constants.js';
 import { STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-reclaim.constants.js';
 import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-catchup.constants.js';
+import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { AUDIT_RETENTION_QUEUE_NAME } from '@/domains/audit/workers/audit-retention.constants.js';
 import { AUDIT_OUTBOX_DRAIN_QUEUE_NAME } from '@/domains/audit/workers/audit-outbox-drain.constants.js';
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
@@ -32,13 +34,20 @@ import { USER_DATA_EXPORT_RETENTION_QUEUE_NAME } from '@/domains/user/sub-domain
 import { IDEMPOTENCY_CARDINALITY_QUEUE_NAME } from '@/infrastructure/observability/idempotency-cardinality/idempotency-cardinality.constants.js';
 import { DLQ_DEPTH_QUEUE_NAME } from '@/infrastructure/observability/dlq-depth/dlq-depth.constants.js';
 import { DLQ_AUTO_RETRY_QUEUE_NAME } from '@/infrastructure/queue/dlq/dlq-auto-retry.constants.js';
+import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
+import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.constants.js';
+import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
+import { AUTOMATION_RUN_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.constants.js';
+import { AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.constants.js';
+import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 
 /**
  * Every BullMQ queue a worker consumes — the one list the queue-depth gauges, the DLQ depth sampler
  * and its mirror trim, the worker heartbeat read-out and Bull Board all use.
  *
  * @remarks
- * - **Algorithm:** grouped by worker family (mail, notify, webhook, stripe, retention,
+ * - **Algorithm:** grouped by worker family (mail, notify, webhook, stripe, instagram, retention,
  *   observability), mirroring `worker-registration.registry.ts`.
  * - **Failure modes:** none — a constant.
  * - **Side effects:** none.
@@ -51,6 +60,7 @@ export const WORKER_QUEUE_NAMES = [
   MAIL_OUTBOX_SWEEPER_QUEUE_NAME,
   COMMIT_DISPATCH_RECOVERY_QUEUE_NAME,
   NOTIFICATION_QUEUE_NAME,
+  INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME,
   USER_DATA_EXPORT_QUEUE_NAME,
   WEBHOOK_DELIVERY_QUEUE_NAME,
   WEBHOOK_DELIVERY_RECLAIM_QUEUE_NAME,
@@ -59,6 +69,8 @@ export const WORKER_QUEUE_NAMES = [
   STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
   STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME,
   STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME,
+  INSTAGRAM_WEBHOOK_QUEUE_NAME,
+  INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
   AUDIT_RETENTION_QUEUE_NAME,
   AUDIT_OUTBOX_DRAIN_QUEUE_NAME,
   AUDIT_EXPORT_QUEUE_NAME,
@@ -78,6 +90,12 @@ export const WORKER_QUEUE_NAMES = [
   UPLOAD_TOMBSTONE_RETENTION_QUEUE_NAME,
   UPLOAD_PENDING_SWEEP_QUEUE_NAME,
   USER_DATA_EXPORT_RETENTION_QUEUE_NAME,
+  INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+  AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME,
+  AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
+  AUTOMATION_RUN_RETENTION_QUEUE_NAME,
+  AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME,
+  AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
   IDEMPOTENCY_CARDINALITY_QUEUE_NAME,
   DLQ_DEPTH_QUEUE_NAME,
   DLQ_AUTO_RETRY_QUEUE_NAME,
@@ -96,8 +114,10 @@ export const WORKER_QUEUE_NAMES = [
 export const WORKER_THROUGHPUT_QUEUE_NAMES = [
   MAIL_QUEUE_NAME,
   NOTIFICATION_QUEUE_NAME,
+  INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME,
   USER_DATA_EXPORT_QUEUE_NAME,
   WEBHOOK_DELIVERY_QUEUE_NAME,
   STRIPE_WEBHOOK_QUEUE_NAME,
   SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
+  INSTAGRAM_WEBHOOK_QUEUE_NAME,
 ] as const;

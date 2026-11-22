@@ -37,6 +37,12 @@ export const RESOURCE_QUOTA_LOCK_NAMESPACE = {
    * other resource reuses the lock space.
    */
   MEMBERSHIP_STAFF_NUMBER: 0x53_54_41_46,
+  /**
+   * Per-organization "next post" window check and link, keyed by organization id. ASCII `ANXP`.
+   * Not a quota: an automation save's overlap check and its write, and the linking of a new post,
+   * run under it, so two saves never both pass the check (launch routes-final § 3 AU9, AU15).
+   */
+  AUTOMATION_NEXT_POST: 0x41_4e_58_50,
 } as const;
 
 /**

@@ -99,10 +99,11 @@ Every organization-scoped list endpoint uses the **shared** helpers in `src/shar
 - `X-Captcha-Token` — public auth forms only (login, email verification-code send + login, password forgot/reset, mfa/login, webauthn authenticate options, oauth authorize).
 - `X-CSRF-Token` — POST /auth/refresh only (double-submit of the csrf_token cookie). Keeps the X- form (frontend-framework default).
 - `Stripe-Signature` — sent BY Stripe to the webhook routes; the app never sends it.
+- `X-Hub-Signature-256` — sent BY Meta to the Instagram webhook delivery (`POST /app/social/instagram/webhook`): `sha256=` + the hex HMAC-SHA256 of the raw body with the Instagram app secret; missing or wrong → `400 invalid_webhook_signature`. The app never sends it. Meta's subscription check (`GET` on the same path) is proved by `hub.verify_token` instead.
 
 ## Headers kept in X- form (ecosystem standards)
 
-`X-Request-Id`, `X-Client-Request-Id`, `X-Api-Key`, `X-CSRF-Token`, `X-RateLimit-*` (server-emitted with `Retry-After` on 429), Helmet's security headers, `X-Forwarded-For`, `X-Requested-With` (CORS-allowlisted in `cors.middleware.ts` so browser/XHR-library preflights pass — the app reads no meaning from it). Custom headers use the X- form for visual consistency with the infrastructure headers: `X-Idempotency-Key`, `X-Idempotency-Replay` (response marker), `X-Captcha-Token`. Standards keep their fixed names: `Authorization`, `Stripe-Signature`, `Retry-After`.
+`X-Request-Id`, `X-Client-Request-Id`, `X-Api-Key`, `X-CSRF-Token`, `X-RateLimit-*` (server-emitted with `Retry-After` on 429), Helmet's security headers, `X-Forwarded-For`, `X-Requested-With` (CORS-allowlisted in `cors.middleware.ts` so browser/XHR-library preflights pass — the app reads no meaning from it). Custom headers use the X- form for visual consistency with the infrastructure headers: `X-Idempotency-Key`, `X-Idempotency-Replay` (response marker), `X-Captcha-Token`. Standards keep their fixed names: `Authorization`, `Stripe-Signature`, `X-Hub-Signature-256` (Meta's), `Retry-After`.
 
 ## Sync checklist when touching any of the above
 

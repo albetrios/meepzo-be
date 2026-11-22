@@ -87,7 +87,7 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
    error leaves the row pending — never marks it failed — and a sweep re-enqueues rows still pending
    after a cutoff (`mail-outbox-sweeper`, `webhook-delivery-reclaim`,
    `stripe-webhook-event-reclaim`, `subscription-seat-reconcile`,
-   `reclaim-pending-user-data-exports`). Table: [When Redis refuses the
+   `reclaim-pending-user-data-exports`, `reclaim-instagram-webhook-events`). Table: [When Redis refuses the
    enqueue](workers-and-events.md#when-redis-refuses-the-enqueue).
 7. A queue may set a **rate limiter** only for a real provider limit (mail:
    `RESEND_MAX_REQUESTS_PER_SECOND`, counted across every replica). Put urgent work ahead with
@@ -99,7 +99,7 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
    `getWebhookWorkerOptions()` (lock 60 s, two stalls) or `getRetentionWorkerOptions()` (lock
    120 s); connection `getBullMQConnectionOptions()`; `prefix: getBullMQKeyPrefix()`.
 2. **Concurrency**: a throughput worker reads its family's setting (`getWorkerConcurrencyMail /
-   Notify / Webhook / Stripe`, default `WORKER_CONCURRENCY` = 4); a cron or sweep runs at
+   Notify / Webhook / Stripe / Instagram`, default `WORKER_CONCURRENCY` = 4); a cron or sweep runs at
    `RETENTION_WORKER_CONCURRENCY` (1).
 3. **Return a `WorkerHandle`** (`buildWorkerHandle`) and log the `stalled` event. Bootstrap attaches
    the dead-letter + Sentry hook, the job-duration histogram and the queue heartbeat to every
@@ -151,8 +151,9 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
    runs (`mail-outbox-sweeper` → `mail`, `stripe-webhook-event-reclaim` → `stripe`,
    `webhook-delivery-reclaim` → `webhook`). A sweep may instead ride on the queue it backs up as a
    second job name its worker routes on `job.name` (`subscription-seat-reconcile` on
-   `subscription-seat-sync`, `reclaim-pending-user-data-exports` on `user-data-export`) — no worker
-   or connection budget of its own.
+   `subscription-seat-sync`, `reclaim-pending-user-data-exports` on `user-data-export`,
+   `reclaim-instagram-webhook-events` on `instagram-webhook`) — no worker or connection budget of
+   its own.
 3. **Bounded and idempotent**: a fixed batch per run, oldest first, safe to run twice; a delete runs
    in batches with a per-run cap (`deleteInBatchesByCondition`, `BATCH_DELETE_MAX_BATCHES_PER_RUN`)
    and a savepoint per batch, so one blocked row never aborts the run.
@@ -167,11 +168,11 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
 
 | Setting | Default | Rule |
 | --- | --- | --- |
-| `WORKER_CONCURRENCY` (+ `_MAIL`, `_NOTIFY`, `_WEBHOOK`, `_STRIPE`) | 4 | Per worker per process; replicas multiply it |
+| `WORKER_CONCURRENCY` (+ `_MAIL`, `_NOTIFY`, `_WEBHOOK`, `_STRIPE`, `_INSTAGRAM`) | 4 | Per worker per process; replicas multiply it |
 | `WORKER_QUEUE_FAMILIES` | `all` | Split services by family; every family's sweeps run with it |
 | `SCHEDULER_ENABLED` | `true` | `true` on every worker service (§7) |
 | `RESEND_MAX_REQUESTS_PER_SECOND` | 10 | Your Resend plan's limit; shared by every replica |
-| `DATABASE_POOL_MAX` / `DATABASE_MAINTENANCE_POOL_MAX` | 70 / 10 | replicas × (pool + maintenance) must fit `max_connections`; the worker's peak demand must fit its pool, checked at boot **(test)** `worker-pool-budget.policy.unit.test.ts` |
+| `DATABASE_POOL_MAX` / `DATABASE_MAINTENANCE_POOL_MAX` | 80 / 10 | replicas × (pool + maintenance) must fit `max_connections`; the worker's peak demand must fit its pool, checked at boot **(test)** `worker-pool-budget.policy.unit.test.ts` |
 | Redis `maxmemory-policy` | — | `noeviction` (or no `maxmemory`); the worker refuses to start otherwise |
 | `DLQ_AUTO_RETRY_*` | on, 3 times, 30 min cooldown, 20 per run | Leave on |
 

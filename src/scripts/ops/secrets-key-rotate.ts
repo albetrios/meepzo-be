@@ -12,9 +12,10 @@
  * `--apply` to write the re-encrypted values back.
  *
  * Connection: it reads every row on the `DATABASE_URL` pool outside any database context, so it
- * must connect as a role that bypasses RLS. All three tables are FORCE RLS, and the Instagram token
- * table has no maintenance arm at all (launch IA5); as the RLS-subject `meepzo_be_app` role it
- * finds no rows and reports zero.
+ * must connect as a role that bypasses RLS (`rolsuper` or `rolbypassrls`) — all three tables are
+ * FORCE RLS, and the Instagram token table has no maintenance arm at all (launch IA5). As any other
+ * role it would find no rows and report zero, as if every row were rotated; so it refuses to run —
+ * dry run included — with a non-zero exit (launch D56).
  *
  * Usage:
  *   pnpm ops:secrets:rotate                 # report-only (dry-run)
@@ -36,6 +37,7 @@ import { mfa_methods } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-method
 import { webhooks } from '@/domains/notify/sub-domains/webhook/webhook.schema.js';
 import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
 import { getEnv } from '@/shared/config/env.config.js';
+import { ConfigurationError } from '@/shared/errors/index.js';
 import {
   decryptFieldSecret,
   encryptFieldSecret,
@@ -150,6 +152,36 @@ export const FIELD_SECRET_ROTATION_COLUMNS: readonly FieldSecretRotationColumn[]
   },
 ];
 
+/**
+ * Refuses a connection whose role is subject to row-level security: it sees none of the rows the
+ * rotation walks, so the pass would report zero and the old key would leave the keyring with rows
+ * still on it.
+ *
+ * @remarks
+ * - **Algorithm:** the connected role's `rolsuper` / `rolbypassrls` from `pg_roles` — `current_user`,
+ *   the role row-level security is checked against.
+ * - **Failure modes:** `ConfigurationError` naming the role when neither is set (or the role is not
+ *   found); a failed query propagates.
+ * - **Side effects:** one read.
+ * - **Notes:** `databaseHandle` is the `DATABASE_URL` pool unless a caller passes its transaction.
+ */
+export async function assertConnectedRoleBypassesRowLevelSecurity(
+  databaseHandle: Pick<typeof database, 'execute'> = database,
+): Promise<void> {
+  const result = await databaseHandle.execute<{
+    role_name: string;
+    bypasses_row_level_security: boolean;
+  }>(drizzleSql`
+    SELECT current_user AS role_name, (rolsuper OR rolbypassrls) AS bypasses_row_level_security
+    FROM pg_roles WHERE rolname = current_user`);
+  const role = result.rows[0];
+  if (role?.bypasses_row_level_security === true) return;
+  throw new ConfigurationError(
+    `pnpm ops:secrets:rotate is connected as "${role?.role_name ?? 'unknown'}", which is subject to row-level security: it would find no encrypted rows and report zero. ` +
+      'Set DATABASE_URL to a role with rolsuper or rolbypassrls and run it again.',
+  );
+}
+
 /** How many rows of each column were (or, on a dry run, would be) re-encrypted. */
 export interface FieldSecretRotationReport {
   apply: boolean;
@@ -163,10 +195,12 @@ export interface FieldSecretRotationReport {
  * `SECRETS_ENCRYPTION_CURRENT_VERSION` yet.
  *
  * @remarks
- * - **Algorithm:** per column, read every stored value; skip empty ones and ones already carrying
+ * - **Algorithm:** check the connected role first
+ *   ({@link assertConnectedRoleBypassesRowLevelSecurity}); then per column, read every stored value; skip empty ones and ones already carrying
  *   the current version prefix; decrypt with the key of the value's own version and encrypt with
  *   the current one; write it back by row id when `apply` is set.
- * - **Failure modes:** throws on the first value that does not decrypt (a version missing from the
+ * - **Failure modes:** `ConfigurationError` before anything is read when the role is subject to
+ *   row-level security, on a dry run too; throws on the first value that does not decrypt (a version missing from the
  *   keyring, a corrupt value) — the rows written before it stay rotated, and a rerun skips them.
  * - **Side effects:** with `apply`, one `UPDATE` per changed row; none on a dry run.
  * - **Notes:** idempotent — a second pass reports zero.
@@ -176,6 +210,7 @@ export async function rotateFieldSecrets({
 }: {
   apply: boolean;
 }): Promise<FieldSecretRotationReport> {
+  await assertConnectedRoleBypassesRowLevelSecurity();
   const currentPrefix = currentVersionPrefix();
   const updatedByColumn: Record<string, number> = {};
   for (const { column, readStoredValues, writeStoredValue } of FIELD_SECRET_ROTATION_COLUMNS) {
@@ -194,12 +229,15 @@ export async function rotateFieldSecrets({
 async function main(): Promise<void> {
   const options = parseOptions();
 
-  await database.execute(drizzleSql`select 1`);
-
-  const report = await rotateFieldSecrets({ apply: options.apply });
-  logger.info(report, options.apply ? 'secrets-key-rotate.complete' : 'secrets-key-rotate.dry-run');
-
-  await closeDatabase();
+  try {
+    const report = await rotateFieldSecrets({ apply: options.apply });
+    logger.info(
+      report,
+      options.apply ? 'secrets-key-rotate.complete' : 'secrets-key-rotate.dry-run',
+    );
+  } finally {
+    await closeDatabase();
+  }
 }
 
 if (isMain(import.meta.url)) {

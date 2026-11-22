@@ -2168,6 +2168,39 @@ export class MembershipService {
   }
 
   /**
+   * The internal user ids of every ACTIVE member of the scope's organization whose role (main or
+   * additional, not deleted) grants `permissionCode` — the cross-domain SERVICE entry point over
+   * {@link MembershipRepository.findUserIdsWithPermission}.
+   *
+   * @remarks
+   * - **Algorithm:** one read in the caller's organization scope (joining the caller's open unit
+   *   of work for the same organization): resolve the organization, then the distinct holders.
+   * - **Failure modes:** `NotFoundError('Organization')` when the scope's organization does not
+   *   resolve.
+   * - **Side effects:** none — read-only.
+   * - **Notes:** the app domain's reconnect notice (launch IA9) finds its recipients here
+   *   (`instagram-account:manage` holders); other domains read memberships only through this
+   *   service, never the repository.
+   */
+  async findActiveUserIdsWithPermission({
+    scope,
+    permissionCode,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    permissionCode: string;
+  }): Promise<number[]> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.requireOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        return this.membershipRepository.findUserIdsWithPermission(organization.id, permissionCode);
+      },
+    });
+  }
+
+  /**
    * F2: suspends the most-recently-joined non-owner ACTIVE members until the org's active headcount
    * fits `ceiling`; returns how many were suspended. Cross-domain entry point billing's
    * `SubscriptionService` calls after a downgrade commits.

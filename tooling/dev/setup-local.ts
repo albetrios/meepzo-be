@@ -496,12 +496,14 @@ function syncExternalCredentials(reports: StepReport[], options: BootstrapOption
       : []),
     { label: PROCESS_ENVIRONMENT_LABEL, values: process.env },
   ];
+  const local = readFileSync(ENV_LOCAL_PATH, 'utf8');
   const fill = fillExternalCredentials({
-    local: readFileSync(ENV_LOCAL_PATH, 'utf8'),
+    local,
     example: readFileSync(examplePath, 'utf8'),
     sources,
   });
-  const changed = fill.copied.length > 0;
+  // A copied key, or a retired placeholder set back to the template's blank.
+  const changed = fill.content !== local;
   if (changed && !options.check) writeFileSync(ENV_LOCAL_PATH, fill.content);
 
   const copiedLabel = [

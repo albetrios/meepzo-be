@@ -10,6 +10,7 @@ import type { UploadContainer } from '@/domains/upload/upload.container.js';
 import type { UserContainer } from '@/domains/user/user.container.js';
 import type { AuthContext } from '@/shared/types/index.js';
 import type { PrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
+import type { MetaSignedRequestPayload } from '@/infrastructure/social/meta-signature.util.js';
 import type { FailedAuthenticationRateLimit } from '@/shared/middlewares/rate-limit/failed-authentication-rate-limit.js';
 import type { FastifyReply } from 'fastify';
 import type Stripe from 'stripe';
@@ -20,11 +21,24 @@ declare module 'fastify' {
     /**
      * sec-B finding #7: routes set this flag to request that the global
      * content-type parser capture the raw body buffer onto `request.rawBody`
-     * for HMAC signature verification. The Stripe webhook routes plugin reads
-     * this flag in its `onRoute` hook and populates the raw-body URL registry
-     * read by the parser at request time.
+     * for HMAC signature verification, and leave the body unparsed — the route's ingress
+     * plugin parses the raw bytes once their signature passed (D53). The app-level `onRoute`
+     * hook in `src/app.ts` reads it (with {@link FastifyContextConfig.rawBodySignatureHeader})
+     * and fills the raw-body route registry the parser reads at request time (WH2).
      */
     captureRawBody?: boolean;
+    /**
+     * The header that carries the provider's signature on a `captureRawBody` route
+     * (`stripe-signature`, `x-hub-signature-256`): the raw body is kept only when the
+     * request carries it. Required whenever `captureRawBody` is set — boot fails without it.
+     */
+    rawBodySignatureHeader?: string;
+    /**
+     * Opts a route out of the `{ data, meta }` response envelope and of response encryption
+     * (`response-format.middleware.ts`, `encryption.middleware.ts`) — a body the caller reads as
+     * it is, such as the Instagram webhook's `text/plain` answers.
+     */
+    raw_response?: boolean;
   }
 
   interface FastifyRequest {
@@ -40,6 +54,11 @@ declare module 'fastify' {
     rawBody: Buffer | undefined;
     /** Set by stripe webhook ingress plugin after signature verification. */
     stripeWebhookEvent?: Stripe.Event;
+    /**
+     * Set by the Meta callback ingress plugin (`instagram-account-meta-callback-ingress.plugin.ts`)
+     * once Meta's `signed_request` verified — routes 7–8 (IA18).
+     */
+    metaSignedRequest?: MetaSignedRequestPayload;
     metricsStartTimeNanoseconds?: bigint;
     /** i18n translate function fixed to `language` (set by the i18n middleware on every request). */
     t?: TFunction;

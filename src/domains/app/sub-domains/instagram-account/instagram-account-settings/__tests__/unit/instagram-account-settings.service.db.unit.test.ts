@@ -16,14 +16,24 @@ import {
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
 import { InstagramAccountSettingsRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
+import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 
 /**
  * The settings service (routes-final § 1.B.3, IA12 step 4): the first connect creates the default
- * row; a reconnect keeps the row the team changed; another organization sees none of it.
+ * row; a reconnect keeps the row the team changed; another organization sees none of it. And the
+ * repository's route 3 write (IA15): only the settings sent, who and when, the checks still hold.
+ * Route 3 itself (team check, 404, 409, audit) is covered over HTTP in
+ * `__tests__/integration/instagram-account-settings.integration.test.ts`.
  */
 describe('InstagramAccountSettingsService (database)', () => {
   const accountRepository = new InstagramAccountRepository();
-  const service = new InstagramAccountSettingsService(new InstagramAccountSettingsRepository());
+  const settingsRepository = new InstagramAccountSettingsRepository();
+  // createDefaultSettings / findSettings never reach the organization service.
+  const service = new InstagramAccountSettingsService(
+    settingsRepository,
+    accountRepository,
+    {} as OrganizationService,
+  );
   let scope: OrganizationPrincipalDatabaseScope;
   let otherScope: OrganizationPrincipalDatabaseScope;
   let instagramAccount: InstagramAccountKey;
@@ -47,7 +57,7 @@ describe('InstagramAccountSettingsService (database)', () => {
           organizationId: organization.id,
           instagramUserId: '17841400000000001',
           instagramAppUserId: '917841400000000001',
-          username: 'meepzo_shop',
+          username: 'acme_shop',
           name: null,
           biography: null,
           website: null,
@@ -121,5 +131,74 @@ describe('InstagramAccountSettingsService (database)', () => {
     await expect(
       service.createDefaultSettings({ scope: otherScope, instagramAccount: mismatchedAccount }),
     ).rejects.toThrow();
+  });
+
+  it('the update writes only the settings sent, who changed them and when (route 3)', async () => {
+    const created = await service.createDefaultSettings({ scope, instagramAccount });
+    const editor = await createTestUser();
+
+    const updated = await withAppDatabaseContext({
+      scope,
+      callback: () =>
+        settingsRepository.update({
+          ...instagramAccount,
+          changes: { is_automation_enabled: false, public_reply_gap_max_seconds: 90 },
+          updatedByUserId: editor.id,
+        }),
+    });
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      is_automation_enabled: false,
+      is_public_reply_safety_enabled: false,
+      public_reply_chance_percent: 80,
+      public_reply_hour_limit: 60,
+      public_reply_gap_min_seconds: 20,
+      public_reply_gap_max_seconds: 90,
+      updated_by_user_id: editor.id,
+    });
+    expect(updated?.updated_at.getTime()).toBeGreaterThanOrEqual(created.updated_at.getTime());
+  });
+
+  it('the locked read finds the row inside a transaction, and the gap-order check still refuses max below min', async () => {
+    await service.createDefaultSettings({ scope, instagramAccount });
+
+    const locked = await withAppDatabaseContext({
+      scope,
+      callback: () => settingsRepository.findByInstagramAccountForUpdate(instagramAccount),
+    });
+    expect(locked?.public_reply_gap_min_seconds).toBe(20);
+
+    await expect(
+      withAppDatabaseContext({
+        scope,
+        callback: () =>
+          settingsRepository.update({
+            ...instagramAccount,
+            changes: { public_reply_gap_min_seconds: 120 },
+            updatedByUserId: null,
+          }),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("the update never touches another organization's row", async () => {
+    await service.createDefaultSettings({ scope, instagramAccount });
+
+    const result = await withAppDatabaseContext({
+      scope: otherScope,
+      callback: () =>
+        settingsRepository.update({
+          organizationId: otherOrganizationId,
+          instagramAccountId: instagramAccount.instagramAccountId,
+          changes: { is_automation_enabled: false },
+          updatedByUserId: null,
+        }),
+    });
+
+    expect(result).toBeNull();
+    await expect(service.findSettings({ scope, instagramAccount })).resolves.toMatchObject({
+      is_automation_enabled: true,
+    });
   });
 });

@@ -51,6 +51,9 @@ import { closeMailQueue } from '@/infrastructure/mail/queues/mail.queue.js';
 import { closeNotificationQueue } from '@/domains/notify/sub-domains/notification/queues/notification.queue.js';
 import { closeWebhookDeliveryQueue } from '@/domains/notify/sub-domains/webhook/webhook-delivery/queues/webhook-delivery.queue.js';
 import { closeUserDataExportQueue } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
+import { closeInstagramAccountDailyCheckQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { closeInstagramReconnectNoticeQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
+import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 
 // Initialize Sentry before anything else
 initSentry();
@@ -139,6 +142,11 @@ async function main() {
         closeNotificationQueue(),
         closeWebhookDeliveryQueue(),
         closeUserDataExportQueue(), // sec-r4-R1: was missing from shutdown sequence
+        // Launch IA8 / IA9: the daily check's sweep adds its checks; a break enqueues its notice.
+        closeInstagramAccountDailyCheckQueue(),
+        closeInstagramReconnectNoticeQueue(),
+        // WH12 / WH15: a job that yielded adds its follow-up; the stuck-event pick-up adds jobs.
+        closeInstagramWebhookQueue(),
       ]);
       // Pooled BullMQ clients (queue gauges, readiness depth probes, the Redis-saturation
       // sampler) hold Redis sockets for the process lifetime — release them before the

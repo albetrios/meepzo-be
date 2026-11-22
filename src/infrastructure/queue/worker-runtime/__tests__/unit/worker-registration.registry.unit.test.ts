@@ -9,6 +9,7 @@ vi.mock('@/shared/config/env.config.js', () => ({
       WORKER_CONCURRENCY_NOTIFY: 4,
       WORKER_CONCURRENCY_WEBHOOK: 4,
       WORKER_CONCURRENCY_STRIPE: 4,
+      WORKER_CONCURRENCY_INSTAGRAM: 4,
     },
     {
       get(target, property: string) {
@@ -49,8 +50,17 @@ describe('worker-registration.registry', () => {
 
     // REQ-4: +1 for the subscription-seat-sync worker (Stripe family, throughput, Postgres-backed);
     // +1 for the webhook-delivery-reclaim sweep (webhook family, cron, Postgres-backed); +1 for the
-    // membership invitation expiry sweep (launch D84).
-    expect(definitions).toHaveLength(34);
+    // membership invitation expiry sweep (launch D84); +2 for the Instagram reconnect notice (notify
+    // family, throughput) and the daily Instagram account check (retention family, cron — launch
+    // IA8, IA9); +1 for the Instagram webhook event clean-up (instagram family, cron,
+    // Postgres-backed — launch-2026-11-20-ujai WH19); +1 for the "next post" expiry (retention
+    // family, cron every 15 minutes, Postgres-backed — launch D9, AU15); +4 for the run and
+    // automation clean-ups (retention family, crons, Postgres-backed — launch D8, AU25, AQ7: the
+    // hourly 7-day wait cancel, run retention, comment-log retention, the deleted-automation purge);
+    // +1 for the Instagram webhook event processing (instagram family, throughput,
+    // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
+    // WH12–WH15).
+    expect(definitions).toHaveLength(43);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -75,15 +85,21 @@ describe('worker-registration.registry', () => {
     // REQ-4: subscription-seat-sync adds one Postgres-backed throughput worker (event-driven, plus the
     // hourly seat reconcile on its queue); the webhook-delivery-reclaim sweep one Postgres-backed,
     // scheduled, maintenance worker; user-data-export also runs its lost-enqueue sweep; the
-    // membership invitation expiry sweep (D84) one Postgres-backed, scheduled, maintenance worker.
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(31);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(30);
+    // membership invitation expiry sweep (D84) one Postgres-backed, scheduled, maintenance worker;
+    // the Instagram reconnect notice one Postgres-backed throughput worker (event-driven) and the
+    // daily Instagram account check one Postgres-backed, scheduled, maintenance worker (IA8, IA9);
+    // the Instagram webhook event clean-up (WH19) one more Postgres-backed, scheduled, maintenance
+    // worker; the "next post" expiry (D9, AU15) one more; the four run and automation clean-ups
+    // (D8, AU25, AQ7) four more; the Instagram webhook event processing (WH5, WH15) one
+    // Postgres-backed throughput worker whose every-minute pick-up rides its queue.
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(40);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(38);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
-    ).toHaveLength(6);
+    ).toHaveLength(8);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
-    ).toHaveLength(26);
+    ).toHaveLength(33);
     expect(
       definitions.filter((definition) => definition.criticality === 'observability'),
     ).toHaveLength(2);

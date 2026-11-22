@@ -5,7 +5,7 @@ meepzo-be uses **two Redis surfaces**:
 | Surface | Env | Workloads |
 | ------- | --- | --------- |
 | **Cache (write-critical)** | `REDIS_URL` | Permission cache, idempotency, rate limits, OAuth/MFA/WebAuthn state, circuit breakers |
-| **BullMQ (queue)** | `REDIS_BULLMQ_URL`, falling back to `REDIS_URL` | Mail, notifications, webhooks, Stripe webhook, retention workers, DLQ |
+| **BullMQ (queue)** | `REDIS_BULLMQ_URL`, falling back to `REDIS_URL` | Mail, notifications, webhooks, Stripe webhook, Instagram webhook event processing, retention workers, DLQ |
 
 **Recommended topology:** run BullMQ on a **dedicated** Redis instance (`REDIS_BULLMQ_URL`) in production, separate from the write-critical cache/idempotency/rate-limit store on `REDIS_URL`. A worker outage lets the BullMQ waiting queue grow until Redis fills; with `maxmemory-policy=noeviction` a full instance rejects all writes. Isolating queues means a queue backlog **cannot** starve idempotency/rate-limit writes and turn a worker problem into an API write outage.
 

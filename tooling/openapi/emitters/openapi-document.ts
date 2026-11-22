@@ -15,6 +15,7 @@ import { collectRouteSchemaMetadata } from '@tooling/openapi/extractors/route-sc
 import {
   generateOperationId,
   getQueryParameters,
+  getRequestBodyMediaType,
   getRequestBodySchema,
   getRouteSecurity,
   inferTagFromPath,
@@ -123,7 +124,7 @@ export function buildOpenApiDocument(localeStrings: OpenApiLocaleStrings): OpenA
         operationObject.requestBody = {
           required: true,
           content: {
-            'application/json': {
+            [getRequestBodyMediaType(routeKey)]: {
               schema,
               // OAS 3.0 forbids `example` and `examples` together on a Media Type Object.
               // With a captured sample present, the schema-derived one is demoted into the

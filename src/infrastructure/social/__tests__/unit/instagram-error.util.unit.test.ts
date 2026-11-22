@@ -5,6 +5,7 @@ import {
   classifyInstagramErrorResponse,
   INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
   INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
+  INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS,
   InstagramApiError,
   MESSENGER_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
   readInstagramErrorBody,
@@ -44,19 +45,18 @@ function answer({
 }
 
 describe('readInstagramErrorBody', () => {
-  it('reads the Graph shape once — code, subcode, type, message, fbtrace id', () => {
+  it('reads the Graph shape once — code, subcode, type, fbtrace id, never the text (D53)', () => {
     expect(
       readInstagramErrorBody(graphErrorBody({ code: 190, error_subcode: 463, message: 'expired' })),
     ).toEqual({
       code: 190,
       subcode: 463,
       type: 'OAuthException',
-      message: 'expired',
       fbtraceId: 'trace-1',
     });
   });
 
-  it("reads the code exchange's flat shape (error_type, code, error_message)", () => {
+  it("reads the code exchange's flat shape (error_type, code), never its text", () => {
     const body = JSON.stringify({
       error_type: 'OAuthException',
       code: 400,
@@ -66,21 +66,15 @@ describe('readInstagramErrorBody', () => {
       code: 400,
       subcode: null,
       type: 'OAuthException',
-      message: 'Invalid authorization code',
       fbtraceId: null,
     });
   });
 
   it('reads a body that is not JSON, or JSON of neither shape, as all null', () => {
-    const empty = { code: null, subcode: null, type: null, message: null, fbtraceId: null };
+    const empty = { code: null, subcode: null, type: null, fbtraceId: null };
     expect(readInstagramErrorBody('<html>Bad Gateway</html>')).toEqual(empty);
     expect(readInstagramErrorBody('[1,2]')).toEqual(empty);
     expect(readInstagramErrorBody('null')).toEqual(empty);
-  });
-
-  it("cuts Instagram's message to 300 characters", () => {
-    const details = readInstagramErrorBody(graphErrorBody({ code: 100, message: 'x'.repeat(900) }));
-    expect(details.message).toHaveLength(300);
   });
 });
 
@@ -88,7 +82,7 @@ describe('classifyInstagramErrorResponse — the four classes of IA4', () => {
   const classify = (httpStatus: number, code: number | null, subcode: number | null = null) =>
     classifyInstagramErrorResponse({
       httpStatus,
-      details: { code, subcode, type: null, message: null, fbtraceId: null },
+      details: { code, subcode, type: null, fbtraceId: null },
     });
 
   it('auth: code 190 with subcode 463 → expired', () => {
@@ -131,7 +125,7 @@ describe('classifyInstagramErrorResponse — the four classes of IA4', () => {
     });
   });
 
-  it.each([[4], [17], [32], [613]])('throttled: code %s', (code) => {
+  it.each([[4], [17], [32], [613], [80002]])('throttled: code %s', (code) => {
     expect(classify(400, code).errorClass).toBe('throttled');
   });
 
@@ -161,6 +155,16 @@ describe('readInstagramRetryAfterMs', () => {
   it('reads whole seconds, at least one', () => {
     expect(readInstagramRetryAfterMs('120')).toBe(120_000);
     expect(readInstagramRetryAfterMs('0')).toBe(1_000);
+  });
+
+  it('waits at most 15 minutes, whatever the header names (D56)', () => {
+    expect(INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS).toBe(15 * 60_000);
+    expect(readInstagramRetryAfterMs('900')).toBe(INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS);
+    expect(readInstagramRetryAfterMs('901')).toBe(INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS);
+    expect(readInstagramRetryAfterMs('86400')).toBe(INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS);
+    expect(readInstagramRetryAfterMs('9'.repeat(400))).toBe(
+      INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
+    );
   });
 
   it('falls back to the default wait when the header is absent or unreadable', () => {
@@ -210,6 +214,18 @@ describe('readInstagramErrorResponse', () => {
     });
   });
 
+  it('a throttle that names a day waits 15 minutes — a queue is never paused for longer (D56)', () => {
+    const error = answer({
+      httpStatus: 429,
+      body: graphErrorBody({ code: 4 }),
+      retryAfterHeader: '86400',
+    });
+    expect(error).toMatchObject({
+      retryAfterMs: INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS,
+      retryAfterSeconds: 900,
+    });
+  });
+
   it('a throttle code on HTTP 400 without Retry-After waits the default', () => {
     const error = answer({ httpStatus: 400, body: graphErrorBody({ code: 613 }) });
     expect(error.errorClass).toBe('throttled');
@@ -226,7 +242,8 @@ describe('readInstagramErrorResponse', () => {
       errorClass: 'refused',
       connectionStatus: null,
       countsAsCircuitFailure: false,
-      instagramErrorMessage: 'This authorization code has been used',
+      instagramErrorType: 'OAuthException',
+      instagramErrorCode: 400,
     });
   });
 
@@ -278,7 +295,9 @@ describe('readInstagramErrorResponse', () => {
       body: graphErrorBody({ code: 190, error_subcode: 463, message: 'secret-ish detail' }),
     });
     expect(error.message).toBe('Instagram answered HTTP 400: auth (code 190, subcode 463)');
-    expect(error.message).not.toContain('secret-ish');
+    // No field keeps it either: a person's name or a token Meta quotes reaches no row and no log.
+    const everyField = Object.getOwnPropertyNames(error).map((field) => Reflect.get(error, field));
+    expect(JSON.stringify(everyField)).not.toContain('secret-ish');
   });
 });
 

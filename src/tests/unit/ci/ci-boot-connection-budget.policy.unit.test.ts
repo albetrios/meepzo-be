@@ -58,8 +58,8 @@ const allowed =
  * (OPS-01): the process count the boot states (or the one API plus one worker the budget assumes
  * when it states none) × the schema's per-process pools ≤ the service's `max_connections` −
  * reserved. #82 raised the pool default from 30 to 70 and every post-merge boot then exited before
- * /readyz (2 × 80 = 160 > 90); a later default above 80 would break even the one-process boot —
- * this fails first. `docker-api-smoke.policy.unit.test.ts` pins the strings.
+ * /readyz (2 × 80 = 160 > 90); the default is 80 since the Instagram automation workers — a later
+ * default above 80 would break even the one-process boot — this fails first. `docker-api-smoke.policy.unit.test.ts` pins the strings.
  */
 describe('CI API boots fit the service Postgres connection budget', () => {
   it.each([
@@ -74,13 +74,13 @@ describe('CI API boots fit the service Postgres connection budget', () => {
     ).toBeLessThanOrEqual(allowed);
   });
 
-  it('fails the 17 Oct boot: the Docker smoke without its process count asks for 160 of 90', () => {
+  it('fails the 17 Oct boot: the Docker smoke without its process count asks for 180 of 90', () => {
     const boot = step(dockerWorkflow, 'Boot API container and verify /readyz').replace(
       /-e DEPLOYMENT_TOTAL_REPLICA_COUNT=1 \\\n/,
       '',
     );
     const { processes, perProcess } = connectionDemand(boot);
-    expect(processes * perProcess).toBe(160);
+    expect(processes * perProcess).toBe(180);
     expect(processes * perProcess).toBeGreaterThan(allowed);
   });
 });

@@ -82,9 +82,10 @@ connections that open stay, a warning names the rest, and only a database that a
 the boot), so a freshly started process does not pay
 every connection handshake under its first burst.
 
-The structured `request.overload_shed` warning identifies the triggering signal
-as `event_loop_overload`, `database_pool_overload` or `database_pool_wait_overload`
-in its `reason` field. When several cross their thresholds, they take precedence in
+Each shed request logs one structured warning, the error handler's
+`request.service_unavailable`, whose `reason` field names the triggering signal:
+`event_loop_overload`, `database_pool_overload` or `database_pool_wait_overload`
+(any other `reason` there is another cause of a 503). When several cross their thresholds, they take precedence in
 that order. Internal
 reasons remain absent from the HTTP error body. A calm event loop therefore does
 not rule out deliberate database-pressure shedding. Compare checkout pressure,

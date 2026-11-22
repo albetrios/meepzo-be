@@ -80,7 +80,7 @@ Legend:
   ROLE    = Global role required (super_admin, user)
   PERM    = Organization-scoped permission required
   TOKEN   = Non-JWT bearer token required
-  Columns after the path: S = success status · I = idempotency (req | -) · O = organization scope (both | team-only, 422 on personal)
+  Columns after the path: S = success status · I = idempotency (req | -) · O = organization scope (both | team-only: on a personal organization a write answers 422, a read 404 team_organization_required)
 
 ================================================================================
   DOMAIN: AUTH (/api/v1/auth)

@@ -44,7 +44,8 @@ export interface InstagramAccountTokenTarget {
  * Notes:
  * - Ciphertext only: tokens arrive already encrypted by the Instagram client and leave encrypted;
  *   only the client decrypts, right before its call. Nothing here logs a token.
- * - Only this service and, later, the daily check use the token repository
+ * - Only this service and the daily check's processor
+ *   (`workers/instagram-account-daily-check.processor.ts`, IA8) use the token repository
  *   (`instagram-account-token-isolation.policy.unit.test.ts`).
  * - No Instagram call here — and none may run inside the unit of work these methods join.
  */

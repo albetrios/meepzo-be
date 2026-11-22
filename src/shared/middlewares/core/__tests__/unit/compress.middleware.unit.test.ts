@@ -91,9 +91,10 @@ describe('compress.middleware — sec-re-03: BREACH suppression', () => {
   });
 
   // Regression guard: an earlier fast-path scanned for quoted fragments (`"token"`, `"raw_key"`)
-  // and silently MISSED access_token / email / session_id / client_secret, leaving secret-bearing
-  // bodies compressible. The pre-scan must stay a superset of the canonical secret matcher.
-  it.each(['access_token', 'email', 'session_id', 'client_secret'])(
+  // and silently MISSED access_token / session_id / client_secret, leaving secret-bearing bodies
+  // compressible. The pre-scan must stay a superset of the canonical secret matcher. (An email is
+  // personal data, not a secret, since launch D40 — see the D38 suite below.)
+  it.each(['access_token', 'session_id', 'client_secret'])(
     'engages the BREACH suppression for the previously-missed field %s',
     async (field) => {
       const app = fastify();
@@ -109,6 +110,32 @@ describe('compress.middleware — sec-re-03: BREACH suppression', () => {
       expect(response.headers['content-encoding']).toBe('identity-no-compress');
     },
   );
+});
+
+describe('compress.middleware — launch D38, D40: personal data is not a secret', () => {
+  it.each([
+    'username',
+    'phone',
+    'full_name',
+    'profile_picture_url',
+    'email',
+    'is_email_collection_enabled',
+  ])('compresses a body carrying %s and does not mark it no-store', async (field) => {
+    const app = fastify();
+    await app.register(compressMiddleware);
+    app.get('/contact', async () => ({
+      data: { [field]: 'value', note: 'x'.repeat(2048) },
+    }));
+    const response = await app.inject({
+      method: 'GET',
+      url: '/contact',
+      headers: { 'accept-encoding': 'gzip' },
+    });
+    await app.close();
+
+    expect(response.headers['content-encoding']).not.toBe('identity-no-compress');
+    expect(response.headers['cache-control'] ?? '').not.toContain('no-store');
+  });
 });
 
 describe('compress.middleware — C-5: signed media URLs are secrets', () => {

@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(30);
+    expect(scheduledJobs).toHaveLength(38);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -63,7 +63,20 @@ describe('infrastructure queue scheduler', () => {
       'user-offboarding-reconcile',
       'organization-offboarding-reconcile',
       'stripe-webhook-event-retention',
+      // launch-2026-11-20-ujai WH19: the 30-day Instagram webhook event clean-up, daily at 03:00
+      'instagram-webhook-event-retention',
       'audit-export',
+      // Launch IA8: the daily Instagram account check's sweep rides its queue
+      // (job `sweep-connected-instagram-accounts`).
+      'instagram-account-daily-check',
+      // launch-2026-11-20-ujai D9 (AU15): the "next post" windows that ended expire every 15 minutes
+      'automation-next-post-expiry',
+      // launch-2026-11-20-ujai D8 (AU25, AQ7): the hourly 7-day wait cancel, then the daily run
+      // (03:20), comment-log (03:30) and deleted-automation (03:40) clean-ups
+      'automation-run-wait-expiry',
+      'automation-run-retention',
+      'automation-comment-log-retention',
+      'automation-tombstone-retention',
       'user-data-export-retention',
       ...TOMBSTONE_QUEUE_ORDER.slice(0, 5),
       // D84: invited memberships 7 days past their invitation's expiry free their seat
@@ -83,6 +96,9 @@ describe('infrastructure queue scheduler', () => {
       'webhook-delivery-reclaim',
       // The export lost-enqueue sweep rides the export queue (job `reclaim-pending-user-data-exports`).
       'user-data-export',
+      // launch-2026-11-20-ujai WH15: the stuck-event pick-up rides the Instagram processing queue
+      // (job `reclaim-instagram-webhook-events`), every minute.
+      'instagram-webhook',
     ]);
   });
 
@@ -92,12 +108,84 @@ describe('infrastructure queue scheduler', () => {
     const tombstoneQueues = scheduledJobs
       .map((job) => job.queueName)
       .filter((name) => name.endsWith('-tombstone-retention'));
-    expect(tombstoneQueues).toEqual([...TOMBSTONE_QUEUE_ORDER]);
+    // The deleted-automation purge (AQ7) runs with the app domain's clean-ups at 03:40 — after the
+    // runs and comment logs pointing at an automation are gone, not in the 05:4x tombstone chain.
+    expect(tombstoneQueues).toEqual(['automation-tombstone-retention', ...TOMBSTONE_QUEUE_ORDER]);
     const uploadIndex = tombstoneQueues.indexOf('upload-tombstone-retention');
     const organizationIndex = tombstoneQueues.indexOf('organization-tombstone-retention');
     const userIndex = tombstoneQueues.indexOf('user-tombstone-retention');
     expect(uploadIndex).toBeLessThan(organizationIndex);
     expect(organizationIndex).toBeLessThan(userIndex);
+  });
+
+  it('runs the Instagram webhook event clean-up daily at 03:00 (WH19, worker-changes rule 11)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const job = getScheduledJobs().find(
+      (scheduledJob) => scheduledJob.queueName === 'instagram-webhook-event-retention',
+    );
+    expect(job).toMatchObject({
+      schedulerId: 'daily-instagram-webhook-event-cleanup',
+      jobName: 'purge-old-instagram-webhook-events',
+      cronPattern: '0 3 * * *',
+    });
+  });
+
+  it('picks up stuck Instagram webhook events every minute on the processing queue (WH15, WC-2)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const job = getScheduledJobs().find(
+      (scheduledJob) => scheduledJob.queueName === 'instagram-webhook',
+    );
+    expect(job).toMatchObject({
+      schedulerId: 'instagram-webhook-reclaim',
+      jobName: 'reclaim-instagram-webhook-events',
+      cronPattern: '* * * * *',
+    });
+  });
+
+  it('expires ended "next post" windows every 15 minutes (D9, routes-final § 3.A AU15)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const job = getScheduledJobs().find(
+      (scheduledJob) => scheduledJob.queueName === 'automation-next-post-expiry',
+    );
+    expect(job).toMatchObject({
+      schedulerId: 'automation-next-post-expiry-quarter-hourly',
+      jobName: 'expire-ended-next-post-windows',
+      cronPattern: '*/15 * * * *',
+    });
+  });
+
+  it('cancels runs waiting more than 7 days every hour (D8, routes-final § 3.B AU25)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const job = getScheduledJobs().find(
+      (scheduledJob) => scheduledJob.queueName === 'automation-run-wait-expiry',
+    );
+    expect(job).toMatchObject({
+      schedulerId: 'automation-run-wait-expiry-hourly',
+      jobName: 'cancel-long-waiting-automation-runs',
+      cronPattern: '0 * * * *',
+    });
+  });
+
+  it('runs the run, comment-log and deleted-automation clean-ups daily at 03:20, 03:30 and 03:40 (D8, AU25, AQ7)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const scheduledJobs = getScheduledJobs();
+    const cronOf = (queueName: string) =>
+      scheduledJobs.find((scheduledJob) => scheduledJob.queueName === queueName);
+    expect(cronOf('automation-run-retention')).toMatchObject({
+      schedulerId: 'daily-automation-run-retention',
+      jobName: 'purge-old-ended-automation-runs',
+      cronPattern: '20 3 * * *',
+    });
+    expect(cronOf('automation-comment-log-retention')).toMatchObject({
+      schedulerId: 'daily-automation-comment-log-retention',
+      jobName: 'purge-old-automation-comment-logs',
+      cronPattern: '30 3 * * *',
+    });
+    expect(cronOf('automation-tombstone-retention')).toMatchObject({
+      schedulerId: 'daily-automation-tombstone-cleanup',
+      jobName: 'purge-old-deleted-automations',
+      cronPattern: '40 3 * * *',
+    });
   });
 
   it('getScheduledJobs honors AUDIT_RETENTION_CRON from the environment', async () => {
@@ -152,14 +240,15 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(30);
-    // Each scheduled job opens one Queue for upsert (30) + the reconcile pass opens one Queue per
-    // unique queue name (30 — the seat reconcile and the export reclaim ride queues no other cron
-    // uses), each closed in its own loop iteration. The upsert queues are closed as soon as
-    // registration ends — not held open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(60);
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(38);
+    // Each scheduled job opens one Queue for upsert (38) + the reconcile pass opens one Queue per
+    // unique queue name (38 — the seat reconcile, the export reclaim, the Instagram daily-check
+    // sweep and the Instagram stuck-event pick-up ride queues no other cron uses), each closed in
+    // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
+    // open for the life of the process.
+    expect(queueCloseMock).toHaveBeenCalledTimes(76);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(60);
+    expect(queueCloseMock).toHaveBeenCalledTimes(76);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

@@ -10,11 +10,9 @@ import {
   buildAuditActorFields,
   recordScopedAuditEvent,
 } from '@/shared/utils/infrastructure/audit-request-context.util.js';
+import { INSTAGRAM_ACCOUNT_AUDIT_RESOURCE_TYPE } from './instagram-account.constants.js';
 import type { InstagramAccountService } from './instagram-account.service.js';
 import { validateConnectInstagramAccount } from './instagram-account.validator.js';
-
-/** The audit resource type of every Instagram account action (IA7). */
-const INSTAGRAM_ACCOUNT_AUDIT_RESOURCE_TYPE = 'instagram_account';
 
 /**
  * Builds the handler map for the Instagram account routes (routes-final § 1.A — routes 1, 2, 4):

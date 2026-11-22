@@ -3,6 +3,15 @@
     "invitationAcceptedTitle": "Invitation accepted",
     "invitationAcceptedMessage": "{{inviteeName}} accepted your invitation to join {{organizationName}}.",
     "invitationDeclinedTitle": "Invitation declined",
-    "invitationDeclinedMessage": "{{inviteeName}} declined your invitation to join {{organizationName}}."
+    "invitationDeclinedMessage": "{{inviteeName}} declined your invitation to join {{organizationName}}.",
+    "instagramReconnectRequiredTitle": "Reconnect Instagram",
+    "instagramReconnectRequiredMessage": "Instagram stopped accepting the connection to @{{username}}. Connect the account again so your automations keep running."
+  },
+  "automationMessages": {
+    "emailQuestion": "Please share your email to continue!",
+    "phoneQuestion": "Please share your phone number to continue!",
+    "invalidEmail": "Please provide a valid email address. Use the button below to share your email.",
+    "buttonTemplateText": "What do you want to do next?",
+    "linkButtonTitle": "Visit Link"
   }
 }

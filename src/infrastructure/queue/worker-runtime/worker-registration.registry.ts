@@ -71,8 +71,27 @@ import {
   type SubscriptionSeatSyncWorkerBillingContainer,
 } from '@/domains/billing/sub-domains/subscription/workers/subscription-seat-sync.worker.js';
 import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
+import { createInstagramWebhookWorker } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js';
+import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { createInstagramWebhookEventRetentionWorker } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.worker.js';
+import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { createNotificationRetentionWorker } from '@/domains/notify/sub-domains/notification/workers/notification-retention.worker.js';
 import { NOTIFICATION_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-retention.constants.js';
+import { createInstagramAccountDailyCheckWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.worker.js';
+import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
+import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
+import { isInstagramConfigured } from '@/infrastructure/social/instagram.client.js';
+import { createAutomationNextPostExpiryWorker } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.worker.js';
+import { AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.constants.js';
+import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';
+import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
+import { createAutomationRunRetentionWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.worker.js';
+import { AUTOMATION_RUN_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.constants.js';
+import { createAutomationCommentLogRetentionWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.worker.js';
+import { AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.constants.js';
+import { createAutomationTombstoneRetentionWorker } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.worker.js';
+import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 import {
   isStripeConfigured,
   isStripeWebhookIngressConfigured,
@@ -81,6 +100,7 @@ import type { WorkerHandle } from '@/infrastructure/queue/bootstrap.js';
 import { RETENTION_WORKER_CONCURRENCY } from '@/infrastructure/queue/worker-runtime/worker-options.js';
 import type { WorkerQueueFamily } from '@/infrastructure/queue/worker-runtime/worker-queue-family.constants.js';
 import {
+  getWorkerConcurrencyInstagram,
   getWorkerConcurrencyMail,
   getWorkerConcurrencyNotify,
   getWorkerConcurrencyStripe,
@@ -217,6 +237,25 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: () => createNotificationWorker(),
   },
   {
+    // Launch IA9: tells the organization's `instagram-account:manage` holders, in the app and by
+    // email, that its Instagram account must be connected again — one job per account and break,
+    // enqueued after the guarded status change commits (API and worker processes alike).
+    queueName: INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME,
+    family: 'notify',
+    logLabel: 'Instagram reconnect notice worker',
+    usesPostgres: true,
+    scheduled: false,
+    criticality: 'throughput',
+    holdsConnectionDuringExternalIo: false,
+    resolvePostgresConcurrency: () => getWorkerConcurrencyNotify(),
+    create: (workerContainers) =>
+      createInstagramReconnectNoticeWorker({
+        membershipService: workerContainers.tenancyDomain.membershipService,
+        organizationSettingsService: workerContainers.tenancyDomain.organizationSettingsService,
+        notificationService: workerContainers.notifyDomain.notificationService,
+      }),
+  },
+  {
     queueName: USER_DATA_EXPORT_QUEUE_NAME,
     family: 'notify',
     logLabel: 'user data export worker',
@@ -333,6 +372,40 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     logLabel: 'stripe webhook event catch-up worker',
     create: () => createStripeWebhookEventCatchupWorker(),
   }),
+  {
+    // launch-2026-11-20-ujai WH5, WH12–WH15: Instagram webhook event processing — one job per
+    // account works through its waiting events in order (deduplicated per account), plus the
+    // every-minute stuck-event pick-up on the same queue. Provider-pausable on the `instagram`
+    // circuit; every Instagram call runs between short organization contexts, never inside one.
+    // Off until the Instagram app is configured (no account can be connected before).
+    queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+    family: 'instagram',
+    logLabel: 'Instagram webhook event processing worker',
+    usesPostgres: true,
+    scheduled: true,
+    criticality: 'throughput',
+    holdsConnectionDuringExternalIo: false,
+    resolvePostgresConcurrency: () => getWorkerConcurrencyInstagram(),
+    isEnabled: () => isInstagramConfigured(),
+    create: (workerContainers) =>
+      createInstagramWebhookWorker({
+        instagramAccountService: workerContainers.appDomain.instagramAccountService,
+        instagramWebhookEventService: workerContainers.appDomain.instagramWebhookEventService,
+        contactService: workerContainers.appDomain.contactService,
+        instagramMediaService: workerContainers.appDomain.instagramMediaService,
+        automationService: workerContainers.appDomain.automationService,
+        automationRunService: workerContainers.appDomain.automationRunService,
+      }),
+  },
+  // launch-2026-11-20-ujai WH19: the daily 30-day clean-up of the Instagram webhook events. Family
+  // `instagram` (beside event processing and its stuck-event pick-up, WH5); no `isEnabled` — the
+  // delete is harmless without Instagram settings, and rows stored before they were removed still go.
+  retentionDefinition({
+    queueName: INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
+    family: 'instagram',
+    logLabel: 'instagram webhook event retention worker',
+    create: () => createInstagramWebhookEventRetentionWorker(),
+  }),
   retentionDefinition({
     queueName: WEBHOOK_TOMBSTONE_RETENTION_QUEUE_NAME,
     family: 'retention',
@@ -408,6 +481,62 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     logLabel: 'user data export retention worker',
     holdsConnectionDuringExternalIo: false,
     create: () => createUserDataExportRetentionWorker(),
+  }),
+  // Launch IA8: the daily Instagram account check — the 04:00 UTC sweep and one check per
+  // connected account ride one queue. Provider-pausable on the `instagram` circuit; every
+  // Instagram call runs between two short organization contexts, never inside one. Off until the
+  // Instagram app is configured (no account can be connected before).
+  retentionDefinition({
+    queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'Instagram account daily check worker',
+    holdsConnectionDuringExternalIo: false,
+    isEnabled: () => isInstagramConfigured(),
+    create: (workerContainers) =>
+      createInstagramAccountDailyCheckWorker({
+        accountService: workerContainers.appDomain.instagramAccountService,
+      }),
+  }),
+  // Launch D9 (routes-final § 3.A AU15, WC-6): every 15 minutes, the "next post" windows that
+  // ended with no post linked turn `expired` — a cross-organization scan, then each organization's
+  // change in its own context. A pure database sweep: no Instagram call, no provider pause, no gate.
+  retentionDefinition({
+    queueName: AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'automation next post expiry worker',
+    create: () => createAutomationNextPostExpiryWorker(),
+  }),
+  // Launch D8 (routes-final § 3.B AU25, AQ7): the four run and automation clean-ups — every hour
+  // the runs waiting more than 7 days are cancelled (a cross-organization scan, then each
+  // organization's cancel in its own context, through the run service); daily at 03:20, 03:30 and
+  // 03:40 UTC the runs ended, the comment logs written and the automations deleted more than 180
+  // days ago are removed. Pure database sweeps: no Instagram call, no provider pause, no gate.
+  retentionDefinition({
+    queueName: AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'automation run wait expiry worker',
+    create: (workerContainers) =>
+      createAutomationRunWaitExpiryWorker({
+        runService: workerContainers.appDomain.automationRunService,
+      }),
+  }),
+  retentionDefinition({
+    queueName: AUTOMATION_RUN_RETENTION_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'automation run retention worker',
+    create: () => createAutomationRunRetentionWorker(),
+  }),
+  retentionDefinition({
+    queueName: AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'automation comment log retention worker',
+    create: () => createAutomationCommentLogRetentionWorker(),
+  }),
+  retentionDefinition({
+    queueName: AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'automation tombstone retention worker',
+    create: () => createAutomationTombstoneRetentionWorker(),
   }),
   {
     queueName: IDEMPOTENCY_CARDINALITY_QUEUE_NAME,

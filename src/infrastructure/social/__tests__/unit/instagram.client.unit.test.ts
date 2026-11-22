@@ -17,6 +17,7 @@ vi.mock('@/infrastructure/resilience/circuit-breaker.js', async (importOriginal)
 
 import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
+  assertInstagramConfigured,
   exchangeInstagramAuthorizationCode,
   exchangeInstagramLongLivedAccessToken,
   INSTAGRAM_AUTHORIZATION_BASE_URL,
@@ -26,6 +27,7 @@ import {
   listInstagramMedia,
   listInstagramStories,
   readInstagramAccountProfile,
+  readInstagramAppSecret,
   readInstagramMediaItem,
   readInstagramUserProfile,
   refreshInstagramLongLivedAccessToken,
@@ -125,10 +127,57 @@ describe('Instagram client settings', () => {
         }),
       ).rejects.toBeInstanceOf(ServiceUnavailableError);
     });
+
+    it('fails the configured check with 503 instagram_not_configured (the pickers, IA16)', () => {
+      expect(() => assertInstagramConfigured()).toThrow(ServiceUnavailableError);
+      try {
+        assertInstagramConfigured();
+      } catch (error) {
+        expect(error).toMatchObject({
+          statusCode: 503,
+          messageKey: 'errors:instagramNotConfigured',
+          reason: 'instagram_not_configured',
+        });
+      }
+    });
   });
 
   it('is configured with all three settings', () => {
     expect(isInstagramConfigured()).toBe(true);
+    expect(() => assertInstagramConfigured()).not.toThrow();
+  });
+
+  describe('the app secret alone (Meta callbacks, IA18)', () => {
+    it('reads the app secret, whatever the other two settings', () => {
+      const savedAppId = process.env.INSTAGRAM_APP_ID;
+      delete process.env.INSTAGRAM_APP_ID;
+      resetEnvCacheForTests();
+      try {
+        expect(readInstagramAppSecret()).toBe(getEnv().INSTAGRAM_APP_SECRET);
+        expect(readInstagramAppSecret().length).toBeGreaterThan(0);
+      } finally {
+        process.env.INSTAGRAM_APP_ID = savedAppId;
+        resetEnvCacheForTests();
+      }
+    });
+
+    it('answers 503 instagram_not_configured without it', () => {
+      const savedAppSecret = process.env.INSTAGRAM_APP_SECRET;
+      delete process.env.INSTAGRAM_APP_SECRET;
+      resetEnvCacheForTests();
+      try {
+        expect(() => readInstagramAppSecret()).toThrow(
+          expect.objectContaining({
+            statusCode: 503,
+            messageKey: 'errors:instagramNotConfigured',
+            reason: 'instagram_not_configured',
+          }),
+        );
+      } finally {
+        process.env.INSTAGRAM_APP_SECRET = savedAppSecret;
+        resetEnvCacheForTests();
+      }
+    });
   });
 });
 

@@ -317,10 +317,15 @@ const BILLING_POLICY_VARS = {
 /**
  * The Instagram app's settings (the Instagram automation launch, IA4; full names and one app secret,
  * D20). Only the one Instagram client (`src/infrastructure/social/`) and Meta's signature checks read
- * them. All three are optional everywhere, production included: unset, every route that needs one
- * answers 503 (`instagram_not_configured`) — it fails closed, as the Stripe webhook does without its
- * secret — so no refine pins them. The app id and redirect URI are GitHub Variables, the secret a
- * GitHub Secret (`classifyKey`).
+ * them. The three app settings are optional everywhere, production included: unset, every route that
+ * needs one answers 503 (`instagram_not_configured`) — it fails closed, as the Stripe webhook does
+ * without its secret — so no refine pins them. The webhook's verify token (WH7) is optional the same
+ * way, production included (launch D39): unset, Meta's subscription check answers 503
+ * `instagram_webhook_not_configured`. Set, the app secret and the verify token must each be at least
+ * 32 characters, like `OPS_ADMIN_TOKEN` — the secret is the HMAC key of every Meta signature, so a
+ * placeholder or guessable one would let anyone sign a delivery (launch D53; Meta's own are 32), and
+ * a guessable token lets anyone subscribe the endpoint. The app id and redirect URI are GitHub
+ * Variables, the secret and the verify token GitHub Secrets (`classifyKey`).
  */
 const INSTAGRAM_VARS = {
   INSTAGRAM_APP_ID: envVar({
@@ -331,10 +336,12 @@ const INSTAGRAM_VARS = {
         "The Instagram app id: the client_id of the code exchange (public — the frontend's authorize link carries it too). Unset, the Instagram routes answer 503 instagram_not_configured.",
     },
   }),
+  // Optional and fail closed (launch D53): unset, the routes answer 503; set, at least 32 characters.
   INSTAGRAM_APP_SECRET: envVar({
-    schema: z.string().min(1).optional(),
+    schema: z.string().min(32).optional(),
     meta: {
-      allowed: 'non-empty string (the Instagram app secret; a GitHub Secret)',
+      allowed:
+        'string of at least 32 characters (the Instagram app secret; a GitHub Secret), or unset',
       description:
         "The Instagram app's one secret: the client_secret of the code exchanges and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503.",
     },
@@ -345,6 +352,16 @@ const INSTAGRAM_VARS = {
       allowed: 'absolute URL',
       description:
         "The frontend's /auth/instagram/callback page. It must equal one of the Instagram app's OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured.",
+    },
+  }),
+  // Optional and fail closed in every environment (WH7, launch D39): unset, the subscription check
+  // answers 503; set, at least 32 characters.
+  INSTAGRAM_WEBHOOK_VERIFY_TOKEN: envVar({
+    schema: z.string().min(32).optional(),
+    meta: {
+      allowed: 'string of at least 32 characters (a GitHub Secret), or unset',
+      description:
+        "The Instagram webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots.",
     },
   }),
 } satisfies Record<string, EnvVarSpec>;
@@ -919,6 +936,8 @@ const envSchemaBase = z.object({
   WORKER_CONCURRENCY_NOTIFY: z.coerce.number().int().min(1).max(20).optional(),
   WORKER_CONCURRENCY_WEBHOOK: z.coerce.number().int().min(1).max(20).optional(),
   WORKER_CONCURRENCY_STRIPE: z.coerce.number().int().min(1).max(20).optional(),
+  /** Instagram event processing: accounts one worker process handles side by side (WH5). */
+  WORKER_CONCURRENCY_INSTAGRAM: z.coerce.number().int().min(1).max(20).optional(),
   /** HTTP port for worker GET /livez, /readyz, and optional /metrics (default 9090). */
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(9090),
   /** Max age of throughput queue heartbeats before /readyz returns 503 (default 5 min). */
@@ -930,7 +949,8 @@ const envSchemaBase = z.object({
     .default(300_000),
   /**
    * Comma-separated BullMQ queue families this worker process runs: `mail`, `notify`,
-   * `webhook`, `stripe`, `retention`, `observability`, or `all` (default monolithic worker).
+   * `webhook`, `stripe`, `instagram`, `retention`, `observability`, or `all` (default monolithic
+   * worker).
    * Use split services in production so each process pool budget matches its registered workers.
    */
   WORKER_QUEUE_FAMILIES: z.string().min(1).default('all'),
@@ -939,19 +959,21 @@ const envSchemaBase = z.object({
    *
    * Each HTTP request runs in its own RLS transaction holding one pooled connection for its
    * duration, so the pool size is the per-process in-flight DB concurrency ceiling. The default
-   * is the monolithic worker's demand with burst headroom: with every optional queue on, the 36
-   * Postgres-using queues peak at 54 connections at the default concurrency, 68 with the 25%
-   * burst margin, and `assertPostgresConnectionBudget` refuses to boot a worker whose pool is
+   * is the monolithic worker's demand with burst headroom: with every optional queue on, the
+   * Postgres-using queues peak at 64 connections at the default concurrency, 80 with the 25%
+   * burst margin (it was 70 until the Instagram automation workers; CI's API boots share a
+   * 100-connection Postgres and accept no default above 80 — `ci-boot-connection-budget.policy`),
+   * and `assertPostgresConnectionBudget` refuses to boot a worker whose pool is
    * below its demand. The default used to be 30 (sized for a 100-connection Postgres), below
    * that demand — a production worker configured at the old value restart-looped on 2026-10-13
    * — so it now equals the committed template value (`.env.example`), and
    * `worker-pool-budget.policy.unit.test.ts` fails when the registry outgrows it. The
    * cluster-wide budget `(api + worker replicas) × (DATABASE_POOL_MAX +
    * DATABASE_MAINTENANCE_POOL_MAX) ≤ max_connections − reserved` is still enforced fail-closed at
-   * boot (3 processes × 80 = 240 against Neon's 450); see
+   * boot (3 processes × 90 = 270 against Neon's 450); see
    * docs/deployment/runbooks/resource-limits.md.
    */
-  DATABASE_POOL_MAX: z.coerce.number().int().min(1).default(70),
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).default(80),
   /**
    * Pool size per process for the maintenance role's pool (`DATABASE_MAINTENANCE_URL`) — mail
    * outbox and ledger workers, retention purges, system audit inserts. Its checkouts are short, so

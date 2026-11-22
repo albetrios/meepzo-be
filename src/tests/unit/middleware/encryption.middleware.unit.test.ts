@@ -87,7 +87,7 @@ describe('encryption.middleware', () => {
 
     await expect(
       onSend(
-        { url: testApiPath('/test') } as FastifyRequest,
+        { url: `${testApiPath('/test')}?q=jordan%40example.com` } as FastifyRequest,
         {
           getHeader: (name: string) =>
             name === 'content-type' ? 'application/json; charset=utf-8' : undefined,
@@ -98,7 +98,8 @@ describe('encryption.middleware', () => {
     ).rejects.toBeInstanceOf(AppError);
 
     expect(encryptPayloadMock).toHaveBeenCalled();
-    // The failure must be logged with the offending URL (operational signal on fail-closed).
+    // The failure must be logged with the offending path (operational signal on fail-closed) —
+    // never its query, which can carry personal data.
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ url: testApiPath('/test') }),
       'Response encryption failed',

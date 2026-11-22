@@ -1,10 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { WEBHOOK_INGRESS_BODY_LIMIT_BYTES } from '@/shared/constants/limits.constants.js';
 import { WEBHOOK_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { createStripeWebhookController } from './stripe-webhook.controller.js';
 import type { StripeWebhookService } from './stripe-webhook.service.js';
 import { stripeWebhookIngressPlugin } from './stripe-webhook-ingress.plugin.js';
-import { registerStripeWebhookRawBodyRoute } from './stripe-webhook-raw-body.registry.js';
+
+/** The header Stripe signs each delivery in — the raw body is kept only when it is present. */
+const STRIPE_SIGNATURE_HEADER = 'stripe-signature';
 
 /**
  * Registers the Stripe webhook receiver at the canonical path:
@@ -22,32 +25,21 @@ export function stripeWebhookRoutes(
   return async (app) => {
     const zodApplication = app.withTypeProvider<ZodTypeProvider>();
 
-    // sec-B finding #7: register every Stripe webhook URL with the raw-body registry
-    // at route-declaration time. The content-type parser reads from this registry on
-    // every request, so a rename / restructure of the webhook URL flows through
-    // automatically and a wiring drift would fail closed at the first request rather
-    // than silently for the 3-day Stripe retry window.
-    app.addHook('onRoute', (routeOptions) => {
-      if (
-        routeOptions.config &&
-        (routeOptions.config as Record<string, unknown>).captureRawBody === true
-      ) {
-        registerStripeWebhookRawBodyRoute(routeOptions.url);
-      }
-    });
-
     await stripeWebhookIngressPlugin(app, {});
     zodApplication.post(
       '/webhook',
       {
         ...WEBHOOK_RATE_LIMIT,
-        config: { ...WEBHOOK_RATE_LIMIT.config, captureRawBody: true },
-        // sec-C/M #29: lift the per-route body limit to 5 MB. The global default is
-        // 1 MB, but line-item-heavy `invoice.finalized` events legitimately exceed
-        // that in production. A 413 here turns into "Stripe retries for 3 days then
-        // parks the event," which silently desyncs local entitlement / dunning state.
-        // 5 MB matches Stripe's recommended upper bound for webhook payloads.
-        bodyLimit: STRIPE_WEBHOOK_BODY_LIMIT_BYTES,
+        // sec-B finding #7 / WH2: the raw body is kept (for the `Stripe-Signature` HMAC) through
+        // the shared raw-body registry, which the app-level `onRoute` hook fills from this config.
+        config: {
+          ...WEBHOOK_RATE_LIMIT.config,
+          captureRawBody: true,
+          rawBodySignatureHeader: STRIPE_SIGNATURE_HEADER,
+        },
+        // sec-C/M #29: the shared 5 MB webhook body limit — a 413 here turns into "Stripe retries
+        // for 3 days then parks the event", which silently desyncs entitlement / dunning state.
+        bodyLimit: WEBHOOK_INGRESS_BODY_LIMIT_BYTES,
         schema: {
           summary: 'Stripe webhook receiver',
           description:
@@ -59,6 +51,3 @@ export function stripeWebhookRoutes(
     );
   };
 }
-
-/** sec-C/M #29: per-route body limit for Stripe webhook receivers (5 MB). */
-const STRIPE_WEBHOOK_BODY_LIMIT_BYTES = 5 * 1024 * 1024;

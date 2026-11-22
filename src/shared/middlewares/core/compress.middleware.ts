@@ -69,7 +69,9 @@ const compressMiddlewareInner: FastifyPluginAsync = async (app) => {
   // INVARIANT — this list MUST remain a *superset* of every fragment the canonical matcher
   // catches; otherwise a secret-bearing body would skip the no-store/no-compress hardening
   // (a BREACH / cache-leak regression). It mirrors, as bare (un-quoted) lowercase substrings:
-  //   • SENSITIVE_KEY_FRAGMENTS               (sensitive-redaction.util.ts — `isSensitiveKey`)
+  //   • SECRET_KEY_FRAGMENTS                  (sensitive-redaction.util.ts — `isSecretKey`; the
+  //     personal-data fragments the logs also hide — an email included — are not secrets here,
+  //     launch D38, D40)
   //   • IDEMPOTENCY_SECRET_RESPONSE_FIELD_NAMES (idempotency-fingerprint.util.ts)
   // Bare matching only ever over-triggers (a false positive merely runs the full check), so it
   // cannot produce a false negative. The superset property is pinned by the compress unit test.
@@ -84,7 +86,6 @@ const compressMiddlewareInner: FastifyPluginAsync = async (app) => {
     'key', // api_key, raw_key, private_key, encryption_key, access_key_id
     'authorization',
     'session', // session_id
-    'email',
     'recovery_code', // recovery_codes
     'download_url',
     'upload_url',

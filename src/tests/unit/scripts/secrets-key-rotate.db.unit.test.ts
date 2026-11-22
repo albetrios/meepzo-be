@@ -1,10 +1,15 @@
-import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq, sql } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { database } from '@/infrastructure/database/connection.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
 import { resetEnvCacheForTests } from '@/shared/config/env.config.js';
+import {
+  DATABASE_APP_ROLE,
+  DATABASE_MAINTENANCE_ROLE,
+} from '@/shared/constants/project-identity.constants.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
+import { ConfigurationError } from '@/shared/errors/index.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import {
   decryptFieldSecret,
@@ -15,6 +20,7 @@ import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import {
   FIELD_SECRET_ROTATION_COLUMNS,
+  assertConnectedRoleBypassesRowLevelSecurity,
   rotateFieldSecrets,
 } from '@/scripts/ops/secrets-key-rotate.js';
 
@@ -93,6 +99,7 @@ describe('rotateFieldSecrets', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     restoreEnvVar('SECRETS_ENCRYPTION_KEYS', originalSecretsKeys);
     restoreEnvVar('SECRETS_ENCRYPTION_CURRENT_VERSION', originalCurrentVersion);
     resetEnvCacheForTests();
@@ -151,5 +158,50 @@ describe('rotateFieldSecrets', () => {
     useKeyVersion('v2');
     const rerun = await rotateFieldSecrets({ apply: true });
     expect(rerun.updatedByColumn[INSTAGRAM_TOKEN_COLUMN]).toBe(0);
+  });
+
+  describe('the connected role (D56)', () => {
+    it('accepts the role this lane connects with, which bypasses row-level security', async () => {
+      await expect(assertConnectedRoleBypassesRowLevelSecurity()).resolves.toBeUndefined();
+    });
+
+    it.each([[DATABASE_APP_ROLE], [DATABASE_MAINTENANCE_ROLE]])(
+      'refuses %s, which is subject to row-level security',
+      async (role) => {
+        await database.transaction(async (transaction) => {
+          await transaction.execute(sql`SET LOCAL ROLE ${sql.identifier(role)}`);
+
+          const failure = await assertConnectedRoleBypassesRowLevelSecurity(transaction).then(
+            () => null,
+            (error: unknown) => error,
+          );
+
+          expect(failure).toBeInstanceOf(ConfigurationError);
+          expect((failure as ConfigurationError).message).toContain(role);
+        });
+      },
+    );
+
+    it.each([[true], [false]])(
+      'stops before it reads a value when the role cannot bypass it (apply: %s)',
+      async (apply) => {
+        useKeyVersion('v1');
+        const oldCiphertext = encryptFieldSecret(OLD_TOKEN);
+        const tokenId = await storeInstagramToken({
+          instagramUserId: '17841400000000103',
+          ciphertext: oldCiphertext,
+        });
+        useKeyVersion('v2');
+        vi.spyOn(database, 'execute').mockResolvedValueOnce({
+          rows: [{ role_name: DATABASE_APP_ROLE, bypasses_row_level_security: false }],
+        } as never);
+        const readStoredValues = vi.spyOn(FIELD_SECRET_ROTATION_COLUMNS[0]!, 'readStoredValues');
+
+        await expect(rotateFieldSecrets({ apply })).rejects.toBeInstanceOf(ConfigurationError);
+
+        expect(readStoredValues).not.toHaveBeenCalled();
+        expect(await readCiphertext(tokenId)).toBe(oldCiphertext);
+      },
+    );
   });
 });

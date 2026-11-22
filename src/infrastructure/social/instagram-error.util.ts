@@ -17,7 +17,11 @@ export type InstagramErrorClass = 'auth' | 'throttled' | 'refused' | 'outage';
 /** The account's `connection_status` an `auth` failure moves it to (IA9): `expired` or `error`. */
 export type InstagramBrokenConnectionStatus = 'expired' | 'error';
 
-/** What Instagram's error body says, read once — every field `null` when the body does not say it. */
+/**
+ * What Instagram's error body says, read once — every field `null` when the body does not say it.
+ * Its text (`message`, `error_message`) is not read at all: it can name a person or quote a token,
+ * so no row and no log line may carry it (D52, D53).
+ */
 export interface InstagramErrorDetails {
   /** Graph `error.code` (or the OAuth body's `code`). */
   code: number | null;
@@ -25,8 +29,6 @@ export interface InstagramErrorDetails {
   subcode: number | null;
   /** Graph `error.type` (or the OAuth body's `error_type`), e.g. `OAuthException`. */
   type: string | null;
-  /** Instagram's own message (or the OAuth body's `error_message`), cut to 300 characters. */
-  message: string | null;
   /** Graph `error.fbtrace_id` — the id Meta support asks for. */
   fbtraceId: string | null;
 }
@@ -73,16 +75,17 @@ const INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODES: ReadonlySet<number> = new Set
 ]);
 /** Graph's permission error codes, `200`–`299`. */
 const INSTAGRAM_PERMISSION_ERROR_CODE_RANGE = { first: 200, last: 299 } as const;
-/** Graph's rate-limit codes: application (4), user (17), page (32), call-rate (613). */
-const INSTAGRAM_THROTTLE_ERROR_CODES: ReadonlySet<number> = new Set([4, 17, 32, 613]);
+/**
+ * Graph's rate-limit codes: application (4), user (17), page (32), call-rate (613) and the Instagram
+ * business-use-case limit of one account (80002, D53).
+ */
+const INSTAGRAM_THROTTLE_ERROR_CODES: ReadonlySet<number> = new Set([4, 17, 32, 613, 80002]);
 /** Graph's invalid-parameter code. */
 const INSTAGRAM_INVALID_PARAMETER_ERROR_CODE = 100;
 /** Subcode of {@link INSTAGRAM_INVALID_PARAMETER_ERROR_CODE}: the email / phone quick reply is refused. */
 const INSTAGRAM_QUICK_REPLY_REFUSED_SUBCODE = 2534015;
 /** HTTP status of a throttle without a Graph code. */
 const HTTP_TOO_MANY_REQUESTS = 429;
-/** Longest Instagram message kept on the error. */
-const INSTAGRAM_ERROR_MESSAGE_MAX_LENGTH = 300;
 
 /**
  * How long a throttled call waits when Instagram names no `Retry-After`.
@@ -99,11 +102,26 @@ const INSTAGRAM_ERROR_MESSAGE_MAX_LENGTH = 300;
  */
 export const INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS = MILLISECONDS_PER_MINUTE;
 
+/**
+ * The longest wait a throttled call takes from Instagram's `Retry-After` (D56).
+ *
+ * @remarks
+ * Rationale: the wait pauses the whole queue that met the throttle — every organization's events —
+ * and is what a client is told to wait, so one long header (an hour, a day) must not hold the
+ * product still; the next try after the pause finds out whether the throttle is over.
+ *
+ * Consequences of change:
+ * - Decreasing → more tries into a throttle that is still on.
+ * - Increasing → one throttled account holds every account's queue for longer.
+ *
+ * Last reviewed: 2026-11-22.
+ */
+export const INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS = 15 * MILLISECONDS_PER_MINUTE;
+
 const EMPTY_INSTAGRAM_ERROR_DETAILS: InstagramErrorDetails = {
   code: null,
   subcode: null,
   type: null,
-  message: null,
   fbtraceId: null,
 };
 
@@ -128,11 +146,11 @@ function readObject(value: unknown): Record<string, unknown> | null {
 
 /**
  * Reads Instagram's error body once: the Graph shape `{ error: { code, error_subcode, type,
- * message, fbtrace_id } }` or the code exchange's `{ error_type, code, error_message }`.
+ * fbtrace_id } }` or the code exchange's `{ error_type, code }`.
  *
  * @remarks
  * A body that is not JSON, or JSON of neither shape, reads as all `null` — the HTTP status alone
- * then decides the class. Instagram's message is cut to 300 characters.
+ * then decides the class. The body's text (`message`, `error_message`) is left unread (D53).
  */
 export function readInstagramErrorBody(body: string): InstagramErrorDetails {
   let parsed: unknown;
@@ -144,12 +162,10 @@ export function readInstagramErrorBody(body: string): InstagramErrorDetails {
   const root = readObject(parsed);
   if (root === null) return EMPTY_INSTAGRAM_ERROR_DETAILS;
   const graphError = readObject(root.error);
-  const message = graphError ? readText(graphError.message) : readText(root.error_message);
   return {
     code: readWholeNumber(graphError ? graphError.code : root.code),
     subcode: graphError ? readWholeNumber(graphError.error_subcode) : null,
     type: graphError ? readText(graphError.type) : readText(root.error_type),
-    message: message === null ? null : message.slice(0, INSTAGRAM_ERROR_MESSAGE_MAX_LENGTH),
     fbtraceId: graphError ? readText(graphError.fbtrace_id) : null,
   };
 }
@@ -186,8 +202,8 @@ function isInstagramOutsideMessagingWindowRefusal({
  * 200–299 → `error`, except code 10 with an "outside the messaging window" subcode
  * ({@link INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE},
  * {@link MESSENGER_OUTSIDE_MESSAGING_WINDOW_SUBCODE}), which is `refused`: that send fails, the
- * account stays `connected` (D32). `throttled`: codes 4, 17, 32, 613, or HTTP 429. `refused`: any
- * other 4xx. `outage`: 5xx (and anything below 400 that still is not the expected answer).
+ * account stays `connected` (D32). `throttled`: codes 4, 17, 32, 613, 80002, or HTTP 429. `refused`:
+ * any other 4xx. `outage`: 5xx (and anything below 400 that still is not the expected answer).
  */
 export function classifyInstagramErrorResponse({
   httpStatus,
@@ -221,14 +237,17 @@ export function classifyInstagramErrorResponse({
 }
 
 /**
- * How long Instagram asked us to wait: a `Retry-After` header in whole seconds (at least one), or
+ * How long Instagram asked us to wait: a `Retry-After` header in whole seconds (at least one, at
+ * most {@link INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS}), or
  * {@link INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS} when it names none.
  */
 export function readInstagramRetryAfterMs(retryAfterHeader: string | null): number {
   const seconds = Number.parseInt(retryAfterHeader ?? '', 10);
-  return Number.isFinite(seconds) && seconds >= 0
-    ? Math.max(seconds, 1) * MILLISECONDS_PER_SECOND
-    : INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS;
+  if (!Number.isFinite(seconds) || seconds < 0) return INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS;
+  return Math.min(
+    Math.max(seconds, 1) * MILLISECONDS_PER_SECOND,
+    INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS,
+  );
 }
 
 /** Options for {@link InstagramApiError}. */
@@ -250,15 +269,14 @@ export interface InstagramApiErrorOptions {
  * @remarks
  * - **Algorithm:** an {@link ExternalServiceError} (`integration: 'instagram'`, so an unmapped one
  *   answers 503, with `Retry-After` when it carries `retryAfterMs`) plus `errorClass`, the
- *   `connectionStatus` an `auth` failure means, Instagram's code, subcode, type, message and
- *   `fbtraceId`, and `isQuickReplyRefused` (code 100, subcode 2534015 — the email / phone quick
+ *   `connectionStatus` an `auth` failure means, Instagram's code, subcode, type and `fbtraceId`, and `isQuickReplyRefused` (code 100, subcode 2534015 — the email / phone quick
  *   reply refused; the question goes again as plain text, schema-routes §6.5).
  * - **Failure modes:** none — a value object.
  * - **Side effects:** none.
  * - **Notes:** `countsAsCircuitFailure` is false for `auth`, `refused` and `throttled`: Instagram
  *   answered, so a burst of bad codes, dead tokens or one account's throttle cannot open the
  *   `instagram` circuit for every organization (as `ResendApiError`). Only an `outage` counts.
- *   The message names the class, status and codes — never Instagram's text or a token.
+ *   The message names the class, status and codes; no field keeps Instagram's text (D53).
  */
 export class InstagramApiError extends ExternalServiceError {
   /** Which of the four classes this failure is. */
@@ -271,8 +289,6 @@ export class InstagramApiError extends ExternalServiceError {
   readonly instagramErrorSubcode: number | null;
   /** Instagram's error type (`OAuthException`, …), when its body named one. */
   readonly instagramErrorType: string | null;
-  /** Instagram's own message, cut to 300 characters, when its body had one. */
-  readonly instagramErrorMessage: string | null;
   /** Meta's trace id for this failure, when its body had one. */
   readonly fbtraceId: string | null;
   /** Whether Instagram refused the email / phone quick reply (code 100, subcode 2534015). */
@@ -297,7 +313,6 @@ export class InstagramApiError extends ExternalServiceError {
     this.instagramErrorCode = details.code;
     this.instagramErrorSubcode = details.subcode;
     this.instagramErrorType = details.type;
-    this.instagramErrorMessage = details.message;
     this.fbtraceId = details.fbtraceId;
     this.isQuickReplyRefused =
       details.code === INSTAGRAM_INVALID_PARAMETER_ERROR_CODE &&

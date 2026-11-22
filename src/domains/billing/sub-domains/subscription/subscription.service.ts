@@ -425,9 +425,12 @@ export class SubscriptionService {
    * - **Failure modes:** `ForbiddenError` (`errors:organizationReadOnly`, reason
    *   `organization_read_only`); a query failure propagates.
    * - **Side effects:** none.
-   * - **Notes:** the app domain runs it as a `preHandler` on every POST / PUT / PATCH / DELETE
-   *   under `/api/v1/app/` (`app-plan-access.ts`). Billing, auth, user, tenancy and upload stay open,
-   *   so a read-only organization can still pay, sign in, manage its team and export its data.
+   * - **Notes:** the app domain runs it as a `preHandler` on the automation writes only — create,
+   *   edit and delete (`POST /api/v1/app/automations`, `PATCH` and `DELETE
+   *   /api/v1/app/automations/{automation_id}`; `src/domains/app/app-plan-access.ts`, launch D27).
+   *   The app domain's other writes stay open, and so do billing, auth, user, tenancy and upload, so a
+   *   read-only organization can still pay, sign in, manage its team, export its data, connect or
+   *   disconnect Instagram and erase a contact's personal data; reads and running automations go on.
    */
   async assertOrganizationWritable({
     organizationPublicId,

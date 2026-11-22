@@ -153,7 +153,7 @@ Response **200** when the worker is ready and dependencies are healthy:
 }
 ```
 
-`workersRegistered` counts the handles the process started: the repeatable-job scheduler plus each enabled worker of its `WORKER_QUEUE_FAMILIES`. With every family and every secret it is the registry size plus one (39 for the 38 registry workers in [workers-and-events.md](../runtime/workers-and-events.md#worker-registry-and-queue-families)); a skipped worker or an unselected family lowers it.
+`workersRegistered` counts the handles the process started: the repeatable-job scheduler plus each enabled worker of its `WORKER_QUEUE_FAMILIES`. With every family and every secret it is the registry size plus one (40 for the 39 registry workers in [workers-and-events.md](../runtime/workers-and-events.md#worker-registry-and-queue-families)); a skipped worker or an unselected family lowers it.
 
 | HTTP | Status | When |
 | ---- | ------ | ---- |

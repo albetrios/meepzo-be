@@ -102,22 +102,22 @@ flows → `/be-build-requirement`. Assignee: Rimeet Mavani.
 | R1 | The `app` domain, the nine codes, the locked Member role and the backfill, the team-only guards — `routes-final.md` § 1 IA1–IA3 (IAC1–IAC3) | sub-domain | — | staged-build prompt | AC-1.* | Rimeet Mavani | done |
 | R2 | The one Instagram client and its settings — § 1 IA4 (IAC4) | sub-domain | R1 | `/be-build-requirement` | AC-2.* (connect) | Rimeet Mavani | done |
 | R3 | 1.A Instagram account and token: routes 1, 2, 4, the two resolvers, token isolation, audit — § 1.A, IA5–IA7, IA10 (IAC5–IAC7) | sub-domain | R1, R2 | staged-build prompt | AC-2.* | Rimeet Mavani | done |
-| R4 | 1.B Instagram account settings: route 3 — § 1.B | sub-domain | R3 | staged-build prompt | AC-2.* (settings) | Rimeet Mavani | open |
-| R5 | 1.C Instagram media: routes 5–6 and the stored posts — § 1.C | sub-domain | R3 | staged-build prompt | AC-3.* | Rimeet Mavani | open |
-| R6 | 1.D Meta callbacks: routes 7–8 — § 1.D | sub-domain | R3, R5 | `/be-build-requirement` | AC-2.* (Meta) | Rimeet Mavani | open |
-| R7 | The daily account check and the reconnect notice — § 1 IA8, IA9 (IAC8, IAC9) | background | R3 | `/be-build-requirement` | AC-11.* | Rimeet Mavani | open |
-| R8 | Contacts: routes 9–10, the contacts table, the erasure-step hook — § 2 (CTC1–CTC9) | sub-domain | R3 | staged-build prompt | AC-4.* | Rimeet Mavani | open |
-| R9 | 3.A Automations: routes 11–15, the automations table, the read-only guard — § 3.A | sub-domain | R5, R8 | staged-build prompt | AC-5.* | Rimeet Mavani | open |
-| R10 | 3.B Automation runs: the run engine, runs, run events, comment logs, the contacts list's automation filter — § 3.B | sub-domain | R9 | staged-build prompt | AC-8.*, AC-9.* | Rimeet Mavani | open |
-| R11 | The five automation timers: "next post" expiry, waiting-run cancel, run and comment-log retention, deleted-automation purge — § 3 AU6 | background | R10 | `/be-build-requirement` | AC-10.*, AC-12.* | Rimeet Mavani | open |
-| R12 | 4.B Instagram webhook events: route 18, the webhook-events table, the 30-day clean-up — § 4.B | sub-domain | R3 | staged-build prompt | AC-6.* | Rimeet Mavani | open |
-| R13 | 4.A Instagram webhook receiver: routes 16–17, the raw request body shared with the Stripe receiver, the rate limit — § 4.A | sub-domain | R12 | `/be-build-requirement` | AC-7.* | Rimeet Mavani | open |
-| R14 | Event processing: dispatch per event kind, order per account, the stuck-event pick-up, retries — § 4.A | background | R10, R13 | `/be-build-requirement` | AC-7.* | Rimeet Mavani | open |
-| R15 | Flow — a comment runs its automation end to end | flow | R14 | `/be-build-requirement` | AC-8.* | Rimeet Mavani | open |
-| R16 | Flow — a DM, a story reply and a button click run end to end | flow | R14 | `/be-build-requirement` | AC-9.* | Rimeet Mavani | open |
-| R17 | Flow — a waiting "next post" automation links to a new post, or expires | flow | R11, R15 | `/be-build-requirement` | AC-10.* | Rimeet Mavani | open |
-| R18 | Flow — retention and erasure: contact delete, Meta's data deletion, every clean-up | flow | R6, R8, R11, R12 | `/be-build-requirement` | AC-12.* | Rimeet Mavani | open |
-| R19 | Close — `plans/acceptance.md` filled, the gates green, `AS-BUILT.md` summary and Standing deviations | flow | R1–R18 | be-kickoff-iteration › Close | every AC | Rimeet Mavani | open |
+| R4 | 1.B Instagram account settings: route 3 — § 1.B | sub-domain | R3 | staged-build prompt | AC-2.* (settings) | Rimeet Mavani | done |
+| R5 | 1.C Instagram media: routes 5–6 and the stored posts — § 1.C | sub-domain | R3 | staged-build prompt | AC-3.* | Rimeet Mavani | done |
+| R6 | 1.D Meta callbacks: routes 7–8 — § 1.D | sub-domain | R3, R5 | `/be-build-requirement` | AC-2.* (Meta) | Rimeet Mavani | done |
+| R7 | The daily account check and the reconnect notice — § 1 IA8, IA9 (IAC8, IAC9) | background | R3 | `/be-build-requirement` | AC-11.* | Rimeet Mavani | done |
+| R8 | Contacts: routes 9–10, the contacts table, the erasure-step hook — § 2 (CTC1–CTC9) | sub-domain | R3 | staged-build prompt | AC-4.* | Rimeet Mavani | done |
+| R9 | 3.A Automations: routes 11–15, the automations table, the read-only guard — § 3.A | sub-domain | R5, R8 | staged-build prompt | AC-5.* | Rimeet Mavani | done |
+| R10 | 3.B Automation runs: the run engine, runs, run events, comment logs, the contacts list's automation filter — § 3.B | sub-domain | R9 | staged-build prompt | AC-8.*, AC-9.* | Rimeet Mavani | done |
+| R11 | The five automation timers: "next post" expiry, waiting-run cancel, run and comment-log retention, deleted-automation purge — § 3 AU6 | background | R10 | `/be-build-requirement` | AC-10.*, AC-12.* | Rimeet Mavani | done — revised → AS-BUILT #R11 |
+| R12 | 4.B Instagram webhook events: route 18, the webhook-events table, the 30-day clean-up — § 4.B | sub-domain | R3 | staged-build prompt | AC-6.* | Rimeet Mavani | done |
+| R13 | 4.A Instagram webhook receiver: routes 16–17, the raw request body shared with the Stripe receiver, the rate limit — § 4.A | sub-domain | R12 | `/be-build-requirement` | AC-7.* | Rimeet Mavani | done |
+| R14 | Event processing: dispatch per event kind, order per account, the stuck-event pick-up, retries — § 4.A | background | R10, R13 | `/be-build-requirement` | AC-7.* | Rimeet Mavani | done |
+| R15 | Flow — a comment runs its automation end to end | flow | R14 | `/be-build-requirement` | AC-8.* | Rimeet Mavani | done |
+| R16 | Flow — a DM, a story reply and a button click run end to end | flow | R14 | `/be-build-requirement` | AC-9.* | Rimeet Mavani | done |
+| R17 | Flow — a waiting "next post" automation links to a new post, or expires | flow | R11, R15 | `/be-build-requirement` | AC-10.* | Rimeet Mavani | done |
+| R18 | Flow — retention and erasure: contact delete, Meta's data deletion, every clean-up | flow | R6, R8, R11, R12 | `/be-build-requirement` | AC-12.* | Rimeet Mavani | done |
+| R19 | Close — `plans/acceptance.md` filled, the gates green, `AS-BUILT.md` summary and Standing deviations | flow | R1–R18 | be-kickoff-iteration › Close | every AC | Rimeet Mavani | done |
 
 ## 6. Requirements index
 

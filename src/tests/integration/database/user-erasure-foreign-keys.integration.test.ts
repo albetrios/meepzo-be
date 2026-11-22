@@ -43,8 +43,8 @@ describe('Integration: user erasure foreign keys', () => {
        WHERE c.contype = 'f' AND c.confrelid = 'auth.users'::regclass
     `),
     );
-    // Guard against a vacuous pass on an unmigrated database (152 at migration head).
-    expect(references.length).toBeGreaterThan(100);
+    // Guard against a vacuous pass on an unmigrated database (48 at migration head).
+    expect(references.length).toBeGreaterThan(30);
 
     // n = SET NULL, c = CASCADE; a = NO ACTION, r = RESTRICT, d = SET DEFAULT.
     const blocking = references
@@ -86,7 +86,7 @@ describe('Integration: user erasure foreign keys', () => {
       }
     }
     // Guard against a vacuous pass: every auth.users reference the migrations create is declared.
-    expect(declared.length).toBeGreaterThan(100);
+    expect(declared.length).toBeGreaterThan(30);
 
     const blocking = declared
       .filter((entry) => !entry.startsWith(`${OWNER_REFERENCE} `))

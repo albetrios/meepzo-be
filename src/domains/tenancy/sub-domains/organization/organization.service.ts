@@ -68,19 +68,75 @@ export type OrganizationSubscriptionOffboardingPort = {
 };
 
 /**
+ * What an organization delete erased of its Instagram accounts (launch D54): the accounts something
+ * changed on, and how many stored posts went with them — for the delete's audit entry.
+ *
+ * @remarks
+ * - **Algorithm:** the answer of {@link OrganizationInstagramOffboardingPort}; a structural shape, so
+ *   tenancy imports nothing from the `app` domain.
+ * - **Failure modes:** none — a return shape.
+ * - **Side effects:** none.
+ * - **Notes:** public ids and a count only — never a username or a token.
+ */
+export interface OrganizationInstagramErasure {
+  /** `iga_…` of every account something changed on. */
+  instagramAccountPublicIds: string[];
+  /** Stored posts erased. */
+  erasedPostCount: number;
+}
+
+/**
+ * Structural port for the Instagram side of organization offboarding (launch D54).
+ *
+ * @remarks
+ * - **Algorithm:** declared as a minimal interface (not an import of the `app` domain's service) so
+ *   `delete` can erase the organization's Instagram accounts without tenancy depending on `app`,
+ *   which already depends on tenancy. Called in the organization's own scope while it is live: after
+ *   the soft delete row-level security hides its rows from that scope.
+ * - **Failure modes:** the implementer throws on a database failure, aborting the delete before the
+ *   soft delete; its Instagram call (the webhook unsubscribe) is best-effort and never throws.
+ * - **Side effects:** none on this type — the implementer revokes the accounts and erases their
+ *   tokens, profiles and stored posts.
+ * - **Notes:** safe to repeat (the reconcile worker runs the delete again); `null` when there was
+ *   nothing to erase.
+ */
+export type OrganizationInstagramOffboardingPort = {
+  eraseForOrganizationOffboarding(
+    scope: OrganizationPrincipalDatabaseScope,
+  ): Promise<OrganizationInstagramErasure | null>;
+};
+
+/**
+ * What {@link OrganizationService.delete} did on the way — for the caller's audit entry.
+ *
+ * @remarks
+ * - **Algorithm:** returned once the organization is soft-deleted.
+ * - **Failure modes:** none — a return shape; a failed step throws instead.
+ * - **Side effects:** none.
+ * - **Notes:** the audit entry is the controller's, after the delete. The reconcile worker's
+ *   {@link OrganizationService.resumeOffboarding} returns nothing and writes none.
+ */
+export interface OrganizationDeletionResult {
+  /** The Instagram accounts the delete erased (launch D54), or `null` when there was nothing to erase. */
+  erasedInstagram: OrganizationInstagramErasure | null;
+}
+
+/**
  * Optional collaborators wired into {@link OrganizationService} after the
- * upload (and billing) domains have booted, used to tombstone tenant uploads,
- * confirm S3 keys during logo attachment, and cancel the org's subscription on delete.
+ * upload (and billing and app) domains have booted, used to tombstone tenant uploads,
+ * confirm S3 keys during logo attachment, and on delete cancel the org's subscription and erase its
+ * Instagram accounts.
  *
  * @remarks
  * - **Algorithm:** populated lazily by `wireOffboardingUploadService` so the
- *   tenancy container can be constructed before the upload/billing containers exist.
+ *   tenancy container can be constructed before the upload/billing/app containers exist.
  * - **Failure modes:** until wired, `uploadLogo` and `delete` either throw
  *   (logo confirmation requires the upload service) or silently skip the
- *   upload-tombstone / subscription-cancel step.
+ *   upload-tombstone / subscription-cancel / Instagram-erase step.
  * - **Side effects:** none on construction; downstream calls invoke
- *   `UploadService.tombstoneAllByOrganizationId`, `assertKeyConfirmedForOwner`, and
- *   `OrganizationSubscriptionOffboardingPort.cancelActiveForOrganizationOffboarding`.
+ *   `UploadService.tombstoneAllByOrganizationId`, `assertKeyConfirmedForOwner`,
+ *   `OrganizationSubscriptionOffboardingPort.cancelActiveForOrganizationOffboarding` and
+ *   `OrganizationInstagramOffboardingPort.eraseForOrganizationOffboarding`.
  * - **Notes:** the public {@link OrganizationService.offboardingUploadService}
  *   reference exists for composition-root assertions only.
  */
@@ -88,6 +144,8 @@ export type OrganizationOffboardingDependencies = {
   uploadService: UploadService;
   /** route-audit-#2: cancels the org's active subscription on delete so billing stops. */
   subscriptionService?: OrganizationSubscriptionOffboardingPort | undefined;
+  /** Launch D54: erases the organization's Instagram accounts on delete. */
+  instagramErasureService?: OrganizationInstagramOffboardingPort | undefined;
 };
 
 /**
@@ -106,8 +164,8 @@ export type OrganizationOffboardingDependencies = {
  *   slug collision; `ValidationError` for bad logo keys, missing S3 objects,
  *   or disallowed `image/svg+xml` content.
  * - **Side effects:** S3 deletes and head-object calls via the injected
- *   {@link ObjectStoragePort}; tombstones uploads and clears the logo URL on
- *   organization deletion (cross-domain wiring through
+ *   {@link ObjectStoragePort}; tombstones uploads, clears the logo URL, cancels the subscription and
+ *   erases the Instagram accounts on organization deletion (cross-domain wiring through
  *   {@link OrganizationOffboardingDependencies}); purges the org's permission
  *   cache on soft-delete via {@link invalidateOrganizationPermissions}; does not
  *   emit domain events or write audit logs directly.
@@ -128,11 +186,9 @@ export class OrganizationService {
   wireOffboardingUploadService({
     uploadService,
     subscriptionService,
-  }: {
-    uploadService: UploadService;
-    subscriptionService?: OrganizationSubscriptionOffboardingPort | undefined;
-  }): void {
-    this.offboardingDependencies = { uploadService, subscriptionService };
+    instagramErasureService,
+  }: OrganizationOffboardingDependencies): void {
+    this.offboardingDependencies = { uploadService, subscriptionService, instagramErasureService };
     this.offboardingUploadService = uploadService;
   }
 
@@ -708,7 +764,7 @@ export class OrganizationService {
    * @remarks
    * - **Algorithm:** delegates to the idempotent {@link OrganizationService.delete}
    *   sequence; `deletion_started_at` makes each step safe to re-run, so a partial
-   *   offboarding resumes (logo/upload cleanup, subscription cancel, soft-delete,
+   *   offboarding resumes (logo/upload cleanup, subscription cancel, Instagram erase, soft-delete,
    *   permission-cache purge) and completes.
    * - **Failure modes:** propagates so the reconciler can count + alert and retry on
    *   the next tick; a PERSONAL organization (never deletable standalone, and excluded by the
@@ -735,10 +791,11 @@ export class OrganizationService {
    * - **Failure modes:** `ForbiddenError('errors:onlyOwnerCanDeleteOrganization')` (`owner_only`)
    *   for anyone but the owner, an API key included; `NotFoundError('Organization')`;
    *   `ConflictError` for a PERSONAL organization.
-   * - **Side effects:** as `offboardOrganization`.
+   * - **Side effects:** as `offboardOrganization`. Returns what it erased of the organization's
+   *   Instagram accounts (launch D54), for the caller's audit entry.
    */
-  async delete(scope: OrganizationPrincipalDatabaseScope): Promise<void> {
-    await this.offboardOrganization({
+  async delete(scope: OrganizationPrincipalDatabaseScope): Promise<OrganizationDeletionResult> {
+    return this.offboardOrganization({
       scope,
       options: { personalAllowed: false, ownerOnly: true },
     });
@@ -747,7 +804,8 @@ export class OrganizationService {
   /**
    * Tombstones the personal organization of a user whose account is being deleted — the only way a
    * PERSONAL organization is ever deleted. Same steps as {@link delete}: logo and uploads removed,
-   * subscription cancelled, soft-deleted, permissions purged. No-op when it is already gone.
+   * subscription cancelled, Instagram erased (a personal organization never has one), soft-deleted,
+   * permissions purged. No-op when it is already gone.
    */
   async offboardPersonalOrganization({
     userInternalId,
@@ -777,7 +835,7 @@ export class OrganizationService {
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     options: { personalAllowed: boolean; ownerOnly: boolean };
-  }): Promise<void> {
+  }): Promise<OrganizationDeletionResult> {
     const public_id = scope.organizationPublicId;
     const organization = await withAppDatabaseContext({
       scope,
@@ -815,6 +873,15 @@ export class OrganizationService {
         public_id,
       );
     }
+    // Launch D54: erase the organization's Instagram accounts, so each is free to connect elsewhere and
+    // no token outlives the team. The last step before the soft-delete — after a Stripe failure nothing
+    // is erased, and the window a late connect could fall into is the shortest — and in the
+    // organization's own scope while it is live: once soft-deleted, RLS hides its rows from that scope
+    // and the erase would silently change none.
+    const erasedInstagram =
+      (await this.offboardingDependencies?.instagramErasureService?.eraseForOrganizationOffboarding(
+        scope,
+      )) ?? null;
     // The tombstoning UPDATE runs under the global-retention context: sec-new-D3 keeps
     // `deleted_at IS NULL` on the tenant SELECT arm, and Postgres requires the UPDATE's
     // NEW row to stay SELECT-visible — under the plain organization scope the soft-delete is
@@ -828,6 +895,7 @@ export class OrganizationService {
     // Purge every member's cached permissions for this organization so access stops
     // immediately on soft-delete rather than lingering until the cache TTL.
     await invalidateOrganizationPermissions(public_id);
+    return { erasedInstagram };
   }
 
   async uploadLogo({

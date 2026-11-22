@@ -85,6 +85,47 @@ export class NotificationRepository {
     await this.db().delete(notifications).where(eq(notifications.public_id, public_id));
   }
 
+  /**
+   * The internal id of the organization with this public id, or `null` — read under the caller's
+   * organization scope (the organization's own row is visible there).
+   */
+  async findOrganizationIdByPublicId(organization_public_id: string): Promise<number | null> {
+    const rows = await this.db()
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.public_id, organization_public_id))
+      .limit(1);
+    return rows[0]?.id ?? null;
+  }
+
+  /**
+   * Whether the organization already holds a notification of this type carrying this producer key
+   * (`data.dedupe_key`) — the once-only check of
+   * `NotificationService.createOrganizationNotifications`.
+   */
+  async existsOrganizationNotificationWithDedupeKey({
+    organization_id,
+    type,
+    dedupe_key,
+  }: {
+    organization_id: number;
+    type: string;
+    dedupe_key: string;
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.organization_id, organization_id),
+          eq(notifications.type, type),
+          sql`${notifications.data} ->> 'dedupe_key' = ${dedupe_key}`,
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async findOrganizationPublicIdByOrganizationId(organization_id: number): Promise<string | null> {
     const rows = await this.db()
       .select({ organizationPublicId: organizations.public_id })

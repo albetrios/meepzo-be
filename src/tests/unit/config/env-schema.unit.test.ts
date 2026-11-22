@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import dotenv from 'dotenv';
 import { describe, expect, it } from 'vitest';
 import { envSchema, envSchemaDefaults, envSchemaKeys } from '@/shared/config/env-schema.js';
 
@@ -92,7 +93,7 @@ describe('env-schema', () => {
   describe('Instagram app settings (IA4)', () => {
     const instagramApp = {
       INSTAGRAM_APP_ID: 'instagram-app-id',
-      INSTAGRAM_APP_SECRET: 'instagram-app-secret',
+      INSTAGRAM_APP_SECRET: 'instagram-app-secret-of-32-chars',
       INSTAGRAM_REDIRECT_URI: 'https://app.example.com/auth/instagram/callback',
     };
 
@@ -132,6 +133,71 @@ describe('env-schema', () => {
 
     it.each(['INSTAGRAM_APP_ID', 'INSTAGRAM_APP_SECRET'])('refuses a blank %s', (key) => {
       expect(() => envSchema.parse({ ...commonRequiredBase, [key]: '' })).toThrow();
+    });
+
+    // D53: the secret is the HMAC key of Meta's signatures — a placeholder or a guessable one would
+    // let anybody sign a delivery, so a short one stops the boot instead of opening the receivers.
+    it.each([
+      ['production', productionRequiredBase],
+      ['development', commonRequiredBase],
+    ])('refuses an INSTAGRAM_APP_SECRET shorter than 32 characters in %s', (_label, base) => {
+      for (const secret of ['...', 's'.repeat(31)]) {
+        const parsed = envSchema.safeParse({ ...base, INSTAGRAM_APP_SECRET: secret });
+        const issues = parsed.success
+          ? []
+          : parsed.error.issues.filter((issue) => issue.path.includes('INSTAGRAM_APP_SECRET'));
+        expect(issues).not.toEqual([]);
+      }
+      expect(
+        envSchema.parse({ ...base, INSTAGRAM_APP_SECRET: 's'.repeat(32) }).INSTAGRAM_APP_SECRET,
+      ).toBe('s'.repeat(32));
+    });
+
+    it('ships the app secret blank in .env.example — no placeholder a deploy could sign with', () => {
+      const template = dotenv.parse(readFileSync(join(process.cwd(), '.env.example'), 'utf8'));
+      expect(template.INSTAGRAM_APP_SECRET).toBe('');
+    });
+  });
+
+  describe('INSTAGRAM_WEBHOOK_VERIFY_TOKEN (WH7, launch D39)', () => {
+    function verifyTokenIssues(environment: Record<string, unknown>): string[] {
+      const parsed = envSchema.safeParse(environment);
+      return parsed.success
+        ? []
+        : (parsed.error.flatten().fieldErrors.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ?? []);
+    }
+
+    it('lets production boot without it — the subscription check answers 503 instead', () => {
+      const parsed = envSchema.parse(productionRequiredBase);
+      expect(parsed.INSTAGRAM_WEBHOOK_VERIFY_TOKEN).toBeUndefined();
+    });
+
+    it('allows it unset outside production too', () => {
+      const parsed = envSchema.parse({ ...commonRequiredBase });
+      expect(parsed.INSTAGRAM_WEBHOOK_VERIFY_TOKEN).toBeUndefined();
+    });
+
+    it.each([
+      ['production', productionRequiredBase],
+      ['development', commonRequiredBase],
+    ])('accepts a 32-character token in %s', (_label, base) => {
+      const parsed = envSchema.parse({ ...base, INSTAGRAM_WEBHOOK_VERIFY_TOKEN: 'v'.repeat(32) });
+      expect(parsed.INSTAGRAM_WEBHOOK_VERIFY_TOKEN).toBe('v'.repeat(32));
+    });
+
+    it.each([
+      ['production', productionRequiredBase],
+      ['development', commonRequiredBase],
+    ])('refuses a token shorter than 32 characters in %s (guessable)', (_label, base) => {
+      expect(
+        verifyTokenIssues({ ...base, INSTAGRAM_WEBHOOK_VERIFY_TOKEN: 'v'.repeat(31) }),
+      ).not.toEqual([]);
+    });
+
+    it('refuses a blank one everywhere', () => {
+      expect(
+        verifyTokenIssues({ ...commonRequiredBase, INSTAGRAM_WEBHOOK_VERIFY_TOKEN: '' }),
+      ).not.toEqual([]);
     });
   });
 

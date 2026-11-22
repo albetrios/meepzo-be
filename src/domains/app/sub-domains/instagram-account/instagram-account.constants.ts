@@ -51,3 +51,27 @@ export const INSTAGRAM_ACCOUNT_REQUIRED_SCOPES = [
  * `PERSONAL` account) answers `422 instagram_account_not_professional`.
  */
 export const INSTAGRAM_PROFESSIONAL_ACCOUNT_TYPES = ['BUSINESS', 'MEDIA_CREATOR'] as const;
+
+/**
+ * The audit resource type of every Instagram account action (IA7): connect, disconnect, the
+ * settings change, and Meta's deauthorize and data deletion.
+ */
+export const INSTAGRAM_ACCOUNT_AUDIT_RESOURCE_TYPE = 'instagram_account';
+
+/**
+ * How close to its end the daily account check renews a token (IA8, D9): a token that ends within
+ * 7 days is renewed, one try a day — seven tries before it ends. A token lasts about 60 days.
+ */
+export const INSTAGRAM_ACCESS_TOKEN_RENEWAL_WINDOW_DAYS = 7;
+
+/**
+ * Longest `app.instagram_account_tokens.last_refresh_error` — the column's `varchar(500)`; the
+ * daily check cuts Instagram's class, code, subcode and HTTP status to it.
+ */
+export const INSTAGRAM_ACCOUNT_REFRESH_ERROR_MAX_LENGTH = 500;
+
+/**
+ * The frontend's Instagram page (meepzo-fe), where the reconnect card lives — the link of the
+ * reconnect notice (IA9), joined to `FRONTEND_URL` so the email's button works too.
+ */
+export const INSTAGRAM_ACCOUNT_FRONTEND_PATH = '/instagram';

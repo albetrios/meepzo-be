@@ -56,7 +56,7 @@ through a resolver that sees deleted organizations.
 | ------ | ------------- | ---- |
 | `tenancy.organization.create` | `organization` | Organization created — recorded in the new organization's log |
 | `tenancy.organization.update` | `organization` | Name, slug or status changed (`metadata.changed_fields`; a status change at `WARNING`) |
-| `tenancy.organization.delete` | `organization` | Organization deleted (`WARNING`) |
+| `tenancy.organization.delete` | `organization` | Organization deleted (`WARNING`; when the delete erased Instagram accounts (launch D54), `metadata.erased_instagram_account_public_ids` and `metadata.erased_instagram_post_count` — the one record of that erase; a delete the reconcile worker finishes writes no row) |
 | `tenancy.organization_settings.update` | `organization_settings` | Settings changed (`metadata.changed_fields`; a `security_policy` change at `WARNING`) |
 | `tenancy.membership.create` | `membership` | Member added — an invitation is sent |
 | `tenancy.membership.update` | `membership` | Member's role or status changed (the member in `target_user_id`) |
@@ -106,8 +106,15 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 | ------ | ------------- | ---- |
 | `app.instagram_account.connect` | `instagram_account` | Instagram account connected or reconnected (`WARNING`, `metadata.instagram_account_public_id`, `metadata.is_new_connection`) — recorded after the connect commits, best-effort |
 | `app.instagram_account.disconnect` | `instagram_account` | Instagram account disconnected — revoked, its token erased (`WARNING`, `metadata.instagram_account_public_id`) |
+| `app.instagram_account.deauthorize` | `instagram_account` | Meta's deauthorize callback — the account's owner removed the app; in this organization the account was revoked and its token erased (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
+| `app.instagram_account.data_deletion` | `instagram_account` | Meta's data-deletion callback — revoked, token, profile and stored posts erased in this organization (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`, `metadata.confirmation_code` — the code Meta got, the request's only record, `metadata.erased_post_count`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
+| `app.instagram_account_settings.update` | `instagram_account` | Instagram account settings changed — the automation switch or the public reply safety (`INFO`, `metadata.instagram_account_public_id`, `metadata.changed_fields` — names only, never values) — recorded after the change commits, best-effort |
+| `app.contact.delete` | `contact` | A contact's personal data erased at the person's request (`WARNING`, `metadata.contact_public_id` only) — recorded after the erase commits, best-effort |
+| `app.automation.create` | `automation` | Automation created — also the frontend's Duplicate (`INFO`, `metadata.automation_public_id`) — recorded after the create commits, best-effort |
+| `app.automation.update` | `automation` | Automation edited or turned on or off (`INFO`, `metadata.automation_public_id`, `metadata.changed_fields` — names only, never values; `expected_updated_at` is not a change) |
+| `app.automation.delete` | `automation` | Automation deleted with why (`WARNING`, `metadata.automation_public_id`, `metadata.delete_reason`, `metadata.cancelled_run_count` — the open runs cancelled with it) |
 
-Neither row ever holds the Instagram token or the authorization code.
+No Instagram account row ever holds the Instagram token or the authorization code; the contact row never holds an erased value (launch CT12).
 
 ### User
 
@@ -162,7 +169,7 @@ Every row names exactly one actor:
 | ----- | ----------- | --------- |
 | User | `actorUserPublicId` | `actor_user_id` |
 | Organization API key | `actorApiKeyPublicId` | `actor_api_key_id` |
-| Anonymous — pre-authentication events only (`auth.login_failure`) | `anonymousActor: true` | both actor columns NULL, `metadata.actor_kind = 'anonymous'` |
+| Anonymous — pre-authentication events (`auth.login_failure`) and Meta's signed Instagram callbacks (`app.instagram_account.deauthorize`, `.data_deletion` — `metadata.source = 'meta'`) | `anonymousActor: true` | both actor columns NULL, `metadata.actor_kind = 'anonymous'` |
 | System — the DLQ sweeper's automatic retry (`queue.dlq.auto_retried`, written straight to `audit.logs`) | — | both actor columns NULL, `metadata.actor_kind = 'system'` |
 
 `buildAuditActorFields(auth)` picks the user or key field for a request principal. An anonymous row

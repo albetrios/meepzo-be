@@ -243,6 +243,116 @@ describe('InstagramAccountRepository (database)', () => {
     await expect(
       inOrganization(organization, () => repository.recordWebhookSubscribed(key)),
     ).resolves.toBe(false);
+    // Meta repeating its data deletion finds the profile already erased (R6): nothing changes.
+    await expect(
+      inOrganization(organization, () => repository.eraseProfile(key)),
+    ).resolves.toBeNull();
+  });
+
+  it('erases the profile again after a reconnect cleared profile_erased_at (IA20)', async () => {
+    const { account } = await inOrganization(organization, () =>
+      repository.upsertConnected(connectValues(organization)),
+    );
+    const key = { organizationId: organization.id, instagramAccountId: account.id };
+    await inOrganization(organization, () => repository.revoke(key));
+    await inOrganization(organization, () => repository.eraseProfile(key));
+    await inOrganization(organization, () =>
+      repository.upsertConnected(connectValues(organization)),
+    );
+    await inOrganization(organization, () => repository.revoke(key));
+
+    const erasedAgain = await inOrganization(organization, () => repository.eraseProfile(key));
+
+    expect(erasedAgain).toMatchObject({ username: null, connection_status: 'revoked' });
+  });
+
+  it('lists the organization’s accounts of one app-scoped id, any status, never another organization’s (IA19)', async () => {
+    // A revoked row and a live row of the same app-scoped id in one organization (one live row at a
+    // time, D5): both are listed.
+    const { account: revoked } = await inOrganization(organization, () =>
+      repository.upsertConnected(connectValues(organization)),
+    );
+    await inOrganization(organization, () =>
+      repository.revoke({ organizationId: organization.id, instagramAccountId: revoked.id }),
+    );
+    const { account: live } = await inOrganization(organization, () =>
+      repository.upsertConnected(
+        connectValues(organization, {
+          instagramUserId: OTHER_INSTAGRAM_USER_ID,
+          instagramAppUserId: `9${INSTAGRAM_USER_ID}`,
+        }),
+      ),
+    );
+    await inOrganization(otherOrganization, () =>
+      repository.upsertConnected(
+        connectValues(otherOrganization, { instagramUserId: '17841400000000003' }),
+      ),
+    );
+
+    const rows = await inOrganization(organization, () =>
+      repository.lockByInstagramAppUserInOrganization({
+        organizationPublicId: organization.public_id,
+        instagramAppUserId: `9${INSTAGRAM_USER_ID}`,
+      }),
+    );
+
+    expect(rows.map((row) => [row.id, row.connection_status])).toEqual([
+      [revoked.id, 'revoked'],
+      [live.id, 'connected'],
+    ]);
+    expect(rows.every((row) => row.organization_id === organization.id)).toBe(true);
+    // The organization's delete takes every account of the organization (D54).
+    const everyRow = await inOrganization(organization, () =>
+      repository.lockByOrganizationId(organization.id),
+    );
+    expect(everyRow.map((row) => row.id)).toEqual([revoked.id, live.id]);
+    await expect(
+      inOrganization(organization, () =>
+        repository.lockByInstagramAppUserInOrganization({
+          organizationPublicId: organization.public_id,
+          instagramAppUserId: '91111111111111111',
+        }),
+      ),
+    ).resolves.toEqual([]);
+  });
+
+  it('holds the account rows it read until the unit ends, so a reconnect waits and connects on top (D53)', async () => {
+    const { account } = await inOrganization(organization, () =>
+      repository.upsertConnected(connectValues(organization)),
+    );
+    const order: string[] = [];
+    let releaseMetaUnit: () => void = () => undefined;
+    const metaUnitMayEnd = new Promise<void>((resolve) => {
+      releaseMetaUnit = resolve;
+    });
+    let metaUnitHoldsTheRow: () => void = () => undefined;
+    const metaUnitStarted = new Promise<void>((resolve) => {
+      metaUnitHoldsTheRow = resolve;
+    });
+
+    const metaUnit = inOrganization(organization, async () => {
+      await repository.lockByInstagramAppUserInOrganization({
+        organizationPublicId: organization.public_id,
+        instagramAppUserId: `9${INSTAGRAM_USER_ID}`,
+      });
+      metaUnitHoldsTheRow();
+      await metaUnitMayEnd;
+      await repository.revoke({ organizationId: organization.id, instagramAccountId: account.id });
+      order.push('revoked');
+    });
+    await metaUnitStarted;
+    const reconnect = inOrganization(organization, async () => {
+      await repository.upsertConnected(connectValues(organization));
+      order.push('reconnected');
+    });
+    releaseMetaUnit();
+    await Promise.all([metaUnit, reconnect]);
+
+    expect(order).toEqual(['revoked', 'reconnected']);
+    const row = await inOrganization(organization, () =>
+      repository.findById({ organizationId: organization.id, instagramAccountId: account.id }),
+    );
+    expect(row?.connection_status).toBe('connected');
   });
 
   it('names the organization in every statement: another organization’s key finds nothing', async () => {

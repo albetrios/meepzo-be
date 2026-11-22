@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**18 / 245** variables migrated to an explicit `{ allowed, description }` entry.
+**19 / 247** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -54,7 +54,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `DATABASE_POOL_CLUSTER_WARN_RATIO` | — | `0.8` |  | — |
 | `DATABASE_POOL_CONNECT_TIMEOUT_SECONDS` | — | — *(optional)* |  | — |
 | `DATABASE_POOL_IDLE_TIMEOUT_SECONDS` | — | — *(optional)* |  | — |
-| `DATABASE_POOL_MAX` | — | `70` |  | — |
+| `DATABASE_POOL_MAX` | — | `80` |  | — |
 | `DATABASE_POOL_MAX_LIFETIME_SECONDS` | — | — *(optional)* |  | — |
 | `DATABASE_RLS_SAFETY_ENFORCED` | — | `true` |  | — |
 | `DATABASE_SSL_ENABLED` | — | `true` |  | — |
@@ -102,8 +102,9 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `IDEMPOTENCY_PER_ACTOR_CAP` | — | `1000` |  | — |
 | `IDEMPOTENCY_PER_ACTOR_CAP_WINDOW_SECONDS` | — | `3600` |  | — |
 | `INSTAGRAM_APP_ID` | non-empty string (the Instagram app ID from the Meta App Dashboard) | — *(optional)* | ✓ | The Instagram app id: the client_id of the code exchange (public — the frontend's authorize link carries it too). Unset, the Instagram routes answer 503 instagram_not_configured. |
-| `INSTAGRAM_APP_SECRET` | non-empty string (the Instagram app secret; a GitHub Secret) | — *(optional)* | ✓ | The Instagram app's one secret: the client_secret of the code exchanges and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503. |
+| `INSTAGRAM_APP_SECRET` | string of at least 32 characters (the Instagram app secret; a GitHub Secret), or unset | — *(optional)* | ✓ | The Instagram app's one secret: the client_secret of the code exchanges and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503. |
 | `INSTAGRAM_REDIRECT_URI` | absolute URL | — *(optional)* | ✓ | The frontend's /auth/instagram/callback page. It must equal one of the Instagram app's OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured. |
+| `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | string of at least 32 characters (a GitHub Secret), or unset | — *(optional)* | ✓ | The Instagram webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots. |
 | `INVITATION_MAX_PENDING_PER_ORG` | — | `100` |  | — |
 | `JWT_PRIVATE_KEY` | — | — *(required)* |  | — |
 | `JWT_PUBLIC_KEY` | — | — *(required)* |  | — |
@@ -247,6 +248,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `WEBHOOK_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
 | `WEBHOOK_URL_ALLOWLIST` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY` | — | `4` |  | — |
+| `WORKER_CONCURRENCY_INSTAGRAM` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY_MAIL` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY_NOTIFY` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY_STRIPE` | — | — *(optional)* |  | — |

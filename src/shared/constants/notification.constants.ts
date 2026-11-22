@@ -32,6 +32,8 @@ export const NOTIFICATION_TYPES = [
   'membership.invite_declined',
   'subscription.updated',
   'webhook.delivery_failed',
+  // The organization's Instagram account must be connected again (launch IA9, D10).
+  'instagram.reconnect_required',
 ] as const;
 
 /** A notification type accepted by notification preference / policy endpoints. */

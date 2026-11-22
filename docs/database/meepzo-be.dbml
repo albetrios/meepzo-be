@@ -8,9 +8,16 @@ Project meepzo_be {
 }
 
 TableGroup app {
+  app.automation_comment_logs
+  app.automation_run_events
+  app.automation_runs
+  app.automations
+  app.contacts
   app.instagram_account_settings
   app.instagram_account_tokens
   app.instagram_accounts
+  app.instagram_media
+  app.instagram_webhook_events
 }
 
 TableGroup audit {
@@ -62,6 +69,188 @@ TableGroup tenancy {
 
 TableGroup upload {
   upload.uploads
+}
+
+Table app.automation_comment_logs {
+  AND instagram
+  automation_id bigint [not null]
+  automation_name varchar(255) [not null]
+  automation_run_id bigint
+  button_clicked_at timestamptz
+  comment_text text
+  commenter_instagram_user_id varchar(64)
+  commenter_username varchar(64)
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  current_step varchar(15)
+  email_at timestamptz
+  email_received varchar(255)
+  email_status varchar(10) [not null]
+  error_at timestamptz
+  error_code int
+  error_message text
+  error_reason text
+  error_response jsonb
+  error_stack text
+  error_subcode int
+  error_type varchar(15)
+  failed_step varchar(15)
+  fbtrace_id varchar(100)
+  final_dm_at timestamptz
+  final_dm_status varchar(10) [not null]
+  follow_at timestamptz
+  follow_confirmed_at timestamptz
+  follow_status varchar(10) [not null]
+  http_status int
+  id bigint [pk, increment]
+  ignored_reason varchar(30)
+  instagram_comment_id varchar(64) [not null]
+  instagram_media_id ~
+  opening_dm_at timestamptz
+  opening_dm_status varchar(10) [not null]
+  organization_id bigint [not null]
+  overall_status varchar(10) [not null]
+  phone_at timestamptz
+  phone_received varchar(50)
+  phone_status varchar(10) [not null]
+  public_id varchar(28) [not null]
+  public_reply_at timestamptz
+  public_reply_skip_reason varchar(20)
+  public_reply_status varchar(10) [not null]
+  public_reply_text text
+  updated_at timestamptz [not null]
+  waiting_for varchar(25)
+}
+
+Note app.automation_comment_logs {
+  'RLS: enabled\nPolicies: automation_comment_logs_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.automation_run_events {
+  AND  [not null]
+  automation_run_id bigint [not null]
+  created_at timestamptz [not null]
+  event_type varchar(20) [not null]
+  id bigint [pk, increment]
+  organization_id bigint [not null]
+  status in
+}
+
+Note app.automation_run_events {
+  'RLS: enabled\nPolicies: automation_run_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.automation_runs {
+  AND trigger
+  automation_id bigint [not null]
+  cancel_reason varchar(20)
+  cancelled_at timestamptz
+  completed_at timestamptz
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  current_step varchar(20) [not null]
+  ended_at timestamptz
+  error_message text
+  failed_at timestamptz
+  id bigint [pk, increment]
+  last_instagram_event_key varchar(512) [not null]
+  last_step_at timestamptz [not null]
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  queued_automations jsonb [not null]
+  sending_message_kind varchar(20)
+  sending_started_at timestamptz
+  started_at timestamptz [not null]
+  status varchar(10) [not null]
+  trigger_instagram_comment_id varchar(64)
+  trigger_instagram_media_id ~
+  trigger_instagram_story_id varchar(64)
+  trigger_text text
+  trigger_type varchar(15) [not null]
+  updated_at timestamptz [not null]
+  waiting_for varchar(25)
+  waiting_since_at timestamptz
+}
+
+Note app.automation_runs {
+  'RLS: enabled\nPolicies: automation_runs_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.automations {
+  AND  [not null]
+  completed_run_count int [not null]
+  created_at timestamptz [not null]
+  created_by_user_id bigint
+  delete_note varchar(280)
+  delete_reason varchar(20)
+  deleted_at timestamptz
+  email_request_message jsonb
+  final_message jsonb [not null]
+  follow_request_message jsonb
+  id bigint [pk, increment]
+  instagram_account_id bigint [not null]
+  is_dm_keyword_trigger_enabled boolean [not null]
+  is_email_collection_enabled boolean [not null]
+  is_follow_required boolean [not null]
+  is_opening_message_enabled boolean [not null]
+  is_phone_collection_enabled boolean [not null]
+  is_public_reply_enabled boolean [not null]
+  keywords text [not null]
+  last_triggered_at timestamptz
+  name varchar(255) [not null]
+  next_post_ends_at timestamptz
+  next_post_linked_at timestamptz
+  next_post_starts_at timestamptz
+  next_post_status varchar(10)
+  opening_message jsonb
+  organization_id bigint [not null]
+  phone_request_message jsonb
+  public_id varchar(28) [not null]
+  public_reply_texts text [not null]
+  status varchar(10) [not null]
+  tags text [not null]
+  target_instagram_media_id varchar(64)
+  target_instagram_story_id varchar(64)
+  target_scope varchar(10) [not null]
+  trigger_type varchar(15) [not null]
+  updated_at timestamptz [not null]
+  updated_by_user_id bigint
+}
+
+Note app.automations {
+  'RLS: enabled\nPolicies: automations_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.contacts {
+  AND cardinality
+  created_at timestamptz [not null]
+  deleted_at is
+  email varchar(255)
+  email_collected_at timestamptz
+  first_seen_at timestamptz [not null]
+  follow_checked_at timestamptz
+  followers_count int
+  full_name varchar(255)
+  id bigint [pk, increment]
+  instagram_account_id bigint [not null]
+  instagram_user_id varchar(64)
+  is_following_account boolean
+  last_direct_message_received_at timestamptz
+  last_message_received_at timestamptz [not null]
+  last_message_sent_at timestamptz
+  OR 
+  organization_id bigint [not null]
+  phone varchar(20)
+  phone_collected_at timestamptz
+  profile_picture_url text
+  public_id varchar(28) [not null]
+  tags text [not null]
+  updated_at timestamptz [not null]
+  username varchar(64)
+}
+
+Note app.contacts {
+  'RLS: enabled\nPolicies: contacts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.instagram_account_settings {
@@ -130,6 +319,58 @@ Table app.instagram_accounts {
 
 Note app.instagram_accounts {
   'RLS: enabled\nPolicies: instagram_accounts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_media {
+  caption text
+  comments_count int [not null]
+  created_at timestamptz [not null]
+  graph_data jsonb [not null]
+  id bigint [pk, increment]
+  instagram_account_id bigint [not null]
+  instagram_media_id varchar(64) [not null]
+  is_comment_enabled boolean [not null]
+  like_count int [not null]
+  media_product_type varchar(20)
+  media_type varchar(20)
+  media_url text
+  organization_id bigint [not null]
+  permalink text
+  published_at timestamptz [not null]
+  shortcode varchar(64)
+  synced_at timestamptz [not null]
+  thumbnail_url text
+  updated_at timestamptz [not null]
+}
+
+Note app.instagram_media {
+  'RLS: enabled\nPolicies: instagram_media_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_webhook_events {
+  attempt_count smallint [not null]
+  contact_instagram_user_id varchar(64)
+  created_at timestamptz [not null]
+  error_message varchar(2000)
+  event_key varchar(512) [not null]
+  event_kind varchar(20) [not null]
+  id bigint [pk, increment]
+  instagram_account_id bigint [not null]
+  instagram_user_id varchar(64) [not null]
+  last_attempted_at timestamptz
+  occurred_at timestamptz
+  organization_id bigint [not null]
+  payload jsonb [not null]
+  processed_at timestamptz
+  public_id varchar(28) [not null]
+  request_id varchar(128)
+  skip_reason varchar(30)
+  status varchar(10) [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.instagram_webhook_events {
+  'RLS: enabled\nPolicies: instagram_webhook_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table audit.dead_letter_jobs {

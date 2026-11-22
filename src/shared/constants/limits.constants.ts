@@ -45,5 +45,27 @@ export const DEFAULT_TRANSIENT_RETRY_ATTEMPTS = 3;
 /** Maximum inbound request body size (bytes) accepted by Fastify (1 MiB). */
 export const DEFAULT_BODY_LIMIT_BYTES = 1_048_576;
 
+/**
+ * Per-route body limit (bytes) of the provider webhook receivers — the Stripe receiver and the
+ * Instagram receiver (5 MiB).
+ *
+ * @remarks
+ * sec-C/M #29: the global 1 MiB limit is too small for a provider's batch — line-item-heavy Stripe
+ * `invoice.finalized` events, and Meta batching many comments and messages into one Instagram
+ * delivery (WH11). A 413 there means the provider retries, then parks or disables the endpoint.
+ * 5 MiB matches Stripe's recommended upper bound for webhook payloads.
+ */
+export const WEBHOOK_INGRESS_BODY_LIMIT_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Per-route body limit (bytes) of Meta's deauthorize and data-deletion callbacks (16 KiB) — D53.
+ *
+ * @remarks
+ * Their form body carries one `signed_request` of a few hundred bytes, and the body must be read
+ * before its signature can be checked, so anybody can make the server read one: the limit keeps
+ * that cost negligible (a body over it answers 413).
+ */
+export const META_CALLBACK_BODY_LIMIT_BYTES = 16 * 1024;
+
 /** Bytes per mebibyte (1024 * 1024) — RSS / threshold byte math. */
 export const BYTES_PER_MEGABYTE = 1024 * 1024;

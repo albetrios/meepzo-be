@@ -14,6 +14,7 @@ describe('worker-concurrency.util', () => {
         WORKER_CONCURRENCY_NOTIFY: 6,
         WORKER_CONCURRENCY_WEBHOOK: 10,
         WORKER_CONCURRENCY_STRIPE: 3,
+        WORKER_CONCURRENCY_INSTAGRAM: 7,
       },
     }));
 
@@ -22,12 +23,14 @@ describe('worker-concurrency.util', () => {
       getWorkerConcurrencyNotify,
       getWorkerConcurrencyWebhook,
       getWorkerConcurrencyStripe,
+      getWorkerConcurrencyInstagram,
     } = await import('@/shared/config/worker-concurrency.util.js');
 
     expect(getWorkerConcurrencyMail()).toBe(2);
     expect(getWorkerConcurrencyNotify()).toBe(6);
     expect(getWorkerConcurrencyWebhook()).toBe(10);
     expect(getWorkerConcurrencyStripe()).toBe(3);
+    expect(getWorkerConcurrencyInstagram()).toBe(7);
   });
 
   it('falls back to WORKER_CONCURRENCY when family override is unset', async () => {
@@ -38,6 +41,7 @@ describe('worker-concurrency.util', () => {
         WORKER_CONCURRENCY_NOTIFY: undefined,
         WORKER_CONCURRENCY_WEBHOOK: undefined,
         WORKER_CONCURRENCY_STRIPE: undefined,
+        WORKER_CONCURRENCY_INSTAGRAM: undefined,
       },
     }));
 
@@ -46,11 +50,13 @@ describe('worker-concurrency.util', () => {
       getWorkerConcurrencyNotify,
       getWorkerConcurrencyWebhook,
       getWorkerConcurrencyStripe,
+      getWorkerConcurrencyInstagram,
     } = await import('@/shared/config/worker-concurrency.util.js');
 
     expect(getWorkerConcurrencyMail()).toBe(5);
     expect(getWorkerConcurrencyNotify()).toBe(5);
     expect(getWorkerConcurrencyWebhook()).toBe(5);
     expect(getWorkerConcurrencyStripe()).toBe(5);
+    expect(getWorkerConcurrencyInstagram()).toBe(5);
   });
 });

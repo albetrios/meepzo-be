@@ -6,7 +6,8 @@ import { WRITE_HTTP_METHODS } from '@/shared/constants/index.js';
  * truth: idempotency (`X-Idempotency-Key`, required on every write that
  * registers `idempotencyRequired: true`), captcha on the public auth surface
  * (`X-Captcha-Token`), CSRF on the cookie refresh flow (`X-CSRF-Token`), and
- * Stripe's own `Stripe-Signature` on webhook ingestion.
+ * each provider's own signature header on its webhook delivery — Stripe's `Stripe-Signature`,
+ * Meta's `X-Hub-Signature-256` on the Instagram webhook.
  *
  * The active organization rides the signed `org` JWT claim (switched via
  * `/api/v1/auth/switch-to-organization` / `/auth/switch-to-personal`), NOT a
@@ -42,7 +43,40 @@ const CAPTCHA_ROUTE_KEYS = new Set([
   'GET /api/v1/auth/oauth/{provider}',
 ]);
 
-const WEBHOOK_ROUTE_KEYS = new Set(['POST /api/v1/billing/webhook']);
+/**
+ * The provider webhook deliveries — no `X-Idempotency-Key` (the provider's own ids make a repeat
+ * safe, K3) — each with the signature header its provider sets.
+ */
+const WEBHOOK_SIGNATURE_HEADERS: Readonly<Record<string, object>> = {
+  'POST /api/v1/billing/webhook': {
+    name: 'Stripe-Signature',
+    in: 'header',
+    required: true,
+    description:
+      'Set by Stripe when it delivers the event (t=timestamp,v1=HMAC signature). Your application never sends this header; the endpoint verifies it against the webhook signing secret.',
+    schema: { type: 'string' },
+    example: 't=1718200000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd',
+  },
+  'POST /api/v1/app/social/instagram/webhook': {
+    name: 'X-Hub-Signature-256',
+    in: 'header',
+    required: true,
+    description:
+      'Set by Meta when it delivers Instagram events: sha256= and the hex HMAC-SHA256 of the raw request body keyed with the Instagram app secret. Your application never sends this header; the endpoint verifies it (constant time) before reading the body — missing or wrong is a 400 invalid_webhook_signature.',
+    schema: { type: 'string', pattern: '^sha256=[0-9a-fA-F]{64}$' },
+    example: 'sha256=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd',
+  },
+};
+
+/**
+ * Meta's Instagram callbacks (launch routes 7–8): PUBLIC, proved by the form's `signed_request`,
+ * and documented without `X-Idempotency-Key` — Meta sends none, and its own request is safe to
+ * repeat (K3).
+ */
+const META_SIGNED_REQUEST_ROUTE_KEYS = new Set([
+  'POST /api/v1/app/social/instagram/deauthorize',
+  'POST /api/v1/app/social/instagram/data-deletion',
+]);
 
 /** Builds the documented request-header parameters for one operation. */
 export function buildHeaderParameters(method: string, routeKey: string): object[] {
@@ -50,7 +84,8 @@ export function buildHeaderParameters(method: string, routeKey: string): object[
 
   if (
     WRITE_HTTP_METHODS.has(method) &&
-    !WEBHOOK_ROUTE_KEYS.has(routeKey) &&
+    !(routeKey in WEBHOOK_SIGNATURE_HEADERS) &&
+    !META_SIGNED_REQUEST_ROUTE_KEYS.has(routeKey) &&
     !routeKey.includes('/api/v1/mcp')
   ) {
     const required = isIdempotencyRequired(routeKey);
@@ -90,16 +125,9 @@ export function buildHeaderParameters(method: string, routeKey: string): object[
     });
   }
 
-  if (WEBHOOK_ROUTE_KEYS.has(routeKey)) {
-    headers.push({
-      name: 'Stripe-Signature',
-      in: 'header',
-      required: true,
-      description:
-        'Set by Stripe when it delivers the event (t=timestamp,v1=HMAC signature). Your application never sends this header; the endpoint verifies it against the webhook signing secret.',
-      schema: { type: 'string' },
-      example: 't=1718200000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd',
-    });
+  const webhookSignatureHeader = WEBHOOK_SIGNATURE_HEADERS[routeKey];
+  if (webhookSignatureHeader !== undefined) {
+    headers.push(webhookSignatureHeader);
   }
 
   return headers;

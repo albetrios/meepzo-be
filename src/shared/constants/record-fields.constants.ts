@@ -56,6 +56,15 @@ export const DEFAULT_WORKING_DAYS: readonly Weekday[] = [
 ];
 /** A phone number: `+91` and ten digits (`chk_<table>_phone`). */
 export const PHONE_NUMBER_PATTERN = '^\\+91\\d{10}$';
+/**
+ * A phone number from anywhere: an optional leading `+`, then 10–15 digits, stored normalised —
+ * spaces, dashes, dots and brackets dropped (`chk_contacts_phone`). The India-only
+ * {@link PHONE_NUMBER_PATTERN} stays for team members; an Instagram contact may live in any
+ * country (routes-final § 2, CT10).
+ */
+export const INTERNATIONAL_PHONE_NUMBER_PATTERN = '^\\+?[0-9]{10,15}$';
+/** The longest short text a record field holds — a `varchar(255)` name, an email, a tag. */
+export const RECORD_SHORT_TEXT_MAX_LENGTH = 255;
 
 /** Why an record was soft-deleted (the confirm drawer's choices). */
 export const RECORD_DELETE_REASON = {

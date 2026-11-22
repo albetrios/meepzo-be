@@ -251,8 +251,10 @@ export async function processNotificationDispatchJob(options: {
  * Runs one notification job in the database scope its public ids name, then dispatches it.
  *
  * @remarks
- * - **Algorithm:** pin the scope from the job — the organization's
- *   (`runOrganizationScopedWorkerJob`) or, for a notification without one, the recipient's
+ * - **Algorithm:** pin the scope from the job — the organization's, and the recipient's with it
+ *   (`runOrganizationScopedWorkerJob` with the job's `userPublicId`: the read joins `auth.users`,
+ *   whose rows only their own person may read, so the organization's scope alone finds nothing as
+ *   the application role) or, for a notification without an organization, the recipient's alone
  *   (`runUserScopedWorkerJob`, which the `notifications_owner_select` policy authorises) — and
  *   delegate to {@link processNotificationDispatchJob} with a repository on that handle.
  * - **Failure modes:** as {@link processNotificationDispatchJob}.
@@ -277,7 +279,11 @@ export async function processNotificationJob(options: {
     });
   return organizationPublicId === null
     ? runUserScopedWorkerJob({ job: { userPublicId }, processor: dispatchInScope })
-    : runOrganizationScopedWorkerJob({ job: { organizationPublicId }, processor: dispatchInScope });
+    : runOrganizationScopedWorkerJob({
+        job: { organizationPublicId },
+        processor: dispatchInScope,
+        userPublicId,
+      });
 }
 
 /**

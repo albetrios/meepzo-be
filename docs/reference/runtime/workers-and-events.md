@@ -88,6 +88,9 @@ Producers fail fast while Redis is unreachable or full (`noeviction` rejects wri
 | Seat sync | `subscriptions.seats` (the last quantity pushed to Stripe) | `subscription-seat-reconcile` — hourly, re-enqueues a seat sync for every Stripe-backed subscription whose `seats` differs from the seats in use |
 | Notification | row written, then deleted when its dispatch fails | not recovered — dropped by design |
 | Data export | `auth.user_data_exports` row, left `pending` | `reclaim-pending-user-data-exports` — a repeatable job on the export queue itself, every 5 min, re-enqueues exports still `pending` after 5 min; the job id is the export's public id |
+| Instagram reconnect notice | none — the break is on `app.instagram_accounts` (`connection_status_changed_at`), but no row records the notice | not recovered — logged (`app.instagram_account.reconnect_notice_enqueue_failed`); the Instagram page still shows the reconnect card |
+| Instagram daily account check | none — the sweep lists the `connected` accounts | the next day's sweep lists the accounts again (a token is renewed 7 days ahead) |
+| Instagram webhook event processing | `app.instagram_webhook_events` rows, left `received` / `queued` | `reclaim-instagram-webhook-events` — a repeatable job on the processing queue itself, every minute, re-adds the job of every account with an event still waiting 5 min after it arrived and not claimed in 5 min (up to 100 accounts a run); the per-account deduplication makes the add a no-op while the account's job is live |
 
 An enqueue failure never marks an outbox row failed: it leaves the row for its sweep.
 
@@ -123,8 +126,9 @@ options, caps `removeOnComplete` / `removeOnFail`, and adds retry jitter
 
 | Queue | Attempts | Backoff |
 | ----- | -------- | ------- |
-| `notification`, `user-data-export` | 3 | exponential from 5 s |
-| `subscription-seat-sync` | 5 | exponential from 5 s |
+| `notification`, `user-data-export`, `instagram-reconnect-notice` | 3 | exponential from 5 s |
+| `instagram-account-daily-check` | 3 | exponential from 1 min |
+| `subscription-seat-sync`, `instagram-webhook` | 5 | exponential from 5 s |
 | `stripe-webhook` | 5 | custom, doubling from 10 s (`stripe-webhook-backoff.util.ts`) |
 | `mail` | 8 | custom, doubling from 5 s (`mail-backoff.util.ts`) |
 | `webhook-delivery` | 8 | custom schedule, 1 min → 10 h (`WEBHOOK_DELIVERY_RETRY_DELAYS_MS`) |
@@ -144,6 +148,7 @@ minutes until the provider is back; then everything that waited is processed.
 | `mail` | `resend` |
 | `stripe-webhook`, `subscription-seat-sync` | `stripe` |
 | `user-data-export` | `s3` |
+| `instagram-account-daily-check`, `instagram-webhook` | `instagram` |
 
 - **What counts as an outage** (`toProviderOutageError`): the provider's circuit is open (the call
   never left), or a failure leaves the circuit not CLOSED — it tripped it, or it was a half-open probe
@@ -215,7 +220,7 @@ HTTP requests set `app.current_organization_public_id` per unit of work: the aut
 
 | Context wrapper                                                             | GUC / purpose                                                            |
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `withAppDatabaseContext` (organization job scope) / `runOrganizationScopedWorkerJob` | `app.current_organization_public_id` — tenant mutations and reads               |
+| `withAppDatabaseContext` (organization job scope) / `runOrganizationScopedWorkerJob` | `app.current_organization_public_id` — tenant mutations and reads; given the job's `userPublicId` also `app.current_user_public_id`, so a job about one person can read that person's own rows (the notification dispatch reads the recipient's `auth.users` row) |
 | `MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP` / `runGlobalRetentionWorkerJob` | `app.global_retention_cleanup` — cross-tenant tombstone retention       |
 | `withAppDatabaseContext` (user job scope) / `runUserScopedWorkerJob`  | `app.current_user_public_id` — GDPR export                                      |
 | `MAINTENANCE_SCOPE.SESSION_RETENTION_CLEANUP`                               | `app.session_retention_cleanup` — session cleanup worker                 |
@@ -234,7 +239,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 | Field                             | Purpose                                                                                                                                                                                                                                                                                 |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `queueName`                       | BullMQ queue (unique per worker)                                                                                                                                                                                                                                                        |
-| `family`                          | One of `mail`, `notify`, `webhook`, `stripe`, `retention`, `observability` — used by `WORKER_QUEUE_FAMILIES` to split processes                                                                                                                                                         |
+| `family`                          | One of `mail`, `notify`, `webhook`, `stripe`, `instagram`, `retention`, `observability` — used by `WORKER_QUEUE_FAMILIES` to split processes                                                                                                                                            |
 | `usesPostgres`                    | If `true`, the worker holds a Postgres pool checkout per concurrent job                                                                                                                                                                                                                 |
 | `scheduled`                       | `true` for cron-driven workers (entry exists in `scheduler.ts`); `false` for event-driven or orphan workers. Cross-checked at startup — mismatches log `worker.registry.scheduler_mismatch`                                                                                             |
 | `criticality`                     | `throughput` (drives user-visible latency), `maintenance` (cron / retention), or `observability` (metrics only)                                                                                                                                                                         |
@@ -243,7 +248,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 | `isEnabled()`                     | Optional skip (e.g. mail/Stripe disabled by env)                                                                                                                                                                                                                                        |
 | `create()`                        | Factory invoked by bootstrap                                                                                                                                                                                                                                                            |
 
-Currently **34 workers** are registered (**31** use Postgres, **3** are Redis-only — `idempotency-cardinality`, `dlq-depth`, `commit-dispatch-recovery`; **30** run a cron — two of them, `subscription-seat-sync` and `user-data-export`, also take event-driven jobs, their sweep riding the same queue — and **4** are event-driven only). Add a new worker by appending one entry — bootstrap, scheduler filtering, connection budgeting, and the scheduler-registry audit pick it up automatically — and add its queue constant to `WORKER_QUEUE_NAMES` in [`queue-catalog.ts`](../../../src/infrastructure/queue/queue-catalog.ts) (plus `WORKER_THROUGHPUT_QUEUE_NAMES` for a throughput worker), which gives it a depth gauge, a sampled and trimmed DLQ, a heartbeat read-out and a Bull Board entry. `queue-catalog.coverage.unit.test.ts` fails until you do.
+Currently **43 workers** are registered (**40** use Postgres, **3** are Redis-only — `idempotency-cardinality`, `dlq-depth`, `commit-dispatch-recovery`; **38** run a cron — four of them, `subscription-seat-sync`, `user-data-export`, `instagram-account-daily-check` and `instagram-webhook`, also take jobs added by others, their sweep riding the same queue — and **5** are event-driven only). Add a new worker by appending one entry — bootstrap, scheduler filtering, connection budgeting, and the scheduler-registry audit pick it up automatically — and add its queue constant to `WORKER_QUEUE_NAMES` in [`queue-catalog.ts`](../../../src/infrastructure/queue/queue-catalog.ts) (plus `WORKER_THROUGHPUT_QUEUE_NAMES` for a throughput worker), which gives it a depth gauge, a sampled and trimmed DLQ, a heartbeat read-out and a Bull Board entry. `queue-catalog.coverage.unit.test.ts` fails until you do.
 
 Every worker the bootstrap starts carries three hooks: the dead-letter + Sentry `failed` listener, the job-duration histogram, and the queue heartbeat (`worker:queue:<name>:last_job_at`, written at most every 5 s per queue). `/readyz` answers `stalled` when every recorded throughput heartbeat is older than `WORKER_HEALTH_STALL_TIMEOUT_MS` while jobs wait in a throughput queue that is not paused for its provider.
 
@@ -280,6 +285,13 @@ Operational sizing per family is documented in [resource-limits.md → Worker Po
 | --------------------- | ----------------- | ---------------------------------- | ---------------------------------------------------------------- |
 | `daily-audit-export`  | `audit-export`    | `15 2 * * *` (`AUDIT_EXPORT_CRON`) | [audit-export.md](../security/audit-export.md)                   |
 | `daily-audit-cleanup` | `audit-retention` | `0 3 * * *`                        | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `daily-instagram-webhook-event-cleanup` | `instagram-webhook-event-retention` | `0 3 * * *` (fixed, no setting) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `automation-next-post-expiry-quarter-hourly` | `automation-next-post-expiry` | `*/15 * * * *` (fixed, no setting — launch D9) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `automation-run-wait-expiry-hourly` | `automation-run-wait-expiry` | `0 * * * *` (fixed, no setting — launch D8: runs waiting more than 7 days cancelled) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `daily-automation-run-retention` | `automation-run-retention` | `20 3 * * *` (fixed, no setting — launch D8) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `daily-automation-comment-log-retention` | `automation-comment-log-retention` | `30 3 * * *` (fixed, no setting — launch D8) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `daily-automation-tombstone-cleanup` | `automation-tombstone-retention` | `40 3 * * *` (fixed, no setting — launch AQ7) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `instagram-webhook-reclaim` | `instagram-webhook` (job `reclaim-instagram-webhook-events`) | `* * * * *` (fixed, no setting — launch WH15) | [FLOWS.md › instagram-webhook-processing-flow](../../../src/FLOWS.md#instagram-webhook-processing-flow) |
 
 ---
 

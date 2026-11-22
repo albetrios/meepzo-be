@@ -35,11 +35,21 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   'POST /api/v1/auth/webauthn/authenticate/options',
   'POST /api/v1/auth/webauthn/authenticate/verify',
   // Billing — public plan catalog + Stripe-signature-verified webhook ingress
-  // (`/billing/webhook` sits behind the raw-body HMAC verification preHandler;
-  // see stripe-webhook.routes.ts).
+  // (`/billing/webhook` sits behind the raw-body HMAC verification preHandler, and a request without
+  // its signature header is refused before the body is read; see stripe-webhook.routes.ts).
   'GET /api/v1/billing/plans',
   'GET /api/v1/billing/plans/:plan_id',
   'POST /api/v1/billing/webhook',
+  // App — Meta's Instagram deauthorize and data-deletion callbacks (launch routes 7–8): no JWT,
+  // Meta's form-encoded `signed_request` is HMAC-verified with the Instagram app secret before the
+  // handler (instagram-account-meta-callback-ingress.plugin.ts).
+  'POST /api/v1/app/social/instagram/data-deletion',
+  'POST /api/v1/app/social/instagram/deauthorize',
+  // App — Meta's Instagram webhook (routes-final § 4.A): the subscription check is proved by the
+  // verify token (constant time), the delivery by `X-Hub-Signature-256` over the raw body
+  // (instagramWebhookIngressPlugin, before anything is parsed); see instagram-webhook.routes.ts.
+  'GET /api/v1/app/social/instagram/webhook',
+  'POST /api/v1/app/social/instagram/webhook',
 ];
 
 describe('Security: public route allowlist', () => {

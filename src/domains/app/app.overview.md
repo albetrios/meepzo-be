@@ -13,10 +13,17 @@ What it owns today: the routes plugin (`app.routes.ts`, mounted by `src/routes.t
 (`app.container.ts`, decorated as `app.appDomain` by `domain-containers.plugin.ts`), the seed module
 (`seed/index.ts`, registered in `SEED_MODULES`), the permission codes (`app.permissions.ts`), the schema
 `app` (`appSchema` in `src/infrastructure/database/pg-schemas.ts`, created by
-`migrations/20261121050908_app_schema.sql`) and the first sub-domain, the Instagram account (routes 1, 2
-and 4; the tables `app.instagram_accounts`, `app.instagram_account_tokens` and
-`app.instagram_account_settings`, created by `migrations/20261121064529_app_instagram_account.sql`). The
-other sub-domains fill it in one ROUTE row at a time (`iterations/launch-2026-11-20-ujai/KICKOFF.md`).
+`migrations/20261121050908_app_schema.sql`) and the first sub-domain, the Instagram account (routes 1–8,
+Meta's PUBLIC deauthorize and data-deletion callbacks included;
+the tables `app.instagram_accounts`, `app.instagram_account_tokens` and
+`app.instagram_account_settings`, created by `migrations/20261121064529_app_instagram_account.sql`, and
+`app.instagram_media`, created by `migrations/20261121094404_app_instagram_media.sql`), the contacts
+(routes 9 and 10; the table `app.contacts`, created by `migrations/20261121094503_app_contacts.sql`), the
+automations (routes 11–15 and the 15-minute "next post" expiry; the table `app.automations`, created by
+`migrations/20261121150135_app_automations.sql`) and the Instagram webhook — Meta's subscription check
+and delivery receiver (routes 16–17) and its stored events (route 18 and the 30-day clean-up; the table
+`app.instagram_webhook_events`, created by `migrations/20261121094626_app_instagram_webhook_events.sql`).
+The other sub-domains fill it in one ROUTE row at a time (`iterations/launch-2026-11-20-ujai/KICKOFF.md`).
 
 What it does not own: organizations, members, roles and the permission catalog (tenancy — the nine app
 codes and the locked Member role are seeded there), in-app notifications and email (notify, mail
@@ -35,15 +42,39 @@ only code that calls Instagram, and the only code that decrypts the Instagram to
 - **Seeded after tenancy**: the seed module depends on `tenancy`, so organizations exist before any app row
   (`src/tests/unit/scripts/seed/modules.unit.test.ts`); it has no reference data — the nine codes and the
   Member role are tenancy's. Bulk: each demo team organization gets a connected Instagram account, a fake
-  `encryptFieldSecret` token and the default settings.
+  `encryptFieldSecret` token, the default settings and three stored posts, then contacts of that
+  account, then its automations (every trigger and scope), then that account's demo webhook events
+  (every kind and status).
 - **Team-only, organization from the token** (K1): every signed-in route takes the active organization
   from the token's `org` claim; on a personal organization a write answers `422` and a read
-  `404 team_organization_required`, after the permission gate's `403`.
+  `404 team_organization_required`, after the permission gate's `403`. Meta's two callbacks (routes
+  7–8) are PUBLIC and carry no organization: Meta's form-encoded `signed_request` proves the caller,
+  and the organizations come from a resolver, each changed in its own `VERIFIED` scope (IA6, IA18).
 - **Forced RLS on every table** (K5): `organization_id` → organizations `ON DELETE CASCADE`, RLS enabled
   and forced, an organization policy with `USING` and `WITH CHECK` (listed in `EXPECTED_FORCE_RLS_TABLES`).
   The Instagram token table alone has no retention sweep arm (IA5).
+- **Background work in the `instagram` worker family** (WH5): Instagram webhook event processing (one
+  job per account, provider-pausable, `WORKER_CONCURRENCY_INSTAGRAM`) with its every-minute
+  stuck-event pick-up on the same queue, and the daily 30-day clean-up of the webhook events (03:00,
+  `runGlobalRetentionWorkerJob`). The automation timers run in the `retention` family (AU6): the
+  "next post" expiry every 15 minutes, the 7-day wait cancel every hour, and the daily run (03:20
+  UTC), comment-log (03:30) and deleted-automation (03:40) clean-ups.
+- **A read-only plan stops the automation writes only** (AQ8, D27): `app-plan-access.ts` builds the
+  preHandler (`SubscriptionService.assertOrganizationWritable`, `403 organization_read_only`) that
+  `app.routes.ts` attaches to routes 12, 14 and 15; the domain's other writes stay open.
 - **The Instagram token stays ciphertext** outside the Instagram client (IA5) — pinned by
   `sub-domains/instagram-account/__tests__/unit/instagram-account-token-isolation.policy.unit.test.ts`.
+- **A deleted organization's Instagram account is erased at once** (D54): tenancy's organization
+  delete calls `InstagramAccountErasureService.eraseForOrganizationOffboarding` through its
+  offboarding port before the soft delete — unsubscribed (best effort), revoked, token, profile and
+  stored posts erased; the rest of its rows wait for the purge.
+- **A contact's erase reaches every copy in one transaction** (CT8): the container hands the contact
+  service a list of `ContactErasureStep`s other sub-domains register (sub-domain 3's, with its build),
+  so contacts never import the sub-domains built after them. An automation's delete cancels its open
+  runs the same way (AU12): the container hands the automation service a list of
+  `AutomationOpenRunCancelStep`s. The run engine (`automation/automation-run/`) registers one step
+  in each list; the contacts list's automation filter reaches the automation service through a third
+  hook (`ContactAutomationFilterResolver`, CT5).
 - **The rules every sub-domain follows** are fixed by the route review (`plans/routes-final.md`, rules
   K1–K10) and become invariants of this file as each sub-domain is built.
 
@@ -53,10 +84,10 @@ In build order (`iterations/launch-2026-11-20-ujai/plans/routes-final.md`):
 
 | Sub-domain | Purpose |
 | --- | --- |
-| [instagram-account](src/domains/app/sub-domains/instagram-account/instagram-account.overview.md) | The organization's one connected Instagram account and its encrypted token (connect, read, disconnect); nested `instagram-account-settings` (the automation switch and public reply safety). Still to come: nested media and Meta's callbacks. |
-| `sub-domains/contact/` (planned) | The people the automations talk to, per Instagram account. |
-| `sub-domains/automation/` (planned) | Comment, direct-message and story-reply automations and their runs. |
-| `sub-domains/instagram-webhook/` (planned) | Meta's webhook receiver and the stored events that drive the runs. |
+| [instagram-account](src/domains/app/sub-domains/instagram-account/instagram-account.overview.md) | The organization's one connected Instagram account and its encrypted token (connect, read, disconnect), the daily account check and the reconnect notice (two workers); nested `instagram-account-settings` (the automation switch and public reply safety, changed by route 3) and `instagram-media` (the post and story pickers, read live — routes 5–6 — and the stored posts `app.instagram_media`) and `instagram-account-meta-callback` (Meta's PUBLIC deauthorize and data-deletion callbacks — routes 7–8). |
+| [contact](src/domains/app/sub-domains/contact/contact.overview.md) | The people who interacted with each Instagram account (list, erase — routes 9 and 10), written only by event processing through the contact service; the erase anonymises in place and runs the registered erasure steps. |
+| [automation](src/domains/app/sub-domains/automation/automation.overview.md) | Comment, DM and story-reply automations of each Instagram account (list, create, read, edit, delete — routes 11–15), "next post" linking for event processing, the 15-minute expiry worker and the daily deleted-automation purge; nested `automation-run` (runs, run events, comment logs and the run engine whose entry points event processing calls — no routes; the hourly 7-day wait cancel and the daily run and comment-log retention workers). |
+| [instagram-webhook](src/domains/app/sub-domains/instagram-webhook/instagram-webhook.overview.md) | Meta's Instagram webhook: the receiver at the folder root — the subscription check (route 16, verify token) and the delivery (route 17, `X-Hub-Signature-256`, each event stored once before the answer) — and nested `instagram-webhook-event` — the stored events, their list (route 18, masked payload) and the 30-day clean-up — and event processing (one account's events at a time, in order, through contacts and the run engine; the every-minute stuck-event pick-up). |
 
 ## Patterns used
 
@@ -66,17 +97,45 @@ This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERN
   every `app` table is organization-scoped with forced row-level security, reached only inside a
   database context; lookups before the organization is known go through narrow SECURITY DEFINER
   resolvers, then the organization's `VERIFIED` scope (IA6).
-- [`idempotency`](src/PATTERNS.md#idempotency) — signed-in writes that create (route 1, connect) require
-  `X-Idempotency-Key`.
+- [`idempotency`](src/PATTERNS.md#idempotency) — signed-in writes that create (route 1, connect; route
+  12, create an automation) require `X-Idempotency-Key`.
 - [`audit-emission`](src/PATTERNS.md#audit-emission) — `app.<resource>.<verb>` audit actions
-  (`app.instagram_account.connect`, `app.instagram_account.disconnect`).
+  (`app.instagram_account.connect`, `app.instagram_account.disconnect`,
+  `app.instagram_account.deauthorize`, `app.instagram_account.data_deletion` — anonymous actor,
+  `metadata.source = 'meta'` — `app.instagram_account_settings.update`, `app.contact.delete`,
+  `app.automation.create`, `app.automation.update`, `app.automation.delete`).
 
 ## Cross-domain flows
 
 - [`instagram-account-connect-flow`](src/FLOWS.md#instagram-account-connect-flow) — connect an Instagram
   account across `app` (the account, its token and settings), `tenancy` (the permission gate and the
   team check), `audit`, and the Instagram client.
+- [`instagram-account-health-flow`](src/FLOWS.md#instagram-account-health-flow) — the daily account
+  check and the reconnect notice across `app` (the account, its token, the two workers), `tenancy`
+  (the recipients, the organization's language), `notify` (the in-app notification and its email,
+  through the mail outbox) and the Instagram client. The worker process builds this domain's
+  container too (`createDomainContainers` → `appDomain`).
+- [`instagram-meta-callback-flow`](src/FLOWS.md#instagram-meta-callback-flow) — Meta's deauthorize
+  and data-deletion callbacks across `app` (the account, its token, its stored posts, in every
+  organization the resolver names) and `audit` (an anonymous entry per organization changed).
+- [`instagram-comment-automation-flow`](src/FLOWS.md#instagram-comment-automation-flow) — a comment
+  runs its automation across the sub-domains (webhook event → contact → run engine → Instagram
+  client), proven end to end by `__tests__/e2e/instagram-comment-flow.e2e.test.ts`; on a dead token
+  it leads into the account health flow (`notify`). What goes wrong or changes under a run — an event
+  that ends failed, a step turned off, an automation deleted — is proven by
+  `__tests__/e2e/instagram-engine-recovery.e2e.test.ts`.
+- [`instagram-next-post-flow`](src/FLOWS.md#instagram-next-post-flow) — a waiting "next post"
+  automation links to the first post commented on in its window and answers that same comment, or
+  expires: the automation service, event processing, the stored posts, the run engine and the
+  15-minute expiry worker, proven end to end by `__tests__/e2e/instagram-next-post-flow.e2e.test.ts`.
+- [`instagram-retention-erasure-flow`](src/FLOWS.md#instagram-retention-erasure-flow) — how the data
+  leaves: this domain's clean-up timers, a contact delete reaching every copy, Meta's data deletion,
+  and the organization purge (`tenancy`) that cascades every `app` row; proved end to end by
+  `__tests__/e2e/instagram-retention-erasure.e2e.test.ts`.
+- [`instagram-message-flow`](src/FLOWS.md#instagram-message-flow) — a DM, a story reply or a button
+  click, from Meta's delivery to the run's last message: event processing, the contact, the run
+  engine and the Instagram client, proven end to end by
+  `__tests__/e2e/instagram-message-flow.e2e.test.ts`.
 
-Planned: the reconnect notice (R7), added to [src/FLOWS.md](src/FLOWS.md) with the row that builds it.
 Cross-domain reads and writes go through the other domain's service, passed into `createAppContainer`
 as parameters — never its repository or schema.

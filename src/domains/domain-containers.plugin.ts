@@ -43,6 +43,7 @@ async function registerDomainContainers(application: FastifyInstance): Promise<v
   application.tenancyDomain.organizationService.wireOffboardingUploadService({
     uploadService: application.uploadDomain.uploadService,
     subscriptionService: application.billingDomain.subscriptionService,
+    instagramErasureService: application.appDomain.instagramAccountErasureService,
   });
 
   // REQ-4: break the membership↔subscription cycle by late-wiring. billing was built with the

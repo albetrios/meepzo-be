@@ -7,6 +7,7 @@ export const WORKER_QUEUE_FAMILY_NAMES = [
   'notify',
   'webhook',
   'stripe',
+  'instagram',
   'retention',
   'observability',
 ] as const;

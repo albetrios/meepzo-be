@@ -62,6 +62,14 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   'POST /api/v1/tenancy/organization/api-keys/:api_key_id/rotate':
     'cross-organization-mutation: API key rotate',
   'DELETE /api/v1/notify/webhooks/:webhook_id': 'cross-organization-mutation: webhook DELETE',
+  // Launch R8: contact.integration.test.ts erases another organization's contact → 404
+  // contact_not_found, and reads the row back unchanged.
+  'DELETE /api/v1/app/contacts/:contact_id': 'cross-organization-mutation: contact DELETE',
+  // Launch R9: automation.integration.test.ts reads, edits and deletes another organization's
+  // automation → 404 automation_not_found, and reads the row back unchanged.
+  'GET /api/v1/app/automations/:automation_id': 'cross-organization-resource: automation',
+  'PATCH /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation PATCH',
+  'DELETE /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation DELETE',
   'PATCH /api/v1/tenancy/organization/notification-policies/:notification_policy_id':
     'cross-organization-mutation: notification policy PATCH',
   'DELETE /api/v1/tenancy/organization/notification-policies/:notification_policy_id':

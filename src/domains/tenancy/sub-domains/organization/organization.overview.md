@@ -29,6 +29,7 @@ The top-level tenancy aggregate. Owns the `organizations` table (id, public id, 
   permission cache. A custom role already holding a default role's name is renamed
   `<name> (custom)` with its people and codes (launch IQ5). Twice is once.
 - **Organization soft-delete cascades to child resources**: settings, API keys, and notification policy tombstone with the organization. Memberships are handled separately.
+- **The delete offboards other domains first** (`wireOffboardingUploadService`): the logo and uploads, then the subscription cancel, then — the last step, in the organization's own scope while it is live, because row-level security hides a soft-deleted organization's rows — the `app` domain's erase of its Instagram accounts through `OrganizationInstagramOffboardingPort` (launch D54). A failed step stops the delete before the soft delete; `organization-offboarding-reconcile` runs it again, every step being safe to repeat. The erased accounts are named on the `tenancy.organization.delete` audit entry.
 
 ## Lifecycle
 

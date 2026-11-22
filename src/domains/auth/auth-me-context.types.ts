@@ -28,7 +28,8 @@ export type AuthMeContextActiveOrganizationOutput = OrganizationOutput & {
   /**
    * Whether the organization may still write under the app routes (owner decision D3): `active`, `grace`
    * (unpaid, writes allowed until `grace_ends_at`) or `read_only` (unpaid since `grace_ends_at`;
-   * every write under `/api/v1/app/` answers 403 `organization_read_only`).
+   * the automation writes under `/api/v1/app/automations` answer 403 `organization_read_only`,
+   * launch D27).
    */
   plan_access: PlanAccessOutput;
 };

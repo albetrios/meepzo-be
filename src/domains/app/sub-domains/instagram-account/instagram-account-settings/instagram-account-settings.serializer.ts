@@ -2,7 +2,7 @@ import type { InstagramAccountSettingsOutput } from './instagram-account-setting
 
 /**
  * Maps an `app.instagram_account_settings` row to the public settings object (routes-final
- * § 1.B.6) — nested under the account by route 2, answered by route 3 (R4).
+ * § 1.B.6) — nested under the account by route 2, answered by route 3.
  *
  * @remarks
  * - **Algorithm:** copies the six setting columns, swaps the internal `updated_by_user_id` for the

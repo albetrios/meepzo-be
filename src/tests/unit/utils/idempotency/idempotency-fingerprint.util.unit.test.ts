@@ -173,6 +173,63 @@ describe('responseBodyContainsSecretFields', () => {
     );
   });
 
+  // Launch D38: the logs hide a contact's personal data, but it is not a secret — a response
+  // carrying it is cached and a repeated key replays it (route 1's answer holds `username`, D35).
+  it('caches a response that carries personal data only: username, phone, full name, picture', () => {
+    const contact = {
+      id: 'con_p3k8w2m9x4r7n1v5a1b2c',
+      username: 'jordan.lee',
+      phone: '+15550100123',
+      full_name: 'Jordan Lee',
+      profile_picture_url: 'https://cdn.example.com/jordan.jpg',
+    };
+    expect(responseBodyContainsSecretFields(JSON.stringify({ data: contact }))).toBe(false);
+    expect(
+      responseBodyContainsSecretFields(
+        JSON.stringify({ data: { instagram_account: { username: 'acme.shop' } } }),
+      ),
+    ).toBe(false);
+  });
+
+  // Launch D40: an email address is personal data too — an automation's create answer carries
+  // `is_email_collection_enabled` and `email_request_message` and must replay (AC-5.3).
+  it('caches a response that carries an email or an email-named field', () => {
+    expect(
+      responseBodyContainsSecretFields(
+        JSON.stringify({ data: { email: 'jordan.lee@example.com', is_email_verified: true } }),
+      ),
+    ).toBe(false);
+    expect(
+      responseBodyContainsSecretFields(
+        JSON.stringify({
+          data: {
+            id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
+            is_email_collection_enabled: true,
+            email_request_message: { text: 'Your email?' },
+          },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      responseBodyContainsSecretFields(
+        JSON.stringify({ data: { email: 'jordan.lee@example.com', access_token: 'leak' } }),
+      ),
+    ).toBe(true);
+  });
+
+  it('still never caches a response with an access token or a secret beside personal data', () => {
+    expect(
+      responseBodyContainsSecretFields(
+        JSON.stringify({ data: { username: 'jordan.lee', access_token: 'leak' } }),
+      ),
+    ).toBe(true);
+    expect(
+      responseBodyContainsSecretFields(
+        JSON.stringify({ data: { full_name: 'Jordan Lee', client_secret: 's' } }),
+      ),
+    ).toBe(true);
+  });
+
   it('fails closed via a substring scan when the response body is not valid JSON', () => {
     // The onSend hook can encounter a non-JSON body; the parse-failure branch must still detect
     // secret-bearing fields rather than caching them.

@@ -17,7 +17,7 @@ const EXAMPLE = [
   'POSTHOG_KEY=phc_...',
   'POSTHOG_HOST=https://us.i.posthog.com',
   'INSTAGRAM_APP_ID=...',
-  'INSTAGRAM_APP_SECRET=...',
+  'INSTAGRAM_APP_SECRET=',
   'INSTAGRAM_REDIRECT_URI=http://localhost:5173/auth/instagram/callback',
   'LOG_LEVEL=debug',
   '',
@@ -147,6 +147,33 @@ describe('setup:local — third-party API keys for .env.local', () => {
     // the collector auth headers are optional.
     expect(fill.missing).toEqual(REPORTED_KEYS);
     expect(fill.missing).not.toContain('S3_REGION');
+  });
+
+  describe('a file made while the template still shipped `...` for a key it now leaves blank', () => {
+    const local = EXAMPLE.replace('INSTAGRAM_APP_SECRET=', 'INSTAGRAM_APP_SECRET=...');
+
+    it('is filled like any placeholder when a source has the real value', () => {
+      const fill = fillExternalCredentials({
+        local,
+        example: EXAMPLE,
+        sources: [file('env file', 'INSTAGRAM_APP_SECRET=instagram-app-secret-from-file')],
+      });
+      expect(fill.copied).toEqual([{ key: 'INSTAGRAM_APP_SECRET', source: 'env file' }]);
+      expect(dotenv.parse(fill.content).INSTAGRAM_APP_SECRET).toBe(
+        'instagram-app-secret-from-file',
+      );
+    });
+
+    it('goes blank, as the template, when none has — the old placeholder would stop the boot', () => {
+      const fill = fillExternalCredentials({
+        local,
+        example: EXAMPLE,
+        sources: [file('env file', 'INSTAGRAM_APP_SECRET=...')],
+      });
+      expect(fill.missing).toContain('INSTAGRAM_APP_SECRET');
+      expect(fill.kept).not.toContain('INSTAGRAM_APP_SECRET');
+      expect(dotenv.parse(fill.content).INSTAGRAM_APP_SECRET).toBe('');
+    });
   });
 
   it('adds a key the local file does not declare at all', () => {

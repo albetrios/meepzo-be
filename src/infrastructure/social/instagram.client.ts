@@ -57,17 +57,40 @@ export function isInstagramConfigured(): boolean {
   );
 }
 
+/**
+ * Throws 503 `instagram_not_configured` when any of the three Instagram app settings is unset — for
+ * a route that calls Instagram with a stored token only (the post and story pickers, IA16), so it
+ * fails closed as the exchanges do.
+ */
+export function assertInstagramConfigured(): void {
+  readInstagramAppSettings();
+}
+
+/**
+ * The Instagram app secret (`INSTAGRAM_APP_SECRET`) alone, or 503 `instagram_not_configured` when
+ * it is unset — for Meta's signed callbacks (deauthorize and data deletion, IA18), which check a
+ * signature and derive a confirmation code but never call Instagram, so they need no other setting.
+ */
+export function readInstagramAppSecret(): string {
+  const appSecret = getEnv().INSTAGRAM_APP_SECRET;
+  if (!appSecret) throw instagramNotConfiguredError();
+  return appSecret;
+}
+
+/** The 503 `instagram_not_configured` every unset Instagram app setting answers. */
+function instagramNotConfiguredError(): ServiceUnavailableError {
+  return new ServiceUnavailableError('errors:instagramNotConfigured').withReason(
+    'instagram_not_configured',
+  );
+}
+
 /** The three app settings, or a 503 `instagram_not_configured` when any is unset. */
 function readInstagramAppSettings(): { appId: string; appSecret: string; redirectUri: string } {
   const environment = getEnv();
   const appId = environment.INSTAGRAM_APP_ID;
   const appSecret = environment.INSTAGRAM_APP_SECRET;
   const redirectUri = environment.INSTAGRAM_REDIRECT_URI;
-  if (!(appId && appSecret && redirectUri)) {
-    throw new ServiceUnavailableError('errors:instagramNotConfigured').withReason(
-      'instagram_not_configured',
-    );
-  }
+  if (!(appId && appSecret && redirectUri)) throw instagramNotConfiguredError();
   return { appId, appSecret, redirectUri };
 }
 
@@ -143,17 +166,17 @@ function buildInstagramGraphInit({
 }
 
 /** A non-empty string field of an Instagram answer, else `null`. */
-function readAnswerText(value: unknown): string | null {
+export function readAnswerText(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 /** A count field of an Instagram answer (a non-negative whole number), else `null`. */
-function readAnswerCount(value: unknown): number | null {
+export function readAnswerCount(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 /** An Instagram id: Graph sends a digit string; an exact JSON number is accepted too. */
-function readAnswerId(value: unknown): string | null {
+export function readAnswerId(value: unknown): string | null {
   if (typeof value === 'string' && value.length > 0) return value;
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value);
   return null;

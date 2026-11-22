@@ -3,6 +3,15 @@
     "invitationAcceptedTitle": "Invitación aceptada",
     "invitationAcceptedMessage": "{{inviteeName}} aceptó tu invitación para unirse a {{organizationName}}.",
     "invitationDeclinedTitle": "Invitación rechazada",
-    "invitationDeclinedMessage": "{{inviteeName}} rechazó tu invitación para unirse a {{organizationName}}."
+    "invitationDeclinedMessage": "{{inviteeName}} rechazó tu invitación para unirse a {{organizationName}}.",
+    "instagramReconnectRequiredTitle": "Vuelve a conectar Instagram",
+    "instagramReconnectRequiredMessage": "Instagram dejó de aceptar la conexión con @{{username}}. Vuelve a conectar la cuenta para que tus automatizaciones sigan funcionando."
+  },
+  "automationMessages": {
+    "emailQuestion": "¡Comparte tu correo electrónico para continuar!",
+    "phoneQuestion": "¡Comparte tu número de teléfono para continuar!",
+    "invalidEmail": "Indica un correo electrónico válido. Usa el botón de abajo para compartir tu correo.",
+    "buttonTemplateText": "¿Qué quieres hacer ahora?",
+    "linkButtonTitle": "Visitar enlace"
   }
 }

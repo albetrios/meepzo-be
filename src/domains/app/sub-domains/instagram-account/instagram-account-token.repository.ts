@@ -5,10 +5,16 @@ import {
   assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
-import { databaseNowTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
+import {
+  databaseNowTimestamp,
+  databaseUpdatedAtTimestamp,
+} from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { instagram_account_tokens } from './instagram-account-token.schema.js';
 import { INSTAGRAM_ACCOUNT_TOKEN_TYPE } from './instagram-account.constants.js';
 import type { InstagramAccountKey } from './instagram-account.repository.js';
+
+/** `updated_at` for every change of a token — never before the row's `created_at`. */
+const tokenUpdatedAtTimestamp = databaseUpdatedAtTimestamp(instagram_account_tokens.created_at);
 
 /** The account's token as the token repository hands it out — ciphertext only (IA5). */
 export interface InstagramAccountTokenRecord {
@@ -67,7 +73,7 @@ export class InstagramAccountTokenRepository {
           expires_at: expiresAt,
           last_refreshed_at: null,
           last_refresh_error: null,
-          updated_at: databaseNowTimestamp,
+          updated_at: tokenUpdatedAtTimestamp,
         },
       });
   }
@@ -91,6 +97,71 @@ export class InstagramAccountTokenRepository {
       )
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /**
+   * Replaces a renewed token (the daily check, IA8) — only while the stored token is still the one
+   * that was renewed (`previousEncryptedAccessToken`): a reconnect that saved a newer token in the
+   * meantime wins, and this writes nothing. Stamps `last_refreshed_at` and clears
+   * `last_refresh_error`. Returns whether the token was replaced.
+   */
+  async replaceRenewedToken({
+    organizationId,
+    instagramAccountId,
+    previousEncryptedAccessToken,
+    encryptedAccessToken,
+    expiresAt,
+  }: InstagramAccountKey & {
+    previousEncryptedAccessToken: string;
+    encryptedAccessToken: string;
+    expiresAt: Date;
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_account_tokens)
+      .set({
+        encrypted_access_token: encryptedAccessToken,
+        expires_at: expiresAt,
+        last_refreshed_at: databaseNowTimestamp,
+        last_refresh_error: null,
+        updated_at: tokenUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          eq(instagram_account_tokens.organization_id, organizationId),
+          eq(instagram_account_tokens.instagram_account_id, instagramAccountId),
+          eq(instagram_account_tokens.encrypted_access_token, previousEncryptedAccessToken),
+        ),
+      )
+      .returning({ id: instagram_account_tokens.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Keeps a failed renewal's error on the token (IA8) — Instagram's class, codes and HTTP status,
+   * never its text (it can quote the token) — only while the stored token is still the one that was
+   * tried. Returns whether it was written.
+   */
+  async recordRefreshError({
+    organizationId,
+    instagramAccountId,
+    encryptedAccessToken,
+    refreshError,
+  }: InstagramAccountKey & {
+    encryptedAccessToken: string;
+    refreshError: string;
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_account_tokens)
+      .set({ last_refresh_error: refreshError, updated_at: tokenUpdatedAtTimestamp })
+      .where(
+        and(
+          eq(instagram_account_tokens.organization_id, organizationId),
+          eq(instagram_account_tokens.instagram_account_id, instagramAccountId),
+          eq(instagram_account_tokens.encrypted_access_token, encryptedAccessToken),
+        ),
+      )
+      .returning({ id: instagram_account_tokens.id });
+    return rows.length > 0;
   }
 
   /** Deletes the account's token (every disconnect, IA14); returns whether a row was deleted. */

@@ -39,9 +39,9 @@ describe('postgres connection options', () => {
       expect(options.lock_timeout).toBe(env.DATABASE_LOCK_TIMEOUT_MS);
     });
 
-    it('resolves the pool max from DATABASE_POOL_MAX (defaults to 70 in the env schema)', () => {
+    it('resolves the pool max from DATABASE_POOL_MAX (defaults to 80 in the env schema)', () => {
       const options = buildPostgresOptions('postgresql://user:pass@localhost:5432/meepzo');
-      // DATABASE_POOL_MAX has an explicit schema default of 70; the env is always a number.
+      // DATABASE_POOL_MAX has an explicit schema default of 80; the env is always a number.
       expect(options.max).toBe(env.DATABASE_POOL_MAX);
     });
   });

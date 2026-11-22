@@ -25,8 +25,9 @@ import { describe, expect, it } from 'vitest';
  * resolvers' security test and the token's database tests write and read the table to prove these
  * rules, and the contract test decrypts to prove the client encrypts. They never ship.
  *
- * The allowlists are exact paths, each with its reason. The daily check (launch R7, IA8) adds its
- * processor to {@link TOKEN_REPOSITORY_IMPORTERS} when it lands — deliberately, never casually.
+ * The allowlists are exact paths, each with its reason. The daily check's processor (launch R7,
+ * IA8) is the one worker path in {@link TOKEN_REPOSITORY_IMPORTERS} — IA5's "only the token service
+ * and the daily check"; any other addition is deliberate, never casual.
  * The secrets-key rotation script (D37) is in {@link TOKEN_SCHEMA_IMPORTERS} and
  * {@link TOKEN_DECRYPTERS}: it re-encrypts the column onto the current key version.
  */
@@ -60,6 +61,11 @@ const TOKEN_REPOSITORY_IMPORTERS: ReadonlyArray<{ file: string; reason: string }
   {
     file: 'src/domains/app/app.container.ts',
     reason: 'the composition root builds the repository for the token service, and nothing else',
+  },
+  {
+    file: `${INSTAGRAM_ACCOUNT_FOLDER}/workers/instagram-account-daily-check.processor.ts`,
+    reason:
+      'the daily check (IA8): reads the ciphertext for the renewal, replaces it only while it is still the token renewed, and keeps a failed renewal error; it hands the ciphertext to the client and never decrypts it',
   },
 ];
 

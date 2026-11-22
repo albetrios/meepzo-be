@@ -12,7 +12,8 @@ import {
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
-import { resetEnvCacheForTests } from '@/shared/config/env.config.js';
+import { env, resetEnvCacheForTests } from '@/shared/config/env.config.js';
+import enErrors from '@/shared/locales/en/errors.json' with { type: 'json' };
 import { responseBodyContainsSecretFields } from '@/shared/utils/idempotency/idempotency-fingerprint.util.js';
 import { buildIdempotencyCacheKey } from '@/shared/utils/idempotency/idempotency-key.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
@@ -29,11 +30,13 @@ import {
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
   INSTAGRAM_ACCOUNT_PATH,
+  INSTAGRAM_ACCOUNT_SETTINGS_PATH,
   INSTAGRAM_CONNECT_PATH,
   TEST_INSTAGRAM_LONG_LIVED_TOKEN,
   buildInstagramProfile,
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
+  endTrialWithoutPaying,
   mockInstagramConnect,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
@@ -43,12 +46,17 @@ import {
   type InstagramTeamFixture,
   type TestInstagramProfile,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
+import {
+  AUTOMATIONS_PATH,
+  commentAutomationBody,
+} from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 
 /**
  * Routes 1, 2 and 4 of the Instagram account (routes-final § 1.A, ROUTE R3) over HTTP: every
  * success and every error of 1.A.9 and 1.5, team-only (K1), the Member role (AC-1.7), another
- * organization's data, idempotency (K3) and the D34 503 reasons. Instagram is mocked with nock;
- * the database, Redis, auth, permissions and idempotency are real.
+ * organization's data, idempotency (K3), the D34 503 reasons, and a read-only plan leaving routes
+ * 1, 3 and 4 open (D27). Instagram is mocked with nock; the database, Redis, auth, permissions and
+ * idempotency are real.
  */
 describe('Instagram account routes (connect, read, disconnect)', () => {
   let app: FastifyInstance;
@@ -440,6 +448,20 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
     });
 
     it('answers 503 instagram_unavailable with a Retry-After when Instagram fails, storing nothing', async () => {
+      // The code exchange fails, so the one-time code may still pass (a later call: 409, D56).
+      nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
+        .post('/oauth/access_token')
+        .reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });
+
+      const response = await connect({ token: team.ownerToken });
+
+      expect(response.statusCode).toBe(503);
+      expect(errorOf(response).reason).toBe('instagram_unavailable');
+      expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
+      expect(await readInstagramAccountRows(team.organization.id)).toEqual([]);
+    });
+
+    it('answers 409 instagram_connect_restart_required without a Retry-After when Instagram fails once the code is spent, storing nothing (D56)', async () => {
       nock(INSTAGRAM_AUTHORIZATION_BASE_URL).post('/oauth/access_token').reply(200, {
         access_token: 'IGAA-short',
         permissions: 'instagram_business_basic',
@@ -454,10 +476,52 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
 
       const response = await connect({ token: team.ownerToken });
 
-      expect(response.statusCode).toBe(503);
-      expect(errorOf(response).reason).toBe('instagram_unavailable');
-      expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
+      expect(response.statusCode).toBe(409);
+      expect(errorOf(response)).toMatchObject({
+        code: 'conflict',
+        reason: 'instagram_connect_restart_required',
+        detail: enErrors.instagramConnectRestartRequired,
+      });
+      expect(response.headers['retry-after']).toBeUndefined();
       expect(await readInstagramAccountRows(team.organization.id)).toEqual([]);
+      expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual([]);
+    });
+
+    it('keeps a connected account as it is when a reconnect fails once the code is spent (D56)', async () => {
+      const profile = buildInstagramProfile();
+      await connectAccount(profile);
+      const tokensBefore = await readInstagramTokenCiphertexts(team.organization.id);
+      nock(INSTAGRAM_AUTHORIZATION_BASE_URL).post('/oauth/access_token').reply(200, {
+        access_token: 'IGAA-short',
+        permissions: 'instagram_business_basic',
+      });
+      nock(INSTAGRAM_GRAPH_BASE_URL)
+        .get('/access_token')
+        .query(true)
+        .reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });
+
+      const response = await connect({ token: team.ownerToken });
+
+      expect(response.statusCode).toBe(409);
+      expect(errorOf(response).reason).toBe('instagram_connect_restart_required');
+      const [row] = await readInstagramAccountRows(team.organization.id);
+      expect(row?.connection_status).toBe('connected');
+      expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual(tokensBefore);
+    });
+
+    it('connects nothing when a read for the answer fails: the transaction rolls back (D56)', async () => {
+      const profile = buildInstagramProfile();
+      mockInstagramConnect({ profile, subscription: 'none' });
+      vi.spyOn(
+        app.tenancyDomain.organizationService,
+        'resolveUserPublicIdsByInternalIds',
+      ).mockRejectedValueOnce(new Error('the read failed'));
+
+      const response = await connect({ token: team.ownerToken });
+
+      expect(response.statusCode).toBe(500);
+      expect(await readInstagramAccountRows(team.organization.id)).toEqual([]);
+      expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual([]);
     });
 
     it('answers 503 instagram_not_configured, with its reason, when the Instagram app is not set (D34)', async () => {
@@ -832,6 +896,59 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
       const [row] = await readInstagramAccountRows(team.organization.id);
       expect(row?.connection_status).toBe('connected');
       expect(await readInstagramTokenCiphertexts(team.organization.id)).toHaveLength(1);
+    });
+  });
+
+  describe('a read-only plan (D27, AC-2.25)', () => {
+    const enforced = env.BILLING_READ_ONLY_ENFORCED;
+
+    afterEach(() => {
+      env.BILLING_READ_ONLY_ENFORCED = enforced;
+    });
+
+    it('leaves connect, the settings change and disconnect open — only the automation writes are refused', async () => {
+      await endTrialWithoutPaying(team.organization.id);
+      env.BILLING_READ_ONLY_ENFORCED = true;
+
+      const profile = buildInstagramProfile();
+      const account = await connectAccount(profile);
+      expect(account.connection_status).toBe('connected');
+
+      const changed = await injectAuthenticated(app, {
+        method: 'PATCH',
+        url: INSTAGRAM_ACCOUNT_SETTINGS_PATH,
+        token: team.ownerToken,
+        payload: { is_automation_enabled: false },
+      });
+      expect(changed.statusCode).toBe(200);
+      expect(await readInstagramSettingsRows(team.organization.id)).toEqual([
+        expect.objectContaining({ is_automation_enabled: false }),
+      ]);
+
+      // The plan is read-only all along: creating an automation on that account is refused.
+      const refused = await injectAuthenticated(app, {
+        method: 'POST',
+        url: AUTOMATIONS_PATH,
+        token: team.ownerToken,
+        payload: commentAutomationBody(),
+        headers: { 'x-idempotency-key': `ig-read-only-${generatePublicId('automation')}` },
+      });
+      expect(refused.statusCode).toBe(403);
+      expect(errorOf(refused).reason).toBe('organization_read_only');
+
+      mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+      const disconnected = await injectAuthenticated(app, {
+        method: 'DELETE',
+        url: INSTAGRAM_ACCOUNT_PATH,
+        token: team.ownerToken,
+      });
+      expect(disconnected.statusCode).toBe(204);
+      const [row] = await readInstagramAccountRows(team.organization.id);
+      expect(row?.connection_status).toBe('revoked');
+
+      // A reconnect is a connect too.
+      const reconnected = await connectAccount(profile);
+      expect(reconnected).toMatchObject({ id: account.id, connection_status: 'connected' });
     });
   });
 

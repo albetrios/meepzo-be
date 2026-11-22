@@ -1,0 +1,9 @@
+{
+  "error": {
+    "message": "(#80002) There have been too many calls to this Instagram account. Wait a bit and try again.",
+    "type": "OAuthException",
+    "code": 80002,
+    "error_subcode": 2446079,
+    "fbtrace_id": "AcontractFixtureBusinessThrottled"
+  }
+}

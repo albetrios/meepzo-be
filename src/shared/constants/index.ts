@@ -25,5 +25,6 @@ export * from './limits.constants.js';
 export * from './pagination.constants.js';
 export * from './security.constants.js';
 export * from './billing.constants.js';
+export * from './instagram.constants.js';
 export * from './notification.constants.js';
 export * from './i18n.constants.js';

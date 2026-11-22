@@ -77,7 +77,7 @@ flowchart LR
 `credentials: 'include'` so they ride along on auth routes.
 
 **Server-managed headers you never set:** `X-Request-Id` (correlation; echoed in responses),
-`X-RateLimit-*` (response only), `Stripe-Signature` (Stripe → server only), and the metrics scrape
+`X-RateLimit-*` (response only), `Stripe-Signature` (Stripe → server only), `X-Hub-Signature-256` (Meta → server only, the Instagram webhook), and the metrics scrape
 token (ops/Prometheus only — not a browser concern).
 
 **What you do *not* send for multi-tenancy:** there is **no** organization header and **no**

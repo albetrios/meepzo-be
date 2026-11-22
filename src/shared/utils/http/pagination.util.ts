@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { and, eq, gt, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { PAGINATION } from '@/shared/constants/pagination.constants.js';
 import { AES_GCM_ALGORITHM, AES_GCM_IV_LENGTH } from '@/shared/constants/security.constants.js';
@@ -38,7 +38,14 @@ export function parseListLimitQuery(query: unknown): ListLimitQueryInput {
 export const listCursorPayloadSchema = z
   .object({
     created_at: z.iso.datetime(),
-    sort_value: z.string().optional(),
+    /**
+     * The minting row's sort value as text — a text value as itself, a timestamp as its
+     * microsecond UTC text, an integer as its decimal text. `null` — the row had none, under a
+     * nulls-last sort (`buildAscendingNullsLastTextIdCursorCondition`,
+     * `buildAscendingNullsLastTimestampIdCursorCondition`), so the next page continues inside the
+     * value-less rows instead of restarting.
+     */
+    sort_value: z.string().nullable().optional(),
     public_id: z.string().min(1).max(28).optional(),
     id: z.number().int().positive().optional(),
     /**
@@ -67,7 +74,8 @@ export type ListCursorPayload = z.infer<typeof listCursorPayloadSchema>;
 export type ParsedListCursor = {
   kind: 'opaque';
   created_at: string;
-  sort_value?: string;
+  /** The sort value as text; `null` when the minting row had none (a nulls-last sort). */
+  sort_value?: string | null;
   public_id?: string;
   id?: number;
   /** Optional SHA-256 fingerprint of the minting filter set (sec-U12). */
@@ -173,7 +181,7 @@ export type CursorTimestampRow = { cursor_created_at: string };
  */
 export function createOpaqueCursorFromRow(
   row: CursorTimestampRow & {
-    sort_value?: string;
+    sort_value?: string | null;
     public_id?: string;
     id: number;
     filter_fingerprint?: string;
@@ -259,7 +267,8 @@ export function buildAscendingTextIdCursorCondition({
     return undefined;
   }
   const sortValue = cursor.sort_value;
-  if (sortValue === undefined || cursor.id === undefined) {
+  // A NOT NULL text sort never mints a null value; one that does restarts the list.
+  if (sortValue === undefined || sortValue === null || cursor.id === undefined) {
     return undefined;
   }
   return or(gt(textColumn, sortValue), and(eq(textColumn, sortValue), gt(idColumn, cursor.id)))!;
@@ -311,8 +320,233 @@ export function buildDescendingTextIdCursorCondition({
     return undefined;
   }
   const sortValue = cursor.sort_value;
-  if (sortValue === undefined || cursor.id === undefined) {
+  // A NOT NULL text sort never mints a null value; one that does restarts the list.
+  if (sortValue === undefined || sortValue === null || cursor.id === undefined) {
     return undefined;
   }
   return or(lt(textColumn, sortValue), and(eq(textColumn, sortValue), gt(idColumn, cursor.id)))!;
+}
+
+/**
+ * How a keyset sort value is compared in SQL: text as itself, a timestamp or an integer cast from
+ * the cursor's text (`sort_value` is always text inside the cursor).
+ */
+type KeysetValueType = 'text' | 'timestamp' | 'integer';
+
+/** The cursor's `sort_value` as the SQL value its column compares against. */
+function keysetValueSql({
+  sortValue,
+  valueType,
+}: {
+  sortValue: string;
+  valueType: KeysetValueType;
+}): SQL | string {
+  if (valueType === 'timestamp') return sql`${sortValue}::timestamptz`;
+  if (valueType === 'integer') return sql`${sortValue}::integer`;
+  return sortValue;
+}
+
+/**
+ * The keyset condition of a NULLABLE sort whose rows without a value page after every value, in
+ * both directions (`ORDER BY value ASC|DESC NULLS LAST, id ASC`) — a text sort (routes-final § 2
+ * CQ2, CTC4) or a timestamp sort (§ 3 AQ9, AUC6).
+ *
+ * @remarks
+ * - **Algorithm:** a cursor minted on a row WITH a value `v` continues past it the way the plain
+ *   keyset does (`value > v` ascending, `value < v` descending, or `value = v AND id > cursor
+ *   id`) and then into every value-less row (`OR value IS NULL`); a cursor minted on a row WITHOUT
+ *   a value (`sort_value: null`) continues inside the value-less rows only (`value IS NULL AND id
+ *   > cursor id`). The id tie-break stays ascending in both directions, as the plain text
+ *   keyset's. A timestamp travels as its microsecond UTC text and is cast back (`::timestamptz`).
+ * - **Failure modes:** none — a cursor without `sort_value` or `id` is no cursor (the first page).
+ * - **Side effects:** none.
+ * - **Notes:** a row without a value mints `sort_value: null`, which the cursor schema carries,
+ *   so paging into the value-less tail never restarts the list.
+ */
+function buildNullsLastValueIdCursorCondition({
+  valueColumn,
+  idColumn,
+  cursor,
+  direction,
+  valueType,
+}: {
+  valueColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+  direction: 'asc' | 'desc';
+  valueType: Exclude<KeysetValueType, 'integer'>;
+}): SQL | undefined {
+  if (cursor === null) {
+    return undefined;
+  }
+  const sortValue = cursor.sort_value;
+  if (sortValue === undefined || cursor.id === undefined) {
+    return undefined;
+  }
+  if (sortValue === null) {
+    return and(isNull(valueColumn), gt(idColumn, cursor.id))!;
+  }
+  const value = keysetValueSql({ sortValue, valueType });
+  const pastValue = direction === 'asc' ? gt(valueColumn, value) : lt(valueColumn, value);
+  return or(pastValue, and(eq(valueColumn, value), gt(idColumn, cursor.id)), isNull(valueColumn))!;
+}
+
+/**
+ * Builds a Drizzle `WHERE` clause for ascending pagination on a NULLABLE `(text_column, id)` whose
+ * rows without a value come last (`ORDER BY text ASC NULLS LAST, id ASC`) — e.g. contacts by
+ * username (routes-final § 2 CQ2). Requires `sort_value` (`null` for a value-less row) and `id`.
+ */
+export function buildAscendingNullsLastTextIdCursorCondition({
+  textColumn,
+  idColumn,
+  cursor,
+}: {
+  textColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+}): SQL | undefined {
+  return buildNullsLastValueIdCursorCondition({
+    valueColumn: textColumn,
+    idColumn,
+    cursor,
+    direction: 'asc',
+    valueType: 'text',
+  });
+}
+
+/**
+ * Builds a Drizzle `WHERE` clause for descending pagination on a NULLABLE `(text_column, id)` whose
+ * rows without a value still come last (`ORDER BY text DESC NULLS LAST, id ASC`). Mirrors
+ * {@link buildAscendingNullsLastTextIdCursorCondition} with `<` on the value.
+ */
+export function buildDescendingNullsLastTextIdCursorCondition({
+  textColumn,
+  idColumn,
+  cursor,
+}: {
+  textColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+}): SQL | undefined {
+  return buildNullsLastValueIdCursorCondition({
+    valueColumn: textColumn,
+    idColumn,
+    cursor,
+    direction: 'desc',
+    valueType: 'text',
+  });
+}
+
+/**
+ * Builds a Drizzle `WHERE` clause for ascending pagination on a NULLABLE `(timestamp_column, id)`
+ * whose rows without a value come last (`ORDER BY ts ASC NULLS LAST, id ASC`) — e.g. automations
+ * by `last_triggered_at`, never-triggered last (routes-final § 3 AQ9). Requires `sort_value` (the
+ * timestamp as {@link cursorTimestampSelection} text, `null` for a value-less row) and `id`.
+ */
+export function buildAscendingNullsLastTimestampIdCursorCondition({
+  timestampColumn,
+  idColumn,
+  cursor,
+}: {
+  timestampColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+}): SQL | undefined {
+  return buildNullsLastValueIdCursorCondition({
+    valueColumn: timestampColumn,
+    idColumn,
+    cursor,
+    direction: 'asc',
+    valueType: 'timestamp',
+  });
+}
+
+/**
+ * Builds a Drizzle `WHERE` clause for descending pagination on a NULLABLE `(timestamp_column, id)`
+ * whose rows without a value still come last (`ORDER BY ts DESC NULLS LAST, id ASC`). Mirrors
+ * {@link buildAscendingNullsLastTimestampIdCursorCondition} with `<` on the value.
+ */
+export function buildDescendingNullsLastTimestampIdCursorCondition({
+  timestampColumn,
+  idColumn,
+  cursor,
+}: {
+  timestampColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+}): SQL | undefined {
+  return buildNullsLastValueIdCursorCondition({
+    valueColumn: timestampColumn,
+    idColumn,
+    cursor,
+    direction: 'desc',
+    valueType: 'timestamp',
+  });
+}
+
+/**
+ * The keyset condition of a NOT NULL integer sort (`ORDER BY n ASC|DESC, id ASC`) — e.g.
+ * automations by `completed_run_count` (routes-final § 3 AQ9, AUC6). The value travels as its
+ * decimal text in `sort_value` and is cast back (`::integer`).
+ *
+ * @remarks
+ * - **Algorithm:** `n > v` ascending or `n < v` descending, or `n = v AND id > cursor id` — the id
+ *   tie-break ascending in both directions, as the text keyset's.
+ * - **Failure modes:** none — a cursor without `sort_value` (or with `null`, which a NOT NULL sort
+ *   never mints) or without `id` is no cursor: the list restarts.
+ * - **Side effects:** none.
+ */
+function buildIntegerIdCursorCondition({
+  integerColumn,
+  idColumn,
+  cursor,
+  direction,
+}: {
+  integerColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+  direction: 'asc' | 'desc';
+}): SQL | undefined {
+  if (cursor === null) {
+    return undefined;
+  }
+  const sortValue = cursor.sort_value;
+  if (sortValue === undefined || sortValue === null || cursor.id === undefined) {
+    return undefined;
+  }
+  const value = keysetValueSql({ sortValue, valueType: 'integer' });
+  const pastValue = direction === 'asc' ? gt(integerColumn, value) : lt(integerColumn, value);
+  return or(pastValue, and(eq(integerColumn, value), gt(idColumn, cursor.id)))!;
+}
+
+/**
+ * Builds a Drizzle `WHERE` clause for ascending pagination on a NOT NULL `(integer_column, id)`
+ * (`ORDER BY n ASC, id ASC`). Requires `sort_value` (the decimal text) and `id`.
+ */
+export function buildAscendingIntegerIdCursorCondition({
+  integerColumn,
+  idColumn,
+  cursor,
+}: {
+  integerColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+}): SQL | undefined {
+  return buildIntegerIdCursorCondition({ integerColumn, idColumn, cursor, direction: 'asc' });
+}
+
+/**
+ * Builds a Drizzle `WHERE` clause for descending pagination on a NOT NULL `(integer_column, id)`
+ * (`ORDER BY n DESC, id ASC`). Mirrors {@link buildAscendingIntegerIdCursorCondition} with `<`.
+ */
+export function buildDescendingIntegerIdCursorCondition({
+  integerColumn,
+  idColumn,
+  cursor,
+}: {
+  integerColumn: AnyColumn;
+  idColumn: AnyColumn;
+  cursor: ParsedListCursor | null;
+}): SQL | undefined {
+  return buildIntegerIdCursorCondition({ integerColumn, idColumn, cursor, direction: 'desc' });
 }

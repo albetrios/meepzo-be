@@ -311,7 +311,11 @@ function handleAppErrorResponse({
     });
   } else if (error.statusCode === SERVICE_UNAVAILABLE_STATUS) {
     logger.warn(
-      omitUndefined({ requestId, messageKey: error.messageKey, reason: error.reason }),
+      omitUndefined({
+        requestId,
+        messageKey: error.messageKey,
+        reason: error.logReason ?? error.reason,
+      }),
       'request.service_unavailable',
     );
   }

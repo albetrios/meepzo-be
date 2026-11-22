@@ -22,10 +22,15 @@ const ALLOWED_IMPORTERS = [
   'src/domains/auth/sub-domains/auth-webauthn/webauthn.service.ts',
   // Admin/system flows resolving actors outside a token scope.
   'src/domains/audit/audit.service.ts',
+  // Meta's Instagram deauthorize / data-deletion callbacks (launch IA18–IA20): each organization is
+  // named by the SECURITY DEFINER resolver for the app-scoped id in Meta's verified signed request.
+  'src/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.service.ts',
   // Stripe-webhook–driven billing mutations (organization resolved from the Stripe event).
   'src/domains/billing/sub-domains/subscription/subscription.service.ts',
-  // Messaging-webhook ingress (launch D77): the organization resolved from the signed Meta
-  // callback's WhatsApp number / Instagram account (SECURITY DEFINER resolver).
+  // Instagram webhook ingress (routes-final WH3): the organization resolved from the signed Meta
+  // delivery's Instagram account by sub-domain 1's SECURITY DEFINER resolver
+  // (`app.resolve_organization_public_id_for_instagram_user`); the events are stored in its scope.
+  'src/domains/app/sub-domains/instagram-webhook/instagram-webhook.service.ts',
   // Notification inbox reads keyed on resolved ids. (The dispatch worker left this ledger: the
   // recipient's public id now travels in its job, so it mints PRINCIPAL_SCOPE.JOB.)
   'src/domains/notify/sub-domains/notification/notification.service.ts',

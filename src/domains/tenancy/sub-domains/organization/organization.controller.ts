@@ -86,7 +86,7 @@ export function createOrganizationController({
     deleteOrganization: async (request: FastifyRequest, reply: FastifyReply) => {
       const auth = requirePrincipal(request);
       const id = requireOrganizationScope(request);
-      await service.delete(id);
+      const { erasedInstagram } = await service.delete(id);
       await recordScopedAuditEvent({
         request,
         input: {
@@ -95,6 +95,15 @@ export function createOrganizationController({
           resource_type: 'organization',
           organizationPublicId: id.organizationPublicId,
           severity: 'WARNING',
+          // Launch D54: the Instagram accounts the delete revoked and erased.
+          ...(erasedInstagram === null
+            ? {}
+            : {
+                metadata: {
+                  erased_instagram_account_public_ids: erasedInstagram.instagramAccountPublicIds,
+                  erased_instagram_post_count: erasedInstagram.erasedPostCount,
+                },
+              }),
         },
       });
       return reply.code(204).send();

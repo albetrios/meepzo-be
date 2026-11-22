@@ -87,8 +87,8 @@ export interface SubscriptionUpdateData {
 /**
  * An organization's plan access (owner decision D3, 2026-10-17): `active` with a paid entitlement (or while
  * `BILLING_READ_ONLY_ENFORCED` is off, and always for a PERSONAL organization), `grace` while an
- * unpaid organization's grace runs, `read_only` once it has ended — every write under `/api/v1/app/` is then
- * refused.
+ * unpaid organization's grace runs, `read_only` once it has ended — the automation writes under
+ * `/api/v1/app/automations` are then refused (launch D27).
  */
 export type PlanAccessState = 'active' | 'grace' | 'read_only';
 

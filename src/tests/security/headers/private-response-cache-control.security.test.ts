@@ -43,8 +43,8 @@ describe('Security: private responses carry Cache-Control: no-store (G2-7)', () 
     });
 
     expect(response.statusCode).toBe(200);
-    // The account body carries an email, so the stricter secret-body directive applies; both
-    // forbid storing it.
+    // An email is personal data, not a secret (launch D40), so the private-response directive
+    // applies; a secret-bearing body would get the stricter one — both forbid storing it.
     expect(response.headers['cache-control']).toMatch(/^no-store,.*private$/);
   });
 

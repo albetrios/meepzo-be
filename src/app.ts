@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest } from 'fastify';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { env, getEnv } from '@/shared/config/env.config.js';
 import { registerMiddleware } from '@/shared/middlewares/index.js';
@@ -6,27 +6,51 @@ import { registerMethodStatusPolicy } from '@/shared/middlewares/core/method-sta
 import { registerEventHandlers } from '@/core/events/register-event-handlers.js';
 import { registerRoutes } from '@/routes.js';
 import { buildFastifyServerOptions } from '@/shared/utils/http/fastify-server.util.js';
-import { isStripeWebhookRawBodyRoute } from '@/domains/billing/sub-domains/stripe-webhook/stripe-webhook-raw-body.registry.js';
+import {
+  findRawBodySignatureHeader,
+  registerRawBodyRoute,
+} from '@/shared/utils/http/raw-body-route.registry.js';
 import { API_SERVER_NAME } from '@/shared/constants/project-identity.constants.js';
 
 const API_SERVER_VERSION = '1.0.0';
-const STRIPE_SIGNATURE_HEADER = 'stripe-signature';
 
 /**
- * sec-B finding #7: the prior implementation used a hardcoded
- * `RAW_BODY_CAPTURE_PATHS = new Set([...])` Set of webhook URLs, which had to stay
- * in lockstep with `stripe-webhook.routes.ts` by string equality. Any restructure
- * (API version bump, route move, prefix change) that didn't update both files
- * silently broke every webhook signature verification for the 3-day Stripe retry
- * window. We now read from `stripe-webhook-raw-body.registry.ts`, which the routes
- * module populates at registration time via its `onRoute` hook — the URLs are
- * authored once in the route declaration.
+ * The signature header of the raw-body route (a webhook receiver) this request matched —
+ * `stripe-signature`, `x-hub-signature-256` — or `undefined` on any other route (WH2).
+ *
+ * @remarks
+ * sec-B finding #7: the prior implementation used a hardcoded `RAW_BODY_CAPTURE_PATHS` set of
+ * webhook URLs, which had to stay in lockstep with the route files by string equality — any
+ * restructure silently broke every webhook signature verification for the provider's retry window.
+ * The URLs now come from `raw-body-route.registry.ts`, which the app-level `onRoute` hook below
+ * fills from each route's own config, so they are authored once, in the route declaration. The
+ * lookup is by the route Fastify matched, never by the URL as sent (D53): a percent-encoded path
+ * reaches the same route, and read as another URL its body would be parsed before the signature.
  */
-function shouldCaptureRawBody(request: { url: string; headers: Record<string, unknown> }): boolean {
-  const path = request.url.split('?')[0] ?? request.url;
-  return (
-    isStripeWebhookRawBodyRoute(path) && request.headers[STRIPE_SIGNATURE_HEADER] !== undefined
-  );
+function findMatchedRawBodySignatureHeader(request: FastifyRequest): string | undefined {
+  const routeUrl = request.routeOptions.url;
+  return routeUrl === undefined ? undefined : findRawBodySignatureHeader(routeUrl);
+}
+
+/**
+ * Records every route declared with `config.captureRawBody` in the raw-body registry, with its
+ * `config.rawBodySignatureHeader` — the one place the registry is filled, for every receiver (WH2).
+ * A raw-body route without its signature header fails at boot, never at the first delivery.
+ */
+function registerRawBodyRouteFromConfig(routeOptions: { url: string; config?: unknown }): void {
+  const config = routeOptions.config as
+    | { captureRawBody?: boolean; rawBodySignatureHeader?: string }
+    | undefined;
+  if (config?.captureRawBody !== true) return;
+  if (!config.rawBodySignatureHeader) {
+    throw new Error(
+      `route ${routeOptions.url} sets captureRawBody without its rawBodySignatureHeader`,
+    );
+  }
+  registerRawBodyRoute({
+    url: routeOptions.url,
+    signatureHeader: config.rawBodySignatureHeader,
+  });
 }
 
 /**
@@ -130,16 +154,27 @@ export async function buildApp(options?: BuildAppOptions) {
 
   registerMethodStatusPolicy(app);
 
+  // WH2: every webhook receiver's raw-body route lands in the one registry the parser reads.
+  app.addHook('onRoute', registerRawBodyRouteFromConfig);
+
   const keepAliveTimeoutMs = env.FASTIFY_KEEP_ALIVE_TIMEOUT_MS ?? 65_000;
   const headersTimeoutMs = env.FASTIFY_HEADERS_TIMEOUT_MS ?? 66_000;
   app.server.keepAliveTimeout = keepAliveTimeoutMs;
   app.server.headersTimeout = headersTimeoutMs;
 
-  // Capture raw body only for signed Stripe webhook requests.
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
     const buffer = typeof body === 'string' ? Buffer.from(body) : body;
-    if (shouldCaptureRawBody(request)) {
-      (request as unknown as { rawBody: Buffer }).rawBody = buffer;
+    // WH2, D53: on a webhook receiver's route the body is never parsed here — anybody can post one,
+    // and parsing megabytes of crafted JSON costs far more than checking its signature. The raw
+    // bytes are kept for a request that carries the route's own signature header; the receiver's
+    // ingress plugin checks the signature over them and only then parses them — the Stripe plugin
+    // answers 400 for a signed body that is not JSON, the Instagram receiver 200 OK, storing
+    // nothing (WH10).
+    const rawBodySignatureHeader = findMatchedRawBodySignatureHeader(request);
+    if (rawBodySignatureHeader !== undefined) {
+      if (request.headers[rawBodySignatureHeader] !== undefined) request.rawBody = buffer;
+      done(null, undefined);
+      return;
     }
     // sec-r5-runtime: clients (curl, browsers, SDKs) commonly send POST/DELETE
     // requests with `Content-Type: application/json` and no body — e.g.

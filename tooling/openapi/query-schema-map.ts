@@ -7,6 +7,13 @@
  */
 import type { ZodTypeAny } from 'zod';
 import { ListAuditLogsQueryDto } from '@/domains/audit/audit.dto.js';
+import { ListInstagramWebhookEventsQueryDto } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.dto.js';
+import { InstagramWebhookSubscriptionQueryDto } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.dto.js';
+import { listContactsQueryDto } from '@/domains/app/sub-domains/contact/contact.dto.js';
+import {
+  deleteAutomationQueryDto,
+  listAutomationsQueryDto,
+} from '@/domains/app/sub-domains/automation/automation.dto.js';
 import { OauthCallbackQueryDto } from '@/domains/auth/auth.dto.js';
 import { listInvoicesQueryDto } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
 import { listNotificationsQueryDto } from '@/domains/notify/sub-domains/notification/notification.dto.js';
@@ -23,6 +30,7 @@ import { listOrganizationApiKeysQueryDto } from '@/domains/tenancy/sub-domains/o
 import { listOrganizationsQueryDto } from '@/domains/tenancy/sub-domains/organization/organization.dto.js';
 import { ListUsersDto } from '@/domains/user/user.dto.js';
 import { listMyMembershipInvitationsQueryDto } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.dto.js';
+import { ListInstagramMediaQueryDto } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.dto.js';
 import { listLimitQuerySchema } from '@/shared/utils/http/pagination.util.js';
 
 export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
@@ -43,6 +51,16 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'DELETE /api/v1/tenancy/organization/memberships/{membership_id}': deleteMembershipQueryDto,
   'DELETE /api/v1/tenancy/organization/roles/{role_id}': deleteMemberRoleQueryDto,
   'GET /api/v1/notify/webhooks': listWebhooksQueryDto,
+  // The post and story pickers (launch R5): Instagram's own paging — limit 1–50, after.
+  'GET /api/v1/app/social/instagram/media': ListInstagramMediaQueryDto,
+  'GET /api/v1/app/social/instagram/stories': ListInstagramMediaQueryDto,
+  'GET /api/v1/app/social/instagram/webhook-events': ListInstagramWebhookEventsQueryDto,
+  'GET /api/v1/app/social/instagram/webhook': InstagramWebhookSubscriptionQueryDto,
+  // App: contacts (routes-final § 2.8, route 9).
+  'GET /api/v1/app/contacts': listContactsQueryDto,
+  // App: automations (routes-final § 3.A.8, routes 11 and 15).
+  'GET /api/v1/app/automations': listAutomationsQueryDto,
+  'DELETE /api/v1/app/automations/{automation_id}': deleteAutomationQueryDto,
 };
 
 /** Routes that must document `after` and `limit` query parameters in OpenAPI. */

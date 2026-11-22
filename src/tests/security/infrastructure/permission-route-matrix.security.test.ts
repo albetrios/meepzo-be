@@ -79,6 +79,10 @@ function materializeOrganizationScopedPath(
   ) {
     return `${path}?reason=mistake`;
   }
+  // An automation's DELETE takes the same reason query (launch AU12, AQ6).
+  if (route.method === 'DELETE' && route.path.includes('/app/automations/')) {
+    return `${path}?reason=mistake`;
+  }
   return path;
 }
 
@@ -144,11 +148,28 @@ function payloadForPermissionRoute(
   if (route.path.includes('/roles/:role_id')) {
     return { name: 'Matrix role updated' };
   }
+  if (route.path.endsWith('/app/social/instagram/account/settings')) {
+    // A setting in range, so body validation (400) does not preempt the permission check (403).
+    return { is_automation_enabled: false };
+  }
   if (route.path.endsWith('/settings')) {
     return { is_email_notifications_enabled: true };
   }
   if (route.path.endsWith('/tenancy/organization')) {
     return { name: 'Matrix organization' };
+  }
+  if (route.method === 'POST' && route.path.endsWith('/app/automations')) {
+    // The smallest complete flow, so body validation (400) does not preempt the permission check.
+    return {
+      name: 'Matrix automation',
+      trigger_type: 'dm',
+      keywords: ['price'],
+      is_opening_message_enabled: false,
+      final_message: { text: 'Thanks' },
+    };
+  }
+  if (route.method === 'PATCH' && route.path.includes('/app/automations/:automation_id')) {
+    return { name: 'Matrix automation renamed' };
   }
   if (route.path.endsWith('/app/social/instagram/connect')) {
     // A well-formed code, so body validation (400) does not preempt the permission check (403).

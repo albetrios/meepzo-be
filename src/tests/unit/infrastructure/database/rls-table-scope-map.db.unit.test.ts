@@ -36,6 +36,21 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'billing.stripe_webhook_events': [],
   'tenancy.permissions': [],
 
+  // The run engine's three tables: organization-scoped, plus the retention sweep arm in USING (the
+  // 7-day wait scan, run and comment-log retention — routes-final § 3.B.3).
+  'app.automation_comment_logs': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.automation_run_events': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.automation_runs': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // Automations: organization-scoped, plus the retention sweep arm in USING (routes-final § 3.3).
+  'app.automations': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // Contacts: organization-scoped, plus the retention sweep arm in USING (routes-final § 2.3).
+  'app.contacts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The Instagram account and its settings: organization-scoped, plus the daily sweep's read
   // (IA8). The token: the organization arm only — no sweep arm reads a token (IA5).
   'app.instagram_account_settings': [
@@ -44,6 +59,14 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   ],
   'app.instagram_account_tokens': ['app.current_organization_public_id'],
   'app.instagram_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // The stored posts (launch R5): organization-scoped, plus the retention sweep arm (1.3).
+  'app.instagram_media': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // The Instagram webhook events: organization-scoped (route 18, the receiver's verified scope,
+  // processing), plus the stuck-event pick-up's and the 30-day clean-up's sweep (WH3, WH19).
+  'app.instagram_webhook_events': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   'audit.logs': [
     'app.current_organization_public_id',
     'app.current_user_public_id',

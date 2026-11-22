@@ -6,8 +6,10 @@ import {
 
 describe('worker-queue-family.util', () => {
   it('returns all families when unset or all', () => {
-    expect(parseWorkerQueueFamilies(undefined)).toHaveLength(6);
-    expect(parseWorkerQueueFamilies('all')).toHaveLength(6);
+    // Seven families since the Instagram family (launch-2026-11-20-ujai WH5).
+    expect(parseWorkerQueueFamilies(undefined)).toHaveLength(7);
+    expect(parseWorkerQueueFamilies('all')).toHaveLength(7);
+    expect(parseWorkerQueueFamilies('all')).toContain('instagram');
     expect(isMonolithicWorkerQueueFamilies(parseWorkerQueueFamilies('all'))).toBe(true);
   });
 

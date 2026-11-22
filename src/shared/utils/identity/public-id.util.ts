@@ -34,6 +34,16 @@ export const PUBLIC_ID_PREFIXES = {
   auditLog: 'aud',
   /** The organization's connected Instagram account (`app.instagram_accounts`, IA1). */
   instagramAccount: 'iga',
+  /** One Instagram user who interacted with one of the organization's Instagram accounts (`app.contacts`, CT1). */
+  contact: 'con',
+  /** One stored event of a Meta webhook delivery (`app.instagram_webhook_events`, WH1). */
+  instagramWebhookEvent: 'iwe',
+  /** One automation of one of the organization's Instagram accounts (`app.automations`, AU1). */
+  automation: 'aut',
+  /** One automation flow for one contact (`app.automation_runs`, AU1) — carried in DM button payloads. */
+  automationRun: 'run',
+  /** One comment × automation log (`app.automation_comment_logs`, AU1) — unused until a read route (D13). */
+  automationCommentLog: 'acl',
 } as const;
 
 /** Entity keys of {@link PUBLIC_ID_PREFIXES}. */
@@ -105,6 +115,8 @@ export const PARAM_NAME_TO_ENTITY = {
   upload_id: 'upload',
   data_export_id: 'userDataExport',
   auth_method_id: 'authMethod',
+  contact_id: 'contact',
+  automation_id: 'automation',
 } as const satisfies Record<string, PublicIdEntity>;
 
 /** Deterministic placeholder id for an entity (valid shape, never a real row). */

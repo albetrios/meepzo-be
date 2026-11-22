@@ -37,7 +37,11 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
         callback: (handle: unknown) => Promise<unknown>;
       }) =>
         scope.organizationPublicId !== undefined
-          ? organizationPrincipalContextMock(scope.organizationPublicId, callback)
+          ? organizationPrincipalContextMock(
+              scope.organizationPublicId,
+              callback,
+              scope.userPublicId,
+            )
           : userPrincipalContextMock(scope.userPublicId, callback),
     ),
   };
@@ -388,7 +392,7 @@ describe('notification.worker', () => {
       expect(result).toEqual({ outcome: 'dispatched', channels: ['in_app:persisted'] });
     });
 
-    it("reads an organization's notification under the organization scope", async () => {
+    it("reads an organization's notification under the organization and its recipient's scope", async () => {
       const findByPublicIdMock = vi.fn().mockResolvedValue(buildNotificationRow({ data: {} }));
       createWorkerNotificationRepositoryMock.mockReturnValue({
         findByPublicIdForDispatch: findByPublicIdMock,
@@ -402,9 +406,12 @@ describe('notification.worker', () => {
         },
       });
 
+      // Both: the organization's row is tenant-scoped, the recipient's `auth.users` row readable
+      // only by the recipient — the organization scope alone finds no row as the app role.
       expect(organizationPrincipalContextMock).toHaveBeenCalledWith(
         'org_public_id',
         expect.any(Function),
+        'usr_public_id_42',
       );
       expect(userPrincipalContextMock).not.toHaveBeenCalled();
       expect(globalAdminMaintenanceContextMock).not.toHaveBeenCalled();

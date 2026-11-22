@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isSensitiveKey } from '@/shared/utils/security/sensitive-redaction.util.js';
+import { isSecretKey } from '@/shared/utils/security/sensitive-redaction.util.js';
 
 /**
  * Route patterns that must never participate in idempotency caching (token or secret issuance).
@@ -28,9 +28,11 @@ const IDEMPOTENCY_EXCLUDED_ROUTE_PATTERNS: RegExp[] = [
  * sec-C/M finding #12: the prior 4-name allowlist let many secret-bearing fields slip
  * through (`token`, `secret`, `password_reset_token`, `verification_token`,
  * `mfa_recovery_code`, `private_key`, `csrf_token`, etc.). The fingerprint helper now
- * pairs this allowlist with a substring-match fall-back via {@link isSensitiveKey}
- * (same matcher Pino redaction uses), failing closed on any field whose name carries a
- * sensitive fragment. The named allowlist is retained as a fast path / regression doc.
+ * pairs this allowlist with a substring-match fall-back via {@link isSecretKey} (the secret
+ * fragments, which Pino redaction hides too), failing closed on any field whose name carries a
+ * secret fragment. Personal data the logs hide but the API returns (`username`, `phone`, …) is not
+ * a secret, so its responses stay cacheable and replayable (launch D38). The named allowlist is
+ * retained as a fast path / regression doc.
  */
 const IDEMPOTENCY_SECRET_RESPONSE_FIELD_NAMES = new Set([
   'access_token',
@@ -38,7 +40,7 @@ const IDEMPOTENCY_SECRET_RESPONSE_FIELD_NAMES = new Set([
   'mfa_session_token',
   'refresh_token',
   // route-audit-#3: single-use / signed-URL secrets returned exactly once whose names carry no
-  // sensitive fragment, so `isSensitiveKey` misses them — without this they get neither the
+  // secret fragment, so `isSecretKey` misses them — without this they get neither the
   // `cache-control: no-store` response header (compress.middleware) nor exclusion from the
   // idempotency response cache. `recovery_codes` = plaintext MFA-bypass codes; `download_url`
   // (GDPR data export) and `upload_url` (upload presign) embed time-boxed `X-Amz-Signature` grants.
@@ -164,12 +166,12 @@ function objectContainsSecretField(value: unknown): boolean {
   if (typeof value === 'object') {
     for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
       // sec-C/M #12: layered guard. The named allowlist is the fast path /
-      // regression doc for the four most-exposed fields; `isSensitiveKey` is the
+      // regression doc for the four most-exposed fields; `isSecretKey` is the
       // broad backstop that catches `token`, `secret`, `password`, `credential`,
       // `cookie`, `jwt`, `private_key`, and similar substrings. Failing closed
       // on either match is the same trade-off Pino redaction already accepts.
       if (IDEMPOTENCY_SECRET_RESPONSE_FIELD_NAMES.has(key)) return true;
-      if (isSensitiveKey(key)) return true;
+      if (isSecretKey(key)) return true;
       if (objectContainsSecretField(nested)) return true;
     }
     return false;
@@ -179,7 +181,7 @@ function objectContainsSecretField(value: unknown): boolean {
 
 /**
  * sec-C/M #12: substrings that indicate the body almost certainly carries a secret-bearing
- * field when JSON parsing fails. Mirrors the broader `isSensitiveKey` matcher but operates on
+ * field when JSON parsing fails. Mirrors the broader `isSecretKey` matcher but operates on
  * raw bytes — the parse-failure branch never sees parsed keys, so a coarse string search is
  * the only available signal. Match on the JSON-quoted form (`"<fragment>"`) and on adjacent
  * snake_case fragments (`_<fragment>"` / `<fragment>_`) to keep false positives bounded.

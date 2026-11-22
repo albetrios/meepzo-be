@@ -44,17 +44,30 @@ export type UserScopedWorkerJob<TJob> = TJob & {
 
 /**
  * Runs a tenant-scoped BullMQ job handler with RLS organization context and a pinned database handle.
+ *
+ * @remarks
+ * `userPublicId`, when given, is the person the job is about: the scope then also sets
+ * `app.current_user_public_id`, so the handler may read that one person's own rows (`auth.users`
+ * is readable only by the person, never by the organization scope alone). Pass it only for a job
+ * whose own payload names that person.
  */
 export async function runOrganizationScopedWorkerJob<TJob, TResult>({
   job,
   processor,
+  userPublicId,
 }: {
   job: TenantScopedWorkerJob<TJob>;
   processor: (databaseHandle: WorkerDatabaseHandle, job: TJob) => Promise<TResult>;
+  /** The person the job is about, whose own rows the handler also reads. */
+  userPublicId?: string;
 }): Promise<TResult> {
   const { organizationPublicId, ...jobPayload } = job;
   return withAppDatabaseContext({
-    scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: organizationPublicId }),
+    scope: PRINCIPAL_SCOPE.JOB(
+      userPublicId === undefined
+        ? { organizationPublicId }
+        : { organizationPublicId, userPublicId },
+    ),
     callback: (databaseHandle) =>
       processor(brandWorkerContextDatabaseHandle(databaseHandle), jobPayload as TJob),
   });

@@ -36,7 +36,13 @@ export function buildTagDefinitions(
     Webhook: 'Webhook endpoint management and delivery history',
     Upload: 'Pre-signed URL generation for file uploads',
     'Instagram account':
-      "The organization's connected Instagram professional account — connect, read, disconnect",
+      "The organization's connected Instagram professional account — connect, read, change its settings, disconnect, browse its posts and stories, and Meta's deauthorize and data-deletion callbacks",
+    Contact:
+      "The people who interacted with the organization's Instagram accounts — list and erase",
+    'Instagram Webhook':
+      'Instagram events Meta delivers for the connected account, and the list of what happened to each',
+    Automation:
+      "What answers comments, DMs and story replies on the organization's Instagram accounts — list, create, read, edit and delete",
   };
   const tagDescriptions = tagStrings ?? builtInTagDescriptions;
 
@@ -74,6 +80,9 @@ export function buildTagDefinitions(
     'Webhook',
     'Upload',
     'Instagram account',
+    'Contact',
+    'Automation',
+    'Instagram Webhook',
   ];
 
   const sortedTags = [...tagSet].sort((left, right) => {

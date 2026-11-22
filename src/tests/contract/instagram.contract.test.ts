@@ -20,6 +20,7 @@ import {
 import {
   INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
   INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
+  INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS,
   InstagramApiError,
 } from '@/infrastructure/social/instagram-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
@@ -44,6 +45,9 @@ import commentRepliesSuccessFixture from './fixtures/instagram/comment-replies.s
   type: 'json',
 };
 import graphErrorApplicationThrottledFixture from './fixtures/instagram/graph-error.application-throttled.response.json' with {
+  type: 'json',
+};
+import graphErrorBusinessThrottledFixture from './fixtures/instagram/graph-error.business-throttled.response.json' with {
   type: 'json',
 };
 import graphErrorOutsideMessagingWindowFixture from './fixtures/instagram/graph-error.outside-messaging-window.response.json' with {
@@ -124,7 +128,7 @@ registerThirdPartyContractTestIsolationHooks();
  * | `messages.success` | Send Messages and Private Replies → `{ recipient_id, message_id }` — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api, docs/instagram-platform/private-replies |
  * | `comment-replies.success` | IG Comment `/replies` → `{ id }` — docs/instagram-platform/instagram-graph-api/reference/ig-comment/replies |
  * | `user-profile.success` | Instagram User Profile API (Meta's own sample person) — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api/user-profile |
- * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the quick reply refused) — the intake's schema-routes § 6.5, no Meta page names it |
+ * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `80002` (the Instagram business-use-case rate limit, subcode 2446079) — docs/graph-api/overview/rate-limiting; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the quick reply refused) — the intake's schema-routes § 6.5, no Meta page names it |
  */
 describe('Instagram outbound contract (`instagram.client`)', () => {
   /** The account's long-lived token in plain text — the value that must never reach a URL or a log. */
@@ -340,9 +344,12 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         status: 400,
         instagramErrorType: 'OAuthException',
         instagramErrorCode: 400,
-        instagramErrorMessage: oauthAccessTokenErrorFixture.error_message,
         countsAsCircuitFailure: false,
       });
+      // D53: Instagram's text is read by nobody — it can name a person or quote a token.
+      expect(describeRejection(rejection)).not.toContain(
+        oauthAccessTokenErrorFixture.error_message,
+      );
     });
 
     test('the long-lived exchange carries the secret and the short-lived token in the query only — never a header', async () => {
@@ -756,6 +763,37 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         errorClass: 'throttled',
         status: 400,
         retryAfterMs: INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
+      });
+    });
+
+    test('the business messaging throttle (code 80002) is a throttle too (D53), and a long Retry-After is cut to 15 minutes (D56)', async () => {
+      GraphErrorEnvelopeContractSchema.parse(graphErrorBusinessThrottledFixture);
+      const send = () =>
+        sendInstagramMessage({
+          encryptedAccessToken: encryptedAccountAccessToken,
+          instagramAppUserId: APP_USER_ID,
+          recipient: { id: messagesSuccessFixture.recipient_id },
+          message: { text: 'Hello!' },
+        });
+      graphWithAccountToken()
+        .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
+        .reply(400, graphErrorBusinessThrottledFixture);
+      graphWithAccountToken()
+        .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
+        .reply(400, graphErrorBusinessThrottledFixture, { 'Retry-After': '86400' });
+
+      await expect(send()).rejects.toMatchObject({
+        errorClass: 'throttled',
+        connectionStatus: null,
+        status: 400,
+        retryAfterMs: INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
+        instagramErrorCode: 80002,
+        instagramErrorSubcode: 2446079,
+        countsAsCircuitFailure: false,
+      });
+      await expect(send()).rejects.toMatchObject({
+        errorClass: 'throttled',
+        retryAfterMs: INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS,
       });
     });
 

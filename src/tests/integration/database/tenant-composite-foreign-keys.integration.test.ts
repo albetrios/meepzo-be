@@ -57,6 +57,67 @@ const CONVERSIONS: readonly Conversion[] = [
     'cascade',
     'membership_additional_roles_role_fk',
   ),
+  // launch R12 (WH16): an Instagram webhook event names its account through the composite key.
+  link(
+    'app.instagram_webhook_events',
+    'instagram_account_id',
+    'app.instagram_accounts',
+    'cascade',
+    'instagram_webhook_events_instagram_account_fk',
+  ),
+  // launch R9 (AU27): an automation names its account through the composite key, RESTRICT — an
+  // account is revoked, never deleted.
+  link(
+    'app.automations',
+    'instagram_account_id',
+    'app.instagram_accounts',
+    'restrict',
+    'automations_instagram_account_fk',
+  ),
+  // launch R10 (3.B.3): a run names its automation and contact, a run event its run, a comment log
+  // its automation, run and contact — each through the composite key.
+  link(
+    'app.automation_runs',
+    'automation_id',
+    'app.automations',
+    'restrict',
+    'automation_runs_automation_fk',
+  ),
+  link(
+    'app.automation_runs',
+    'contact_id',
+    'app.contacts',
+    'restrict',
+    'automation_runs_contact_fk',
+  ),
+  link(
+    'app.automation_run_events',
+    'automation_run_id',
+    'app.automation_runs',
+    'cascade',
+    'automation_run_events_automation_run_fk',
+  ),
+  link(
+    'app.automation_comment_logs',
+    'automation_id',
+    'app.automations',
+    'restrict',
+    'automation_comment_logs_automation_fk',
+  ),
+  link(
+    'app.automation_comment_logs',
+    'automation_run_id',
+    'app.automation_runs',
+    'set null',
+    'automation_comment_logs_automation_run_fk',
+  ),
+  link(
+    'app.automation_comment_logs',
+    'contact_id',
+    'app.contacts',
+    'restrict',
+    'automation_comment_logs_contact_fk',
+  ),
 ];
 
 /** `pg_constraint.confdeltype` → the `ON DELETE` clause the migration writes. */
@@ -97,6 +158,83 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
     `INSERT INTO tenancy.membership_additional_roles (membership_id, role_id, organization_id, position)
      VALUES ($1, $2, $3, 1)`,
     [membership.id, additionalRole.id, organization.id],
+  );
+  // A connected Instagram account (ids derived from the organization, so two never clash) and one
+  // received event of it.
+  const instagramUserId = `9${String(organization.id).padStart(15, '0')}`;
+  const [account] = rowsOf<{ id: string }>(
+    await operatorQuery.unsafe(
+      `INSERT INTO app.instagram_accounts (public_id, organization_id, instagram_user_id, instagram_app_user_id, username)
+       VALUES ($1, $2, $3, $4, 'acme_shop') RETURNING id`,
+      [
+        `iga_${String(organization.id).padStart(21, '0')}`,
+        organization.id,
+        instagramUserId,
+        `8${String(organization.id).padStart(15, '0')}`,
+      ],
+    ),
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.instagram_webhook_events (public_id, organization_id, instagram_account_id, instagram_user_id, event_kind, event_key, payload)
+     VALUES ($1, $2, $3, $4, 'comment', 'comment:composite-key', '{"field":"comments"}'::jsonb)`,
+    [
+      `iwe_${String(organization.id).padStart(21, '0')}`,
+      organization.id,
+      Number(account?.id),
+      instagramUserId,
+    ],
+  );
+  // One automation of the account (launch R9) — the smallest complete flow: a DM automation with
+  // a keyword, the opening message on with its text, and the final message.
+  const [automation] = rowsOf<{ id: string }>(
+    await operatorQuery.unsafe(
+      `INSERT INTO app.automations (public_id, organization_id, instagram_account_id, name, trigger_type, keywords, opening_message, final_message)
+     VALUES ($1, $2, $3, 'Price reply', 'dm', ARRAY['price'], '{"text":"Hi!","button_title":null}'::jsonb, '{"text":"Thanks","links":[]}'::jsonb)
+     RETURNING id`,
+      [`aut_${String(organization.id).padStart(21, '0')}`, organization.id, Number(account?.id)],
+    ),
+  );
+  // A contact of the account, a completed run of the automation for it, the run's event and a
+  // comment log (launch R10).
+  const [contact] = rowsOf<{ id: string }>(
+    await operatorQuery.unsafe(
+      `INSERT INTO app.contacts (public_id, organization_id, instagram_account_id, instagram_user_id, first_seen_at, last_message_received_at)
+       VALUES ($1, $2, $3, $4, now(), now()) RETURNING id`,
+      [
+        `con_${String(organization.id).padStart(21, '0')}`,
+        organization.id,
+        Number(account?.id),
+        `7${String(organization.id).padStart(15, '0')}`,
+      ],
+    ),
+  );
+  const [run] = rowsOf<{ id: string }>(
+    await operatorQuery.unsafe(
+      `INSERT INTO app.automation_runs (public_id, organization_id, automation_id, contact_id, trigger_type, trigger_text, status, current_step, completed_at, last_instagram_event_key)
+       VALUES ($1, $2, $3, $4, 'dm', 'price', 'completed', 'final_dm', now(), 'message:composite-key') RETURNING id`,
+      [
+        `run_${String(organization.id).padStart(21, '0')}`,
+        organization.id,
+        Number(automation?.id),
+        Number(contact?.id),
+      ],
+    ),
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.automation_run_events (organization_id, automation_run_id, event_type, status)
+     VALUES ($1, $2, 'status_changed', 'completed')`,
+    [organization.id, Number(run?.id)],
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.automation_comment_logs (public_id, organization_id, automation_id, automation_name, automation_run_id, contact_id, instagram_media_id, instagram_comment_id, overall_status)
+     VALUES ($1, $2, $3, 'Price reply', $4, $5, '18030000000000001', '17950000000000001', 'completed')`,
+    [
+      `acl_${String(organization.id).padStart(21, '0')}`,
+      organization.id,
+      Number(automation?.id),
+      Number(run?.id),
+      Number(contact?.id),
+    ],
   );
   return { id: organization.id };
 }

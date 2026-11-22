@@ -17,13 +17,14 @@ export const SENSITIVE_REDACTION_PLACEHOLDER = '[REDACTED]';
 const MAX_REDACTION_DEPTH = 8;
 
 /**
- * Lower-cased substrings that mark a key as sensitive. Substring (not exact) matching catches
- * casing and nesting variants: `Authorization`, `X-Api-Key`, `set-cookie`, `raw_key`,
- * `body.refresh_token`, etc. `email` is included to keep address PII out of logs and Sentry;
- * this also redacts incidental flags such as `is_email_verified`, which is an acceptable
- * fail-closed trade-off.
+ * Lower-cased substrings that mark a key as carrying a secret — a credential, a token, a key — that
+ * no response may be cached or compressed with ({@link isSecretKey}: the idempotency response cache
+ * and the response hardening). Substring (not exact) matching catches casing and nesting variants:
+ * `Authorization`, `X-Api-Key`, `set-cookie`, `raw_key`, `body.refresh_token`, etc. An email
+ * address is personal data, not a secret (launch D40): it is in {@link PERSONAL_DATA_KEY_FRAGMENTS}.
+ * The log redactor hides every one of them too, as part of {@link SENSITIVE_KEY_FRAGMENTS}.
  */
-export const SENSITIVE_KEY_FRAGMENTS = [
+export const SECRET_KEY_FRAGMENTS = [
   'authorization',
   'password',
   'passwd',
@@ -41,7 +42,39 @@ export const SENSITIVE_KEY_FRAGMENTS = [
   'session_id',
   'jwt',
   'credential',
+] as const;
+
+/**
+ * Personal data that logs and Sentry hide but a response may carry — and the idempotency layer
+ * may replay (launch D38, CT12): a contact's phone, full name, username and profile picture, and an
+ * email address (launch D40 — so an automation's `email_request_message` and
+ * `is_email_collection_enabled` no longer stop its create from being replayed); and the text a
+ * person wrote that the run engine keeps (launch AU26, AUC13) — a run's `trigger_text` and a
+ * comment log's `comment_text` (its `commenter_username`, `email_received` and `phone_received` are
+ * already hidden by the fragments above). Not a secret, so it never stops a response from being
+ * cached or compressed; the substring match still hides incidental keys such as
+ * `is_email_verified` in logs, an accepted fail-closed trade-off. A bare `text` is not listed — it
+ * would hide every `context` key too (launch WH6).
+ */
+export const PERSONAL_DATA_KEY_FRAGMENTS = [
+  'phone',
+  'full_name',
+  'username',
+  'profile_picture',
   'email',
+  'trigger_text',
+  'comment_text',
+] as const;
+
+/**
+ * Every lower-cased substring the log and Sentry redactor hides ({@link isSensitiveKey},
+ * `PINO_REDACT_PATHS`, the load-test monitor): the secrets ({@link SECRET_KEY_FRAGMENTS}) plus the
+ * personal data ({@link PERSONAL_DATA_KEY_FRAGMENTS}). Derived from the two, so the log list and
+ * the secret list never drift (launch D38).
+ */
+export const SENSITIVE_KEY_FRAGMENTS = [
+  ...SECRET_KEY_FRAGMENTS,
+  ...PERSONAL_DATA_KEY_FRAGMENTS,
 ] as const;
 
 interface RedactionContext {
@@ -49,10 +82,24 @@ interface RedactionContext {
   readonly depth: number;
 }
 
-/** Returns true when `key` (case-insensitive) contains any fragment in {@link SENSITIVE_KEY_FRAGMENTS} (e.g. `Authorization`, `X-Api-Key`, `set-cookie`). */
+/**
+ * Returns true when `key` (case-insensitive) contains any fragment in
+ * {@link SENSITIVE_KEY_FRAGMENTS} (e.g. `Authorization`, `X-Api-Key`, `set-cookie`, `username`) —
+ * the log and Sentry redactor's test.
+ */
 export function isSensitiveKey(key: string): boolean {
   const normalizedKey = key.toLowerCase();
   return SENSITIVE_KEY_FRAGMENTS.some((fragment) => normalizedKey.includes(fragment));
+}
+
+/**
+ * Returns true when `key` (case-insensitive) contains any fragment in {@link SECRET_KEY_FRAGMENTS}
+ * (e.g. `access_token`, `client_secret`) — the test of a response that must not be cached or
+ * compressed. Personal data such as a `username` is not a secret here (launch D38).
+ */
+export function isSecretKey(key: string): boolean {
+  const normalizedKey = key.toLowerCase();
+  return SECRET_KEY_FRAGMENTS.some((fragment) => normalizedKey.includes(fragment));
 }
 
 function looksLikeUrl(value: string): boolean {

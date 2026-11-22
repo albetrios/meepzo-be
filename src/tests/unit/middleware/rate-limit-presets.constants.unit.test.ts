@@ -66,6 +66,38 @@ describe('rate-limit-presets', () => {
     expect(REFRESH_RATE_LIMIT.config.rateLimit.timeWindow).toBe(60_000);
   });
 
+  it('INSTAGRAM_WEBHOOK_RATE_LIMIT caps Meta deliveries at 1,200 req/min per IP (WH11)', async () => {
+    mockEnv.RATE_LIMIT_RELAXED_CAPS = false;
+    const { INSTAGRAM_WEBHOOK_RATE_LIMIT, WEBHOOK_RATE_LIMIT } = await import(
+      '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
+    );
+    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.max).toBe(1200);
+    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.timeWindow).toBe(60_000);
+    // Far above the Stripe receiver's 60 — a viral post's comments must never be throttled.
+    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.max).toBeGreaterThan(
+      WEBHOOK_RATE_LIMIT.config.rateLimit.max,
+    );
+  });
+
+  it('INSTAGRAM_WEBHOOK_RATE_LIMIT lifts the cap to 5,000 when RATE_LIMIT_RELAXED_CAPS', async () => {
+    mockEnv.RATE_LIMIT_RELAXED_CAPS = true;
+    const { INSTAGRAM_WEBHOOK_RATE_LIMIT } = await import(
+      '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
+    );
+    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.max).toBe(5000);
+  });
+
+  it('INSTAGRAM_WEBHOOK_RATE_LIMIT buckets per caller IP (IPv6 masked to its /64)', async () => {
+    const { INSTAGRAM_WEBHOOK_RATE_LIMIT } = await import(
+      '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
+    );
+    const keyGenerator = INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.keyGenerator;
+    expect(keyGenerator({ ip: '203.0.113.7' } as never)).toBe('ip:203.0.113.7');
+    expect(keyGenerator({ ip: '2001:db8:1:2:aaaa:bbbb:cccc:dddd' } as never)).toBe(
+      'ip:2001:db8:1:2::',
+    );
+  });
+
   it('REFRESH_RATE_LIMIT lifts the cap when RATE_LIMIT_RELAXED_CAPS (launch ROUTE #156, N22)', async () => {
     mockEnv.RATE_LIMIT_RELAXED_CAPS = true;
     const { REFRESH_RATE_LIMIT } = await import(

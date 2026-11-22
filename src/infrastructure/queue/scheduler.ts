@@ -47,6 +47,16 @@ import { USER_DATA_EXPORT_RECLAIM_JOB_NAME } from '@/domains/user/sub-domains/us
 import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-catchup.constants.js';
 import { STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-retention.constants.js';
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
+import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.constants.js';
+import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
+import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
+import { AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.constants.js';
+import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
+import { AUTOMATION_RUN_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.constants.js';
+import { AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.constants.js';
+import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { env } from '@/shared/config/env.config.js';
 
@@ -112,8 +122,44 @@ const DEFAULT_WEBHOOK_DELIVERY_RECLAIM_CRON = '*/5 * * * *';
 const DEFAULT_USER_DATA_EXPORT_RECLAIM_CRON = '*/5 * * * *';
 /** Hourly: lost seat-sync enqueues and lapsed dunning entitlements. */
 const DEFAULT_SUBSCRIPTION_SEAT_RECONCILE_CRON = '17 * * * *';
+/**
+ * Every minute (launch-2026-11-20-ujai WH15, worker-changes WC-2): the Instagram accounts whose
+ * events still wait 5 minutes after they arrived go back to event processing. A fixed cadence, not a
+ * setting.
+ */
+const DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON = '* * * * *';
 const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
+/**
+ * Daily at 03:00 (UTC with `SCHEDULER_TIMEZONE=UTC`): the 30-day clean-up of the Instagram webhook
+ * events, before the app domain's other clean-ups (launch-2026-11-20-ujai WH19, worker-changes
+ * rule 11). A fixed time, not a setting.
+ */
+const DEFAULT_INSTAGRAM_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 const DEFAULT_AUDIT_EXPORT_CRON = '15 2 * * *';
+/**
+ * Launch IA8: the daily Instagram account check — renew tokens ending within 7 days, refresh the
+ * profiles, subscribe again what is not subscribed — after the 03:xx clean-ups.
+ */
+const DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON = '0 4 * * *';
+/**
+ * Launch D9 (routes-final § 3.A AU15, WC-6): every 15 minutes, mark the "next post" windows that
+ * ended with no post linked `expired`. A fixed cadence, not a setting.
+ */
+const DEFAULT_AUTOMATION_NEXT_POST_EXPIRY_CRON = '*/15 * * * *';
+/**
+ * Launch D8 (routes-final § 3.B AU25, WC-13): every hour, cancel the runs that have waited more
+ * than 7 days. A fixed cadence, not a setting.
+ */
+const DEFAULT_AUTOMATION_RUN_WAIT_EXPIRY_CRON = '0 * * * *';
+/**
+ * Launch D8 (AU25, AQ7; worker-changes rule 11): the app domain's daily clean-ups after the
+ * webhook events (03:00) — runs ended more than 180 days ago at 03:20 (WC-12), comment logs written
+ * more than 180 days ago at 03:30 (WC-9), then the automations deleted more than 180 days ago that
+ * nothing points at any more at 03:40 (WC-15). Fixed times, not settings.
+ */
+const DEFAULT_AUTOMATION_RUN_RETENTION_CRON = '20 3 * * *';
+const DEFAULT_AUTOMATION_COMMENT_LOG_RETENTION_CRON = '30 3 * * *';
+const DEFAULT_AUTOMATION_TOMBSTONE_RETENTION_CRON = '40 3 * * *';
 
 function withSchedulerTimezone({
   timezone,
@@ -123,6 +169,51 @@ function withSchedulerTimezone({
   job: Omit<ScheduledJob, 'timezone'>;
 }): ScheduledJob {
   return timezone !== undefined ? { ...job, timezone } : job;
+}
+
+/**
+ * Launch D8 (routes-final § 3.B AU25, AQ7): the automation runs' and deleted automations' clean-ups
+ * — the hourly 7-day wait cancel, then the daily run, comment-log and deleted-automation removals.
+ */
+function getAutomationCleanupScheduledJobs(timezone: string | undefined): ScheduledJob[] {
+  return [
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
+        schedulerId: 'automation-run-wait-expiry-hourly',
+        jobName: 'cancel-long-waiting-automation-runs',
+        cronPattern: DEFAULT_AUTOMATION_RUN_WAIT_EXPIRY_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: AUTOMATION_RUN_RETENTION_QUEUE_NAME,
+        schedulerId: 'daily-automation-run-retention',
+        jobName: 'purge-old-ended-automation-runs',
+        cronPattern: DEFAULT_AUTOMATION_RUN_RETENTION_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME,
+        schedulerId: 'daily-automation-comment-log-retention',
+        jobName: 'purge-old-automation-comment-logs',
+        cronPattern: DEFAULT_AUTOMATION_COMMENT_LOG_RETENTION_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
+        schedulerId: 'daily-automation-tombstone-cleanup',
+        jobName: 'purge-old-deleted-automations',
+        cronPattern: DEFAULT_AUTOMATION_TOMBSTONE_RETENTION_CRON,
+      },
+    }),
+  ];
 }
 
 function getTombstoneRetentionScheduledJobs(timezone: string | undefined): ScheduledJob[] {
@@ -315,6 +406,16 @@ function getRecoverySweepScheduledJobs(timezone: string | undefined): ScheduledJ
         cronPattern: DEFAULT_USER_DATA_EXPORT_RECLAIM_CRON,
       },
     }),
+    // The stuck-event pick-up rides the Instagram event-processing queue (run by its worker).
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'instagram-webhook-reclaim',
+        jobName: INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME,
+        cronPattern: DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON,
+      },
+    }),
   ];
 }
 
@@ -440,12 +541,41 @@ export function getScheduledJobs(): ScheduledJob[] {
     withSchedulerTimezone({
       timezone,
       job: {
+        queueName: INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
+        schedulerId: 'daily-instagram-webhook-event-cleanup',
+        jobName: 'purge-old-instagram-webhook-events',
+        cronPattern: DEFAULT_INSTAGRAM_WEBHOOK_EVENT_RETENTION_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
         queueName: AUDIT_EXPORT_QUEUE_NAME,
         schedulerId: 'daily-audit-export',
         jobName: 'export-audit-logs-s3',
         cronPattern: env.AUDIT_EXPORT_CRON ?? DEFAULT_AUDIT_EXPORT_CRON,
       },
     }),
+    // The sweep rides the daily-check queue; its worker adds one check per connected account.
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+        schedulerId: 'daily-instagram-account-check',
+        jobName: INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME,
+        schedulerId: 'automation-next-post-expiry-quarter-hourly',
+        jobName: 'expire-ended-next-post-windows',
+        cronPattern: DEFAULT_AUTOMATION_NEXT_POST_EXPIRY_CRON,
+      },
+    }),
+    ...getAutomationCleanupScheduledJobs(timezone),
     ...getTombstoneRetentionScheduledJobs(timezone),
     ...getOperationalSweepScheduledJobs(timezone),
     ...getRecoverySweepScheduledJobs(timezone),

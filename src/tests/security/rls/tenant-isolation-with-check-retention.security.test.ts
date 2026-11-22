@@ -42,6 +42,21 @@ const ORG_SCOPED_TABLES = [
   // instagram-account-resolvers.security.test.ts.
   { schemaName: 'app', tableName: 'instagram_accounts' },
   { schemaName: 'app', tableName: 'instagram_account_settings' },
+  // The stored posts (launch R5) carry the same sweep arm in USING only.
+  { schemaName: 'app', tableName: 'instagram_media' },
+  // The Instagram webhook events: the sweep arm in USING only (the pick-up and the 30-day clean-up,
+  // launch R12), WITH CHECK the organization arm only.
+  { schemaName: 'app', tableName: 'instagram_webhook_events' },
+  // Contacts carry the sweep arm in USING only too (launch R8, routes-final § 2.3).
+  { schemaName: 'app', tableName: 'contacts' },
+  // Automations: the sweep arm in USING only (the "next post" expiry scan and the purge read across
+  // organizations; each change runs in its organization's own context — launch R9, § 3.3).
+  { schemaName: 'app', tableName: 'automations' },
+  // The run engine's runs, run events and comment logs: the sweep arm in USING only (the 7-day wait
+  // scan and the retentions read across organizations — launch R10, § 3.B.3).
+  { schemaName: 'app', tableName: 'automation_runs' },
+  { schemaName: 'app', tableName: 'automation_run_events' },
+  { schemaName: 'app', tableName: 'automation_comment_logs' },
 ] as const;
 
 async function resolveOrganizationInternalId(organizationPublicId: string): Promise<number> {

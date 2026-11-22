@@ -26,6 +26,11 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   webhookEvent: 'webhook event',
   auditLog: 'audit log entry',
   instagramAccount: 'Instagram account',
+  contact: 'contact',
+  instagramWebhookEvent: 'Instagram webhook event',
+  automation: 'automation',
+  automationRun: 'automation run',
+  automationCommentLog: 'automation comment log',
 };
 
 /** Stable, realistic 21-char example core (alphabet [a-z0-9]). */

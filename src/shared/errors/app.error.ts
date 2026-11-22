@@ -51,6 +51,12 @@ export class AppError extends Error {
    */
   reason?: string;
   /**
+   * Why the server answered this, for its one log line only — an internal signal the client must
+   * not see, unlike {@link AppError.reason}. Set via {@link AppError.withLogReason}; the error
+   * handler logs it as the `reason` of a 503's `request.service_unavailable` warning.
+   */
+  logReason?: string;
+  /**
    * Seconds the client should wait before retrying — the error handler sends it as `Retry-After`.
    * Set via {@link AppError.withRetryAfter}; meaningful on 429 and 503.
    */
@@ -79,6 +85,15 @@ export class AppError extends Error {
    */
   withReason(reason: string): this {
     this.reason = reason;
+    return this;
+  }
+
+  /**
+   * Attaches {@link AppError.logReason} and returns `this` (fluent), e.g.
+   * `throw new ServiceUnavailableError().withLogReason('event_loop_overload')` — logged, never sent.
+   */
+  withLogReason(logReason: string): this {
+    this.logReason = logReason;
     return this;
   }
 

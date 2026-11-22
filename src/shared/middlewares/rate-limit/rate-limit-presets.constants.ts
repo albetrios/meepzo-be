@@ -256,6 +256,31 @@ export const WEBHOOK_RATE_LIMIT = {
 } as const;
 
 /**
+ * Instagram webhook deliveries — `POST /app/social/instagram/webhook` (route 17): 1,200 req / 60s
+ * per IP (5,000 when caps are relaxed, like the others) — WH11, D21.
+ *
+ * @remarks
+ * Meta sends from a small pool of addresses, and one viral "comment to get the link" post brings
+ * thousands of comments a minute: {@link WEBHOOK_RATE_LIMIT}'s 60 — or the global 100 — would
+ * throttle real events, and Meta answers repeated 429s by slowing, then disabling the subscription.
+ * 1,200 is far above Meta's traffic and still a cap on a flood of junk: a request without the
+ * signature header is refused before its body is read, a wrongly signed one costs reading its body
+ * (5 MB at most) and one HMAC — its JSON is never parsed (D53) — and neither reaches the database.
+ * Meta's subscription check (route 16, once per
+ * subscription) keeps {@link WEBHOOK_RATE_LIMIT}.
+ */
+export const INSTAGRAM_WEBHOOK_RATE_LIMIT = {
+  config: {
+    rateLimit: {
+      max: RATE_LIMIT_CAPS_RELAXED ? 5000 : 1200,
+      timeWindow: MILLISECONDS_PER_MINUTE,
+      keyGenerator: buildRateLimitKeyFromIpAddress,
+      onExceeded: recordRouteRateLimitExceeded,
+    },
+  },
+} as const;
+
+/**
  * Unauthenticated read-only catalog endpoints (60 req / 60s per IP) — today the public plan
  * catalog (`GET /billing/plans`, `GET /billing/plans/:plan_id`).
  *

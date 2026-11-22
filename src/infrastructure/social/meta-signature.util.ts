@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { isHmacSha256SignatureValid } from '@/shared/utils/security/webhook-signature.util.js';
 
 /** `X-Hub-Signature-256`: `sha256=` and the 64 hex characters of an HMAC-SHA256 (WH8). */
 const META_WEBHOOK_SIGNATURE_PATTERN = /^sha256=([0-9a-f]{64})$/i;
@@ -8,29 +8,6 @@ const BASE64URL_PART_PATTERN = /^[A-Za-z0-9_-]+={0,2}$/;
 const META_SIGNED_REQUEST_ALGORITHM = 'HMAC-SHA256';
 /** A signed request's `user_id`: digits only (IA18). */
 const META_USER_ID_PATTERN = /^\d{1,64}$/;
-
-/**
- * Whether `presentedSignature` is the HMAC-SHA256 of `signedContent` keyed with `appSecret`,
- * compared in constant time — the one check behind both Meta signatures.
- *
- * @remarks
- * The expected MAC is always computed, and `timingSafeEqual` runs whenever the lengths match (a
- * MAC's length is public: 32 bytes). An empty app secret never verifies anything.
- */
-function isMetaHmacSha256SignatureValid({
-  signedContent,
-  presentedSignature,
-  appSecret,
-}: {
-  signedContent: Buffer | string;
-  presentedSignature: Buffer;
-  appSecret: string;
-}): boolean {
-  if (appSecret.length === 0) return false;
-  const expectedSignature = createHmac('sha256', appSecret).update(signedContent).digest();
-  if (presentedSignature.length !== expectedSignature.length) return false;
-  return timingSafeEqual(presentedSignature, expectedSignature);
-}
 
 /**
  * Checks Meta's `X-Hub-Signature-256` webhook header against the **raw** request body (WH8).
@@ -53,10 +30,10 @@ export function verifyMetaWebhookSignature({
   const match = META_WEBHOOK_SIGNATURE_PATTERN.exec(signatureHeader ?? '');
   const signatureHex = match?.[1];
   if (signatureHex === undefined) return false;
-  return isMetaHmacSha256SignatureValid({
+  return isHmacSha256SignatureValid({
     signedContent: rawBody,
     presentedSignature: Buffer.from(signatureHex, 'hex'),
-    appSecret,
+    secret: appSecret,
   });
 }
 
@@ -116,10 +93,10 @@ export function parseMetaSignedRequest({
   ) {
     return null;
   }
-  const signatureIsValid = isMetaHmacSha256SignatureValid({
+  const signatureIsValid = isHmacSha256SignatureValid({
     signedContent: encodedPayload,
     presentedSignature: Buffer.from(encodedSignature, 'base64url'),
-    appSecret,
+    secret: appSecret,
   });
   if (!signatureIsValid) return null;
   const payload = decodeMetaSignedRequestPayload(encodedPayload);

@@ -51,7 +51,7 @@ describe('createOrganizationController', () => {
     getBySlug: vi.fn().mockResolvedValue(organization),
     create: vi.fn().mockResolvedValue(organization),
     update: vi.fn().mockResolvedValue(organization),
-    delete: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue({ erasedInstagram: null }),
     uploadLogo: vi.fn().mockResolvedValue(organization),
     deleteLogo: vi.fn().mockResolvedValue(organization),
   } as unknown as OrganizationService;
@@ -108,6 +108,35 @@ describe('createOrganizationController', () => {
       expect.objectContaining({ organizationPublicId: organizationPublicId }),
     );
     expect(reply.code).toHaveBeenCalledWith(204);
+  });
+
+  it('deleteOrganization names the Instagram accounts the delete erased on its audit entry (launch D54)', async () => {
+    vi.mocked(service.delete).mockResolvedValueOnce({
+      erasedInstagram: {
+        instagramAccountPublicIds: ['iga_k7x9m2pqr4w8n1v3a1b2c'],
+        erasedPostCount: 3,
+      },
+    });
+    const record = vi.fn().mockResolvedValue(undefined);
+
+    await controller.deleteOrganization(
+      mockRequest({
+        params: {},
+        server: { auditDomain: { auditService: { record } } } as never,
+      }),
+      mockReply(),
+    );
+
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'tenancy.organization.delete',
+        severity: 'WARNING',
+        metadata: {
+          erased_instagram_account_public_ids: ['iga_k7x9m2pqr4w8n1v3a1b2c'],
+          erased_instagram_post_count: 3,
+        },
+      }),
+    );
   });
 
   it('uploadLogo and deleteLogo delegate to service', async () => {

@@ -38,6 +38,19 @@ here matches its sub-domain's table, and the stages follow the route review's bu
 the drop says (`schema-routes.md:682`) — with the drop's plural snake_case names
 ([D1](decisions.md)). Every label below carries its `app.<table>`; routes sit under `/api/v1/app/…`.
 
+**Built** ([AS-BUILT](../AS-BUILT.md)): all 10 tables stand under the names on the labels, with the
+fields the diagrams draw. A table whose **Holds** names a public id prefix also has a `public_id`
+field, which the diagrams leave out.
+
+| Row | Tables |
+| --- | --- |
+| R3 | `app.instagram_accounts`, `app.instagram_account_settings`, `app.instagram_account_tokens` |
+| R5 | `app.instagram_media` |
+| R8 | `app.contacts` |
+| R9 | `app.automations` |
+| R10 | `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs` |
+| R12 | `app.instagram_webhook_events` |
+
 **Scope notes from Step 4:**
 
 - The launch starts empty: nothing is imported from the legacy system ([D7](decisions.md)).
@@ -52,9 +65,9 @@ the drop says (`schema-routes.md:682`) — with the drop's plural snake_case nam
   events are not stored (WQ1, WH4, [D28](decisions.md)).
 - A child row can never point at another organization's row (`schema-routes.md:685`).
 - A session sees and writes only the rows of its active organization (`schema-routes.md:686`).
-- Every table has `created_at` and `updated_at` (`schema-routes.md:687`).
+- Every table has `created_at` and `updated_at` (`schema-routes.md:687`) — except `automation_run_events`, which is append-only and has no `updated_at` (AU23).
 - A reference to a person who leaves is emptied, the row stays (`schema-routes.md:688`).
-- Only automations are soft-deleted, with a reason and a note (`schema-routes.md:689`, `:704`).
+- Automations are soft-deleted, with a reason and a note (`schema-routes.md:689`, `:704`); a deleted contact also keeps its row (`deleted_at`), empty of personal data (CT7, [D25](decisions.md)).
 - Instagram and Meta ids are digit strings, so they are `text` (`schema-routes.md:170`).
 - How long each table keeps its rows is set by [D8](decisions.md); each table's **Holds** says it.
 
@@ -144,8 +157,8 @@ erDiagram
 
 The connected account comes first: everything else hangs off an organization that has one. These
 four tables are sub-domain 1 of the route review, confirmed ([routes-final.md § 1](routes-final.md),
-[D24](decisions.md)) and built together. The stored posts moved here from the received-content
-stage: they now belong to the account (IA17).
+[D24](decisions.md)); R3 built the first three, R5 the stored posts. The stored posts moved here from
+the received-content stage: they now belong to the account (IA17).
 
 ### instagram_account
 
@@ -177,7 +190,8 @@ stage: they now belong to the account (IA17).
     organization that has it, any status (IQ3, D24).
   - Five fields the drop does not have (IA11, [D24](decisions.md)):
     - `token_expires_at` — a copy of the token's end, saved together with the token, so reading
-      the account and the daily account check never read the token (IA5). Empty once revoked.
+      the account and the daily account check never read the token (IA5). Empty once revoked. The
+      API returns it as `access_expires_at`; the field keeps this name ([D35](decisions.md)).
     - `connection_status_changed_at` — set at every status change, so each break of the connection
       gets one reconnect notice (IA9).
     - `webhook_subscribed_at` — set when the webhook subscription succeeded. Empty means no events
@@ -219,7 +233,7 @@ stage: they now belong to the account (IA17).
     revoked ones aside — a lookup across organizations~~ — answered in the route review: a narrow
     lookup returns only the other organization's public id, never its rows; all work then runs in
     one organization's own scope; a race is settled by the "one not revoked" rules (IA6,
-    [D24](decisions.md)). Kickoff builds it.
+    [D24](decisions.md)). Built in R3.
   - ~~(kickoff, [D21](decisions.md)) The webhook finds the organization by the Instagram user id
     before any organization is known~~ — answered: the same narrow lookup, for not-revoked accounts
     (IA6, [D24](decisions.md)); sub-domain 4 uses it.
@@ -310,7 +324,8 @@ erDiagram
     for it and a reconnect brings a new one (IA14, IA19, IA20, [D24](decisions.md)).
   - Only the Instagram client reads the token (IA5, [D24](decisions.md)): it is stored only
     encrypted; the plain token exists only inside the Instagram client; only the token's own service
-    and the daily account check use this table; no clean-up across organizations reads it.
+    and the daily account check use this table; no clean-up across organizations reads it. The
+    secrets-key rotation also re-encrypts it ([D37](decisions.md)).
   - Its end is copied onto the account (`token_expires_at`) in the same change, so reading the
     account and the daily account check never read this table (IA5).
   - A renewal never overwrites a newer token that a reconnect saved in the meantime (IA8).
@@ -318,7 +333,8 @@ erDiagram
   - `access_token_ciphertext` (`schema-routes.md:773`) → `encrypted_access_token`, the repository's
     name for an encrypted secret (IA5, [D24](decisions.md)).
   - `last_refresh_error`: no limit (`schema-routes.md:777`) → at most 500 characters, Instagram's
-    code and message, never the token (1.A.3, [D24](decisions.md)).
+    error class, code, subcode and HTTP status only, never its text or the token (1.A.3,
+    [D24](decisions.md), [D52](decisions.md)).
 - **Open:**
   - ~~(kickoff, [D21](decisions.md)) The token must be readable only by the Instagram client~~ —
     answered in the route review (IA5, [D24](decisions.md)), as **Added** says; kickoff may add a
@@ -339,7 +355,7 @@ erDiagram
     choice token_type "long_lived"
     datetime expires_at "about 60 days after issue or renewal; copied onto the account (IA5)"
     datetime last_refreshed_at
-    text last_refresh_error "at most 500 characters; Instagram's code and message, never the token"
+    text last_refresh_error "at most 500 characters; Instagram's error class, code, subcode and HTTP status, never its text or the token (D52)"
     datetime created_at
     datetime updated_at
   }
@@ -847,10 +863,10 @@ erDiagram
 ## Stage 4 — Received content
 
 What arrives from Instagram: every webhook event of an Instagram account a team holds. Sub-domain 4
-of the route review, confirmed ([routes-final.md § 4](routes-final.md), [D28](decisions.md)). It is
-built last: its table points only at the account (Stage 1), but processing its events writes
-contacts, runs and logs (Stages 2–3). (The stored posts moved to Stage 1 — they belong to the
-account now, IA17.)
+of the route review, confirmed ([routes-final.md § 4](routes-final.md), [D28](decisions.md)). It
+comes last: its table points only at the account (Stage 1), so R12 built it early, but processing its
+events (R14) writes contacts, runs and logs (Stages 2–3). (The stored posts moved to Stage 1 — they
+belong to the account now, IA17.)
 
 ### instagram_webhook_event
 

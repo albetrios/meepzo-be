@@ -6,8 +6,10 @@
  *
  * @remarks
  * - **Algorithm**: `q` becomes a case-insensitive `ILIKE` over the configured columns; `sort`/`order`
- *   pick the matching keyset condition (`(created_at,id)` or `(text,id)`, asc/desc) from
- *   `pagination.util.ts`; the page fetches `limit + 1` rows to compute `has_more` without a count.
+ *   pick the matching keyset condition (`(created_at,id)`, `(text,id)`, `(integer,id)`, or a
+ *   nullable `(text,id)` / `(timestamp,id)` whose value-less rows come last, asc/desc) from
+ *   `pagination.util.ts`; the page fetches
+ *   `limit + 1` rows to compute `has_more` without a count.
  * - **Filter binding (sec-U12)**: the minted cursor carries a SHA-256 fingerprint of `{q, sort,
  *   order}`. A cursor whose fingerprint no longer matches the current query is ignored (the page
  *   resets to the first page) so a cursor minted under one sort/filter can't yield wrong rows under
@@ -17,12 +19,18 @@
  *   repository's query supplies the join and selects the sort value.
  */
 import { createHash } from 'node:crypto';
-import { type AnyColumn, and, asc, desc, ilike, type SQL, or } from 'drizzle-orm';
+import { type AnyColumn, and, asc, desc, ilike, type SQL, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   buildAscendingCreatedAtIdCursorCondition,
+  buildAscendingIntegerIdCursorCondition,
+  buildAscendingNullsLastTextIdCursorCondition,
+  buildAscendingNullsLastTimestampIdCursorCondition,
   buildAscendingTextIdCursorCondition,
   buildDescendingCreatedAtIdCursorCondition,
+  buildDescendingIntegerIdCursorCondition,
+  buildDescendingNullsLastTextIdCursorCondition,
+  buildDescendingNullsLastTimestampIdCursorCondition,
   buildDescendingTextIdCursorCondition,
   createOpaqueCursorFromRow,
   type CursorTimestampRow,
@@ -136,19 +144,167 @@ export function computeListFilterFingerprint(parts: {
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 }
 
-/** A sortable column plus how to read its cursor `sort_value` from a result row (text sorts only). */
+/**
+ * A sortable column plus how to read its cursor `sort_value` from a result row (every sort but a
+ * NOT NULL `created_at` one).
+ */
 export interface KeysetSortColumn<Row> {
   column: AnyColumn;
-  kind: 'text' | 'created_at';
-  /** Extract the sort value for the opaque cursor (required for `kind: 'text'`). */
-  getSortValue?: (row: Row) => string;
+  /**
+   * `created_at` — a timestamp; `text`; `integer` — a whole number (routes-final § 3 AQ9). A NOT
+   * NULL timestamp keysets on the row's `cursor_created_at`; every other sort on `sort_value`.
+   */
+  kind: 'text' | 'created_at' | 'integer';
+  /**
+   * `'last'`: the column is NULLABLE and the rows without a value page after every value, in both
+   * directions (`NULLS LAST`), instead of dropping out after the first page. Built for `text`
+   * sorts (routes-final § 2 CQ2) and `created_at` (timestamp) sorts (§ 3 AQ9); a nullable integer
+   * sort adds its keyset builder in `resolveKeysetOrder`.
+   */
+  nulls?: 'last';
+  /**
+   * Extract the sort value for the opaque cursor as text — required for `text`, `integer` and a
+   * nulls-last `created_at` sort (the timestamp as `cursorTimestampSelection` text, keeping
+   * microseconds); `null` for a row without one under a nulls-last sort.
+   */
+  getSortValue?: (row: Row) => string | null;
+}
+
+/** The `ORDER BY` and keyset `WHERE` of one resolved sort. */
+interface KeysetOrder {
+  orderBy: SQL[];
+  cursorCondition: SQL | undefined;
+}
+
+/**
+ * The `ORDER BY` and keyset condition of a nulls-last sort in one direction (text or timestamp).
+ *
+ * @remarks
+ * `NULLS LAST` is said explicitly, since Postgres puts nulls first on a `DESC` sort by default; the
+ * `id` tie-break stays ascending in both directions, matching the nulls-last keyset builders.
+ * Throws on a kind no builder handles yet — a programming error, caught by the first test of the
+ * list that declares it.
+ */
+function resolveNullsLastKeysetOrder({
+  column,
+  kind,
+  idColumn,
+  order,
+  cursor,
+}: {
+  column: AnyColumn;
+  kind: KeysetSortColumn<unknown>['kind'];
+  idColumn: AnyColumn;
+  order: 'asc' | 'desc';
+  cursor: ParsedListCursor | null;
+}): KeysetOrder {
+  const orderBy = [
+    order === 'desc' ? sql`${column} DESC NULLS LAST` : sql`${column} ASC NULLS LAST`,
+    asc(idColumn),
+  ];
+  if (kind === 'text') {
+    const build =
+      order === 'desc'
+        ? buildDescendingNullsLastTextIdCursorCondition
+        : buildAscendingNullsLastTextIdCursorCondition;
+    return { orderBy, cursorCondition: build({ textColumn: column, idColumn, cursor }) };
+  }
+  if (kind === 'created_at') {
+    const build =
+      order === 'desc'
+        ? buildDescendingNullsLastTimestampIdCursorCondition
+        : buildAscendingNullsLastTimestampIdCursorCondition;
+    return { orderBy, cursorCondition: build({ timestampColumn: column, idColumn, cursor }) };
+  }
+  throw new Error(
+    `A nulls-last keyset sort is built for text and timestamp columns only, not "${kind}"`,
+  );
+}
+
+/**
+ * The `ORDER BY` and keyset condition of one sort column in one direction — the one place a new
+ * sort kind adds its builders.
+ *
+ * @remarks
+ * - **Algorithm:** `(created_at, id)` orders both columns the same way; a text sort, an integer
+ *   sort and a nulls-last sort keep the `id` tie-break ascending in both directions (matching their
+ *   keyset builders); a nulls-last sort says `NULLS LAST` explicitly.
+ * - **Failure modes:** throws on a nulls-last sort of a kind no builder handles yet (an integer) —
+ *   a programming error, caught by the first test of the list that declares it.
+ */
+function resolveKeysetOrder<Row>({
+  spec,
+  idColumn,
+  order,
+  cursor,
+}: {
+  spec: KeysetSortColumn<Row>;
+  idColumn: AnyColumn;
+  order: 'asc' | 'desc';
+  cursor: ParsedListCursor | null;
+}): KeysetOrder {
+  const { column, kind } = spec;
+  const idAsc = asc(idColumn);
+  if (spec.nulls === 'last') {
+    return resolveNullsLastKeysetOrder({ column, kind, idColumn, order, cursor });
+  }
+  if (kind === 'created_at') {
+    return order === 'desc'
+      ? {
+          orderBy: [desc(column), desc(idColumn)],
+          cursorCondition: buildDescendingCreatedAtIdCursorCondition({
+            createdAtColumn: column,
+            idColumn,
+            cursor,
+          }),
+        }
+      : {
+          orderBy: [asc(column), idAsc],
+          cursorCondition: buildAscendingCreatedAtIdCursorCondition({
+            createdAtColumn: column,
+            idColumn,
+            cursor,
+          }),
+        };
+  }
+  if (kind === 'integer') {
+    const build =
+      order === 'desc'
+        ? buildDescendingIntegerIdCursorCondition
+        : buildAscendingIntegerIdCursorCondition;
+    return {
+      orderBy: [order === 'desc' ? desc(column) : asc(column), idAsc],
+      cursorCondition: build({ integerColumn: column, idColumn, cursor }),
+    };
+  }
+  // text keyset — id tie-break stays ascending in both directions (matches the text keyset builders)
+  return order === 'desc'
+    ? {
+        orderBy: [desc(column), idAsc],
+        cursorCondition: buildDescendingTextIdCursorCondition({
+          textColumn: column,
+          idColumn,
+          cursor,
+        }),
+      }
+    : {
+        orderBy: [asc(column), idAsc],
+        cursorCondition: buildAscendingTextIdCursorCondition({
+          textColumn: column,
+          idColumn,
+          cursor,
+        }),
+      };
 }
 
 /**
  * Resolves a validated `(sort, order)` into the Drizzle `ORDER BY`, the matching keyset `WHERE`
  * condition, and a `sort_value` extractor — reusing the `pagination.util.ts` keyset builders. A
  * cursor whose `filter_fingerprint` doesn't match the current query is treated as absent (resets to
- * the first page). `idColumn` always tie-breaks ascending (matching the keyset builders).
+ * the first page). `idColumn` tie-breaks ascending on a text, integer or nulls-last sort (matching
+ * the keyset builders) and follows the order on a `(created_at, id)` sort. A column declared
+ * `nulls: 'last'` pages its value-less rows after every value, in both directions. The column's
+ * `getSortValue`, when it has one, mints the cursor's `sort_value`.
  */
 export function resolveKeysetSort<Row>(args: {
   columns: Record<string, KeysetSortColumn<Row>>;
@@ -164,7 +320,7 @@ export function resolveKeysetSort<Row>(args: {
   sortField: string;
   orderBy: SQL[];
   cursorCondition: SQL | undefined;
-  sortValueFor: (row: Row) => string | undefined;
+  sortValueFor: (row: Row) => string | null | undefined;
   filterFingerprint: string;
 } {
   const sortField = args.sort ?? args.defaultSort;
@@ -189,61 +345,15 @@ export function resolveKeysetSort<Row>(args: {
     cursor = null;
   }
 
-  const { column, kind } = spec;
-  const idAsc = asc(args.idColumn);
-  const sortValueFor: (row: Row) => string | undefined =
-    kind === 'text' && spec.getSortValue ? spec.getSortValue : () => undefined;
-
-  if (kind === 'created_at') {
-    return effectiveOrder === 'desc'
-      ? {
-          sortField,
-          orderBy: [desc(column), desc(args.idColumn)],
-          cursorCondition: buildDescendingCreatedAtIdCursorCondition({
-            createdAtColumn: column,
-            idColumn: args.idColumn,
-            cursor,
-          }),
-          sortValueFor,
-          filterFingerprint,
-        }
-      : {
-          sortField,
-          orderBy: [asc(column), idAsc],
-          cursorCondition: buildAscendingCreatedAtIdCursorCondition({
-            createdAtColumn: column,
-            idColumn: args.idColumn,
-            cursor,
-          }),
-          sortValueFor,
-          filterFingerprint,
-        };
-  }
-
-  // text keyset — id tie-break stays ascending in both directions (matches the text keyset builders)
-  return effectiveOrder === 'desc'
-    ? {
-        sortField,
-        orderBy: [desc(column), idAsc],
-        cursorCondition: buildDescendingTextIdCursorCondition({
-          textColumn: column,
-          idColumn: args.idColumn,
-          cursor,
-        }),
-        sortValueFor,
-        filterFingerprint,
-      }
-    : {
-        sortField,
-        orderBy: [asc(column), idAsc],
-        cursorCondition: buildAscendingTextIdCursorCondition({
-          textColumn: column,
-          idColumn: args.idColumn,
-          cursor,
-        }),
-        sortValueFor,
-        filterFingerprint,
-      };
+  const sortValueFor: (row: Row) => string | null | undefined =
+    spec.getSortValue ?? (() => undefined);
+  const { orderBy, cursorCondition } = resolveKeysetOrder({
+    spec,
+    idColumn: args.idColumn,
+    order: effectiveOrder,
+    cursor,
+  });
+  return { sortField, orderBy, cursorCondition, sortValueFor, filterFingerprint };
 }
 
 /**
@@ -263,7 +373,7 @@ export function finishKeysetPage<
   args: {
     limit: number;
     total?: number | null;
-    sortValueFor?: (row: Row) => string | undefined;
+    sortValueFor?: (row: Row) => string | null | undefined;
     filterFingerprint?: string;
   };
 }): {

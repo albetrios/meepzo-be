@@ -50,7 +50,7 @@ export interface OrganizationOffboardingReconcileResult {
  * - **Failure modes:** a per-row failure is counted, warn-logged, and reported to
  *   Sentry; the row stays for the next tick. Scan errors propagate to BullMQ
  *   retry / DLQ.
- * - **Side effects:** drives logo/upload cleanup, subscription cancel, soft-delete,
+ * - **Side effects:** drives logo/upload cleanup, subscription cancel, Instagram erase, soft-delete,
  *   and permission-cache purge per stuck row.
  * - **Notes:** PERSONAL organizations are excluded (never deletable standalone);
  *   scheduled (cron) via `infrastructure/queue/scheduler.ts`.

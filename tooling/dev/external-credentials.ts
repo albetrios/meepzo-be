@@ -112,9 +112,20 @@ export type ExternalCredentialFill = {
   missing: string[];
 };
 
-/** A value that is unset, blank, or still the `.env.example` placeholder. */
+/**
+ * The placeholder `.env.example` once shipped for a key it leaves blank now (`INSTAGRAM_APP_SECRET`,
+ * launch D53). A file made back then still holds it, and the schema refuses it as too short.
+ */
+const RETIRED_PLACEHOLDER = '...';
+
+/** A value that is unset, blank, or a `.env.example` placeholder — today's or the retired one. */
 function isPlaceholder(value: string | undefined, exampleValue: string | undefined): boolean {
-  return value === undefined || value.trim() === '' || value === exampleValue;
+  return (
+    value === undefined ||
+    value.trim() === '' ||
+    value === exampleValue ||
+    value === RETIRED_PLACEHOLDER
+  );
 }
 
 /**
@@ -128,6 +139,8 @@ function isPlaceholder(value: string | undefined, exampleValue: string | undefin
  * - **Never copies a placeholder:** a source value that is itself the placeholder (or blank) is not
  *   a real value, so the next source is tried; with none left the key is reported as missing when
  *   its `reportMissing` is set (an optional key, or one whose template value may be real, is not).
+ * - **Retires an old placeholder:** a key the template leaves blank now but the local file still
+ *   holds as `...` goes blank with no source — kept, it would stop the boot as too short.
  * - **Reports keys, never values,** so the caller can print the outcome safely.
  * - Pure: no file I/O — the caller reads and writes the files.
  */
@@ -157,6 +170,9 @@ export function fillExternalCredentials(options: {
     const sourceValue = source?.values[key];
     if (source === undefined || sourceValue === undefined) {
       if (reportMissing) fill.missing.push(key);
+      if (localValue === RETIRED_PLACEHOLDER && exampleValue === '') {
+        fill.content = upsertEnvAssignment(fill.content, key, '');
+      }
       continue;
     }
     fill.content = upsertEnvAssignment(fill.content, key, formatEnvValue(sourceValue));

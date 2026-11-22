@@ -1,3 +1,5 @@
+import type { AppContainer } from '@/domains/app/app.container.js';
+import { createAppContainer } from '@/domains/app/app.container.js';
 import type { AuditContainer } from '@/domains/audit/audit.container.js';
 import { createAuditContainer } from '@/domains/audit/audit.container.js';
 import type { AuthContainer } from '@/domains/auth/auth.container.js';
@@ -31,6 +33,11 @@ export type DomainContainers = {
   billingDomain: BillingContainer;
   notifyDomain: NotifyContainer;
   uploadDomain: UploadContainer;
+  /**
+   * The Instagram automation (launch): its workers — the daily account check, the 7-day wait
+   * check — use its services.
+   */
+  appDomain: AppContainer;
 };
 
 /**
@@ -67,6 +74,8 @@ export function createDomainContainers(
     organizationService: tenancyDomain.organizationService,
     objectStorage,
   });
+  // Built after the domains it reads, as `domainContainersPlugin` does for the API.
+  const appDomain = createAppContainer({ organizationService: tenancyDomain.organizationService });
 
   const userDataExportRepository = new UserDataExportRepository();
   const userDataExportService = new UserDataExportService(
@@ -104,6 +113,7 @@ export function createDomainContainers(
   tenancyDomain.organizationService.wireOffboardingUploadService({
     uploadService: uploadDomain.uploadService,
     subscriptionService: billingDomain.subscriptionService,
+    instagramErasureService: appDomain.instagramAccountErasureService,
   });
 
   // REQ-4: late-wire billing's subscription service into the membership service so seat enforcement
@@ -125,6 +135,7 @@ export function createDomainContainers(
     billingDomain,
     notifyDomain,
     uploadDomain,
+    appDomain,
   };
 }
 

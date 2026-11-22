@@ -22,6 +22,24 @@ export function getQueryParameters(method: string, openapiPath: string): object[
   return zodToOpenApiQueryParameters(zodSchema);
 }
 
+/**
+ * Routes whose request body is `application/x-www-form-urlencoded`, not JSON — Meta's Instagram
+ * deauthorize and data-deletion callbacks (launch routes 7–8, IA18), which post one form field,
+ * `signed_request`. Their body schema still comes from {@link routeSchemaMap}; only the media type
+ * of the documented request body changes.
+ */
+const FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS = new Set<string>([
+  'POST /api/v1/app/social/instagram/deauthorize',
+  'POST /api/v1/app/social/instagram/data-deletion',
+]);
+
+/** The media type a route's request body is documented under: JSON, or form-encoded for the few above. */
+export function getRequestBodyMediaType(routeKey: string): string {
+  return FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.has(routeKey)
+    ? 'application/x-www-form-urlencoded'
+    : 'application/json';
+}
+
 export function getRequestBodySchema(
   method: string,
   openapiPath: string,
@@ -40,7 +58,8 @@ export function getRequestBodySchema(
  * These carry no `app.authenticate` onRequest hook (route-catalog access `PUBLIC`): the public auth
  * forms (login/email-login/oauth/webauthn-authenticate/password/mfa-login; refresh is NOT here —
  * it authenticates via the session cookie and advertises `sessionCookie`) and
- * the Stripe-signed webhooks (verified via `Stripe-Signature`, not a JWT). The `Health` and
+ * the Stripe-signed webhooks (verified via `Stripe-Signature`, not a JWT), and Meta's Instagram
+ * callbacks (verified via the form's `signed_request`). The `Health` and
  * `Plan` tags are excluded separately above. Keyed by `"<METHOD> <openapi-path>"`. Kept in
  * sync with `docs/routes.txt` PUBLIC routes by `mcp-openapi`/route-security guard tests.
  */
@@ -59,6 +78,11 @@ const PUBLIC_ROUTE_KEYS = new Set<string>([
   'GET /api/v1/auth/oauth/{provider}/callback',
   'GET /api/v1/auth/oauth/providers',
   'POST /api/v1/billing/webhook',
+  'POST /api/v1/app/social/instagram/deauthorize',
+  'POST /api/v1/app/social/instagram/data-deletion',
+  // Meta's Instagram webhook: proved by the verify token (GET) and X-Hub-Signature-256 (POST).
+  'GET /api/v1/app/social/instagram/webhook',
+  'POST /api/v1/app/social/instagram/webhook',
 ]);
 
 export function getRouteSecurity(tags: string[], routeKey: string): object[] | undefined {

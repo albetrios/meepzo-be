@@ -4,7 +4,7 @@
 
 Every value here is a deliberate business, UX, or security trade-off. Each entry records what the value is, why it was picked, what changes if you move it, and when it was last reviewed. **Changing one requires updating this file in the same commit and re-running PR review.**
 
-The canonical exports live under [src/shared/constants/](src/shared/constants/) (`ttl.constants.ts`, `limits.constants.ts`, `security.constants.ts`, `pagination.constants.ts`, `billing.constants.ts`, `roles.constants.ts`, `query-limits.constants.ts`, `notification.constants.ts`, `project-identity.constants.ts`). When a new policy constant is added there, the `be-tsdoc-export-guard` skill cross-pings `be-system-narrative-maintainer` to add a row here.
+The canonical exports live under [src/shared/constants/](src/shared/constants/) (`ttl.constants.ts`, `limits.constants.ts`, `security.constants.ts`, `pagination.constants.ts`, `billing.constants.ts`, `instagram.constants.ts`, `roles.constants.ts`, `query-limits.constants.ts`, `notification.constants.ts`, `project-identity.constants.ts`). When a new policy constant is added there, the `be-tsdoc-export-guard` skill cross-pings `be-system-narrative-maintainer` to add a row here.
 
 ## VERIFICATION_CODE_TTL_MINUTES
 
@@ -203,6 +203,56 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Decreasing → transient bugs or brief data races abandon events sooner (an operator then retries them with `tool:stripe-webhook-replay -- --retry`).
   - Increasing → a broken event retries longer before anyone is told.
 - **Last reviewed**: 2026-10-05
+
+## INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS
+
+- **Value**: 5 attempts
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: An Instagram webhook event's handling attempts before it is marked `failed` (launch-2026-11-20-ujai WH12, WH14, D16). One account's events run strictly in order (WQ3, D28), so a failing event holds back that account's later events: five attempts with growing waits from 5 seconds keep the hold to about one to two minutes. Counted only when our handling ran — an Instagram outage (open circuit) gives the attempt back. The event-processing queue's BullMQ `attempts` is the same number; the 5th failed attempt marks the event `failed` with a code, and the account's next event runs. A permanent failure (an unreadable payload, a refused token) fails at once.
+- **Consequences of change**:
+  - Decreasing → a brief outage of the database or Instagram fails events that one more retry would have handled.
+  - Increasing → one broken event holds every later event of its account back longer (a DM's answer waits behind it).
+- **Last reviewed**: 2026-11-22
+
+## INSTAGRAM_WEBHOOK_EVENT_STUCK_AFTER_MINUTES
+
+- **Value**: 5 minutes
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: One number for two rules (WH12, WH15, D15): an Instagram webhook event still `received` / `queued` this long after it arrived and not claimed in as long is "stuck" — the every-minute pick-up re-adds its account's processing job — and a claim holds its event this long (the lease), so a run that died mid-event frees it. A temporary failure ends the lease at once (the attempt kept) so the job's own backoff retry does not wait it out.
+- **Consequences of change**:
+  - Decreasing → a slow but live handling (many sends with their 200–1000 ms pauses) can lose its lease to another run; the claim's attempt-count guard keeps that run's marks from landing, but the event is handled twice up to the engine's own idempotency.
+  - Increasing → an event whose job was lost (a Redis refusal at the receiver, a crash) waits longer before it is picked up.
+- **Last reviewed**: 2026-11-22
+
+## INSTAGRAM_WEBHOOK_EVENTS_PER_JOB
+
+- **Value**: 25 events
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: How many events one account's processing job handles before it adds one follow-up job and gives its worker slot up (WH12): a busy account (a viral "comment to get the link" post) never keeps the other accounts waiting, while a normal account's burst finishes in one job.
+- **Consequences of change**:
+  - Decreasing → more jobs and Redis round trips for a busy account; fairer slot sharing.
+  - Increasing → one busy account can hold a slot (of `WORKER_CONCURRENCY_INSTAGRAM`) for longer while other accounts' events wait.
+- **Last reviewed**: 2026-11-22
+
+## INSTAGRAM_WEBHOOK_CHALLENGE_MAX_LENGTH
+
+- **Value**: 256 characters
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: The longest `hub.challenge` the Instagram webhook's subscription check (route 16) echoes back. The route is public and answers the text Meta sent, so the text is bounded; Meta's challenges are short numbers.
+- **Consequences of change**:
+  - Decreasing → a longer challenge Meta may send one day is refused (`400 invalid_field`) and the subscription check fails.
+  - Increasing → the public route echoes longer caller-chosen text.
+- **Last reviewed**: 2026-11-22
+
+## AUTOMATION_RUN_RETENTION_DAYS / AUTOMATION_COMMENT_LOG_RETENTION_DAYS / AUTOMATION_TOMBSTONE_RETENTION_DAYS
+
+- **Value**: 180 days each — an automation run counted from its end (`ended_at`, its run events with it), a comment log from the day it was written (`created_at`), a deleted automation from its delete (`deleted_at`, once no run or comment log points at it)
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: How long the Instagram automation's history is kept (launch-2026-11-20-ujai D8, AQ7): half a year of runs and comment logs for the team to read, after which they carry personal data for no reason. Product rules, not settings — the deleted automation waits as long as the rows that point at it, so it does not use the platform's `TOMBSTONE_RETENTION_DAYS`. Three constants and not one, because each row's clock is its own decision.
+- **Consequences of change**:
+  - Decreasing → history the team still reads disappears sooner; the next daily clean-up removes everything older at once.
+  - Increasing → personal data (trigger texts, comment texts) is kept longer; check the privacy text first.
+- **Last reviewed**: 2026-11-22
 
 ## NEW_ORGANIZATION_TRIAL_DAYS
 

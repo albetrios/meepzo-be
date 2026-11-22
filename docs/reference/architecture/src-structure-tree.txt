@@ -13,46 +13,262 @@ src/
 ├── domains/
     ├── app/
     │   ├── __tests__/
+    │   │   ├── e2e/
+    │   │   │   ├── instagram-acceptance-gaps.e2e.test.ts
+    │   │   │   ├── instagram-acceptance-gaps.helper.ts
+    │   │   │   ├── instagram-comment-flow.e2e.test.ts
+    │   │   │   ├── instagram-comment-flow.helper.ts
+    │   │   │   ├── instagram-engine-recovery.e2e.test.ts
+    │   │   │   ├── instagram-engine-recovery.helper.ts
+    │   │   │   ├── instagram-message-flow.e2e.test.ts
+    │   │   │   ├── instagram-message-flow.helper.ts
+    │   │   │   ├── instagram-next-post-flow.e2e.test.ts
+    │   │   │   ├── instagram-next-post-flow.helper.ts
+    │   │   │   ├── instagram-retention-erasure.e2e.test.ts
+    │   │   │   └── instagram-retention-erasure.helper.ts
     │   │   ├── integration/
     │   │   │   └── app-route-smoke.integration.test.ts
     │   │   └── unit/
+    │   │   │   ├── app-updated-at.db.unit.test.ts
     │   │   │   └── app.domain-wiring.unit.test.ts
     │   ├── seed/
     │   │   └── index.ts
     │   ├── sub-domains/
-    │   │   └── instagram-account/
+    │   │   ├── automation/
     │   │   │   ├── __tests__/
-    │   │   │       ├── e2e/
-    │   │   │       │   └── instagram-account-connection.e2e.test.ts
-    │   │   │       ├── factories/
-    │   │   │       │   └── instagram-account.factory.ts
-    │   │   │       ├── integration/
-    │   │   │       │   └── instagram-account.integration.test.ts
-    │   │   │       └── unit/
-    │   │   │       │   ├── instagram-account-seed.db.unit.test.ts
-    │   │   │       │   ├── instagram-account-token-isolation.policy.unit.test.ts
-    │   │   │       │   ├── instagram-account-token.service.db.unit.test.ts
-    │   │   │       │   ├── instagram-account.repository.db.unit.test.ts
-    │   │   │       │   ├── instagram-account.serializer.unit.test.ts
-    │   │   │       │   └── instagram-account.validator.unit.test.ts
-    │   │   │   ├── instagram-account-settings/
-    │   │   │       ├── __tests__/
-    │   │   │       │   └── unit/
-    │   │   │       │   │   ├── instagram-account-settings.serializer.unit.test.ts
-    │   │   │       │   │   └── instagram-account-settings.service.db.unit.test.ts
-    │   │   │       ├── seed/
-    │   │   │       │   ├── index.ts
-    │   │   │       │   └── instagram-account-settings.bulk.seed.ts
-    │   │   │       ├── instagram-account-settings.overview.md
-    │   │   │       ├── instagram-account-settings.repository.ts
-    │   │   │       ├── instagram-account-settings.schema.ts
-    │   │   │       ├── instagram-account-settings.serializer.ts
-    │   │   │       ├── instagram-account-settings.service.ts
-    │   │   │       └── instagram-account-settings.types.ts
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── automation.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── automation.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── events/
+    │   │   │   │   │       └── worker/
+    │   │   │   │   │       │   ├── automation-next-post-expiry.worker.unit.test.ts
+    │   │   │   │   │       │   └── automation-tombstone-retention.worker.unit.test.ts
+    │   │   │   │   │   ├── automation-next-post-expiry.processor.unit.test.ts
+    │   │   │   │   │   ├── automation-tombstone-retention.processor.db.unit.test.ts
+    │   │   │   │   │   ├── automation.repository.db.unit.test.ts
+    │   │   │   │   │   ├── automation.serializer.unit.test.ts
+    │   │   │   │   │   ├── automation.service.unit.test.ts
+    │   │   │   │   │   └── automation.validator.unit.test.ts
+    │   │   │   ├── automation-run/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── automation-run.factory.ts
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── automation-run.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── events/
+    │   │   │   │   │   │       └── worker/
+    │   │   │   │   │   │       │   ├── automation-comment-log-retention.worker.unit.test.ts
+    │   │   │   │   │   │       │   ├── automation-run-retention.worker.unit.test.ts
+    │   │   │   │   │   │       │   └── automation-run-wait-expiry.worker.unit.test.ts
+    │   │   │   │   │   │   ├── automation-comment-log-retention.processor.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-public-reply-safety.service.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-lock-order.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-matching.util.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-message.service.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-message.util.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-retention.processor.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-seed.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-step.util.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-wait-expiry.processor.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-wait-expiry.processor.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run.service.db.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run.service.unit.test.ts
+    │   │   │   │   │   │   └── automation-run.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── automation-run.bulk.seed.ts
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── workers/
+    │   │   │   │   │   ├── automation-comment-log-retention.constants.ts
+    │   │   │   │   │   ├── automation-comment-log-retention.processor.ts
+    │   │   │   │   │   ├── automation-comment-log-retention.worker.ts
+    │   │   │   │   │   ├── automation-run-retention.constants.ts
+    │   │   │   │   │   ├── automation-run-retention.processor.ts
+    │   │   │   │   │   ├── automation-run-retention.worker.ts
+    │   │   │   │   │   ├── automation-run-wait-expiry.constants.ts
+    │   │   │   │   │   ├── automation-run-wait-expiry.processor.ts
+    │   │   │   │   │   └── automation-run-wait-expiry.worker.ts
+    │   │   │   │   ├── automation-comment-log.repository.ts
+    │   │   │   │   ├── automation-comment-log.schema.ts
+    │   │   │   │   ├── automation-public-reply-safety.service.ts
+    │   │   │   │   ├── automation-run-event.repository.ts
+    │   │   │   │   ├── automation-run-event.schema.ts
+    │   │   │   │   ├── automation-run-matching.util.ts
+    │   │   │   │   ├── automation-run-message.service.ts
+    │   │   │   │   ├── automation-run-message.util.ts
+    │   │   │   │   ├── automation-run-step.util.ts
+    │   │   │   │   ├── automation-run.constants.ts
+    │   │   │   │   ├── automation-run.overview.md
+    │   │   │   │   ├── automation-run.repository.ts
+    │   │   │   │   ├── automation-run.schema.ts
+    │   │   │   │   ├── automation-run.service.ts
+    │   │   │   │   ├── automation-run.types.ts
+    │   │   │   │   └── automation-run.validator.ts
     │   │   │   ├── seed/
-    │   │   │       ├── index.ts
-    │   │   │       ├── instagram-account.bulk.seed.ts
-    │   │   │       └── instagram-account.faker.ts
+    │   │   │   │   ├── automation.bulk.seed.ts
+    │   │   │   │   ├── automation.faker.ts
+    │   │   │   │   └── index.ts
+    │   │   │   ├── workers/
+    │   │   │   │   ├── automation-next-post-expiry.constants.ts
+    │   │   │   │   ├── automation-next-post-expiry.processor.ts
+    │   │   │   │   ├── automation-next-post-expiry.worker.ts
+    │   │   │   │   ├── automation-tombstone-retention.constants.ts
+    │   │   │   │   ├── automation-tombstone-retention.processor.ts
+    │   │   │   │   └── automation-tombstone-retention.worker.ts
+    │   │   │   ├── automation.constants.ts
+    │   │   │   ├── automation.controller.ts
+    │   │   │   ├── automation.dto.ts
+    │   │   │   ├── automation.overview.md
+    │   │   │   ├── automation.repository.ts
+    │   │   │   ├── automation.routes.ts
+    │   │   │   ├── automation.schema.ts
+    │   │   │   ├── automation.serializer.ts
+    │   │   │   ├── automation.service.ts
+    │   │   │   ├── automation.types.ts
+    │   │   │   └── automation.validator.ts
+    │   │   ├── contact/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── contact.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── contact.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── contact.repository.db.unit.test.ts
+    │   │   │   │   │   ├── contact.serializer.unit.test.ts
+    │   │   │   │   │   ├── contact.service.db.unit.test.ts
+    │   │   │   │   │   ├── contact.service.unit.test.ts
+    │   │   │   │   │   └── contact.validator.unit.test.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── contact.bulk.seed.ts
+    │   │   │   │   ├── contact.faker.ts
+    │   │   │   │   └── index.ts
+    │   │   │   ├── contact.constants.ts
+    │   │   │   ├── contact.controller.ts
+    │   │   │   ├── contact.dto.ts
+    │   │   │   ├── contact.overview.md
+    │   │   │   ├── contact.repository.ts
+    │   │   │   ├── contact.routes.ts
+    │   │   │   ├── contact.schema.ts
+    │   │   │   ├── contact.serializer.ts
+    │   │   │   ├── contact.service.ts
+    │   │   │   ├── contact.types.ts
+    │   │   │   └── contact.validator.ts
+    │   │   ├── instagram-account/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── e2e/
+    │   │   │   │   │   └── instagram-account-connection.e2e.test.ts
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── instagram-account.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── instagram-account-daily-check.integration.test.ts
+    │   │   │   │   │   ├── instagram-account-organization-delete.integration.test.ts
+    │   │   │   │   │   ├── instagram-account.integration.test.ts
+    │   │   │   │   │   └── instagram-reconnect-notice.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-account-daily-check.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-erasure.service.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-queues.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-token-isolation.policy.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-token.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-webhook-processing.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account.controller.unit.test.ts
+    │   │   │   │   │   ├── instagram-account.repository.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
+    │   │   │   │   │   ├── instagram-account.service.unit.test.ts
+    │   │   │   │   │   ├── instagram-account.validator.unit.test.ts
+    │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
+    │   │   │   ├── instagram-account-meta-callback/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── instagram-account-meta-callback.factory.ts
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── instagram-account-meta-callback.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-account-meta-callback-ingress.plugin.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-account-meta-callback.serializer.unit.test.ts
+    │   │   │   │   │   │   └── instagram-account-meta-callback.service.unit.test.ts
+    │   │   │   │   ├── instagram-account-meta-callback-confirmation-code.util.ts
+    │   │   │   │   ├── instagram-account-meta-callback-ingress.plugin.ts
+    │   │   │   │   ├── instagram-account-meta-callback.constants.ts
+    │   │   │   │   ├── instagram-account-meta-callback.controller.ts
+    │   │   │   │   ├── instagram-account-meta-callback.dto.ts
+    │   │   │   │   ├── instagram-account-meta-callback.overview.md
+    │   │   │   │   ├── instagram-account-meta-callback.routes.ts
+    │   │   │   │   ├── instagram-account-meta-callback.serializer.ts
+    │   │   │   │   ├── instagram-account-meta-callback.service.ts
+    │   │   │   │   └── instagram-account-meta-callback.types.ts
+    │   │   │   ├── instagram-account-settings/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── instagram-account-settings.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-account-settings.controller.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-account-settings.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-account-settings.repository.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-account-settings.serializer.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-account-settings.service.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-account-settings.service.unit.test.ts
+    │   │   │   │   │   │   └── instagram-account-settings.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── index.ts
+    │   │   │   │   │   └── instagram-account-settings.bulk.seed.ts
+    │   │   │   │   ├── instagram-account-settings.controller.ts
+    │   │   │   │   ├── instagram-account-settings.dto.ts
+    │   │   │   │   ├── instagram-account-settings.overview.md
+    │   │   │   │   ├── instagram-account-settings.repository.ts
+    │   │   │   │   ├── instagram-account-settings.routes.ts
+    │   │   │   │   ├── instagram-account-settings.schema.ts
+    │   │   │   │   ├── instagram-account-settings.serializer.ts
+    │   │   │   │   ├── instagram-account-settings.service.ts
+    │   │   │   │   ├── instagram-account-settings.types.ts
+    │   │   │   │   └── instagram-account-settings.validator.ts
+    │   │   │   ├── instagram-media/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── instagram-media.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-media-seed.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-media.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-media.serializer.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-media.service.db.unit.test.ts
+    │   │   │   │   │   │   ├── instagram-media.service.unit.test.ts
+    │   │   │   │   │   │   └── instagram-media.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── index.ts
+    │   │   │   │   │   ├── instagram-media.bulk.seed.ts
+    │   │   │   │   │   └── instagram-media.faker.ts
+    │   │   │   │   ├── instagram-media.constants.ts
+    │   │   │   │   ├── instagram-media.controller.ts
+    │   │   │   │   ├── instagram-media.dto.ts
+    │   │   │   │   ├── instagram-media.overview.md
+    │   │   │   │   ├── instagram-media.repository.ts
+    │   │   │   │   ├── instagram-media.routes.ts
+    │   │   │   │   ├── instagram-media.schema.ts
+    │   │   │   │   ├── instagram-media.serializer.ts
+    │   │   │   │   ├── instagram-media.service.ts
+    │   │   │   │   ├── instagram-media.types.ts
+    │   │   │   │   └── instagram-media.validator.ts
+    │   │   │   ├── queues/
+    │   │   │   │   ├── instagram-account-daily-check.job.schema.ts
+    │   │   │   │   ├── instagram-account-daily-check.queue.ts
+    │   │   │   │   ├── instagram-reconnect-notice.job.schema.ts
+    │   │   │   │   └── instagram-reconnect-notice.queue.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── index.ts
+    │   │   │   │   ├── instagram-account.bulk.seed.ts
+    │   │   │   │   └── instagram-account.faker.ts
+    │   │   │   ├── workers/
+    │   │   │   │   ├── instagram-account-daily-check.constants.ts
+    │   │   │   │   ├── instagram-account-daily-check.processor.ts
+    │   │   │   │   ├── instagram-account-daily-check.worker.ts
+    │   │   │   │   ├── instagram-reconnect-notice.processor.ts
+    │   │   │   │   └── instagram-reconnect-notice.worker.ts
+    │   │   │   ├── instagram-account-erasure.service.ts
+    │   │   │   ├── instagram-account-error.util.ts
     │   │   │   ├── instagram-account-token.repository.ts
     │   │   │   ├── instagram-account-token.schema.ts
     │   │   │   ├── instagram-account-token.service.ts
@@ -67,6 +283,82 @@ src/
     │   │   │   ├── instagram-account.service.ts
     │   │   │   ├── instagram-account.types.ts
     │   │   │   └── instagram-account.validator.ts
+    │   │   └── instagram-webhook/
+    │   │   │   ├── __tests__/
+    │   │   │       ├── integration/
+    │   │   │       │   ├── instagram-webhook-events.integration.test.ts
+    │   │   │       │   └── instagram-webhook.integration.test.ts
+    │   │   │       └── unit/
+    │   │   │       │   ├── events/
+    │   │   │       │       └── worker/
+    │   │   │       │       │   └── instagram-webhook.worker.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-event-classifier.util.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-event-dispatch.util.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-ingress.plugin.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-reclaim.processor.db.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-reclaim.processor.unit.test.ts
+    │   │   │       │   ├── instagram-webhook.dto.unit.test.ts
+    │   │   │       │   ├── instagram-webhook.processor.db.unit.test.ts
+    │   │   │       │   ├── instagram-webhook.processor.unit.test.ts
+    │   │   │       │   ├── instagram-webhook.queue.unit.test.ts
+    │   │   │       │   └── instagram-webhook.service.unit.test.ts
+    │   │   │   ├── instagram-webhook-event/
+    │   │   │       ├── __tests__/
+    │   │   │       │   ├── factories/
+    │   │   │       │   │   └── instagram-webhook-event.factory.ts
+    │   │   │       │   └── unit/
+    │   │   │       │   │   ├── events/
+    │   │   │       │   │       └── worker/
+    │   │   │       │   │       │   └── instagram-webhook-event-retention.worker.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event-payload-masking.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event-retention.processor.db.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event-retention.processor.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event-seed.db.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event.controller.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event.repository.db.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event.serializer.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event.service.unit.test.ts
+    │   │   │       │   │   └── instagram-webhook-event.validator.unit.test.ts
+    │   │   │       ├── seed/
+    │   │   │       │   ├── index.ts
+    │   │   │       │   ├── instagram-webhook-event.bulk.seed.ts
+    │   │   │       │   └── instagram-webhook-event.faker.ts
+    │   │   │       ├── workers/
+    │   │   │       │   ├── instagram-webhook-event-retention.constants.ts
+    │   │   │       │   ├── instagram-webhook-event-retention.processor.ts
+    │   │   │       │   └── instagram-webhook-event-retention.worker.ts
+    │   │   │       ├── instagram-webhook-event-payload-masking.util.ts
+    │   │   │       ├── instagram-webhook-event.constants.ts
+    │   │   │       ├── instagram-webhook-event.controller.ts
+    │   │   │       ├── instagram-webhook-event.dto.ts
+    │   │   │       ├── instagram-webhook-event.overview.md
+    │   │   │       ├── instagram-webhook-event.repository.ts
+    │   │   │       ├── instagram-webhook-event.routes.ts
+    │   │   │       ├── instagram-webhook-event.schema.ts
+    │   │   │       ├── instagram-webhook-event.serializer.ts
+    │   │   │       ├── instagram-webhook-event.service.ts
+    │   │   │       ├── instagram-webhook-event.types.ts
+    │   │   │       └── instagram-webhook-event.validator.ts
+    │   │   │   ├── queues/
+    │   │   │       ├── instagram-webhook.job.schema.ts
+    │   │   │       └── instagram-webhook.queue.ts
+    │   │   │   ├── workers/
+    │   │   │       ├── instagram-webhook-reclaim.constants.ts
+    │   │   │       ├── instagram-webhook-reclaim.processor.ts
+    │   │   │       ├── instagram-webhook.processor.ts
+    │   │   │       └── instagram-webhook.worker.ts
+    │   │   │   ├── instagram-webhook-error.util.ts
+    │   │   │   ├── instagram-webhook-event-classifier.util.ts
+    │   │   │   ├── instagram-webhook-event-dispatch.util.ts
+    │   │   │   ├── instagram-webhook-ingress.plugin.ts
+    │   │   │   ├── instagram-webhook.constants.ts
+    │   │   │   ├── instagram-webhook.controller.ts
+    │   │   │   ├── instagram-webhook.dto.ts
+    │   │   │   ├── instagram-webhook.overview.md
+    │   │   │   ├── instagram-webhook.routes.ts
+    │   │   │   ├── instagram-webhook.service.ts
+    │   │   │   └── instagram-webhook.types.ts
+    │   ├── app-plan-access.ts
     │   ├── app.container.ts
     │   ├── app.overview.md
     │   ├── app.permissions.ts
@@ -435,7 +727,6 @@ src/
     │   │   │   │   │   ├── stripe-webhook-event.repository.ledger-immutability.db.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook-ingress.plugin.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook-organization.util.unit.test.ts
-    │   │   │   │   │   ├── stripe-webhook-raw-body.registry.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.controller.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.job.schema.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.processor-race.unit.test.ts
@@ -461,7 +752,6 @@ src/
     │   │   │   ├── stripe-webhook-event.repository.ts
     │   │   │   ├── stripe-webhook-ingress.plugin.ts
     │   │   │   ├── stripe-webhook-organization.util.ts
-    │   │   │   ├── stripe-webhook-raw-body.registry.ts
     │   │   │   ├── stripe-webhook.controller.ts
     │   │   │   ├── stripe-webhook.overview.md
     │   │   │   ├── stripe-webhook.routes.ts
@@ -577,6 +867,7 @@ src/
     │   │   │   │   │   ├── notification.repository.worker-context.unit.test.ts
     │   │   │   │   │   ├── notification.serializer.shape.unit.test.ts
     │   │   │   │   │   ├── notification.serializer.unit.test.ts
+    │   │   │   │   │   ├── notification.service.organization-notifications.unit.test.ts
     │   │   │   │   │   ├── notification.service.unit.test.ts
     │   │   │   │   │   ├── notification.validator.unit.test.ts
     │   │   │   │   │   └── notification.worker.unit.test.ts
@@ -1505,6 +1796,7 @@ src/
     │   │   │   │   ├── scheduler-registry-audit.unit.test.ts
     │   │   │   │   ├── worker-connection-budget.unit.test.ts
     │   │   │   │   ├── worker-failure-sanitizer.util.unit.test.ts
+    │   │   │   │   ├── worker-organization-group.util.unit.test.ts
     │   │   │   │   ├── worker-queue-family.util.unit.test.ts
     │   │   │   │   └── worker-registration.registry.unit.test.ts
     │   │   ├── provider-outage-pause.util.ts
@@ -1516,6 +1808,7 @@ src/
     │   │   ├── worker-failure-sanitizer.util.ts
     │   │   ├── worker-health.server.ts
     │   │   ├── worker-options.ts
+    │   │   ├── worker-organization-group.util.ts
     │   │   ├── worker-pool-demand-context.ts
     │   │   ├── worker-processor.util.ts
     │   │   ├── worker-queue-family.constants.ts
@@ -1687,6 +1980,7 @@ src/
     │   ├── billing.constants.ts
     │   ├── i18n.constants.ts
     │   ├── index.ts
+    │   ├── instagram.constants.ts
     │   ├── limits.constants.ts
     │   ├── notification.constants.ts
     │   ├── pagination.constants.ts
@@ -1772,13 +2066,15 @@ src/
     │   │   ├── __tests__/
     │   │   │   └── unit/
     │   │   │   │   ├── http-cache.util.unit.test.ts
-    │   │   │   │   └── rate-limit-ip-key.util.unit.test.ts
+    │   │   │   │   ├── rate-limit-ip-key.util.unit.test.ts
+    │   │   │   │   └── raw-body-route.registry.unit.test.ts
     │   │   ├── api-versioning.util.ts
     │   │   ├── fastify-server.util.ts
     │   │   ├── http-cache.util.ts
     │   │   ├── list-query.util.ts
     │   │   ├── pagination.util.ts
     │   │   ├── rate-limit-ip-key.util.ts
+    │   │   ├── raw-body-route.registry.ts
     │   │   ├── request.util.ts
     │   │   ├── response.util.ts
     │   │   ├── trust-proxy.util.ts
@@ -1837,7 +2133,8 @@ src/
     │   ├── text/
     │   │   ├── csv.util.ts
     │   │   ├── email.util.ts
-    │   │   └── html-escape.util.ts
+    │   │   ├── html-escape.util.ts
+    │   │   └── storable-text.util.ts
     │   └── validation/
     │   │   ├── bullmq-job-validation.util.ts
     │   │   ├── file-magic.util.ts
@@ -1886,6 +2183,7 @@ src/
     │   │   │   ├── access-token.success.response.json
     │   │   │   ├── comment-replies.success.response.json
     │   │   │   ├── graph-error.application-throttled.response.json
+    │   │   │   ├── graph-error.business-throttled.response.json
     │   │   │   ├── graph-error.outside-messaging-window.response.json
     │   │   │   ├── graph-error.quick-reply-refused.response.json
     │   │   │   ├── graph-error.recipient-not-found.response.json
@@ -2119,6 +2417,7 @@ src/
     │   │   ├── bullmq-noop-smoke.integration.test.ts
     │   │   ├── commit-dispatch-cleanup.integration.test.ts
     │   │   ├── dlq-auto-retry.integration.test.ts
+    │   │   ├── instagram-webhook-account-serialization.integration.test.ts
     │   │   ├── mail-delivery-lanes.integration.test.ts
     │   │   ├── mail-enqueue-dedupe.integration.test.ts
     │   │   ├── provider-outage-pause.integration.test.ts
@@ -2295,11 +2594,15 @@ src/
     │   │   ├── audit-insert-rls-privilege-bypass.security.test.ts
     │   │   ├── audit-outbox-insert-rls.security.test.ts
     │   │   ├── audit-system-audit-insert-arm.security.test.ts
+    │   │   ├── automation-rls.security.test.ts
+    │   │   ├── automation-run-rls.security.test.ts
     │   │   ├── billing-subscriptions-with-check.security.test.ts
     │   │   ├── bola-cross-tenant.security.test.ts
     │   │   ├── bypass-arm-role-binding.security.test.ts
+    │   │   ├── contact-rls.security.test.ts
     │   │   ├── force-rls-policies-restrict.security.test.ts
     │   │   ├── instagram-account-resolvers.security.test.ts
+    │   │   ├── instagram-webhook-events-rls.security.test.ts
     │   │   ├── meepzo-be-app-role-privileges.security.test.ts
     │   │   ├── membership-name-sort.security.test.ts
     │   │   ├── membership-search-resolver.security.test.ts
@@ -2344,7 +2647,7 @@ src/
     │   │   ├── permission-cache-post-commit.policy.unit.test.ts
     │   │   ├── route-dto-presence.policy.unit.test.ts
     │   │   ├── snake-case-body-keys.policy.unit.test.ts
-    │   │   ├── stripe-webhook-ingress.policy.unit.test.ts
+    │   │   ├── webhook-ingress.policy.unit.test.ts
     │   │   └── zod-route-body-boundary.policy.unit.test.ts
     │   ├── bench/
     │   │   └── bench-runner.unit.test.ts
@@ -2538,6 +2841,7 @@ src/
     │   │   ├── event-loop-metrics.unit.test.ts
     │   │   ├── http-metrics.plugin.unit.test.ts
     │   │   ├── idempotency-cardinality.service.unit.test.ts
+    │   │   ├── instagram-webhook-metrics.unit.test.ts
     │   │   ├── observability-workers.unit.test.ts
     │   │   ├── redis-saturation.service.unit.test.ts
     │   │   ├── sentry-capture-policy.unit.test.ts
@@ -2713,7 +3017,8 @@ src/
     │   │   │   ├── webhook-outbound-fetch.util.unit.test.ts
     │   │   │   └── webhook-url.util.unit.test.ts
     │   │   ├── text/
-    │   │   │   └── email.util.unit.test.ts
+    │   │   │   ├── email.util.unit.test.ts
+    │   │   │   └── storable-text.util.unit.test.ts
     │   │   └── validation/
     │   │   │   ├── bullmq-job-validation.unit.test.ts
     │   │   │   ├── file-magic.util.unit.test.ts

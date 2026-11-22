@@ -19,3 +19,11 @@ export function getWorkerConcurrencyWebhook(): number {
 export function getWorkerConcurrencyStripe(): number {
   return env.WORKER_CONCURRENCY_STRIPE ?? env.WORKER_CONCURRENCY;
 }
+
+/**
+ * Resolves the BullMQ Instagram event-processing worker concurrency — how many Instagram accounts
+ * one process works on side by side (WH5) — falling back to `WORKER_CONCURRENCY`.
+ */
+export function getWorkerConcurrencyInstagram(): number {
+  return env.WORKER_CONCURRENCY_INSTAGRAM ?? env.WORKER_CONCURRENCY;
+}

@@ -1,7 +1,12 @@
+import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { DrizzleQueryError } from 'drizzle-orm';
+import pino from 'pino';
 import {
+  isSecretKey,
   isSensitiveKey,
+  PERSONAL_DATA_KEY_FRAGMENTS,
+  SECRET_KEY_FRAGMENTS,
   listDatabaseErrorMessages,
   redactSensitive,
   sanitizeDatabaseError,
@@ -29,6 +34,101 @@ describe('redaction single-source invariant (audit #27)', () => {
     for (const path of barePaths) {
       expect(isSensitiveKey(path)).toBe(true);
     }
+  });
+});
+
+// Launch D38 (CT12): the logs hide a contact's personal data, but a response may carry it and the
+// idempotency layer may replay it — so the log list is the secret list plus personal data, and
+// the secret test stays the secrets only.
+describe('the log list and the secret list (launch D38, D40)', () => {
+  const PERSONAL_KEYS = [
+    'username',
+    'phone',
+    'full_name',
+    'profile_picture_url',
+    'email',
+    'is_email_collection_enabled',
+    'email_request_message',
+    // The run engine's copies of what a person wrote (launch AU26, AUC13).
+    'trigger_text',
+    'comment_text',
+    'commenter_username',
+    'email_received',
+    'phone_received',
+  ];
+
+  it('derives the log list from the secret list and the personal data — one source, no drift', () => {
+    expect(SENSITIVE_KEY_FRAGMENTS).toEqual([
+      ...SECRET_KEY_FRAGMENTS,
+      ...PERSONAL_DATA_KEY_FRAGMENTS,
+    ]);
+    for (const fragment of PERSONAL_DATA_KEY_FRAGMENTS) {
+      expect(SECRET_KEY_FRAGMENTS).not.toContain(fragment);
+    }
+  });
+
+  it.each(PERSONAL_KEYS)('hides %s in logs but does not call it a secret', (key) => {
+    expect(isSensitiveKey(key)).toBe(true);
+    expect(isSecretKey(key)).toBe(false);
+  });
+
+  it.each(['access_token', 'client_secret', 'password', 'raw_key', 'Authorization'])(
+    'calls %s a secret, and hides it in logs',
+    (key) => {
+      expect(isSecretKey(key)).toBe(true);
+      expect(isSensitiveKey(key)).toBe(true);
+    },
+  );
+
+  it('a log line masks a contact username, phone, full name, picture and email', () => {
+    const lines: string[] = [];
+    const destination = new Writable({
+      write(chunk, _encoding, callback) {
+        lines.push(String(chunk));
+        callback();
+      },
+    });
+    // The process logger's two halves: the Pino paths and the recursive formatter.
+    const logger = pino(
+      {
+        redact: { paths: [...PINO_REDACT_PATHS], censor: SENSITIVE_REDACTION_PLACEHOLDER },
+        formatters: { log: (object) => redactSensitive(object) },
+      },
+      destination,
+    );
+
+    logger.info(
+      {
+        username: 'jordan.lee',
+        contact: {
+          username: 'jordan.lee',
+          phone: '+15550100123',
+          full_name: 'Jordan Lee',
+          profile_picture_url: 'https://cdn.example.com/jordan.jpg',
+          email: 'jordan.lee@example.com',
+        },
+        contactPublicId: 'con_p3k8w2m9x4r7n1v5a1b2c',
+      },
+      'app.contact.probe',
+    );
+
+    const line = JSON.parse(lines[0] ?? '{}') as Record<string, unknown>;
+    expect(line.username).toBe(SENSITIVE_REDACTION_PLACEHOLDER);
+    expect(line.contact).toEqual({
+      username: SENSITIVE_REDACTION_PLACEHOLDER,
+      phone: SENSITIVE_REDACTION_PLACEHOLDER,
+      full_name: SENSITIVE_REDACTION_PLACEHOLDER,
+      profile_picture_url: SENSITIVE_REDACTION_PLACEHOLDER,
+      email: SENSITIVE_REDACTION_PLACEHOLDER,
+    });
+    expect(line.contactPublicId).toBe('con_p3k8w2m9x4r7n1v5a1b2c');
+    expect(lines.join('')).not.toContain('jordan');
+  });
+
+  it('masks a username in a logged query string too', () => {
+    expect(redactSensitiveQueryString('username=jordan&limit=25')).toBe(
+      `username=${SENSITIVE_REDACTION_PLACEHOLDER}&limit=25`,
+    );
   });
 });
 

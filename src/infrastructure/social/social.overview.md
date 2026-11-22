@@ -32,12 +32,14 @@ network primitive and nothing calls Instagram any other way.
   code and the secret as a form body.
 - **One error, four classes (IA4)**: every failure is an `InstagramApiError` (an `ExternalServiceError`, so an unmapped
   one answers 503) with `errorClass` — `auth` (code 190: subcode 463 → `expired`, else `error`; permission codes 10 and
-  200–299 → `error`), `throttled` (codes 4, 17, 32, 613 or HTTP 429, with `retryAfterMs` from `Retry-After`, one minute
-  when absent), `refused` (any other 4xx; code 10 with Meta's "outside the messaging window" subcodes 2534022 /
+  200–299 → `error`), `throttled` (codes 4, 17, 32, 613, 80002 or HTTP 429, with `retryAfterMs` from `Retry-After`, one
+  minute when absent and 15 minutes at most, D56), `refused` (any other 4xx; code 10 with Meta's "outside the messaging window" subcodes 2534022 /
   2018278 — only that send fails, the account stays `connected`, D32; `isQuickReplyRefused` for code 100 / subcode
   2534015), `outage` (timeout,
   network, 5xx, an open circuit, an answer missing what the call needs). Callers branch on the class; the HTTP mapping
   (404 `instagram_reconnect_required`, 422 `instagram_code_invalid`, 503 `instagram_unavailable`) is the services'.
+- **Instagram's text is never read** (D52, D53): an error keeps the class, code, subcode, type, `fbtrace_id` and HTTP
+  status. Its `message` can name a person or quote a token, so no field, row or log line carries it.
 - **Refusals don't trip the circuit**: `auth`, `refused` and `throttled` carry `countsAsCircuitFailure: false` (as
   `ResendApiError` does) — Instagram answered, so a burst of bad codes, dead tokens or one account's throttle cannot open
   the circuit for every organization. Only an `outage` counts.
@@ -45,7 +47,8 @@ network primitive and nothing calls Instagram any other way.
   else the flat body (D33 — Meta documents both); anything else lacks what the call needs and is an `outage`.
 - **One signature helper for both Meta checks**: `verifyMetaWebhookSignature` (`X-Hub-Signature-256` over the raw body,
   WH8) and `parseMetaSignedRequest` (the deauthorize / data-deletion `signed_request`, IA18) share one HMAC-SHA256 check
-  with the app secret, compared with `timingSafeEqual`; the signature is verified before anything is parsed.
+  with the app secret — `isHmacSha256SignatureValid` in `src/shared/utils/security/webhook-signature.util.ts`, the one
+  constant-time compare every webhook signature uses (WHC2); the signature is verified before anything is parsed.
 
 ## Operational concerns
 
@@ -54,8 +57,10 @@ network primitive and nothing calls Instagram any other way.
   context callback under `src/domains/`.
 - **Queues that call Instagram** pause while it is down: `instagram` is a managed circuit, so it is a `QueueProvider` for
   `createProviderPausableWorker`. A throttle does not open the circuit; a worker that must wait it out throws
-  `ProviderOutageError` with the error's `retryAfterMs` itself.
-- **Sends are not idempotent**: the run engine's claim keeps a message from going twice (D16); the 200–1000 ms pause
+  `ProviderOutageError` with the error's `retryAfterMs` itself — 15 minutes at most, so one long `Retry-After` never
+  holds every organization's queue for longer.
+- **Sends are not idempotent**: the run engine's claim keeps a message from going twice (D16), and it never sends again
+  after an answer that cannot say whether the message went — a timeout, an HTTP 502 or 504 (D55); the 200–1000 ms pause
   before each send (K10) is the sender's.
 - **Ops**: the circuit is listed and resettable at `/internal/ops/circuit-breakers` and reported in `/readyz`.
 
@@ -63,8 +68,13 @@ network primitive and nothing calls Instagram any other way.
 
 - Instagram API with Instagram Login (`api.instagram.com`, `graph.instagram.com`), Graph API `v24.0`.
 - Settings (full names, D20): `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` (the one app secret — also the key of both Meta
-  signatures), `INSTAGRAM_REDIRECT_URI`. `isInstagramConfigured()` is false while any is unset; both code exchanges
-  then answer 503 (`errors:instagramNotConfigured`) without calling Instagram.
+  signatures, so at least 32 characters when set, D53), `INSTAGRAM_REDIRECT_URI`. `isInstagramConfigured()` is false while any is unset; both code exchanges
+  then answer 503 (`errors:instagramNotConfigured`) without calling Instagram, and `assertInstagramConfigured()` gives
+  the same 503 to a route that calls Instagram with a stored token only (the post and story pickers, IA16).
+  `readInstagramAppSecret()` returns the app secret alone, or the same 503 — for Meta's deauthorize and data-deletion
+  callbacks (IA18), which check `signed_request` and derive a confirmation code but never call Instagram.
+- The answer readers `readAnswerText`, `readAnswerCount` and `readAnswerId` are exported for the media service, which
+  maps Instagram's post and story objects with the same rules the client reads its own answers by.
 - `SECRETS_ENCRYPTION_KEY` (and its keyring) through `field-secret-encryption.util.ts`.
 
 ## Failure modes

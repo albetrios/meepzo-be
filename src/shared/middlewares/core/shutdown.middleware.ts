@@ -10,6 +10,8 @@ import { closeWebhookDeliveryQueue } from '@/domains/notify/sub-domains/webhook/
 import { closeSubscriptionSeatSyncQueue } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
 import { closeStripeWebhookQueue } from '@/domains/billing/sub-domains/stripe-webhook/queues/stripe-webhook.queue.js';
 import { closeUserDataExportQueue } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
+import { closeInstagramReconnectNoticeQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
+import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { flushSentry } from '@/infrastructure/observability/sentry/sentry.js';
 import { shutdownPostHog } from '@/infrastructure/observability/posthog/posthog.js';
 import { closeBullMQMetricsQueues } from '@/infrastructure/observability/metrics/bullmq-metrics.js';
@@ -74,6 +76,12 @@ const shutdownMiddleware: FastifyPluginAsync = async (app) => {
       // graceful shutdown (previously only 4 of the 6 producer queues were drained here).
       closeStripeWebhookQueue(),
       closeUserDataExportQueue(),
+      // Launch IA9: a token error on a request path (the post and story pickers) enqueues the
+      // reconnect notice after its commit.
+      closeInstagramReconnectNoticeQueue(),
+      // Launch WH10: the Instagram webhook (route 17) adds each account's processing job after
+      // its events are stored.
+      closeInstagramWebhookQueue(),
     ]);
     // The same pooled BullMQ clients the readiness probe uses — released before the shared
     // connections so the API does not leave Redis sockets open on the way out.

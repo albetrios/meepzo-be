@@ -22,7 +22,7 @@ export function createStripeWebhookController(stripeWebhookService: StripeWebhoo
     async handleWebhook(request: FastifyRequest, reply: FastifyReply) {
       const event = request.stripeWebhookEvent;
       if (!event) {
-        throw new ValidationError('errors:stripeWebhookVerificationFailed');
+        throw new ValidationError('errors:webhookSignatureVerificationFailed');
       }
 
       // sec-B finding #6: the service performs the durability commit to Postgres BEFORE this

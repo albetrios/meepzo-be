@@ -332,15 +332,21 @@ Use a **distinct `SCALAR_SLUG` per environment** (e.g. `meepzo-be-dev` vs `meepz
 
 **Used for:** connecting an organization's Instagram professional account (the code exchanges) and
 checking Meta's signed requests and the Instagram webhook's `X-Hub-Signature-256`. Every call goes through the one Instagram client
-(`src/infrastructure/social/instagram.client.ts`). Optional in every environment, production
-included: without these settings each Instagram route that needs one answers
-`503 instagram_not_configured`, and the app still boots.
+(`src/infrastructure/social/instagram.client.ts`). All four settings are optional in every
+environment, production included, and the app still boots without them: each Instagram route that
+needs one of the three app settings answers `503 instagram_not_configured` (Meta's deauthorize and
+data-deletion callbacks need only `INSTAGRAM_APP_SECRET`), and without the webhook's verify token
+Meta's subscription check answers `503 instagram_webhook_not_configured`. An app secret or a verify
+token that is set must be at least 32 characters, or the app does not boot: the secret is the key that
+proves Meta signed a request, so a placeholder left in an environment stops the boot instead of
+letting anyone sign a delivery. `.env.example` ships both blank.
 
 | .env variable            | Where to get it                                                                                     |
 | ------------------------ | --------------------------------------------------------------------------------------------------- |
 | `INSTAGRAM_APP_ID`       | **Instagram app ID** (a GitHub Variable — it is public, the `client_id` of the authorize URL).      |
-| `INSTAGRAM_APP_SECRET`   | **Instagram app secret** (a GitHub Secret) — the one secret for the exchanges and both signatures. |
+| `INSTAGRAM_APP_SECRET`   | **Instagram app secret** (a GitHub Secret, at least 32 characters — Meta's are 32) — the one secret for the exchanges and both signatures. Unset, every route that needs it answers 503. |
 | `INSTAGRAM_REDIRECT_URI` | The frontend's `/auth/instagram/callback` page (a GitHub Variable), registered on the app exactly.  |
+| `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | **You choose it** (a GitHub Secret, at least 32 characters — e.g. `openssl rand -hex 32`) and type it as the webhook's **Verify token** (step 5); Meta sends it back as `hub.verify_token`. Unset, Meta's subscription check answers `503 instagram_webhook_not_configured`. |
 
 **Steps (Meta App Dashboard):**
 
@@ -358,9 +364,21 @@ included: without these settings each Instagram route that needs one answers
 4. **App Review** → **Permissions and features**: the three permissions connect needs (below).
    Until the app has Advanced Access to them, only Instagram accounts with a role on the app
    (an Instagram tester accepted under **App roles**) can connect.
-5. **Instagram** → **API setup with Instagram login** → **Configure webhooks**: subscribe the app
-   to the three webhook fields (below). The callback URL and its verify token belong to the
-   Instagram webhook routes (sub-domain 4 of the launch iteration), which a later ROUTE row adds.
+5. **Instagram** → **API setup with Instagram login** → **Configure webhooks**: **Callback URL**
+   `https://<api host>/api/v1/app/social/instagram/webhook` and **Verify token** the value of
+   `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` → **Verify and save** (Meta calls `GET …/webhook` with
+   `hub.mode=subscribe`, the token and a challenge; the API echoes the challenge). Then subscribe the
+   app to the three webhook fields (below). Meta signs each delivery (`POST …/webhook`) with
+   `X-Hub-Signature-256` — the HMAC of the raw body with `INSTAGRAM_APP_SECRET`.
+6. Same page → **Set up Instagram business login** → **Business login settings**: set the
+   **Deauthorize callback URL** to `https://<your API host>/api/v1/app/social/instagram/deauthorize`
+   and the **Data deletion request URL** to
+   `https://<your API host>/api/v1/app/social/instagram/data-deletion`. Meta posts a form with one
+   `signed_request` there, signed with `INSTAGRAM_APP_SECRET`: the first disconnects the account in
+   every organization holding it, the second also erases its profile and stored posts and answers
+   Meta with a confirmation code and a status link to the frontend's `/instagram/data-deletion`
+   page (`FRONTEND_URL`). Without `INSTAGRAM_APP_SECRET` both answer
+   `503 instagram_not_configured`.
 
 **The redirect URI, one per environment.** Each value is the frontend's
 `/auth/instagram/callback` page of that environment, and each must also be listed under the app's
@@ -372,9 +390,10 @@ included: without these settings each Instagram route that needs one answers
 | development | the development frontend's `https://…/auth/instagram/callback` | `.env.development`, pushed with `pnpm github:sync development` |
 | production | the production frontend's `https://…/auth/instagram/callback` | `.env.production`, pushed with `pnpm github:sync production` |
 
-The hosted values — all three settings — reach their GitHub Environment only through
-`pnpm github:sync <environment>`: `INSTAGRAM_APP_SECRET` as a Secret, `INSTAGRAM_APP_ID` and
-`INSTAGRAM_REDIRECT_URI` as Variables (their half of `.env.example` decides which).
+The hosted values — all four settings — reach their GitHub Environment only through
+`pnpm github:sync <environment>`: `INSTAGRAM_APP_SECRET` and `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` as
+Secrets, `INSTAGRAM_APP_ID` and `INSTAGRAM_REDIRECT_URI` as Variables (their half of `.env.example`
+decides which).
 
 **The scopes connect needs.** The frontend's authorize link asks for all three, and the code
 exchange must grant all three; one left unticked on Instagram's consent screen answers
@@ -394,8 +413,12 @@ same three fields (step 5), or no event arrives.
 
 **Locally:** `pnpm setup:local` copies `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` from
 `.env.development` (or your environment variables) while `.env.local` still holds the
-`.env.example` placeholder; `INSTAGRAM_REDIRECT_URI` is per environment and is never copied. Tests
-never use these: the harness sets a fake Instagram app and refuses every outside host.
+`.env.example` placeholder — the secret is blank there, and an older file's `...` (refused as too
+short) is set back to blank; `INSTAGRAM_REDIRECT_URI` is per environment and is never copied, and
+`INSTAGRAM_WEBHOOK_VERIFY_TOKEN` is yours to choose, at least 32 characters (`.env.example` leaves it
+blank, so the subscription check answers 503 until you set one; a webhook pointed at your machine
+through a tunnel is verified with whatever token you typed into the dashboard). Tests never use these: the
+harness sets a fake Instagram app and a test verify token, and refuses every outside host.
 
 ---
 
@@ -418,7 +441,8 @@ OAUTH_GOOGLE_CLIENT_SECRET=...
 OAUTH_GITHUB_CLIENT_SECRET=...
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...    # Stripe CLI or Dashboard
-INSTAGRAM_APP_SECRET=...           # Meta App Dashboard → Instagram → API setup with Instagram login
+INSTAGRAM_APP_SECRET=...           # the real one (32+ chars), never a placeholder: Meta App Dashboard → Instagram → API setup with Instagram login
+INSTAGRAM_WEBHOOK_VERIFY_TOKEN=... # you choose it (32+ chars; openssl rand -hex 32); typed into the webhook setup
 S3_ACCESS_KEY_ID=AKIA...
 S3_SECRET_ACCESS_KEY=...
 SENTRY_DSN=https://...@sentry.io/...

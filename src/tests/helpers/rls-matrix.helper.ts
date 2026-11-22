@@ -28,6 +28,13 @@ import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
+import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
+import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
+import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
+import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
+import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
+import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
+import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -525,11 +532,14 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     organizationB: uploadB!.id,
   });
 
-  // The Instagram account sub-domain (launch R3): one connected account per organization, with its
-  // token (ciphertext placeholder — never decrypted here) and its default settings.
+  // The Instagram account sub-domain (launch R3, R5, R12): one connected account per organization,
+  // with its token (ciphertext placeholder — never decrypted here), its default settings, a stored
+  // post and a received webhook event.
   const instagramAccountIds = { organizationA: 0, organizationB: 0 };
   const instagramTokenIds = { organizationA: 0, organizationB: 0 };
   const instagramSettingsIds = { organizationA: 0, organizationB: 0 };
+  const instagramMediaIds = { organizationA: 0, organizationB: 0 };
+  const instagramWebhookEventIds = { organizationA: 0, organizationB: 0 };
   for (const [side, organization] of [
     ['organizationA', organizationA],
     ['organizationB', organizationB],
@@ -557,9 +567,35 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       .insert(instagram_account_settings)
       .values({ organization_id: organization.id, instagram_account_id: account!.id })
       .returning();
+    // One stored post (launch R5), owned by the account through the composite key.
+    const [media] = await database
+      .insert(instagram_media)
+      .values({
+        organization_id: organization.id,
+        instagram_account_id: account!.id,
+        instagram_media_id: side === 'organizationA' ? '18030000000000001' : '18030000000000002',
+        published_at: new Date(),
+      })
+      .returning();
+    // One received comment event of the account (launch R12).
+    const [webhookEvent] = await database
+      .insert(instagram_webhook_events)
+      .values({
+        public_id: generatePublicId('instagramWebhookEvent'),
+        organization_id: organization.id,
+        instagram_account_id: account!.id,
+        instagram_user_id: instagramUserId,
+        contact_instagram_user_id: '17841400000000099',
+        event_kind: 'comment',
+        event_key: `comment:rls-matrix-${side}`,
+        payload: { field: 'comments', value: { id: `rls-matrix-${side}`, text: 'Price?' } },
+      })
+      .returning();
     instagramAccountIds[side] = account!.id;
     instagramTokenIds[side] = token!.id;
     instagramSettingsIds[side] = settings!.id;
+    instagramMediaIds[side] = media!.id;
+    instagramWebhookEventIds[side] = webhookEvent!.id;
   }
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_accounts' }),
@@ -572,6 +608,126 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_account_settings' }),
     instagramSettingsIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_media' }),
+    instagramMediaIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_webhook_events' }),
+    instagramWebhookEventIds,
+  );
+
+  // The contact sub-domain (launch R8): one live contact of each organization's account.
+  const contactIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [contact] = await database
+      .insert(contacts)
+      .values({
+        public_id: generatePublicId('contact'),
+        organization_id: organization.id,
+        instagram_account_id: instagramAccountIds[side],
+        instagram_user_id: side === 'organizationA' ? '17841400000000101' : '17841400000000102',
+        username: `rls_contact_${side.toLowerCase()}`,
+        first_seen_at: new Date(),
+        last_message_received_at: new Date(),
+      })
+      .returning();
+    contactIds[side] = contact!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'contacts' }), contactIds);
+
+  // The automation sub-domain (launch R9): one inactive comment automation of each organization's
+  // account — the smallest complete flow (the opening message with its button, the final message).
+  const automationIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [automation] = await database
+      .insert(automations)
+      .values({
+        public_id: generatePublicId('automation'),
+        organization_id: organization.id,
+        instagram_account_id: instagramAccountIds[side],
+        name: `RLS matrix automation ${side}`,
+        trigger_type: 'comment',
+        opening_message: { text: 'Hi there', button_title: 'Send it' },
+        final_message: { text: 'Here you go', links: [] },
+      })
+      .returning();
+    automationIds[side] = automation!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'automations' }), automationIds);
+
+  // The run engine (launch R10): one waiting run of each organization's automation for its
+  // contact, its status event, and the comment log of the comment that started it.
+  const runIds = { organizationA: 0, organizationB: 0 };
+  const runEventIds = { organizationA: 0, organizationB: 0 };
+  const commentLogIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const commentId = side === 'organizationA' ? '17950000000000001' : '17950000000000002';
+    const mediaId = side === 'organizationA' ? '18030000000000001' : '18030000000000002';
+    const [run] = await database
+      .insert(automation_runs)
+      .values({
+        public_id: generatePublicId('automationRun'),
+        organization_id: organization.id,
+        automation_id: automationIds[side],
+        contact_id: contactIds[side],
+        trigger_type: 'comment',
+        trigger_instagram_media_id: mediaId,
+        trigger_instagram_comment_id: commentId,
+        trigger_text: 'Price?',
+        status: 'waiting',
+        current_step: 'comment_reply',
+        waiting_for: 'opening_message_button',
+        waiting_since_at: new Date(),
+        last_instagram_event_key: `comment:${commentId}`,
+      })
+      .returning();
+    const [runEvent] = await database
+      .insert(automation_run_events)
+      .values({
+        organization_id: organization.id,
+        automation_run_id: run!.id,
+        event_type: 'status_changed',
+        status: 'waiting',
+      })
+      .returning();
+    const [commentLog] = await database
+      .insert(automation_comment_logs)
+      .values({
+        public_id: generatePublicId('automationCommentLog'),
+        organization_id: organization.id,
+        automation_id: automationIds[side],
+        automation_name: `RLS matrix automation ${side}`,
+        automation_run_id: run!.id,
+        contact_id: contactIds[side],
+        instagram_media_id: mediaId,
+        instagram_comment_id: commentId,
+        overall_status: 'waiting',
+        waiting_for: 'opening_message_button',
+      })
+      .returning();
+    runIds[side] = run!.id;
+    runEventIds[side] = runEvent!.id;
+    commentLogIds[side] = commentLog!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'automation_runs' }), runIds);
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'automation_run_events' }),
+    runEventIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'automation_comment_logs' }),
+    commentLogIds,
   );
 
   return {

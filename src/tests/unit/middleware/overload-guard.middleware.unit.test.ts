@@ -167,10 +167,13 @@ describe('overload-guard.middleware', () => {
         expect(response.statusCode).toBe(503);
         expect(response.headers['retry-after']).toBe('1');
         expect(response.json().error.reason).toBeUndefined();
-        expect(warning).toHaveBeenCalledWith(
-          expect.objectContaining({ reason: 'database_pool_overload' }),
-          'request.overload_shed',
-        );
+        // One line per shed request, with the internal signal (D56).
+        expect(warning.mock.calls).toEqual([
+          [
+            expect.objectContaining({ reason: 'database_pool_overload' }),
+            'request.service_unavailable',
+          ],
+        ]);
       } finally {
         vi.restoreAllMocks();
         resetOrganizationRlsCheckoutCountForTests();
@@ -197,10 +200,13 @@ describe('overload-guard.middleware', () => {
         expect(response.statusCode).toBe(503);
         expect(response.headers['retry-after']).toBe('1');
         expect(response.json().error.reason).toBeUndefined();
-        expect(warning).toHaveBeenCalledWith(
-          expect.objectContaining({ reason: 'database_pool_wait_overload' }),
-          'request.overload_shed',
-        );
+        // One line per shed request, with the internal signal (D56).
+        expect(warning.mock.calls).toEqual([
+          [
+            expect.objectContaining({ reason: 'database_pool_wait_overload' }),
+            'request.service_unavailable',
+          ],
+        ]);
       } finally {
         vi.restoreAllMocks();
         resetOrganizationRlsCheckoutCountForTests();
@@ -228,10 +234,13 @@ describe('overload-guard.middleware', () => {
         expect(response.statusCode).toBe(503);
         expect(response.headers['retry-after']).toBe('1');
         expect(response.json().error.reason).toBeUndefined();
-        expect(warning).toHaveBeenCalledWith(
-          expect.objectContaining({ reason: 'event_loop_overload' }),
-          'request.overload_shed',
-        );
+        // One line per shed request, with the internal signal (D56).
+        expect(warning.mock.calls).toEqual([
+          [
+            expect.objectContaining({ reason: 'event_loop_overload' }),
+            'request.service_unavailable',
+          ],
+        ]);
       } finally {
         vi.restoreAllMocks();
         await app.close();

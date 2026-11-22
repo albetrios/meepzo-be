@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { mockDatabaseContexts } from '@/tests/helpers/database-context-mock.helper.js';
 
 const invalidateOrganizationPermissionsMock = vi.fn().mockResolvedValue(undefined);
@@ -29,7 +29,10 @@ import {
   ValidationError,
 } from '@/shared/errors/index.js';
 import { env } from '@/shared/config/env.config.js';
-import { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
+import {
+  OrganizationService,
+  type OrganizationInstagramOffboardingPort,
+} from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { OrganizationRepository } from '@/domains/tenancy/sub-domains/organization/organization.repository.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createObjectStoragePortMock } from '@/tests/helpers/object-storage-mock.helper.js';
@@ -245,6 +248,94 @@ describe('OrganizationService', () => {
     await expect(service.delete(asScope(organizationRow.public_id))).rejects.toThrow();
     // The soft-delete must NOT have run after the failed cancel.
     expect(repository.softDelete).not.toHaveBeenCalled();
+  });
+
+  describe('delete erases the Instagram accounts (launch D54)', () => {
+    const erasure = {
+      instagramAccountPublicIds: ['iga_k7x9m2pqr4w8n1v3a1b2c'],
+      erasedPostCount: 2,
+    };
+
+    type EraseForOrganizationOffboarding =
+      OrganizationInstagramOffboardingPort['eraseForOrganizationOffboarding'];
+
+    function wireInstagramErasure(
+      eraseForOrganizationOffboarding: Mock<EraseForOrganizationOffboarding>,
+    ) {
+      const subscriptionService = {
+        cancelActiveForOrganizationOffboarding: vi.fn().mockResolvedValue(undefined),
+      };
+      service.wireOffboardingUploadService({
+        uploadService: { tombstoneAllByOrganizationId: vi.fn().mockResolvedValue(0) } as never,
+        subscriptionService,
+        instagramErasureService: { eraseForOrganizationOffboarding },
+      });
+      return subscriptionService;
+    }
+
+    it('in its own scope, after the subscription cancel and before the soft-delete, and answers what it erased', async () => {
+      const erase = vi.fn<EraseForOrganizationOffboarding>().mockResolvedValue(erasure);
+      const subscriptionService = wireInstagramErasure(erase);
+      const scope = asScope(organizationRow.public_id);
+
+      const result = await service.delete(scope);
+
+      expect(result).toEqual({ erasedInstagram: erasure });
+      expect(erase).toHaveBeenCalledWith(scope);
+      const order = (call: { mock: { invocationCallOrder: number[] } }) =>
+        call.mock.invocationCallOrder[0] as number;
+      expect(order(subscriptionService.cancelActiveForOrganizationOffboarding)).toBeLessThan(
+        order(erase),
+      );
+      expect(order(erase)).toBeLessThan(order(vi.mocked(repository.softDelete)));
+    });
+
+    it('erases nothing when the subscription cancel fails', async () => {
+      const erase = vi.fn<EraseForOrganizationOffboarding>().mockResolvedValue(erasure);
+      wireInstagramErasure(erase).cancelActiveForOrganizationOffboarding.mockRejectedValue(
+        new Error('stripe unavailable'),
+      );
+
+      await expect(service.delete(asScope(organizationRow.public_id))).rejects.toThrow();
+
+      expect(erase).not.toHaveBeenCalled();
+    });
+
+    it('a failed erase aborts the delete, so no account is left behind a soft-deleted organization', async () => {
+      wireInstagramErasure(
+        vi.fn<EraseForOrganizationOffboarding>().mockRejectedValue(new Error('the erase failed')),
+      );
+
+      await expect(service.delete(asScope(organizationRow.public_id))).rejects.toThrow(
+        'the erase failed',
+      );
+
+      expect(repository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('answers null when the organization had nothing to erase, and when the port is not wired', async () => {
+      wireInstagramErasure(vi.fn<EraseForOrganizationOffboarding>().mockResolvedValue(null));
+      await expect(service.delete(asScope(organizationRow.public_id))).resolves.toEqual({
+        erasedInstagram: null,
+      });
+
+      service.wireOffboardingUploadService({
+        uploadService: { tombstoneAllByOrganizationId: vi.fn().mockResolvedValue(0) } as never,
+      });
+      await expect(service.delete(asScope(organizationRow.public_id))).resolves.toEqual({
+        erasedInstagram: null,
+      });
+    });
+
+    it('a resumed offboarding erases too', async () => {
+      const erase = vi.fn<EraseForOrganizationOffboarding>().mockResolvedValue(null);
+      wireInstagramErasure(erase);
+      const scope = asScope(organizationRow.public_id);
+
+      await service.resumeOffboarding(scope);
+
+      expect(erase).toHaveBeenCalledWith(scope);
+    });
   });
 
   it('delete invalidates the organization permission cache so access stops immediately', async () => {

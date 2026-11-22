@@ -62,7 +62,8 @@ const encryptionMiddleware: FastifyPluginAsync = async (application) => {
         authTag: encrypted.authTag,
       });
     } catch (error) {
-      logger.error({ error, url: request.url }, 'Response encryption failed');
+      // The path only: a query can carry personal data (the contacts search, launch AC-12.13).
+      logger.error({ error, url: request.url.split('?', 1)[0] }, 'Response encryption failed');
       // sec-M8: surface as 503 (transient) instead of 500 (uncategorised
       // server error). The encryption layer's stated purpose is DevTools
       // readability, not anti-attacker hardening — failure should signal the

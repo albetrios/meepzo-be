@@ -38,15 +38,16 @@ options, caps `removeOnComplete` / `removeOnFail`, and adds retry jitter
 
 | Queue | Attempts | Backoff |
 | ----- | -------- | ------- |
-| `notification`, `user-data-export` | 3 | exponential from 5 s |
-| `subscription-seat-sync` | 5 | exponential from 5 s |
+| `notification`, `user-data-export`, `instagram-reconnect-notice` | 3 | exponential from 5 s |
+| `instagram-account-daily-check` | 3 | exponential from 1 min |
+| `subscription-seat-sync`, `instagram-webhook` | 5 | exponential from 5 s |
 | `stripe-webhook` | 5 | custom, doubling from 10 s (`stripe-webhook-backoff.util.ts`) |
 | `mail` | 8 | custom, doubling from 5 s (`mail-backoff.util.ts`) |
 | `webhook-delivery` | 8 | custom schedule, 1 min → 10 h (`WEBHOOK_DELIVERY_RETRY_DELAYS_MS`) |
 
 Attempts are spent only on failures that are the job's own. A queue whose every job calls one
 third-party provider (`mail` → Resend, `stripe-webhook` and `subscription-seat-sync` → Stripe,
-`user-data-export` → S3) is created with `createProviderPausableWorker`
+`user-data-export` → S3, `instagram-account-daily-check` and `instagram-webhook` → Instagram) is created with `createProviderPausableWorker`
 (`src/infrastructure/queue/worker-runtime/provider-outage-pause.util.ts`): while the provider is down
 the whole queue pauses on every replica and probes every five minutes, and the failed job is parked
 without spending an attempt. It declares `PROVIDER_OUTAGE_PAUSABLE_LIMITER` because BullMQ enforces a
@@ -214,7 +215,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 ```typescript
 {
   queueName: '<unique BullMQ queue>',
-  family: 'mail' | 'notify' | 'webhook' | 'stripe' | 'retention' | 'observability',
+  family: 'mail' | 'notify' | 'webhook' | 'stripe' | 'instagram' | 'retention' | 'observability',
   logLabel: 'human-readable worker name',
   usesPostgres: true | false,
   scheduled: true | false,
@@ -250,7 +251,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 5. **Add the queue constant to `WORKER_QUEUE_NAMES` in `src/infrastructure/queue/queue-catalog.ts`** (and to `WORKER_THROUGHPUT_QUEUE_NAMES` for `criticality: 'throughput'`). That one list gives the queue its depth gauge, a sampled and age-trimmed DLQ, its heartbeat read-out and a Bull Board entry; `queue-catalog.coverage.unit.test.ts` fails until it matches the registry. Bootstrap attaches the dead-letter, job-duration and heartbeat hooks to every registered worker — nothing to wire per worker.
 6. If every job calls one third-party provider (Resend, Stripe, S3), build the worker with `createProviderPausableWorker` so the queue pauses through a provider outage instead of spending attempts.
 7. Run targeted tests: `pnpm test:unit src/infrastructure/queue/worker-runtime/__tests__/unit/` and `pnpm test:unit src/infrastructure/database/__tests__/unit/assert-connection-budget.unit.test.ts` (asserts new demand is bounded).
-8. Update the worker count and family breakdown in [`docs/deployment/runbooks/resource-limits.md`](../../../docs/deployment/runbooks/resource-limits.md#per-family-registry-breakdown-32-workers-29-use-postgres) when the totals change, including the **External-IO holding** column when `holdsConnectionDuringExternalIo: true`.
+8. Update the worker count and family breakdown in [`docs/deployment/runbooks/resource-limits.md`](../../../docs/deployment/runbooks/resource-limits.md#per-family-registry-breakdown-43-workers-40-use-postgres) when the totals change, including the **External-IO holding** column when `holdsConnectionDuringExternalIo: true`.
 
 ### Anti-patterns
 

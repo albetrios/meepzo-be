@@ -14,7 +14,7 @@ The receiver is registered at the canonical path:
 
 ## Key invariants
 
-- **Raw body for signature verification**: the route disables JSON parsing on the body so the signature can be verified byte-for-byte.
+- **Raw body for signature verification**: the route sets `captureRawBody` with its `rawBodySignatureHeader` (`stripe-signature`), so the app-level `onRoute` hook records it in the shared raw-body registry (`src/shared/utils/http/raw-body-route.registry.ts`, shared with the Instagram receiver — WH2) and the JSON parser keeps the exact bytes on `request.rawBody` for a request that carries the header and parses nothing: the Stripe SDK verifies the bytes first and only then parses them (D53), so a wrong signature never costs a parse and a signed body that is not JSON still answers 400. A request without the header answers its 400 in a `preParsing` hook, before its body is read. The 5 MB body limit is the shared `WEBHOOK_INGRESS_BODY_LIMIT_BYTES`.
 - **Idempotent on `event.id`**: `stripe_webhook_events.provider_event_id UNIQUE`. Stripe retries are no-ops once we've persisted an event.
 - **The ingress records, the worker claims.** `recordAtIngress` inserts the ledger row or classifies the one already there (`recorded` / `already_recorded` / `processed_duplicate` / `abandoned`) and never claims it; `recorded` and `already_recorded` enqueue (the job id is the event id). Claiming at the ingress spent the worker's first claim whenever Stripe redelivered before the job ran, and the worker then waited out the 15-minute lease.
 - **A `.deleted` with nothing left to cancel is processed.** When the row exists but the cancel matches nothing (already terminal, or a newer event applied), the event completes with `stripe.webhook.subscription_cancel_already_terminal_or_stale` instead of retrying into an alert. A resumed subscription's sync writes `canceled_at = null`, so no stale cancellation date survives.
@@ -30,7 +30,7 @@ The receiver is registered at the canonical path:
 
 ```mermaid
 stateDiagram-v2
-  [*] --> verified: Stripe-Signature ok, raw body parsed
+  [*] --> verified: Stripe-Signature ok, then the raw body parsed
   verified --> persisted: INSERT stripe_webhook_events ON CONFLICT DO NOTHING
   persisted --> processing: dispatch to subscription service
   processing --> processed: subscription state updated

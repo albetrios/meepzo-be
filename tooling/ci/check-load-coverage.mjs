@@ -15,8 +15,8 @@
  * Excluded from the required set:
  *   - ROLE: super_admin / admin — needs an elevated token the scenarios do not hold
  *   - TOKEN: internal/ops credentials
- *   - PUBLIC infrastructure routes (OAuth, email sign-in, WebAuthn, Stripe webhook, health,
- *     password reset) that are not realistic load targets
+ *   - PUBLIC infrastructure routes (OAuth, email sign-in, WebAuthn, Stripe webhook, Meta's
+ *     Instagram callbacks, health, password reset) that are not realistic load targets
  *
  * Usage:
  *   node tooling/ci/check-load-coverage.mjs                 # exits non-zero below --threshold
@@ -56,6 +56,9 @@ const PUBLIC_INFRASTRUCTURE_PATHS = [
   '/auth/webauthn',
   '/auth/refresh',
   '/billing/webhook',
+  '/social/instagram/deauthorize',
+  '/social/instagram/data-deletion',
+  '/social/instagram/webhook',
   '/tenancy/invitations/',
   '/livez',
   '/readyz',

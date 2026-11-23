@@ -34,6 +34,8 @@ numbered `P<n>` so they never collide with the plan's `D<n>`.
 | P23 | A23 — launch ignored reasons `waiting_for_other_email`, `already_waiting` (N3) | keep · drop | keep (the plan is silent) | 2026-11-23 | Claude | AMBER |
 | P24 | A24 — own comments skip reason (N4) | rename `echo` → `own_comment` · keep `echo` | `own_comment` for comments; `echo` stays for DM echoes | 2026-11-23 | Claude | AMBER |
 | P25 | A25 — attachments point at `upload.uploads` (N5) | documented exception · keep the upload public id only | the upload public id only, read through the upload service (no cross-domain foreign key) | 2026-11-23 | Claude | AMBER |
+| P26 | A26 — the Meta connect state (10 minutes, one use, plan:L4567) | Redis nonce · a Postgres row | Redis nonce: short-lived login state, nothing lost if it goes (the owner starts the login again) | 2026-11-23 | Claude | AMBER |
+| P27 | A27 — dismissing a workspace notice (plan:L2582, L2584) | the browser remembers · a route | the browser remembers; no route | 2026-11-23 | Claude | AMBER |
 
 ## Waiting for the user (RED, Step 4 batch)
 

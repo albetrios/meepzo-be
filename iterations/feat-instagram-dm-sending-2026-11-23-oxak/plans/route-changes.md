@@ -7,30 +7,41 @@
 | Intake mode | brief — from scratch |
 | Intake hash | `e2875698ea64` |
 | Date | 2026-11-23 |
-| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1, awaiting the owner's OK). Written from the plan (`intake-files/Instagram-DM-Sending-Plan-v8.md`) and the as-built launch (`docs/routes.txt`); the AMBER defaults ([P1](decisions.md)–[P20](decisions.md)) and the answers [P26](decisions.md)–[P39](decisions.md) applied. Each row's Source ends with its route-review number (`routes-final § n, route m`) |
+| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1, awaiting the owner's OK), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied: common channel-connection and channel-account routes, Instagram routes under `/social/instagram/…`. Written from the plan (`intake-files/Instagram-DM-Sending-Plan-v8.md`) and the as-built launch (`docs/routes.txt`); the AMBER defaults ([P1](decisions.md)–[P20](decisions.md)) and the answers [P26](decisions.md)–[P39](decisions.md) applied. Each row's Source ends with its route-review number (`routes-final § n, route m`) |
 
 Every route here is a **proposal** — requirement level, what must be true, not how. Kickoff confirms each
 one when it builds it and records any change in `AS-BUILT.md`; the built truth is `docs/routes.txt`.
 
-- **Paths.** The app domain stays `/api/v1/app/…` (the launch's prefix, `docs/routes.txt:15`). A workspace now
-  holds many Instagram accounts (plan D26, plan:L237), so every account route carries the account:
-  `/api/v1/app/social/instagram/accounts/{instagram_account_id}/…`, and the singular
-  `/social/instagram/account*` routes leave in the same change ([P1](decisions.md), A1). Automations,
-  contacts, segments and broadcasts stay top-level resources; each belongs to one account, named in the
-  create body and as a list filter. The Meta login (Unified Login, plan D24) sits beside it under
-  `/api/v1/app/social/meta/…`, the `meta-connection` sub-domain ([P38](decisions.md); the plan writes
-  `/api/v1/app/meta/…`, plan:L4567 — finding 9).
-- **Params** are snake_case and semantic (`{automation_id}`, `{instagram_account_id}`,
-  `{meta_connection_id}`); `docs/routes.txt` prints them as `:automation_id`. The active organization is
-  the signed `org` claim, never a path segment.
+- **Paths — the channel split ([P40](decisions.md)–[P47](decisions.md)).** The app domain stays
+  `/api/v1/app/…` (the launch's prefix, `docs/routes.txt:15`). What any channel has is **common**:
+  the provider login under `/api/v1/app/social/channel-connections/…` (sub-domain `channel-connection/`,
+  P41 — Meta's Unified Login is one login for Instagram, Facebook and ads, so the ads picker and Meta's
+  deauthorize and data-deletion callbacks belong to the connection, P46) and the connected accounts under
+  `/api/v1/app/social/channel-accounts/…` (sub-domain `channel-account/`, P42 — list, read, disconnect,
+  pause, resume, activate). What is Instagram's own is under `/api/v1/app/social/instagram/…`: an
+  account's settings, media, stories and sending status at
+  `/api/v1/app/social/instagram/accounts/{channel_account_id}/…`, and the Instagram product resources —
+  contacts, automations, broadcasts, segments — as top-level resources beside it, each belonging to one
+  account, named in the create body and as a list filter (`channel_account_id`); the webhook and its
+  debugging list stay Instagram's (P45). The workspace meter `/api/v1/app/usage` is common (P47). A
+  workspace holds many accounts (plan D26, plan:L237), so the launch's singular
+  `/social/instagram/account*` routes leave in the same change ([P1](decisions.md), A1). This supersedes
+  P38's `/api/v1/app/social/meta/…` (the plan wrote `/api/v1/app/meta/…`, plan:L4567 — finding 9).
+- **Params** are snake_case and semantic (`{automation_id}`, `{channel_account_id}`,
+  `{channel_connection_id}`); `{provider}` (`meta` today) is the existing non-entity param, as in
+  `/auth/oauth/{provider}`. **One account id** (P47): every Instagram route names the account by
+  `{channel_account_id}` — there is no second Instagram id. `docs/routes.txt` prints them as
+  `:automation_id`. The active organization is the signed `org` claim, never a path segment.
 - **Access** is the permission as `<resource> · <action>` (kebab-case codes, as the launch writes them),
   plus `team-only` (refused on a personal workspace, as every launch app route) and
   `X-Idempotency-Key required` on every signed-in `POST` that creates a row or starts background work
   (the route review's K3) — state actions (go live, pause, resume) answer a repeat with the same state
   and take none, a `POST` that saves nothing (keyword test) takes none, and the PUBLIC Meta routes take
   none; `PUBLIC` routes name what proves the
-  caller. New code: `contact · update` only ([P20](decisions.md), A20) — broadcasts, segments and past
-  comments reuse the `automation` codes (plan D68, D69).
+  caller. Permission codes stay as they are (P47 — roles are product-wide): the common account and
+  connection routes keep `instagram-account · read / manage`. New code: `contact · update` only
+  ([P20](decisions.md), A20) — broadcasts, segments and past comments reuse the `automation` codes (plan
+  D68, D69).
 - **Action routes** ([P8](decisions.md), A8): go live, pause, duplicate and try-it are their own `POST`
   routes; `PATCH` on an automation saves content only. **No undo route** ([P15](decisions.md), A15): the
   toast replays the previous action. **The workspace DM meter** is its own app route
@@ -45,28 +56,36 @@ one when it builds it and records any change in `AS-BUILT.md`; the built truth i
 
 | Area | NEW | CHANGED | REMOVED |
 | --- | --- | --- | --- |
-| Meta connection & accounts | 8 | 2 | 1 |
-| Account settings | 0 | 1 | 0 |
-| Media & ads picker | 1 | 2 | 0 |
-| Meta callbacks & webhook | 0 | 4 | 0 |
-| Contacts & tags | 4 | 2 | 0 |
-| Automations | 4 | 5 | 0 |
-| Runs & messages | 6 | 0 | 0 |
-| Broadcasts & segments | 13 | 0 | 0 |
-| Past comments | 2 | 0 | 0 |
+| Channel connections | 9 | 2 | 1 |
+| Channel accounts | 4 | 2 | 0 |
+| Instagram account settings | 0 | 1 | 0 |
+| Instagram media | 0 | 2 | 0 |
+| Instagram webhook | 0 | 2 | 0 |
+| Instagram contacts & tags | 4 | 2 | 0 |
+| Instagram automations | 4 | 5 | 0 |
+| Instagram runs & messages | 6 | 0 | 0 |
+| Instagram broadcasts & segments | 13 | 0 | 0 |
+| Instagram past comments | 2 | 0 | 0 |
 | Workspace usage & notices | 1 | 0 | 0 |
-| Product around sending | 7 | 38 | 4 |
-| **Total** | **46** | **54** | **5** |
+| Product around sending | 6 | 38 | 4 |
+| **Total** | **49** | **54** | **5** |
 
-Since the last version (the route review): RC-67 is EXISTING — already built (BL19), so it leaves the
-counts; ten CHANGED rows the area missed are added (RC-102–RC-111: the OAuth callback, sign-out
-everywhere else, 2FA removal, the strong step-up of session and passkey removal, `GET /users/me`,
-`GET /users/me/settings`, `POST /tenancy/organizations`, `GET /tenancy/organization`, upload confirm).
+Since the last version (the channel split, [P40](decisions.md)–[P47](decisions.md)): the Meta login
+routes become the common **Channel connections** area under `/social/channel-connections/{provider}/…`
+and `/social/channel-connections/{channel_connection_id}…` (RC-1–RC-5), with three new routes — one
+connection (RC-112), reconnect (RC-113) and its ad accounts (RC-114); the ads picker (RC-15) moves from
+the Instagram account to the connection; Meta's deauthorize and data-deletion callbacks (RC-17, RC-18)
+move to `/social/channel-connections/{provider}/…`; the account routes become the common **Channel
+accounts** area (`/social/channel-accounts/…`, RC-7–RC-11, and activate RC-60 from Product around
+sending); every Instagram route takes `{channel_account_id}`; contacts, automations, broadcasts and
+segments move under `/social/instagram/…` and their account filter and body field become
+`channel_account_id`; the plan features are `message_month_limit` and `channel_accounts_max` (P47). Totals
+46 / 54 / 5 → 49 / 54 / 5.
 
 **Unchanged (EXISTING)** — the routes the plan keeps as they are:
 
 - `GET /api/v1/app/social/instagram/webhook` — Meta's subscription check, as built; it reads the
-  renamed **Meta** webhook verify token (WH4 — the setting's rename is meta-connection's change)
+  renamed **Meta** webhook verify token (WH4 — the setting's rename is the channel connection's change)
   (routes-final § 5, route 60).
 - RC-67 `GET /api/v1/billing/payment-methods` (subscription · read, `listPaymentMethods`) — already
   answers `is_default` per card (`BillingAccountSerializer`), so it is served as built (BL19,
@@ -74,82 +93,101 @@ everywhere else, 2FA removal, the strong step-up of session and passkey removal,
 
 Every other launch app route (`docs/routes.txt:20`–`:37`) is CHANGED or REMOVED below.
 
-## Meta connection & accounts
+## Channel connections
+
+Common to every channel ([P41](decisions.md)): one provider login per workspace and business portfolio —
+for Meta, Unified Login, one login for Instagram, Facebook and ads. `{provider}` is `meta` today.
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-1 | NEW | POST | `/api/v1/app/social/meta/connect/start` | instagram-account · manage · team-only | `startMetaConnect` — starts a Meta login (Unified Login) for this workspace and person: a one-use state, valid 10 minutes, bound to both, kept as a Redis nonce ([P26](decisions.md)); answers the Meta login address (always asks her to log in again) | plan:L4567, L4536–L4568; routes-final § 1, route 1 |
-| RC-2 | NEW | POST | `/api/v1/app/social/meta/connect/callback` | instagram-account · manage · team-only · X-Idempotency-Key required | `completeMetaConnect` — takes Meta's code and the state. A state that is missing, used, too old, or another person's or workspace's is refused and nothing is saved; the code is swapped on the server; a missing required permission (basic, messages, comments) is refused; then, in one commit, the workspace's connection for that business portfolio (new, or the same row again) and its token. Answers the picker: each of her Instagram accounts as "here already", "in another workspace" (cannot be picked) or free, and the plan's room. **Reconnect is the same call**: same portfolio → same connection, new token, the login stops of its accounts cleared | plan:L4570–L4578, L2621–L2622, L4674–L4681; routes-final § 1, route 2 |
-| RC-3 | NEW | POST | `/api/v1/app/social/meta/connections/{meta_connection_id}/accounts` | instagram-account · manage · team-only · X-Idempotency-Key required | `connectInstagramAccounts` — attaches the picked accounts. Under the workspace lock: over the plan's account limit refuses the whole pick; an account live in another workspace is refused alone while the other picks still connect; each pick gets a new row or the workspace's old row of that account back (its settings return), its settings and its four sending lanes. After the commit, the account set-up runs (`worker-changes.md`) and the connect is audited | plan:L4590–L4604, L2621; routes-final § 1, route 3 |
-| RC-4 | NEW | GET | `/api/v1/app/social/meta/connections` | instagram-account · read · team-only | `listMetaConnections` — the workspace's Meta connections for the connections screen: business portfolio, status (connected, error, revoked), granted permissions, who connected, last daily check and its error code, and its accounts. Never a token | plan:L3524, L3550; routes-final § 1, route 4 |
-| RC-5 | NEW | DELETE | `/api/v1/app/social/meta/connections/{meta_connection_id}` | instagram-account · manage · team-only | `disconnectMetaConnection` — "Disconnect business": every account of the connection is disconnected as RC-9, and the token is erased | plan:L4683–L4693, L2623; routes-final § 1, route 5 |
-| RC-6 | REMOVED | POST | `/api/v1/app/social/instagram/connect` | was instagram-account · manage · team-only · X-Idempotency-Key required | `connectInstagramAccount` (launch) — Instagram Login and its 60-day token go (plan D24). Replaced by RC-1 (start), RC-2 (code and reconnect) and RC-3 (pick accounts) | plan:L4484–L4529, L2622; routes-final § 1 |
-| RC-7 | NEW | GET | `/api/v1/app/social/instagram/accounts` | instagram-account · read · team-only | `listInstagramAccounts` — the workspace's accounts for the account menu that switches the whole app: profile, connection status, its Meta connection, paused, stopped and "not in your plan" state | plan:L2527, L2621; routes-final § 2, route 6 |
-| RC-8 | CHANGED — was `GET /api/v1/app/social/instagram/account` | GET | `/api/v1/app/social/instagram/accounts/{instagram_account_id}` | instagram-account · read · team-only | `getInstagramAccount` — one account by its id: profile, connection status and its Meta connection, webhook subscribed, starter questions set, paused or suspended, the new-account limit's end, its settings. The token end (`access_expires_at`) goes — the token never expires | plan:L2595, L4604, L2922–L2944; routes-final § 2, route 7 |
-| RC-9 | CHANGED — was `DELETE /api/v1/app/social/instagram/account` | DELETE | `/api/v1/app/social/instagram/accounts/{instagram_account_id}` | instagram-account · manage · team-only | `disconnectInstagramAccount` — disconnects one account: starter questions removed and webhook unsubscribed (best effort), `revoked`, its lanes stopped, its short-lived copies dropped; the token is erased only with the connection's last account. Automations, contacts and history stay; waiting messages stay and expire by the 7-day rule | plan:L2623, L4683–L4693; routes-final § 2, route 8 |
-| RC-10 | NEW | POST | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/pause` | instagram-account · manage · team-only | `pauseInstagramAccount` — the owner pauses the account's four lanes; comments and taps are still saved, nothing goes | plan:L2599; routes-final § 2, route 9 |
-| RC-11 | NEW | POST | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/resume` | instagram-account · manage · team-only | `resumeInstagramAccount` — clears the owner's pause (error stops and a team suspend stay); lanes with waiting messages wake | plan:L2600; routes-final § 2, route 10 |
+| RC-1 | NEW | POST | `/api/v1/app/social/channel-connections/{provider}/start` | instagram-account · manage · team-only | `startChannelConnection` — starts a provider login (for `meta`, Unified Login) for this workspace and person: a one-use state, valid 10 minutes, bound to both, kept as a Redis nonce ([P26](decisions.md)); answers the provider's login address (always asks her to log in again). An unknown provider is `404` | plan:L4567, L4536–L4568; [P41](decisions.md), [P47](decisions.md); routes-final § 1, route 1 |
+| RC-2 | NEW | POST | `/api/v1/app/social/channel-connections/{provider}/callback` | instagram-account · manage · team-only · X-Idempotency-Key required | `completeChannelConnection` — takes the provider's code and the state. A state that is missing, used, too old, or another person's or workspace's is refused and nothing is saved; the code is swapped on the server; a missing required permission (basic, messages, comments) is refused; then, in one commit, the workspace's connection for that business portfolio (new, or the same row again) and its token. Answers the picker: each of her Instagram accounts as "here already", "in another workspace" (cannot be picked) or free, and the plan's room (`channel_accounts_max`). **A reconnect lands here too** (RC-113 starts it): same portfolio → same connection, new token, the login stops of its accounts cleared | plan:L4570–L4578, L2621–L2622, L4674–L4681; [P41](decisions.md); routes-final § 1, route 2 |
+| RC-3 | NEW | POST | `/api/v1/app/social/channel-connections/{channel_connection_id}/accounts` | instagram-account · manage · team-only · X-Idempotency-Key required | `connectChannelAccounts` — attaches the picked accounts. Under the workspace lock: over the plan's account limit refuses the whole pick; an account live in another workspace is refused alone while the other picks still connect; each pick gets a new channel account (with its Instagram extension) or the workspace's old row of that account back (its settings return), its settings and its four sending lanes. After the commit, the account set-up runs (`worker-changes.md`) and the connect is audited | plan:L4590–L4604, L2621; [P42](decisions.md); routes-final § 1, route 3 |
+| RC-4 | NEW | GET | `/api/v1/app/social/channel-connections` | instagram-account · read · team-only | `listChannelConnections` — the workspace's connections for the connections screen: provider, business portfolio, status (connected, error, revoked), granted permissions, who connected, last daily check and its error code, and its channel accounts. Never a token | plan:L3524, L3550; routes-final § 1, route 4 |
+| RC-112 | NEW | GET | `/api/v1/app/social/channel-connections/{channel_connection_id}` | instagram-account · read · team-only | `getChannelConnection` — one connection, as a row of RC-4 | [P47](decisions.md); plan:L3517–L3553 |
+| RC-5 | NEW | DELETE | `/api/v1/app/social/channel-connections/{channel_connection_id}` | instagram-account · manage · team-only | `disconnectChannelConnection` — "Disconnect business": every channel account of the connection is disconnected as RC-9, and the token is erased | plan:L4683–L4693, L2623; routes-final § 1, route 5 |
+| RC-113 | NEW | POST | `/api/v1/app/social/channel-connections/{channel_connection_id}/reconnect` | instagram-account · manage · team-only | `reconnectChannelConnection` — starts a new login for this connection's provider and business portfolio, as RC-1 (a one-use state, 10 minutes); its callback is RC-2, which reuses the same connection | plan:L4674–L4681, L2622; [P47](decisions.md) |
+| RC-114 | NEW | GET | `/api/v1/app/social/channel-connections/{channel_connection_id}/ad-accounts` | instagram-account · read · team-only | `listChannelConnectionAdAccounts` — the ad accounts the connection's login reaches (Unified Login: one login for Instagram, Facebook and ads, P41), read live, never stored; without the optional ad permission the list is empty and says "Connect an ad account" | plan:L876–L880; [P41](decisions.md), [P47](decisions.md) |
+| RC-15 | NEW | GET | `/api/v1/app/social/channel-connections/{channel_connection_id}/ads` | instagram-account · read · team-only | `listChannelConnectionAds` — the ads of the connection's ad accounts (an optional ad-account filter), for ad-comment and ad "Send message" automations, read live; without the optional ad permission the list is empty and says "Connect an ad account"; ad comments and the 7-day ad window are built, refused at go-live until their Meta test passes ([P36](decisions.md)). Moved from the Instagram account to the connection (P41) | plan:L876–L880; [P41](decisions.md), [P47](decisions.md); routes-final § 2, route 15 |
+| RC-17 | CHANGED — was `POST /api/v1/app/social/instagram/deauthorize` | POST | `/api/v1/app/social/channel-connections/{provider}/deauthorize` | PUBLIC (Meta signed request, Meta app secret) | `deauthorizeChannelConnection` — Meta-wide, so the connection's (P46): resolves which connections and channel accounts it reaches — the accounts by their Instagram user id through a new resolver (it replaces the app-scoped id one, IA19) — and disconnects them as RC-9; an id that matches nothing is still answered, and the team is told | plan:L4695–L4705, L2623; [P46](decisions.md); routes-final § 2, route 16 |
+| RC-18 | CHANGED — was `POST /api/v1/app/social/instagram/data-deletion` | POST | `/api/v1/app/social/channel-connections/{provider}/data-deletion` | PUBLIC (Meta signed request, Meta app secret) | `requestChannelConnectionDataDeletion` — as RC-17 (the connection resolves the accounts and people it reaches, IA19, P46), then their data is erased; an unmatched id gets its confirmation code and the team is told | plan:L4695–L4705, L2624; [P46](decisions.md); routes-final § 2, route 17 |
+| RC-6 | REMOVED | POST | `/api/v1/app/social/instagram/connect` | was instagram-account · manage · team-only · X-Idempotency-Key required | `connectInstagramAccount` (launch) — Instagram Login and its 60-day token go (plan D24). Replaced by RC-1 (start), RC-2 (code and reconnect), RC-3 (pick accounts) and RC-113 (reconnect) | plan:L4484–L4529, L2622; routes-final § 1 |
 
-## Account settings
+## Channel accounts
 
-| # | Change | Method | Path | Access | Operation | Source |
-| --- | --- | --- | --- | --- | --- | --- |
-| RC-12 | CHANGED — was `PATCH /api/v1/app/social/instagram/account/settings` | PATCH | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/settings` | instagram-account · manage · team-only | `updateInstagramAccountSettings` — the account's limits (opening DMs per hour, optional day limit, fast answers per hour, per person per hour, broadcasts per hour) within the plan's bounds, stop words, the automatic notice, replies under comments, once per person per post, mark as seen after a reply (Meta-test-gated: turning it on while the code list marks it untested answers `422 instagram_feature_not_offered`, [P36](decisions.md)), and the extra delay before each message (PRO). The five public-reply settings leave the account (they move to each automation, plan D14, D32). A limit change gives the slow and reply lanes a new turn; other settings count for new events only | plan:L2610–L2611, L2673–L2684, L225; routes-final § 2, route 12 |
-
-## Media & ads picker
-
-| # | Change | Method | Path | Access | Operation | Source |
-| --- | --- | --- | --- | --- | --- | --- |
-| RC-13 | CHANGED — was `GET /api/v1/app/social/instagram/media` | GET | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/media` | instagram-account · read · team-only | `listInstagramMedia` — the picked account's posts and reels, read live with the Unified Login token, with caption and kind (post, reel, ad post); a missing picture falls back to the thumbnail or link | plan:L811, L2946–L2958; routes-final § 2, route 13 |
-| RC-14 | CHANGED — was `GET /api/v1/app/social/instagram/stories` | GET | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/stories` | instagram-account · read · team-only | `listInstagramStories` — the account's live stories for "one story"; built now — a story way to start the code list marks untested (Meta test 3, stories on Unified Login) is refused at go-live until its test passes ([P36](decisions.md)) | plan:L811, L7558; routes-final § 2, route 14 |
-| RC-15 | NEW | GET | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/ads` | instagram-account · read · team-only | `listInstagramAds` — the ads of her connected ad accounts, for ad-comment and ad "Send message" automations; without the optional ad permission the list is empty and says "Connect an ad account"; ad comments and the 7-day ad window are built, refused at go-live until their Meta test passes ([P36](decisions.md)) | plan:L876–L880; routes-final § 2, route 15 |
-
-## Meta callbacks & webhook
+Common to every channel ([P42](decisions.md)): a workspace's connected accounts — Instagram professional
+accounts today (`channel` `instagram`), Facebook Pages later. `{channel_account_id}` is the one account id
+the API knows (P47).
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-16 | CHANGED | POST | `/api/v1/app/social/instagram/webhook` | PUBLIC (X-Hub-Signature-256, now signed with the Meta app secret) | `receiveInstagramWebhook` — signature first; read receipts and our own "sent" notices are dropped, our own echoes found by a Postgres lookup of the message id (WHQ1); an unknown or revoked account saves nothing (an `error` account is saved `received`, not `account_disconnected`; a paused or limit-full account still saves); echoes of the owner's hand-typed messages are saved `received`; events older than 8 days are dropped; a repeat is dropped by its stored event key; new kinds (Live comment, story mention, shared post, starter question, link, reaction, own comment, edit); saved before the answer, then handed to intake by kind. The store has a 3-second budget: Postgres down or slow answers 500 / 503 and saves nothing, so Meta delivers again — no Redis buffer ([P32](decisions.md), WH2) | plan:L4734–L4807; routes-final § 5, route 61 |
-| RC-17 | CHANGED | POST | `/api/v1/app/social/instagram/deauthorize` | PUBLIC (Meta signed request, Meta app secret) | `deauthorizeInstagramAccount` — finds the accounts by their Instagram user id through a new resolver (it replaces the app-scoped id one, IA19) and disconnects them as RC-9; an id that matches nothing is still answered, and the team is told | plan:L4695–L4705, L2623; routes-final § 2, route 16 |
-| RC-18 | CHANGED | POST | `/api/v1/app/social/instagram/data-deletion` | PUBLIC (Meta signed request, Meta app secret) | `requestInstagramDataDeletion` — as RC-17 (the same resolver by Instagram user id, IA19), then the account's data is erased; an unmatched id gets its confirmation code and the team is told | plan:L4695–L4705, L2624; routes-final § 2, route 17 |
-| RC-19 | CHANGED | GET | `/api/v1/app/social/instagram/webhook-events` | instagram-webhook-event · read · team-only | `listInstagramWebhookEvents` — adds the `instagram_account_id` filter and field (many accounts); shows the new event kinds and reasons (an own comment is `own_comment`; `flood` added, `echo` and `reaction` gone — echoes and reactions are saved `received`), a failed event's `next_attempt_at`, and only 8 days of events; `payload` is `null` once an event is done (WH23) | plan:L226, L3207–L3222, L4772–L4797; routes-final § 5, route 62 |
+| RC-7 | NEW | GET | `/api/v1/app/social/channel-accounts` | instagram-account · read · team-only | `listChannelAccounts` — the workspace's accounts for the account menu that switches the whole app (an optional `channel` filter): channel, display name, the channel's profile (Instagram: username, picture, followers), status, its connection, paused, stopped and "not in your plan" state | plan:L2527, L2621; [P42](decisions.md); routes-final § 2, route 6 |
+| RC-8 | CHANGED — was `GET /api/v1/app/social/instagram/account` | GET | `/api/v1/app/social/channel-accounts/{channel_account_id}` | instagram-account · read · team-only | `getChannelAccount` — one account by its id: channel, display name, status and its connection, paused or suspended, the plan stop, the new-account limit's end; for Instagram its extension (username, account type, private flag, followers, picture, webhook subscribed, starter questions set) and its Instagram settings. The token end (`access_expires_at`) goes — the token never expires | plan:L2595, L4604, L2922–L2944; [P42](decisions.md); routes-final § 2, route 7 |
+| RC-9 | CHANGED — was `DELETE /api/v1/app/social/instagram/account` | DELETE | `/api/v1/app/social/channel-accounts/{channel_account_id}` | instagram-account · manage · team-only | `disconnectChannelAccount` — disconnects one account: for Instagram, starter questions removed and webhook unsubscribed (best effort), `revoked`, its lanes stopped, its short-lived copies dropped; the token is erased only with the connection's last account. Automations, contacts and history stay; waiting messages stay and expire by the 7-day rule | plan:L2623, L4683–L4693; routes-final § 2, route 8 |
+| RC-10 | NEW | POST | `/api/v1/app/social/channel-accounts/{channel_account_id}/pause` | instagram-account · manage · team-only | `pauseChannelAccount` — the owner pauses the account (on the channel account, P42): its four lanes send nothing; comments and taps are still saved | plan:L2599; [P42](decisions.md); routes-final § 2, route 9 |
+| RC-11 | NEW | POST | `/api/v1/app/social/channel-accounts/{channel_account_id}/resume` | instagram-account · manage · team-only | `resumeChannelAccount` — clears the owner's pause (error stops and a team suspend stay); lanes with waiting messages wake | plan:L2600; routes-final § 2, route 10 |
+| RC-60 | NEW | POST | `/api/v1/app/social/channel-accounts/{channel_account_id}/activate` | instagram-account · manage · team-only · X-Idempotency-Key required | `activateChannelAccount` — "choose active accounts": makes this "not in your plan" account active (clears its `plan_downgrade` stop) and stops the active account named in the body (`channel_account_id`) in its place, under the workspace lock, so the active count always fits `channel_accounts_max` | plan:L2631, L7987–L8027; [P42](decisions.md), [P47](decisions.md); routes-final § 2, route 11 |
 
-## Contacts & tags
-
-| # | Change | Method | Path | Access | Operation | Source |
-| --- | --- | --- | --- | --- | --- | --- |
-| RC-20 | CHANGED | GET | `/api/v1/app/contacts` | contact · read · team-only | `listContacts` — the contacts of one account (`instagram_account_id`, a **required** filter, CTQ2), with tags, opted out, automations paused, how she came in, first message, last comment and comment count; search by phone too; filter by tag | plan:L2960–L2993, L1727; routes-final § 3, route 18 |
-| RC-21 | NEW | GET | `/api/v1/app/contacts/{contact_id}` | contact · read · team-only | `getContact` — one contact: profile, email and phone she gave, tags, private note, opted out, automations paused (by whom, when), how she came in | plan:L2627, L2960–L2993; routes-final § 3, route 19 |
-| RC-22 | NEW | PATCH | `/api/v1/app/contacts/{contact_id}` | contact · update · team-only | `updateContact` — the private note (up to 2,000 characters; nothing is sent); tags added or removed (each change is a tag event that can start a tag automation); automations paused on or off for her (on: her waiting messages skipped and her open runs cancelled in the same commit; off: nothing restarts by itself) | plan:L2615–L2616, L2625–L2626, L5168–L5175; routes-final § 3, route 20 |
-| RC-23 | NEW | POST | `/api/v1/app/contacts/bulk-actions` | contact · update · team-only · X-Idempotency-Key required | `runContactBulkAction` — one tag added or removed, or automations paused or resumed, on many contacts of one account (named by ids, 1–500, or by the list's filters); the change runs in the background in pieces of 500 (CT7) | plan:L2615, L2625, L1039; routes-final § 3, route 21 |
-| RC-24 | NEW | GET | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/contact-tags` | contact · read · team-only | `listContactTags` — the account's tags with how many contacts carry each, for the tag picker and filters | plan:L1034, L2991; routes-final § 3, route 22 |
-| RC-25 | CHANGED | DELETE | `/api/v1/app/contacts/{contact_id}` | contact · delete · team-only | `deleteContact` — as built (personal data wiped, row kept, open runs cancelled), and now also her waiting messages are cancelled | plan:L2628; routes-final § 3, route 23 |
-
-## Automations
+## Instagram account settings
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-26 | CHANGED | GET | `/api/v1/app/automations` | automation · read · team-only | `listAutomations` — one account's automations (`instagram_account_id`, a **required** filter, CTQ2); statuses `draft`, `live`, `paused`; each row with its all-time runs and % tapped, a draft with "edited …"; the top-bar totals (live count, runs). Sorting by the launch's completed count goes | plan:L2514–L2528; routes-final § 4, route 27 |
-| RC-27 | CHANGED | POST | `/api/v1/app/automations` | automation · create · team-only · X-Idempotency-Key required | `createAutomation` — saves a **draft**: only a name is needed, nothing is checked or sent; the Instagram account is named in the body (many accounts); the new ways to start, steps, message list, versions, wordings and reply step may be saved unfinished | plan:L2601, L676, L2995–L3145; routes-final § 4, route 28 |
-| RC-28 | CHANGED | GET | `/api/v1/app/automations/{automation_id}` | automation · read · team-only | `getAutomation` — the full automation in its new shape (way to start, steps, versions, wordings, reply step, starter questions, link code), its counters per hello version, a stop reason (`bad_text`), and a past-comments read in progress | plan:L2517–L2524, L2995–L3145, L2696; routes-final § 4, route 29 |
-| RC-29 | CHANGED | PATCH | `/api/v1/app/automations/{automation_id}` | automation · update · team-only | `updateAutomation` — saves content only (status moves by RC-31 and RC-32). A draft saves anything; a live or paused one runs the go-live checks again and answers the problems, each with its step. New runs use the new steps; waiting messages read the new text; a removed step's waiting messages are cancelled. Fixing a refused text clears the stop and puts its bad-text failures back to waiting (under 7 days); a reply-step change restarts its box. A read-only plan still lets the owner save, except turning a PRO part on ([P10](decisions.md)) | plan:L2606, L2609, L2620, L2635–L2653; routes-final § 4, route 30 |
-| RC-30 | CHANGED | DELETE | `/api/v1/app/automations/{automation_id}` | automation · delete · team-only | `deleteAutomation` — the reason becomes optional (mistake, duplicate, not needed, other — `other` needs a note, [P11](decisions.md)); stops at once: open runs and waiting messages cancelled; contacts stay; a starter-question automation's questions are taken off the account | plan:L2608, L3035; routes-final § 4, route 31 |
-| RC-31 | NEW | POST | `/api/v1/app/automations/{automation_id}/go-live` | automation · update · team-only | `goLiveAutomation` — runs the go-live checks (the plan's §5.1 list plus "a hello always has a next-step button when later steps exist", [P2](decisions.md)) and refuses with the missing items, each tagged with its step so the editor jumps there; refused when the plan ended, the month limit is reached, the account is not connected, or a PRO part needs Creator or Studio. Ways to start and features on the untested code list (story repost, ad comments, Live comments, mark as seen, the 7-day ad window, quick replies / cards on Unified Login) are refused until their §43 test passes ([P36](decisions.md)). Warnings (shared keyword, private account) do not refuse. A paused automation's waiting DMs go on (under 7 days); starter questions are set; its lanes wake | plan:L2602, L2635–L2653, L690–L707; routes-final § 4, route 32 |
-| RC-32 | NEW | POST | `/api/v1/app/automations/{automation_id}/pause` | automation · update · team-only | `pauseAutomation` — pause with **keep** (waiting DMs stay, chats in progress finish) or **cancel** (its waiting messages count as cancelled from now); starter questions are taken off | plan:L2603–L2604; routes-final § 4, route 33 |
-| RC-33 | NEW | POST | `/api/v1/app/automations/{automation_id}/duplicate` | automation · create · team-only · X-Idempotency-Key required | `duplicateAutomation` — a draft copy "<name> (copy)" on the same account; a link automation gets a new link code; counters start at 0 | plan:L2607; routes-final § 4, route 34 |
-| RC-34 | NEW | POST | `/api/v1/app/automations/{automation_id}/keyword-test` | automation · read · team-only | `testAutomationKeyword` — "try it": takes a text and answers whether it starts this automation, which word matched (exact or close spelling), and which automation of the account would answer first by the match order. Sends and saves nothing | plan:L845, L5008–L5027; routes-final § 4, route 35 |
+| RC-12 | CHANGED — was `PATCH /api/v1/app/social/instagram/account/settings` | PATCH | `/api/v1/app/social/instagram/accounts/{channel_account_id}/settings` | instagram-account · manage · team-only | `updateInstagramAccountSettings` — the Instagram account's limits (opening DMs per hour, optional day limit, fast answers per hour, per person per hour, broadcasts per hour) within the plan's bounds, stop words, the automatic notice, replies under comments, once per person per post, mark as seen after a reply (Meta-test-gated: turning it on while the code list marks it untested answers `422 instagram_feature_not_offered`, [P36](decisions.md)), and the extra delay before each message (PRO). The automation master switch is the channel account's (P42) and moves with it; the five public-reply settings leave the account (they move to each automation, plan D14, D32). A limit change gives the slow and reply lanes a new turn; other settings count for new events only | plan:L2610–L2611, L2673–L2684, L225; routes-final § 2, route 12 |
 
-## Runs & messages
+## Instagram media
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-35 | NEW | GET | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/sending-status` | instagram-account · read · team-only | `getInstagramSendingStatus` — what the account's banners need: how many wait per lane, every stop with its reason and end, paused or suspended, the new-account limit, the estimate (about how many will go, how many may expire, done at about), today's daily line (sent, not sure, skipped, expired), the per-automation "chat closed" line, and the last broadcast, past-comments and retry results. Read from a short-lived copy, or Postgres without one | plan:L2530–L2574, L2232; routes-final § 6, route 63 |
-| RC-36 | NEW | GET | `/api/v1/app/contacts/{contact_id}/activity` | contact · read · team-only | `listContactActivity` — "What happened": our messages to her of about the last 30 days ([P13](decisions.md)), her saved answers (email, phone, taps), her runs and their history (90 days). Never her own free text | plan:L2627, L261; routes-final § 3, route 24 |
-| RC-37 | NEW | GET | `/api/v1/app/automations/{automation_id}/failed-messages/summary` | automation · read · team-only | `getAutomationFailedMessagesSummary` — the count before a retry: failed messages of about the last 30 days, how many can go again now, how many cannot (too old, chat closed, final for that person, text still refused, broadcast) | plan:L2617, L2700–L2733; routes-final § 4, route 36 |
-| RC-38 | NEW | POST | `/api/v1/app/automations/{automation_id}/failed-messages/retry` | automation · update · team-only · X-Idempotency-Key required | `retryAutomationFailedMessages` — puts the ones still allowed back to waiting, each at most once ever; they go through the normal lanes, gates and limits; audited | plan:L2617, L6013–L6040; routes-final § 4, route 37 |
-| RC-39 | NEW | GET | `/api/v1/app/contacts/{contact_id}/failed-messages/summary` | contact · read · team-only | `getContactFailedMessagesSummary` — as RC-37, for one contact | plan:L2617, L2702; routes-final § 3, route 25 |
-| RC-40 | NEW | POST | `/api/v1/app/contacts/{contact_id}/failed-messages/retry` | contact · update · team-only · X-Idempotency-Key required | `retryContactFailedMessages` — as RC-38, for one contact | plan:L2617, L6013–L6040; routes-final § 3, route 26 |
+| RC-13 | CHANGED — was `GET /api/v1/app/social/instagram/media` | GET | `/api/v1/app/social/instagram/accounts/{channel_account_id}/media` | instagram-account · read · team-only | `listInstagramMedia` — the picked account's posts and reels, read live with the Unified Login token, with caption and kind (post, reel, ad post); a missing picture falls back to the thumbnail or link | plan:L811, L2946–L2958; routes-final § 2, route 13 |
+| RC-14 | CHANGED — was `GET /api/v1/app/social/instagram/stories` | GET | `/api/v1/app/social/instagram/accounts/{channel_account_id}/stories` | instagram-account · read · team-only | `listInstagramStories` — the account's live stories for "one story"; built now — a story way to start the code list marks untested (Meta test 3, stories on Unified Login) is refused at go-live until its test passes ([P36](decisions.md)) | plan:L811, L7558; routes-final § 2, route 14 |
 
-## Broadcasts & segments
+## Instagram webhook
+
+Instagram's own ([P45](decisions.md)): Meta's app dashboard takes one callback per object (`instagram`,
+later `page`), so a later Facebook channel gets its own receiver.
+
+| # | Change | Method | Path | Access | Operation | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| RC-16 | CHANGED | POST | `/api/v1/app/social/instagram/webhook` | PUBLIC (X-Hub-Signature-256, now signed with the Meta app secret) | `receiveInstagramWebhook` — signature first; read receipts and our own "sent" notices are dropped, our own echoes found by a Postgres lookup of the message id (WHQ1); an unknown or revoked channel account saves nothing (an `error` account is saved `received`, not `account_disconnected`; a paused or limit-full account still saves); echoes of the owner's hand-typed messages are saved `received`; events older than 8 days are dropped; a repeat is dropped by its stored event key; new kinds (Live comment, story mention, shared post, starter question, link, reaction, own comment, edit); saved before the answer, then handed to intake by kind. The store has a 3-second budget: Postgres down or slow answers 500 / 503 and saves nothing, so Meta delivers again — no Redis buffer ([P32](decisions.md), WH2) | plan:L4734–L4807; routes-final § 5, route 61 |
+| RC-19 | CHANGED | GET | `/api/v1/app/social/instagram/webhook-events` | instagram-webhook-event · read · team-only | `listInstagramWebhookEvents` — adds the `channel_account_id` filter and field (many accounts, P47); shows the new event kinds and reasons (an own comment is `own_comment`; `flood` added, `echo` and `reaction` gone — echoes and reactions are saved `received`), a failed event's `next_attempt_at`, and only 8 days of events; `payload` is `null` once an event is done (WH23) | plan:L226, L3207–L3222, L4772–L4797; routes-final § 5, route 62 |
+
+## Instagram contacts & tags
+
+| # | Change | Method | Path | Access | Operation | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| RC-20 | CHANGED — was `GET /api/v1/app/contacts` | GET | `/api/v1/app/social/instagram/contacts` | contact · read · team-only | `listContacts` — the contacts of one account (`channel_account_id`, a **required** filter, CTQ2), with tags, opted out, automations paused, how she came in, first message, last comment and comment count; search by phone too; filter by tag | plan:L2960–L2993, L1727; routes-final § 3, route 18 |
+| RC-21 | NEW | GET | `/api/v1/app/social/instagram/contacts/{contact_id}` | contact · read · team-only | `getContact` — one contact: profile, email and phone she gave, tags, private note, opted out, automations paused (by whom, when), how she came in | plan:L2627, L2960–L2993; routes-final § 3, route 19 |
+| RC-22 | NEW | PATCH | `/api/v1/app/social/instagram/contacts/{contact_id}` | contact · update · team-only | `updateContact` — the private note (up to 2,000 characters; nothing is sent); tags added or removed (each change is a tag event that can start a tag automation); automations paused on or off for her (on: her waiting messages skipped and her open runs cancelled in the same commit; off: nothing restarts by itself) | plan:L2615–L2616, L2625–L2626, L5168–L5175; routes-final § 3, route 20 |
+| RC-23 | NEW | POST | `/api/v1/app/social/instagram/contacts/bulk-actions` | contact · update · team-only · X-Idempotency-Key required | `runContactBulkAction` — one tag added or removed, or automations paused or resumed, on many contacts of one account (named by ids, 1–500, or by the list's filters); the change runs in the background in pieces of 500 (CT7) | plan:L2615, L2625, L1039; routes-final § 3, route 21 |
+| RC-24 | NEW | GET | `/api/v1/app/social/instagram/accounts/{channel_account_id}/contact-tags` | contact · read · team-only | `listContactTags` — the account's tags with how many contacts carry each, for the tag picker and filters | plan:L1034, L2991; routes-final § 3, route 22 |
+| RC-25 | CHANGED — was `DELETE /api/v1/app/contacts/{contact_id}` | DELETE | `/api/v1/app/social/instagram/contacts/{contact_id}` | contact · delete · team-only | `deleteContact` — as built (personal data wiped, row kept, open runs cancelled), and now also her waiting messages are cancelled | plan:L2628; routes-final § 3, route 23 |
+
+## Instagram automations
+
+| # | Change | Method | Path | Access | Operation | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| RC-26 | CHANGED — was `GET /api/v1/app/automations` | GET | `/api/v1/app/social/instagram/automations` | automation · read · team-only | `listAutomations` — one account's automations (`channel_account_id`, a **required** filter, CTQ2); statuses `draft`, `live`, `paused`; each row with its all-time runs and % tapped, a draft with "edited …"; the top-bar totals (live count, runs). Sorting by the launch's completed count goes | plan:L2514–L2528; routes-final § 4, route 27 |
+| RC-27 | CHANGED — was `POST /api/v1/app/automations` | POST | `/api/v1/app/social/instagram/automations` | automation · create · team-only · X-Idempotency-Key required | `createAutomation` — saves a **draft**: only a name is needed, nothing is checked or sent; the account is named in the body as `channel_account_id` (many accounts, P47); the new ways to start, steps, message list, versions, wordings and reply step may be saved unfinished | plan:L2601, L676, L2995–L3145; routes-final § 4, route 28 |
+| RC-28 | CHANGED — was `GET /api/v1/app/automations/{automation_id}` | GET | `/api/v1/app/social/instagram/automations/{automation_id}` | automation · read · team-only | `getAutomation` — the full automation in its new shape (way to start, steps, versions, wordings, reply step, starter questions, link code), its counters per hello version, a stop reason (`bad_text`), and a past-comments read in progress | plan:L2517–L2524, L2995–L3145, L2696; routes-final § 4, route 29 |
+| RC-29 | CHANGED — was `PATCH /api/v1/app/automations/{automation_id}` | PATCH | `/api/v1/app/social/instagram/automations/{automation_id}` | automation · update · team-only | `updateAutomation` — saves content only (status moves by RC-31 and RC-32). A draft saves anything; a live or paused one runs the go-live checks again and answers the problems, each with its step. New runs use the new steps; waiting messages read the new text; a removed step's waiting messages are cancelled. Fixing a refused text clears the stop and puts its bad-text failures back to waiting (under 7 days); a reply-step change restarts its box. A read-only plan still lets the owner save, except turning a PRO part on ([P10](decisions.md)) | plan:L2606, L2609, L2620, L2635–L2653; routes-final § 4, route 30 |
+| RC-30 | CHANGED — was `DELETE /api/v1/app/automations/{automation_id}` | DELETE | `/api/v1/app/social/instagram/automations/{automation_id}` | automation · delete · team-only | `deleteAutomation` — the reason becomes optional (mistake, duplicate, not needed, other — `other` needs a note, [P11](decisions.md)); stops at once: open runs and waiting messages cancelled; contacts stay; a starter-question automation's questions are taken off the account | plan:L2608, L3035; routes-final § 4, route 31 |
+| RC-31 | NEW | POST | `/api/v1/app/social/instagram/automations/{automation_id}/go-live` | automation · update · team-only | `goLiveAutomation` — runs the go-live checks (the plan's §5.1 list plus "a hello always has a next-step button when later steps exist", [P2](decisions.md)) and refuses with the missing items, each tagged with its step so the editor jumps there; refused when the plan ended, the month limit is reached, the account is not connected, or a PRO part needs Creator or Studio. Ways to start and features on the untested code list (story repost, ad comments, Live comments, mark as seen, the 7-day ad window, quick replies / cards on Unified Login) are refused until their §43 test passes ([P36](decisions.md)). Warnings (shared keyword, private account) do not refuse. A paused automation's waiting DMs go on (under 7 days); starter questions are set; its lanes wake | plan:L2602, L2635–L2653, L690–L707; routes-final § 4, route 32 |
+| RC-32 | NEW | POST | `/api/v1/app/social/instagram/automations/{automation_id}/pause` | automation · update · team-only | `pauseAutomation` — pause with **keep** (waiting DMs stay, chats in progress finish) or **cancel** (its waiting messages count as cancelled from now); starter questions are taken off | plan:L2603–L2604; routes-final § 4, route 33 |
+| RC-33 | NEW | POST | `/api/v1/app/social/instagram/automations/{automation_id}/duplicate` | automation · create · team-only · X-Idempotency-Key required | `duplicateAutomation` — a draft copy "<name> (copy)" on the same account; a link automation gets a new link code; counters start at 0 | plan:L2607; routes-final § 4, route 34 |
+| RC-34 | NEW | POST | `/api/v1/app/social/instagram/automations/{automation_id}/keyword-test` | automation · read · team-only | `testAutomationKeyword` — "try it": takes a text and answers whether it starts this automation, which word matched (exact or close spelling), and which automation of the account would answer first by the match order. Sends and saves nothing | plan:L845, L5008–L5027; routes-final § 4, route 35 |
+
+## Instagram runs & messages
+
+| # | Change | Method | Path | Access | Operation | Source |
+| --- | --- | --- | --- | --- | --- | --- |
+| RC-35 | NEW | GET | `/api/v1/app/social/instagram/accounts/{channel_account_id}/sending-status` | instagram-account · read · team-only | `getInstagramSendingStatus` — what the account's banners need: how many wait per lane, every stop with its reason and end, paused or suspended, the new-account limit, the estimate (about how many will go, how many may expire, done at about), today's daily line (sent, not sure, skipped, expired), the per-automation "chat closed" line, and the last broadcast, past-comments and retry results. Read from a short-lived copy, or Postgres without one | plan:L2530–L2574, L2232; routes-final § 6, route 63 |
+| RC-36 | NEW | GET | `/api/v1/app/social/instagram/contacts/{contact_id}/activity` | contact · read · team-only | `listContactActivity` — "What happened": our messages to her of about the last 30 days ([P13](decisions.md)), her saved answers (email, phone, taps), her runs and their history (90 days). Never her own free text | plan:L2627, L261; routes-final § 3, route 24 |
+| RC-37 | NEW | GET | `/api/v1/app/social/instagram/automations/{automation_id}/failed-messages/summary` | automation · read · team-only | `getAutomationFailedMessagesSummary` — the count before a retry: failed messages of about the last 30 days, how many can go again now, how many cannot (too old, chat closed, final for that person, text still refused, broadcast) | plan:L2617, L2700–L2733; routes-final § 4, route 36 |
+| RC-38 | NEW | POST | `/api/v1/app/social/instagram/automations/{automation_id}/failed-messages/retry` | automation · update · team-only · X-Idempotency-Key required | `retryAutomationFailedMessages` — puts the ones still allowed back to waiting, each at most once ever; they go through the normal lanes, gates and limits; audited | plan:L2617, L6013–L6040; routes-final § 4, route 37 |
+| RC-39 | NEW | GET | `/api/v1/app/social/instagram/contacts/{contact_id}/failed-messages/summary` | contact · read · team-only | `getContactFailedMessagesSummary` — as RC-37, for one contact | plan:L2617, L2702; routes-final § 3, route 25 |
+| RC-40 | NEW | POST | `/api/v1/app/social/instagram/contacts/{contact_id}/failed-messages/retry` | contact · update · team-only · X-Idempotency-Key required | `retryContactFailedMessages` — as RC-38, for one contact | plan:L2617, L6013–L6040; routes-final § 3, route 26 |
+
+## Instagram broadcasts & segments
 
 PRO (Creator and Studio, plan D68): on Free the broadcast create and send routes refuse with `403
 plan_feature_required` ("Broadcasts are on Creator and Studio"); segments and audience counts stay open on
@@ -158,34 +196,34 @@ then purged 90 days later ([P9](decisions.md), A9, BC4). Both lists need their a
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-41 | NEW | GET | `/api/v1/app/segments` | automation · read · team-only | `listSegments` — one account's saved segments (`instagram_account_id`, a **required** filter, BC5), by name | plan:L3719–L3750; routes-final § 7, route 77 |
-| RC-42 | NEW | POST | `/api/v1/app/segments` | automation · create · team-only · X-Idempotency-Key required | `createSegment` — a named audience of one account: conditions in AND / OR groups, at most 2 levels and 20 conditions | plan:L2612, L1711, L3719–L3750; routes-final § 7, route 78 |
-| RC-43 | NEW | GET | `/api/v1/app/segments/{segment_id}` | automation · read · team-only | `getSegment` — one segment with its conditions | plan:L3719–L3750; routes-final § 7, route 79 |
-| RC-44 | NEW | PATCH | `/api/v1/app/segments/{segment_id}` | automation · update · team-only | `updateSegment` — name or conditions; a broadcast already sent keeps its own copy | plan:L2612, L3748; routes-final § 7, route 80 |
-| RC-45 | NEW | DELETE | `/api/v1/app/segments/{segment_id}` | automation · delete · team-only | `deleteSegment` — soft delete; broadcasts keep their copy of the conditions | plan:L3750; routes-final § 7, route 81 |
-| RC-46 | NEW | POST | `/api/v1/app/segments/audience-count` | automation · read · team-only · X-Idempotency-Key required | `countSegmentAudience` — the preview for conditions (saved or not): how many match and how many can get it now (chat open); conditions too heavy to count at once are counted in the background and the answer says so | plan:L1726, L2689; routes-final § 7, route 82 |
-| RC-47 | NEW | GET | `/api/v1/app/broadcasts` | automation · read · team-only | `listBroadcasts` — one account's broadcasts (`instagram_account_id`, a **required** filter, BC5): name, mode, status and numbers (sent, skipped, replies, taps) | plan:L2688; routes-final § 7, route 70 |
-| RC-48 | NEW | POST | `/api/v1/app/broadcasts` | automation · create · team-only · X-Idempotency-Key required | `createBroadcast` — a `draft` on one account: the audience (a segment or its own conditions) and 1 to 3 messages (with `{name}`, versions, a "start automation X" button); the mode is chosen at send (RC-52). Refused on Free with `403 plan_feature_required` (BCQ2) | plan:L1705–L1770, L3752–L3791, L4070–L4089; routes-final § 7, route 71 |
-| RC-49 | NEW | GET | `/api/v1/app/broadcasts/{broadcast_id}` | automation · read · team-only | `getBroadcast` — one broadcast with its status, mode, audience copy and numbers | plan:L3752–L3791; routes-final § 7, route 72 |
-| RC-50 | NEW | PATCH | `/api/v1/app/broadcasts/{broadcast_id}` | automation · update · team-only | `updateBroadcast` — edits a `draft` only | plan:L4070–L4089; routes-final § 7, route 73 |
-| RC-51 | NEW | DELETE | `/api/v1/app/broadcasts/{broadcast_id}` | automation · delete · team-only | `deleteBroadcast` — soft delete, allowed only for `draft`, `done` and `cancelled`; a `scheduled`, `sending` or `waiting_for_chats` one is `409 broadcast_active` (cancel it first, BC11) | plan:L3791; routes-final § 7, route 74 |
-| RC-52 | NEW | POST | `/api/v1/app/broadcasts/{broadcast_id}/send` | automation · update · team-only · X-Idempotency-Key required | `sendBroadcast` — leaves `draft`; the send body carries the mode — `now`, `scheduled` with `scheduled_at`, or `when_chat_opens` with `open_wait_days` (1 to 7); it takes its copy of the conditions; only open chats get it; refusals named: `403 plan_feature_required`, `403 organization_read_only`, `409 direct_message_month_limit_reached`, `422 broadcast_incomplete`; audited (BC10) | plan:L2613, L1731–L1770, L4070–L4089; routes-final § 7, route 75 |
-| RC-53 | NEW | POST | `/api/v1/app/broadcasts/{broadcast_id}/cancel` | automation · update · team-only · X-Idempotency-Key required | `cancelBroadcast` — a draft, scheduled, sending or waiting broadcast becomes `cancelled`: waiting recipients skipped, their waiting messages cancelled, sent ones stay sent; audited | plan:L2614, L2688; routes-final § 7, route 76 |
+| RC-41 | NEW | GET | `/api/v1/app/social/instagram/segments` | automation · read · team-only | `listSegments` — one account's saved segments (`channel_account_id`, a **required** filter, BC5), by name | plan:L3719–L3750; routes-final § 7, route 77 |
+| RC-42 | NEW | POST | `/api/v1/app/social/instagram/segments` | automation · create · team-only · X-Idempotency-Key required | `createSegment` — a named audience of one account: conditions in AND / OR groups, at most 2 levels and 20 conditions | plan:L2612, L1711, L3719–L3750; routes-final § 7, route 78 |
+| RC-43 | NEW | GET | `/api/v1/app/social/instagram/segments/{segment_id}` | automation · read · team-only | `getSegment` — one segment with its conditions | plan:L3719–L3750; routes-final § 7, route 79 |
+| RC-44 | NEW | PATCH | `/api/v1/app/social/instagram/segments/{segment_id}` | automation · update · team-only | `updateSegment` — name or conditions; a broadcast already sent keeps its own copy | plan:L2612, L3748; routes-final § 7, route 80 |
+| RC-45 | NEW | DELETE | `/api/v1/app/social/instagram/segments/{segment_id}` | automation · delete · team-only | `deleteSegment` — soft delete; broadcasts keep their copy of the conditions | plan:L3750; routes-final § 7, route 81 |
+| RC-46 | NEW | POST | `/api/v1/app/social/instagram/segments/audience-count` | automation · read · team-only · X-Idempotency-Key required | `countSegmentAudience` — the preview for conditions (saved or not): how many match and how many can get it now (chat open); conditions too heavy to count at once are counted in the background and the answer says so | plan:L1726, L2689; routes-final § 7, route 82 |
+| RC-47 | NEW | GET | `/api/v1/app/social/instagram/broadcasts` | automation · read · team-only | `listBroadcasts` — one account's broadcasts (`channel_account_id`, a **required** filter, BC5): name, mode, status and numbers (sent, skipped, replies, taps) | plan:L2688; routes-final § 7, route 70 |
+| RC-48 | NEW | POST | `/api/v1/app/social/instagram/broadcasts` | automation · create · team-only · X-Idempotency-Key required | `createBroadcast` — a `draft` on one account: the audience (a segment or its own conditions) and 1 to 3 messages (with `{name}`, versions, a "start automation X" button); the mode is chosen at send (RC-52). Refused on Free with `403 plan_feature_required` (BCQ2) | plan:L1705–L1770, L3752–L3791, L4070–L4089; routes-final § 7, route 71 |
+| RC-49 | NEW | GET | `/api/v1/app/social/instagram/broadcasts/{broadcast_id}` | automation · read · team-only | `getBroadcast` — one broadcast with its status, mode, audience copy and numbers | plan:L3752–L3791; routes-final § 7, route 72 |
+| RC-50 | NEW | PATCH | `/api/v1/app/social/instagram/broadcasts/{broadcast_id}` | automation · update · team-only | `updateBroadcast` — edits a `draft` only | plan:L4070–L4089; routes-final § 7, route 73 |
+| RC-51 | NEW | DELETE | `/api/v1/app/social/instagram/broadcasts/{broadcast_id}` | automation · delete · team-only | `deleteBroadcast` — soft delete, allowed only for `draft`, `done` and `cancelled`; a `scheduled`, `sending` or `waiting_for_chats` one is `409 broadcast_active` (cancel it first, BC11) | plan:L3791; routes-final § 7, route 74 |
+| RC-52 | NEW | POST | `/api/v1/app/social/instagram/broadcasts/{broadcast_id}/send` | automation · update · team-only · X-Idempotency-Key required | `sendBroadcast` — leaves `draft`; the send body carries the mode — `now`, `scheduled` with `scheduled_at`, or `when_chat_opens` with `open_wait_days` (1 to 7); it takes its copy of the conditions; only open chats get it; refusals named: `403 plan_feature_required`, `403 organization_read_only`, `409 message_month_limit_reached`, `422 broadcast_incomplete`; audited (BC10) | plan:L2613, L1731–L1770, L4070–L4089; routes-final § 7, route 75 |
+| RC-53 | NEW | POST | `/api/v1/app/social/instagram/broadcasts/{broadcast_id}/cancel` | automation · update · team-only · X-Idempotency-Key required | `cancelBroadcast` — a draft, scheduled, sending or waiting broadcast becomes `cancelled`: waiting recipients skipped, their waiting messages cancelled, sent ones stay sent; audited | plan:L2614, L2688; routes-final § 7, route 76 |
 
-## Past comments
+## Instagram past comments
 
 PRO, comment and ad-comment automations only (not Live), plan D69.
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-54 | NEW | POST | `/api/v1/app/automations/{automation_id}/backfills` | automation · update · team-only · X-Idempotency-Key required | `startAutomationBackfill` — "Also answer comments from the last N days" (1 to 7) on a live comment or ad-comment automation; refused while one runs for this automation ("Past comments are already being read"); one read at a time per account, the rest queue | plan:L2619, L2694–L2698, L5148–L5166; routes-final § 4, route 38 |
-| RC-55 | NEW | GET | `/api/v1/app/automations/{automation_id}/backfills/{automation_backfill_id}` | automation · read · team-only | `getAutomationBackfill` — one read: status (queued, reading, done, failed), found, matched, queued so far | plan:L2696, L3818–L3849; routes-final § 4, route 39 |
+| RC-54 | NEW | POST | `/api/v1/app/social/instagram/automations/{automation_id}/backfills` | automation · update · team-only · X-Idempotency-Key required | `startAutomationBackfill` — "Also answer comments from the last N days" (1 to 7) on a live comment or ad-comment automation; refused while one runs for this automation ("Past comments are already being read"); one read at a time per account, the rest queue | plan:L2619, L2694–L2698, L5148–L5166; routes-final § 4, route 38 |
+| RC-55 | NEW | GET | `/api/v1/app/social/instagram/automations/{automation_id}/backfills/{automation_backfill_id}` | automation · read · team-only | `getAutomationBackfill` — one read: status (queued, reading, done, failed), found, matched, queued so far | plan:L2696, L3818–L3849; routes-final § 4, route 39 |
 
 ## Workspace usage & notices
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-56 | NEW | GET | `/api/v1/app/usage` | organization · read · team-only | `getAppUsage` — the workspace's DM month meter (used, limit — the plan's `direct_message_month_limit` (BLQ3), resets on in the workspace's time zone, state ok, nearly from 80 %, reached at 100 %), accounts used against the plan's maximum, and the workspace notices to show (limit nearly reached, limit reached, payment failed, plan ended, being set up, paused); the trial notice ([P28](decisions.md)). Replaces the plan's `dm_month` field on `GET /auth/me/context` ([P14](decisions.md)) | plan:L2576–L2591, L8031–L8039; routes-final § 6, route 64 |
+| RC-56 | NEW | GET | `/api/v1/app/usage` | organization · read · team-only | `getAppUsage` — the workspace's DM month meter (used, limit — the plan's `message_month_limit` (BLQ3, P47 — every channel together), resets on in the workspace's time zone, state ok, nearly from 80 %, reached at 100 %), accounts used against the plan's maximum, and the workspace notices to show (limit nearly reached, limit reached, payment failed, plan ended, being set up, paused); the trial notice ([P28](decisions.md)). Replaces the plan's `dm_month` field on `GET /auth/me/context` ([P14](decisions.md)) | plan:L2576–L2591, L8031–L8039; routes-final § 6, route 64 |
 
 ## Product around sending
 
@@ -198,10 +236,9 @@ The plan's Part F (§44–47), all in this iteration ([P28](decisions.md)) excep
 | --- | --- | --- | --- | --- | --- | --- |
 | RC-57 | CHANGED | GET | `/api/v1/billing/plans` | PUBLIC | `listPlans` — Free, Creator and Studio with typed features (DMs per month, accounts maximum, PRO parts, priority support) and the yearly price per month; old rows off. Prices are placeholders ([P37](decisions.md)) | plan:L7932–L7949; routes-final § 8, route 100 |
 | RC-58 | CHANGED | GET | `/api/v1/billing/plans/{plan_id}` | PUBLIC | `getPlan` — as RC-57, one plan | plan:L7932–L7949; routes-final § 8, route 101 |
-| RC-59 | CHANGED | POST | `/api/v1/billing/subscriptions/{subscription_id}/change-plan` | subscription · manage · team-only · X-Idempotency-Key required | `changePlan` — a move up stays immediate (and clears any scheduled change); a move down takes the Instagram accounts to keep (`keep_instagram_account_ids`) and is applied at the period end (no pick: the oldest-connected stay); the answer carries the `scheduled_change` (plan, when, accounts kept); PRO parts the new plan lacks are off, nothing is deleted (BL5, BL15, BLQ1) | plan:L7987–L8027, L2630; routes-final § 8, route 103 |
-| RC-60 | NEW | POST | `/api/v1/app/social/instagram/accounts/{instagram_account_id}/activate` | instagram-account · manage · team-only · X-Idempotency-Key required | `activateInstagramAccount` — "choose active accounts": makes this "not in your plan" account active and stops the active account named in the body in its place, under the workspace lock, so the active count always fits the plan | plan:L2631, L7987–L8027; routes-final § 2, route 11 |
+| RC-59 | CHANGED | POST | `/api/v1/billing/subscriptions/{subscription_id}/change-plan` | subscription · manage · team-only · X-Idempotency-Key required | `changePlan` — a move up stays immediate (and clears any scheduled change); a move down takes the channel accounts to keep (`keep_channel_account_ids`, P47) and is applied at the period end (no pick: the oldest-connected stay); the answer carries the `scheduled_change` (plan, when, accounts kept); PRO parts the new plan lacks are off, nothing is deleted (BL5, BL15, BLQ1) | plan:L7987–L8027, L2630; routes-final § 8, route 103 |
 | RC-61 | CHANGED | POST | `/api/v1/uploads` | AUTH (upload · manage for a workspace upload) · X-Idempotency-Key required | `createUpload` — a new purpose for message files: image (png, jpeg) up to 8 MB, voice note up to 25 MB, PDF up to 25 MB, bound to the workspace; the upload ceiling goes from 10 MB to 25 MB. A message file may be used once confirm's type and magic-byte checks pass — no scan this iteration ([P34](decisions.md)) | plan:L8443; routes-final § 12, route 140 |
-| RC-64 | CHANGED | GET | `/api/v1/auth/me/context` | AUTH | `getMeContext` — `plan_access` adds `trial_ends_at`, `plan` (id, name) and `features`; the workspace adds its connected-account count (`instagram_accounts_count`); "workspace paused" is the existing `status` (`SUSPENDED`), no new field; the DM meter is RC-56 instead ([P14](decisions.md), BL16) | plan:L8214–L8236, L8111; routes-final § 8, route 108 |
+| RC-64 | CHANGED | GET | `/api/v1/auth/me/context` | AUTH | `getMeContext` — `plan_access` adds `trial_ends_at`, `plan` (id, name) and `features`; the workspace adds its connected-account count (`channel_accounts_count`); "workspace paused" is the existing `status` (`SUSPENDED`), no new field; the DM meter is RC-56 instead ([P14](decisions.md), BL16) | plan:L8214–L8236, L8111; routes-final § 8, route 108 |
 | RC-65 | CHANGED | POST | `/api/v1/billing/subscriptions` | subscription · manage · team-only · X-Idempotency-Key required | `createSubscription` — the body's `is_trial` (optional, default false) takes a 7-day no-card trial on Creator or Studio, once per workspace and per Instagram account (`409 trial_already_used`, `409 trial_used_by_account`, `422 plan_has_no_trial`; BL7, BL14) | plan:L8081–L8113; routes-final § 8, route 102 |
 | RC-66 | CHANGED | POST | `/api/v1/billing/webhook` | PUBLIC (Stripe-Signature) | `receiveStripeWebhook` — moves an unpaid trial to Free, and applies a scheduled move down at the period end (the referral-earning cut on refunds and disputes is out, [P39](decisions.md); BL22) | plan:L8081–L8113, L8284; routes-final § 8, route 107 |
 | RC-68 | NEW | DELETE | `/api/v1/billing/payment-methods/{payment_method_id}` | subscription · manage · team-only | `deletePaymentMethod` — removes a card; the only card is kept while a paid plan is on (`409 default_card_in_use`); `{payment_method_id}` is Stripe's `pm_…` id, a non-entity param (BLQ2, BL20) | plan:L8075; routes-final § 8, route 105 |
@@ -264,27 +301,27 @@ proposed routes leave the plan:
 
 | # | Route | What changes | Before | After | Why |
 | --- | --- | --- | --- | --- | --- |
-| RC-8 | `GET /api/v1/app/social/instagram/accounts/{instagram_account_id}` | path, output | `GET …/social/instagram/account` — the workspace's one account, with the token end | the account by its id, with its Meta connection, paused / suspended, new-account limit end; no token end | many accounts (D26, [P1](decisions.md)); token never expires (D24) |
-| RC-9 | `DELETE /api/v1/app/social/instagram/accounts/{instagram_account_id}` | path, behaviour | `DELETE …/social/instagram/account` — the one account `revoked`, token erased | the named account `revoked`, lanes stopped, starter questions removed; token erased only with the connection's last account; waiting messages stay and expire | D26, plan:L4683–L4693 |
-| RC-12 | `PATCH /api/v1/app/social/instagram/accounts/{instagram_account_id}/settings` | path, input | `…/account/settings` — automation switch + 5 public-reply settings | per account: limits, stop words, automatic notice, comment replies, once per post, mark as seen (refused `422 instagram_feature_not_offered` while untested), extra delay (PRO); public-reply settings moved to the automation | D14, D32, D26, [P36](decisions.md) |
-| RC-13 | `GET …/accounts/{instagram_account_id}/media` | path, output | `GET …/social/instagram/media` — the one account's posts, Instagram Login | the named account's posts with caption and kind, Unified Login | D24, D26 |
-| RC-14 | `GET …/accounts/{instagram_account_id}/stories` | path | `GET …/social/instagram/stories` | the named account's stories; "one story" offered only once Meta test 3 passes | D26, [P36](decisions.md) |
+| RC-8 | `GET /api/v1/app/social/channel-accounts/{channel_account_id}` | path, output | `GET …/social/instagram/account` — the workspace's one Instagram account, with the token end | a common channel account by its id (P42): channel, display name, status, its connection, paused / suspended, plan stop, new-account limit end; the Instagram extension and settings inside; no token end | many accounts (D26, [P1](decisions.md)); token never expires (D24); [P42](decisions.md), [P47](decisions.md) |
+| RC-9 | `DELETE /api/v1/app/social/channel-accounts/{channel_account_id}` | path, behaviour | `DELETE …/social/instagram/account` — the one account `revoked`, token erased | the named channel account `revoked`, lanes stopped, starter questions removed; token erased only with the connection's last account; waiting messages stay and expire | D26, plan:L4683–L4693, [P42](decisions.md) |
+| RC-12 | `PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings` | path, input | `…/account/settings` — automation switch + 5 public-reply settings | per account, by its channel account id: limits, stop words, automatic notice, comment replies, once per post, mark as seen (refused `422 instagram_feature_not_offered` while untested), extra delay (PRO); public-reply settings moved to the automation; the automation switch moved to the channel account | D14, D32, D26, [P36](decisions.md), [P42](decisions.md), [P47](decisions.md) |
+| RC-13 | `GET …/social/instagram/accounts/{channel_account_id}/media` | path, output | `GET …/social/instagram/media` — the one account's posts, Instagram Login | the named account's posts with caption and kind, Unified Login | D24, D26, [P47](decisions.md) |
+| RC-14 | `GET …/social/instagram/accounts/{channel_account_id}/stories` | path | `GET …/social/instagram/stories` | the named account's stories; "one story" offered only once Meta test 3 passes | D26, [P36](decisions.md), [P47](decisions.md) |
 | RC-16 | `POST /api/v1/app/social/instagram/webhook` | behaviour | Instagram app secret; dedupe on the events table; echoes skipped; an `error` account's events skipped `account_disconnected`; one in-order run per account that also sends; store failure answers a failure | Meta app secret; read receipts and own "sent" dropped, our own echoes by a Postgres message-id lookup; hand-typed echoes and `error` accounts' events saved `received`; 8-day replay guard; key table dedupe; new kinds; intake by kind, never sends; a 3 s store budget — Postgres down or slow answers 500 / 503 so Meta delivers again ([P32](decisions.md)) | D15, D24, WH2, WHQ1, plan:L4734–L4807 |
-| RC-17 | `POST …/social/instagram/deauthorize` | behaviour | Instagram app secret; the account found by its app-scoped id | Meta app secret; found by the Instagram user id (a new resolver); an unmatched id is answered and the team told | D24, IA19, plan:L4695–L4705 |
-| RC-18 | `POST …/social/instagram/data-deletion` | behaviour | as RC-17 before, then erase | as RC-17 after, then erase; unmatched id still gets its code | D24 |
-| RC-19 | `GET …/social/instagram/webhook-events` | input, output | 30 days, masked body kept, own comment `echo`, `failed` final; no account filter | 8 days, `payload` null when done, `own_comment` and `flood`, new kinds, `next_attempt_at`; the `instagram_account_id` filter and field | D15, WH23, plan:L5105–L5115 |
-| RC-20 | `GET /api/v1/app/contacts` | input, output | all the workspace's contacts (one account) | one account's contacts, the account a required filter; tag and phone search; opted out, paused, how she came in, comment numbers | D26, CTQ2, plan:L2960–L2993 |
-| RC-25 | `DELETE /api/v1/app/contacts/{contact_id}` | behaviour | personal data wiped, open runs cancelled | also her waiting messages cancelled | plan:L2628 |
-| RC-26 | `GET /api/v1/app/automations` | input, output | every automation, status `active` / `inactive`, completed count | one account's (a required filter), `draft` / `live` / `paused`, runs and % tapped from the all-time counts | CTQ2, plan:L2514–L2528 |
-| RC-27 | `POST /api/v1/app/automations` | input, behaviour | a complete automation, fully checked; the account implicit | a draft with only a name; the account in the body; nothing checked | D28, D26, plan:L2601 |
-| RC-28 | `GET /api/v1/app/automations/{automation_id}` | output | launch shape (opening message, follow, email, phone, one final DM) | new shape: ways to start, message list, versions, wordings, reply step, counters per version, stop reason, past-comments read | plan:L2995–L3145 |
-| RC-29 | `PATCH /api/v1/app/automations/{automation_id}` | input, behaviour | content and status (`active` / `inactive`), full check every save; read-only plan refused | content only; check only when live or paused, problems by step; read-only plan allowed except a PRO part on | [P8](decisions.md), [P10](decisions.md), D28 |
-| RC-30 | `DELETE /api/v1/app/automations/{automation_id}` | input, behaviour | reason required; open runs cancelled | reason optional; open runs and waiting messages cancelled; starter questions removed | [P11](decisions.md), plan:L2608 |
+| RC-17 | `POST …/social/channel-connections/{provider}/deauthorize` | path, behaviour | `POST …/social/instagram/deauthorize` — Instagram app secret; the account found by its app-scoped id | under the connection (Meta-wide, P46); Meta app secret; the connection resolves the accounts it reaches, by the Instagram user id (a new resolver); an unmatched id is answered and the team told | D24, IA19, plan:L4695–L4705, [P46](decisions.md) |
+| RC-18 | `POST …/social/channel-connections/{provider}/data-deletion` | path, behaviour | `POST …/social/instagram/data-deletion` — as RC-17 before, then erase | under the connection (P46); as RC-17 after, then erase the accounts' and people's data; unmatched id still gets its code | D24, [P46](decisions.md) |
+| RC-19 | `GET …/social/instagram/webhook-events` | input, output | 30 days, masked body kept, own comment `echo`, `failed` final; no account filter | 8 days, `payload` null when done, `own_comment` and `flood`, new kinds, `next_attempt_at`; the `channel_account_id` filter and field | D15, WH23, plan:L5105–L5115, [P47](decisions.md) |
+| RC-20 | `GET /api/v1/app/social/instagram/contacts` | path, input, output | `GET /api/v1/app/contacts` — all the workspace's contacts (one account) | under `/social/instagram/…` (P47) — one account's contacts, the account a required filter; tag and phone search; opted out, paused, how she came in, comment numbers | D26, CTQ2, plan:L2960–L2993, [P44](decisions.md), [P47](decisions.md) |
+| RC-25 | `DELETE /api/v1/app/social/instagram/contacts/{contact_id}` | path, behaviour | `DELETE /api/v1/app/contacts/{contact_id}` — personal data wiped, open runs cancelled | under `/social/instagram/…` (P47) — also her waiting messages cancelled | plan:L2628, [P44](decisions.md), [P47](decisions.md) |
+| RC-26 | `GET /api/v1/app/social/instagram/automations` | path, input, output | `GET /api/v1/app/automations` — every automation, status `active` / `inactive`, completed count | under `/social/instagram/…` (P47) — one account's (a required filter), `draft` / `live` / `paused`, runs and % tapped from the all-time counts | CTQ2, plan:L2514–L2528, [P44](decisions.md), [P47](decisions.md) |
+| RC-27 | `POST /api/v1/app/social/instagram/automations` | path, input, behaviour | `POST /api/v1/app/automations` — a complete automation, fully checked; the account implicit | under `/social/instagram/…` (P47) — a draft with only a name; the account in the body (`channel_account_id`); nothing checked | D28, D26, plan:L2601, [P44](decisions.md), [P47](decisions.md) |
+| RC-28 | `GET /api/v1/app/social/instagram/automations/{automation_id}` | path, output | `GET /api/v1/app/automations/{automation_id}` — launch shape (opening message, follow, email, phone, one final DM) | under `/social/instagram/…` (P47) — new shape: ways to start, message list, versions, wordings, reply step, counters per version, stop reason, past-comments read | plan:L2995–L3145, [P44](decisions.md), [P47](decisions.md) |
+| RC-29 | `PATCH /api/v1/app/social/instagram/automations/{automation_id}` | path, input, behaviour | `PATCH /api/v1/app/automations/{automation_id}` — content and status (`active` / `inactive`), full check every save; read-only plan refused | under `/social/instagram/…` (P47) — content only; check only when live or paused, problems by step; read-only plan allowed except a PRO part on | [P8](decisions.md), [P10](decisions.md), D28, [P44](decisions.md), [P47](decisions.md) |
+| RC-30 | `DELETE /api/v1/app/social/instagram/automations/{automation_id}` | path, input, behaviour | `DELETE /api/v1/app/automations/{automation_id}` — reason required; open runs cancelled | under `/social/instagram/…` (P47) — reason optional; open runs and waiting messages cancelled; starter questions removed | [P11](decisions.md), plan:L2608, [P44](decisions.md), [P47](decisions.md) |
 | RC-57 | `GET /api/v1/billing/plans` | output | Free, Starter, Growth, Pro | Free, Creator, Studio with typed sending features and yearly price per month | plan:L7932–L7949, [P28](decisions.md), [P37](decisions.md) |
 | RC-58 | `GET /api/v1/billing/plans/{plan_id}` | output | as RC-57 before | as RC-57 after | [P28](decisions.md) |
-| RC-59 | `POST …/subscriptions/{subscription_id}/change-plan` | input, output, behaviour | plan only; every change at once | plan + Instagram accounts to keep; up at once, down at the period end; the answer's `scheduled_change` | plan:L7987–L8027, [P28](decisions.md), BLQ1 |
+| RC-59 | `POST …/subscriptions/{subscription_id}/change-plan` | input, output, behaviour | plan only; every change at once | plan + the channel accounts to keep (`keep_channel_account_ids`); up at once, down at the period end; the answer's `scheduled_change` | plan:L7987–L8027, [P28](decisions.md), [P47](decisions.md), BLQ1 |
 | RC-61 | `POST /api/v1/uploads` | input | images and PDF up to 10 MB | + message-file purpose: image 8 MB, audio 25 MB, PDF 25 MB; type and magic-byte checks, no scan | plan:L8443, [P28](decisions.md), [P34](decisions.md) |
-| RC-64 | `GET /api/v1/auth/me/context` | output | plan access (`state`, `grace_ends_at`) | + `trial_ends_at`, `plan`, `features`, connected-account count; paused stays the existing `status` | plan:L8214–L8236, [P28](decisions.md), BL16 |
+| RC-64 | `GET /api/v1/auth/me/context` | output | plan access (`state`, `grace_ends_at`) | + `trial_ends_at`, `plan`, `features`, connected-account count (`channel_accounts_count`, every channel); paused stays the existing `status` | plan:L8214–L8236, [P28](decisions.md), [P47](decisions.md), BL16 |
 | RC-65 | `POST /api/v1/billing/subscriptions` | input | plan | + `is_trial` (no-card trial) | D73, [P28](decisions.md), BL14 |
 | RC-66 | `POST /api/v1/billing/webhook` | behaviour | Stripe events as built | + unpaid trial to Free; a scheduled move down applied (no referral part) | [P28](decisions.md), [P39](decisions.md), BL22 |
 | RC-71 | `GET /api/v1/auth/oauth/providers` | output | Google, GitHub | Google, Apple | [P28](decisions.md) |
@@ -319,7 +356,8 @@ proposed routes leave the plan:
 | RC-110 | `GET /api/v1/tenancy/organization` | output | the workspace as built | + `logo_color` | plan:L7903–L7906 |
 | RC-111 | `POST /api/v1/uploads/{upload_id}/confirm` | behaviour | magic bytes checked only for png, jpeg, webp, pdf | + audio (AAC, M4A, WAV); a message file's every type must be checkable; no scan | UP4, [P34](decisions.md) |
 
-**REMOVED and what replaces it:** RC-6 (`POST …/social/instagram/connect`) → RC-1 + RC-2 + RC-3; RC-98
+**REMOVED and what replaces it:** RC-6 (`POST …/social/instagram/connect`) → RC-1 + RC-2 + RC-3 (and
+RC-113 for a reconnect), under `/social/channel-connections/…` (P41); RC-98
 (`POST /auth/login`) → the email code, Google and Apple; RC-99 and RC-100 (forgot, reset) → nothing;
 RC-101 (change password) → nothing, step-up by email code (RC-76). The four password routes go in this
 iteration ([P28](decisions.md)).
@@ -347,24 +385,31 @@ iteration ([P28](decisions.md)).
 
 **To settle at the route review (not in the questions file)**
 
-9. **Meta login path** — the plan writes `/api/v1/app/meta/connect/start`, `…/callback` and
-   `…/meta/connections/:meta_connection_id/accounts` (plan:L4567, L4570, L4593); settled — the
-   `meta-connection` sub-domain ([P38](decisions.md)) under `/api/v1/app/social/meta/…`, beside
-   `social/instagram` (RC-1–RC-5).
+9. **Login path** — the plan writes `/api/v1/app/meta/connect/start`, `…/callback` and
+   `…/meta/connections/:meta_connection_id/accounts` (plan:L4567, L4570, L4593); first settled as the
+   `meta-connection` sub-domain under `/api/v1/app/social/meta/…` ([P38](decisions.md)), then
+   superseded by the channel split: the common `channel-connection` sub-domain under
+   `/api/v1/app/social/channel-connections/{provider}/…` and `…/{channel_connection_id}/…`, beside
+   `social/channel-accounts` and `social/instagram` (RC-1–RC-5, RC-112–RC-114; [P41](decisions.md),
+   [P47](decisions.md)). Meta's deauthorize and data-deletion callbacks move with it (RC-17, RC-18;
+   [P46](decisions.md)), and so does the ads picker (RC-15, RC-114).
 10. **Apple's callback answers a redirect** (303, plan:L7686) while the API's method → status policy allows
     only 200 on POST with no exemptions (RC-70, in scope by [P28](decisions.md)) — the route review
     recommends one named `303` exemption for this route alone (ATQ2, routes-final § 10, open to the owner).
 11. **The connect state lives only in Redis** (10 minutes, one use, plan:L4567) — settled: a Redis nonce,
     short-lived login state; nothing is lost if it goes, the owner starts the login again
     ([P26](decisions.md)).
-12. **New params and ids** — `meta_connection_id`, `instagram_account_id`, `segment_id`, `broadcast_id`,
-    `automation_backfill_id` (the table's singular, AU1 — not `backfill_id`) need entity entries and
+12. **New params and ids** — `channel_connection_id`, `channel_account_id` (the one account id — no
+    Instagram account id in any path, P47), `segment_id`, `broadcast_id`,
+    `automation_backfill_id` (AU1 — not `backfill_id`; the short name, as the Instagram tables' reference
+    fields keep theirs, P44) need entity entries and
     public-id prefixes; the plan names none (plan:L3241, L3524, L3726, L3759, L3825). `payment_method_id`
     is Stripe's `pm_…` id — a third non-entity param beside `{provider}` and `{slug}` (BLQ2, recommended).
 13. **Idempotency** — settled by the route review (K3): `X-Idempotency-Key required` on RC-2, RC-3,
     RC-23, RC-27, RC-33, RC-38, RC-40, RC-42, RC-46, RC-48, RC-52, RC-53, RC-54, RC-60, RC-69 and the
     platform writes that already take it (RC-59, RC-61, RC-65, RC-88, RC-90, RC-94, RC-109); none on the state
-    actions (RC-10, RC-11, RC-31, RC-32), on RC-34 (saves nothing) or the PUBLIC Meta routes; the
+    actions (RC-10, RC-11, RC-31, RC-32), on RC-34 (saves nothing), on RC-1 and RC-113 (they start a login
+    and save nothing) or the PUBLIC Meta routes; the
     `docs/routes.txt` `I` column is the built truth.
 14. **The month meter's home** — the plan's notices read everything from `GET /auth/me/context`
     (plan:L8231); with [P14](decisions.md) meepzo-fe reads RC-56 as well. The sibling meepzo-fe iteration

@@ -181,6 +181,7 @@ describe('stack.sh status', () => {
     expect(result.stdout).toContain(
       '  checks     agent-os:check passed at 10:00:00Z · tool pins 5/5 at pin',
     );
-    expect(result.stdout).toMatch(/\n {2}hooks {6}\/\S+\/\.claude\/settings\.json/);
+    // `.+`, not `\S+`: the checkout path may hold a space.
+    expect(result.stdout).toMatch(/\n {2}hooks {6}\/.+\/\.claude\/settings\.json/);
   });
 });

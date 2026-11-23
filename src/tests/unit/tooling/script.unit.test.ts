@@ -3,7 +3,7 @@
  * tooling script uses (policy: src/tests/unit/ci/tooling-command-line.policy.unit.test.ts).
  */
 import { relative } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isMain, parseCommandLine } from '@tooling/setup/common/script.js';
 
@@ -112,7 +112,8 @@ describe('parseCommandLine', () => {
 
 describe('isMain', () => {
   const originalEntry = process.argv[1];
-  const thisFile = new URL(import.meta.url);
+  // A file path as node puts it in argv, so a space in the checkout path stays a space (not %20).
+  const thisFile = fileURLToPath(import.meta.url);
 
   afterEach(() => {
     if (originalEntry === undefined) process.argv.splice(1);
@@ -120,14 +121,14 @@ describe('isMain', () => {
   });
 
   it('is true for the module node was started with, given absolute or relative', () => {
-    process.argv[1] = thisFile.pathname;
+    process.argv[1] = thisFile;
     expect(isMain(import.meta.url)).toBe(true);
-    process.argv[1] = relative(process.cwd(), thisFile.pathname);
+    process.argv[1] = relative(process.cwd(), thisFile);
     expect(isMain(import.meta.url)).toBe(true);
   });
 
   it('is false for a module another script imported', () => {
-    process.argv[1] = thisFile.pathname;
+    process.argv[1] = thisFile;
     expect(isMain(pathToFileURL('/elsewhere/script.ts').href)).toBe(false);
   });
 

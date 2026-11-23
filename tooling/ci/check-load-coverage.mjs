@@ -28,10 +28,11 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import chalk from 'chalk';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseRouteCatalog } from '../openapi/route-catalog/catalog-reader.ts';
 
-const ROOT = resolve(new URL('.', import.meta.url).pathname, '../..');
+// fileURLToPath, not URL.pathname: pathname keeps a space in the checkout path as %20.
+const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..');
 const ROUTES_FILE = join(ROOT, 'docs/routes.txt');
 const SCENARIOS_DIR = join(ROOT, 'src/tests/load/k6/scenarios');
 const NIGHTLY_WORKFLOW_FILE = join(ROOT, '.github/workflows/scheduled-k6-load-slo.yml');

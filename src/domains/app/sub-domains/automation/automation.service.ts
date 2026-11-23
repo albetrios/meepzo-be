@@ -109,7 +109,9 @@ function firstSharedKeyword({
   otherKeywords: readonly string[];
 }): string | null {
   const other = new Set(otherKeywords);
-  const shared = keywords.filter((keyword) => other.has(keyword)).sort();
+  const shared = keywords
+    .filter((keyword) => other.has(keyword))
+    .sort((left, right) => left.localeCompare(right));
   return shared[0] ?? null;
 }
 

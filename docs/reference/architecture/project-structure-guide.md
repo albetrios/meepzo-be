@@ -166,7 +166,7 @@ Utilities are grouped by concern. Prefer **deep imports** (e.g. `@/shared/utils/
 | `auth/` | `authorization.util`, `global-admin-role.util` |
 | `i18n/` | `translate-request.util`, `i18n-response.util` |
 | `idempotency/` | `idempotency-key.util` |
-| `text/` | `email.util`, `html-escape.util` |
+| `text/` | `email.util`, `html-escape.util`, `trailing-slash.util` |
 
 **Middleware** (Fastify plugins) lives in `src/shared/middlewares/` — grouped by concern (`core/`, `security/`, `session/`, `tenant/`, `rate-limit/`) and registered via `registerMiddleware()` from `@/shared/middlewares/index.js`.
 

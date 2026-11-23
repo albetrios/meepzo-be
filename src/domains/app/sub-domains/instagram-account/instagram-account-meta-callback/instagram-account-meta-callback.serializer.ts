@@ -1,3 +1,4 @@
+import { withoutTrailingSlashes } from '@/shared/utils/text/trailing-slash.util.js';
 import { INSTAGRAM_DATA_DELETION_FRONTEND_PATH } from './instagram-account-meta-callback.constants.js';
 import type { MetaDataDeletionAnswerOutput } from './instagram-account-meta-callback.types.js';
 
@@ -21,7 +22,7 @@ export function serializeMetaDataDeletionAnswer({
 }): MetaDataDeletionAnswerOutput {
   const query = new URLSearchParams({ code: confirmation_code }).toString();
   return {
-    url: `${frontend_url.replace(/\/+$/, '')}${INSTAGRAM_DATA_DELETION_FRONTEND_PATH}?${query}`,
+    url: `${withoutTrailingSlashes(frontend_url)}${INSTAGRAM_DATA_DELETION_FRONTEND_PATH}?${query}`,
     confirmation_code,
   };
 }

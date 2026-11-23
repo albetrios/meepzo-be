@@ -16,7 +16,6 @@ import {
   type AutomationRow,
   createWorkerAutomationRepository,
 } from '@/domains/app/sub-domains/automation/automation.repository.js';
-import type { AutomationTriggerType } from '@/domains/app/sub-domains/automation/automation.constants.js';
 import type { AutomationOpenRunCancelInput } from '@/domains/app/sub-domains/automation/automation.types.js';
 import {
   AUTOMATION_RUN_ERROR_MESSAGE_MAX_LENGTH,
@@ -902,7 +901,8 @@ export class AutomationRunService {
         const unit = bindRepositories(databaseHandle);
         const leftRunning = await unit.runs.listRunningMovedByEvent({ organizationId, eventKey });
         const contactIds = [...new Set(leftRunning.map((run) => run.contact_id))];
-        for (const contactId of contactIds.sort((left, right) => left - right)) {
+        contactIds.sort((left, right) => left - right);
+        for (const contactId of contactIds) {
           await this.contactService.lockLiveContact({ databaseHandle, organizationId, contactId });
         }
         await unit.automations.lockForRunChanges({
@@ -1378,7 +1378,7 @@ export class AutomationRunService {
       organizationId: call.organizationId,
       automationId: automation.id,
       contactId: call.contactId,
-      triggerType: trigger.type as AutomationTriggerType,
+      triggerType: trigger.type,
       triggerInstagramMediaId: trigger.instagram_media_id ?? null,
       triggerInstagramCommentId: trigger.instagram_comment_id ?? null,
       triggerInstagramStoryId: trigger.instagram_story_id ?? null,

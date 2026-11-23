@@ -298,7 +298,12 @@ function readLongLivedTokenAnswer({
     throw buildInstagramMalformedAnswerError({ operation, missing: 'access_token' });
   }
   const expiresInSeconds = answer.expires_in;
-  if (typeof expiresInSeconds !== 'number' || !(expiresInSeconds > 0)) {
+  // Number.isFinite also turns away NaN, which a plain `<= 0` would let through.
+  if (
+    typeof expiresInSeconds !== 'number' ||
+    !Number.isFinite(expiresInSeconds) ||
+    expiresInSeconds <= 0
+  ) {
     throw buildInstagramMalformedAnswerError({ operation, missing: 'expires_in' });
   }
   return {

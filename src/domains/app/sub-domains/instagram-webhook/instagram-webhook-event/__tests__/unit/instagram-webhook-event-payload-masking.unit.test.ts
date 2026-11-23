@@ -208,6 +208,24 @@ describe('maskInstagramWebhookEventPayload', () => {
     expect(masked.text).toBe(`${'😀'.repeat(39)}a`);
   });
 
+  it('masks every email in a string, ending each at its top-level domain', () => {
+    const masked = maskInstagramWebhookEventPayload({
+      note: 'a@b.io, x.y@mail.example.com. Not: @b.io, a@b, a@.io; a@b@c.com; a@b.com2x',
+    });
+    expect(masked).toEqual({
+      note: 'a***@b***.io, x***@m***.com. Not: @b.io, a@b, a@.io; a@b***@c***.com; a***@b***.com2x',
+    });
+  });
+
+  it('stays fast on long runs that only look like an email (no backtracking)', () => {
+    const localRun = `${'a'.repeat(4000)}!`;
+    const domainRun = `a@${'b.'.repeat(2000)}!`;
+    const startedAt = performance.now();
+    expect(maskInstagramWebhookEventPayload({ note: localRun })).toEqual({ note: localRun });
+    expect(maskInstagramWebhookEventPayload({ note: domainRun })).toEqual({ note: domainRun });
+    expect(performance.now() - startedAt).toBeLessThan(100);
+  });
+
   it('never changes the stored payload it reads', () => {
     const payload = messagingItem({ message: { mid: 'mid-10', text: 'rimeet@gmail.com' } });
     const copy = structuredClone(payload);

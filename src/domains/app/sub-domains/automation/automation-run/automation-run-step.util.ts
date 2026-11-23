@@ -128,6 +128,81 @@ function move({
 }
 
 /**
+ * The `comment_reply` step: the comment's public reply while it is still to come, then the opening
+ * message — skipped when the account sent the contact a DM in the last 24 hours (D14).
+ */
+function planCommentReplyStep({
+  isCommentTrigger,
+  isPublicReplyPending,
+  automation,
+  contact,
+  now,
+}: {
+  isCommentTrigger: boolean;
+  isPublicReplyPending: boolean;
+  automation: AutomationStepSource;
+  contact: AutomationStepContact;
+  now: Date;
+}): AutomationRunStepPlan {
+  if (isCommentTrigger && automation.is_public_reply_enabled && isPublicReplyPending) {
+    return { action: 'public_reply' };
+  }
+  const opening = openingMessageOf(automation);
+  if (opening === null) return move({ toStep: 'follow_check' });
+  const lastSentAt = contact.last_message_sent_at;
+  if (
+    lastSentAt !== null &&
+    now.getTime() - lastSentAt.getTime() < AUTOMATION_OPENING_MESSAGE_SKIP_WINDOW_MILLISECONDS
+  ) {
+    return move({
+      toStep: 'follow_check',
+      commentLogChanges: { opening_dm_status: 'skipped' },
+    });
+  }
+  return {
+    action: 'send',
+    messageKind: 'opening_message',
+    waitFor: opening.button_title === null ? null : 'opening_message_button',
+    nextStep: 'follow_check',
+  };
+}
+
+/** The `email_collect` step: off → `phone_collect`; the contact already has one → skipped. */
+function planEmailCollectStep({
+  automation,
+  contact,
+}: {
+  automation: AutomationStepSource;
+  contact: AutomationStepContact;
+}): AutomationRunStepPlan {
+  if (!automation.is_email_collection_enabled) return move({ toStep: 'phone_collect' });
+  if (contact.email !== null) {
+    return move({ toStep: 'phone_collect', commentLogChanges: { email_status: 'skipped' } });
+  }
+  return {
+    action: 'send',
+    messageKind: 'email_question',
+    waitFor: 'email',
+    nextStep: 'phone_collect',
+  };
+}
+
+/** The `phone_collect` step: off → `final_dm`; the contact already has one → skipped. */
+function planPhoneCollectStep({
+  automation,
+  contact,
+}: {
+  automation: AutomationStepSource;
+  contact: AutomationStepContact;
+}): AutomationRunStepPlan {
+  if (!automation.is_phone_collection_enabled) return move({ toStep: 'final_dm' });
+  if (contact.phone !== null) {
+    return move({ toStep: 'final_dm', commentLogChanges: { phone_status: 'skipped' } });
+  }
+  return { action: 'send', messageKind: 'phone_question', waitFor: 'phone', nextStep: 'final_dm' };
+}
+
+/**
  * Plans the next action of a `running` run at its `current_step` (AU18, schema-routes § 6.5 "Run
  * steps"), reading the automation as it is now (AU14) — a step turned off meanwhile is skipped.
  *
@@ -164,54 +239,21 @@ export function planAutomationRunStep({
   switch (currentStep) {
     case 'keyword_match':
       return move({ toStep: 'comment_reply' });
-    case 'comment_reply': {
-      if (isCommentTrigger && automation.is_public_reply_enabled && isPublicReplyPending) {
-        return { action: 'public_reply' };
-      }
-      const opening = openingMessageOf(automation);
-      if (opening === null) return move({ toStep: 'follow_check' });
-      const lastSentAt = contact.last_message_sent_at;
-      if (
-        lastSentAt !== null &&
-        now.getTime() - lastSentAt.getTime() < AUTOMATION_OPENING_MESSAGE_SKIP_WINDOW_MILLISECONDS
-      ) {
-        return move({
-          toStep: 'follow_check',
-          commentLogChanges: { opening_dm_status: 'skipped' },
-        });
-      }
-      return {
-        action: 'send',
-        messageKind: 'opening_message',
-        waitFor: opening.button_title === null ? null : 'opening_message_button',
-        nextStep: 'follow_check',
-      };
-    }
+    case 'comment_reply':
+      return planCommentReplyStep({
+        isCommentTrigger,
+        isPublicReplyPending,
+        automation,
+        contact,
+        now,
+      });
     case 'follow_check':
       if (!isFollowStepOn(automation)) return move({ toStep: 'email_collect' });
       return { action: 'read_follow' };
     case 'email_collect':
-      if (!automation.is_email_collection_enabled) return move({ toStep: 'phone_collect' });
-      if (contact.email !== null) {
-        return move({ toStep: 'phone_collect', commentLogChanges: { email_status: 'skipped' } });
-      }
-      return {
-        action: 'send',
-        messageKind: 'email_question',
-        waitFor: 'email',
-        nextStep: 'phone_collect',
-      };
+      return planEmailCollectStep({ automation, contact });
     case 'phone_collect':
-      if (!automation.is_phone_collection_enabled) return move({ toStep: 'final_dm' });
-      if (contact.phone !== null) {
-        return move({ toStep: 'final_dm', commentLogChanges: { phone_status: 'skipped' } });
-      }
-      return {
-        action: 'send',
-        messageKind: 'phone_question',
-        waitFor: 'phone',
-        nextStep: 'final_dm',
-      };
+      return planPhoneCollectStep({ automation, contact });
     case 'final_dm':
       return { action: 'send', messageKind: 'final_message', waitFor: null, nextStep: null };
   }

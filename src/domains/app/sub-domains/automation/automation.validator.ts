@@ -312,6 +312,39 @@ function addNextPostWindowIssues({
   }
 }
 
+/** One target id rule: the id must be set (`required`) or must be absent (`forbidden`). */
+interface TargetIdCheck {
+  field: 'target_instagram_media_id' | 'target_instagram_story_id';
+  rule: 'required' | 'forbidden';
+}
+
+/**
+ * The target id checks of a scope and trigger, in the order they are reported: `specific` needs the
+ * id of its trigger (a comment's media, a story reply's story) and no other — a `dm` names none —
+ * while `next` and `any` name none.
+ */
+function targetIdChecks(automation: AutomationWritableFields): TargetIdCheck[] {
+  if (automation.target_scope !== 'specific') {
+    return [
+      { field: 'target_instagram_media_id', rule: 'forbidden' },
+      { field: 'target_instagram_story_id', rule: 'forbidden' },
+    ];
+  }
+  if (automation.trigger_type === 'comment') {
+    return [
+      { field: 'target_instagram_media_id', rule: 'required' },
+      { field: 'target_instagram_story_id', rule: 'forbidden' },
+    ];
+  }
+  if (automation.trigger_type === 'story_reply') {
+    return [
+      { field: 'target_instagram_story_id', rule: 'required' },
+      { field: 'target_instagram_media_id', rule: 'forbidden' },
+    ];
+  }
+  return [];
+}
+
 /** The target id rules (AU8, 3.A.9): each scope names exactly the ids it needs, and no other. */
 function addTargetIdIssues({
   automation,
@@ -322,27 +355,106 @@ function addTargetIdIssues({
   isMediaIdSent: boolean;
   issues: FlowIssueList;
 }): void {
-  const hasMediaId = automation.target_instagram_media_id !== null;
-  const hasStoryId = automation.target_instagram_story_id !== null;
-  const rule = 'errors:validation.specificNeedsTarget';
-  switch (automation.target_scope) {
-    case 'specific':
-      if (automation.trigger_type === 'comment') {
-        if (!hasMediaId) issues.add({ field: 'target_instagram_media_id', messageKey: rule });
-        if (hasStoryId) issues.add({ field: 'target_instagram_story_id', messageKey: rule });
-      } else if (automation.trigger_type === 'story_reply') {
-        if (!hasStoryId) issues.add({ field: 'target_instagram_story_id', messageKey: rule });
-        if (hasMediaId) issues.add({ field: 'target_instagram_media_id', messageKey: rule });
-      }
-      return;
-    case 'next':
-      // The server sets the media id when it links (AU9); a story never applies.
-      if (isMediaIdSent) issues.add({ field: 'target_instagram_media_id', messageKey: rule });
-      if (hasStoryId) issues.add({ field: 'target_instagram_story_id', messageKey: rule });
-      return;
-    default:
-      if (hasMediaId) issues.add({ field: 'target_instagram_media_id', messageKey: rule });
-      if (hasStoryId) issues.add({ field: 'target_instagram_story_id', messageKey: rule });
+  const isSet = {
+    // On `next` the server sets the media id when it links (AU9): only one the body sends counts.
+    target_instagram_media_id:
+      automation.target_scope === 'next'
+        ? isMediaIdSent
+        : automation.target_instagram_media_id !== null,
+    target_instagram_story_id: automation.target_instagram_story_id !== null,
+  };
+  for (const { field, rule } of targetIdChecks(automation)) {
+    const isBroken = rule === 'required' ? !isSet[field] : isSet[field];
+    if (isBroken) {
+      issues.add({ field, messageKey: 'errors:validation.specificNeedsTarget' });
+    }
+  }
+}
+
+/** The scope rules (AU8): `next` only on comments, and a `dm` automation only on `any`. */
+function addTargetScopeIssues({
+  automation,
+  issues,
+}: {
+  automation: AutomationWritableFields;
+  issues: FlowIssueList;
+}): void {
+  if (automation.target_scope === 'next' && automation.trigger_type !== 'comment') {
+    issues.add({ field: 'target_scope', messageKey: 'errors:validation.nextScopeOnlyForComments' });
+  }
+  if (automation.trigger_type === 'dm' && automation.target_scope !== 'any') {
+    issues.add({ field: 'target_scope', messageKey: 'errors:validation.dmScopeOnlyAny' });
+  }
+}
+
+/** The `dm` trigger rules (AU8): at least one keyword, and the DM keyword trigger on. */
+function addDirectMessageIssues({
+  automation,
+  issues,
+}: {
+  automation: AutomationWritableFields;
+  issues: FlowIssueList;
+}): void {
+  if (automation.trigger_type !== 'dm') return;
+  if (automation.keywords.length === 0) {
+    issues.add({ field: 'keywords', messageKey: 'errors:validation.dmNeedsKeyword' });
+  }
+  if (!automation.is_dm_keyword_trigger_enabled) {
+    issues.add({
+      field: 'is_dm_keyword_trigger_enabled',
+      messageKey: 'errors:validation.dmKeywordTriggerRequired',
+    });
+  }
+}
+
+/** The public reply rules (AU8): only on comments, and with at least one text. */
+function addPublicReplyIssues({
+  automation,
+  issues,
+}: {
+  automation: AutomationWritableFields;
+  issues: FlowIssueList;
+}): void {
+  if (!automation.is_public_reply_enabled) return;
+  if (automation.trigger_type !== 'comment') {
+    issues.add({
+      field: 'is_public_reply_enabled',
+      messageKey: 'errors:validation.publicReplyOnlyForComments',
+    });
+  } else if (automation.public_reply_texts.length === 0) {
+    issues.add({
+      field: 'public_reply_texts',
+      messageKey: 'errors:validation.publicReplyOnlyForComments',
+    });
+  }
+}
+
+/**
+ * The message rules (AU8, AQ2): the opening and follow messages saved when their step is on, and
+ * the opening button on a comment automation's opening message.
+ */
+function addMessageIssues({
+  automation,
+  issues,
+}: {
+  automation: AutomationWritableFields;
+  issues: FlowIssueList;
+}): void {
+  const opening = automation.is_opening_message_enabled ? automation.opening_message : undefined;
+  if (opening === null) {
+    issues.add({ field: 'opening_message', messageKey: 'errors:validation.messageObjectRequired' });
+  }
+  if (automation.trigger_type === 'comment' && opening?.button_title === null) {
+    issues.add({
+      field: 'opening_message.button_title',
+      messageKey: 'errors:validation.openingButtonRequired',
+    });
+  }
+  if (automation.is_follow_required && automation.follow_request_message === null) {
+    issues.add({
+      field: 'follow_request_message',
+      messageKey: 'errors:validation.messageObjectRequired',
+    });
   }
 }
 
@@ -379,57 +491,11 @@ export function validateAutomationFlow({
   now: Date;
 }): void {
   const issues = new FlowIssueList();
-  const isComment = automation.trigger_type === 'comment';
-  const isDirectMessage = automation.trigger_type === 'dm';
-  if (automation.target_scope === 'next' && !isComment) {
-    issues.add({ field: 'target_scope', messageKey: 'errors:validation.nextScopeOnlyForComments' });
-  }
-  if (isDirectMessage && automation.target_scope !== 'any') {
-    issues.add({ field: 'target_scope', messageKey: 'errors:validation.dmScopeOnlyAny' });
-  }
+  addTargetScopeIssues({ automation, issues });
   addTargetIdIssues({ automation, isMediaIdSent, issues });
-  if (isDirectMessage && automation.keywords.length === 0) {
-    issues.add({ field: 'keywords', messageKey: 'errors:validation.dmNeedsKeyword' });
-  }
-  if (isDirectMessage && !automation.is_dm_keyword_trigger_enabled) {
-    issues.add({
-      field: 'is_dm_keyword_trigger_enabled',
-      messageKey: 'errors:validation.dmKeywordTriggerRequired',
-    });
-  }
-  if (automation.is_public_reply_enabled) {
-    if (!isComment) {
-      issues.add({
-        field: 'is_public_reply_enabled',
-        messageKey: 'errors:validation.publicReplyOnlyForComments',
-      });
-    } else if (automation.public_reply_texts.length === 0) {
-      issues.add({
-        field: 'public_reply_texts',
-        messageKey: 'errors:validation.publicReplyOnlyForComments',
-      });
-    }
-  }
-  if (automation.is_opening_message_enabled && automation.opening_message === null) {
-    issues.add({ field: 'opening_message', messageKey: 'errors:validation.messageObjectRequired' });
-  }
-  if (
-    isComment &&
-    automation.is_opening_message_enabled &&
-    automation.opening_message !== null &&
-    automation.opening_message.button_title === null
-  ) {
-    issues.add({
-      field: 'opening_message.button_title',
-      messageKey: 'errors:validation.openingButtonRequired',
-    });
-  }
-  if (automation.is_follow_required && automation.follow_request_message === null) {
-    issues.add({
-      field: 'follow_request_message',
-      messageKey: 'errors:validation.messageObjectRequired',
-    });
-  }
+  addDirectMessageIssues({ automation, issues });
+  addPublicReplyIssues({ automation, issues });
+  addMessageIssues({ automation, issues });
   if (automation.target_scope === 'next' && !issues.has('target_scope')) {
     addNextPostWindowIssues({ automation, stored, now, issues });
   }

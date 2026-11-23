@@ -2134,7 +2134,8 @@ src/
     │   │   ├── csv.util.ts
     │   │   ├── email.util.ts
     │   │   ├── html-escape.util.ts
-    │   │   └── storable-text.util.ts
+    │   │   ├── storable-text.util.ts
+    │   │   └── trailing-slash.util.ts
     │   └── validation/
     │   │   ├── bullmq-job-validation.util.ts
     │   │   ├── file-magic.util.ts
@@ -3018,7 +3019,8 @@ src/
     │   │   │   └── webhook-url.util.unit.test.ts
     │   │   ├── text/
     │   │   │   ├── email.util.unit.test.ts
-    │   │   │   └── storable-text.util.unit.test.ts
+    │   │   │   ├── storable-text.util.unit.test.ts
+    │   │   │   └── trailing-slash.util.unit.test.ts
     │   │   └── validation/
     │   │   │   ├── bullmq-job-validation.unit.test.ts
     │   │   │   ├── file-magic.util.unit.test.ts

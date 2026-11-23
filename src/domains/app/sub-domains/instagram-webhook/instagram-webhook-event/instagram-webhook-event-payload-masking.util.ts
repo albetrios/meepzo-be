@@ -26,8 +26,14 @@ const PHONE_VISIBLE_DIGITS = 2;
 /** An `http(s)` link anywhere in a string. */
 const LINK_PATTERN = /https?:\/\/[^\s"'<>]+/gi;
 
-/** An email address anywhere in a string. */
-const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+/** A character an email's local part may hold (the part before the `@`). */
+const EMAIL_LOCAL_CHARACTER = /^[A-Za-z0-9._%+-]$/;
+
+/** A character an email's domain may hold: its labels' characters and the dots between them. */
+const EMAIL_DOMAIN_CHARACTER = /^[A-Za-z0-9.-]$/;
+
+/** One ASCII letter — a top-level domain is two or more. */
+const LETTER = /^[A-Za-z]$/;
 
 /** A run that may be a phone number: digits with spaces, dots, dashes or brackets between. */
 const PHONE_CANDIDATE_PATTERN = /\+?\d[\d\s().-]*\d/g;
@@ -60,6 +66,65 @@ function maskEmail(email: string): string {
   return `${localPart.slice(0, 1)}***@${domain.slice(0, 1)}***.${topLevelDomain}`;
 }
 
+/** How many letters `label` starts with. */
+function leadingLetterCount(label: string): number {
+  let count = 0;
+  while (count < label.length && LETTER.test(label.charAt(count))) count += 1;
+  return count;
+}
+
+/**
+ * The length of the email domain `run` starts with — labels joined by dots, ending in a top-level
+ * domain of two or more letters — or 0 when it starts with none. The longest one, as the greedy
+ * pattern `[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}` would take it; `run` holds only
+ * domain characters.
+ */
+function emailDomainLength(run: string): number {
+  const labels = run.split('.');
+  if ((labels[0] ?? '') === '') return 0;
+  // The domain ends before its first empty label (`a..b`, a trailing dot).
+  let lastLabelIndex = 0;
+  while (lastLabelIndex + 1 < labels.length && labels[lastLabelIndex + 1] !== '') {
+    lastLabelIndex += 1;
+  }
+  const labelStarts: number[] = [];
+  let position = 0;
+  for (const label of labels) {
+    labelStarts.push(position);
+    position += label.length + 1;
+  }
+  for (let index = lastLabelIndex; index >= 1; index -= 1) {
+    const letterCount = leadingLetterCount(labels[index] ?? '');
+    if (letterCount >= 2) return (labelStarts[index] ?? 0) + letterCount;
+  }
+  return 0;
+}
+
+/**
+ * Every email address in `text` masked ({@link maskEmail}). A scan from each `@`, not one pattern
+ * over the whole text: the pattern's leading `[…]+` and repeated labels backtrack (SonarQube
+ * S5852), while the scan reads each character at most twice.
+ */
+function maskEmailsInText(text: string): string {
+  let masked = '';
+  let copiedUntil = 0;
+  let atIndex = text.indexOf('@');
+  while (atIndex !== -1) {
+    let start = atIndex;
+    while (start > copiedUntil && EMAIL_LOCAL_CHARACTER.test(text.charAt(start - 1))) start -= 1;
+    let runEnd = atIndex + 1;
+    while (runEnd < text.length && EMAIL_DOMAIN_CHARACTER.test(text.charAt(runEnd))) runEnd += 1;
+    const domainLength = start < atIndex ? emailDomainLength(text.slice(atIndex + 1, runEnd)) : 0;
+    if (domainLength > 0) {
+      const end = atIndex + 1 + domainLength;
+      masked += text.slice(copiedUntil, start) + maskEmail(text.slice(start, end));
+      copiedUntil = end;
+    }
+    atIndex = text.indexOf('@', Math.max(atIndex + 1, copiedUntil));
+  }
+  return masked + text.slice(copiedUntil);
+}
+
 /**
  * A phone-number candidate masked when it holds 9–15 digits: `+91 98765 43234` → `+91********34`
  * (the leading `+`, the first and last two digits, a star for every other digit); shorter runs (a
@@ -74,11 +139,10 @@ function maskPhoneCandidate(candidate: string): string {
 
 /** Links → `[link]`, then every email, then every phone number masked. */
 function maskPersonalDataInString(value: string): string {
-  return value
+  const withoutLinks = value
     .slice(0, MAX_SCANNED_STRING_LENGTH)
-    .replace(LINK_PATTERN, INSTAGRAM_WEBHOOK_EVENT_PAYLOAD_LINK_PLACEHOLDER)
-    .replace(EMAIL_PATTERN, maskEmail)
-    .replace(PHONE_CANDIDATE_PATTERN, maskPhoneCandidate);
+    .replace(LINK_PATTERN, INSTAGRAM_WEBHOOK_EVENT_PAYLOAD_LINK_PLACEHOLDER);
+  return maskEmailsInText(withoutLinks).replace(PHONE_CANDIDATE_PATTERN, maskPhoneCandidate);
 }
 
 /** The first 40 characters of a text, counted in code points so an emoji is never split. */

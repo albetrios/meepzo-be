@@ -310,13 +310,13 @@ function classifyMessagingItem({
       parts: [sha256Hex(item)],
       kindSkipReason: 'unsupported',
     };
-  const recipientId = readNestedUserId({ object: item, key: 'recipient' });
-  const contactInstagramUserId =
-    rule.contactIsRecipient === true
-      ? isAccountItself({ instagramId: recipientId, accountIds })
-        ? null
-        : recipientId
-      : senderId;
+  let contactInstagramUserId = senderId;
+  if (rule.contactIsRecipient === true) {
+    const recipientId = readNestedUserId({ object: item, key: 'recipient' });
+    contactInstagramUserId = isAccountItself({ instagramId: recipientId, accountIds })
+      ? null
+      : recipientId;
+  }
   return {
     eventKind: rule.eventKind,
     eventKey: buildInstagramWebhookEventKey({ prefix: rule.prefix, parts: rule.parts }),

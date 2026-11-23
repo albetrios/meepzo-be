@@ -8,6 +8,7 @@ import { env } from '@/shared/config/env.config.js';
 import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
 import type { SupportedLanguage } from '@/shared/constants/i18n.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { withoutTrailingSlashes } from '@/shared/utils/text/trailing-slash.util.js';
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import { INSTAGRAM_ACCOUNT_FRONTEND_PATH } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 import {
@@ -96,7 +97,7 @@ export function isSameConnectionBreak({
  * - **Notes:** exported for the unit test.
  */
 export function buildInstagramReconnectNoticeActionUrl(frontendUrl: string): string {
-  return `${frontendUrl.replace(/\/+$/, '')}${INSTAGRAM_ACCOUNT_FRONTEND_PATH}`;
+  return `${withoutTrailingSlashes(frontendUrl)}${INSTAGRAM_ACCOUNT_FRONTEND_PATH}`;
 }
 
 /**

@@ -39,7 +39,7 @@ import {
 } from './contact.validator.js';
 
 /** An Instagram user id as the webhook sends it: digits only (`chk_contacts_instagram_user_id`). */
-const INSTAGRAM_USER_ID = /^[0-9]{1,64}$/;
+const INSTAGRAM_USER_ID = /^\d{1,64}$/;
 
 /** `404 contact_not_found` — absent, another organization's, or already erased (K1, CT9). */
 function contactNotFoundError(): NotFoundError {
@@ -202,7 +202,7 @@ export class ContactService {
           organizationId: organization.id,
           contactPublicId,
         });
-        if (contact === null || contact.instagram_user_id === null) throw contactNotFoundError();
+        if (contact?.instagram_user_id == null) throw contactNotFoundError();
         for (const erasureStep of this.erasureSteps) {
           await erasureStep({
             organizationId: organization.id,

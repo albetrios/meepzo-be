@@ -41,6 +41,16 @@ import type { ContactRepositoryListQuery } from './contact.types.js';
 /** `updated_at` for every change of a contact — never before the row's `created_at`. */
 const contactUpdatedAtTimestamp = databaseUpdatedAtTimestamp(contacts.created_at);
 
+/**
+ * The automation filter (CT5): contacts that had a run of the automation; an unknown automation
+ * (`null`) matches nothing; no filter (`undefined`) adds no condition.
+ */
+function automationFilterCondition(automationId: number | null | undefined): SQL | undefined {
+  if (automationId === undefined) return undefined;
+  if (automationId === null) return sql`false`;
+  return contactHadRunOfAutomation(automationId);
+}
+
 /** One `app.contacts` row as Drizzle reads it. */
 export type ContactRow = typeof contacts.$inferSelect;
 
@@ -243,12 +253,7 @@ export class ContactRepository {
               WHERE ${instagram_accounts.organization_id} = ${organizationId}
                 AND ${instagram_accounts.public_id} = ${query.instagramAccountPublicId})`,
           ),
-      // Had a run of the automation (CT5); an unknown automation (`null`) matches nothing.
-      query.automationId === undefined
-        ? undefined
-        : query.automationId === null
-          ? sql`false`
-          : contactHadRunOfAutomation(query.automationId),
+      automationFilterCondition(query.automationId),
       buildSearchCondition({ columns: [CONTACT_SEARCH_EXPRESSION], q: query.q, everyWord: true }),
     ];
   }

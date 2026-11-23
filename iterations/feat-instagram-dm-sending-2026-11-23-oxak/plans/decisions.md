@@ -29,6 +29,11 @@ numbered `P<n>` so they never collide with the plan's `D<n>`.
 | P18 | A18 — team "suspend account" | column now, route later · both now | `suspended_at` column now, the platform-admin route later | 2026-11-23 | Claude | AMBER |
 | P19 | A19 — plus addresses in email answers | accept + ask again ×3 · launch refusal | accept; ask again up to 3 times with wordings | 2026-11-23 | Claude | AMBER |
 | P20 | A20 — permission codes | reuse `automation:*` + `contact:update` · new codes | broadcasts, segments, past comments reuse `automation:*` (D68, D69); `contact:update` for note, tags, pause | 2026-11-23 | Claude | AMBER |
+| P21 | A21 — yes/no field names (db-changes N1) | `is_` / `has_` (be-sql-design-guard) · plan names | `is_` forms (`is_reply_like_person`, `is_counted_as_direct_message`, …); the launch's `is_public_reply_enabled` keeps its name | 2026-11-23 | Claude | AMBER |
+| P22 | A22 — public-id prefixes for new tables (N2) | chosen at kickoff by `generatePublicId` · now | chosen at kickoff, recorded in AS-BUILT | 2026-11-23 | Claude | AMBER |
+| P23 | A23 — launch ignored reasons `waiting_for_other_email`, `already_waiting` (N3) | keep · drop | keep (the plan is silent) | 2026-11-23 | Claude | AMBER |
+| P24 | A24 — own comments skip reason (N4) | rename `echo` → `own_comment` · keep `echo` | `own_comment` for comments; `echo` stays for DM echoes | 2026-11-23 | Claude | AMBER |
+| P25 | A25 — attachments point at `upload.uploads` (N5) | documented exception · keep the upload public id only | the upload public id only, read through the upload service (no cross-domain foreign key) | 2026-11-23 | Claude | AMBER |
 
 ## Waiting for the user (RED, Step 4 batch)
 

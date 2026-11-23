@@ -7,9 +7,11 @@
 | Intake mode | brief (from scratch) |
 | Intake hash | `e2875698ea64` |
 | Date | 2026-11-23 |
+| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1, awaiting the owner's OK): each table section names the route-review section that owns its columns, keys and indexes |
 
 The iteration's data model, kept current at every planning step. WHAT must be true, never HOW: logical
-types only, no SQL, no indexes, no constraints. `pnpm db:viewer` draws this file in plan mode. Sources
+types only, no SQL, no indexes, no constraints — the column types, keys and indexes are the route review's
+(`routes-final.md`, section 3 of each sub-domain); this file names one only where it changes a rule. `pnpm db:viewer` draws this file in plan mode. Sources
 are cited as `plan:L<line>` — lines of `intake-files/Instagram-DM-Sending-Plan-v8.md`. The plan's own
 decisions are `D1`–`D73` (plan:L210–L284, locked); this plan's are `P<n>` in
 [decisions.md](decisions.md): `P1`–`P27` are the AMBER defaults A1–A27 (`P21`–`P25` are this file's
@@ -33,8 +35,14 @@ plan:L2888) this plan states every change against those tables, before → after
 | REMOVED | 1 | instagram_account_token |
 | EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `meta_attachment` names an upload by its public id |
 
-Since the last version: `automation_run_open_key` is dropped (proposal, P35 — see `automation_run`),
-`upload` goes from `CHANGED` to `EXISTING` (P34), and the four referral tables leave (P39).
+Since the last version (the route review, Step 5): the drop of `automation_run_open_key` is confirmed
+(AUQ4, WH14 — no open-run key table); `meta_attachment` names its upload as `upload_public_id` (SN20);
+webhook events lose the `echo` and `reaction` skip reasons and gain `flood`, keep no body once done
+(WH16, WH22); the event key leads with the organization; the lane's plan stop sits beside its error stop
+(SN12); broadcast recipients are unique per broadcast and contact (BC16); contact tags are 1–50 (CT9);
+`subscription` gains its scheduled change (BLQ1); `trial_account` outlives its workspace (D73); the
+organization's `logo_color` is required; the plan feature is `direct_message_month_limit` (BLQ3).
+`sending_helper_slot` stays until SNQ1 is answered (the route review recommends dropping it).
 
 **Where the tables live (P38).** The plan's names: every new sending table goes in the `app` schema
 with its plural snake_case name (plan:L2800, plan:L8481), and its label carries that `domain.table`.
@@ -43,7 +51,8 @@ domains' schemas (`auth.trusted_devices`, `billing.trial_accounts`; plan:L8467);
 `billing`.
 
 **Names.** The plan's identifiers are rewritten to full names (A6, [P6](decisions.md)): `dm_month_counts`
-→ `direct_message_month_counts`, `post_key` → `once_key`, `turn_no` → `turn_number`, `dm_sent_at` →
+→ `direct_message_month_counts`, the plan feature `dm_month_limit` → `direct_message_month_limit`
+(BLQ3), `post_key` → `once_key`, `turn_no` → `turn_number`, `dm_sent_at` →
 `direct_message_sent_at`, and the same for every `_no`, `_nos`, `_ms` and `dm` the plan uses
 (`message_number`, `version_number`, `wording_number`, `text_number`, `chain_number`,
 `version_numbers`, `duration_milliseconds`). New true/false fields take the `is_` form the repository's
@@ -55,7 +64,9 @@ name is in each field's comment ([P21](decisions.md), AMBER).
 - Every row belongs to one organization and goes away with it; a child row never points at another
   organization's row. Exceptions: the two global sending tables (`sending_state`,
   `sending_helper_slot`) have no organization — a documented exemption, read and written only by the
-  maintenance login (A16, [P16](decisions.md)).
+  maintenance login (A16, [P16](decisions.md)); and `billing.trial_accounts` outlives its workspace —
+  its organization and subscription are emptied when they go, so an Instagram account that trialled in
+  a deleted workspace never trials again (D73, routes-final § 8, 8.B.3).
 - A session sees and writes only its active organization's rows; background work runs in one
   organization's context at a time. The token table is readable only in its organization's own
   context — no clean-up across organizations reads it (plan:L4236–L4251).
@@ -154,11 +165,13 @@ erDiagram
   instagram_account ||--o{ meta_attachment : "ADDED: has Meta file ids"
   upload ||--o{ meta_attachment : "ADDED: is uploaded to Meta as (public id, no reference)"
   plan ||--o{ subscription : "is paid through"
+  plan |o--o{ subscription : "ADDED: is scheduled for"
   organization ||--o| subscription : "pays for"
   user ||--|| user_setting : "is set up by"
   user ||--o{ session : "signs in through"
   user ||--o{ trusted_device : "ADDED: trusts"
-  organization ||--o{ trial_account : "ADDED: has trialled with"
+  organization |o--o{ trial_account : "ADDED: has trialled with (emptied when it goes)"
+  subscription |o--o{ trial_account : "ADDED: started the trial of (emptied when it goes)"
   plan ||--o{ trial_account : "ADDED: is trialled as"
 ```
 
@@ -183,10 +196,12 @@ account to the connection (plan:L2922–L2944, plan:L3517–L3574).
 - **Sources:** plan:L3517–L3553 (columns, rules), plan:L3998–L4013 (status), plan:L4528–L4575 (connect).
 - **Added:** new — replaces the account-level login of the launch (Instagram Login, D24). The
   connect's plan check (accounts per plan, D26) locks the workspace's connection rows (plan:L3553).
-- **Replaced:** the launch's per-account `scopes` move here (from `instagram_account`).
+- **Replaced:** the launch's per-account `scopes` move here (from `instagram_account`). The Graph API
+  version is a code constant (`META_GRAPH_VERSION`), not a column or an environment variable (MC2).
 - **Open:**
   - Public id prefix not named by the plan — chosen at kickoff by `generatePublicId`, recorded in
     AS-BUILT (P22, AMBER).
+  - Columns, keys and the daily-check index: routes-final § 1, 1.3.
 
 ```mermaid
 erDiagram
@@ -264,11 +279,12 @@ erDiagram
     `revoked` — `expired` was the 60-day token's end (D24).
   - `instagram_app_user_id`, `scopes`, `token_expires_at` removed: Unified Login has no app-scoped
     id, the scopes move to `meta_connection`, the token ends on the connection (or never).
+  - The launch's one-live-account-per-organization rule (`idx_instagram_accounts_organization_live`)
+    and the app-scoped id lookup are dropped; "the accounts of a connection" is looked up by
+    `idx_instagram_accounts_meta_connection` (organization, connection) — routes-final § 2, 2.A.3.
+  - Meta's data-deletion and deauthorize requests find the accounts by `instagram_user_id` through a
+    new resolver that replaces the app-scoped one (IA19, routes-final § 2, 2.D).
 - **Open:**
-  - The launch's Meta data-deletion and deauthorize requests found the account by
-    `instagram_app_user_id`; the plan's new callback lookup is "id to be set by the Meta test"
-    (plan:L4280–L4289) — a Meta test (plan §43); the callback is gated at go-live with the other
-    untested features ([P36](decisions.md)).
   - The launch's `access_expires_at` API field goes with `token_expires_at` (route-changes.md).
 
 ```mermaid
@@ -406,16 +422,22 @@ past-comment runs.
   D27), the first automation that started a run for her ("via", set once) with how and from what ref
   she came in, the owner's private note (1–2,000), her first message time, the owner's "pause
   automations for this person" with who did it (D71), and her comment and story activity and last
-  broadcast for segments (D68). The follow state keeps the launch's fields. Kept until the owner
-  deletes it, Meta asks, or the workspace goes (D51). Erasing a contact also clears the last opening
-  message, opted out and the note.
+  broadcast for segments (D68). The follow state keeps the launch's fields. Tags are 1–50 characters
+  each (launch 1–255), at most 50 per contact (CT9). Kept until the owner deletes it, Meta asks, or the
+  workspace goes (D51). Erasing a contact also clears her note, opted out, last opening message,
+  automations pause (when and by whom), came-in ref, first message, last comment, last story activity
+  and last broadcast, and sets her comment count to 0 — her activity is personal data too; the
+  "via" automation, how she came in and the channel stay (CT11).
 - **Table:** `app.contacts` (live)
 - **Sources:** plan:L2960–L2993; D27, D45, D46, D49, D68, D71; current schema
   `src/domains/app/sub-domains/contact/contact.schema.ts`.
-- **Added:** the 14 fields marked `ADDED`. The list and its sorts are per account (D26).
+- **Added:** the 14 fields marked `ADDED`. The list and its sorts are per account (D26). The reference
+  from `first_automation_id` to the automation is added by the automations migration (automations build
+  after contacts). Broadcasts' "can get it now" reads her account, her open window and her exclusions
+  through one index the contact writer adds (BC13, routes-final § 7).
 - **Replaced:** the email check: the launch refused plus addresses (Standing deviation "Email and
-  phone checks") → accepted (A19, [P19](decisions.md)).
-- **Open:** none.
+  phone checks") → accepted (A19, [P19](decisions.md)); tags 1–255 → 1–50 (CT9).
+- **Open:** none — columns and checks: routes-final § 3, 3.A.3.
 
 ```mermaid
 erDiagram
@@ -424,7 +446,7 @@ erDiagram
     id organization_id FK
     id instagram_account_id FK
     text email "CHANGED: plus addresses accepted (A19)"
-    json tags "referenced by tag events and segments"
+    json tags "CHANGED: each tag 1 to 50 (was 1 to 255), at most 50 (CT9)"
     boolean is_following_account "referenced: follow state"
     datetime follow_checked_at "referenced: follow state"
     datetime last_direct_message_received_at "referenced: her 24-hour window"
@@ -432,17 +454,17 @@ erDiagram
     datetime last_opening_message_at "ADDED: 24-hour private-reply rule (D8); cleared on erase"
     datetime opted_out_at "ADDED: stop word (D49); cleared on erase"
     choice channel "ADDED: instagram (D27)"
-    id first_automation_id FK "ADDED: → automation; set once; emptied when it goes (D46)"
+    id first_automation_id FK "ADDED: → automation; set once; emptied when it goes (D46); its reference added by the automations migration"
     choice came_in_via "ADDED: a trigger_type value; set once"
-    text came_in_ref "ADDED: ref code or ad id, at most 64"
+    text came_in_ref "ADDED: ref code or ad id, at most 64; cleared on erase"
     text note "ADDED: 1 to 2000; owner only; cleared on erase (D46)"
-    datetime first_message_at "ADDED: set once"
-    datetime automations_off_at "ADDED: owner pause for her (D71)"
-    id automations_off_by_user_id FK "ADDED: → user; set exactly with automations_off_at"
-    datetime last_comment_at "ADDED"
-    number comment_count "ADDED: 0 or more"
-    datetime last_story_activity_at "ADDED"
-    datetime last_broadcast_at "ADDED: 24-hour broadcast gap (D68)"
+    datetime first_message_at "ADDED: set once; cleared on erase"
+    datetime automations_off_at "ADDED: owner pause for her (D71); cleared on erase"
+    id automations_off_by_user_id FK "ADDED: → user; set exactly with automations_off_at; cleared on erase"
+    datetime last_comment_at "ADDED; cleared on erase"
+    number comment_count "ADDED: 0 or more; 0 on erase"
+    datetime last_story_activity_at "ADDED; cleared on erase"
+    datetime last_broadcast_at "ADDED: 24-hour broadcast gap (D68); cleared on erase"
   }
   automation["automation · CHANGED · app.automations"] {
     id id PK
@@ -456,8 +478,10 @@ erDiagram
   change, so tag starts never lose one (D45). `kind`: `added` · `removed`; `source`: `automation` (a
   tag step) · `owner`. The chain number counts how many tag starts led to this change; intake starts
   nothing at 3 or more. Its id is part of the once key of a tag start. Kept 8 days. No public id.
+  Goes with its contact; a deleted automation only empties `source_automation_id` (that reference is
+  added by the automations migration, which builds after contacts).
 - **Table:** `app.contact_tag_events` (P38)
-- **Sources:** plan:L3685–L3717; D45.
+- **Sources:** plan:L3685–L3717; D45; routes-final § 3, 3.B.3.
 - **Added:** new.
 - **Replaced:** none.
 - **Open:** none.
@@ -468,11 +492,11 @@ erDiagram
     id id PK "part of the tag start's once key"
     id organization_id FK
     id instagram_account_id FK "copy of the contact's account"
-    id contact_id FK
+    id contact_id FK "goes with the contact"
     text tag "1 to 50"
     choice kind "added · removed"
     choice source "automation · owner"
-    id source_automation_id FK "→ automation; set exactly when source is automation; emptied when it goes"
+    id source_automation_id FK "→ automation; set exactly when source is automation; emptied when it goes (added by the automations migration)"
     number chain_number "0 or more; plan name chain_no"
     datetime created_at
     datetime queued_at
@@ -517,7 +541,7 @@ erDiagram
   - `completed_run_count` → `automation_count` (D36).
   - `is_public_reply_enabled` stays as it is; the plan renames it `public_reply_enabled`, which the
     repository's true/false rule does not allow ([P21](decisions.md)).
-- **Open:** none. Every way to start is built; the ones that need a Meta test (`story_repost`,
+- **Open:** none (columns, keys and checks: routes-final § 4, 4.A.3). Every way to start is built; the ones that need a Meta test (`story_repost`,
   `live_comment`, `ad_comment`, the 7-day ad window, quick replies and cards on Unified Login) are
   refused at go-live by a code list of offered ways to start and features until their plan §43 test
   passes — a code list, no column ([P36](decisions.md)).
@@ -538,7 +562,7 @@ erDiagram
     choice next_post_status "CHANGED: expired removed (A12)"
     datetime next_post_starts_at "REMOVED: → target_starts_at"
     datetime next_post_ends_at "REMOVED: → target_ends_at"
-    text ref_code "ADDED: letters, digits, dash, underscore, equals; at most 64; one per account (D43)"
+    text ref_code "ADDED: letters, digits, dash, underscore, equals; at most 64; one per account, drafts included (D43)"
     json starter_questions "ADDED: list of text, at most 4, each 1 to 80 (D42)"
     text ad_id "ADDED: digits, at most 64 (D41)"
     text trigger_tag "ADDED: 1 to 50 (D45)"
@@ -700,12 +724,11 @@ person; a new comment that may start a run replaces the open one ([P35](decision
     (`instagram_message`).
   - The plan's open-run keys (one open run per automation, person and once key, in
     `automation_run_open_key`, plan:L3465–L3480) → the launch's rule stays: one open run per
-    automation and person, and a new start replaces it (`replaced`, P35).
-- **Open:**
-  - *Proposal (P35):* drop the plan's `automation_run_open_key` table — the launch's partial unique
-    rule on the runs (one open run per automation and person) does the job once a new start cancels
-    the open run in the same commit. The once key stays on the run, for the `once_per_post` check
-    (D13). To confirm in the route review; worker-changes WC-45 still names the key and follows.
+    automation and person, and a new start replaces it (`replaced`, P35). **No open-run key table** —
+    confirmed by the route review (AUQ4, WH14): the new start cancels the open run in the same commit,
+    so the launch's one-open-run rule is the whole rule. The once key stays on the run, for the
+    `once_per_post` check (D13); WC-45 frees no key.
+- **Open:** none — columns and keys: routes-final § 4, 4.B.
 
 ```mermaid
 erDiagram
@@ -813,21 +836,24 @@ move to a table of their own.
 - **Holds:** as at launch, one event Meta sent for a connected account — plus when a failed event is
   tried again (hourly, while the comment is under 7 days old). `event_kind` adds `live_comment` ·
   `story_mention` · `shared_post` · `referral` · `ice_breaker` and drops `read`; `skip_reason` drops
-  `read_receipt` and adds `own_comment` (D64). The body is emptied once the event is processed or
-  skipped; read receipts, our own "sent" notices and tag events are never saved; echoes of the
-  owner's hand-typed messages are saved only to start her quiet time (D15). Kept 8 days (D15; launch
-  30) — one of the three split tables, by day (P33).
+  `read_receipt`, `echo` and `reaction` and adds `own_comment` (D64) and `flood` (more than 20 of her
+  message events in a minute, WH16). Echoes of the owner's hand-typed messages and reactions are saved
+  `received` and taken in (an echo starts her quiet time, WH10); our own echoes are dropped before
+  saving (WHQ1). The body is **null** once the event is processed or skipped, and a row born skipped
+  stores none (WH22); read receipts, our own "sent" notices and tag events are never saved. Each
+  event's intake group (messages, Live, comments) is worked out from its kind and stored (WH11). Kept 8
+  days (D15; launch 30) — one of the three split tables, by day (P33).
 - **Table:** `app.instagram_webhook_events` (live)
 - **Sources:** plan:L3207–L3225, plan:L3926–L3941; D15, D64; current schema
   `src/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.ts`.
-- **Added:** `next_attempt_at`; five event kinds; `own_comment`.
+- **Added:** `next_attempt_at`; `intake_group`; five event kinds; `own_comment`, `flood`.
 - **Replaced:**
   - The dedupe key on this table → `instagram_webhook_event_key`.
   - A failed event was final after 5 tries (launch) → retried hourly up to 7 days.
   - The launch's debugging list of events shows 8 days instead of 30.
-- **Open:**
-  - An own comment is skipped as `own_comment`; `echo` stays for DM echoes ([P24](decisions.md),
-    AMBER).
+  - A DM echo was skipped `echo` (launch) → saved `received` (WH10); `own_comment` is the skip of an
+    own comment ([P24](decisions.md)).
+- **Open:** none — columns, the split and its indexes: routes-final § 5, 5.B.3.
 
 ```mermaid
 erDiagram
@@ -837,8 +863,9 @@ erDiagram
     id instagram_account_id FK
     text event_key "CHANGED: uniqueness moves to instagram_webhook_event_key"
     choice event_kind "CHANGED: adds live_comment · story_mention · shared_post · referral · ice_breaker; read removed"
-    choice skip_reason "CHANGED: read_receipt removed; adds own_comment (D64)"
-    json payload "CHANGED: emptied once processed or skipped (D15)"
+    choice skip_reason "CHANGED: read_receipt, echo and reaction removed; adds own_comment (D64) and flood (WH16)"
+    json payload "CHANGED: optional; null once processed or skipped, none when born skipped (D15, WH22)"
+    choice intake_group "ADDED: messages · live · comments, worked out from event_kind (WH11)"
     datetime next_attempt_at "ADDED: when a failed event is tried again"
     datetime created_at "CHANGED: kept 8 days, not 30 (D15); split by day (P33)"
   }
@@ -852,12 +879,13 @@ erDiagram
 - **Sources:** plan:L3453–L3461; D15.
 - **Added:** new — the launch kept this key on the events, which now go after 8 days in whole days.
 - **Replaced:** the event's own key uniqueness.
-- **Open:** none — the plan's split by account is not used (P33).
+- **Open:** none — the plan's split by account is not used (P33). Its key leads with the
+  organization: organization, account, event key (routes-final § 5, 5.B.3).
 
 ```mermaid
 erDiagram
   instagram_webhook_event_key["instagram_webhook_event_key · NEW · app.instagram_webhook_event_keys"] {
-    id organization_id FK
+    id organization_id FK, PK
     id instagram_account_id FK, PK
     text event_key PK "at most 512; same key as on the event"
     datetime received_at
@@ -878,7 +906,8 @@ PRO). Segments and broadcasts are soft-deleted and purged later (A9, [P9](decisi
 - **Holds:** a saved audience of one account: a name and its conditions in AND / OR groups (at most 2
   levels, 20 conditions) on tags, the automation she came through, how she came in, comments, activity,
   her details, story activity and "no broadcast in N days" (D68). Used again by many broadcasts. Has a
-  public id (prefix not named by the plan). Soft delete (A9).
+  public id (prefix not named by the plan). Soft delete (A9); purged 90 days after its delete, once no
+  live broadcast points at it (BC4, BCQ1).
 - **Table:** `app.segments` (P38)
 - **Sources:** plan:L3719–L3750; D68.
 - **Added:** `deleted_at` — the plan hard-deletes; A9 keeps the repository's soft delete.
@@ -911,15 +940,19 @@ erDiagram
 - **Holds:** one message set (1–3 messages, the same shape as the automation's message list, with
   versions) sent to the people of a segment or a one-off audience — a copy of the conditions is kept
   when it starts. `status`: `draft` · `scheduled` · `sending` · `waiting_for_chats` · `done` ·
-  `cancelled`; `mode`: `now` · `scheduled` · `when_chat_opens` (1–7 days); `cancel_reason`: `owner` ·
-  `plan_feature_off`. Counts of matched, sent, skipped, failed, replies and taps. Has a public id
-  (prefix not named; it goes in the messages' button payload). Soft delete (A9).
+  `cancelled`; `mode`: `now` · `scheduled` · `when_chat_opens`, chosen **at send** — with the send's
+  `scheduled_at` or its open wait of 1–7 days, which is a send input, not a column (`ends_at` holds its
+  end; BC10); `cancel_reason`: `owner` · `plan_feature_off`. Counts of matched, sent, skipped, failed,
+  replies and taps. Has a public id (prefix not named; it goes in the messages' button payload). Soft
+  delete (A9); purged 90 days after its delete, its recipients and messages with it (BC4, BCQ1). Only a
+  `draft`, `done` or `cancelled` broadcast may be deleted (BC11).
 - **Table:** `app.broadcasts` (P38)
 - **Sources:** plan:L3752–L3791, plan:L4070–L4087; D57, D68.
 - **Added:** `deleted_at` (A9).
 - **Replaced:** none.
 - **Open:**
   - Public id prefix — chosen at kickoff (P22, AMBER).
+  - Columns and keys: routes-final § 7, 7.A.3.
 
 ```mermaid
 erDiagram
@@ -929,12 +962,12 @@ erDiagram
     id instagram_account_id FK
     text name "1 to 255"
     choice status "draft · scheduled · sending · waiting_for_chats · done · cancelled"
-    choice mode "now · scheduled · when_chat_opens"
+    choice mode "now · scheduled · when_chat_opens; set at send (BC10)"
     id segment_id FK "emptied when the segment goes; empty for a one-off audience"
     json conditions "one-off conditions, and the copy taken at start"
     json messages "1 to 3 messages with versions"
     datetime scheduled_at "set exactly for scheduled"
-    datetime ends_at "set exactly for when_chat_opens; 1 to 7 days after start"
+    datetime ends_at "set exactly for when_chat_opens; 1 to 7 days after start (the send's open wait)"
     datetime started_at
     datetime finished_at
     datetime cancelled_at
@@ -962,21 +995,24 @@ erDiagram
 - **Holds:** one person a broadcast goes to: status, reason, which version she got, when it was sent
   and when she first replied. `status`: `waiting` · `sent` · `skipped` · `failed` · `unknown`;
   `reason`: `recent_broadcast` · `owner_chat` · `window_closed` · `opted_out` · `contact_excluded` ·
-  `broadcast_cancelled` · `plan_feature_off` · `contact_deleted`, plus the message reasons. One
-  broadcast per person per 24 hours. Kept 90 days — a plain table, batch deletes (P33). No public id.
+  `broadcast_cancelled` · `plan_feature_off` · `contact_deleted`, plus the message reasons. At most
+  one row per broadcast and contact — unique (organization, broadcast, contact); a `skipped · owner_chat`
+  row goes back to `waiting` instead of a second one (BC16). One broadcast per person per 24 hours. Its
+  account is a copy of the broadcast's, with no reference of its own. Kept 90 days — a plain table,
+  batch deletes (P33). No public id.
 - **Table:** `app.broadcast_recipients` (P38)
 - **Sources:** plan:L3793–L3816, plan:L4089–L4107; D68.
 - **Added:** new.
 - **Replaced:** none.
-- **Open:** none — the plan's split by month is not used (P33).
+- **Open:** none — the plan's split by month is not used (P33); routes-final § 7, 7.C.
 
 ```mermaid
 erDiagram
   broadcast_recipient["broadcast_recipient · NEW · app.broadcast_recipients"] {
     id id PK
     id organization_id FK
-    id instagram_account_id FK
-    id broadcast_id FK
+    id instagram_account_id "copy of the broadcast's account, no reference (BC16)"
+    id broadcast_id FK "unique with contact_id per organization (BC16)"
     id contact_id FK
     choice status "waiting · sent · skipped · failed · unknown"
     choice reason "recent_broadcast · owner_chat · window_closed · opted_out · contact_excluded · broadcast_cancelled · plan_feature_off · contact_deleted, plus the message reasons"
@@ -1009,14 +1045,17 @@ counts, the stop history, the two global rows and the Meta file ids. Intake neve
   `state`: `ready` · `working` · `sleeping` · `stopped` (fast uses `ready` and `stopped` only).
   `wait_reason`: `box` · `gap` · `hour_limit` · `day_limit` · `not_before` · `stop` · `test`. Holds the
   ticket turn, the lease, the random box, the last send, half speed, the day count, the owner's pause,
-  the team's suspend (A18, [P18](decisions.md)), the current stop (`stop_reason`: `too_fast` ·
+  the team's suspend (A18, [P18](decisions.md)), the current **error stop** (`stop_reason`: `too_fast` ·
   `blocked` · `account_flagged` · `login_expired` · `account_not_shared` · `access_off` ·
-  `app_not_approved` · `app_limit` · `plan_limit` · `plan_ended` · `plan_downgrade`), the account's
-  one test claim and the fast lane's sends on their way. No public id.
+  `app_not_approved` · `app_limit`) and, beside it, the **plan stop** (`plan_stop_reason`:
+  `plan_limit` · `plan_ended` · `plan_downgrade`) — two separate stops, so both can hold at once (SN12),
+  the account's one test claim and the fast lane's sends on their way. No public id.
 - **Table:** `app.instagram_send_lanes` (P38)
-- **Sources:** plan:L3385–L3419, plan:L3943–L3970; D3, D4, D5, D11, D19, D34, D35, D57, D62.
+- **Sources:** plan:L3385–L3419, plan:L3943–L3970; D3, D4, D5, D11, D19, D34, D35, D57, D62;
+  routes-final § 6, 6.A.3.
 - **Added:** new.
-- **Replaced:** none.
+- **Replaced:** the plan's one stop for errors and plan states → an error stop and a plan stop (SN12,
+  plan §33.2 rule 4).
 - **Open:** none.
 
 ```mermaid
@@ -1040,12 +1079,14 @@ erDiagram
     number day_count "slow, day limit only"
     datetime paused_at "owner pause"
     datetime suspended_at "team suspend or a suspended workspace (A18)"
-    choice stop_reason "a stop group or plan_limit · plan_ended · plan_downgrade"
+    choice stop_reason "an error stop group only (SN12)"
     datetime stop_until "empty = the owner must act"
     number stop_count
     number stop_error_code
     number stop_error_subcode
     datetime stop_cleared_at
+    choice plan_stop_reason "plan_limit · plan_ended · plan_downgrade (SN12)"
+    datetime plan_stopped_at "set exactly with plan_stop_reason"
     choice testing_lane "slow row only: slow · reply · fast · broadcast"
     datetime testing_until "slow row only"
     number sending_count "fast row only"
@@ -1286,9 +1327,10 @@ erDiagram
 - **Added:** new as the plan writes it.
 - **Replaced:** none.
 - **Open:**
-  - The helper runs on the existing cron scheduler, one repeat job per rule group (A7,
-    [P7](decisions.md)); a slot lease per server may then not be needed — settled in
-    worker-changes.md.
+  - **SNQ1 (routes-final § 6, 6.2) — recommended: drop this table.** The repair runs on the existing
+    scheduler, one repeating piece per rule group, each tick given to one server (A7,
+    [P7](decisions.md)); the two per-server duties (the clock check, the Redis watch) need no slot. The
+    table leaves this file once SNQ1 is answered as recommended.
 
 ```mermaid
 erDiagram
@@ -1305,8 +1347,8 @@ erDiagram
   and reused; deleted when Meta says it is gone. One per account and upload. No public id.
 - **Table:** `app.meta_attachments` (P38)
 - **Sources:** plan:L3623–L3640; D29, D58.
-- **Added:** new — it names an upload by its public id only, read through the upload service; no
-  reference across domains ([P25](decisions.md), AMBER).
+- **Added:** new — it names an upload by its public id only (`upload_public_id`, SN20), read through
+  the upload service; no reference across domains ([P25](decisions.md), AMBER).
 - **Replaced:** none.
 - **Open:** none. D58 deviation ([P34](decisions.md)): this iteration checks a file's type and
   content (magic bytes) only; the malware scan, and with it "only files scanned clean", comes in a
@@ -1318,7 +1360,7 @@ erDiagram
     id id PK
     id organization_id FK
     id instagram_account_id FK "one per account and upload"
-    id upload_id "the upload's public id only, no reference (P25)"
+    text upload_public_id "the upload's public id only, no reference (P25, SN20)"
     text attachment_id "Meta's id, at most 128"
     datetime created_at
     datetime updated_at
@@ -1343,10 +1385,13 @@ upload table does not change ([P34](decisions.md)).
 ### plan
 
 - **Holds:** as today, a billing plan row — now Free, Creator and Studio, with `features` holding
-  exactly four keys: DMs per month (`dm_month_limit` — 1,000 / 10,000 / 50,000), Instagram accounts
-  (`instagram_accounts_max` — 1 / 3 / 10), PRO features (`pro_features`) and priority support
-  (`priority_support`). Starter, Growth and Pro stay, turned off (billing rows are never deleted).
-  Members are unlimited on every plan (`included_seats` empty, D55).
+  exactly four keys, checked on every write and read: DMs per month (`direct_message_month_limit` —
+  1,000 / 10,000 / 50,000; BLQ3), Instagram accounts (`instagram_accounts_max` — 1 / 3 / 10), PRO
+  features (`is_pro_enabled`, plan name `pro_features`) and priority support (`has_priority_support`,
+  plan name `priority_support`; P21, BL12). Starter, Growth and Pro stay, turned off (billing rows are
+  never deleted); their features are mapped up — Starter to Creator's, Growth and Pro to Studio's
+  (BLQ4). The plan's `limits` leaves the API — it is not a column. Members are unlimited on every
+  plan (`included_seats` empty, D55).
 - **Table:** `billing.plans` (live)
 - **Sources:** plan:L7932–L7949, plan:L8459 (feature names); D26, D34, D55, D57; current schema
   `src/domains/billing/sub-domains/plan/plan.schema.ts`.
@@ -1354,16 +1399,15 @@ upload table does not change ([P34](decisions.md)).
   placeholder prices — Creator $29 a month ($23 yearly), Studio $79 ($63 yearly); ops creates the real
   Stripe products at go-live ([P37](decisions.md)).
 - **Replaced:** `features` free-form → exactly these four keys; `included_seats` → empty on every plan.
-- **Open:** the feature key `dm_month_limit` is a stored key name; whether A6 ([P6](decisions.md))
-  renames it to `direct_message_month_limit` is settled in the route review (P21 covers true/false
-  names only).
+- **Open:** none — the feature key is `direct_message_month_limit` (BLQ3, full names P6; routes-final
+  § 8, 8.A).
 
 ```mermaid
 erDiagram
   plan["plan · CHANGED · billing.plans"] {
     id id PK
     text name "CHANGED: Free updated; Creator, Studio added"
-    json features "CHANGED: exactly dm_month_limit, instagram_accounts_max, pro_features, priority_support"
+    json features "CHANGED: exactly direct_message_month_limit, instagram_accounts_max, is_pro_enabled, has_priority_support; old rows mapped up (BLQ4)"
     number included_seats "CHANGED: empty on every plan (D55)"
     boolean is_active "CHANGED: Starter, Growth, Pro turned off"
     money price_monthly "CHANGED: seeded placeholders (P37)"
@@ -1373,13 +1417,16 @@ erDiagram
 
 ### subscription
 
-- **Holds:** as today, the workspace's subscription — plus the owner's pick of which Instagram
-  accounts stay active after a move down (accounts only), saved with the planned change and editable
-  until the period end (D57).
+- **Holds:** as today, the workspace's subscription — plus a move down that waits for the period end:
+  the plan it moves to and when (`scheduled_plan_id`, `scheduled_change_at` — mirrors of a Stripe
+  subscription schedule, so the billing screen shows the change without a Stripe call; BLQ1), and the
+  owner's pick of which Instagram accounts stay active after it (`downgrade_keep`, a list of account
+  public ids, set only with a scheduled change, editable until the period end; D57). A move up stays
+  immediate and clears any scheduled change. Today there is no planned-change column at all.
 - **Table:** `billing.subscriptions` (live)
 - **Sources:** plan:L8012–L8024, plan:L8452 (`downgrade_keep`); D57; current schema
-  `src/domains/billing/sub-domains/subscription/subscription.schema.ts`.
-- **Added:** `downgrade_keep`.
+  `src/domains/billing/sub-domains/subscription/subscription.schema.ts`; routes-final § 8, 8.B.3.
+- **Added:** `scheduled_plan_id`, `scheduled_change_at` (BLQ1), `downgrade_keep`.
 - **Replaced:** none.
 - **Open:** none.
 
@@ -1389,12 +1436,16 @@ erDiagram
     id id PK
     id organization_id FK
     id plan_id FK
-    json downgrade_keep "ADDED: list of the account public ids kept after a move down (D57)"
+    id scheduled_plan_id FK "ADDED: → plan; the plan a move down goes to at the period end (BLQ1)"
+    datetime scheduled_change_at "ADDED: set exactly with scheduled_plan_id (BLQ1)"
+    json downgrade_keep "ADDED: list of the account public ids kept after a move down; set only with a scheduled change (D57)"
+    datetime trial_end "referenced: also the workspace had a trial mark (BL7)"
   }
   plan["plan · CHANGED · billing.plans"] {
     id id PK
   }
   plan ||--o{ subscription : "is paid through"
+  plan |o--o{ subscription : "ADDED: is scheduled for"
 ```
 
 ### upload
@@ -1426,8 +1477,16 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
 
 - New permission code `contact:update` — note, tags and "pause automations for this person" (A20,
   [P20](decisions.md)). Broadcasts, segments and past comments reuse `automation:*` (D68, D69).
-- The launch's locked **Member** role becomes **Editor** (adds `automation:delete`, `contact:update`,
-  `upload:manage`), and a new locked **Viewer** role joins every team workspace (plan:L7861–L7889).
+- The launch's locked **Member** role becomes **Editor** — the same row renamed, adding three codes:
+  `automation:delete`, `contact:update`, `upload:manage` — and a new locked **Viewer** role joins every
+  team workspace with four codes: `organization:read`, `instagram-account:read`, `automation:read`,
+  `contact:read` (plan:L7861–L7889; TN1, TN2, routes-final § 9).
+- The shared chip tone `lav` → `lavender` in the roles' and memberships' `tone` rows and checks, so one
+  tone list serves them and the organization's tile colour (TNQ1, recommended; a tenancy migration).
+- `auth.auth_methods`: every `PASSWORD` row revoked, and every `auth.users.password_hash` emptied, by the
+  passwords-off migration (AT1, ATQ1; routes-final § 10).
+- `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
+  goes with the password routes (UN6, UN7; routes-final § 11).
 - In scope with Part F ([P28](decisions.md)).
 
 ## Stage 8 — Product around sending
@@ -1435,15 +1494,20 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
 The rest of Part F (plan §44–47, plan:L8436–L8475): new fields and tables in the platform domains
 (auth, user, tenancy, billing), in this iteration ([P28](decisions.md)) as new migrations in their own
 domains (D48, [P38](decisions.md)). The referral program (§48) is out of scope ([P39](decisions.md)).
+One new **app** migration rides with them, `app_member_organization_counts`: a read-only function the
+workspace chooser calls for its counts (members, accounts, live automations per workspace; UN5,
+routes-final § 11) — no table and no column.
 
 ### user
 
 - **Holds:** as today, a person — plus the Instagram handle and the goal asked at onboarding.
-  `goal`: `capture_leads` · `drive_sales` · `grow_community`.
+  `goal`: `capture_leads` · `drive_sales` · `grow_community`. Passwords are off everywhere: every
+  `password_hash` is emptied by the passwords-off migration; the column stays (AT1, ATQ1).
 - **Table:** `auth.users` (live)
-- **Sources:** plan:L7814–L7822; current schema under `src/domains/user/`.
+- **Sources:** plan:L7814–L7822, plan:L7613; current schema under `src/domains/user/`; routes-final
+  § 10 (AT1), § 11.
 - **Added:** `instagram_handle`, `goal`.
-- **Replaced:** none.
+- **Replaced:** `password_hash` set → empty for every person (column kept).
 - **Open:** none.
 
 ```mermaid
@@ -1452,6 +1516,7 @@ erDiagram
     id id PK
     text instagram_handle "ADDED: letters, digits, dot, underscore; at most 30; lower case, no @"
     choice goal "ADDED: capture_leads · drive_sales · grow_community"
+    text password_hash "CHANGED: emptied for every person, column kept (AT1)"
   }
 ```
 
@@ -1482,7 +1547,7 @@ erDiagram
   local file (the IP never leaves us); empty when not found.
 - **Table:** `auth.sessions` (live)
 - **Sources:** plan:L8194–L8199; current schema under `src/domains/auth/`.
-- **Added:** `place_city`, `place_country`.
+- **Added:** `place_city`, `place_country` (the ISO 3166-1 two-letter code; AT18, routes-final § 10).
 - **Replaced:** none.
 - **Open:** the IP-to-place file's licence and updates (plan §53).
 
@@ -1492,21 +1557,22 @@ erDiagram
     id id PK
     id user_id FK
     text place_city "ADDED: empty when not found"
-    text place_country "ADDED: empty when not found"
+    text place_country "ADDED: the ISO country code, 2 capital letters; empty when not found"
   }
 ```
 
 ### organization
 
 - **Holds:** as today, a workspace — plus its tile colour: one of 5 tones (`sky` · `lavender` ·
-  `sage` · `peach` · `slate`), picked from the name by default.
+  `sage` · `peach` · `slate`), always set — picked from the name at create, and the rows that exist
+  are backfilled from their names before it becomes required (routes-final § 9, 9.A.3).
 - **Table:** `tenancy.organizations` (live)
 - **Sources:** plan:L7903–L7906; current schema
   `src/domains/tenancy/sub-domains/organization/organization.schema.ts`.
 - **Added:** `logo_color`.
 - **Replaced:** none.
-- **Open:** the plan's tone `lav` is written `lavender` here (full names) — names to match the
-  design.
+- **Open:** none — the plan's tone `lav` is `lavender` (full names; TNQ1 recommends the same rename
+  in the shared chip tones, see Reference data).
 
 ```mermaid
 erDiagram
@@ -1514,7 +1580,7 @@ erDiagram
     id id PK
     text timezone "referenced: the month count's month"
     choice status "referenced: SUSPENDED stops sending"
-    choice logo_color "ADDED: sky · lavender · sage · peach · slate"
+    choice logo_color "ADDED: required; sky · lavender · sage · peach · slate; backfilled from the name"
   }
 ```
 
@@ -1551,29 +1617,38 @@ erDiagram
 ### trial_account
 
 - **Holds:** every Instagram account that has had the 7-day no-card trial, in any workspace, so an
-  account gets it only once (D73): the Instagram user id, the workspace, the plan and when it started.
+  account gets it only once (D73): the Instagram user id, the workspace, the subscription it came
+  with, the plan and when it started. Append-only. The row outlives its workspace: the organization
+  and the subscription are emptied when they go (an exception to "every row goes with its
+  organization"), so such a row is seen by no workspace — only a read-only resolver answers "had a
+  trial" for a list of Instagram ids, never which workspace (BL18).
 - **Table:** `billing.trial_accounts` (P38)
-- **Sources:** plan:L8095–L8110; D73.
+- **Sources:** plan:L8095–L8110; D73; routes-final § 8, 8.B.3.
 - **Added:** new.
 - **Replaced:** none.
-- **Open:** none.
+- **Open:** public id prefix — chosen at kickoff (P22, AMBER).
 
 ```mermaid
 erDiagram
   trial_account["trial_account · NEW · billing.trial_accounts"] {
     id id PK
     text instagram_user_id UK "one trial per Instagram account, ever"
-    id organization_id FK
+    id organization_id FK "optional; emptied when the workspace goes (D73)"
+    id subscription_id FK "optional; the trial's subscription; emptied when it goes"
     id plan_id FK
     datetime started_at
   }
   organization["organization · CHANGED · tenancy.organizations"] {
     id id PK
   }
+  subscription["subscription · CHANGED · billing.subscriptions"] {
+    id id PK
+  }
   plan["plan · CHANGED · billing.plans"] {
     id id PK
   }
-  organization ||--o{ trial_account : "ADDED: has trialled with"
+  organization |o--o{ trial_account : "ADDED: has trialled with (emptied when it goes)"
+  subscription |o--o{ trial_account : "ADDED: started the trial of (emptied when it goes)"
   plan ||--o{ trial_account : "ADDED: is trialled as"
 ```
 
@@ -1583,22 +1658,22 @@ One row per `CHANGED` or `REMOVED` table. Plan decisions are `D<n>`; this plan's
 
 | Table | Before (launch / today) | After | Why |
 | --- | --- | --- | --- |
-| `app.instagram_accounts` | One not-revoked account per organization; Instagram Login ids, scopes and token end on the account; status `connected` · `expired` · `error` · `revoked` | Many per organization up to the plan limit, each under a Meta connection; app-scoped id, scopes and token end removed; `expired` gone; starter-question send time added | D24, D25, D26, D42 |
+| `app.instagram_accounts` | One not-revoked account per organization; Instagram Login ids, scopes and token end on the account; status `connected` · `expired` · `error` · `revoked`; Meta's callbacks find it by the app-scoped id | Many per organization up to the plan limit, each under a Meta connection; app-scoped id, scopes and token end removed; `expired` gone; starter-question send time added; found by the Instagram user id | D24, D25, D26, D42, IA19 |
 | `app.instagram_account_settings` | Master switch + five public reply safety settings | Master switch + owner limits (opening hour/day, fast, person, broadcast), stop words, notice, three account behaviours, extra delay; reply safety moved per automation | D5, D11, D22, D32, D64–D68 |
 | `app.instagram_account_tokens` | One encrypted Instagram Login token per account, renewed daily | Removed; one system-user token per Meta connection | D24 |
 | `app.instagram_media` | Stored posts | + missed-comment watch times, Live end, the Live product type | D40, D41 |
-| `app.contacts` | Person per account; plus addresses refused | + 24-hour rule, opted out, channel, "via" automation and how she came in, note, first message, owner pause, comment and story activity, last broadcast; plus addresses accepted | D8, D27, D45, D46, D49, D68, D71, P19 |
+| `app.contacts` | Person per account; plus addresses refused; tags 1–255; erase clears her personal columns | + 24-hour rule, opted out, channel, "via" automation and how she came in, note, first message, owner pause, comment and story activity, last broadcast; plus addresses accepted; tags 1–50; erase also clears her activity columns | D8, D27, D45, D46, D49, D68, D71, P19, CT9, CT11 |
 | `app.automations` | `live` · `inactive`; 3 trigger types; message fields as columns; DM keyword switch; run counter; next-post window that expires | `draft` · `live` · `paused`; 15 ways to start; `steps` object; also start from; between dates; ref link, starter questions, ad, tag, default reply; per-automation public reply pacing and mention; hide comment; automatic stop; counters moved out | D28–D45, D52, D57, D59, D63, P11, P12 |
-| `app.automation_runs` | Send claim on the run; free trigger text kept; one open run per automation and person; 180 days | Once key, 7-day clock, first DM time, last list message, step versions; send claim on the message; free text never kept; still one open run per automation and person, and a new start replaces it (`replaced`); no open-run key table (proposal); 90 days, plain table | D9, D13, D16, D46, P33, P35 |
+| `app.automation_runs` | Send claim on the run; free trigger text kept; one open run per automation and person; 180 days | Once key, 7-day clock, first DM time, last list message, step versions; send claim on the message; free text never kept; still one open run per automation and person, and a new start replaces it (`replaced`); no open-run key table (confirmed, AUQ4); 90 days, plain table | D9, D13, D16, D46, P33, P35, AUQ4 |
 | `app.automation_run_events` | History of a run | + two tap events; plain table, no run start copy | D16, D61, P33 |
 | `app.automation_comment_logs` | Final DM step; 180 days | Message list step, hide step, comment time; more step statuses and reasons; 90 days, plain table, no run start copy | D16, D32, D33, D64, P33 |
-| `app.instagram_webhook_events` | Kept 30 days with their dedupe key and body; failed final after 5 tries; `read` events | Kept 8 days, split by day, body emptied when done; key in its own (plain) table; failed retried hourly up to 7 days; five new kinds, `read` gone, `own_comment`; no Redis buffer | D15, D64, P24, P32, P33 |
-| `billing.plans` | Free, Starter, Growth, Pro; free-form features; seats | Free, Creator, Studio (old rows off) with seeded placeholder prices; exactly four feature keys; unlimited members | D26, D34, D55, D57, P37 |
-| `billing.subscriptions` | Planned change only | + the accounts kept after a move down | D57 |
-| `auth.users` (Stage 8) | — | + Instagram handle, goal | plan §45.2, P28 |
-| `auth.user_settings` (Stage 8) | Dark mode | + reduce motion | plan §47.6, P28 |
-| `auth.sessions` (Stage 8) | — | + place city and country | plan §47.5, P28 |
-| `tenancy.organizations` (Stage 8) | — | + tile colour | plan §45.7, P28 |
+| `app.instagram_webhook_events` | Kept 30 days with their dedupe key and body; failed final after 5 tries; `read` events; echoes and reactions skipped | Kept 8 days, split by day, body null when done (none when born skipped); key in its own (plain) table, led by the organization; failed retried hourly up to 7 days; five new kinds, `read` gone; echoes and reactions saved `received`; skip reasons `own_comment`, `flood` added and `echo`, `reaction` gone; a stored intake group; no Redis buffer | D15, D64, P24, P32, P33, WH10, WH16, WH22 |
+| `billing.plans` | Free, Starter, Growth, Pro; free-form features; seats | Free, Creator, Studio (old rows off, their features mapped up) with seeded placeholder prices; exactly four feature keys (`direct_message_month_limit`, `instagram_accounts_max`, `is_pro_enabled`, `has_priority_support`); unlimited members | D26, D34, D55, D57, P37, BL12, BLQ3, BLQ4 |
+| `billing.subscriptions` | Every plan change applied at once; no planned-change column | + a scheduled move down (`scheduled_plan_id`, `scheduled_change_at`) and the accounts kept after it | D57, BLQ1 |
+| `auth.users` (Stage 8) | Password hash kept | + Instagram handle, goal; every password hash emptied (column kept) | plan §45.2, P28, AT1 |
+| `auth.user_settings` (Stage 8) | Dark mode | + reduce motion (`is_reduce_motion_enabled`) | plan §47.6, P28 |
+| `auth.sessions` (Stage 8) | — | + place city and country (the ISO two-letter country code) | plan §47.5, P28, AT18 |
+| `tenancy.organizations` (Stage 8) | — | + tile colour, required, backfilled from the name | plan §45.7, P28, TNQ1 |
 
 `upload.uploads` is not in the table: it does not change this iteration (no scan result — P34, a D58
 deviation).

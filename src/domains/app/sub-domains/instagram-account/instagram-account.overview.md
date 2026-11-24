@@ -27,8 +27,9 @@ work (§ 1 IA8, IA9): the daily account check — refresh the profile, subscribe
 again (the token renewal left with WC-35: the connection's token never ends) — and the reconnect
 notice that follows every break.
 The nested folders carry the rest of § 1: `instagram-account-settings/` (route 3,
-`PATCH /api/v1/app/social/instagram/account/settings`, ROUTE row R4), `instagram-media/` (routes
-5–6 and the stored posts, R5) and `instagram-account-meta-callback/` (Meta's deauthorize and
+`PATCH /api/v1/app/social/instagram/account/settings`, ROUTE row R4), `instagram-media/` (the
+launch's routes 5–6 and the stored posts, R5 — routes 13–14 under the named account since
+feat-instagram-dm-sending R8) and `instagram-account-meta-callback/` (Meta's deauthorize and
 data-deletion callbacks, routes 7–8, R6).
 
 ## Layout
@@ -63,8 +64,9 @@ data-deletion callbacks, routes 7–8, R6).
   media service's stored posts, in one transaction
 - `instagram-account-settings/` — nested: the automation switch and public reply safety, and route 3
   that changes them ([overview](instagram-account-settings/instagram-account-settings.overview.md))
-- `instagram-media/` — nested: the post and story pickers (routes 5–6, read live) and the stored
-  posts sub-domains 3–4 write through its service ([overview](instagram-media/instagram-media.overview.md))
+- `instagram-media/` — nested: the post and story pickers of one named account (routes 13–14, read
+  live through the connection's token) and the stored posts with their missed-comment watch and a
+  Live's end, which sub-domains 4–6 write through its service ([overview](instagram-media/instagram-media.overview.md))
 - `instagram-account-meta-callback/` — nested, PUBLIC: Meta's deauthorize and data-deletion
   callbacks (routes 7–8), proved by Meta's form-encoded `signed_request`; no table of its own
   ([overview](instagram-account-meta-callback/instagram-account-meta-callback.overview.md))

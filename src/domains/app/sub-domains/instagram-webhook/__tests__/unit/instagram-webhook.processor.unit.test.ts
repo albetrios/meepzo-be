@@ -424,7 +424,7 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     });
     expect(mediaService.upsertFromInstagram).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      instagramAccount: INSTAGRAM_ACCOUNT_KEY,
+      channelAccount: { organizationId: 11, channelAccountId: 33 },
       mediaItem: { id: POST, timestamp: '2026-11-21T08:00:00+0000' },
     });
     expect(automationService.linkNextPostAutomations).toHaveBeenCalledWith(

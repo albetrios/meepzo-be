@@ -98,6 +98,13 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-mutation: channel account resume',
   'POST /api/v1/app/social/channel-accounts/:channel_account_id/activate':
     'cross-organization-mutation: channel account activate',
+  // The pickers (feat-instagram-dm-sending R8, routes 13–14): another organization's or a revoked
+  // account is 404 channel_account_not_found and Meta is never called
+  // (instagram-media.integration.test.ts).
+  'GET /api/v1/app/social/instagram/accounts/:channel_account_id/media':
+    'cross-organization-resource: Instagram posts of a channel account',
+  'GET /api/v1/app/social/instagram/accounts/:channel_account_id/stories':
+    'cross-organization-resource: Instagram stories of a channel account',
   'PATCH /api/v1/tenancy/organization/notification-policies/:notification_policy_id':
     'cross-organization-mutation: notification policy PATCH',
   'DELETE /api/v1/tenancy/organization/notification-policies/:notification_policy_id':

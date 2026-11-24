@@ -68,13 +68,13 @@ describe('Instagram media bulk seed (database)', () => {
     await instagramAccountSeedContribution.seedBulk?.(seedContext([organization]));
 
     const [account] = await database
-      .select({ id: instagram_accounts.id })
+      .select({ channelAccountId: instagram_accounts.channel_account_id })
       .from(instagram_accounts)
       .where(eq(instagram_accounts.organization_id, organization.id));
     const posts = await mediaOf(organization.id);
     expect(posts).toHaveLength(3);
     for (const post of posts) {
-      expect(post.instagram_account_id).toBe(account!.id);
+      expect(post.channel_account_id).toBe(account!.channelAccountId);
       expect(post.instagram_media_id).toMatch(/^7[0-9]{17}$/);
       expect(['image', 'video', 'carousel_album']).toContain(post.media_type);
       expect(post.media_product_type).toBe(post.media_type === 'video' ? 'reels' : 'feed');

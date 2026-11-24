@@ -176,9 +176,23 @@ export function createAppContainer({
     planAccessService,
     redisConnection,
   );
+  // Routes 13–14 (2.C, ROUTE row R8): Meta's 190 breaks the account's connection (MC11). Until
+  // R4's `ChannelConnectionService.markConnectionBroken` is wired here, the port breaks the
+  // connection's accounts through the channel account (the accounts' half of MC11).
   const instagramMediaService = new InstagramMediaService(
     new InstagramMediaRepository(),
     instagramAccountService,
+    {
+      markConnectionBroken: async ({ scope, channelConnection, requestId }) => {
+        const broken = await channelAccountService.markAccountsOfConnectionBroken({
+          scope,
+          organizationId: channelConnection.organizationId,
+          channelConnectionId: channelConnection.channelConnectionId,
+          requestId,
+        });
+        return broken.length > 0;
+      },
+    },
   );
   // Meta's callbacks and the organization's delete (every account and connection, IAC5) erase here.
   const instagramAccountErasureService = new InstagramAccountErasureService(

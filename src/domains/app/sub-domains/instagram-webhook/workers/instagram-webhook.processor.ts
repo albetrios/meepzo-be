@@ -380,10 +380,13 @@ async function storePostAndLinkNextPost({
   instagramMediaId: string;
 }): Promise<void> {
   const { scope, services } = context;
-  const { instagramAccount } = account;
+  const channelAccount = {
+    organizationId: account.instagramAccount.organizationId,
+    channelAccountId: account.channelAccountId,
+  };
   let storedPost: InstagramMediaRow | null = await services.instagramMediaService.findStoredMedia({
     scope,
-    instagramAccount,
+    channelAccount,
     instagramMediaId,
   });
   const mediaItem =
@@ -398,7 +401,7 @@ async function storePostAndLinkNextPost({
             (await withSavepoint(() =>
               services.instagramMediaService.upsertFromInstagram({
                 scope,
-                instagramAccount,
+                channelAccount,
                 mediaItem,
               }),
             )) ?? storedPost;

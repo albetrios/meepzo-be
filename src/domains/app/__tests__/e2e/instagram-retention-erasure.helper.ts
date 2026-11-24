@@ -588,7 +588,7 @@ export async function seedAgedOrganization(now: Date): Promise<AgedOrganization>
     .insert(instagram_media)
     .values({
       organization_id: organizationId,
-      instagram_account_id: account.id,
+      channel_account_id: account.channel_account_id,
       instagram_media_id: nextInstagramObjectId(),
       published_at: at(1095),
       ...written(1095),

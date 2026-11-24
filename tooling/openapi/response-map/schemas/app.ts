@@ -347,11 +347,12 @@ export const instagramMediaItemSchema = {
   type: 'object',
   properties: {
     instagram_media_id: { type: 'string' },
+    kind: { type: 'string', enum: ['post', 'reel', 'ad_post'] },
     caption: { type: 'string', nullable: true },
     media_type: { type: 'string', enum: ['image', 'video', 'carousel_album'], nullable: true },
     media_product_type: {
       type: 'string',
-      enum: ['feed', 'reels', 'story', 'ad'],
+      enum: ['feed', 'reels', 'story', 'ad', 'live'],
       nullable: true,
     },
     media_url: { type: 'string', nullable: true },
@@ -366,6 +367,7 @@ export const instagramMediaItemSchema = {
 
 export const instagramMediaItemExample = {
   instagram_media_id: '18030000000000004',
+  kind: 'post',
   caption: 'Three colours, one price — comment SHOP',
   media_type: 'carousel_album',
   media_product_type: 'feed',

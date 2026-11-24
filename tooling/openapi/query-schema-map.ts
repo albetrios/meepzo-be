@@ -55,8 +55,10 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'DELETE /api/v1/tenancy/organization/roles/{role_id}': deleteMemberRoleQueryDto,
   'GET /api/v1/notify/webhooks': listWebhooksQueryDto,
   // The post and story pickers (launch R5): Instagram's own paging — limit 1–50, after.
-  'GET /api/v1/app/social/instagram/media': ListInstagramMediaQueryDto,
-  'GET /api/v1/app/social/instagram/stories': ListInstagramMediaQueryDto,
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/media':
+    ListInstagramMediaQueryDto,
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/stories':
+    ListInstagramMediaQueryDto,
   'GET /api/v1/app/social/instagram/webhook-events': ListInstagramWebhookEventsQueryDto,
   'GET /api/v1/app/social/instagram/webhook': InstagramWebhookSubscriptionQueryDto,
   // App: channel connections (feat-instagram-dm-sending routes-final § 1.8, route 4).

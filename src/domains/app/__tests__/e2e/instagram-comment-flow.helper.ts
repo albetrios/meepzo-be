@@ -80,6 +80,8 @@ export interface TestInstagramPerson {
 /** The account the team connected through route 1. */
 export interface TestConnectedAccount {
   id: number;
+  /** `app.channel_accounts.id` — the key of the stored posts (P47, R8). */
+  channelAccountId: number;
   publicId: string;
   /** The webhook's `entry.id`. */
   instagramUserId: string;
@@ -338,7 +340,11 @@ export class InstagramCommentFlow {
     const profile = buildInstagramProfile();
     await connectInstagramAccount({ app: this.app, token: this.team.ownerToken, profile });
     const [account] = await getOperatorDatabase()
-      .select({ id: instagram_accounts.id, public_id: channel_accounts.public_id })
+      .select({
+        id: instagram_accounts.id,
+        channelAccountId: channel_accounts.id,
+        public_id: channel_accounts.public_id,
+      })
       .from(instagram_accounts)
       .innerJoin(
         channel_accounts,
@@ -356,6 +362,7 @@ export class InstagramCommentFlow {
     if (account === undefined) throw new Error('the connect stored no account');
     this.connectedAccount = {
       id: account.id,
+      channelAccountId: account.channelAccountId,
       publicId: account.public_id,
       instagramUserId: profile.user_id,
       instagramAppUserId: profile.id,
@@ -696,7 +703,7 @@ export class InstagramCommentFlow {
       .where(
         and(
           eq(instagram_media.organization_id, this.team.organization.id),
-          eq(instagram_media.instagram_account_id, this.account.id),
+          eq(instagram_media.channel_account_id, this.account.channelAccountId),
         ),
       )
       .orderBy(asc(instagram_media.id));

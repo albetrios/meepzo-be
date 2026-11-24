@@ -1312,6 +1312,8 @@ As 2.5.
 | IAC9 | IA15: routes 13–14 under the new paths, `kind` and the picture fallback in the serializer; nock tests — paging passed through, both 404s, the break on 190 (the ad picker's part moved to MCC8) |
 | IAC10 | IA17: the four columns, the Live value, the renamed key and the watch index in the media migration changed in place; `InstagramMediaService` methods for the watch and the Live end (used by sub-domains 5, 6) |
 
+**As built at ROUTE row R8** ([P210](decisions.md)): routes 13–14 as written; the Live value is `live` (pending the §43 test); `kind` — `reels` → `reel`, `ad` → `ad_post`, anything else `post`; only Meta's code 190 breaks the connection (a refused permission answers `404 instagram_reconnect_required` without a break), through `InstagramMediaConnectionBreakPort` — R4's `ChannelConnectionService.markConnectionBroken` once the lanes merge, until then the channel account's `markAccountsOfConnectionBroken`; the watch's methods are `updateCommentWatch` and `recordLiveEnded`, the cross-organization due read is WC-26's (R39); the media key is `ON DELETE RESTRICT` to `app.channel_accounts`.
+
 ---
 
 ## 3. Contacts — rev 5 (2026-11-24) — nested sub-domains 3.A–3.B; final (rev 5, confirmed 2026-11-24)

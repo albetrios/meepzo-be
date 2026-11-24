@@ -291,6 +291,8 @@ export async function endPaidPlanWithoutPaying(organizationId: number): Promise<
 export async function readInstagramAccountRows(organizationId: number): Promise<
   Array<{
     id: string;
+    /** `app.channel_accounts.id` — the key of the stored posts (P47, R8). */
+    channel_account_id: string;
     public_id: string;
     instagram_user_id: string;
     connection_status: string;
@@ -301,7 +303,7 @@ export async function readInstagramAccountRows(organizationId: number): Promise<
   }>
 > {
   return operatorQuery`
-    SELECT i.id, c.public_id, i.instagram_user_id, c.connection_status, i.username,
+    SELECT i.id, i.channel_account_id, c.public_id, i.instagram_user_id, c.connection_status, i.username,
            c.disconnected_at, i.webhook_subscribed_at, i.profile_erased_at
     FROM app.instagram_accounts AS i
     INNER JOIN app.channel_accounts AS c

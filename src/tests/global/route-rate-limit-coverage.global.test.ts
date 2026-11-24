@@ -54,8 +54,8 @@ const GLOBAL_LIMITER_ONLY_ALLOWLIST = new Set<string>([
   // The channel account reads (feat-instagram-dm-sending R5, routes 6, 7): plain authenticated reads.
   'src/domains/app/sub-domains/channel-account/channel-account.routes.ts → GET /social/channel-accounts',
   // The post and story pickers (launch R5): plain authenticated reads, one Instagram call each.
-  'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/media',
-  'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/stories',
+  'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/accounts/:channel_account_id/media',
+  'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/accounts/:channel_account_id/stories',
   'src/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.routes.ts → GET /social/instagram/webhook-events',
   'src/domains/app/sub-domains/contact/contact.routes.ts → GET /contacts',
   // The automation reads (launch R9): plain authenticated reads of the organization's automations.

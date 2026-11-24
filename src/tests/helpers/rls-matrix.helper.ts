@@ -611,7 +611,7 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       .insert(instagram_media)
       .values({
         organization_id: organization.id,
-        instagram_account_id: account!.id,
+        channel_account_id: channelAccount!.id,
         instagram_media_id: side === 'organizationA' ? '18030000000000001' : '18030000000000002',
         published_at: new Date(),
       })

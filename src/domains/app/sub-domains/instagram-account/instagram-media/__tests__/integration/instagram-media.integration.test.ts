@@ -1,8 +1,10 @@
-import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import {
+  channelAccountPath,
+  insertChannelAccount,
+} from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   META_GRAPH_VERSION,
@@ -28,15 +30,20 @@ import {
   createPersonalOrganizationWithInstagramCodes,
   connectInstagramAccount,
   mockInstagramUnsubscribe,
-  readInstagramAccountRows,
   type InstagramTeamFixture,
   type TestInstagramProfile,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 
-/** `GET /app/social/instagram/media` (route 5). */
-const INSTAGRAM_MEDIA_PATH = testApiPath('/app/social/instagram/media');
-/** `GET /app/social/instagram/stories` (route 6). */
-const INSTAGRAM_STORIES_PATH = testApiPath('/app/social/instagram/stories');
+/** `GET /app/social/instagram/accounts/{channel_account_id}/media` (route 13). */
+function mediaPath(channelAccountPublicId: string): string {
+  return testApiPath(`/app/social/instagram/accounts/${channelAccountPublicId}/media`);
+}
+/** `GET /app/social/instagram/accounts/{channel_account_id}/stories` (route 14). */
+function storiesPath(channelAccountPublicId: string): string {
+  return testApiPath(`/app/social/instagram/accounts/${channelAccountPublicId}/stories`);
+}
+/** A well-formed `cha_` id no organization has. */
+const UNKNOWN_ACCOUNT_ID = `cha_${'0'.repeat(21)}`;
 
 /** A post page as Instagram sends it: one image post, and a next page. */
 const MEDIA_FIRST_PAGE = {
@@ -56,7 +63,6 @@ const MEDIA_FIRST_PAGE = {
       id: '18030000000000002',
       media_type: 'VIDEO',
       media_product_type: 'REELS',
-      media_url: 'https://scontent.cdninstagram.com/o1/v/acme-reel.mp4',
       thumbnail_url: 'https://scontent.cdninstagram.com/v/acme-reel.jpg',
       permalink: 'https://www.instagram.com/reel/AcmeReel/',
       timestamp: '2026-11-19T08:30:00+0000',
@@ -110,7 +116,7 @@ const STORIES_PAGE = {
   paging: { cursors: { before: 'QVFIUs1', after: 'QVFIUs2' } },
 };
 
-/** A Graph error body, as graph.instagram.com sends it. */
+/** A Graph error body, as graph.facebook.com sends it. */
 function graphError(code: number, errorSubcode?: number) {
   return {
     error: {
@@ -124,11 +130,11 @@ function graphError(code: number, errorSubcode?: number) {
 }
 
 /**
- * Routes 5–6 — the post and story pickers (routes-final § 1.C, ROUTE R5) over HTTP: every success
- * and every error of 1.C.9 and 1.5, Instagram's paging passed through, team-only (K1), the Editor
- * role, another organization's account never used, the guarded status change on a refused token
- * (IA9), and that browsing stores nothing (AC-3.7). Instagram is mocked with nock; the database,
- * auth and permissions are real.
+ * Routes 13–14 — the post and story pickers of one named account (routes-final § 2.C, ROUTE R8)
+ * over HTTP: every success and every error of 2.C.9 and 2.5, Meta's paging passed through, `kind`
+ * and the picture fallback, team-only, the Editor and Viewer roles, another organization's or a
+ * revoked account refused, the break on Meta's 190 (MC11), and that browsing stores nothing
+ * (AC-4.3). Meta is mocked with nock; the database, auth and permissions are real.
  */
 describe('Instagram media routes (post and story pickers)', () => {
   let app: FastifyInstance;
@@ -153,16 +159,20 @@ describe('Instagram media routes (post and story pickers)', () => {
     await metaGraphCircuit.reset();
   });
 
-  /** Connects a fresh Instagram account for `fixture` (start, callback, pick) and returns its profile. */
+  /** Connects a fresh Instagram account for `fixture` (start, callback, pick): its profile and `cha_` id. */
   async function connectAccount(
     fixture: InstagramTeamFixture = team,
-  ): Promise<TestInstagramProfile> {
+  ): Promise<{ profile: TestInstagramProfile; accountId: string; connectionId: string }> {
     const profile = buildInstagramProfile();
-    await connectInstagramAccount({ app, token: fixture.ownerToken, profile });
-    return profile;
+    const connected = await connectInstagramAccount({ app, token: fixture.ownerToken, profile });
+    return {
+      profile,
+      accountId: connected.instagramAccountPublicId,
+      connectionId: connected.channelConnectionPublicId,
+    };
   }
 
-  /** The Graph host, expecting the stored token (decrypted by the client) in the header only. */
+  /** The Graph host, expecting the connection's token (decrypted by the client) in the header only. */
   function graph(): nock.Scope {
     return nock(META_GRAPH_BASE_URL).matchHeader(
       'authorization',
@@ -200,18 +210,24 @@ describe('Instagram media routes (post and story pickers)', () => {
     return Number(rows[0]?.count);
   }
 
-  describe('GET /app/social/instagram/media (route 5)', () => {
-    it('lists the posts live from Instagram, mapped, with Instagram’s cursor and no total — storing nothing', async () => {
-      const profile = await connectAccount();
-      const instagram = graph()
+  async function accountStatus(channelAccountPublicId: string): Promise<string | undefined> {
+    const rows = await operatorQuery<Array<{ connection_status: string }>>`
+      SELECT connection_status FROM app.channel_accounts WHERE public_id = ${channelAccountPublicId}`;
+    return rows[0]?.connection_status;
+  }
+
+  describe('GET /app/social/instagram/accounts/{channel_account_id}/media (route 13)', () => {
+    it('lists the posts live from Meta, with kind and the picture fallback, Meta’s cursor and no total — storing nothing', async () => {
+      const { profile, accountId } = await connectAccount();
+      const meta = graph()
         .get(edgePath({ profile, edge: 'media' }))
         .query((query) => query.limit === '25' && query.after === undefined)
         .reply(200, MEDIA_FIRST_PAGE);
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+      const response = await get({ url: mediaPath(accountId) });
 
       expect(response.statusCode).toBe(200);
-      expect(instagram.isDone()).toBe(true);
+      expect(meta.isDone()).toBe(true);
       expect(response.body).not.toContain(TEST_INSTAGRAM_LONG_LIVED_TOKEN);
       const body = response.json() as {
         data: Array<Record<string, unknown>>;
@@ -220,6 +236,7 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(body.data).toEqual([
         {
           instagram_media_id: '18030000000000001',
+          kind: 'post',
           caption: 'New drop this Friday — comment SHOP for the link',
           media_type: 'image',
           media_product_type: 'feed',
@@ -233,8 +250,11 @@ describe('Instagram media routes (post and story pickers)', () => {
         },
         expect.objectContaining({
           instagram_media_id: '18030000000000002',
+          kind: 'reel',
           media_type: 'video',
           media_product_type: 'reels',
+          // No media_url from Meta: the thumbnail stands in (plan:L811).
+          media_url: 'https://scontent.cdninstagram.com/v/acme-reel.jpg',
           thumbnail_url: 'https://scontent.cdninstagram.com/v/acme-reel.jpg',
         }),
       ]);
@@ -247,14 +267,14 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(await storedMediaCount()).toBe(0);
     });
 
-    it('passes limit and after to Instagram, and ends on the page with no next page', async () => {
-      const profile = await connectAccount();
+    it('passes limit and after to Meta, ends on the page with no next page, and falls back to the permalink', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'media' }))
         .query((query) => query.limit === '2' && query.after === 'QVFIUnextpage')
         .reply(200, MEDIA_LAST_PAGE);
 
-      const response = await get({ url: `${INSTAGRAM_MEDIA_PATH}?limit=2&after=QVFIUnextpage` });
+      const response = await get({ url: `${mediaPath(accountId)}?limit=2&after=QVFIUnextpage` });
 
       expect(response.statusCode).toBe(200);
       const body = response.json() as {
@@ -263,7 +283,9 @@ describe('Instagram media routes (post and story pickers)', () => {
       };
       expect(body.meta.pagination).toEqual({ per_page: 2, next: null, has_more: false });
       expect(body.data[0]).toMatchObject({
+        kind: 'post',
         media_type: 'carousel_album',
+        media_url: 'https://www.instagram.com/p/AcmeFirst/',
         children: [
           {
             instagram_media_id: '18030000000000004',
@@ -274,17 +296,20 @@ describe('Instagram media routes (post and story pickers)', () => {
       });
     });
 
-    it('lets an Editor browse (instagram-account:read)', async () => {
-      const profile = await connectAccount();
-      graph()
-        .get(edgePath({ profile, edge: 'media' }))
-        .query(true)
-        .reply(200, MEDIA_LAST_PAGE);
+    it.each(['editorToken', 'viewerToken'] as const)(
+      'lets the %s holder browse (instagram-account:read, AC-4.6)',
+      async (tokenName) => {
+        const { profile, accountId } = await connectAccount();
+        graph()
+          .get(edgePath({ profile, edge: 'media' }))
+          .query(true)
+          .reply(200, MEDIA_LAST_PAGE);
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH, token: team.editorToken });
+        const response = await get({ url: mediaPath(accountId), token: team[tokenName] });
 
-      expect(response.statusCode).toBe(200);
-    });
+        expect(response.statusCode).toBe(200);
+      },
+    );
 
     it.each([
       ['limit 0', '?limit=0', 'querystring.limit'],
@@ -294,9 +319,9 @@ describe('Instagram media routes (post and story pickers)', () => {
     ])(
       'answers 400 on %s (the field named as the query validation names it)',
       async (_case, query, field) => {
-        await connectAccount();
+        const { accountId } = await connectAccount();
 
-        const response = await get({ url: `${INSTAGRAM_MEDIA_PATH}${query}` });
+        const response = await get({ url: `${mediaPath(accountId)}${query}` });
 
         expect(response.statusCode).toBe(400);
         const error = (response.json() as { error: { errors?: Array<{ field: string }> } }).error;
@@ -305,133 +330,150 @@ describe('Instagram media routes (post and story pickers)', () => {
     );
 
     it('answers 400 on an unknown query field', async () => {
-      const response = await get({ url: `${INSTAGRAM_MEDIA_PATH}?offset=10` });
+      const response = await get({ url: `${mediaPath(UNKNOWN_ACCOUNT_ID)}?offset=10` });
 
       expect(response.statusCode).toBe(400);
       const error = (response.json() as { error: { errors?: Array<{ field: string }> } }).error;
       expect(error.errors?.map((item) => item.field)).toContain('querystring.offset');
     });
 
-    it('answers 404 instagram_not_connected when no account was ever connected', async () => {
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+    it('answers 404 channel_account_not_found for an id no organization has', async () => {
+      const response = await get({ url: mediaPath(UNKNOWN_ACCOUNT_ID) });
 
       expect(response.statusCode).toBe(404);
-      expect(errorOf(response).reason).toBe('instagram_not_connected');
+      expect(errorOf(response).reason).toBe('channel_account_not_found');
     });
 
-    it('answers 404 instagram_not_connected once the only account is disconnected', async () => {
-      const profile = await connectAccount();
+    it('answers 404 channel_account_not_found once the account is disconnected (AC-4.4)', async () => {
+      const { profile, accountId } = await connectAccount();
       mockInstagramUnsubscribe({ instagramUserId: profile.id });
       const disconnected = await injectAuthenticated(app, {
         method: 'DELETE',
-        url: await organizationChannelAccountPath(team.organization.id),
+        url: channelAccountPath(accountId),
         token: team.ownerToken,
       });
       expect(disconnected.statusCode).toBe(204);
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+      const response = await get({ url: mediaPath(accountId) });
 
       expect(response.statusCode).toBe(404);
-      expect(errorOf(response).reason).toBe('instagram_not_connected');
+      expect(errorOf(response).reason).toBe('channel_account_not_found');
     });
 
-    it('answers 404 instagram_reconnect_required for a broken account, without calling Instagram', async () => {
-      await connectAccount();
-      const [row] = await readInstagramAccountRows(team.organization.id);
-      await app.appDomain.instagramAccountService.markConnectionBroken({
-        scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: team.organization.public_id }),
-        instagramAccount: {
-          organizationId: team.organization.id,
-          instagramAccountId: Number(row?.id),
-        },
-        connectionStatus: 'expired',
-      });
+    it("answers 404 channel_account_not_found for another organization's account, never calling Meta (AC-4.4)", async () => {
+      const { profile, accountId } = await connectAccount();
+      const otherTeam = await createInstagramTeam();
+      const foreignCall = graph()
+        .get(edgePath({ profile, edge: 'media' }))
+        .query(true)
+        .reply(200, MEDIA_FIRST_PAGE);
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+      const response = await get({ url: mediaPath(accountId), token: otherTeam.ownerToken });
 
       expect(response.statusCode).toBe(404);
-      expect(errorOf(response).reason).toBe('instagram_reconnect_required');
-      expect(nock.pendingMocks()).toEqual([]);
+      expect(errorOf(response).reason).toBe('channel_account_not_found');
+      expect(foreignCall.isDone()).toBe(false);
     });
 
-    it('marks the account error when Instagram refuses its token (190/463), then answers 404 instagram_reconnect_required', async () => {
-      const profile = await connectAccount();
+    it.each([
+      ['the account', 'channel_accounts'],
+      ['its connection', 'channel_connections'],
+    ] as const)(
+      'answers 404 instagram_reconnect_required when %s is error, without calling Meta',
+      async (_case, table) => {
+        const { accountId, connectionId } = await connectAccount();
+        if (table === 'channel_accounts') {
+          await operatorQuery`
+            UPDATE app.channel_accounts SET connection_status = 'error' WHERE public_id = ${accountId}`;
+        } else {
+          await operatorQuery`
+            UPDATE app.channel_connections SET status = 'error', status_changed_at = now()
+            WHERE public_id = ${connectionId}`;
+        }
+
+        const response = await get({ url: mediaPath(accountId) });
+
+        expect(response.statusCode).toBe(404);
+        expect(errorOf(response).reason).toBe('instagram_reconnect_required');
+        expect(nock.pendingMocks()).toEqual([]);
+      },
+    );
+
+    it('breaks the connection’s accounts when Meta refuses the token (190), then answers 404 instagram_reconnect_required', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'media' }))
         .query(true)
         .reply(400, graphError(190, 463));
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+      const response = await get({ url: mediaPath(accountId) });
 
       expect(response.statusCode).toBe(404);
       expect(errorOf(response).reason).toBe('instagram_reconnect_required');
-      const [row] = await readInstagramAccountRows(team.organization.id);
-      // Subcode 463 lands as `error`: the channel account has no `expired` (CA4, R6).
-      expect(row?.connection_status).toBe('error');
+      // Subcode 463 lands as `error`: the channel account has no `expired` (CA4).
+      expect(await accountStatus(accountId)).toBe('error');
 
-      // The account page now shows the reconnect card (IA13).
+      // The account page now shows the reconnect card.
       const account = await injectAuthenticated(app, {
-        url: await organizationChannelAccountPath(team.organization.id),
+        url: channelAccountPath(accountId),
         token: team.ownerToken,
       });
-      // The channel account has no `expired`: the connection's token never ends (CA4).
       expect(
         (account.json() as { data: { connection_status: string } }).data.connection_status,
       ).toBe('error');
     });
 
-    it('marks the account error on any other refused token', async () => {
-      const profile = await connectAccount();
+    it('answers 404 instagram_reconnect_required on a refused permission, the account still connected', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'media' }))
         .query(true)
-        .reply(400, graphError(190));
+        .reply(403, graphError(10));
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+      const response = await get({ url: mediaPath(accountId) });
 
       expect(response.statusCode).toBe(404);
       expect(errorOf(response).reason).toBe('instagram_reconnect_required');
-      const [row] = await readInstagramAccountRows(team.organization.id);
-      expect(row?.connection_status).toBe('error');
+      expect(await accountStatus(accountId)).toBe('connected');
     });
 
-    it('answers 503 instagram_unavailable with Instagram’s Retry-After when it throttles, the account still connected', async () => {
-      const profile = await connectAccount();
+    it('answers 503 instagram_unavailable with Meta’s Retry-After when it throttles, the account still connected (AC-4.5)', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'media' }))
         .query(true)
         .reply(429, graphError(4), { 'Retry-After': '120' });
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+      const response = await get({ url: mediaPath(accountId) });
 
       expect(response.statusCode).toBe(503);
       expect(errorOf(response).reason).toBe('instagram_unavailable');
       expect(response.headers['retry-after']).toBe('120');
-      const [row] = await readInstagramAccountRows(team.organization.id);
-      expect(row?.connection_status).toBe('connected');
+      expect(await accountStatus(accountId)).toBe('connected');
+      expect(await storedMediaCount()).toBe(0);
     });
 
-    it('answers 503 instagram_unavailable with a Retry-After when Instagram fails', async () => {
-      const profile = await connectAccount();
+    it('answers 503 instagram_unavailable with a Retry-After when Meta fails', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'media' }))
         .query(true)
         .reply(500, graphError(2));
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+      const response = await get({ url: mediaPath(accountId) });
 
       expect(response.statusCode).toBe(503);
       expect(errorOf(response).reason).toBe('instagram_unavailable');
       expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
     });
 
-    it('answers 503 instagram_not_configured, with its reason, when the Instagram app is not set', async () => {
-      await connectAccount();
+    it('answers 503 instagram_not_configured, with its reason, when the Meta app is not set', async () => {
+      const { accountId } = await connectAccount();
       const savedAppId = process.env.META_APP_ID;
       delete process.env.META_APP_ID;
       resetEnvCacheForTests();
       try {
-        const response = await get({ url: INSTAGRAM_MEDIA_PATH });
+        const response = await get({ url: mediaPath(accountId) });
 
         expect(response.statusCode).toBe(503);
         expect(errorOf(response).code).toBe('service_unavailable');
@@ -442,10 +484,10 @@ describe('Instagram media routes (post and story pickers)', () => {
       }
     });
 
-    it('answers 404 team_organization_required on a personal organization, even with the code (IA3)', async () => {
+    it('answers 404 team_organization_required on a personal organization, even with the code', async () => {
       const personal = await createPersonalOrganizationWithInstagramCodes();
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH, token: personal.token });
+      const response = await get({ url: mediaPath(UNKNOWN_ACCOUNT_ID), token: personal.token });
 
       expect(response.statusCode).toBe(404);
       expect(errorOf(response).reason).toBe('team_organization_required');
@@ -464,47 +506,22 @@ describe('Instagram media routes (post and story pickers)', () => {
         organizationPublicId: organization.public_id,
       });
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH, token });
+      const response = await get({ url: mediaPath(UNKNOWN_ACCOUNT_ID), token });
 
       expect(response.statusCode).toBe(403);
       expect(errorOf(response).reason).toBe('missing_permission');
     });
-
-    it("never uses another organization's account: no account here is 404, and each team reads its own", async () => {
-      const profile = await connectAccount();
-      const otherTeam = await createInstagramTeam();
-
-      const withoutAccount = await get({ url: INSTAGRAM_MEDIA_PATH, token: otherTeam.ownerToken });
-      expect(withoutAccount.statusCode).toBe(404);
-      expect(errorOf(withoutAccount).reason).toBe('instagram_not_connected');
-
-      const otherProfile = await connectAccount(otherTeam);
-      const ownCall = graph()
-        .get(edgePath({ profile: otherProfile, edge: 'media' }))
-        .query(true)
-        .reply(200, MEDIA_LAST_PAGE);
-      const foreignCall = graph()
-        .get(edgePath({ profile, edge: 'media' }))
-        .query(true)
-        .reply(200, MEDIA_FIRST_PAGE);
-
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH, token: otherTeam.ownerToken });
-
-      expect(response.statusCode).toBe(200);
-      expect(ownCall.isDone()).toBe(true);
-      expect(foreignCall.isDone()).toBe(false);
-    });
   });
 
-  describe('GET /app/social/instagram/stories (route 6)', () => {
+  describe('GET /app/social/instagram/accounts/{channel_account_id}/stories (route 14)', () => {
     it('lists the live stories, each ending 24 hours after it was published — storing nothing', async () => {
-      const profile = await connectAccount();
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'stories' }))
         .query((query) => query.limit === '10')
         .reply(200, STORIES_PAGE);
 
-      const response = await get({ url: `${INSTAGRAM_STORIES_PATH}?limit=10` });
+      const response = await get({ url: `${storiesPath(accountId)}?limit=10` });
 
       expect(response.statusCode).toBe(200);
       const body = response.json() as {
@@ -526,65 +543,69 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(await storedMediaCount()).toBe(0);
     });
 
-    it('lets an Editor browse stories', async () => {
-      const profile = await connectAccount();
+    it('lets a Viewer browse stories (AC-4.6)', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'stories' }))
         .query(true)
         .reply(200, STORIES_PAGE);
 
-      const response = await get({ url: INSTAGRAM_STORIES_PATH, token: team.editorToken });
+      const response = await get({ url: storiesPath(accountId), token: team.viewerToken });
 
       expect(response.statusCode).toBe(200);
     });
 
     it('answers 400 on limit 51', async () => {
-      const response = await get({ url: `${INSTAGRAM_STORIES_PATH}?limit=51` });
+      const response = await get({ url: `${storiesPath(UNKNOWN_ACCOUNT_ID)}?limit=51` });
 
       expect(response.statusCode).toBe(400);
     });
 
-    it('answers 404 instagram_not_connected with no account', async () => {
-      const response = await get({ url: INSTAGRAM_STORIES_PATH });
+    it('answers 404 channel_account_not_found for a revoked account (AC-4.4)', async () => {
+      const revoked = await insertChannelAccount({
+        organizationId: team.organization.id,
+        providerAccountId: '17841499999999999',
+        connectionStatus: 'revoked',
+      });
+
+      const response = await get({ url: storiesPath(revoked.public_id) });
 
       expect(response.statusCode).toBe(404);
-      expect(errorOf(response).reason).toBe('instagram_not_connected');
+      expect(errorOf(response).reason).toBe('channel_account_not_found');
     });
 
-    it('marks the account broken on a refused token and answers 404 instagram_reconnect_required', async () => {
-      const profile = await connectAccount();
+    it('breaks the account on a refused token and answers 404 instagram_reconnect_required', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'stories' }))
         .query(true)
-        .reply(400, graphError(190, 463));
+        .reply(400, graphError(190));
 
-      const response = await get({ url: INSTAGRAM_STORIES_PATH });
+      const response = await get({ url: storiesPath(accountId) });
 
       expect(response.statusCode).toBe(404);
       expect(errorOf(response).reason).toBe('instagram_reconnect_required');
-      const [row] = await readInstagramAccountRows(team.organization.id);
-      // Subcode 463 lands as `error`: the channel account has no `expired` (CA4, R6).
-      expect(row?.connection_status).toBe('error');
+      expect(await accountStatus(accountId)).toBe('error');
     });
 
-    it('answers 503 instagram_unavailable with Retry-After when Instagram throttles', async () => {
-      const profile = await connectAccount();
+    it('answers 503 instagram_unavailable with Retry-After when Meta throttles', async () => {
+      const { profile, accountId } = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'stories' }))
         .query(true)
         .reply(429, graphError(613), { 'Retry-After': '30' });
 
-      const response = await get({ url: INSTAGRAM_STORIES_PATH });
+      const response = await get({ url: storiesPath(accountId) });
 
       expect(response.statusCode).toBe(503);
       expect(errorOf(response).reason).toBe('instagram_unavailable');
       expect(response.headers['retry-after']).toBe('30');
     });
 
-    it('answers 404 team_organization_required on a personal organization (IA3)', async () => {
+    it('answers 404 team_organization_required on a personal organization', async () => {
       const personal = await createPersonalOrganizationWithInstagramCodes();
 
-      const response = await get({ url: INSTAGRAM_STORIES_PATH, token: personal.token });
+      const response = await get({ url: storiesPath(UNKNOWN_ACCOUNT_ID), token: personal.token });
 
       expect(response.statusCode).toBe(404);
       expect(errorOf(response).reason).toBe('team_organization_required');

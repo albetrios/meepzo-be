@@ -14,17 +14,15 @@ import {
   getPostgresConstraintName,
   getPostgresErrorCode,
 } from '@/shared/utils/infrastructure/postgres-error.util.js';
-import {
-  InstagramAccountRepository,
-  type InstagramAccountKey,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import {
   InstagramMediaRepository,
   type InstagramMediaValues,
 } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 
 /**
- * `app.instagram_media` through its repository (routes-final § 1.C.3, IA17, IA20), every statement
+ * `app.instagram_media` through its repository (routes-final § 2.C.3, IA17, IA20, P47), every statement
  * inside the organization's own database context — the way the media service runs it, so the suite
  * also holds under `pnpm test:rls-role`.
  */
@@ -55,14 +53,14 @@ async function connectAccount({
 }: {
   organization: TestOrganization;
   instagramUserId: string;
-}): Promise<InstagramAccountKey> {
+}): Promise<ChannelAccountKey> {
   const channelConnection = await insertChannelConnection({ organizationId: organization.id });
   const channelAccount = await insertChannelAccount({
     organizationId: organization.id,
     providerAccountId: instagramUserId,
     channelConnectionId: channelConnection.id,
   });
-  const account = await inOrganization(organization, () =>
+  await inOrganization(organization, () =>
     new InstagramAccountRepository().upsertAtPick(
       buildInstagramPickValues({
         organizationId: organization.id,
@@ -72,15 +70,15 @@ async function connectAccount({
       }),
     ),
   );
-  return { organizationId: organization.id, instagramAccountId: account.id };
+  return { organizationId: organization.id, channelAccountId: channelAccount.id };
 }
 
 function mediaValues(
-  instagramAccount: InstagramAccountKey,
+  channelAccount: ChannelAccountKey,
   overrides: Partial<InstagramMediaValues> = {},
 ): InstagramMediaValues {
   return {
-    ...instagramAccount,
+    ...channelAccount,
     instagramMediaId: '18030000000000001',
     shortcode: null,
     mediaType: 'image',
@@ -102,7 +100,7 @@ describe('InstagramMediaRepository (database)', () => {
   const repository = new InstagramMediaRepository();
   let organization: TestOrganization;
   let otherOrganization: TestOrganization;
-  let instagramAccount: InstagramAccountKey;
+  let channelAccount: ChannelAccountKey;
 
   beforeEach(async () => {
     await cleanupDatabase();
@@ -110,7 +108,7 @@ describe('InstagramMediaRepository (database)', () => {
     otherOrganization = await createTestOrganization({
       ownerUserId: (await createTestUser()).id,
     });
-    instagramAccount = await connectAccount({
+    channelAccount = await connectAccount({
       organization,
       instagramUserId: '17841400000000001',
     });
@@ -118,12 +116,12 @@ describe('InstagramMediaRepository (database)', () => {
 
   it('inserts a post with the defaults the table gives it', async () => {
     const row = await inOrganization(organization, () =>
-      repository.upsertForAccount(mediaValues(instagramAccount)),
+      repository.upsertForAccount(mediaValues(channelAccount)),
     );
 
     expect(row).toMatchObject({
       organization_id: organization.id,
-      instagram_account_id: instagramAccount.instagramAccountId,
+      channel_account_id: channelAccount.channelAccountId,
       instagram_media_id: '18030000000000001',
       media_type: 'image',
       media_product_type: 'feed',
@@ -138,12 +136,12 @@ describe('InstagramMediaRepository (database)', () => {
 
   it('refreshes the stored row of the same account, keeping is_comment_enabled when Instagram is silent', async () => {
     const first = await inOrganization(organization, () =>
-      repository.upsertForAccount(mediaValues(instagramAccount, { isCommentEnabled: false })),
+      repository.upsertForAccount(mediaValues(channelAccount, { isCommentEnabled: false })),
     );
 
     const refreshed = await inOrganization(organization, () =>
       repository.upsertForAccount(
-        mediaValues(instagramAccount, { caption: 'Edited caption', commentsCount: 13 }),
+        mediaValues(channelAccount, { caption: 'Edited caption', commentsCount: 13 }),
       ),
     );
 
@@ -161,25 +159,25 @@ describe('InstagramMediaRepository (database)', () => {
 
   it("finds the account's stored post by its media id — event processing reads Instagram only without one (WH13)", async () => {
     const stored = await inOrganization(organization, () =>
-      repository.upsertForAccount(mediaValues(instagramAccount)),
+      repository.upsertForAccount(mediaValues(channelAccount)),
     );
 
     const found = await inOrganization(organization, () =>
       repository.findByInstagramMediaId({
-        ...instagramAccount,
+        ...channelAccount,
         instagramMediaId: '18030000000000001',
       }),
     );
     const missing = await inOrganization(organization, () =>
       repository.findByInstagramMediaId({
-        ...instagramAccount,
+        ...channelAccount,
         instagramMediaId: '18030000000000009',
       }),
     );
     const otherAccountsPost = await inOrganization(organization, () =>
       repository.findByInstagramMediaId({
         organizationId: organization.id,
-        instagramAccountId: instagramAccount.instagramAccountId + 1_000_000,
+        channelAccountId: channelAccount.channelAccountId + 1_000_000,
         instagramMediaId: '18030000000000001',
       }),
     );
@@ -192,12 +190,11 @@ describe('InstagramMediaRepository (database)', () => {
 
   it("never mixes accounts: a media id stored under the organization's other account is left untouched (IA17, AC-3.8)", async () => {
     await inOrganization(organization, () =>
-      repository.upsertForAccount(mediaValues(instagramAccount)),
+      repository.upsertForAccount(mediaValues(channelAccount)),
     );
     await operatorQuery`
       UPDATE app.channel_accounts SET connection_status = 'revoked', disconnected_at = now()
-      WHERE id = (SELECT channel_account_id FROM app.instagram_accounts
-                  WHERE id = ${instagramAccount.instagramAccountId})`;
+      WHERE id = ${channelAccount.channelAccountId}`;
     const secondAccount = await connectAccount({
       organization,
       instagramUserId: '17841400000000002',
@@ -208,12 +205,12 @@ describe('InstagramMediaRepository (database)', () => {
     );
 
     expect(result).toBeNull();
-    const rows = await operatorQuery<Array<{ instagram_account_id: string; caption: string }>>`
-      SELECT instagram_account_id, caption FROM app.instagram_media
+    const rows = await operatorQuery<Array<{ channel_account_id: string; caption: string }>>`
+      SELECT channel_account_id, caption FROM app.instagram_media
       WHERE organization_id = ${organization.id}`;
     expect(rows).toEqual([
       {
-        instagram_account_id: String(instagramAccount.instagramAccountId),
+        channel_account_id: String(channelAccount.channelAccountId),
         caption: 'New drop this Friday — comment SHOP',
       },
     ]);
@@ -221,11 +218,11 @@ describe('InstagramMediaRepository (database)', () => {
 
   it("deletes only the account's posts, and names the organization in the statement (IA20)", async () => {
     await inOrganization(organization, () =>
-      repository.upsertForAccount(mediaValues(instagramAccount)),
+      repository.upsertForAccount(mediaValues(channelAccount)),
     );
     await inOrganization(organization, () =>
       repository.upsertForAccount(
-        mediaValues(instagramAccount, { instagramMediaId: '18030000000000002' }),
+        mediaValues(channelAccount, { instagramMediaId: '18030000000000002' }),
       ),
     );
     const otherAccount = await connectAccount({
@@ -241,12 +238,12 @@ describe('InstagramMediaRepository (database)', () => {
       inOrganization(otherOrganization, () =>
         repository.deleteForAccount({
           organizationId: otherOrganization.id,
-          instagramAccountId: instagramAccount.instagramAccountId,
+          channelAccountId: channelAccount.channelAccountId,
         }),
       ),
     ).resolves.toBe(0);
     await expect(
-      inOrganization(organization, () => repository.deleteForAccount(instagramAccount)),
+      inOrganization(organization, () => repository.deleteForAccount(channelAccount)),
     ).resolves.toBe(2);
 
     const remaining = await operatorQuery<Array<{ organization_id: string }>>`
@@ -260,14 +257,14 @@ describe('InstagramMediaRepository (database)', () => {
         repository.upsertForAccount(
           mediaValues({
             organizationId: otherOrganization.id,
-            instagramAccountId: instagramAccount.instagramAccountId,
+            channelAccountId: channelAccount.channelAccountId,
           }),
         ),
       ),
     );
 
     expect(getPostgresErrorCode(error)).toBe('23503');
-    expect(getPostgresConstraintName(error)).toBe('instagram_media_instagram_account_fk');
+    expect(getPostgresConstraintName(error)).toBe('instagram_media_channel_account_fk');
   });
 
   it.each([
@@ -278,6 +275,11 @@ describe('InstagramMediaRepository (database)', () => {
     ],
     ['a negative count', { likeCount: -1 }, 'chk_instagram_media_counts'],
     [
+      'a product type Meta does not send',
+      { mediaProductType: 'igtv' as never },
+      'chk_instagram_media_media_product_type',
+    ],
+    [
       'graph data that is not an object',
       { graphData: [] as never },
       'chk_instagram_media_graph_data_object',
@@ -285,11 +287,20 @@ describe('InstagramMediaRepository (database)', () => {
   ])('refuses %s (CHECK)', async (_case, overrides, constraint) => {
     const error = await captureError(() =>
       inOrganization(organization, () =>
-        repository.upsertForAccount(mediaValues(instagramAccount, overrides)),
+        repository.upsertForAccount(mediaValues(channelAccount, overrides)),
       ),
     );
 
     expect(getPostgresErrorCode(error)).toBe('23514');
     expect(getPostgresConstraintName(error)).toBe(constraint);
+  });
+
+  it('reads the due watch through its partial index — empty = not watched (2.C.3)', async () => {
+    const rows = await operatorQuery<Array<{ indexdef: string }>>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'app' AND indexname = 'idx_instagram_media_comments_next_check'`;
+
+    expect(rows[0]?.indexdef).toContain('(comments_next_check_at)');
+    expect(rows[0]?.indexdef).toContain('WHERE (comments_next_check_at IS NOT NULL)');
   });
 });

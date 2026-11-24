@@ -178,6 +178,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       instagramMediaService: new InstagramMediaService(
         new InstagramMediaRepository(),
         accountService as unknown as InstagramAccountService,
+        { markConnectionBroken: async () => false },
       ),
       automationService: new AutomationService(
         new AutomationRepository(),

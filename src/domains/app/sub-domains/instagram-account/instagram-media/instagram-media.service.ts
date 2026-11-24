@@ -17,14 +17,17 @@ import {
   MetaGraphApiError,
   buildMetaGraphMalformedAnswerError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
-import type { InstagramAccountKey } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
+import type { InstagramAccountReadAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
+import { describeInstagramRefreshError } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
 import {
   metaGraphCircuitOpenError,
   instagramReconnectRequiredError,
   instagramUnavailableError,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
 import type {
+  InstagramMediaCommentWatchValues,
   InstagramMediaRepository,
   InstagramMediaRow,
   InstagramMediaValues,
@@ -37,25 +40,35 @@ import {
   serializeInstagramStory,
 } from './instagram-media.serializer.js';
 import type {
+  InstagramMediaConnectionBreakPort,
   InstagramMediaItemOutput,
   InstagramMediaListInput,
   InstagramMediaPage,
   InstagramMediaUpsertInput,
+  InstagramStoredMediaTarget,
   InstagramStoryOutput,
 } from './instagram-media.types.js';
 
-/** What one live Instagram read needs: the account's Instagram user id and its encrypted token (IA5). */
+/** What one live Meta read needs: the account's Instagram user id and its connection's encrypted token. */
 interface InstagramLiveReadTarget {
   instagramUserId: string;
   encryptedAccessToken: string;
 }
 
+/** Meta's code for a refused token — the one answer that breaks the connection (MC11). */
+const META_TOKEN_REFUSED_ERROR_CODE = 190;
+
+/** Whether Meta refused the connection's token itself (code 190), not a permission (MC11, IA15). */
+function isMetaTokenRefusal(error: MetaGraphApiError): boolean {
+  return error.errorClass === 'auth' && error.instagramErrorCode === META_TOKEN_REFUSED_ERROR_CODE;
+}
+
 /** Maps a post as Instagram sent it onto the stored row's values (IA17). */
 function toInstagramMediaValues({
-  instagramAccount,
+  channelAccount,
   mediaItem,
 }: {
-  instagramAccount: InstagramAccountKey;
+  channelAccount: ChannelAccountKey;
   mediaItem: InstagramMediaGraphItem;
 }): InstagramMediaValues {
   const instagramMediaId = readAnswerId(mediaItem.id);
@@ -69,7 +82,7 @@ function toInstagramMediaValues({
   const graphData = mediaItem as unknown as Record<string, unknown>;
   const isCommentEnabled = graphData.is_comment_enabled;
   return {
-    ...instagramAccount,
+    ...channelAccount,
     instagramMediaId,
     shortcode: readAnswerText(graphData.shortcode),
     mediaType: readInstagramMediaType(mediaItem.media_type),
@@ -87,48 +100,52 @@ function toInstagramMediaValues({
 }
 
 /**
- * The Instagram media service (routes-final § 1.C): the post and story pickers, read live from
- * Instagram (routes 5–6, IA16), and the stored posts (`app.instagram_media`, IA17) that sub-domains
- * 3–4 write through it.
+ * The Instagram media service (routes-final § 2.C): the post and story pickers of one named
+ * account, read live from Meta through sub-domain 1's client with the connection's token (routes
+ * 13–14, IA15), and the stored posts (`app.instagram_media`, IA17) with their missed-comment watch
+ * and a Live's end (D40), which sub-domains 4–6 write through it.
  *
  * @remarks
  * Algorithm:
- * - The pickers work in three steps (1.10): the live account and its encrypted token in one unit
- *   of work ({@link InstagramAccountService.findLiveAccountAccess} — the team check, the account),
- *   then — that unit closed — one Instagram call, then on a refused token the account's guarded
- *   status change in a new unit of work (IA9). Never an Instagram call inside a database context.
- * - Paging is Instagram's own cursor: `limit` passed on, `after` passed back, `next` only when
- *   Instagram has a next page; no total (IA16).
+ * - The pickers work in three steps (2.10): the named account, its connection's status and token in
+ *   one unit of work ({@link InstagramAccountService.findAccountReadAccess} — the team check, the
+ *   account), then — that unit closed — one Meta call, then on Meta's code 190 the connection's break
+ *   (MC11, through {@link InstagramMediaConnectionBreakPort}) in a new unit of work. Never a Meta
+ *   call inside a database context.
+ * - Paging is Meta's own cursor: `limit` passed on, `after` passed back, `next` only when Meta has a
+ *   next page; no total.
  *
  * Failure modes:
- * - `404 team_organization_required` (a personal organization), `404 instagram_not_connected`
- *   (no account, or only revoked ones), `404 instagram_reconnect_required` (the account is
- *   `expired` or `error` — no call — or Instagram refused its token), `503 instagram_unavailable`
- *   with `Retry-After` (Instagram down, failing, throttling, or its circuit open),
- *   `503 instagram_not_configured` (the app settings unset) — 1.C.9.
+ * - `404 team_organization_required` (a personal organization), `404 channel_account_not_found`
+ *   (another organization's, a revoked or a non-Instagram account), `404 instagram_reconnect_required`
+ *   (the account or its connection is `error` — no call — or Meta refused the token or a
+ *   permission), `503 instagram_unavailable` with `Retry-After` (Meta down, failing, throttling, or
+ *   its circuit open), `503 instagram_not_configured` (the app settings unset) — 2.C.9.
  *
  * Side effects:
- * - The pickers read Instagram and store nothing (1.C.10, AC-3.7); a refused token moves the
- *   account out of `connected`. {@link InstagramMediaService.upsertFromInstagram} and
- *   {@link InstagramMediaService.deleteForAccount} write `app.instagram_media`.
+ * - The pickers read Meta and store nothing (2.C.10, AC-4.3); a refused token breaks the connection
+ *   and its accounts. {@link InstagramMediaService.upsertFromInstagram},
+ *   {@link InstagramMediaService.updateCommentWatch}, {@link InstagramMediaService.recordLiveEnded}
+ *   and {@link InstagramMediaService.deleteForAccount} write `app.instagram_media`.
  *
  * Notes:
- * - The token stays ciphertext here: the Instagram client decrypts it right before its call (IA5).
- * - No read cache at launch (IA16).
+ * - The token stays ciphertext here: the Meta client decrypts it right before its call.
+ * - No read cache (IA16).
  */
 export class InstagramMediaService {
   constructor(
     private readonly mediaRepository: InstagramMediaRepository,
-    private readonly accountService: InstagramAccountService,
+    private readonly accountService: Pick<InstagramAccountService, 'findAccountReadAccess'>,
+    private readonly connectionBreakPort: InstagramMediaConnectionBreakPort,
   ) {}
 
   /**
-   * One page of the account's posts and reels, live from Instagram (route 5, IA16).
+   * One page of the named account's posts and reels, live from Meta (route 13, IA15).
    *
    * @remarks
    * Algorithm: {@link InstagramMediaService.readLivePage} over `listInstagramMedia`, each item
-   * shaped as the Instagram media item. Failure modes: as the class lists. Side effects: one
-   * Instagram call; a refused token marks the account broken.
+   * shaped as the Instagram media item (`kind`, the picture fallback). Failure modes: as the class
+   * lists. Side effects: one Meta call; a refused token breaks the connection.
    */
   async listMedia(
     input: InstagramMediaListInput,
@@ -151,13 +168,13 @@ export class InstagramMediaService {
   }
 
   /**
-   * One page of the account's live stories, from Instagram (route 6, IA16); each story ends 24
+   * One page of the named account's live stories, from Meta (route 14, IA15); each story ends 24
    * hours after it was published.
    *
    * @remarks
    * Algorithm: {@link InstagramMediaService.readLivePage} over `listInstagramStories`, each item
-   * shaped as the Instagram story. Failure modes: as the class lists. Side effects: one Instagram
-   * call; a refused token marks the account broken.
+   * shaped as the Instagram story. Failure modes: as the class lists. Side effects: one Meta call;
+   * a refused token breaks the connection.
    */
   async listStories(
     input: InstagramMediaListInput,
@@ -198,10 +215,10 @@ export class InstagramMediaService {
    */
   async upsertFromInstagram({
     scope,
-    instagramAccount,
+    channelAccount,
     mediaItem,
   }: InstagramMediaUpsertInput): Promise<InstagramMediaRow | null> {
-    const values = toInstagramMediaValues({ instagramAccount, mediaItem });
+    const values = toInstagramMediaValues({ channelAccount, mediaItem });
     return withAppDatabaseContext({
       scope,
       callback: () => this.mediaRepository.upsertForAccount(values),
@@ -219,18 +236,64 @@ export class InstagramMediaService {
    */
   async findStoredMedia({
     scope,
-    instagramAccount,
+    channelAccount,
     instagramMediaId,
-  }: {
-    scope: OrganizationPrincipalDatabaseScope;
-    instagramAccount: InstagramAccountKey;
-    /** Instagram's media id — digits. */
-    instagramMediaId: string;
+  }: InstagramStoredMediaTarget): Promise<InstagramMediaRow | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.mediaRepository.findByInstagramMediaId({ ...channelAccount, instagramMediaId }),
+    });
+  }
+
+  /**
+   * The missed-comment watch's write on a stored post (D40, IA17): when it read the comments, when it
+   * reads next (`null` stops the watch) and the newest comment it saw — for the missed-comment look
+   * (WC-26, sub-domain 5) and whoever starts or stops watching a post (sub-domain 4).
+   *
+   * @remarks
+   * Algorithm: one update keyed by the account and the media id, in the account's organization
+   * scope (joining the caller's unit when one is open); a field left `undefined` keeps its value and
+   * `last_comment_at` never moves back. Failure modes: none of its own — `null` when the post is not
+   * stored for this account. Side effects: writes one `app.instagram_media` row. Never Meta.
+   */
+  async updateCommentWatch({
+    scope,
+    channelAccount,
+    instagramMediaId,
+    watch,
+  }: InstagramStoredMediaTarget & {
+    watch: InstagramMediaCommentWatchValues;
   }): Promise<InstagramMediaRow | null> {
     return withAppDatabaseContext({
       scope,
       callback: () =>
-        this.mediaRepository.findByInstagramMediaId({ ...instagramAccount, instagramMediaId }),
+        this.mediaRepository.updateCommentWatch({ ...channelAccount, instagramMediaId, watch }),
+    });
+  }
+
+  /**
+   * Records that a Live ended (D40, IA17) — the Live check (WC-16, sub-domain 6) — so its waiting
+   * private replies expire without a call.
+   *
+   * @remarks
+   * Algorithm: one update keyed by the account and the media id, in the account's organization
+   * scope; the first end time stays. Failure modes: none of its own — `null` when the Live is not
+   * stored for this account. Side effects: writes one `app.instagram_media` row. Never Meta.
+   */
+  async recordLiveEnded({
+    scope,
+    channelAccount,
+    instagramMediaId,
+    endedAt,
+  }: InstagramStoredMediaTarget & {
+    /** When the Live ended — Meta's "Live ended" answer, or the check that no longer sees it. */
+    endedAt: Date;
+  }): Promise<InstagramMediaRow | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.mediaRepository.recordLiveEnded({ ...channelAccount, instagramMediaId, endedAt }),
     });
   }
 
@@ -246,20 +309,20 @@ export class InstagramMediaService {
    */
   async deleteForAccount({
     scope,
-    instagramAccount,
+    channelAccount,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    instagramAccount: InstagramAccountKey;
+    channelAccount: ChannelAccountKey;
   }): Promise<number> {
     return withAppDatabaseContext({
       scope,
-      callback: () => this.mediaRepository.deleteForAccount(instagramAccount),
+      callback: () => this.mediaRepository.deleteForAccount(channelAccount),
     });
   }
 
   /**
-   * IA16's three steps for one picker page: the live account and its token (database), the
-   * Instagram read (no database context open), the error mapping of 1.C.9.
+   * IA15's three steps for one picker page: the named account, its connection and token
+   * (database), the Meta read (no database context open), the error mapping of 2.C.9.
    */
   private async readLivePage<TItem>({
     input,
@@ -268,21 +331,27 @@ export class InstagramMediaService {
     input: InstagramMediaListInput;
     read: (target: InstagramLiveReadTarget) => Promise<InstagramGraphPage<TItem>>;
   }): Promise<InstagramGraphPage<TItem>> {
-    const { account, instagramAccount, encryptedAccessToken } =
-      await this.accountService.findLiveAccountAccess({ scope: input.scope });
-    if (account.connection_status !== 'connected' || encryptedAccessToken === null) {
+    const access = await this.accountService.findAccountReadAccess({
+      scope: input.scope,
+      channelAccountPublicId: input.channelAccountPublicId,
+    });
+    if (
+      access.account.connection_status !== 'connected' ||
+      access.connectionStatus !== 'connected' ||
+      access.encryptedAccessToken === null
+    ) {
       throw instagramReconnectRequiredError();
     }
     assertInstagramConfigured();
     try {
       return await read({
-        instagramUserId: account.instagram_user_id,
-        encryptedAccessToken,
+        instagramUserId: access.account.instagram_user_id,
+        encryptedAccessToken: access.encryptedAccessToken,
       });
     } catch (error) {
       throw await this.toLiveReadRouteError({
         scope: input.scope,
-        instagramAccount,
+        access,
         requestId: input.requestId,
         error,
       });
@@ -290,35 +359,35 @@ export class InstagramMediaService {
   }
 
   /**
-   * A picker's Instagram failure as its route error (1.C.9): the circuit open →
-   * `503 instagram_unavailable`; Instagram refusing the token → the guarded status change (IA9),
-   * then `404 instagram_reconnect_required`; any other Instagram failure (down, throttling, a
-   * refused request) → `503 instagram_unavailable` with `Retry-After`. Anything else passes
-   * unchanged.
+   * A picker's Meta failure as its route error (2.C.9): the circuit open →
+   * `503 instagram_unavailable`; Meta refusing the token (code 190) → the connection's break (MC11),
+   * then `404 instagram_reconnect_required`; a refused permission → `404 instagram_reconnect_required`
+   * without a break; any other Meta failure (down, throttling, a refused request) →
+   * `503 instagram_unavailable` with `Retry-After`. Anything else passes unchanged.
    */
   private async toLiveReadRouteError({
     scope,
-    instagramAccount,
+    access,
     requestId,
     error,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    instagramAccount: InstagramAccountKey;
-    /** The picker request's id, carried into the reconnect notice job for log correlation. */
+    access: InstagramAccountReadAccess;
+    /** The picker request's id, carried into the reconnect notice jobs for log correlation. */
     requestId: string;
     error: unknown;
   }): Promise<unknown> {
     if (error instanceof CircuitBreakerOpenError) return metaGraphCircuitOpenError(error);
     if (!(error instanceof MetaGraphApiError)) return error;
-    if (error.errorClass === 'auth') {
-      await this.accountService.markConnectionBroken({
+    if (error.errorClass !== 'auth') return instagramUnavailableError(error.retryAfterSeconds);
+    if (isMetaTokenRefusal(error)) {
+      await this.connectionBreakPort.markConnectionBroken({
         scope,
-        instagramAccount,
-        connectionStatus: error.connectionStatus ?? 'error',
+        channelConnection: access.channelConnection,
+        lastCheckError: describeInstagramRefreshError(error),
         requestId,
       });
-      return instagramReconnectRequiredError();
     }
-    return instagramUnavailableError(error.retryAfterSeconds);
+    return instagramReconnectRequiredError();
   }
 }

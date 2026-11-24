@@ -121,7 +121,7 @@ export class InstagramAccountErasureService {
       const accountPostCount = shouldEraseData
         ? await this.mediaService.deleteForAccount({
             scope,
-            instagramAccount: account.instagramAccount,
+            channelAccount: account.channelAccount,
           })
         : 0;
       erasedPostCount += accountPostCount;

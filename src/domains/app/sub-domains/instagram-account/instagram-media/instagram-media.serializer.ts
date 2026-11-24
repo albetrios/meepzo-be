@@ -10,6 +10,7 @@ import {
   INSTAGRAM_MEDIA_PRODUCT_TYPES,
   INSTAGRAM_MEDIA_TYPES,
   INSTAGRAM_STORY_LIFETIME_MS,
+  type InstagramMediaKind,
   type InstagramMediaProductType,
   type InstagramMediaType,
   type InstagramSingleMediaType,
@@ -49,6 +50,18 @@ export function readInstagramMediaProductType(value: unknown): InstagramMediaPro
   return readLoweredValue({ value, allowed: INSTAGRAM_MEDIA_PRODUCT_TYPES });
 }
 
+/**
+ * The media item's `kind` (routes-final § 2.C.6, IA15) from its lowered product type: `reels` →
+ * `reel`, `ad` → `ad_post`, anything else (a feed post, an unknown or missing type) → `post`.
+ */
+export function readInstagramMediaKind(
+  value: InstagramMediaProductType | null,
+): InstagramMediaKind {
+  if (value === 'reels') return 'reel';
+  if (value === 'ad') return 'ad_post';
+  return 'post';
+}
+
 /** A story's or a carousel child's media type — `image` or `video`, never a carousel. */
 function readInstagramSingleMediaType(value: unknown): InstagramSingleMediaType | null {
   const mediaType = readInstagramMediaType(value);
@@ -86,21 +99,26 @@ function serializeInstagramMediaChildren(
 }
 
 /**
- * Shapes one post or reel of Instagram's `/{id}/media` answer as the Instagram media item
- * (routes-final § 1.C.6): types lowered, `timestamp` → `published_at` (ISO 8601),
- * `children.data` → `children` (IA16). A field Instagram leaves out is `null`.
+ * Shapes one post or reel of Meta's `/{instagram_user_id}/media` answer as the Instagram media item
+ * (routes-final § 2.C.6, IA15): types lowered, `kind` from the product type, `timestamp` →
+ * `published_at` (ISO 8601), `children.data` → `children` (IA16). A missing `media_url` falls back to
+ * `thumbnail_url`, then `permalink` (plan:L811); any other field Meta leaves out is `null`.
  */
 export function serializeInstagramMediaItem(
   item: InstagramMediaGraphItem,
 ): InstagramMediaItemOutput {
+  const mediaProductType = readInstagramMediaProductType(item.media_product_type);
+  const thumbnailUrl = readAnswerText(item.thumbnail_url);
+  const permalink = readAnswerText(item.permalink);
   return {
     instagram_media_id: readAnswerId(item.id) ?? String(item.id),
+    kind: readInstagramMediaKind(mediaProductType),
     caption: readAnswerText(item.caption),
     media_type: readInstagramMediaType(item.media_type),
-    media_product_type: readInstagramMediaProductType(item.media_product_type),
-    media_url: readAnswerText(item.media_url),
-    thumbnail_url: readAnswerText(item.thumbnail_url),
-    permalink: readAnswerText(item.permalink),
+    media_product_type: mediaProductType,
+    media_url: readAnswerText(item.media_url) ?? thumbnailUrl ?? permalink,
+    thumbnail_url: thumbnailUrl,
+    permalink,
     published_at: readInstagramTimestamp(item.timestamp)?.toISOString() ?? null,
     comments_count: readAnswerCount(item.comments_count),
     like_count: readAnswerCount(item.like_count),
@@ -109,8 +127,8 @@ export function serializeInstagramMediaItem(
 }
 
 /**
- * Shapes one story of Instagram's `/{id}/stories` answer as the Instagram story (routes-final
- * § 1.C.6): `expires_at` is `published_at` + 24 h — Instagram sends none (IA16).
+ * Shapes one story of Meta's `/{instagram_user_id}/stories` answer as the Instagram story
+ * (routes-final § 2.C.6, unchanged in shape): `expires_at` is `published_at` + 24 h — Instagram sends none (IA16).
  */
 export function serializeInstagramStory(item: InstagramStoryGraphItem): InstagramStoryOutput {
   const publishedAt = readInstagramTimestamp(item.timestamp);

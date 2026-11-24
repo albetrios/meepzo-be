@@ -148,9 +148,9 @@ describe('Instagram account — the organization is deleted', () => {
     for (let index = 0; index < postCount; index += 1) {
       await app.appDomain.instagramMediaService.upsertFromInstagram({
         scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: team.organization.public_id }),
-        instagramAccount: {
+        channelAccount: {
           organizationId: team.organization.id,
-          instagramAccountId: Number(account.id),
+          channelAccountId: Number(account.channel_account_id),
         },
         mediaItem: {
           id: `1803000000000${account.id}${index}`,

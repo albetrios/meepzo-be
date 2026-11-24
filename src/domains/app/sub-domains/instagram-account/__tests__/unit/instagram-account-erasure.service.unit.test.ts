@@ -45,6 +45,7 @@ function accountChange(
 ): InstagramAccountDisconnectChange {
   return {
     instagramAccount: { organizationId: 1, instagramAccountId: 10 },
+    channelAccount: { organizationId: 1, channelAccountId: 20 },
     instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     wasRevoked: false,
     wasTokenErased: false,
@@ -91,6 +92,7 @@ describe('InstagramAccountErasureService (no database)', () => {
           accountChange({ wasRevoked: true, wasTokenErased: true, wasProfileErased: true }),
           accountChange({
             instagramAccount: { organizationId: 1, instagramAccountId: 11 },
+            channelAccount: { organizationId: 1, channelAccountId: 21 },
             instagramAccountPublicId: 'iga_bbbbbbbbbbbbbbbbbbbbb',
           }),
         ];
@@ -173,7 +175,7 @@ describe('InstagramAccountErasureService (no database)', () => {
         expect.objectContaining({ shouldEraseProfile: true, issuedAt: null }),
       );
       expect(deleteForAccount.mock.calls).toEqual([
-        [{ scope, instagramAccount: account.instagramAccount }],
+        [{ scope, channelAccount: account.channelAccount }],
       ]);
       expect(erasure).toEqual({
         instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa'],

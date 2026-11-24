@@ -15,16 +15,26 @@ export type InstagramMediaType = (typeof INSTAGRAM_MEDIA_TYPES)[number];
 export type InstagramSingleMediaType = Exclude<InstagramMediaType, 'carousel_album'>;
 
 /**
- * Every `media_product_type` (routes-final § 1.C.3, 1.C.6) — where the media appears, lowered
- * (`REELS` → `reels`, IA16). Mirrors `chk_instagram_media_media_product_type`.
+ * Every `media_product_type` (routes-final § 2.C.3, 2.C.6) — where the media appears, lowered
+ * (`REELS` → `reels`, IA16); `live` is a Live (D40 — Meta's exact value awaits the plan §43 test).
+ * Mirrors `chk_instagram_media_media_product_type`.
  */
-export const INSTAGRAM_MEDIA_PRODUCT_TYPES = ['feed', 'reels', 'story', 'ad'] as const;
+export const INSTAGRAM_MEDIA_PRODUCT_TYPES = ['feed', 'reels', 'story', 'ad', 'live'] as const;
 
 /** One value of {@link INSTAGRAM_MEDIA_PRODUCT_TYPES}. */
 export type InstagramMediaProductType = (typeof INSTAGRAM_MEDIA_PRODUCT_TYPES)[number];
 
 /**
- * The post and story pickers' page size (routes 5–6, § 1.C.8): Instagram's own `limit`, 1–50,
+ * Every `kind` of an Instagram media item (routes-final § 2.C.6, IA15): `post` · `reel` · `ad_post`,
+ * from Meta's `media_product_type` — `reels` → `reel`, `ad` → `ad_post`, anything else a `post`.
+ */
+export const INSTAGRAM_MEDIA_KINDS = ['post', 'reel', 'ad_post'] as const;
+
+/** One value of {@link INSTAGRAM_MEDIA_KINDS}. */
+export type InstagramMediaKind = (typeof INSTAGRAM_MEDIA_KINDS)[number];
+
+/**
+ * The post and story pickers' page size (routes 13–14, § 2.C.8): Instagram's own `limit`, 1–50,
  * default 25 — tighter than the platform's list maximum, since each page is one Instagram call.
  */
 export const INSTAGRAM_MEDIA_PAGE_SIZE = { default: 25, maximum: 50 } as const;

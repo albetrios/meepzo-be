@@ -165,7 +165,7 @@ async function seedAutomationsForOrganization({
 }): Promise<number> {
   const database = getRequestDatabase();
   const [account] = await database
-    .select({ id: instagram_accounts.id })
+    .select({ id: instagram_accounts.id, channelAccountId: instagram_accounts.channel_account_id })
     .from(instagram_accounts)
     .innerJoin(
       channel_accounts,
@@ -196,7 +196,7 @@ async function seedAutomationsForOrganization({
     .where(
       and(
         eq(instagram_media.organization_id, organization.id),
-        eq(instagram_media.instagram_account_id, account.id),
+        eq(instagram_media.channel_account_id, account.channelAccountId),
       ),
     )
     .orderBy(asc(instagram_media.id))

@@ -167,9 +167,9 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     if (account === undefined) throw new Error('no account to store a post under');
     await app.appDomain.instagramMediaService.upsertFromInstagram({
       scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: fixture.organization.public_id }),
-      instagramAccount: {
+      channelAccount: {
         organizationId: fixture.organization.id,
-        instagramAccountId: Number(account.id),
+        channelAccountId: Number(account.channel_account_id),
       },
       mediaItem: {
         id: instagramMediaId,

@@ -54,6 +54,7 @@ const signedRequest = { userId: '17841400000000001', issuedAt: 1_763_740_000 };
 function accountChange(overrides: Partial<InstagramAccountDisconnectChange> = {}) {
   return {
     instagramAccount: { organizationId: 1, instagramAccountId: 10 },
+    channelAccount: { organizationId: 1, channelAccountId: 20 },
     instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     wasRevoked: false,
     wasTokenErased: false,
@@ -136,6 +137,7 @@ describe('InstagramAccountMetaCallbackService (no database)', () => {
     const live = accountChange({ wasRevoked: true, wasTokenErased: true, wasProfileErased: true });
     const revokedEarlier = accountChange({
       instagramAccount: { organizationId: 1, instagramAccountId: 11 },
+      channelAccount: { organizationId: 1, channelAccountId: 21 },
       instagramAccountPublicId: 'iga_ccccccccccccccccccccc',
     });
     disconnectForMeta.mockResolvedValue([live, revokedEarlier]);
@@ -148,11 +150,11 @@ describe('InstagramAccountMetaCallbackService (no database)', () => {
     );
     expect(deleteForAccount).toHaveBeenNthCalledWith(1, {
       scope: contextSpy.scopes[0],
-      instagramAccount: live.instagramAccount,
+      channelAccount: live.channelAccount,
     });
     expect(deleteForAccount).toHaveBeenNthCalledWith(2, {
       scope: contextSpy.scopes[0],
-      instagramAccount: revokedEarlier.instagramAccount,
+      channelAccount: revokedEarlier.channelAccount,
     });
     // The earlier-revoked row changed too: its stored posts were erased.
     expect(result.changes).toEqual([

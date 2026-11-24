@@ -55,6 +55,12 @@
     "model": "organization",
     "verifyNoMutation": true
   },
+  "GET /api/v1/app/social/instagram/accounts/:channel_account_id/media": {
+    "model": "organization"
+  },
+  "GET /api/v1/app/social/instagram/accounts/:channel_account_id/stories": {
+    "model": "organization"
+  },
   "DELETE /api/v1/auth/me/auth-methods/:auth_method_id": {
     "model": "user",
     "verifyNoMutation": true

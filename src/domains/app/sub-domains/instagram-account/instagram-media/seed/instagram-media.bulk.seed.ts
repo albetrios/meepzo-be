@@ -54,7 +54,7 @@ export async function seedInstagramMediaBulk(context: SeedContext): Promise<void
   const accounts = await database
     .select({
       organizationId: instagram_accounts.organization_id,
-      instagramAccountId: instagram_accounts.id,
+      channelAccountId: instagram_accounts.channel_account_id,
     })
     .from(instagram_accounts)
     .innerJoin(
@@ -89,7 +89,7 @@ export async function seedInstagramMediaBulk(context: SeedContext): Promise<void
       const permalink = `https://www.instagram.com/p/seed${instagramMediaId}/`;
       return {
         organization_id: account.organizationId,
-        instagram_account_id: account.instagramAccountId,
+        channel_account_id: account.channelAccountId,
         instagram_media_id: instagramMediaId,
         media_type: post.mediaType,
         media_product_type: post.mediaProductType,

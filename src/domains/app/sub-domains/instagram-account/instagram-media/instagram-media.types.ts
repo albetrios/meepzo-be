@@ -1,7 +1,9 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { InstagramMediaGraphItem } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import type { InstagramAccountKey } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import type { ChannelConnectionKey } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 import type {
+  InstagramMediaKind,
   InstagramMediaProductType,
   InstagramMediaType,
   InstagramSingleMediaType,
@@ -16,19 +18,23 @@ export interface InstagramMediaChildOutput {
 }
 
 /**
- * The Instagram media item (routes-final § 1.C.6) — one post or reel of route 5, read live from
- * Instagram.
+ * The Instagram media item (routes-final § 2.C.6) — one post or reel of route 13, read live from
+ * Meta.
  *
  * @remarks
- * Snake_case wire keys; Instagram's upper-case types lowered, `timestamp` → `published_at`,
- * `children.data` → `children` (IA16). A field Instagram leaves out is `null`.
+ * Snake_case wire keys; Meta's upper-case types lowered, `timestamp` → `published_at`,
+ * `children.data` → `children` (IA16); `kind` from the product type and `media_url` never empty when
+ * Meta gives a thumbnail or link (IA15). A field Meta leaves out is `null`.
  */
 export interface InstagramMediaItemOutput {
   instagram_media_id: string;
+  /** `post` · `reel` · `ad_post`, from `media_product_type` (IA15). */
+  kind: InstagramMediaKind;
   caption: string | null;
   /** `null` when Instagram sends a type this API does not know. */
   media_type: InstagramMediaType | null;
   media_product_type: InstagramMediaProductType | null;
+  /** Meta's `media_url`, else `thumbnail_url`, else `permalink` (plan:L811); `null` only when all three are missing. */
   media_url: string | null;
   thumbnail_url: string | null;
   permalink: string | null;
@@ -41,7 +47,7 @@ export interface InstagramMediaItemOutput {
 }
 
 /**
- * The Instagram story (routes-final § 1.C.6) — one live story of route 6, read live from
+ * The Instagram story (routes-final § 2.C.6) — one live story of route 14, read live from
  * Instagram; `expires_at` is `published_at` + 24 h (IA16).
  */
 export interface InstagramStoryOutput {
@@ -55,7 +61,7 @@ export interface InstagramStoryOutput {
 }
 
 /**
- * One page of a picker (routes 5–6): the items and Instagram's own cursor, passed back as `after`
+ * One page of a picker (routes 13–14): the items and Instagram's own cursor, passed back as `after`
  * — `null` when Instagram has no next page (IA16). No total: Instagram gives none.
  */
 export interface InstagramMediaPage<TItem> {
@@ -69,6 +75,8 @@ export interface InstagramMediaPage<TItem> {
 export interface InstagramMediaListInput {
   /** The caller's organization scope (the signed `org` claim). */
   scope: OrganizationPrincipalDatabaseScope;
+  /** The account's one id, `cha_…` (route 13–14's `{channel_account_id}`, P47). */
+  channelAccountPublicId: string;
   /** Page size, 1–50. */
   limit: number;
   /** Instagram's `after` cursor from the previous page. */
@@ -81,8 +89,39 @@ export interface InstagramMediaListInput {
 export interface InstagramMediaUpsertInput {
   /** The organization scope of the account's organization; nested in the caller's unit of work when one is open. */
   scope: OrganizationPrincipalDatabaseScope;
-  /** The account the post belongs to. */
-  instagramAccount: InstagramAccountKey;
+  /** The channel account the post belongs to (P47). */
+  channelAccount: ChannelAccountKey;
   /** The post as Instagram sent it (`readInstagramMediaItem`, or a list page's item). */
   mediaItem: InstagramMediaGraphItem;
+}
+
+/** A stored post of one channel account, by its Instagram media id — the key the watch and the Live end take. */
+export interface InstagramStoredMediaTarget {
+  /** The organization scope of the account's organization; nested in the caller's unit of work when one is open. */
+  scope: OrganizationPrincipalDatabaseScope;
+  /** The channel account the post belongs to (P47). */
+  channelAccount: ChannelAccountKey;
+  /** Instagram's media id — digits. */
+  instagramMediaId: string;
+}
+
+/**
+ * The connection's break on Meta's code 190 (routes-final § 1 MC11) as routes 13–14 call it —
+ * `ChannelConnectionService.markConnectionBroken`'s shape (ROUTE row R4).
+ *
+ * @remarks
+ * Notes: the connection's guarded `connected → error`, then every `connected` account of it →
+ * `error` with one reconnect notice each; `false` when another caller already broke it. Until R4's
+ * connection service is wired here, the app container passes an adapter over the channel account's
+ * `markAccountsOfConnectionBroken` (the accounts' half of MC11).
+ */
+export interface InstagramMediaConnectionBreakPort {
+  markConnectionBroken(input: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelConnection: ChannelConnectionKey;
+    /** Meta's class, code, subcode and HTTP status — never its text. */
+    lastCheckError: string;
+    /** The caller's request id, carried into the notice jobs. */
+    requestId: string;
+  }): Promise<boolean>;
 }

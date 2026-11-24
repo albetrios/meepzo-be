@@ -5,8 +5,8 @@ import {
 } from './instagram-media.constants.js';
 
 /**
- * Query of `GET /app/social/instagram/media` and `GET /app/social/instagram/stories` (routes 5–6,
- * routes-final § 1.C.8): Instagram's own paging.
+ * Query of `GET /app/social/instagram/accounts/{channel_account_id}/media` and `…/stories`
+ * (routes 13–14, routes-final § 2.C.8): Meta's own paging.
  *
  * @remarks
  * `limit` 1–50, default 25, passed on as Instagram's `limit`; `after` is Instagram's cursor from the

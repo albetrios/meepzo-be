@@ -25,7 +25,7 @@ import type {
   InstagramAccountRepository,
   InstagramAccountRow,
 } from './instagram-account.repository.js';
-import { instagramNotConnectedError } from './instagram-account-error.util.js';
+import { channelAccountNotFoundError } from '@/domains/app/sub-domains/channel-account/channel-account-error.util.js';
 import {
   type InstagramConnectionBreak,
   enqueueInstagramReconnectNoticeBestEffort,
@@ -33,6 +33,7 @@ import {
 import type {
   InstagramAccountAccess,
   InstagramAccountDisconnectChange,
+  InstagramAccountReadAccess,
   InstagramAccountMetaDisconnectInput,
   InstagramAccountVisibleConnectionStatus,
   InstagramAutomationAccountAccess,
@@ -144,23 +145,27 @@ export class InstagramAccountService {
   }
 
   /**
-   * The organization's live account and its encrypted token, for an Instagram read made after the
-   * unit of work closes — the post and story pickers (routes 5–6, IA16).
+   * The named Instagram account, its connection's status and its encrypted token, for a Meta read
+   * made after the unit of work closes — the post and story pickers (routes 13–14, IA15).
    *
    * @remarks
    * Algorithm: one unit of work in the caller's organization scope — the team check
-   * (`404 team_organization_required` on a personal organization, IA3), the live account, its
-   * encrypted token (through {@link ChannelConnectionTokenService}). Failure modes:
-   * `404 instagram_not_connected` when the organization has none (or only revoked rows). Side
-   * effects: none — reads only, never Instagram. Notes: an `error` account is returned
-   * as it is; the caller decides (`404 instagram_reconnect_required` without a call). The token
-   * stays ciphertext (IA5).
+   * (`404 team_organization_required` on a personal organization), the channel account by its public
+   * id, its Instagram row, then its connection's status and token (through
+   * {@link ChannelConnectionTokenService.findConnectionAccess}). Failure modes:
+   * `404 channel_account_not_found` when the id is not the organization's, the account is revoked,
+   * or its channel is not `instagram` (2.5). Side effects: none — reads only, never Meta. Notes: an
+   * `error` account or connection is returned as it is; the caller answers
+   * `404 instagram_reconnect_required` without a call. The token stays ciphertext.
    */
-  async findLiveAccountAccess({
+  async findAccountReadAccess({
     scope,
+    channelAccountPublicId,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-  }): Promise<InstagramAccountAccess> {
+    /** `cha_…` — the route's `{channel_account_id}` (P47). */
+    channelAccountPublicId: string;
+  }): Promise<InstagramAccountReadAccess> {
     return withAppDatabaseContext({
       scope,
       callback: async () => {
@@ -168,9 +173,37 @@ export class InstagramAccountService {
           scope.organizationPublicId,
         );
         assertTeamOrganizationForRead({ organization });
-        const access = await this.findLiveAccess({ scope, organizationId: organization.id });
-        if (access === null) throw instagramNotConnectedError();
-        return access;
+        const channelAccount = await this.channelAccountRepository.findByPublicId({
+          organizationId: organization.id,
+          channelAccountPublicId,
+        });
+        if (
+          channelAccount === null ||
+          channelAccount.connection_status === 'revoked' ||
+          channelAccount.channel !== 'instagram'
+        ) {
+          throw channelAccountNotFoundError();
+        }
+        const [account] = await this.accountRepository.findByChannelAccountIds({
+          organizationId: organization.id,
+          channelAccountIds: [channelAccount.id],
+        });
+        if (account === undefined) throw channelAccountNotFoundError();
+        const channelConnection = {
+          organizationId: organization.id,
+          channelConnectionId: account.channel_connection_id,
+        };
+        const connection = await this.connectionTokenService.findConnectionAccess({
+          scope,
+          channelConnection,
+        });
+        return {
+          account,
+          channelAccount: { organizationId: organization.id, channelAccountId: channelAccount.id },
+          channelConnection,
+          connectionStatus: connection?.connectionStatus ?? 'revoked',
+          encryptedAccessToken: connection?.encryptedAccessToken ?? null,
+        };
       },
     });
   }
@@ -579,6 +612,10 @@ export class InstagramAccountService {
         : null;
       changes.push({
         instagramAccount: key,
+        channelAccount: {
+          organizationId: account.organization_id,
+          channelAccountId: account.channel_account_id,
+        },
         instagramAccountPublicId: account.public_id,
         wasRevoked: revoked !== null,
         wasTokenErased,
@@ -586,31 +623,6 @@ export class InstagramAccountService {
       });
     }
     return changes;
-  }
-
-  /**
-   * The organization's not-revoked account, its key and its encrypted token, inside the caller's
-   * unit of work; `null` when it has none.
-   */
-  private async findLiveAccess({
-    scope,
-    organizationId,
-  }: {
-    scope: OrganizationPrincipalDatabaseScope;
-    organizationId: number;
-  }): Promise<InstagramAccountAccess | null> {
-    const account = await this.accountRepository.findLiveByOrganizationId(organizationId);
-    if (account === null) return null;
-    const instagramAccount: InstagramAccountKey = {
-      organizationId,
-      instagramAccountId: account.id,
-    };
-    const token = await this.findAccountToken({ scope, account });
-    return {
-      account,
-      instagramAccount,
-      encryptedAccessToken: token?.encryptedAccessToken ?? null,
-    };
   }
 
   /**

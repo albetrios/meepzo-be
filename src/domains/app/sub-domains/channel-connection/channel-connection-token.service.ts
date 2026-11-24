@@ -27,6 +27,19 @@ export interface ChannelConnectionTokenTarget {
 }
 
 /**
+ * A connection's status and its encrypted token — {@link ChannelConnectionTokenService.findConnectionAccess}.
+ *
+ * @remarks
+ * Notes: the token stays ciphertext; only the provider client decrypts it, right before its call.
+ */
+export interface ChannelConnectionAccess {
+  /** `connected` · `error` · `revoked`. */
+  connectionStatus: string;
+  /** The ciphertext; `null` when the connection has no token (revoked). */
+  encryptedAccessToken: string | null;
+}
+
+/**
  * The one service over the connection's token (routes-final § 1 MC9): stores a callback's token,
  * hands out the encrypted token for a provider call, and — when the connection goes — revokes the
  * connection and deletes its token in the caller's unit of work.
@@ -90,6 +103,36 @@ export class ChannelConnectionTokenService {
     return withAppDatabaseContext({
       scope,
       callback: () => this.tokenRepository.findByConnection(channelConnection),
+    });
+  }
+
+  /**
+   * The connection's status and its encrypted token in one read, for a provider call made after the
+   * unit of work closes — an account read that must refuse a broken connection without calling
+   * (routes 13–14, IA15). `null` when the connection is not the organization's.
+   *
+   * @remarks
+   * Algorithm: the connection row, then its token, keyed by the connection, in the caller's unit
+   * when one is open. Failure modes: none of its own. Side effects: none — never the provider.
+   */
+  async findConnectionAccess({
+    scope,
+    channelConnection,
+  }: ChannelConnectionTokenTarget): Promise<ChannelConnectionAccess | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const [connection] = await this.connectionRepository.findByIds({
+          organizationId: channelConnection.organizationId,
+          channelConnectionIds: [channelConnection.channelConnectionId],
+        });
+        if (connection === undefined) return null;
+        const token = await this.tokenRepository.findByConnection(channelConnection);
+        return {
+          connectionStatus: connection.status,
+          encryptedAccessToken: token?.encryptedAccessToken ?? null,
+        };
+      },
     });
   }
 

@@ -95,14 +95,14 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
   // ── Instagram media (the pickers, Instagram's cursor — no estimated_total, IA16) ──
-  'GET /api/v1/app/social/instagram/media': {
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/media': {
     statusCode: 200,
     schema: wrapUncountedPaginated(schemas.instagramMediaItemSchema, [
       schemas.instagramMediaItemExample,
     ]),
     example: null,
   },
-  'GET /api/v1/app/social/instagram/stories': {
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/stories': {
     statusCode: 200,
     schema: wrapUncountedPaginated(schemas.instagramStorySchema, [schemas.instagramStoryExample]),
     example: null,

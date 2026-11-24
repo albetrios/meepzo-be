@@ -388,14 +388,18 @@ Note app.instagram_accounts {
 
 Table app.instagram_media {
   caption text
+  channel_account_id bigint [not null]
+  comments_checked_at timestamptz
   comments_count int [not null]
+  comments_next_check_at timestamptz
   created_at timestamptz [not null]
   graph_data jsonb [not null]
   id bigint [pk, increment]
-  instagram_account_id bigint [not null]
   instagram_media_id varchar(64) [not null]
   is_comment_enabled boolean [not null]
+  last_comment_at timestamptz
   like_count int [not null]
+  live_ended_at timestamptz
   media_product_type varchar(20)
   media_type varchar(20)
   media_url text

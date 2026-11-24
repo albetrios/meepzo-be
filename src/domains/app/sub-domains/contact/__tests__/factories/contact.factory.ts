@@ -36,7 +36,7 @@ export async function insertInstagramAccount({
 }: {
   organizationId: number;
   connectionStatus?: 'connected' | 'revoked';
-}): Promise<{ id: number; public_id: string }> {
+}): Promise<{ id: number; public_id: string; channel_account_id: number }> {
   const instagramUserId = nextInstagramUserId();
   const channelAccount = await insertChannelAccount({
     organizationId,
@@ -54,7 +54,12 @@ export async function insertInstagramAccount({
     .returning({ id: instagram_accounts.id });
   if (account === undefined) throw new Error('instagram account fixture insert returned no row');
   // The account's one id is its channel account's (`cha_…`, P47, R6).
-  return { id: account.id, public_id: channelAccount.public_id };
+  // `channel_account_id` keys the stored posts (P47, R8).
+  return {
+    id: account.id,
+    public_id: channelAccount.public_id,
+    channel_account_id: channelAccount.id,
+  };
 }
 
 /**

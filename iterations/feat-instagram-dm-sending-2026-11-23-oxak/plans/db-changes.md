@@ -674,6 +674,10 @@ erDiagram
 - **Replaced:** `instagram_account_id` → `channel_account_id` (P47).
 - **Open:** the exact Live value Meta sends — a Meta test (plan §43). Live comments are refused at
   go-live until that test passes ([P36](decisions.md)).
+- **Built R8 ([AS-BUILT](../AS-BUILT.md), [P210](decisions.md)):** `app.instagram_media.channel_account_id`
+  (`instagram_media_channel_account_fk` → `app.channel_accounts`, `ON DELETE RESTRICT`), `comments_checked_at`,
+  `comments_next_check_at`, `last_comment_at`, `live_ended_at`; `media_product_type` adds `live`;
+  `idx_instagram_media_comments_next_check` (partial). The launch migration changed in place (P29).
 
 ```mermaid
 erDiagram

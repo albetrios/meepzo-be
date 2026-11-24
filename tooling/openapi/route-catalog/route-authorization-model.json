@@ -21,6 +21,21 @@
     "model": "organization",
     "verifyNoMutation": true
   },
+  "POST /api/v1/app/automations/:automation_id/go-live": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/app/automations/:automation_id/pause": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/app/automations/:automation_id/duplicate": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/app/automations/:automation_id/keyword-test": {
+    "model": "organization"
+  },
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": {
     "model": "organization"
   },

@@ -1,172 +1,136 @@
 import { describe, expect, it } from 'vitest';
-import type { AutomationRow } from '@/domains/app/sub-domains/automation/automation.repository.js';
-import { serializeAutomation } from '@/domains/app/sub-domains/automation/automation.serializer.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import {
+  buildAutomationLinkUrl,
+  serializeAutomation,
+  serializeAutomationListRow,
+} from '@/domains/app/sub-domains/automation/automation.serializer.js';
+import { sumAutomationCounts } from '@/domains/app/sub-domains/automation/automation-count.service.js';
+import type { AutomationCountRow } from '@/domains/app/sub-domains/automation/automation-count.repository.js';
 
-/**
- * The automation object (routes-final § 3.A.6): every key named, the account's and the users'
- * public ids from the caller, timestamps as ISO 8601, the final message never null (D19) and its
- * links always an array — never an internal id or a soft-delete column.
- */
+const CREATED_AT = new Date('2026-11-24T08:00:00.000Z');
 
-const createdAt = new Date('2026-11-21T08:00:00.000Z');
-
-function automationRow(overrides: Partial<AutomationRow> = {}): AutomationRow {
+/** One stored automation row as the serializer reads it. */
+function row(overrides: Record<string, unknown> = {}) {
   return {
-    id: 17,
-    public_id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
-    organization_id: 7,
-    instagram_account_id: 3,
-    name: 'Comment for the link',
+    public_id: generatePublicId('automation'),
+    channel: 'instagram',
+    name: 'Guide',
     status: 'live',
-    trigger_type: 'comment',
-    target_scope: 'next',
-    target_instagram_media_id: '18030000000000004',
+    trigger_type: 'ref_link',
+    also_start_from: [],
+    target_scope: 'any',
+    target_instagram_media_id: null,
     target_instagram_story_id: null,
-    next_post_starts_at: new Date('2026-11-20T00:00:00.000Z'),
-    next_post_ends_at: new Date('2026-11-27T00:00:00.000Z'),
-    next_post_status: 'linked',
-    next_post_linked_at: new Date('2026-11-21T07:00:00.000Z'),
-    is_dm_keyword_trigger_enabled: true,
-    keywords: ['link', 'shop'],
-    tags: ['launch'],
-    is_public_reply_enabled: true,
-    public_reply_texts: ['Check your DMs!'],
-    is_opening_message_enabled: true,
-    opening_message: { text: 'Thanks!', button_title: 'Send it' },
-    is_follow_required: true,
-    follow_request_message: {
-      text: 'Follow first',
-      following_button_title: "I'm following",
-      profile_button_title: 'Open profile',
-    },
-    is_email_collection_enabled: true,
-    email_request_message: null,
-    is_phone_collection_enabled: false,
-    phone_request_message: { text: 'Your number?' },
-    final_message: {
-      text: 'Here you go',
-      links: [{ title: 'Shop', url: 'https://shop.example.com' }],
-    },
-    completed_run_count: 42,
-    last_triggered_at: new Date('2026-11-21T09:00:00.000Z'),
-    created_by_user_id: 5,
-    updated_by_user_id: null,
-    deleted_at: null,
-    delete_reason: null,
-    delete_note: null,
-    created_at: createdAt,
-    updated_at: new Date('2026-11-21T08:30:00.000Z'),
+    target_starts_at: null,
+    target_ends_at: null,
+    next_post_status: null,
+    next_post_linked_at: null,
+    keywords: [],
+    ref_code: 'spring-event',
+    starter_questions: [],
+    ad_id: null,
+    trigger_tag: null,
+    default_reply_mode: null,
+    is_public_reply_enabled: false,
+    public_reply_texts: [],
+    is_public_reply_mention_enabled: true,
+    is_reply_like_person_enabled: false,
+    public_reply_hour_limit: null,
+    is_hide_comment_after_direct_message_enabled: false,
+    steps: { messages: [{ kind: 'text' as const, wait_minutes: 0, text: 'Hi' }] },
+    stopped_reason: null,
+    stopped_at: null,
+    cancelled_before_at: null,
+    last_triggered_at: null,
+    created_at: CREATED_AT,
+    updated_at: CREATED_AT,
     ...overrides,
   };
 }
 
-describe('serializeAutomation', () => {
-  it('maps every field of 3.A.6 with the resolved public ids', () => {
+/** One slot row of `app.automation_counts`. */
+function slot(overrides: Partial<AutomationCountRow>): AutomationCountRow {
+  return {
+    id: 1,
+    organization_id: 1,
+    automation_id: 7,
+    slot: 0,
+    runs_started: 0,
+    taps: 0,
+    typed_answers: 0,
+    runs_by_version: {},
+    taps_by_version: {},
+    typed_by_version: {},
+    updated_at: CREATED_AT,
+    ...overrides,
+  };
+}
+
+describe('automation serializer and counts (feat-instagram-dm-sending § 4.A.6, AU19)', () => {
+  it('sums the 16 slots into totals, % tapped and per-version numbers (D61, AC-6.2)', () => {
+    const counts = sumAutomationCounts([
+      slot({ slot: 0, runs_started: 600, taps: 250, runs_by_version: { 'hello.1': 600 } }),
+      slot({
+        slot: 9,
+        runs_started: 400,
+        taps: 200,
+        typed_answers: 60,
+        taps_by_version: { 'hello.1': 200 },
+      }),
+      slot({ automation_id: 8, runs_started: 3 }),
+    ]).get(7);
+    expect(counts).toEqual({
+      runs_started: 1000,
+      taps: 450,
+      typed_answers: 60,
+      tapped_percent: 51,
+      by_version: { 'hello.1': { runs_started: 600, taps: 200, typed_answers: 0 } },
+    });
+  });
+
+  it('shapes the Automation: public ids, the ref link, zero counts before a run, the PRO parts off', () => {
+    const output = serializeAutomation({
+      automation: row(),
+      channel_account_public_id: 'cha_x',
+      created_by_user_public_id: null,
+      updated_by_user_public_id: null,
+      counts: undefined,
+      pro_parts_off: ['email_ask'],
+      username: 'acme.shop',
+    });
+    expect(output).toMatchObject({
+      channel_account_id: 'cha_x',
+      link_url: 'https://ig.me/m/acme.shop?ref=spring-event',
+      counts: { runs_started: 0, tapped_percent: null, by_version: {} },
+      pro_parts_off: ['email_ask'],
+      open_backfill: null,
+      created_at: CREATED_AT.toISOString(),
+    });
+    expect(Object.keys(output)).not.toContain('organization_id');
+  });
+
+  it('gives no ref link to another way to start or without a username', () => {
     expect(
-      serializeAutomation({
-        automation: automationRow(),
-        instagram_account_public_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
-        created_by_user_public_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
-        updated_by_user_public_id: null,
-      }),
-    ).toEqual({
-      id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
-      instagram_account_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
-      name: 'Comment for the link',
-      status: 'live',
-      trigger_type: 'comment',
-      target_scope: 'next',
-      target_instagram_media_id: '18030000000000004',
-      target_instagram_story_id: null,
-      next_post_starts_at: '2026-11-20T00:00:00.000Z',
-      next_post_ends_at: '2026-11-27T00:00:00.000Z',
-      next_post_status: 'linked',
-      next_post_linked_at: '2026-11-21T07:00:00.000Z',
-      is_dm_keyword_trigger_enabled: true,
-      keywords: ['link', 'shop'],
-      tags: ['launch'],
-      is_public_reply_enabled: true,
-      public_reply_texts: ['Check your DMs!'],
-      is_opening_message_enabled: true,
-      opening_message: { text: 'Thanks!', button_title: 'Send it' },
-      is_follow_required: true,
-      follow_request_message: {
-        text: 'Follow first',
-        following_button_title: "I'm following",
-        profile_button_title: 'Open profile',
-      },
-      is_email_collection_enabled: true,
-      email_request_message: null,
-      is_phone_collection_enabled: false,
-      phone_request_message: { text: 'Your number?' },
-      final_message: {
-        text: 'Here you go',
-        links: [{ title: 'Shop', url: 'https://shop.example.com' }],
-      },
-      completed_run_count: 42,
-      last_triggered_at: '2026-11-21T09:00:00.000Z',
-      created_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
-      updated_by_user_id: null,
-      created_at: '2026-11-21T08:00:00.000Z',
-      updated_at: '2026-11-21T08:30:00.000Z',
-    });
+      buildAutomationLinkUrl({ triggerType: 'comment', refCode: 'x', username: 'a' }),
+    ).toBeNull();
+    expect(
+      buildAutomationLinkUrl({ triggerType: 'ref_link', refCode: 'x', username: null }),
+    ).toBeNull();
   });
 
-  it('never returns the internal ids or the soft-delete columns', () => {
-    const output = serializeAutomation({
-      automation: automationRow({
-        deleted_at: createdAt,
-        delete_reason: 'other',
-        delete_note: 'x',
+  it('shapes the list row with its runs and % tapped (AU10)', () => {
+    expect(
+      serializeAutomationListRow({
+        automation: row({ status: 'draft' }),
+        channel_account_public_id: 'cha_x',
+        counts: { runs_started: 10, taps: 4, typed_answers: 1, tapped_percent: 50, by_version: {} },
       }),
-      instagram_account_public_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
-      created_by_user_public_id: null,
-      updated_by_user_public_id: null,
+    ).toMatchObject({
+      status: 'draft',
+      runs_started: 10,
+      tapped_percent: 50,
+      updated_at: CREATED_AT.toISOString(),
     });
-    for (const key of [
-      'organization_id',
-      'deleted_at',
-      'delete_reason',
-      'delete_note',
-      'public_id',
-    ]) {
-      expect(output).not.toHaveProperty(key);
-    }
-    expect(output.instagram_account_id).toBe('iga_k7x9m2pqr4w8n1v3a1b2c');
-  });
-
-  it('shows empty messages and dates as null, and an opening message or links stored without their key in full', () => {
-    const output = serializeAutomation({
-      automation: automationRow({
-        next_post_starts_at: null,
-        next_post_ends_at: null,
-        next_post_status: null,
-        next_post_linked_at: null,
-        last_triggered_at: null,
-        opening_message: { text: 'Hi' } as never,
-        follow_request_message: null,
-        final_message: { text: 'Bye' } as never,
-      }),
-      instagram_account_public_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
-      created_by_user_public_id: null,
-      updated_by_user_public_id: null,
-    });
-    expect(output.next_post_status).toBeNull();
-    expect(output.last_triggered_at).toBeNull();
-    expect(output.follow_request_message).toBeNull();
-    expect(output.opening_message).toEqual({ text: 'Hi', button_title: null });
-    expect(output.final_message).toEqual({ text: 'Bye', links: [] });
-  });
-
-  it('copies the arrays so the caller cannot change the row through them', () => {
-    const row = automationRow();
-    const output = serializeAutomation({
-      automation: row,
-      instagram_account_public_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
-      created_by_user_public_id: null,
-      updated_by_user_public_id: null,
-    });
-    output.keywords.push('changed');
-    expect(row.keywords).toEqual(['link', 'shop']);
   });
 });

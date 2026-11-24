@@ -6,6 +6,7 @@ import {
   requireOrganizationScope,
   requirePrincipal,
 } from '@/shared/utils/http/request.util.js';
+import { translateRequestMessage } from '@/shared/utils/i18n/translate-request.util.js';
 import { validatePublicIdParam } from '@/shared/utils/identity/public-id-param.util.js';
 import {
   buildAuditActorFields,
@@ -14,10 +15,14 @@ import {
 } from '@/shared/utils/infrastructure/audit-request-context.util.js';
 import { AUTOMATION_AUDIT_RESOURCE_TYPE } from './automation.constants.js';
 import type { AutomationService } from './automation.service.js';
+import type { AutomationWarning } from './automation.types.js';
 import {
   validateCreateAutomation,
   validateDeleteAutomationQuery,
+  validateEmptyAutomationAction,
+  validateKeywordTestAutomation,
   validateListAutomationsQuery,
+  validatePauseAutomation,
   validateUpdateAutomation,
 } from './automation.validator.js';
 
@@ -31,18 +36,62 @@ function readAutomationPublicId(
   });
 }
 
+/** `meta.warnings` of routes 30 and 32 (`[{ reason, field, detail }]`, AU13), translated. */
+function renderWarnings({
+  request,
+  warnings,
+}: {
+  request: FastifyRequest;
+  warnings: readonly AutomationWarning[];
+}): { reason: string; field: string; detail: string }[] {
+  return warnings.map((warning) => ({
+    reason: warning.reason,
+    field: warning.field,
+    detail: translateRequestMessage({
+      request,
+      messageKey: warning.messageKey,
+      fallback: warning.reason,
+      params: warning.messageParams,
+    }),
+  }));
+}
+
+/** The audit entry of one automation action, after its commit (AU7, K9). */
+async function recordAutomationAudit({
+  request,
+  action,
+  severity = 'INFO',
+  metadata,
+}: {
+  request: FastifyRequest;
+  action: string;
+  severity?: 'INFO' | 'WARNING';
+  metadata: Record<string, unknown>;
+}): Promise<void> {
+  await recordScopedAuditEvent({
+    request,
+    input: {
+      ...buildAuditActorFields(requirePrincipal(request)),
+      action,
+      resource_type: AUTOMATION_AUDIT_RESOURCE_TYPE,
+      organizationPublicId: requireOrganizationScope(request).organizationPublicId,
+      severity,
+      metadata,
+    },
+  });
+}
+
 /**
- * Builds the handler map for the automation routes (routes-final § 3.A — routes 11–15): reads the
- * organization scope and the actor, validates the query, path id or body, calls
- * {@link AutomationService} and shapes the answer.
+ * Builds the handler map for the automation routes (feat-instagram-dm-sending routes-final § 4.A —
+ * routes 27–35): reads the organization scope and the actor, validates the query, path id or body,
+ * calls {@link AutomationService} and shapes the answer.
  *
  * @remarks
- * Audit (AU4, K9): `app.automation.create` (metadata `automation_public_id`),
- * `app.automation.update` (`automation_public_id`, `changed_fields` — the body's field names, never
- * values; `expected_updated_at` is not a change) and `app.automation.delete` (`automation_public_id`,
- * `delete_reason`, `cancelled_run_count`), resource type `automation` — each recorded after the
- * write commits, best-effort: an audit failure never fails the request (D36). The reads write no
- * audit entry.
+ * Audit (AU7, K9), resource type `automation`, each after the write commits, best-effort:
+ * `app.automation.create`, `.update` (`changed_fields` — names, never values), `.delete`
+ * (`delete_reason`, `cancelled_run_count`), `.go_live`, `.pause` (`mode`), `.duplicate`
+ * (`source_automation_public_id`). A go-live or pause that changed nothing (a repeat, AU3) writes
+ * none. The reads and the keyword test write no audit entry.
  */
 export function createAutomationController(service: AutomationService) {
   return {
@@ -54,32 +103,20 @@ export function createAutomationController(service: AutomationService) {
       return paginatedResponse({
         data: page.items,
         request_id: getRequestIdentifier(request),
-        pagination: {
-          per_page: page.limit,
-          next: page.next_cursor,
-          has_more: page.has_more,
-          ...(page.total === null ? {} : { estimated_total: page.total }),
-        },
+        pagination: { per_page: page.limit, next: page.next_cursor, has_more: page.has_more },
+        extraMeta: { totals: page.totals },
       });
     },
     createAutomation: async (request: FastifyRequest, _reply: FastifyReply) => {
-      const auth = requirePrincipal(request);
-      const scope = requireOrganizationScope(request);
       const automation = await service.createAutomation({
-        scope,
+        scope: requireOrganizationScope(request),
         changes: validateCreateAutomation(request.body),
-        createdByUserPublicId: getActingUserPublicId(auth),
+        createdByUserPublicId: getActingUserPublicId(requirePrincipal(request)),
       });
-      await recordScopedAuditEvent({
+      await recordAutomationAudit({
         request,
-        input: {
-          ...buildAuditActorFields(auth),
-          action: 'app.automation.create',
-          resource_type: AUTOMATION_AUDIT_RESOURCE_TYPE,
-          organizationPublicId: scope.organizationPublicId,
-          severity: 'INFO',
-          metadata: { automation_public_id: automation.id },
-        },
+        action: 'app.automation.create',
+        metadata: { automation_public_id: automation.id },
       });
       return successResponse({ data: automation, request_id: getRequestIdentifier(request) });
     },
@@ -97,65 +134,140 @@ export function createAutomationController(service: AutomationService) {
       request: FastifyRequest<{ Params: { automation_id: string } }>,
       _reply: FastifyReply,
     ) => {
-      const auth = requirePrincipal(request);
-      const scope = requireOrganizationScope(request);
-      const automationPublicId = readAutomationPublicId(request);
       const { changes, expectedUpdatedAt } = validateUpdateAutomation(request.body);
-      const automation = await service.updateAutomation({
-        scope,
-        automationPublicId,
+      const { automation, warnings } = await service.updateAutomation({
+        scope: requireOrganizationScope(request),
+        automationPublicId: readAutomationPublicId(request),
         changes,
         expectedUpdatedAt,
-        updatedByUserPublicId: getActingUserPublicId(auth),
+        updatedByUserPublicId: getActingUserPublicId(requirePrincipal(request)),
       });
-      await recordScopedAuditEvent({
+      await recordAutomationAudit({
         request,
-        input: {
-          ...buildAuditActorFields(auth),
-          action: 'app.automation.update',
-          resource_type: AUTOMATION_AUDIT_RESOURCE_TYPE,
-          organizationPublicId: scope.organizationPublicId,
-          severity: 'INFO',
-          metadata: {
-            automation_public_id: automation.id,
-            changed_fields: listBodyFieldNames(request.body).filter(
-              (field) => field !== 'expected_updated_at',
-            ),
-          },
+        action: 'app.automation.update',
+        metadata: {
+          automation_public_id: automation.id,
+          changed_fields: listBodyFieldNames(request.body).filter(
+            (field) => field !== 'expected_updated_at',
+          ),
         },
       });
-      return successResponse({ data: automation, request_id: getRequestIdentifier(request) });
+      return successResponse({
+        data: automation,
+        request_id: getRequestIdentifier(request),
+        extraMeta: { warnings: renderWarnings({ request, warnings }) },
+      });
     },
     deleteAutomation: async (
       request: FastifyRequest<{ Params: { automation_id: string } }>,
       reply: FastifyReply,
     ) => {
-      const auth = requirePrincipal(request);
-      const scope = requireOrganizationScope(request);
       const automationPublicId = readAutomationPublicId(request);
       const removal = validateDeleteAutomationQuery(request.query);
       const { cancelledRunCount } = await service.deleteAutomation({
-        scope,
+        scope: requireOrganizationScope(request),
         automationPublicId,
         removal,
-        deletedByUserPublicId: getActingUserPublicId(auth),
+        deletedByUserPublicId: getActingUserPublicId(requirePrincipal(request)),
       });
-      await recordScopedAuditEvent({
+      await recordAutomationAudit({
         request,
-        input: {
-          ...buildAuditActorFields(auth),
-          action: 'app.automation.delete',
-          resource_type: AUTOMATION_AUDIT_RESOURCE_TYPE,
-          organizationPublicId: scope.organizationPublicId,
-          severity: 'WARNING',
-          metadata: {
-            automation_public_id: automationPublicId,
-            delete_reason: removal.reason,
-            cancelled_run_count: cancelledRunCount,
-          },
+        action: 'app.automation.delete',
+        severity: 'WARNING',
+        metadata: {
+          automation_public_id: automationPublicId,
+          delete_reason: removal.reason,
+          cancelled_run_count: cancelledRunCount,
         },
       });
       return reply.code(204).send();
+    },
+    ...createAutomationActionHandlers(service),
+  };
+}
+
+/**
+ * The action handlers of routes 32–35 (go live, pause, duplicate, keyword test), split out of
+ * {@link createAutomationController} to keep each map short; the same audit rules.
+ */
+function createAutomationActionHandlers(service: AutomationService) {
+  return {
+    goLiveAutomation: async (
+      request: FastifyRequest<{ Params: { automation_id: string } }>,
+      _reply: FastifyReply,
+    ) => {
+      validateEmptyAutomationAction(request.body);
+      const { automation, warnings, isChanged } = await service.goLiveAutomation({
+        scope: requireOrganizationScope(request),
+        automationPublicId: readAutomationPublicId(request),
+        actingUserPublicId: getActingUserPublicId(requirePrincipal(request)),
+      });
+      if (isChanged) {
+        await recordAutomationAudit({
+          request,
+          action: 'app.automation.go_live',
+          metadata: { automation_public_id: automation.id },
+        });
+      }
+      return successResponse({
+        data: automation,
+        request_id: getRequestIdentifier(request),
+        extraMeta: { warnings: renderWarnings({ request, warnings }) },
+      });
+    },
+    pauseAutomation: async (
+      request: FastifyRequest<{ Params: { automation_id: string } }>,
+      _reply: FastifyReply,
+    ) => {
+      const mode = validatePauseAutomation(request.body);
+      const { automation, isChanged } = await service.pauseAutomation({
+        scope: requireOrganizationScope(request),
+        automationPublicId: readAutomationPublicId(request),
+        mode,
+        actingUserPublicId: getActingUserPublicId(requirePrincipal(request)),
+      });
+      if (isChanged) {
+        await recordAutomationAudit({
+          request,
+          action: 'app.automation.pause',
+          metadata: { automation_public_id: automation.id, mode },
+        });
+      }
+      return successResponse({ data: automation, request_id: getRequestIdentifier(request) });
+    },
+    duplicateAutomation: async (
+      request: FastifyRequest<{ Params: { automation_id: string } }>,
+      _reply: FastifyReply,
+    ) => {
+      validateEmptyAutomationAction(request.body);
+      const sourcePublicId = readAutomationPublicId(request);
+      const automation = await service.duplicateAutomation({
+        scope: requireOrganizationScope(request),
+        automationPublicId: sourcePublicId,
+        actingUserPublicId: getActingUserPublicId(requirePrincipal(request)),
+      });
+      await recordAutomationAudit({
+        request,
+        action: 'app.automation.duplicate',
+        metadata: {
+          automation_public_id: automation.id,
+          source_automation_public_id: sourcePublicId,
+        },
+      });
+      return successResponse({ data: automation, request_id: getRequestIdentifier(request) });
+    },
+    testAutomationKeyword: async (
+      request: FastifyRequest<{ Params: { automation_id: string } }>,
+      _reply: FastifyReply,
+    ) => {
+      const { text, source } = validateKeywordTestAutomation(request.body);
+      const result = await service.testAutomationKeyword({
+        scope: requireOrganizationScope(request),
+        automationPublicId: readAutomationPublicId(request),
+        text,
+        source,
+      });
+      return successResponse({ data: result, request_id: getRequestIdentifier(request) });
     },
   };
 }

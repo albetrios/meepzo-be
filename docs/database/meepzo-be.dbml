@@ -9,6 +9,8 @@ Project meepzo_be {
 
 TableGroup app {
   app.automation_comment_logs
+  app.automation_counts
+  app.automation_reply_states
   app.automation_run_events
   app.automation_runs
   app.automations
@@ -141,6 +143,39 @@ Note app.automation_comment_logs {
   'RLS: enabled\nPolicies: automation_comment_logs_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
+Table app.automation_counts {
+  automation_id bigint [not null]
+  id bigint [pk, increment]
+  organization_id bigint [not null]
+  runs_by_version jsonb [not null]
+  runs_started bigint [not null]
+  slot smallint [not null]
+  taps bigint [not null]
+  taps_by_version jsonb [not null]
+  typed_answers bigint [not null]
+  typed_by_version jsonb [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.automation_counts {
+  'RLS: enabled\nPolicies: automation_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.automation_reply_states {
+  automation_id bigint [not null]
+  box_start timestamptz
+  channel_account_id bigint [not null]
+  id bigint [pk, increment]
+  last_text_number smallint
+  organization_id bigint [not null]
+  updated_at timestamptz [not null]
+  waiting_count int [not null]
+}
+
+Note app.automation_reply_states {
+  'RLS: enabled\nPolicies: automation_reply_states_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
 Table app.automation_run_events {
   AND  [not null]
   automation_run_id bigint [not null]
@@ -192,44 +227,52 @@ Note app.automation_runs {
 }
 
 Table app.automations {
-  AND  [not null]
-  completed_run_count int [not null]
+  ad_id varchar(64)
+  also_start_from text [not null]
+  AND 
+  cancelled_before_at timestamptz
+  CASE trigger
+  channel varchar(10) [not null]
+  channel_account_id bigint [not null]
   created_at timestamptz [not null]
   created_by_user_id bigint
+  default_reply_mode varchar(12)
   delete_note varchar(280)
   delete_reason varchar(20)
   deleted_at timestamptz
-  email_request_message jsonb
-  final_message jsonb [not null]
-  follow_request_message jsonb
+  ELSE cardinality
   id bigint [pk, increment]
-  instagram_account_id bigint [not null]
-  is_dm_keyword_trigger_enabled boolean [not null]
-  is_email_collection_enabled boolean [not null]
-  is_follow_required boolean [not null]
-  is_opening_message_enabled boolean [not null]
-  is_phone_collection_enabled boolean [not null]
+  is_hide_comment_after_direct_message_enabled boolean [not null]
   is_public_reply_enabled boolean [not null]
+  is_public_reply_mention_enabled boolean [not null]
+  is_reply_like_person_enabled boolean [not null]
   keywords text [not null]
   last_triggered_at timestamptz
   name varchar(255) [not null]
-  next_post_ends_at timestamptz
   next_post_linked_at timestamptz
-  next_post_starts_at timestamptz
   next_post_status varchar(10)
-  opening_message jsonb
+  NOT is
+  OR not
   organization_id bigint [not null]
-  phone_request_message jsonb
   public_id varchar(28) [not null]
+  public_reply_hour_limit smallint
   public_reply_texts text [not null]
+  ref_code varchar(64)
+  starter_questions text [not null]
   status varchar(10) [not null]
-  tags text [not null]
+  steps ->
+  stopped_at timestamptz
+  stopped_reason varchar(20)
+  target_ends_at timestamptz
   target_instagram_media_id varchar(64)
   target_instagram_story_id varchar(64)
-  target_scope varchar(10) [not null]
-  trigger_type varchar(15) [not null]
+  target_scope <> [not null]
+  target_starts_at timestamptz
+  trigger_tag varchar(50)
+  trigger_type varchar(20) [not null]
   updated_at timestamptz [not null]
   updated_by_user_id bigint
+  WHEN 'dm_keyword'
 }
 
 Note app.automations {

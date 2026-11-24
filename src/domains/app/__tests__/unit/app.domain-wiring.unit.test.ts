@@ -43,9 +43,15 @@ describe('app domain wiring', () => {
       subscriptionService: planAccessService,
       subscriptionTrialService: trialPort,
     } as never);
+    // The automation go-live's file check reads the upload domain's usable-file read (R13, R12).
+    application.decorate('uploadDomain', {
+      uploadService: { findUsableMessageFile: vi.fn() },
+    } as never);
     registerAppContainer(application);
 
     expect(Object.keys(application.appDomain).sort()).toEqual([
+      'automationCountService',
+      'automationReplyStateService',
       'automationRunService',
       'automationService',
       'channelAccountService',
@@ -136,6 +142,10 @@ describe('app domain wiring', () => {
       `PATCH ${APP_PREFIX}/contacts/:contact_id`,
       `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
       `POST ${APP_PREFIX}/automations`,
+      `POST ${APP_PREFIX}/automations/:automation_id/duplicate`,
+      `POST ${APP_PREFIX}/automations/:automation_id/go-live`,
+      `POST ${APP_PREFIX}/automations/:automation_id/keyword-test`,
+      `POST ${APP_PREFIX}/automations/:automation_id/pause`,
       `POST ${APP_PREFIX}/contacts/bulk-actions`,
       `POST ${APP_PREFIX}/social/channel-accounts/:channel_account_id/activate`,
       `POST ${APP_PREFIX}/social/channel-accounts/:channel_account_id/pause`,

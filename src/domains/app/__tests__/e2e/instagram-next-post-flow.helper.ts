@@ -3,11 +3,6 @@ import { expect, vi } from 'vitest';
 import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { AutomationRepository } from '@/domains/app/sub-domains/automation/automation.repository.js';
 import {
-  type AutomationNextPostExpiryResult,
-  runAutomationNextPostExpiryJob,
-} from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.processor.js';
-import {
-  AUTOMATIONS_PATH,
   type AutomationFixtureRow,
   automationPath,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
@@ -90,8 +85,9 @@ export function failNextLink(failure: 'refused_by_the_database' | 'after_the_row
 /**
  * One team's "next post" flow over the real app, on top of the comment flow (its team, account,
  * automations, signed deliveries, account job and fake Instagram): waiting automations made through
- * route 12, posts published at a chosen time, the 15-minute expiry check at a chosen time, and the
- * team's own reads of what happened.
+ * route 28's shape (written directly, R13), posts published at a chosen time, and the team's own
+ * reads of what happened. A "next post" waits from its go-live (its window's start here) with no end
+ * date (P12) — nothing expires.
  */
 export class InstagramNextPostFlow {
   /** The moment every window and publish time of the test is counted from. */
@@ -120,7 +116,7 @@ export class InstagramNextPostFlow {
     return postId;
   }
 
-  /** The window's two dates as route 12 and route 14 take them. */
+  /** The window's start (the go-live time now — P12 drops the end) as the launch fields name it. */
   windowBody({ startHours, endHours }: typeof DEFAULT_WINDOW): Record<string, unknown> {
     return {
       next_post_starts_at: this.hoursFromNow(startHours).toISOString(),
@@ -128,7 +124,7 @@ export class InstagramNextPostFlow {
     };
   }
 
-  /** Creates a live "next post" automation that waits (route 12); any field may be overridden. */
+  /** A live "next post" automation that waits from its window's start; any field may be overridden. */
   async createNextPostAutomation({
     name,
     window = DEFAULT_WINDOW,
@@ -192,23 +188,24 @@ export class InstagramNextPostFlow {
     expect(rows).toEqual([{ logged: 0 }]);
   }
 
-  /** The automation as the team reads it (route 13). */
+  /** The automation as the team reads it (route 29). */
   async readAsTheTeam(automation: AutomationFixtureRow): Promise<Record<string, unknown>> {
     const response = await this.request({ url: automationPath(automation.public_id) });
     expect(response.statusCode, response.body).toBe(200);
     return (response.json() as { data: Record<string, unknown> }).data;
   }
 
-  /** The names in the team's list, filtered by "next post" status (route 11). */
-  async listedNames(nextPostStatus: 'waiting' | 'linked' | 'expired'): Promise<unknown[]> {
-    const response = await this.request({
-      url: `${AUTOMATIONS_PATH}?next_post_status=${nextPostStatus}`,
-    });
-    expect(response.statusCode, response.body).toBe(200);
-    return (response.json() as { data: Array<{ name: string }> }).data.map(({ name }) => name);
+  /** The names of the team's automations in this "next post" status, oldest first. */
+  async listedNames(nextPostStatus: 'waiting' | 'linked'): Promise<unknown[]> {
+    const rows = await operatorQuery<Array<{ name: string }>>`
+      SELECT name FROM app.automations
+      WHERE organization_id = ${this.comments.team.organization.id}
+        AND next_post_status = ${nextPostStatus} AND deleted_at IS NULL
+      ORDER BY created_at, id`;
+    return rows.map(({ name }) => name);
   }
 
-  /** The team saves the automation (route 14); whatever the answer is. */
+  /** The team saves the automation (route 30); whatever the answer is. */
   async save({
     automation,
     body,
@@ -223,24 +220,16 @@ export class InstagramNextPostFlow {
     });
   }
 
-  /** Moves the automation's window into the past — time passing, seen from the database. */
+  /** Moves the automation's go-live time — time passing, seen from the database. */
   async passTheWindow({
     automation,
     startHours,
-    endHours,
   }: {
     automation: AutomationFixtureRow;
   } & typeof DEFAULT_WINDOW): Promise<void> {
     await operatorQuery`
-      UPDATE app.automations
-      SET next_post_starts_at = ${this.hoursFromNow(startHours)},
-        next_post_ends_at = ${this.hoursFromNow(endHours)}
+      UPDATE app.automations SET target_starts_at = ${this.hoursFromNow(startHours)}
       WHERE id = ${automation.id}`;
-  }
-
-  /** One 15-minute expiry check, at this many hours after the flow's `now`. */
-  async checkEndedWindows({ hours }: { hours: number }): Promise<AutomationNextPostExpiryResult> {
-    return runAutomationNextPostExpiryJob({ now: this.hoursFromNow(hours) });
   }
 
   /** A request as the team's Owner. */

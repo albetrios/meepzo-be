@@ -286,7 +286,6 @@ Operational sizing per family is documented in [resource-limits.md → Worker Po
 | `daily-audit-export`  | `audit-export`    | `15 2 * * *` (`AUDIT_EXPORT_CRON`) | [audit-export.md](../security/audit-export.md)                   |
 | `daily-audit-cleanup` | `audit-retention` | `0 3 * * *`                        | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `daily-instagram-webhook-event-cleanup` | `instagram-webhook-event-retention` | `0 3 * * *` (fixed, no setting) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
-| `automation-next-post-expiry-quarter-hourly` | `automation-next-post-expiry` | `*/15 * * * *` (fixed, no setting — launch D9) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `automation-run-wait-expiry-hourly` | `automation-run-wait-expiry` | `0 * * * *` (fixed, no setting — launch D8: runs waiting more than 7 days cancelled) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `daily-automation-run-retention` | `automation-run-retention` | `20 3 * * *` (fixed, no setting — launch D8) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `daily-automation-comment-log-retention` | `automation-comment-log-retention` | `30 3 * * *` (fixed, no setting — launch D8) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |

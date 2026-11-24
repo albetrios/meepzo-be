@@ -43,13 +43,11 @@ src/
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
     │   │   │   │   │       └── worker/
-    │   │   │   │   │       │   ├── automation-next-post-expiry.worker.unit.test.ts
     │   │   │   │   │       │   └── automation-tombstone-retention.worker.unit.test.ts
-    │   │   │   │   │   ├── automation-next-post-expiry.processor.unit.test.ts
+    │   │   │   │   │   ├── automation-channel-neutral.policy.unit.test.ts
     │   │   │   │   │   ├── automation-tombstone-retention.processor.db.unit.test.ts
     │   │   │   │   │   ├── automation.repository.db.unit.test.ts
     │   │   │   │   │   ├── automation.serializer.unit.test.ts
-    │   │   │   │   │   ├── automation.service.unit.test.ts
     │   │   │   │   │   └── automation.validator.unit.test.ts
     │   │   │   ├── automation-run/
     │   │   │   │   ├── __tests__/
@@ -94,6 +92,7 @@ src/
     │   │   │   │   ├── automation-comment-log.repository.ts
     │   │   │   │   ├── automation-comment-log.schema.ts
     │   │   │   │   ├── automation-public-reply-safety.service.ts
+    │   │   │   │   ├── automation-run-automation.repository.ts
     │   │   │   │   ├── automation-run-event.repository.ts
     │   │   │   │   ├── automation-run-event.schema.ts
     │   │   │   │   ├── automation-run-matching.util.ts
@@ -112,12 +111,16 @@ src/
     │   │   │   │   ├── automation.faker.ts
     │   │   │   │   └── index.ts
     │   │   │   ├── workers/
-    │   │   │   │   ├── automation-next-post-expiry.constants.ts
-    │   │   │   │   ├── automation-next-post-expiry.processor.ts
-    │   │   │   │   ├── automation-next-post-expiry.worker.ts
     │   │   │   │   ├── automation-tombstone-retention.constants.ts
     │   │   │   │   ├── automation-tombstone-retention.processor.ts
     │   │   │   │   └── automation-tombstone-retention.worker.ts
+    │   │   │   ├── automation-count.repository.ts
+    │   │   │   ├── automation-count.schema.ts
+    │   │   │   ├── automation-count.service.ts
+    │   │   │   ├── automation-reply-state.repository.ts
+    │   │   │   ├── automation-reply-state.schema.ts
+    │   │   │   ├── automation-reply-state.service.ts
+    │   │   │   ├── automation-steps.dto.ts
     │   │   │   ├── automation.constants.ts
     │   │   │   ├── automation.controller.ts
     │   │   │   ├── automation.dto.ts
@@ -487,6 +490,7 @@ src/
     │   │   │   ├── instagram-webhook.service.ts
     │   │   │   └── instagram-webhook.types.ts
     │   ├── app-plan-access.ts
+    │   ├── app.channel-ports.ts
     │   ├── app.container.ts
     │   ├── app.overview.md
     │   ├── app.permissions.ts
@@ -3194,6 +3198,7 @@ src/
     │   │   │   ├── file-magic.util.property.unit.test.ts
     │   │   │   ├── file-magic.util.unit.test.ts
     │   │   │   ├── parse-with-schema.util.unit.test.ts
+    │   │   │   ├── record-fields.delete-query.unit.test.ts
     │   │   │   ├── record-fields.known-time-zone.unit.test.ts
     │   │   │   ├── record-fields.query-instant-range.unit.test.ts
     │   │   │   ├── record-fields.to-text.unit.test.ts

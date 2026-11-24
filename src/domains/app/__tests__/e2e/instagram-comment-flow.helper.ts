@@ -52,10 +52,11 @@ import {
   updateContactActivity,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
-  AUTOMATIONS_PATH,
   type AutomationFixtureRow,
+  automationActionPath,
   automationPath,
-  commentAutomationBody,
+  insertLegacyAutomation,
+  legacyAutomationEditRequests,
   readAutomationRow,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
@@ -387,15 +388,17 @@ export class InstagramCommentFlow {
     this.connectedAccount = null;
   }
 
-  /** Creates a live comment automation (route 12); any field may be overridden. */
+  /**
+   * A live comment automation on the connected account (launch-shaped fields, written directly —
+   * the shared routes' own checks are their suite's, ROUTE row R13); any field may be overridden.
+   */
   async createAutomation(body: AutomationBody): Promise<AutomationFixtureRow> {
-    const response = await this.request({
-      method: 'POST',
-      url: AUTOMATIONS_PATH,
-      payload: commentAutomationBody({ status: 'live', ...body }),
+    return insertLegacyAutomation({
+      organizationId: this.team.organization.id,
+      channelAccountId: this.account.channelAccountId,
+      channelAccountPublicId: this.account.publicId,
+      legacyBody: body,
     });
-    expect(response.statusCode, response.body).toBe(200);
-    return this.readAutomation((response.json() as { data: { id: string } }).data.id);
   }
 
   /** Creates a live comment automation that sends its final message and nothing before it. */
@@ -407,7 +410,7 @@ export class InstagramCommentFlow {
     });
   }
 
-  /** Changes an automation (route 14). */
+  /** Changes an automation: a launch `status` through go-live or pause, the rest through route 30. */
   async editAutomation({
     automation,
     body,
@@ -415,15 +418,29 @@ export class InstagramCommentFlow {
     automation: AutomationFixtureRow;
     body: AutomationBody;
   }): Promise<void> {
-    const response = await this.request({
-      method: 'PATCH',
-      url: automationPath(automation.public_id),
-      payload: body,
+    const { patch, action } = await legacyAutomationEditRequests({
+      automationPublicId: automation.public_id,
+      changes: body,
     });
-    expect(response.statusCode, response.body).toBe(200);
+    if (patch !== null) {
+      const response = await this.request({
+        method: 'PATCH',
+        url: automationPath(automation.public_id),
+        payload: patch,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+    }
+    if (action !== null) {
+      const response = await this.request({
+        method: 'POST',
+        url: automationActionPath({ automationPublicId: automation.public_id, action }),
+        ...(action === 'pause' ? { payload: { mode: 'keep' } } : {}),
+      });
+      expect(response.statusCode, response.body).toBe(200);
+    }
   }
 
-  /** Deletes an automation (route 15). */
+  /** Deletes an automation (route 31). */
   async deleteAutomation(automation: AutomationFixtureRow): Promise<void> {
     const response = await this.request({
       method: 'DELETE',

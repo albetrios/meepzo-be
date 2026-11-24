@@ -80,6 +80,16 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   'GET /api/v1/app/automations/:automation_id': 'cross-organization-resource: automation',
   'PATCH /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation PATCH',
   'DELETE /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation DELETE',
+  // feat-instagram-dm-sending R13: automation.integration.test.ts runs the four actions on another
+  // organization's automation → 404 automation_not_found, and reads the row back unchanged.
+  'POST /api/v1/app/automations/:automation_id/go-live':
+    'cross-organization-mutation: automation go-live',
+  'POST /api/v1/app/automations/:automation_id/pause':
+    'cross-organization-mutation: automation pause',
+  'POST /api/v1/app/automations/:automation_id/duplicate':
+    'cross-organization-mutation: automation duplicate',
+  'POST /api/v1/app/automations/:automation_id/keyword-test':
+    'cross-organization-resource: automation keyword test',
   // feat-instagram-dm-sending R3: channel-connection.integration.test.ts reads, reconnects, picks
   // and disconnects another organization's connection → 404 channel_connection_not_found with the
   // row and token unchanged; a login state another organization started is refused (400) and

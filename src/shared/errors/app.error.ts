@@ -1,3 +1,4 @@
+import type { ValidationErrorItem } from './validation.error.js';
 /** Discriminator for {@link AppError} subclasses; mapped to wire-format codes via {@link ERROR_CODE_TO_SNAKE}. */
 export type AppErrorCode =
   | 'VALIDATION_ERROR'
@@ -77,6 +78,13 @@ export class AppError extends Error {
    * {@link APP_ERROR_FIELD_NAMES}. Set via {@link AppError.withFields}; serialized on a 4xx only.
    */
   fields?: AppErrorFields;
+  /**
+   * A list of problems a non-validation error carries as `error.errors[]` — the one use today is
+   * `409 automation_not_ready` (feat-instagram-dm-sending AUQ1, P68), each item with its `field`,
+   * `reason` and translated message. Set via {@link AppError.withErrorItems}; a `ValidationError`
+   * keeps its own `errors`.
+   */
+  errorItems?: ValidationErrorItem[];
 
   constructor(
     code: AppErrorCode,
@@ -129,6 +137,15 @@ export class AppError extends Error {
    */
   withFields(fields: AppErrorFields): this {
     this.fields = { ...this.fields, ...fields };
+    return this;
+  }
+
+  /**
+   * Attaches {@link AppError.errorItems} and returns `this` (fluent), e.g.
+   * `throw new ConflictError('errors:automationNotReady').withReason('automation_not_ready').withErrorItems(items)`.
+   */
+  withErrorItems(items: ValidationErrorItem[]): this {
+    this.errorItems = items;
     return this;
   }
 }

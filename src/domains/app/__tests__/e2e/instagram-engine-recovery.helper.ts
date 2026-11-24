@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  automationActionPath,
   automationPath,
-  commentAutomationBody,
+  legacyAutomationEditRequests,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { nextInstagramObjectId } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -47,7 +48,7 @@ export function commentEvent({
 export function commentAutomation(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  return commentAutomationBody({
+  return {
     name: 'Guide by comment',
     status: 'live',
     keywords: ['guide'],
@@ -55,10 +56,10 @@ export function commentAutomation(
     opening_message: null,
     final_message: { text: 'Here is the guide', links: [] },
     ...overrides,
-  });
+  };
 }
 
-/** Changes an automation over route 14 as the team's Owner. */
+/** Changes an automation as the team's Owner: a launch `status` through go-live or pause, the rest through route 30. */
 export async function editAutomation({
   app,
   flow,
@@ -70,18 +71,38 @@ export async function editAutomation({
   automationPublicId: string;
   changes: Record<string, unknown>;
 }): Promise<void> {
-  const response = await injectAuthenticated(app, {
-    method: 'PATCH',
-    url: automationPath(automationPublicId),
-    token: flow.team.ownerToken,
-    payload: changes,
-  });
-  if (response.statusCode !== 200) {
-    throw new Error(`automation edit fixture failed with ${response.statusCode}: ${response.body}`);
+  const { patch, action } = await legacyAutomationEditRequests({ automationPublicId, changes });
+  const responses: InjectHttpResult[] = [];
+  if (patch !== null) {
+    responses.push(
+      await injectAuthenticated(app, {
+        method: 'PATCH',
+        url: automationPath(automationPublicId),
+        token: flow.team.ownerToken,
+        payload: patch,
+      }),
+    );
+  }
+  if (action !== null) {
+    responses.push(
+      await injectAuthenticated(app, {
+        method: 'POST',
+        url: automationActionPath({ automationPublicId, action }),
+        token: flow.team.ownerToken,
+        ...(action === 'pause' ? { payload: { mode: 'keep' } } : {}),
+      }),
+    );
+  }
+  for (const response of responses) {
+    if (response.statusCode !== 200) {
+      throw new Error(
+        `automation edit fixture failed with ${response.statusCode}: ${response.body}`,
+      );
+    }
   }
 }
 
-/** Deletes an automation over route 15 as the team's Owner and answers the response. */
+/** Deletes an automation over route 31 as the team's Owner and answers the response. */
 export function deleteAutomation({
   app,
   flow,

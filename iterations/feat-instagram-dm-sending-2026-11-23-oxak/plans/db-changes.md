@@ -835,6 +835,16 @@ erDiagram
   are referred to by upload public id, same organization, checked by file type and content (magic bytes)
   — the malware scan comes in a later iteration (plan:L3094; [P34](decisions.md), a D58 deviation).
 - **Table:** `app.automations` (live; shared across channels, no rename — [P48](decisions.md), P29)
+- **Built R13 ([AS-BUILT](../AS-BUILT.md), [P124](decisions.md)):** `app.automations` changed in place in
+  `20261121150135_app_automations.sql` — `channel_account_id` (composite → `app.channel_accounts` RESTRICT), `channel`,
+  `status`, `trigger_type`, `also_start_from`, `target_scope`, `target_instagram_media_id`, `target_instagram_story_id`,
+  `target_starts_at`, `target_ends_at`, `next_post_status`, `next_post_linked_at`, `keywords`, `ref_code`,
+  `starter_questions`, `ad_id`, `trigger_tag`, `default_reply_mode`, `is_public_reply_enabled`, `public_reply_texts`,
+  `is_public_reply_mention_enabled`, `is_reply_like_person_enabled`, `public_reply_hour_limit`,
+  `is_hide_comment_after_direct_message_enabled`, `steps`, `stopped_reason`, `stopped_at`, `cancelled_before_at`,
+  `last_triggered_at`, the users and soft-delete columns; the 13 message columns, the DM switch, `tags`,
+  `completed_run_count`, `next_post_starts_at` / `_ends_at` dropped; the go-live checks one-way per kind; the
+  contact keys `contacts_first_automation_fk`, `contact_tag_events_source_automation_fk` (`SET NULL (<column>)`).
 - **Sources:** plan:L2995–L3145; D28–D45, D52, D57, D59, D63; current schema
   `src/domains/app/sub-domains/automation/automation.schema.ts`.
 - **Added:** the fields marked `ADDED`; the go-live checks of §5.1 plus the "next step" button rule
@@ -907,6 +917,8 @@ erDiagram
   step version (for example `hello.1`) — split over 16 slots so busy automations do not wait on one
   row (D36). Survives the 90-day run delete. No public id. Goes away with its automation.
 - **Table:** `app.automation_counts` (the plan's name; shared, [P48](decisions.md))
+- **Built R13 ([AS-BUILT](../AS-BUILT.md), [P124](decisions.md)):** as designed plus an `id bigserial` primary key
+  (the RLS matrix's row id); the plan's key is the unique `idx_automation_counts_automation_slot`.
 - **Sources:** plan:L3576–L3599; D36, D61.
 - **Added:** new.
 - **Replaced:** `automation.completed_run_count` (removed).
@@ -939,6 +951,9 @@ erDiagram
   first public reply. No public id.
 - **Table:** `app.automation_reply_states` (shared, [P48](decisions.md); the plan names it in the singular,
   `app.automation_reply_state` — the repository's tables are plural)
+- **Built R13 ([AS-BUILT](../AS-BUILT.md), [P124](decisions.md)):** as designed (`box_start`, `last_text_number`,
+  `waiting_count`) plus an `id bigserial` primary key; unique `idx_automation_reply_states_automation`, index
+  `idx_automation_reply_states_account`.
 - **Sources:** plan:L3601–L3621; D32, D52.
 - **Added:** new — replaces the account-wide reply safety of the launch (D32).
 - **Replaced:** none.

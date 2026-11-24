@@ -52,7 +52,7 @@ function buildErrorPayload({
   type: 'request_error' | 'validation_error';
   code: string;
   detail: string;
-  errors?: { field: string; message: string }[] | undefined;
+  errors?: { field: string; message: string; reason?: string }[] | undefined;
   reason?: string | undefined;
   fields?: AppErrorFields | undefined;
 }) {
@@ -63,7 +63,7 @@ function buildErrorPayload({
     reason?: string;
     detail: string;
     documentation_url?: string;
-    errors?: { field: string; message: string }[];
+    errors?: { field: string; message: string; reason?: string }[];
   } & AppErrorFields = {
     type,
     code,
@@ -351,10 +351,13 @@ function handleAppErrorResponse({
         params: translateResourceNoun({ request, params: error.messageParams }),
         fallback: error.message,
       });
+  // A validation error's field list, or the problem list a 409 carries (`automation_not_ready`).
+  const items = isValidation ? error.errors : error.errorItems;
   const errors =
-    isValidation && error.errors
-      ? error.errors.map((item) => ({
+    items !== undefined && !isServerError
+      ? items.map((item) => ({
           field: item.field,
+          ...(item.reason === undefined ? {} : { reason: item.reason }),
           message: renderFieldMessage({ request, item }),
         }))
       : undefined;

@@ -1,6 +1,6 @@
 import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { expect } from 'vitest';
@@ -25,9 +25,9 @@ import {
   processInstagramWebhookAccountJob,
 } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
 import {
-  AUTOMATIONS_PATH,
   type AutomationFixtureRow,
   automationPath,
+  insertLegacyAutomation,
   readAutomationRow,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
@@ -268,6 +268,8 @@ interface DirectMessageContent {
 /** The connected Instagram account of a flow. */
 interface FlowInstagramAccount {
   id: number;
+  /** `app.channel_accounts.id` — the automations' account key (R13). */
+  channelAccountId: number;
   publicId: string;
   /** The webhook's id of the account — every delivery entry names it. */
   instagramUserId: string;
@@ -334,6 +336,7 @@ export class InstagramMessageFlow {
     );
     this.connectedAccount = {
       id: Number(row?.id),
+      channelAccountId: Number(row?.channel_account_id),
       publicId: row?.public_id ?? '',
       instagramUserId: profile.user_id,
       instagramAppUserId: profile.id,
@@ -360,19 +363,21 @@ export class InstagramMessageFlow {
     expect(response.statusCode).toBe(200);
   }
 
-  /** Creates an automation (route 12) and answers its public id — the later, the younger. */
+  /**
+   * A launch-shaped automation on the connected account, written directly (the shared routes'
+   * checks are their suite's, ROUTE row R13); answers its public id — the later, the younger.
+   */
   async createAutomation(body: Record<string, unknown>): Promise<string> {
-    const response = await this.asOwner({
-      method: 'POST',
-      url: AUTOMATIONS_PATH,
-      payload: body,
-      headers: { 'x-idempotency-key': `message-flow-${randomUUID()}` },
+    const automation = await insertLegacyAutomation({
+      organizationId: this.team.organization.id,
+      channelAccountId: this.account.channelAccountId,
+      channelAccountPublicId: this.account.publicId,
+      legacyBody: body,
     });
-    expect(response.statusCode, response.body).toBe(200);
-    return (response.json() as { data: { id: string } }).data.id;
+    return automation.public_id;
   }
 
-  /** Deletes an automation (route 15) — its open runs are cancelled with it (AU12). */
+  /** Deletes an automation (route 31) — its open runs are cancelled with it (AU12). */
   async deleteAutomation(automationPublicId: string): Promise<void> {
     const response = await this.asOwner({
       method: 'DELETE',

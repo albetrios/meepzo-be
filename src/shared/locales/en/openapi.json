@@ -42,7 +42,7 @@
     "Instagram account": "The organization's connected Instagram professional account — read, change its settings, disconnect, browse its posts and stories",
     "Contact": "The people who interacted with the organization's Instagram accounts — list and erase",
     "Instagram Webhook": "Instagram events Meta delivers for the connected account, and the list of what happened to each",
-    "Automation": "What answers comments, DMs and story replies on the organization's Instagram accounts — list, create, read, edit and delete",
+    "Automation": "What answers comments, DMs, story replies and the other ways to start on each channel account — save drafts, list, read, save content, go live, pause, duplicate, try a keyword and delete",
     "Instagram sending": "How an organization's Instagram accounts are sending: an account's sending status (waiting messages, stops, today's results) and the organization's monthly DM meter"
   },
   "components": {

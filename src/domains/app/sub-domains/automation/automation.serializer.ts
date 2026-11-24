@@ -1,140 +1,189 @@
+import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import type {
+  AutomationAlsoStartFrom,
+  AutomationDefaultReplyMode,
   AutomationNextPostStatus,
   AutomationStatus,
   AutomationTargetScope,
   AutomationTriggerType,
 } from './automation.constants.js';
+import type { AutomationSteps } from './automation-steps.dto.js';
 import type {
-  AutomationFinalMessage,
-  AutomationFollowRequestMessage,
-  AutomationOpeningMessage,
+  AutomationCountsOutput,
+  AutomationListRowOutput,
   AutomationOutput,
-  AutomationTextMessage,
 } from './automation.types.js';
 
 /** The `app.automations` columns the automation object reads. */
 interface AutomationSerializableRow {
   public_id: string;
+  channel: string;
   name: string;
   status: string;
   trigger_type: string;
+  also_start_from: string[];
   target_scope: string;
   target_instagram_media_id: string | null;
   target_instagram_story_id: string | null;
-  next_post_starts_at: Date | null;
-  next_post_ends_at: Date | null;
+  target_starts_at: Date | null;
+  target_ends_at: Date | null;
   next_post_status: string | null;
   next_post_linked_at: Date | null;
-  is_dm_keyword_trigger_enabled: boolean;
   keywords: string[];
-  tags: string[];
+  ref_code: string | null;
+  starter_questions: string[];
+  ad_id: string | null;
+  trigger_tag: string | null;
+  default_reply_mode: string | null;
   is_public_reply_enabled: boolean;
   public_reply_texts: string[];
-  is_opening_message_enabled: boolean;
-  opening_message: AutomationOpeningMessage | null;
-  is_follow_required: boolean;
-  follow_request_message: AutomationFollowRequestMessage | null;
-  is_email_collection_enabled: boolean;
-  email_request_message: AutomationTextMessage | null;
-  is_phone_collection_enabled: boolean;
-  phone_request_message: AutomationTextMessage | null;
-  final_message: AutomationFinalMessage;
-  completed_run_count: number;
+  is_public_reply_mention_enabled: boolean;
+  is_reply_like_person_enabled: boolean;
+  public_reply_hour_limit: number | null;
+  is_hide_comment_after_direct_message_enabled: boolean;
+  steps: AutomationSteps;
+  stopped_reason: string | null;
+  stopped_at: Date | null;
+  cancelled_before_at: Date | null;
   last_triggered_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
 
-/** A stored opening message as the API shows it — `button_title` always present. */
-function serializeOpeningMessage(
-  message: AutomationOpeningMessage | null,
-): AutomationOpeningMessage | null {
-  return message === null
-    ? null
-    : { text: message.text, button_title: message.button_title ?? null };
+/**
+ * The empty counts of an automation that never ran (AU19).
+ *
+ * @remarks
+ * Pure: a fresh object each call, so a caller may fill it.
+ */
+export function emptyAutomationCounts(): AutomationCountsOutput {
+  return { runs_started: 0, taps: 0, typed_answers: 0, tapped_percent: null, by_version: {} };
 }
 
-/** A stored final message as the API shows it — `links` always an array (never null, D19). */
-function serializeFinalMessage(message: AutomationFinalMessage): AutomationFinalMessage {
-  return {
-    text: message.text,
-    links: (message.links ?? []).map((link) => ({ title: link.title, url: link.url })),
-  };
+/** An instant as ISO 8601, or `null`. */
+function toIso(value: Date | null): string | null {
+  return value === null ? null : value.toISOString();
+}
+
+/** A `ref_link` automation's chat link (`https://ig.me/m/<username>?ref=<ref_code>`, AU17). */
+export function buildAutomationLinkUrl({
+  triggerType,
+  refCode,
+  username,
+}: {
+  triggerType: string;
+  refCode: string | null;
+  username: string | null;
+}): string | null {
+  if (triggerType !== 'ref_link' || refCode === null || username === null) return null;
+  return `https://ig.me/m/${encodeURIComponent(username)}?ref=${encodeURIComponent(refCode)}`;
 }
 
 /**
- * Maps a live `app.automations` row, its Instagram account's public id and its two users' public
- * ids to the automation object (routes-final § 3.A.6).
+ * Shapes one automation as the Automation object of routes 28–30 and 32–34 (routes-final § 4.A.6):
+ * the public ids of the automation, its channel account and its two users; the counts summed from
+ * the slot rows (zero before the first run); the PRO parts the plan ignores now; the `ref_link`
+ * chat link.
  *
  * @remarks
- * - **Algorithm:** names every key (no row spread): `id` from `public_id`, `instagram_account_id`
- *   the caller-resolved `cha_…` (AU27), `created_by_user_id` / `updated_by_user_id` the
- *   caller-resolved `usr_…` (or `null`), timestamps as ISO 8601, arrays and message objects copied
- *   key by key; each value list typed as its list (D19).
- * - **Failure modes:** none — a pure mapping. Only live rows reach it.
- * - **Side effects:** none.
- * - **Notes:** the internal ids and the soft-delete columns (`deleted_at`, `delete_reason`,
- *   `delete_note`) never leave.
+ * Pure — the service resolves the ids, the counts, `pro_parts_off` and the username first. Internal
+ * ids, the soft-delete fields and `channel_account_id`'s internal value never leave. `open_backfill`
+ * is `null` until the past-comments read lands (4.C, ROUTE row R15).
  */
 export function serializeAutomation({
   automation,
-  instagram_account_public_id,
+  channel_account_public_id,
   created_by_user_public_id,
   updated_by_user_public_id,
+  counts,
+  pro_parts_off,
+  username,
 }: {
   automation: AutomationSerializableRow;
-  /** `cha_…` of the automation's account. */
-  instagram_account_public_id: string;
-  /** `usr_…` of the creator, or `null`. */
+  channel_account_public_id: string;
   created_by_user_public_id: string | null;
-  /** `usr_…` of the last editor, or `null`. */
   updated_by_user_public_id: string | null;
+  counts: AutomationCountsOutput | undefined;
+  pro_parts_off: ChannelFeature[];
+  /** The account's Instagram username (the `ref_link` chat link), `null` when unknown. */
+  username: string | null;
 }): AutomationOutput {
   return {
     id: automation.public_id,
-    instagram_account_id: instagram_account_public_id,
+    channel_account_id: channel_account_public_id,
     name: automation.name,
     status: automation.status as AutomationStatus,
+    channel: automation.channel,
     trigger_type: automation.trigger_type as AutomationTriggerType,
+    also_start_from: [...automation.also_start_from] as AutomationAlsoStartFrom[],
     target_scope: automation.target_scope as AutomationTargetScope,
     target_instagram_media_id: automation.target_instagram_media_id,
     target_instagram_story_id: automation.target_instagram_story_id,
-    next_post_starts_at: automation.next_post_starts_at?.toISOString() ?? null,
-    next_post_ends_at: automation.next_post_ends_at?.toISOString() ?? null,
+    target_starts_at: toIso(automation.target_starts_at),
+    target_ends_at: toIso(automation.target_ends_at),
     next_post_status: automation.next_post_status as AutomationNextPostStatus | null,
-    next_post_linked_at: automation.next_post_linked_at?.toISOString() ?? null,
-    is_dm_keyword_trigger_enabled: automation.is_dm_keyword_trigger_enabled,
+    next_post_linked_at: toIso(automation.next_post_linked_at),
     keywords: [...automation.keywords],
-    tags: [...automation.tags],
+    ref_code: automation.ref_code,
+    link_url: buildAutomationLinkUrl({
+      triggerType: automation.trigger_type,
+      refCode: automation.ref_code,
+      username,
+    }),
+    starter_questions: [...automation.starter_questions],
+    ad_id: automation.ad_id,
+    trigger_tag: automation.trigger_tag,
+    default_reply_mode: automation.default_reply_mode as AutomationDefaultReplyMode | null,
     is_public_reply_enabled: automation.is_public_reply_enabled,
     public_reply_texts: [...automation.public_reply_texts],
-    is_opening_message_enabled: automation.is_opening_message_enabled,
-    opening_message: serializeOpeningMessage(automation.opening_message),
-    is_follow_required: automation.is_follow_required,
-    follow_request_message:
-      automation.follow_request_message === null
-        ? null
-        : {
-            text: automation.follow_request_message.text,
-            following_button_title: automation.follow_request_message.following_button_title,
-            profile_button_title: automation.follow_request_message.profile_button_title,
-          },
-    is_email_collection_enabled: automation.is_email_collection_enabled,
-    email_request_message:
-      automation.email_request_message === null
-        ? null
-        : { text: automation.email_request_message.text },
-    is_phone_collection_enabled: automation.is_phone_collection_enabled,
-    phone_request_message:
-      automation.phone_request_message === null
-        ? null
-        : { text: automation.phone_request_message.text },
-    final_message: serializeFinalMessage(automation.final_message),
-    completed_run_count: automation.completed_run_count,
-    last_triggered_at: automation.last_triggered_at?.toISOString() ?? null,
+    is_public_reply_mention_enabled: automation.is_public_reply_mention_enabled,
+    is_reply_like_person_enabled: automation.is_reply_like_person_enabled,
+    public_reply_hour_limit: automation.public_reply_hour_limit,
+    is_hide_comment_after_direct_message_enabled:
+      automation.is_hide_comment_after_direct_message_enabled,
+    steps: automation.steps,
+    stopped_reason: automation.stopped_reason,
+    stopped_at: toIso(automation.stopped_at),
+    cancelled_before_at: toIso(automation.cancelled_before_at),
+    counts: counts ?? emptyAutomationCounts(),
+    pro_parts_off,
+    open_backfill: null,
+    last_triggered_at: toIso(automation.last_triggered_at),
     created_by_user_id: created_by_user_public_id,
     updated_by_user_id: updated_by_user_public_id,
     created_at: automation.created_at.toISOString(),
     updated_at: automation.updated_at.toISOString(),
+  };
+}
+
+/**
+ * Shapes one automation as the Automation list row of route 27 (routes-final § 4.A.6): its all-time
+ * `runs_started` and `tapped_percent` (D61) from the summed slot rows; a draft's `updated_at`
+ * ("edited 1h ago").
+ *
+ * @remarks
+ * Pure.
+ */
+export function serializeAutomationListRow({
+  automation,
+  channel_account_public_id,
+  counts,
+}: {
+  automation: AutomationSerializableRow;
+  channel_account_public_id: string;
+  counts: AutomationCountsOutput | undefined;
+}): AutomationListRowOutput {
+  return {
+    id: automation.public_id,
+    channel_account_id: channel_account_public_id,
+    name: automation.name,
+    status: automation.status as AutomationStatus,
+    trigger_type: automation.trigger_type as AutomationTriggerType,
+    stopped_reason: automation.stopped_reason,
+    runs_started: counts?.runs_started ?? 0,
+    tapped_percent: counts?.tapped_percent ?? null,
+    last_triggered_at: toIso(automation.last_triggered_at),
+    updated_at: automation.updated_at.toISOString(),
+    created_at: automation.created_at.toISOString(),
   };
 }

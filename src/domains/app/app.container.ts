@@ -42,6 +42,11 @@ import { ContactRepository } from './sub-domains/contact/contact.repository.js';
 import { ContactService } from './sub-domains/contact/contact.service.js';
 import type { ContactErasureStep, ContactPauseStep } from './sub-domains/contact/contact.types.js';
 import { AutomationRepository } from './sub-domains/automation/automation.repository.js';
+import { AutomationCountRepository } from './sub-domains/automation/automation-count.repository.js';
+import { AutomationCountService } from './sub-domains/automation/automation-count.service.js';
+import { AutomationReplyStateRepository } from './sub-domains/automation/automation-reply-state.repository.js';
+import { AutomationReplyStateService } from './sub-domains/automation/automation-reply-state.service.js';
+import type { AutomationMessageFilePort } from './sub-domains/automation/automation.types.js';
 import { AutomationService } from './sub-domains/automation/automation.service.js';
 import type { AutomationOpenRunCancelStep } from './sub-domains/automation/automation.types.js';
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
@@ -104,6 +109,10 @@ export type AppContainer = {
   instagramWebhookEventService: InstagramWebhookEventService;
   instagramWebhookService: InstagramWebhookService;
   automationService: AutomationService;
+  /** The automations' all-time counts (AU19) — the run engine writes through it from R14. */
+  automationCountService: AutomationCountService;
+  /** The "Reply like a person" pacing (AU19) — sub-domain 6's reply lane reads and writes it. */
+  automationReplyStateService: AutomationReplyStateService;
   automationRunService: AutomationRunService;
   instagramSendLaneService: InstagramSendLaneService;
   messageMonthCountService: MessageMonthCountService;
@@ -340,37 +349,57 @@ function createContactServices({
 }
 
 /**
- * The automation, contact and run-engine services (routes-final § 3, § 2.10): automations (routes
- * 11–15), contacts (routes 9–10) and the run engine (sub-domain 3.B), with the two hooks that join
- * them — the automation delete's open-run cancel (AU12) and the contact erase's run copies (CT8).
+ * The automation, contact and run-engine services (feat-instagram-dm-sending routes-final § 3, § 4):
+ * automations (routes 27–35, shared by every channel — R13) with their counts and reply pacing,
+ * contacts (routes 18–23) and the run engine (4.B), with the two hooks that join them — the
+ * automation delete's open-run cancel (AU16) and the contact erase's run copies (CT8).
  *
  * @remarks
- * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only. The automations read
+ * accounts and the one feature check through the channel account (AU34), the month limit through
+ * 6's month count, files through the upload domain's usable-file read (R12); the starter-question
+ * sync (R40) and the channels' sending ports (R19–R20) join later.
  */
 function createAutomationServices({
   instagramAccountService,
   organizationService,
+  channelAccountService,
+  planAccessService,
+  messageMonthCountService,
+  messageFilePort,
 }: {
   instagramAccountService: InstagramAccountService;
   organizationService: OrganizationService;
+  channelAccountService: ChannelAccountService;
+  planAccessService: ChannelConnectionPlanAccessService;
+  messageMonthCountService: MessageMonthCountService;
+  messageFilePort: AutomationMessageFilePort | undefined;
 }) {
-  // The automation delete's hook (routes-final § 3.A AU12): every step registered here runs inside
-  // route 15's transaction, after the soft delete, and answers how many open runs it cancelled.
-  // Sub-domain 3.B registers `cancelAutomationOpenRuns` below, once the run engine is built.
+  // The automation delete's hook (AU16): every step registered here runs inside route 31's
+  // transaction, after the soft delete, and answers how many open runs it cancelled. Sub-domain 4.B
+  // registers `cancelAutomationOpenRuns` below, once the run engine is built.
   const automationOpenRunCancelSteps: AutomationOpenRunCancelStep[] = [];
+  const automationCountService = new AutomationCountService(new AutomationCountRepository());
+  const automationReplyStateService = new AutomationReplyStateService(
+    new AutomationReplyStateRepository(),
+  );
   const automationService = new AutomationService(
     new AutomationRepository(),
-    instagramAccountService,
+    automationCountService,
+    automationReplyStateService,
+    channelAccountService,
+    planAccessService,
     organizationService,
     automationOpenRunCancelSteps,
+    { monthLimit: messageMonthCountService, messageFiles: messageFilePort },
   );
   const { contactService, contactTagEventService, contactErasureSteps } = createContactServices({
     organizationService,
     automationService,
     cancelContactOpenRuns: (input) => automationRunService.cancelContactOpenRuns(input),
   });
-  // The run engine (sub-domain 3.B): sub-domain 4's event processing calls its entry points; it
-  // sends through sub-domain 1 and writes contacts through sub-domain 2 (AU5).
+  // The run engine (sub-domain 4.B): sub-domain 5's event processing calls its entry points; it
+  // sends through sub-domain 1 and writes contacts through sub-domain 3 (AU5).
   const automationRunService = new AutomationRunService(
     instagramAccountService,
     contactService,
@@ -381,7 +410,14 @@ function createAutomationServices({
     automationRunService.cancelAutomationOpenRuns(input),
   );
   contactErasureSteps.push((input) => automationRunService.eraseContactRunCopies(input));
-  return { automationService, contactService, contactTagEventService, automationRunService };
+  return {
+    automationService,
+    automationCountService,
+    automationReplyStateService,
+    contactService,
+    contactTagEventService,
+    automationRunService,
+  };
 }
 
 /**
@@ -400,12 +436,18 @@ export function createAppContainer({
   organizationService,
   planAccessService,
   trialPort,
+  messageFilePort,
 }: {
   organizationService: OrganizationService;
   /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
   planAccessService: ChannelConnectionPlanAccessService;
   /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
   trialPort: ChannelConnectionTrialPort;
+  /**
+   * The upload domain's usable-file read (`UploadService.findUsableMessageFile`, R12) — the automation
+   * go-live's file check (AU13 check 15); absent in a unit test, which then checks no file.
+   */
+  messageFilePort?: AutomationMessageFilePort | undefined;
 }): AppContainer {
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
@@ -479,11 +521,21 @@ export function createAppContainer({
     channelConnectionTokenService,
     channelAccountService,
   });
-  const { automationService, contactService, contactTagEventService, automationRunService } =
-    createAutomationServices({
-      instagramAccountService,
-      organizationService,
-    });
+  const {
+    automationService,
+    automationCountService,
+    automationReplyStateService,
+    contactService,
+    contactTagEventService,
+    automationRunService,
+  } = createAutomationServices({
+    instagramAccountService,
+    organizationService,
+    channelAccountService,
+    planAccessService,
+    messageMonthCountService: sending.messageMonthCountService,
+    messageFilePort,
+  });
   const { instagramWebhookEventService, instagramWebhookService } = createInstagramWebhookServices({
     instagramAccountService,
     organizationService,
@@ -503,6 +555,8 @@ export function createAppContainer({
     instagramWebhookEventService,
     instagramWebhookService,
     automationService,
+    automationCountService,
+    automationReplyStateService,
     automationRunService,
     instagramSendLaneService: sending.instagramSendLaneService,
     messageMonthCountService: sending.messageMonthCountService,
@@ -523,6 +577,7 @@ export function registerAppContainer(application: FastifyInstance): void {
       organizationService,
       planAccessService: application.billingDomain.subscriptionService,
       trialPort: application.billingDomain.subscriptionTrialService,
+      messageFilePort: application.uploadDomain.uploadService,
     }),
   );
 }

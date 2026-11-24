@@ -24,7 +24,6 @@ import { AutomationCommentLogRepository } from '@/domains/app/sub-domains/automa
 import { runAutomationCommentLogRetentionJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.processor.js';
 import { runAutomationRunRetentionJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.processor.js';
 import { runAutomationRunWaitExpiryJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.processor.js';
-import { runAutomationNextPostExpiryJob } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.processor.js';
 import { runAutomationTombstoneRetentionJob } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.processor.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { runInstagramWebhookEventRetentionJob } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.processor.js';
@@ -298,7 +297,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         UPDATE tenancy.organizations SET deleted_at = now() WHERE id = ${team.organization.id}`;
 
       expect(await runWaitCheck()).toMatchObject({ scanned: 0 });
-      expect(await runAutomationNextPostExpiryJob()).toMatchObject({ scanned: 0 });
       expect(await readRunRow(run.id)).toMatchObject({ status: 'waiting' });
     });
   });
@@ -353,8 +351,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         deletedCount: 2,
         blockedCount: 2,
       });
-      // Every 15 minutes — the "next post" window that ended unlinked.
-      expect(await runAutomationNextPostExpiryJob({ now })).toMatchObject({ expired: 2 });
+      // A "next post" never expires (feat-instagram-dm-sending P12): no 15-minute check any more.
 
       for (const organization of organizations) {
         const rows = await readAppRowsOfOrganization(organization.organizationId);
@@ -368,7 +365,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         expect(await readAutomationRow(unreferencedAutomation.public_id)).toBeUndefined();
         expect(await readAutomationRow(referencedAutomation.public_id)).toBeDefined();
         expect(await readAutomationRow(windowAutomation.public_id)).toMatchObject({
-          next_post_status: 'expired',
+          next_post_status: 'waiting',
         });
       }
 
@@ -379,7 +376,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         runs: (await runAutomationRunRetentionJob({ now: later })).deletedCount,
         logs: (await runAutomationCommentLogRetentionJob({ now: later })).deletedCount,
         automations: await runAutomationTombstoneRetentionJob({ now: later }),
-        windows: (await runAutomationNextPostExpiryJob({ now: later })).expired,
         waits: (await runWaitCheck(later)).cancelled,
       });
       expect(await runNight()).toEqual({
@@ -387,7 +383,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         runs: 4,
         logs: 2,
         automations: { deletedCount: 2, blockedCount: 0, hasMore: false },
-        windows: 0,
         waits: 0,
       });
       for (const { organizationId, openRunIds, referencedAutomation } of organizations) {
@@ -403,7 +398,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         runs: 0,
         logs: 0,
         automations: { deletedCount: 0, blockedCount: 0, hasMore: false },
-        windows: 0,
         waits: 0,
       });
       expect(await readAll(readAppRowsOfOrganization)).toEqual(before);
@@ -1125,7 +1119,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       await runAutomationRunRetentionJob({ now });
       await runAutomationCommentLogRetentionJob({ now });
       await runAutomationTombstoneRetentionJob({ now });
-      await runAutomationNextPostExpiryJob({ now });
     }
 
     it('carry no email, phone, name, username, picture or message text on any of these paths, failures included', async () => {

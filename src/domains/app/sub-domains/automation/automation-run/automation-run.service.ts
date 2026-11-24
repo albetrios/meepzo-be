@@ -15,10 +15,10 @@ import type {
   ContactPauseStepInput,
 } from '@/domains/app/sub-domains/contact/contact.types.js';
 import {
-  AutomationRepository,
-  type AutomationRow,
-  createWorkerAutomationRepository,
-} from '@/domains/app/sub-domains/automation/automation.repository.js';
+  AutomationRunAutomationRepository,
+  type AutomationRunAutomationRow,
+  createWorkerAutomationRunAutomationRepository,
+} from './automation-run-automation.repository.js';
 import type { AutomationOpenRunCancelInput } from '@/domains/app/sub-domains/automation/automation.types.js';
 import {
   AUTOMATION_RUN_ERROR_MESSAGE_MAX_LENGTH,
@@ -109,7 +109,7 @@ interface AutomationRunRepositories {
   runs: AutomationRunRepository;
   runEvents: AutomationRunEventRepository;
   commentLogs: AutomationCommentLogRepository;
-  automations: AutomationRepository;
+  automations: AutomationRunAutomationRepository;
 }
 
 /** One short unit of work of a call, its contact and its open runs' automations locked (AU12, CT8). */
@@ -121,7 +121,7 @@ interface AutomationRunUnit extends AutomationRunRepositories {
 /** A locked `waiting` run, its automation as it is now (AU14), and the step it waits for if now off. */
 interface WaitingRun {
   run: AutomationRunRow;
-  automation: AutomationRow | null;
+  automation: AutomationRunAutomationRow | null;
   /** Where the run goes on to when the step it waits for is now off; `null` while it is still on. */
   stepOff: AutomationWaitedStepOff | null;
 }
@@ -129,7 +129,7 @@ interface WaitingRun {
 /** The run state one prepared action works on. */
 interface PreparedRunState {
   run: AutomationRunRow;
-  automation: AutomationRow;
+  automation: AutomationRunAutomationRow;
   commentLog: AutomationCommentLogRow | null;
 }
 
@@ -184,7 +184,7 @@ function bindRepositories(databaseHandle: WorkerDatabaseHandle): AutomationRunRe
     runs: createWorkerAutomationRunRepository(databaseHandle),
     runEvents: createWorkerAutomationRunEventRepository(databaseHandle),
     commentLogs: createWorkerAutomationCommentLogRepository(databaseHandle),
-    automations: createWorkerAutomationRepository(databaseHandle),
+    automations: createWorkerAutomationRunAutomationRepository(databaseHandle),
   };
 }
 
@@ -370,7 +370,8 @@ function deliveredCommentLogChanges({
  *
  * Side effects:
  * - Writes `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs`, the
- *   automation's counters (AU10, through the automation repository — the same sub-domain) and the
+ *   automation's `last_triggered_at` (through the engine's step view of the automations — ROUTE row
+ *   R13; the counts in `app.automation_counts` are written from R14) and the
  *   contact through sub-domain 2's service; sends through Instagram. No audit entry — runs are
  *   their own history (AU4).
  *
@@ -469,7 +470,7 @@ export class AutomationRunService {
           automationRunId,
           ignoredReason,
         }: {
-          automation: AutomationRow;
+          automation: AutomationRunAutomationRow;
           automationRunId: number | null;
           ignoredReason: AutomationCommentLogIgnoredReason | null;
         }): AutomationCommentLogInsertValues => ({
@@ -830,7 +831,7 @@ export class AutomationRunService {
     contactId,
   }: ContactErasureStepInput): Promise<void> {
     const runs = new AutomationRunRepository();
-    await new AutomationRepository().lockForRunChanges({
+    await new AutomationRunAutomationRepository().lockForRunChanges({
       organizationId,
       automationIds: await runs.listOpenRunAutomationIds({ organizationId, contactId }),
     });
@@ -864,8 +865,8 @@ export class AutomationRunService {
         : createWorkerAutomationRunRepository(databaseHandle);
     const automationRepository =
       databaseHandle === undefined
-        ? new AutomationRepository()
-        : createWorkerAutomationRepository(databaseHandle);
+        ? new AutomationRunAutomationRepository()
+        : createWorkerAutomationRunAutomationRepository(databaseHandle);
     await automationRepository.lockForRunChanges({
       organizationId,
       automationIds: await runs.listOpenRunAutomationIds({ organizationId, contactId }),
@@ -1202,7 +1203,7 @@ export class AutomationRunService {
     unit: AutomationRunUnit;
     call: AutomationRunCall;
     automationId: number;
-  }): Promise<AutomationRow | null> {
+  }): Promise<AutomationRunAutomationRow | null> {
     return unit.automations.lockLiveForRunStart({
       organizationId: call.organizationId,
       automationId,
@@ -1416,7 +1417,7 @@ export class AutomationRunService {
   }: {
     unit: AutomationRunUnit;
     call: AutomationRunCall;
-    automation: AutomationRow;
+    automation: AutomationRunAutomationRow;
     trigger: AutomationQueuedTrigger;
   }): Promise<AutomationRunRow> {
     const run = await unit.runs.insert({
@@ -1460,7 +1461,7 @@ export class AutomationRunService {
     unit: AutomationRunUnit;
     call: AutomationRunCall;
     waitingRun: AutomationRunRow;
-    automation: AutomationRow;
+    automation: AutomationRunAutomationRow;
     trigger: AutomationQueuedTrigger;
     now: Date;
   }): Promise<void> {
@@ -2339,7 +2340,7 @@ export class AutomationRunService {
   }
 
   /**
-   * Completes the run (AU18 step 6): `completed`, `completed_run_count + 1` in SQL (AU10), the
+   * Completes the run (AU18 step 6): `completed` (the all-time counts are R14's, AU19), the
    * automation's tags — or its name when it has none — on the contact (CT10), a `status_changed`
    * event, the comment log `completed`.
    */
@@ -2372,10 +2373,6 @@ export class AutomationRunService {
         waiting_since_at: null,
         last_step_at: now,
       },
-    });
-    await unit.automations.incrementCompletedRunCount({
-      organizationId,
-      automationId: run.automation_id,
     });
     const automation = await unit.automations.findByIdIncludingDeleted({
       organizationId,

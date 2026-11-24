@@ -2071,6 +2071,16 @@ As 4.7, rows 27–37.
 | AUC7 | AU19: `automation-count.*` and `automation-reply-state.*` (schemas, repositories with `createWorker…Repository`, services); the list's slot sums; tests — 16 slots sum, a run delete keeps the counts |
 | AUC8 | AU20: the next-post columns, `expired` removed; seeds — demo automations across the 15 kinds, drafts, a paused one, counts |
 
+**As built (ROUTE row R13, [P124](decisions.md)–[P129](decisions.md)):** `app.automation_counts` and
+`app.automation_reply_states` carry an `id` primary key with the keys above as unique indexes; the go-live CHECKs ask
+each way to start for its own field (one-way) and "Reply like a person" for 3 lines only while the public reply is on;
+`steps` is checked for types at every save and for counts, lengths, bytes, waits and files at go-live; the month check
+reads sub-domain 6's month count (the port's `readMonthUsage` lands with R19–R20); the feature part is
+`ChannelAccountService.listChannelAccountAutomationProblems` (`errors[].field` `trigger_type`, `steps.<part>`,
+`steps.messages`, `features.<feature>`); `409 automation_not_ready` carries `errors[]` items with `field`, `reason`,
+`message`; a `next` automation waits from its first go-live (`target_starts_at`); the run engine keeps a launch step view
+until R14; the next-post expiry worker left with its columns (WC-44).
+
 ---
 
 ### 4.B Automation runs — `automation/automation-run/` — final (rev 5, confirmed 2026-11-24)

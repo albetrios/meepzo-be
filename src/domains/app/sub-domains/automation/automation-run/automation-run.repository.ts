@@ -29,7 +29,7 @@ import {
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
-import type { AutomationTriggerType } from '@/domains/app/sub-domains/automation/automation.constants.js';
+import type { AutomationRunTriggerType } from './automation-run.constants.js';
 import {
   AUTOMATION_RUN_OPEN_STATUSES,
   type AutomationRunCancelReason,
@@ -49,7 +49,7 @@ export interface AutomationRunInsertValues {
   organizationId: number;
   automationId: number;
   contactId: number;
-  triggerType: AutomationTriggerType;
+  triggerType: AutomationRunTriggerType;
   triggerInstagramMediaId: string | null;
   triggerInstagramCommentId: string | null;
   triggerInstagramStoryId: string | null;

@@ -33,7 +33,7 @@ import {
   readContactRow,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
-  automationPath,
+  automationActionPath,
   insertAutomation,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
@@ -1190,12 +1190,11 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
       expect(row?.deleted_at).toBeInstanceOf(Date);
       expect(await listedIds()).toEqual([]);
 
-      // The plan is read-only all along: an automation edit is refused.
+      // The plan is read-only all along: an automation's go-live is refused (only go-live, P10).
       const refused = await injectAuthenticated(app, {
-        method: 'PATCH',
-        url: automationPath(automation.public_id),
+        method: 'POST',
+        url: automationActionPath({ automationPublicId: automation.public_id, action: 'go-live' }),
         token: team.ownerToken,
-        payload: { name: 'Blocked' },
       });
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('organization_read_only');

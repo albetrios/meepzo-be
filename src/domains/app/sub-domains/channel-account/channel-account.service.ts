@@ -35,7 +35,11 @@ import {
   CHANNEL_ACCOUNT_STATUS,
   type ChannelAccountChannel,
 } from './channel-account.constants.js';
-import { APP_UNTESTED_META_FEATURES } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
+import {
+  APP_UNTESTED_META_FEATURES,
+  APP_UNTESTED_META_MESSAGE_KINDS,
+  APP_UNTESTED_META_TRIGGER_TYPES,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import {
   CHANNEL_CAPABILITIES,
   CHANNEL_FEATURES,
@@ -52,6 +56,8 @@ import {
   serializeChannelAccountSummary,
 } from './channel-account.serializer.js';
 import type {
+  AutomationChannelAccount,
+  ChannelAutomationPartProblem,
   ChannelAccountChange,
   ChannelAccountLanePort,
   ChannelAccountOutput,
@@ -638,6 +644,157 @@ export class ChannelAccountService
       if (!result.isAllowed) problems.push({ feature, reason: result.reason });
     }
     return problems;
+  }
+
+  /**
+   * Every refusal of the one feature check for a whole automation (feat-instagram-dm-sending
+   * routes-final § 4 AU34, CA11): the way to start, each step and each message kind against the
+   * channel's capability list (`channel_lacks_feature`), the ways and kinds whose Meta test has not
+   * passed (`feature_not_offered`, P36 — `APP_UNTESTED_META_TRIGGER_TYPES` /
+   * `APP_UNTESTED_META_MESSAGE_KINDS`), then each plan feature through
+   * {@link listChannelAccountFeatureProblems}. Empty when every part is allowed.
+   *
+   * @remarks
+   * Algorithm: the capability and untested lists are code constants; the features read the inputs
+   * once. Failure modes: `404 channel_account_not_found` when the account is gone. Side effects: none.
+   */
+  async listChannelAccountAutomationProblems({
+    scope,
+    organizationId,
+    channelAccountId,
+    channel,
+    parts,
+  }: ChannelConnectionAccountScope & {
+    channelAccountId: number;
+    channel: ChannelAccountChannel;
+    parts: {
+      triggerType: string;
+      steps: readonly string[];
+      messageKinds: readonly string[];
+      features: readonly ChannelFeature[];
+    };
+  }): Promise<ChannelAutomationPartProblem[]> {
+    const capability = CHANNEL_CAPABILITIES[channel];
+    const problems: ChannelAutomationPartProblem[] = [];
+    const checkPart = ({
+      kind,
+      part,
+      supported,
+      untested,
+    }: {
+      kind: ChannelAutomationPartProblem['kind'];
+      part: string;
+      supported: readonly string[];
+      untested: readonly string[];
+    }) => {
+      if (!supported.includes(part)) {
+        problems.push({ kind, part, reason: 'channel_lacks_feature' });
+      } else if (untested.includes(part)) {
+        problems.push({ kind, part, reason: 'feature_not_offered' });
+      }
+    };
+    checkPart({
+      kind: 'trigger_type',
+      part: parts.triggerType,
+      supported: capability.triggerTypes,
+      untested: APP_UNTESTED_META_TRIGGER_TYPES,
+    });
+    for (const step of new Set(parts.steps)) {
+      checkPart({ kind: 'step', part: step, supported: capability.steps, untested: [] });
+    }
+    for (const messageKind of new Set(parts.messageKinds)) {
+      checkPart({
+        kind: 'message_kind',
+        part: messageKind,
+        supported: capability.messageKinds,
+        untested: APP_UNTESTED_META_MESSAGE_KINDS,
+      });
+    }
+    if (parts.features.length > 0) {
+      const featureProblems = await this.listChannelAccountFeatureProblems({
+        scope,
+        organizationId,
+        channelAccountId,
+        features: parts.features,
+      });
+      problems.push(
+        ...featureProblems.map((featureProblem) => ({
+          kind: 'feature' as const,
+          part: featureProblem.feature,
+          reason: featureProblem.reason,
+        })),
+      );
+    }
+    return problems;
+  }
+
+  /**
+   * A channel account as the automations read it (feat-instagram-dm-sending routes-final § 4.A):
+   * by public id (route 28's account, route 27's list) or internal id (go-live), locked `FOR UPDATE`
+   * when asked (go-live's starter-question count — the account first, 4.A.10), with its connection's
+   * status and its Instagram username and privacy; `null` when absent. In the caller's unit.
+   *
+   * @remarks
+   * Algorithm: the account read (or lock), its connection, its extension. Failure modes: none of its
+   * own. Side effects: a row lock when `isLocked`.
+   */
+  async readAutomationAccount({
+    scope,
+    organizationId,
+    account,
+    isLocked = false,
+  }: ChannelConnectionAccountScope & {
+    account: { channelAccountPublicId: string } | { channelAccountId: number };
+    isLocked?: boolean;
+  }): Promise<AutomationChannelAccount | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        let row: ChannelAccountRow | null;
+        if ('channelAccountPublicId' in account) {
+          row = await this.accountRepository.findByPublicId({
+            organizationId,
+            channelAccountPublicId: account.channelAccountPublicId,
+          });
+          if (row !== null && isLocked) {
+            row = await this.accountRepository.lockById({
+              organizationId,
+              channelAccountId: row.id,
+            });
+          }
+        } else {
+          row = isLocked
+            ? await this.accountRepository.lockById({
+                organizationId,
+                channelAccountId: account.channelAccountId,
+              })
+            : await this.accountRepository.findById({
+                organizationId,
+                channelAccountId: account.channelAccountId,
+              });
+        }
+        if (row === null) return null;
+        const [connection] = await this.connectionRepository.findByIds({
+          organizationId,
+          channelConnectionIds: [row.channel_connection_id],
+        });
+        const extensions = await this.instagramExtensionService.findByChannelAccountIds({
+          scope,
+          organizationId,
+          channelAccountIds: [row.id],
+        });
+        const extension = extensions.get(row.id);
+        return {
+          id: row.id,
+          public_id: row.public_id,
+          channel: row.channel as ChannelAccountChannel,
+          connection_status: row.connection_status as AutomationChannelAccount['connection_status'],
+          channel_connection_status: connection?.status ?? null,
+          username: extension?.username ?? null,
+          is_private: extension?.is_private ?? false,
+        };
+      },
+    });
   }
 
   /**

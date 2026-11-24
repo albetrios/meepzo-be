@@ -8,7 +8,7 @@ import type {
   AutomationFollowRequestMessage,
   AutomationOpeningMessage,
   AutomationTextMessage,
-} from '@/domains/app/sub-domains/automation/automation.types.js';
+} from './automation-run-automation.repository.js';
 import {
   AUTOMATION_BUTTON_PAYLOAD_SEPARATOR,
   type AutomationRunSendingMessageKind,

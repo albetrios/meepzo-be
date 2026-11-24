@@ -82,8 +82,6 @@ import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-doma
 import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { isMetaConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import { createAutomationNextPostExpiryWorker } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.worker.js';
-import { AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.constants.js';
 import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { createAutomationRunRetentionWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.worker.js';
@@ -496,15 +494,6 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
       createInstagramAccountDailyCheckWorker({
         accountService: workerContainers.appDomain.instagramAccountService,
       }),
-  }),
-  // Launch D9 (routes-final § 3.A AU15, WC-6): every 15 minutes, the "next post" windows that
-  // ended with no post linked turn `expired` — a cross-organization scan, then each organization's
-  // change in its own context. A pure database sweep: no Instagram call, no provider pause, no gate.
-  retentionDefinition({
-    queueName: AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME,
-    family: 'retention',
-    logLabel: 'automation next post expiry worker',
-    create: () => createAutomationNextPostExpiryWorker(),
   }),
   // Launch D8 (routes-final § 3.B AU25, AQ7): the four run and automation clean-ups — every hour
   // the runs waiting more than 7 days are cancelled (a cross-organization scan, then each

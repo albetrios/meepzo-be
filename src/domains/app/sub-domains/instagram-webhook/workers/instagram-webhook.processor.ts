@@ -430,7 +430,8 @@ async function storePostAndLinkNextPost({
         await withSavepoint(() =>
           services.automationService.linkNextPostAutomations({
             scope,
-            instagramAccountPublicId: context.instagramAccountPublicId,
+            // The account's one public id is its channel account's (`cha_…`, P47).
+            channelAccountPublicId: context.instagramAccountPublicId,
             instagramMediaId,
             publishedAt,
           }),

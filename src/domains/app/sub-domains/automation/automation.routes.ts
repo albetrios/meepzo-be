@@ -9,23 +9,27 @@ import {
   automationIdParamsDto,
   createAutomationDto,
   deleteAutomationQueryDto,
+  emptyAutomationActionDto,
+  keywordTestAutomationDto,
   listAutomationsQueryDto,
+  pauseAutomationDto,
   updateAutomationDto,
 } from './automation.dto.js';
 
 /**
- * Returns the Fastify plugin that registers the automation routes (routes-final § 3.A.7), mounted
- * under `/api/v1/app`: list (route 11, `GET /automations`), create (12, `POST /automations`), read
- * (13), edit (14) and delete (15) at `/automations/{automation_id}`.
+ * Returns the Fastify plugin that registers the automation routes (feat-instagram-dm-sending
+ * routes-final § 4.A.7 — routes 27–35), mounted under `/api/v1/app`: list and save a draft
+ * (`/automations`), read, save content and delete (`/automations/{automation_id}`), and the actions
+ * `go-live`, `pause`, `duplicate` and `keyword-test`. Routes 36–37 (failed messages) land with
+ * ROUTE row R19.
  *
  * @remarks
- * Gates: `automation:read` on 11 and 13, `automation:create` on 12, `automation:update` on 14,
- * `automation:delete` on 15 (3.A.4 — a Member holds every one but delete). The writes run the
- * read-only plan guard first (`planAccessPreHandler`, AQ8, D27 — `403 organization_read_only`),
- * before the permission gate and the idempotency claim; the reads stay open. Route 12 requires
- * `X-Idempotency-Key` (K3) — merged into its `config`, never a top-level preset spread, which would
- * drop the flag. The writes carry the organization-scoped rate limit; the reads ride the global
- * limiter, as every plain authenticated read does.
+ * Gates (4.A.4): `automation:read` on 27, 29, 35; `automation:create` on 28, 34;
+ * `automation:update` on 30, 32, 33; `automation:delete` on 31. The read-only plan guard
+ * (`planAccessPreHandler`, AU4 (1), P10) runs on route 32 only, first — create, edit, pause,
+ * duplicate and delete stay open. `X-Idempotency-Key` is required on 28 and 34 (AU5); 32, 33 (state
+ * no-ops) and 35 (saves nothing) take none. The writes and route 35 carry the organization-scoped
+ * rate limit; the reads ride the global limiter.
  */
 export function automationRoutes({
   automationService,
@@ -47,7 +51,7 @@ export function automationRoutes({
         schema: {
           summary: 'List automations',
           description:
-            "Lists the organization's automations — what answers comments, DMs and story replies on its Instagram accounts — each with its Instagram account, trigger, target, keywords, tags, the message of each step and its counters. Search q (the name, any case); filter by status (live, inactive), trigger_type (comment, story_reply, dm), target_scope (any, specific, next), next_post_status (waiting, linked, expired) and instagram_account_id (one account; an unknown one gives an empty page); sort by created_at (default, newest first), name (A to Z), last_triggered_at (never-triggered last either way) or completed_run_count (most first), order asc or desc. The first page carries an estimated total. A deleted automation is never listed. Team organizations only. Requires AUTOMATION_READ permission.",
+            "Lists one channel account's automations (channel_account_id required — an unknown one gives an empty page) — draft, live and paused — each with its status, way to start, automatic stop, all-time runs started and % tapped (taps and typed answers over runs), last trigger time and when it was last edited. Filter by status and trigger_type (each comma-separated) and q (the name, any case); sort by created_at (default, newest first), name (A to Z) or last_triggered_at (never-triggered last either way), order asc or desc. meta.totals carries the account's live count and all-time runs started. A deleted automation is never listed. Team organizations only. Requires AUTOMATION_READ permission.",
           tags: ['Automation'],
           querystring: listAutomationsQueryDto,
         },
@@ -58,15 +62,12 @@ export function automationRoutes({
       '/automations',
       {
         onRequest: [app.authenticate],
-        preHandler: [
-          planAccessPreHandler,
-          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE),
-        ],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE)],
         config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
         schema: {
-          summary: 'Create an automation',
+          summary: 'Save an automation draft',
           description:
-            "Creates an automation on the organization's connected Instagram account (an expired or error account counts; without one, 409 instagram_not_connected) — also the frontend's Duplicate. Every save is a complete flow: the final message always, the opening and follow messages when their step is on, and on a comment automation with the opening message on its button title. next only on comment automations; dm automations take any post, need a keyword and the DM keyword trigger on; specific needs its post (comment) or story (story_reply); public replies only on comments, with 1–20 texts. A next automation needs both window dates (the start not before 24 hours ago, the end in the future and after the start) and waits for the first post inside them; a live waiting window that overlaps another of the same account sharing a keyword (or either has none) is 409 next_post_window_overlap. Keywords are trimmed, lowercased and deduplicated; tags deduplicated. Starts inactive unless sent live. instagram_account_id, the counters and the next-post status are set by the server — sending one is a 400. Team organizations only; refused with 403 organization_read_only while the plan is read-only. Requires X-Idempotency-Key and AUTOMATION_CREATE permission.",
+            "Saves a draft automation on one of the organization's channel accounts: name, channel_account_id and trigger_type (one of 15 ways to start) are required; every other field — the start fields, target, keywords, public reply and its pacing, and the steps object (hello, follow, email, phone, the message list, tags) — is optional and checked for shape only. Nothing is sent and nothing else is checked until go-live. 400 channel_account_id when the account is not the organization's; 409 instagram_not_connected when it is disconnected; 409 automation_ref_code_exists when another automation of the account holds the link name. A link automation without a link name gets a free one. Reply like a person starts on when the plan allows it. Team organizations only; a read-only plan may save drafts. Requires X-Idempotency-Key and AUTOMATION_CREATE permission.",
           tags: ['Automation'],
           body: createAutomationDto,
         },
@@ -81,7 +82,7 @@ export function automationRoutes({
         schema: {
           summary: 'Get an automation',
           description:
-            "Returns one automation with its Instagram account, trigger, target, the next-post window and status, keywords, tags, the message of each step, its counters and who created and last changed it. 404 automation_not_found when it is missing, deleted or another organization's. Team organizations only. Requires AUTOMATION_READ permission.",
+            "Returns one automation in full — its account, status, way to start and target, keywords, public reply, steps, automatic stop, counts (runs started, taps, typed answers, % tapped, and the same per step version), the PRO parts the plan ignores now, its chat link for a link automation, and who created and last changed it. 404 automation_not_found when it is missing, deleted or another organization's. Team organizations only. Requires AUTOMATION_READ permission.",
           tags: ['Automation'],
           params: automationIdParamsDto,
         },
@@ -92,15 +93,12 @@ export function automationRoutes({
       '/automations/:automation_id',
       {
         onRequest: [app.authenticate],
-        preHandler: [
-          planAccessPreHandler,
-          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE),
-        ],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
         ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
         schema: {
-          summary: 'Edit an automation',
+          summary: 'Save automation content',
           description:
-            "Changes any field of the create body — turn it live or inactive, change its trigger, target, keywords, tags or messages; null clears a nullable message or id. Every create rule runs on the automation as it will be after the edit, so turning it live needs a complete flow. Changing the window of an expired next automation makes it wait again; a linked one's window, target_scope and target ids are fixed (409 next_post_already_linked). An optional expected_updated_at (the automation's updated_at as read) refuses a save based on an older version with 409 record_changed. The Instagram account never changes. An edit reaches open runs from their next step; inactive stops new runs and lets open ones finish. Team organizations only; refused with 403 organization_read_only while the plan is read-only. Requires AUTOMATION_UPDATE permission.",
+            "Saves any writable field (never status or channel_account_id; null clears a nullable field). A draft saves anything of the right shape. A live or paused automation must also pass the go-live content checks on the merged result — each problem is one errors[] item of a 400 whose field is the step path — and may not turn on a PRO part the plan lacks (403 plan_lacks_feature). The way to start changes only within its group (400 trigger_type); a linked next-post automation's target is fixed (409 next_post_already_linked); 409 automation_ref_code_exists when another automation of the account holds the link name. An optional expected_updated_at refuses a stale save with 409 record_changed. Waiting messages read the new text when they go. meta.warnings lists keywords another live automation of the account also uses. Team organizations only. Requires AUTOMATION_UPDATE permission.",
           tags: ['Automation'],
           params: automationIdParamsDto,
           body: updateAutomationDto,
@@ -112,21 +110,89 @@ export function automationRoutes({
       '/automations/:automation_id',
       {
         onRequest: [app.authenticate],
-        preHandler: [
-          planAccessPreHandler,
-          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_DELETE),
-        ],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_DELETE)],
         ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
         schema: {
           summary: 'Delete an automation',
           description:
-            "Deletes an automation, with why: reason (mistake, duplicate, not_needed, other) and a note, required for other. Its running and waiting runs are cancelled in the same step; its runs and comment logs stay. It is never listed or read again and cannot be restored. 404 automation_not_found when it is missing, already deleted or another organization's. Team organizations only; refused with 403 organization_read_only while the plan is read-only. Requires AUTOMATION_DELETE permission.",
+            "Deletes an automation from any status, at once: an optional reason (mistake, duplicate, not_needed, other — other needs a note); its open runs are cancelled (automation_deleted) in the same step; the contacts it collected stay. It is never listed or read again and cannot be restored. 404 automation_not_found when it is missing, already deleted or another organization's. Team organizations only. Requires AUTOMATION_DELETE permission.",
           tags: ['Automation'],
           params: automationIdParamsDto,
           querystring: deleteAutomationQueryDto,
         },
       },
       controller.deleteAutomation,
+    );
+    zodApplication.post<{ Params: { automation_id: string } }>(
+      '/automations/:automation_id/go-live',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [
+          planAccessPreHandler,
+          requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE),
+        ],
+        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Go live',
+          description:
+            "Turns a draft or paused automation live after the full check: the account connected, the month limit not reached, the name, the way to start complete, keywords, starter questions (the account's live total at most 4), a free link name, one live first-message and default-reply automation per account, the hello (a 'sends your next step' button in every version), a comment start without a hello sending one plain text, the follow, email and phone asks, the message list (1–10, each complete, waits up to 23 hours, files uploaded and checked), public reply lines (3 or more with Reply like a person), tags, and every part through the account's feature check. Every problem is listed at once as 409 automation_not_ready with errors[] (field, reason, message). 403 organization_read_only while the plan has ended. A live automation answers as it is. meta.warnings lists a keyword another live automation uses and a private account on a comment kind — never a refusal. Strictly empty body. Team organizations only. Requires AUTOMATION_UPDATE permission.",
+          tags: ['Automation'],
+          params: automationIdParamsDto,
+          body: emptyAutomationActionDto,
+        },
+      },
+      controller.goLiveAutomation,
+    );
+    zodApplication.post<{ Params: { automation_id: string } }>(
+      '/automations/:automation_id/pause',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
+        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Pause an automation',
+          description:
+            'Pauses a live automation: mode keep (its waiting messages go on and people in the middle finish) or cancel (its waiting messages made until now are cancelled). A paused one with keep then cancel sets the cancel cut-off; the same mode again changes nothing. 409 transition_not_allowed for a draft. Allowed while the plan is read-only. Team organizations only. Requires AUTOMATION_UPDATE permission.',
+          tags: ['Automation'],
+          params: automationIdParamsDto,
+          body: pauseAutomationDto,
+        },
+      },
+      controller.pauseAutomation,
+    );
+    zodApplication.post<{ Params: { automation_id: string } }>(
+      '/automations/:automation_id/duplicate',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_CREATE)],
+        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        schema: {
+          summary: 'Duplicate an automation',
+          description:
+            "Copies an automation of any status as a draft named '<name> (copy)' on the same account: its settings and steps (files by the same uploads); counters, reply pacing, past-comment reads, the automatic stop and the next-post link are not copied, and a link automation gets a new free link name. Strictly empty body. Team organizations only. Requires X-Idempotency-Key and AUTOMATION_CREATE permission.",
+          tags: ['Automation'],
+          params: automationIdParamsDto,
+          body: emptyAutomationActionDto,
+        },
+      },
+      controller.duplicateAutomation,
+    );
+    zodApplication.post<{ Params: { automation_id: string } }>(
+      '/automations/:automation_id/keyword-test',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_READ)],
+        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Try an automation keyword',
+          description:
+            "Runs a text (1–1,000 characters) through the same matching intake uses — contains, plus one wrong letter in words of 5 or more letters, the words of a several-word keyword together and in order — for this automation and the account's live ones: whether it would start this automation, the keyword and exact or close, and which automation would answer first. source (comment, dm, story_reply) defaults from its way to start. Saves and sends nothing. Team organizations only. Requires AUTOMATION_READ permission.",
+          tags: ['Automation'],
+          params: automationIdParamsDto,
+          body: keywordTestAutomationDto,
+        },
+      },
+      controller.testAutomationKeyword,
     );
   };
 }

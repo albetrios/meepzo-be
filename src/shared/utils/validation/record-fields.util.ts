@@ -49,27 +49,43 @@ export const phoneNumberSchema = trimmedString().regex(
  *   most {@link RECORD_DELETE_NOTE_MAX_LENGTH} characters, and required when the reason is `other`.
  * - **Failure modes:** a missing reason, an unknown one, or `other` without a note fails the parse.
  */
-export const recordDeleteQuerySchema = recordDeleteQuerySchemaOf(
-  RECORD_DELETE_REASON_VALUES as [RecordDeleteReason, ...RecordDeleteReason[]],
-);
+export const recordDeleteQuerySchema = recordDeleteQuerySchemaOf({
+  reasons: RECORD_DELETE_REASON_VALUES as [RecordDeleteReason, ...RecordDeleteReason[]],
+});
 
 /**
  * The `DELETE` query for a record with its own reasons (a cancel, a void): `reason` one of
- * `reasons`, `note` required for `other`.
+ * `reasons` — required, or optional with `isReasonOptional` (an automation's delete,
+ * feat-instagram-dm-sending AU16, P11) — and `note` required for `other`.
  *
  * @remarks
- * - **Algorithm:** as {@link recordDeleteQuerySchema}, on the given reason list.
- * - **Failure modes:** a missing reason, an unknown one, or `other` without a note fails the parse.
+ * - **Algorithm:** as {@link recordDeleteQuerySchema}, on the given reason list; with
+ *   `isReasonOptional` an absent reason passes (and so does its note rule).
+ * - **Failure modes:** a missing reason (unless optional), an unknown one, or `other` without a
+ *   note fails the parse.
  */
-export function recordDeleteQuerySchemaOf<const Reasons extends readonly [string, ...string[]]>(
-  reasons: Reasons,
-) {
+export function recordDeleteQuerySchemaOf<
+  const Reasons extends readonly [string, ...string[]],
+  const IsReasonOptional extends boolean = false,
+>({
+  reasons,
+  isReasonOptional,
+}: {
+  reasons: Reasons;
+  /** `true` lets the caller leave the reason out (P11); the default keeps it required. */
+  isReasonOptional?: IsReasonOptional;
+}) {
+  const requiredReason = z.enum(reasons).meta({
+    description: `Why it goes (${isReasonOptional === true ? 'optional' : 'required'}): ${reasons.join(' · ')}`,
+    example: reasons[0],
+  });
+  // The schema's type follows the option, so a required reason stays non-optional for callers.
+  const reason = (
+    isReasonOptional === true ? requiredReason.optional() : requiredReason
+  ) as IsReasonOptional extends true ? z.ZodOptional<typeof requiredReason> : typeof requiredReason;
   return z
     .object({
-      reason: z.enum(reasons).meta({
-        description: `Why it goes (required): ${reasons.join(' · ')}`,
-        example: reasons[0],
-      }),
+      reason,
       note: trimmedString()
         .min(1)
         .max(RECORD_DELETE_NOTE_MAX_LENGTH)
@@ -79,10 +95,16 @@ export function recordDeleteQuerySchemaOf<const Reasons extends readonly [string
         }),
     })
     .strict()
-    .refine((value) => value.reason !== RECORD_DELETE_REASON.OTHER || value.note !== undefined, {
-      path: ['note'],
-      message: 'errors:validation.noteWhenReasonIsOther',
-    });
+    .refine(
+      (value) => {
+        const query = value as { reason?: string; note?: string };
+        return query.reason !== RECORD_DELETE_REASON.OTHER || query.note !== undefined;
+      },
+      {
+        path: ['note'],
+        message: 'errors:validation.noteWhenReasonIsOther',
+      },
+    );
 }
 
 /** Parsed {@link recordDeleteQuerySchema}. */

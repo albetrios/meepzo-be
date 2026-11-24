@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
 import { instantSchema } from '@/shared/utils/validation/record-fields.util.js';
-import { AUTOMATION_TRIGGER_TYPES } from '@/domains/app/sub-domains/automation/automation.constants.js';
+import { AUTOMATION_RUN_TRIGGER_TYPES } from './automation-run.constants.js';
 import {
   AUTOMATION_RUN_INSTAGRAM_ID_PATTERN,
   AUTOMATION_RUN_QUEUED_AUTOMATIONS_MAX_COUNT,
@@ -21,7 +21,7 @@ export const automationQueuedEntrySchema = z
     queued_at: instantSchema,
     trigger: z
       .object({
-        type: z.enum(AUTOMATION_TRIGGER_TYPES),
+        type: z.enum(AUTOMATION_RUN_TRIGGER_TYPES),
         instagram_media_id: instagramIdSchema.optional(),
         instagram_comment_id: instagramIdSchema.optional(),
         instagram_story_id: instagramIdSchema.optional(),

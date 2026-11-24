@@ -40,6 +40,8 @@ import { contact_activities } from '@/domains/app/sub-domains/contact/contact-ac
 import { contact_tag_counts } from '@/domains/app/sub-domains/contact/contact-tag-count.schema.js';
 import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
+import { automation_counts } from '@/domains/app/sub-domains/automation/automation-count.schema.js';
+import { automation_reply_states } from '@/domains/app/sub-domains/automation/automation-reply-state.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
@@ -812,9 +814,11 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     contactTagEventIds,
   );
 
-  // The automation sub-domain (launch R9): one inactive comment automation of each organization's
-  // account — the smallest complete flow (the opening message with its button, the final message).
+  // The automation sub-domain (feat-instagram-dm-sending R13): one draft comment automation of each
+  // organization's channel account, its count slot and its reply state.
   const automationIds = { organizationA: 0, organizationB: 0 };
+  const automationCountIds = { organizationA: 0, organizationB: 0 };
+  const automationReplyStateIds = { organizationA: 0, organizationB: 0 };
   for (const [side, organization] of [
     ['organizationA', organizationA],
     ['organizationB', organizationB],
@@ -824,16 +828,36 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       .values({
         public_id: generatePublicId('automation'),
         organization_id: organization.id,
-        instagram_account_id: instagramAccountIds[side],
+        channel_account_id: channelAccountIds[side],
         name: `RLS matrix automation ${side}`,
         trigger_type: 'comment',
-        opening_message: { text: 'Hi there', button_title: 'Send it' },
-        final_message: { text: 'Here you go', links: [] },
       })
       .returning();
     automationIds[side] = automation!.id;
+    const [countRow] = await database
+      .insert(automation_counts)
+      .values({ organization_id: organization.id, automation_id: automation!.id, slot: 0 })
+      .returning();
+    automationCountIds[side] = countRow!.id;
+    const [replyState] = await database
+      .insert(automation_reply_states)
+      .values({
+        organization_id: organization.id,
+        automation_id: automation!.id,
+        channel_account_id: channelAccountIds[side],
+      })
+      .returning();
+    automationReplyStateIds[side] = replyState!.id;
   }
   rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'automations' }), automationIds);
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'automation_counts' }),
+    automationCountIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'automation_reply_states' }),
+    automationReplyStateIds,
+  );
 
   // The run engine (launch R10): one waiting run of each organization's automation for its
   // contact, its status event, and the comment log of the comment that started it.

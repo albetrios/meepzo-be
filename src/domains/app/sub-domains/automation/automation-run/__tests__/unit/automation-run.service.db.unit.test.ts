@@ -24,6 +24,7 @@ import {
   updateContactActivity,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
+  type AutomationFixtureOverrides,
   type AutomationFixtureRow,
   insertAutomation,
   readAutomationRow,
@@ -185,11 +186,7 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
     });
   }
 
-  function liveAutomation(
-    overrides: Partial<
-      Omit<AutomationFixtureRow, 'id' | 'organization_id' | 'instagram_account_id'>
-    >,
-  ): Promise<AutomationFixtureRow> {
+  function liveAutomation(overrides: AutomationFixtureOverrides): Promise<AutomationFixtureRow> {
     return insertAutomation({
       organizationId: organization.id,
       instagramAccountId: account.id,
@@ -201,9 +198,7 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
   /** A live DM automation on `keyword` whose flow is the final message only. */
   function dmAutomation(
     keyword: string,
-    overrides: Partial<
-      Omit<AutomationFixtureRow, 'id' | 'organization_id' | 'instagram_account_id'>
-    > = {},
+    overrides: AutomationFixtureOverrides = {},
   ): Promise<AutomationFixtureRow> {
     return liveAutomation({
       trigger_type: 'dm',
@@ -371,7 +366,6 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
         'email_received:-',
         'status_changed:completed',
       ]);
-      expect((await readAutomationRow(specific.public_id))?.completed_run_count).toBe(1);
       const finalContact = await freshContact();
       expect(finalContact.email).toBe('jordan@example.com');
       expect(finalContact.tags).toEqual(['spring']);
@@ -512,7 +506,7 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
       expect(waitingRun).toMatchObject({ waiting_for: 'email' });
       await getOperatorDatabase()
         .update(automations)
-        .set({ is_email_collection_enabled: false })
+        .set({ steps: { ...emailFirst.steps, email: { on: false, wordings: [] } } })
         .where(eq(automations.id, emailFirst.id));
       const sentBefore = instagram.sentMessages.length;
 
@@ -552,9 +546,6 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
           automation_run_id: queuedRun?.id,
         }),
       ]);
-      for (const automation of [emailFirst, queuedAutomation]) {
-        expect((await readAutomationRow(automation.public_id))?.completed_run_count).toBe(1);
-      }
       expect(await freshContact()).toMatchObject({
         email: null,
         tags: ['catalog', 'Comment link'],

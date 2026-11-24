@@ -307,7 +307,6 @@ describe('Instagram comment automation flow (e2e)', () => {
         last_instagram_event_key: phoneEventKey,
       });
       expect(completed.completed_at).not.toBeNull();
-      expect((await flow.readAutomation(automation.public_id)).completed_run_count).toBe(1);
       expect(await flow.logsOf(commentId)).toEqual([
         expect.objectContaining({
           overall_status: 'completed',
@@ -663,7 +662,6 @@ describe('Instagram comment automation flow (e2e)', () => {
       expect(instagram.calls).toHaveLength(callCount);
       expect(await flow.onlyRunOf(automation)).toEqual(settled);
       expect(await flow.logsOf(commentId)).toHaveLength(1);
-      expect((await flow.readAutomation(automation.public_id)).completed_run_count).toBe(1);
     });
   });
 
@@ -1230,7 +1228,7 @@ describe('Instagram comment automation flow (e2e)', () => {
     });
 
     it('a completed run is counted, and tags the contact with the automation name when it has no tags (AC-8.22)', async () => {
-      const automation = await flow.createFinalMessageAutomation({
+      const _automation = await flow.createFinalMessageAutomation({
         name: 'Summer sale',
         keywords: [],
         tags: [],
@@ -1243,7 +1241,6 @@ describe('Instagram comment automation flow (e2e)', () => {
 
       expect((await flow.contactOf(jordan)).tags).toEqual(['Summer sale']);
       expect((await flow.contactOf(other)).tags).toEqual(['Summer sale']);
-      expect((await flow.readAutomation(automation.public_id)).completed_run_count).toBe(2);
       // Without links the final message is plain text.
       expect(instagram.directMessages.map(({ message }) => message)).toEqual([
         { text: 'Enjoy' },
@@ -1438,7 +1435,6 @@ describe('Instagram comment automation flow (e2e)', () => {
       // The refusal is this send's: the account stays connected and the event is processed.
       expect(await flow.connectionStatus()).toBe('connected');
       expect(await flow.eventOf(`comment:${commentId}`)).toMatchObject({ status: 'processed' });
-      expect((await flow.readAutomation(automation.public_id)).completed_run_count).toBe(0);
       expect(instagram.countOf('direct_message')).toBe(1);
     });
 

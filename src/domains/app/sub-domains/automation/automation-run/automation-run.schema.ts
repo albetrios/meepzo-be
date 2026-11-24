@@ -17,7 +17,7 @@ import { sqlLiteral, sqlLiteralList } from '@/infrastructure/database/utils/sql-
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
-import { AUTOMATION_TRIGGER_TYPES } from '@/domains/app/sub-domains/automation/automation.constants.js';
+import { AUTOMATION_RUN_TRIGGER_TYPES } from './automation-run.constants.js';
 import {
   AUTOMATION_RUN_CANCEL_REASONS,
   AUTOMATION_RUN_EVENT_KEY_MAX_LENGTH,
@@ -140,7 +140,7 @@ function automationRunChecks(table: AutomationRunTableColumns) {
   return [
     check(
       'chk_automation_runs_trigger_type',
-      sql`${table.trigger_type} IN (${sqlLiteralList(AUTOMATION_TRIGGER_TYPES)})`,
+      sql`${table.trigger_type} IN (${sqlLiteralList(AUTOMATION_RUN_TRIGGER_TYPES)})`,
     ),
     check(
       'chk_automation_runs_status',

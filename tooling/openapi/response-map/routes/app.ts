@@ -189,10 +189,14 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
 
-  // ── Automations ──
+  // ── Automations (feat-instagram-dm-sending § 4.A, ROUTE R13) ──
   'GET /api/v1/app/automations': {
     statusCode: 200,
-    schema: wrapPaginated(schemas.automationSchema, [schemas.automationExample]),
+    schema: wrapPaginated(
+      schemas.automationListRowSchema,
+      [schemas.automationListRowExample],
+      schemas.automationTotalsMetaProperty,
+    ),
     example: null,
   },
   'POST /api/v1/app/automations': {
@@ -207,7 +211,42 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
   },
   'PATCH /api/v1/app/automations/{automation_id}': {
     statusCode: 200,
-    schema: wrapSuccess(schemas.automationSchema, schemas.automationExample),
+    schema: wrapSuccess(
+      schemas.automationSchema,
+      schemas.automationExample,
+      schemas.automationWarningsMetaProperty,
+    ),
+    example: null,
+  },
+  'POST /api/v1/app/automations/{automation_id}/go-live': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.automationSchema,
+      schemas.automationExample,
+      schemas.automationWarningsMetaProperty,
+    ),
+    example: null,
+  },
+  'POST /api/v1/app/automations/{automation_id}/pause': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.automationSchema, {
+      ...schemas.automationExample,
+      status: 'paused',
+    }),
+    example: null,
+  },
+  'POST /api/v1/app/automations/{automation_id}/duplicate': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.automationSchema, {
+      ...schemas.automationExample,
+      name: 'Comment GUIDE for the free guide (copy)',
+      status: 'draft',
+    }),
+    example: null,
+  },
+  'POST /api/v1/app/automations/{automation_id}/keyword-test': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.automationKeywordTestSchema, schemas.automationKeywordTestExample),
     example: null,
   },
   'DELETE /api/v1/app/automations/{automation_id}': {

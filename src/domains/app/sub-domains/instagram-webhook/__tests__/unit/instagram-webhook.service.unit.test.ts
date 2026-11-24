@@ -7,9 +7,7 @@ import type { NewInstagramWebhookEvent } from '@/domains/app/sub-domains/instagr
 import type { InstagramWebhookAccountProcessingEnqueue } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
 
 const mockEnvironment = vi.hoisted(() => ({
-  INSTAGRAM_WEBHOOK_VERIFY_TOKEN: 'unit-test-verify-token-of-thirty-two-chars' as
-    | string
-    | undefined,
+  META_WEBHOOK_VERIFY_TOKEN: 'unit-test-verify-token-of-thirty-two-chars' as string | undefined,
 }));
 const logger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 const recordUnknownAccountEntry = vi.hoisted(() => vi.fn());
@@ -125,7 +123,7 @@ async function reasonOf(action: () => unknown): Promise<string | undefined> {
 }
 
 beforeEach(() => {
-  mockEnvironment.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = 'unit-test-verify-token-of-thirty-two-chars';
+  mockEnvironment.META_WEBHOOK_VERIFY_TOKEN = 'unit-test-verify-token-of-thirty-two-chars';
   for (const log of Object.values(logger)) log.mockReset();
   recordUnknownAccountEntry.mockReset();
   openedScopes.length = 0;
@@ -155,7 +153,7 @@ describe('verifySubscription (route 16, WH7)', () => {
   });
 
   it('answers 503 instagram_webhook_not_configured without the setting — fails closed', async () => {
-    mockEnvironment.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = undefined;
+    mockEnvironment.META_WEBHOOK_VERIFY_TOKEN = undefined;
     const { service } = setup();
     expect(() => service.verifySubscription(check)).toThrow(ServiceUnavailableError);
     expect(await reasonOf(() => service.verifySubscription(check))).toBe(

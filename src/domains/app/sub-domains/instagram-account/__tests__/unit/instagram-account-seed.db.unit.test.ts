@@ -10,17 +10,28 @@ import { PROFILES } from '@/scripts/seed/bulk-config.js';
 import type { SeedContext, SeededOrg } from '@/scripts/seed/seed-contract.js';
 import { createSeedRegistry } from '@/scripts/seed/seed-registry.js';
 import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import { composeContributions } from '@/scripts/seed/seed-contract.js';
+import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
+import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
+import { META_REQUIRED_PERMISSIONS } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
+import { channelConnectionSeedContribution } from '@/domains/app/sub-domains/channel-connection/seed/index.js';
+import { channelAccountSeedContribution } from '@/domains/app/sub-domains/channel-account/seed/index.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
-import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
-import { INSTAGRAM_ACCOUNT_REQUIRED_SCOPES } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 import { instagramAccountSeedContribution } from '@/domains/app/sub-domains/instagram-account/seed/index.js';
 
+/** The connection seed, then the account seed — the app domain's order. */
+const connectionAndAccountSeed = composeContributions(
+  channelConnectionSeedContribution,
+  channelAccountSeedContribution,
+  instagramAccountSeedContribution,
+);
+
 /**
- * The Instagram account bulk seed (launch IAC10) against the real schema: each registry team
- * organization gets a connected account, a token that is `encryptFieldSecret` ciphertext whose
- * expiry the account copies (IA5), and the default settings — and a second run writes nothing new.
+ * The channel connection and Instagram account bulk seeds (launch IAC10, feat-instagram-dm-sending
+ * MCC7) against the real schema: each registry team organization gets one connection with a token
+ * that is `encryptFieldSecret` ciphertext, a connected account through it and the default settings —
+ * and a second run writes nothing new.
  */
 
 async function seedOrganization(): Promise<SeededOrg> {
@@ -45,15 +56,19 @@ async function rowsOf(organizationId: number) {
     .select()
     .from(instagram_accounts)
     .where(eq(instagram_accounts.organization_id, organizationId));
+  const connections = await database
+    .select()
+    .from(channel_connections)
+    .where(eq(channel_connections.organization_id, organizationId));
   const tokens = await database
     .select()
-    .from(instagram_account_tokens)
-    .where(eq(instagram_account_tokens.organization_id, organizationId));
+    .from(channel_connection_tokens)
+    .where(eq(channel_connection_tokens.organization_id, organizationId));
   const settings = await database
     .select()
     .from(instagram_account_settings)
     .where(eq(instagram_account_settings.organization_id, organizationId));
-  return { accounts, tokens, settings };
+  return { connections, accounts, tokens, settings };
 }
 
 describe('Instagram account bulk seed (database)', () => {
@@ -61,31 +76,42 @@ describe('Instagram account bulk seed (database)', () => {
     await cleanupDatabase();
   });
 
-  it('connects an account per organization with an encrypted token and the default settings', async () => {
+  it('connects a connection and an account through it per organization, with an encrypted token and the default settings', async () => {
     const organization = await seedOrganization();
 
-    await instagramAccountSeedContribution.seedBulk?.(seedContext([organization]));
+    await connectionAndAccountSeed.seedBulk?.(seedContext([organization]));
 
-    const { accounts, tokens, settings } = await rowsOf(organization.id);
+    const { connections, accounts, tokens, settings } = await rowsOf(organization.id);
+    expect(connections).toHaveLength(1);
+    const connection = connections[0]!;
+    expect(connection).toMatchObject({
+      provider: 'meta',
+      status: 'connected',
+      connected_by_user_id: organization.ownerUserId,
+      scopes: [...META_REQUIRED_PERMISSIONS],
+    });
     expect(accounts).toHaveLength(1);
     const account = accounts[0]!;
     expect(account).toMatchObject({
+      channel_account_id: expect.any(Number),
       connection_status: 'connected',
       connected_by_user_id: organization.ownerUserId,
       disconnected_at: null,
-      scopes: [...INSTAGRAM_ACCOUNT_REQUIRED_SCOPES],
+      token_expires_at: null,
+      scopes: [...META_REQUIRED_PERMISSIONS],
     });
     expect(account.instagram_user_id).toMatch(/^9[0-9]{15}$/);
     expect(account.webhook_subscribed_at).not.toBeNull();
 
     expect(tokens).toHaveLength(1);
     const token = tokens[0]!;
-    expect(token.instagram_account_id).toBe(account.id);
-    expect(token.expires_at).toEqual(account.token_expires_at);
+    expect(token.channel_connection_id).toBe(connection.id);
+    expect(token.token_type).toBe('system_user');
+    expect(token.expires_at).toBeNull();
     // Ciphertext, not a token: it decrypts to the placeholder only.
     expect(token.encrypted_access_token).not.toContain('placeholder');
     expect(decryptFieldSecret(token.encrypted_access_token)).toBe(
-      'seed-placeholder-not-an-instagram-token',
+      'seed-placeholder-not-a-meta-token',
     );
 
     expect(settings).toHaveLength(1);
@@ -104,36 +130,28 @@ describe('Instagram account bulk seed (database)', () => {
   it('is idempotent: a second run adds nothing and changes nothing', async () => {
     const organizations = [await seedOrganization(), await seedOrganization()];
 
-    await instagramAccountSeedContribution.seedBulk?.(seedContext(organizations));
+    await connectionAndAccountSeed.seedBulk?.(seedContext(organizations));
     const first = await Promise.all(organizations.map((organization) => rowsOf(organization.id)));
-    await instagramAccountSeedContribution.seedBulk?.(seedContext(organizations));
+    await connectionAndAccountSeed.seedBulk?.(seedContext(organizations));
     const second = await Promise.all(organizations.map((organization) => rowsOf(organization.id)));
 
     expect(second).toEqual(first);
     for (const rows of second) {
-      expect([rows.accounts.length, rows.tokens.length, rows.settings.length]).toEqual([1, 1, 1]);
+      expect([
+        rows.connections.length,
+        rows.accounts.length,
+        rows.tokens.length,
+        rows.settings.length,
+      ]).toEqual([1, 1, 1, 1]);
     }
   });
 
-  it('leaves an organization that already holds another live account untouched', async () => {
+  it('seeds no account for an organization without its seeded connection', async () => {
     const organization = await seedOrganization();
-    const [existing] = await database
-      .insert(instagram_accounts)
-      .values({
-        public_id: generatePublicId('instagramAccount'),
-        organization_id: organization.id,
-        instagram_user_id: '17841400000000042',
-        instagram_app_user_id: '917841400000000042',
-        username: 'already_connected',
-      })
-      .returning({ id: instagram_accounts.id });
 
     await instagramAccountSeedContribution.seedBulk?.(seedContext([organization]));
 
-    const { accounts, tokens, settings } = await rowsOf(organization.id);
-    expect(accounts.map((account) => account.id)).toEqual([existing!.id]);
-    expect(tokens).toEqual([]);
-    // Every account has its settings, as a connect leaves it — the existing one included.
-    expect(settings.map((row) => row.instagram_account_id)).toEqual([existing!.id]);
+    const { accounts } = await rowsOf(organization.id);
+    expect(accounts).toEqual([]);
   });
 });

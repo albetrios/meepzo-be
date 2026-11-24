@@ -1,6 +1,6 @@
 import {
   type CircuitBreakerOpenError,
-  INSTAGRAM_CIRCUIT_RESET_TIMEOUT_MS,
+  META_GRAPH_CIRCUIT_RESET_TIMEOUT_MS,
 } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   ConflictError,
@@ -18,7 +18,7 @@ import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 
 /** `Retry-After` (seconds) for an Instagram outage that named no wait: the circuit's reset window. */
 const INSTAGRAM_OUTAGE_RETRY_AFTER_SECONDS = Math.ceil(
-  INSTAGRAM_CIRCUIT_RESET_TIMEOUT_MS / MILLISECONDS_PER_SECOND,
+  META_GRAPH_CIRCUIT_RESET_TIMEOUT_MS / MILLISECONDS_PER_SECOND,
 );
 
 /**
@@ -99,7 +99,7 @@ export function instagramConnectRestartRequiredError(): ConflictError {
  * `503 instagram_unavailable` for a call the open `instagram` circuit refused, with the circuit's
  * remaining open time as `Retry-After` (at least one second).
  */
-export function instagramCircuitOpenError(error: CircuitBreakerOpenError): ServiceUnavailableError {
+export function metaGraphCircuitOpenError(error: CircuitBreakerOpenError): ServiceUnavailableError {
   return instagramUnavailableError(
     Math.max(1, Math.ceil(error.retryAfterMs / MILLISECONDS_PER_SECOND)),
   );

@@ -85,7 +85,7 @@ stateDiagram-v2
   `503 instagram_unavailable` with `Retry-After` when Instagram is down, failing, throttling or its
   circuit is open; `503 instagram_not_configured` when the Instagram app settings are unset.
 - **An Instagram object without an id or a readable `timestamp`** → `upsertFromInstagram` throws an
-  `outage` `InstagramApiError` before any write (Instagram misbehaving; the caller retries).
+  `outage` `MetaGraphApiError` before any write (Instagram misbehaving; the caller retries).
 - **A post that names another organization's account** → the composite key refuses it (23503); a write
   under another organization's scope fails the policy's `WITH CHECK`.
 

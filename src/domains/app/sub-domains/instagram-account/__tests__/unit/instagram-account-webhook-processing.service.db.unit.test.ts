@@ -3,9 +3,9 @@ import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-con
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
-import { InstagramAccountTokenRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.repository.js';
-import { InstagramAccountTokenService } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.service.js';
-import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
+import { ChannelConnectionRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
+import { ChannelConnectionTokenRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.repository.js';
+import { ChannelConnectionTokenService } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.service.js';
 import { InstagramAccountSettingsRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
@@ -13,7 +13,7 @@ import { insertInstagramAccount } from '@/domains/app/sub-domains/contact/__test
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
+import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
 
 /**
  * `InstagramAccountService.findWebhookProcessingAccount` against the database (routes-final § 4.A
@@ -43,7 +43,10 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     const accountRepository = new InstagramAccountRepository();
     service = new InstagramAccountService(
       accountRepository,
-      new InstagramAccountTokenService(new InstagramAccountTokenRepository()),
+      new ChannelConnectionTokenService(
+        new ChannelConnectionTokenRepository(),
+        new ChannelConnectionRepository(),
+      ),
       new InstagramAccountSettingsService(
         new InstagramAccountSettingsRepository(),
         accountRepository,
@@ -53,12 +56,12 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     );
   });
 
+  /** Sets the account's connection token (the token is the connection's, P111). */
   async function insertToken(account: { id: number }, ciphertext = 'v1:fake-ciphertext') {
-    await getOperatorDatabase().insert(instagram_account_tokens).values({
-      organization_id: organization.id,
-      instagram_account_id: account.id,
-      encrypted_access_token: ciphertext,
-    });
+    await operatorQuery`
+      UPDATE app.channel_connection_tokens SET encrypted_access_token = ${ciphertext}
+      WHERE channel_connection_id = (
+        SELECT channel_connection_id FROM app.instagram_accounts WHERE id = ${account.id})`;
   }
 
   async function insertSettings(account: { id: number }, isAutomationEnabled: boolean) {
@@ -95,7 +98,7 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
 
     await expect(find(account.public_id)).resolves.toMatchObject({
       isAutomationEnabled: true,
-      encryptedAccessToken: null,
+      encryptedAccessToken: expect.any(String),
     });
   });
 

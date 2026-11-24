@@ -5,7 +5,7 @@ import {
   readAnswerCount,
   readAnswerId,
   readAnswerText,
-} from '@/infrastructure/social/instagram.client.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
   INSTAGRAM_MEDIA_PRODUCT_TYPES,
   INSTAGRAM_MEDIA_TYPES,

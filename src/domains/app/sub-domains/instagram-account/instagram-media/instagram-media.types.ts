@@ -1,5 +1,5 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
-import type { InstagramMediaGraphItem } from '@/infrastructure/social/instagram.client.js';
+import type { InstagramMediaGraphItem } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import type { InstagramAccountKey } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import type {
   InstagramMediaProductType,

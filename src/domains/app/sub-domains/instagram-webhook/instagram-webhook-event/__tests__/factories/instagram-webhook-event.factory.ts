@@ -1,3 +1,4 @@
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import {
   createMembership,
@@ -30,11 +31,17 @@ export async function insertTestInstagramAccount(
   organizationId: number,
 ): Promise<TestInstagramAccount> {
   const instagramUserId = `9${String(organizationId).padStart(15, '0')}`;
+  const channelAccount = await insertChannelAccount({
+    organizationId,
+    providerAccountId: instagramUserId,
+    displayName: '@acme_shop',
+  });
   const [account] = await operatorQuery<Array<{ id: string }>>`
     INSERT INTO app.instagram_accounts
-      (public_id, organization_id, instagram_user_id, instagram_app_user_id, username)
-    VALUES (${generatePublicId('instagramAccount')}, ${organizationId}, ${instagramUserId},
-            ${`8${String(organizationId).padStart(15, '0')}`}, 'acme_shop')
+      (public_id, organization_id, channel_account_id, instagram_user_id, instagram_app_user_id,
+       username)
+    VALUES (${generatePublicId('instagramAccount')}, ${organizationId}, ${channelAccount.id},
+            ${instagramUserId}, ${instagramUserId}, 'acme_shop')
     RETURNING id`;
   return { id: Number(account?.id), instagramUserId };
 }

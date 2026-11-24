@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { MetaSignedRequestPayload } from '@/infrastructure/social/meta-signature.util.js';
+import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import { successResponse } from '@/shared/utils/http/response.util.js';
 import { getRequestIdentifier } from '@/shared/utils/http/request.util.js';
 import { recordScopedAuditEvent } from '@/shared/utils/infrastructure/audit-request-context.util.js';

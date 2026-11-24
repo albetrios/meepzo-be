@@ -51,7 +51,8 @@ const GLOBAL_LIMITER_ONLY_ALLOWLIST = new Set<string>([
   'src/domains/user/user.routes.ts → GET /me',
   'src/domains/user/user.routes.ts → GET /me/settings',
   'src/domains/user/user.routes.ts → GET /me/notification-preferences',
-  'src/domains/app/sub-domains/instagram-account/instagram-account.routes.ts → GET /social/instagram/account',
+  // The channel account reads (feat-instagram-dm-sending R5, routes 6, 7): plain authenticated reads.
+  'src/domains/app/sub-domains/channel-account/channel-account.routes.ts → GET /social/channel-accounts',
   // The post and story pickers (launch R5): plain authenticated reads, one Instagram call each.
   'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/media',
   'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/stories',
@@ -60,6 +61,8 @@ const GLOBAL_LIMITER_ONLY_ALLOWLIST = new Set<string>([
   // The automation reads (launch R9): plain authenticated reads of the organization's automations.
   'src/domains/app/sub-domains/automation/automation.routes.ts → GET /automations',
   'src/domains/app/sub-domains/automation/automation.routes.ts → GET /automations/:automation_id',
+  // The channel connections list (feat-instagram-dm-sending R3): a plain authenticated read.
+  'src/domains/app/sub-domains/channel-connection/channel-connection.routes.ts → GET /social/channel-connections',
   // (The organization-switch POSTs previously lived here as a flagged follow-up; they now carry
   //  MODERATE_AUTHED_RATE_LIMIT, so they are enforced by the preset check below, not allowlisted.)
 ]);

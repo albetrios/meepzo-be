@@ -3,23 +3,15 @@ import {
   type OrganizationPrincipalDatabaseScope,
   PRINCIPAL_SCOPE,
 } from '@/infrastructure/database/contexts/database-context.js';
-import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
-import type { InstagramAccountProfile } from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
-import {
-  ConflictError,
-  NotFoundError,
-  ServiceUnavailableError,
-  UnprocessableEntityError,
-} from '@/shared/errors/index.js';
-import { INSTAGRAM_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
+import type { NotFoundError } from '@/shared/errors/index.js';
 import type {
   InstagramAccountRepository,
   InstagramAccountRow,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
-import type { InstagramAccountTokenService } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.service.js';
+import type { ChannelConnectionTokenService } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.service.js';
 import type { InstagramAccountSettingsRow } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 
@@ -28,9 +20,6 @@ const { unitOfWork, instagramClient, enqueueReconnectNotice, runEnqueueAfterComm
     /** How many units of work are open, and whether one was open at any Instagram call. */
     unitOfWork: { openCount: 0, openCountAtInstagramCalls: [] as number[] },
     instagramClient: {
-      exchangeInstagramAuthorizationCode: vi.fn(),
-      exchangeInstagramLongLivedAccessToken: vi.fn(),
-      readInstagramAccountProfile: vi.fn(),
       subscribeInstagramWebhookFields: vi.fn(),
       unsubscribeInstagramWebhookFields: vi.fn(),
     },
@@ -57,10 +46,13 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
   };
 });
 
-vi.mock('@/infrastructure/social/instagram.client.js', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, ...instagramClient };
-});
+vi.mock(
+  '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js',
+  async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    return { ...actual, ...instagramClient };
+  },
+);
 
 vi.mock('@/core/events/event-bus.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -93,14 +85,11 @@ const CONNECTING_USER_ID = 5;
 const SETTINGS_EDITOR_ID = 6;
 const INSTAGRAM_USER_ID = '17841400000000001';
 const INSTAGRAM_APP_USER_ID = '8724000000000001';
-const SHORT_LIVED_CIPHERTEXT = 'v1:short-lived-ciphertext';
-const LONG_LIVED_CIPHERTEXT = 'v1:long-lived-ciphertext';
 const STORED_CIPHERTEXT = 'v1:stored-ciphertext';
 const TOKEN_EXPIRES_AT = new Date('2027-01-20T09:00:00.000Z');
 const NOW = new Date('2026-11-21T09:00:00.000Z');
 /** {@link NOW} as Meta signs a time: Unix seconds. */
 const NOW_SECONDS = NOW.getTime() / 1000;
-const REQUEST_ID = 'request-connect';
 const GRANTED_PERMISSIONS = [
   'instagram_business_basic',
   'instagram_business_manage_messages',
@@ -112,12 +101,16 @@ const scope: OrganizationPrincipalDatabaseScope = PRINCIPAL_SCOPE.VERIFIED({
 const TEAM = { id: 7, public_id: ORGANIZATION_PUBLIC_ID, type: 'TEAM' };
 const ACCOUNT_PUBLIC_ID = 'iga_k7x9m2pqr4w8n1v3a1b2c';
 const instagramAccount = { organizationId: TEAM.id, instagramAccountId: 3 };
+const CHANNEL_CONNECTION_ID = 12;
+const channelConnection = { organizationId: TEAM.id, channelConnectionId: CHANNEL_CONNECTION_ID };
 
 function accountRow(overrides: Partial<InstagramAccountRow> = {}): InstagramAccountRow {
   return {
     id: instagramAccount.instagramAccountId,
     public_id: ACCOUNT_PUBLIC_ID,
     organization_id: TEAM.id,
+    channel_connection_id: CHANNEL_CONNECTION_ID,
+    channel_account_id: 5,
     instagram_user_id: INSTAGRAM_USER_ID,
     instagram_app_user_id: INSTAGRAM_APP_USER_ID,
     username: 'acme.shop',
@@ -164,32 +157,15 @@ function settingsRow(
   };
 }
 
-function profile(overrides: Partial<InstagramAccountProfile> = {}): InstagramAccountProfile {
-  return {
-    instagramUserId: INSTAGRAM_USER_ID,
-    instagramAppUserId: INSTAGRAM_APP_USER_ID,
-    username: 'acme.shop',
-    name: 'Acme Shop',
-    accountType: 'BUSINESS',
-    profilePictureUrl: 'https://cdn.example.com/picture.jpg',
-    followersCount: 1204,
-    followsCount: 87,
-    mediaCount: 54,
-    biography: 'Handmade things.',
-    website: 'https://example.com',
-    ...overrides,
-  };
-}
-
 /** An Instagram error of one class, as the client throws it. */
 function instagramError({
   errorClass,
   retryAfterMs,
 }: {
-  errorClass: InstagramApiError['errorClass'];
+  errorClass: MetaGraphApiError['errorClass'];
   retryAfterMs?: number;
-}): InstagramApiError {
-  return new InstagramApiError({
+}): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass,
     category: errorClass === 'outage' ? 'http_5xx' : 'http_4xx',
     httpStatus: errorClass === 'outage' ? 500 : 400,
@@ -201,13 +177,6 @@ function instagramError({
       fbtraceId: 'trace-acme',
     },
     fallbackMessage: 'Instagram failed',
-  });
-}
-
-/** A Postgres unique violation as Drizzle throws it: the driver's error is the cause. */
-function uniqueViolation(constraint: string): Error {
-  return new Error('Failed query', {
-    cause: Object.assign(new Error('duplicate key value'), { code: '23505', constraint }),
   });
 }
 
@@ -249,15 +218,14 @@ function setup({
     eraseProfile: vi.fn(
       async (): Promise<InstagramAccountRow | null> => accountRow({ username: null }),
     ),
+    // No other not-revoked account uses the connection: a disconnect takes its token (CA8).
+    countLiveByConnection: vi.fn(async () => 0),
   };
   const tokenService = {
     findAccessToken: vi.fn(async () =>
-      storedToken === null
-        ? null
-        : { encryptedAccessToken: storedToken, expiresAt: TOKEN_EXPIRES_AT },
+      storedToken === null ? null : { encryptedAccessToken: storedToken, expiresAt: null },
     ),
-    storeAccessToken: vi.fn(async () => {}),
-    eraseAccessToken: vi.fn(async () => true),
+    revokeConnection: vi.fn(async () => true),
   };
   const settingsService = {
     findSettings: vi.fn(async () => settings),
@@ -282,7 +250,7 @@ function setup({
   };
   const service = new InstagramAccountService(
     accountRepository as unknown as InstagramAccountRepository,
-    tokenService as unknown as InstagramAccountTokenService,
+    tokenService as unknown as ChannelConnectionTokenService,
     settingsService as unknown as InstagramAccountSettingsService,
     organizationService as unknown as OrganizationService,
   );
@@ -311,19 +279,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   unitOfWork.openCount = 0;
   unitOfWork.openCountAtInstagramCalls = [];
-  instagramClient.exchangeInstagramAuthorizationCode.mockReset().mockImplementation(
-    answering({
-      encryptedAccessToken: SHORT_LIVED_CIPHERTEXT,
-      instagramUserId: INSTAGRAM_USER_ID,
-      grantedPermissions: GRANTED_PERMISSIONS,
-    }),
-  );
-  instagramClient.exchangeInstagramLongLivedAccessToken
-    .mockReset()
-    .mockImplementation(
-      answering({ encryptedAccessToken: LONG_LIVED_CIPHERTEXT, expiresAt: TOKEN_EXPIRES_AT }),
-    );
-  instagramClient.readInstagramAccountProfile.mockReset().mockImplementation(answering(profile()));
   instagramClient.subscribeInstagramWebhookFields
     .mockReset()
     .mockImplementation(answering(undefined));
@@ -334,555 +289,6 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async (callback: () => Promise<void>) => callback());
   enqueueReconnectNotice.mockReset().mockResolvedValue(undefined);
-});
-
-describe('InstagramAccountService.connect (route 1, IA12)', () => {
-  const connectInput = {
-    scope,
-    code: 'AQB-test-authorization-code#_',
-    connectedByUserPublicId: CONNECTING_USER_PUBLIC_ID,
-    requestId: REQUEST_ID,
-  };
-
-  it('swaps the code for the long-lived token, reads the profile with it and writes the account, its settings and its token', async () => {
-    const { service, accountRepository, tokenService, settingsService } = setup({
-      liveAccount: null,
-    });
-    const subscribed = accountRow({ webhook_subscribed_at: NOW });
-    accountRepository.findById.mockResolvedValueOnce(subscribed);
-
-    const result = await service.connect(connectInput);
-
-    expect(instagramClient.exchangeInstagramAuthorizationCode).toHaveBeenCalledWith({
-      code: connectInput.code,
-      requestId: REQUEST_ID,
-    });
-    expect(instagramClient.exchangeInstagramLongLivedAccessToken).toHaveBeenCalledWith({
-      encryptedShortLivedAccessToken: SHORT_LIVED_CIPHERTEXT,
-      requestId: REQUEST_ID,
-    });
-    expect(instagramClient.readInstagramAccountProfile).toHaveBeenCalledWith({
-      encryptedAccessToken: LONG_LIVED_CIPHERTEXT,
-      requestId: REQUEST_ID,
-    });
-    expect(accountRepository.upsertConnected).toHaveBeenCalledWith({
-      organizationId: TEAM.id,
-      instagramUserId: INSTAGRAM_USER_ID,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
-      username: 'acme.shop',
-      name: 'Acme Shop',
-      biography: 'Handmade things.',
-      website: 'https://example.com',
-      profilePictureUrl: 'https://cdn.example.com/picture.jpg',
-      followersCount: 1204,
-      followsCount: 87,
-      mediaCount: 54,
-      scopes: GRANTED_PERMISSIONS,
-      tokenExpiresAt: TOKEN_EXPIRES_AT,
-      connectedByUserId: CONNECTING_USER_ID,
-    });
-    expect(settingsService.createDefaultSettings).toHaveBeenCalledWith({ scope, instagramAccount });
-    expect(tokenService.storeAccessToken).toHaveBeenCalledWith({
-      scope,
-      instagramAccount,
-      encryptedAccessToken: LONG_LIVED_CIPHERTEXT,
-      expiresAt: TOKEN_EXPIRES_AT,
-    });
-    expect(result).toEqual({
-      is_new_connection: true,
-      instagram_account: expect.objectContaining({
-        id: ACCOUNT_PUBLIC_ID,
-        connection_status: 'connected',
-        is_webhook_subscribed: true,
-        connected_by_user_id: CONNECTING_USER_PUBLIC_ID,
-        settings: expect.objectContaining({ updated_by_user_id: SETTINGS_EDITOR_PUBLIC_ID }),
-      }),
-    });
-    expect(JSON.stringify(result)).not.toContain('ciphertext');
-  });
-
-  it('makes every Instagram call outside the units of work', async () => {
-    const { service } = setup({ liveAccount: null });
-
-    await service.connect(connectInput);
-
-    expect(unitOfWork.openCountAtInstagramCalls).toEqual([0, 0, 0, 0]);
-  });
-
-  it('writes 0 for a count Instagram left out, and each permission once', async () => {
-    instagramClient.exchangeInstagramAuthorizationCode.mockResolvedValue({
-      encryptedAccessToken: SHORT_LIVED_CIPHERTEXT,
-      grantedPermissions: [...GRANTED_PERMISSIONS, 'instagram_business_basic'],
-    });
-    instagramClient.readInstagramAccountProfile.mockResolvedValue(
-      profile({ followersCount: null, followsCount: null, mediaCount: null }),
-    );
-    const { service, accountRepository } = setup({ liveAccount: null });
-
-    await service.connect(connectInput);
-
-    expect(accountRepository.upsertConnected).toHaveBeenCalledWith(
-      expect.objectContaining({
-        followersCount: 0,
-        followsCount: 0,
-        mediaCount: 0,
-        scopes: GRANTED_PERMISSIONS,
-      }),
-    );
-  });
-
-  it('connects for no user when an API key calls it', async () => {
-    const { service, accountRepository } = setup({ liveAccount: null });
-
-    await service.connect({ ...connectInput, connectedByUserPublicId: undefined });
-
-    expect(accountRepository.upsertConnected).toHaveBeenCalledWith(
-      expect.objectContaining({ connectedByUserId: null }),
-    );
-  });
-
-  it('reconnects the organization’s own account: not new, and no second subscription once subscribed', async () => {
-    const subscribed = accountRow({ webhook_subscribed_at: NOW });
-    const { service, accountRepository } = setup({ liveAccount: subscribed });
-    accountRepository.resolveOrganizationPublicIdForInstagramUser.mockResolvedValueOnce(
-      ORGANIZATION_PUBLIC_ID,
-    );
-    accountRepository.upsertConnected.mockResolvedValueOnce({
-      account: subscribed,
-      isNewConnection: false,
-    });
-
-    const result = await service.connect(connectInput);
-
-    expect(result.is_new_connection).toBe(false);
-    expect(result.instagram_account.is_webhook_subscribed).toBe(true);
-    expect(instagramClient.subscribeInstagramWebhookFields).not.toHaveBeenCalled();
-  });
-
-  it('refuses a personal organization with 422 before any Instagram call (IA3)', async () => {
-    const { service } = setup({ organizationType: 'PERSONAL' });
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect(error).toBeInstanceOf(UnprocessableEntityError);
-    expect((error as UnprocessableEntityError).messageKey).toBe(
-      'errors:personalOrganizationNoInstagram',
-    );
-    expect(instagramClient.exchangeInstagramAuthorizationCode).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['refused', 'exchangeInstagramAuthorizationCode'],
-    ['auth', 'exchangeInstagramAuthorizationCode'],
-    ['refused', 'exchangeInstagramLongLivedAccessToken'],
-    ['auth', 'readInstagramAccountProfile'],
-  ] as const)(
-    'answers 422 instagram_code_invalid when Instagram answers %s to %s, storing nothing',
-    async (errorClass, call) => {
-      const { service, accountRepository, tokenService } = setup({ liveAccount: null });
-      instagramClient[call].mockRejectedValue(instagramError({ errorClass }));
-
-      const error = await rejection(service.connect(connectInput));
-
-      expect(error).toBeInstanceOf(UnprocessableEntityError);
-      expect((error as UnprocessableEntityError).reason).toBe('instagram_code_invalid');
-      expect(accountRepository.upsertConnected).not.toHaveBeenCalled();
-      expect(tokenService.storeAccessToken).not.toHaveBeenCalled();
-    },
-  );
-
-  it('answers 503 instagram_unavailable with Instagram’s own wait when it throttles', async () => {
-    const { service, accountRepository } = setup({ liveAccount: null });
-    instagramClient.exchangeInstagramAuthorizationCode.mockRejectedValue(
-      instagramError({ errorClass: 'throttled', retryAfterMs: 120_000 }),
-    );
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect(error).toBeInstanceOf(ServiceUnavailableError);
-    expect(error).toMatchObject({ reason: 'instagram_unavailable', retryAfterSeconds: 120 });
-    expect(accountRepository.upsertConnected).not.toHaveBeenCalled();
-  });
-
-  it('answers 503 instagram_unavailable with a wait of its own when Instagram fails', async () => {
-    const { service } = setup({ liveAccount: null });
-    instagramClient.exchangeInstagramAuthorizationCode.mockRejectedValue(
-      instagramError({ errorClass: 'outage' }),
-    );
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect(error).toMatchObject({ statusCode: 503, reason: 'instagram_unavailable' });
-    expect((error as ServiceUnavailableError).retryAfterSeconds).toBeGreaterThan(0);
-  });
-
-  it('answers 503 instagram_unavailable with the circuit’s wait, rounded up to a second', async () => {
-    const { service } = setup({ liveAccount: null });
-    instagramClient.exchangeInstagramAuthorizationCode.mockRejectedValue(
-      new CircuitBreakerOpenError('instagram', 1_200, 'instagram circuit is open'),
-    );
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect(error).toMatchObject({ reason: 'instagram_unavailable', retryAfterSeconds: 2 });
-  });
-
-  describe('once the one-time code is spent (D56)', () => {
-    const circuitOpen = new CircuitBreakerOpenError(
-      'instagram',
-      1_200,
-      'instagram circuit is open',
-    );
-
-    it.each([
-      [
-        'an outage',
-        'exchangeInstagramLongLivedAccessToken',
-        instagramError({ errorClass: 'outage' }),
-      ],
-      [
-        'a throttle',
-        'exchangeInstagramLongLivedAccessToken',
-        instagramError({ errorClass: 'throttled', retryAfterMs: 120_000 }),
-      ],
-      ['the open circuit', 'exchangeInstagramLongLivedAccessToken', circuitOpen],
-      ['an outage', 'readInstagramAccountProfile', instagramError({ errorClass: 'outage' })],
-      [
-        'a throttle',
-        'readInstagramAccountProfile',
-        instagramError({ errorClass: 'throttled', retryAfterMs: 120_000 }),
-      ],
-      ['the open circuit', 'readInstagramAccountProfile', circuitOpen],
-    ] as const)(
-      'answers 409 instagram_connect_restart_required for %s in %s, with no Retry-After, storing nothing',
-      async (_failure, call, failure) => {
-        const { service, accountRepository, tokenService } = setup({ liveAccount: null });
-        instagramClient[call].mockRejectedValue(failure);
-
-        const error = await rejection(service.connect(connectInput));
-
-        expect(error).toBeInstanceOf(ConflictError);
-        expect(error).toMatchObject({
-          statusCode: 409,
-          reason: 'instagram_connect_restart_required',
-          messageKey: 'errors:instagramConnectRestartRequired',
-        });
-        expect((error as ConflictError).retryAfterSeconds).toBeUndefined();
-        expect(accountRepository.upsertConnected).not.toHaveBeenCalled();
-        expect(tokenService.storeAccessToken).not.toHaveBeenCalled();
-      },
-    );
-
-    it('answers it when the profile has no username', async () => {
-      const { service, accountRepository } = setup({ liveAccount: null });
-      instagramClient.readInstagramAccountProfile.mockResolvedValue(profile({ username: null }));
-
-      const error = await rejection(service.connect(connectInput));
-
-      expect(error).toMatchObject({
-        statusCode: 409,
-        reason: 'instagram_connect_restart_required',
-      });
-      expect(accountRepository.upsertConnected).not.toHaveBeenCalled();
-    });
-
-    it('passes a failure of our own through unchanged', async () => {
-      const { service } = setup({ liveAccount: null });
-      const ownFailure = new TypeError('a failure of ours');
-      instagramClient.readInstagramAccountProfile.mockRejectedValue(ownFailure);
-
-      await expect(service.connect(connectInput)).rejects.toBe(ownFailure);
-    });
-  });
-
-  it('reads what the answer needs in the connect transaction, so a failed read connects nothing (D56)', async () => {
-    const { service, organizationService } = setup({ liveAccount: null });
-    const readFailure = new Error('the read failed');
-    let openCountAtRead = -1;
-    organizationService.resolveUserPublicIdsByInternalIds.mockImplementationOnce(async () => {
-      openCountAtRead = unitOfWork.openCount;
-      throw readFailure;
-    });
-
-    await expect(service.connect(connectInput)).rejects.toBe(readFailure);
-
-    expect(openCountAtRead).toBe(1);
-    expect(instagramClient.subscribeInstagramWebhookFields).not.toHaveBeenCalled();
-  });
-
-  it('reads nothing after the commit but the subscription stamp', async () => {
-    const { service, organizationService } = setup({ liveAccount: null });
-    const openCountsAtRead: number[] = [];
-    organizationService.resolveUserPublicIdsByInternalIds.mockImplementation(async () => {
-      openCountsAtRead.push(unitOfWork.openCount);
-      return new Map([[CONNECTING_USER_ID, CONNECTING_USER_PUBLIC_ID]]);
-    });
-
-    const result = await service.connect(connectInput);
-
-    expect(openCountsAtRead).toEqual([1]);
-    expect(result.instagram_account.connected_by_user_id).toBe(CONNECTING_USER_PUBLIC_ID);
-  });
-
-  it('passes a failure of our own through unchanged', async () => {
-    const { service } = setup({ liveAccount: null });
-    const notConfigured = new ServiceUnavailableError('errors:instagramNotConfigured').withReason(
-      'instagram_not_configured',
-    );
-    instagramClient.exchangeInstagramAuthorizationCode.mockRejectedValue(notConfigured);
-
-    await expect(service.connect(connectInput)).rejects.toBe(notConfigured);
-  });
-
-  it.each([['PERSONAL'], [null]])(
-    'answers 422 instagram_account_not_professional for an account type of %s',
-    async (accountType) => {
-      const { service, accountRepository } = setup({ liveAccount: null });
-      instagramClient.readInstagramAccountProfile.mockResolvedValue(profile({ accountType }));
-
-      const error = await rejection(service.connect(connectInput));
-
-      expect(error).toBeInstanceOf(UnprocessableEntityError);
-      expect((error as UnprocessableEntityError).reason).toBe('instagram_account_not_professional');
-      expect(accountRepository.resolveOrganizationPublicIdForInstagramUser).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(['BUSINESS', 'MEDIA_CREATOR'])('takes a %s account', async (accountType) => {
-    const { service } = setup({ liveAccount: null });
-    instagramClient.readInstagramAccountProfile.mockResolvedValue(profile({ accountType }));
-
-    await expect(service.connect(connectInput)).resolves.toMatchObject({ is_new_connection: true });
-  });
-
-  it.each(GRANTED_PERMISSIONS)(
-    'answers 422 instagram_scopes_missing without %s, storing nothing',
-    async (missingPermission) => {
-      const { service, accountRepository } = setup({ liveAccount: null });
-      instagramClient.exchangeInstagramAuthorizationCode.mockResolvedValue({
-        encryptedAccessToken: SHORT_LIVED_CIPHERTEXT,
-        grantedPermissions: GRANTED_PERMISSIONS.filter(
-          (permission) => permission !== missingPermission,
-        ),
-      });
-
-      const error = await rejection(service.connect(connectInput));
-
-      expect((error as UnprocessableEntityError).reason).toBe('instagram_scopes_missing');
-      expect(accountRepository.upsertConnected).not.toHaveBeenCalled();
-    },
-  );
-
-  it('names the account type before a missing permission', async () => {
-    const { service } = setup({ liveAccount: null });
-    instagramClient.exchangeInstagramAuthorizationCode.mockResolvedValue({
-      encryptedAccessToken: SHORT_LIVED_CIPHERTEXT,
-      grantedPermissions: [],
-    });
-    instagramClient.readInstagramAccountProfile.mockResolvedValue(
-      profile({ accountType: 'PERSONAL' }),
-    );
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect((error as UnprocessableEntityError).reason).toBe('instagram_account_not_professional');
-  });
-
-  it('answers 409 instagram_account_connected_elsewhere while another organization holds it, opening no transaction', async () => {
-    const { service, accountRepository } = setup({ liveAccount: null });
-    accountRepository.resolveOrganizationPublicIdForInstagramUser.mockResolvedValueOnce(
-      OTHER_ORGANIZATION_PUBLIC_ID,
-    );
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect(error).toBeInstanceOf(ConflictError);
-    expect((error as ConflictError).reason).toBe('instagram_account_connected_elsewhere');
-    expect(accountRepository.resolveOrganizationPublicIdForInstagramUser).toHaveBeenCalledWith(
-      INSTAGRAM_USER_ID,
-    );
-    expect(accountRepository.findLiveByOrganizationId).not.toHaveBeenCalled();
-  });
-
-  it('answers 409 organization_already_has_instagram_account while another account is live here (D5)', async () => {
-    const { service, accountRepository } = setup({
-      liveAccount: accountRow({ instagram_user_id: '17841400000000002' }),
-    });
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect((error as ConflictError).reason).toBe('organization_already_has_instagram_account');
-    expect(accountRepository.upsertConnected).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    [
-      INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.organizationLive,
-      'organization_already_has_instagram_account',
-    ],
-    [INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.instagramUserLive, 'instagram_account_connected_elsewhere'],
-  ])('maps a lost race on %s to 409 %s', async (constraint, reason) => {
-    const { service, accountRepository, tokenService } = setup({ liveAccount: null });
-    accountRepository.upsertConnected.mockRejectedValueOnce(uniqueViolation(constraint));
-
-    const error = await rejection(service.connect(connectInput));
-
-    expect(error).toBeInstanceOf(ConflictError);
-    expect((error as ConflictError).reason).toBe(reason);
-    expect(tokenService.storeAccessToken).not.toHaveBeenCalled();
-    expect(instagramClient.subscribeInstagramWebhookFields).not.toHaveBeenCalled();
-  });
-
-  it('passes any other database failure through, and subscribes nothing', async () => {
-    const { service, accountRepository, tokenService } = setup({ liveAccount: null });
-    const otherIndex = uniqueViolation('idx_instagram_accounts_public_id');
-    accountRepository.upsertConnected.mockRejectedValueOnce(otherIndex);
-    await expect(service.connect(connectInput)).rejects.toBe(otherIndex);
-
-    const tokenFailure = new Error('token write failed');
-    tokenService.storeAccessToken.mockRejectedValueOnce(tokenFailure);
-    await expect(service.connect(connectInput)).rejects.toBe(tokenFailure);
-
-    expect(instagramClient.subscribeInstagramWebhookFields).not.toHaveBeenCalled();
-  });
-
-  it('subscribes the account after the commit and stamps it', async () => {
-    const { service, accountRepository } = setup({ liveAccount: null });
-    accountRepository.findById.mockResolvedValueOnce(accountRow({ webhook_subscribed_at: NOW }));
-
-    await service.connect(connectInput);
-
-    expect(instagramClient.subscribeInstagramWebhookFields).toHaveBeenCalledWith({
-      encryptedAccessToken: LONG_LIVED_CIPHERTEXT,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
-      requestId: REQUEST_ID,
-    });
-    expect(accountRepository.recordWebhookSubscribed).toHaveBeenCalledWith(instagramAccount);
-  });
-
-  it('answers the account not subscribed when it was disconnected before the stamp', async () => {
-    const { service, accountRepository } = setup({ liveAccount: null });
-    accountRepository.recordWebhookSubscribed.mockResolvedValueOnce(false);
-
-    const result = await service.connect(connectInput);
-
-    expect(result.instagram_account.is_webhook_subscribed).toBe(false);
-    expect(accountRepository.findById).not.toHaveBeenCalled();
-  });
-
-  it('connects all the same when the subscription fails, logging the codes and never Instagram’s text', async () => {
-    const { service, accountRepository } = setup({ liveAccount: null });
-    instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(
-      instagramError({ errorClass: 'refused' }),
-    );
-
-    const result = await service.connect(connectInput);
-
-    expect(result.instagram_account.is_webhook_subscribed).toBe(false);
-    expect(accountRepository.recordWebhookSubscribed).not.toHaveBeenCalled();
-    expect(loggerWarn).toHaveBeenCalledWith(
-      {
-        requestId: REQUEST_ID,
-        organizationPublicId: ORGANIZATION_PUBLIC_ID,
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-        errorClass: 'refused',
-        instagramErrorCode: 100,
-        instagramErrorSubcode: 33,
-        fbtraceId: 'trace-acme',
-      },
-      'app.instagram_account.webhook_subscription_failed',
-    );
-  });
-
-  it('logs only the name of a failure that is not Instagram’s', async () => {
-    const { service } = setup({ liveAccount: null });
-    instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(
-      new TypeError('a detail that stays out of the log'),
-    );
-
-    await service.connect(connectInput);
-
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.objectContaining({ errorName: 'TypeError' }),
-      'app.instagram_account.webhook_subscription_failed',
-    );
-    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('stays out of the log');
-  });
-});
-
-describe('InstagramAccountService.getAccount (route 2, IA13)', () => {
-  it.each(['connected', 'expired', 'error'])(
-    'answers the %s account with its settings and both users',
-    async (connectionStatus) => {
-      const { service, settingsService, organizationService } = setup({
-        liveAccount: accountRow({ connection_status: connectionStatus }),
-      });
-
-      const account = await service.getAccount({ scope });
-
-      expect(account).toMatchObject({
-        id: ACCOUNT_PUBLIC_ID,
-        connection_status: connectionStatus,
-        access_expires_at: TOKEN_EXPIRES_AT.toISOString(),
-        connected_by_user_id: CONNECTING_USER_PUBLIC_ID,
-        settings: { is_automation_enabled: true, updated_by_user_id: SETTINGS_EDITOR_PUBLIC_ID },
-      });
-      expect(settingsService.findSettings).toHaveBeenCalledWith({ scope, instagramAccount });
-      expect(organizationService.resolveUserPublicIdsByInternalIds).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it('answers no user for one the account never had, or one deleted since', async () => {
-    const never = setup({
-      liveAccount: accountRow({ connected_by_user_id: null }),
-      settings: settingsRow({ updated_by_user_id: null }),
-    });
-    const withoutUsers = await never.service.getAccount({ scope });
-    expect(withoutUsers.connected_by_user_id).toBeNull();
-    expect(withoutUsers.settings.updated_by_user_id).toBeNull();
-    expect(never.organizationService.resolveUserPublicIdsByInternalIds).toHaveBeenCalledWith([]);
-
-    const deleted = setup();
-    deleted.organizationService.resolveUserPublicIdsByInternalIds.mockResolvedValueOnce(new Map());
-    const withDeletedUsers = await deleted.service.getAccount({ scope });
-    expect(withDeletedUsers.connected_by_user_id).toBeNull();
-    expect(withDeletedUsers.settings.updated_by_user_id).toBeNull();
-  });
-
-  it('never reads the token and never calls Instagram', async () => {
-    const { service, tokenService } = setup();
-
-    await service.getAccount({ scope });
-
-    expect(tokenService.findAccessToken).not.toHaveBeenCalled();
-    expect(unitOfWork.openCountAtInstagramCalls).toEqual([]);
-  });
-
-  it('answers 404 instagram_not_connected without a live account', async () => {
-    const { service, settingsService } = setup({ liveAccount: null });
-
-    const error = await rejection(service.getAccount({ scope }));
-
-    expect(error).toBeInstanceOf(NotFoundError);
-    expect((error as NotFoundError).reason).toBe('instagram_not_connected');
-    expect(settingsService.findSettings).not.toHaveBeenCalled();
-  });
-
-  it('answers 404 team_organization_required on a personal organization — a read is never a 422 (IA3)', async () => {
-    const { service, accountRepository } = setup({ organizationType: 'PERSONAL' });
-
-    const error = await rejection(service.getAccount({ scope }));
-
-    expect(error).toBeInstanceOf(NotFoundError);
-    expect((error as NotFoundError).reason).toBe('team_organization_required');
-    expect(accountRepository.findLiveByOrganizationId).not.toHaveBeenCalled();
-  });
-
-  it('fails when the account has no settings row', async () => {
-    const { service } = setup({ settings: null });
-
-    await expect(service.getAccount({ scope })).rejects.toThrow('no settings row');
-  });
 });
 
 describe('InstagramAccountService lookups', () => {
@@ -909,7 +315,7 @@ describe('InstagramAccountService lookups', () => {
         instagramAccount,
         encryptedAccessToken: STORED_CIPHERTEXT,
       });
-      expect(tokenService.findAccessToken).toHaveBeenCalledWith({ scope, instagramAccount });
+      expect(tokenService.findAccessToken).toHaveBeenCalledWith({ scope, channelConnection });
     });
 
     it('answers no token, and a broken account as it is — the caller decides', async () => {
@@ -1080,87 +486,6 @@ describe('InstagramAccountService lookups', () => {
   });
 });
 
-describe('InstagramAccountService.disconnect (route 4, IA14)', () => {
-  const disconnectInput = { scope, requestId: 'request-disconnect' };
-
-  it('unsubscribes outside the units of work, then revokes the account and erases its token', async () => {
-    const { service, accountRepository, tokenService } = setup();
-
-    await expect(service.disconnect(disconnectInput)).resolves.toEqual({
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-    });
-
-    expect(instagramClient.unsubscribeInstagramWebhookFields).toHaveBeenCalledWith({
-      encryptedAccessToken: STORED_CIPHERTEXT,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
-      requestId: 'request-disconnect',
-    });
-    expect(unitOfWork.openCountAtInstagramCalls).toEqual([0]);
-    expect(accountRepository.revoke).toHaveBeenCalledWith(instagramAccount);
-    expect(tokenService.eraseAccessToken).toHaveBeenCalledWith({ scope, instagramAccount });
-    expect(accountRepository.eraseProfile).not.toHaveBeenCalled();
-  });
-
-  it('calls no Instagram for an account without a token', async () => {
-    const { service, accountRepository } = setup({ storedToken: null });
-
-    await service.disconnect(disconnectInput);
-
-    expect(instagramClient.unsubscribeInstagramWebhookFields).not.toHaveBeenCalled();
-    expect(accountRepository.revoke).toHaveBeenCalledTimes(1);
-  });
-
-  it('disconnects all the same when the unsubscribe fails, and logs it', async () => {
-    const { service, accountRepository, tokenService } = setup();
-    instagramClient.unsubscribeInstagramWebhookFields.mockRejectedValue(
-      instagramError({ errorClass: 'outage' }),
-    );
-
-    await expect(service.disconnect(disconnectInput)).resolves.toEqual({
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-    });
-
-    expect(accountRepository.revoke).toHaveBeenCalledTimes(1);
-    expect(tokenService.eraseAccessToken).toHaveBeenCalledTimes(1);
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestId: 'request-disconnect',
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-        errorClass: 'outage',
-      }),
-      'app.instagram_account.webhook_unsubscription_failed',
-    );
-  });
-
-  it('answers 404 instagram_not_connected without a live account, calling no Instagram', async () => {
-    const { service } = setup({ liveAccount: null });
-
-    const error = await rejection(service.disconnect(disconnectInput));
-
-    expect((error as NotFoundError).reason).toBe('instagram_not_connected');
-    expect(instagramClient.unsubscribeInstagramWebhookFields).not.toHaveBeenCalled();
-  });
-
-  it('answers 404 instagram_not_connected when another disconnect won, erasing nothing', async () => {
-    const { service, accountRepository, tokenService } = setup();
-    accountRepository.revoke.mockResolvedValueOnce(null);
-
-    const error = await rejection(service.disconnect(disconnectInput));
-
-    expect((error as NotFoundError).reason).toBe('instagram_not_connected');
-    expect(tokenService.eraseAccessToken).not.toHaveBeenCalled();
-  });
-
-  it('refuses a personal organization with 422 (IA3)', async () => {
-    const { service, accountRepository } = setup({ organizationType: 'PERSONAL' });
-
-    expect(await rejection(service.disconnect(disconnectInput))).toBeInstanceOf(
-      UnprocessableEntityError,
-    );
-    expect(accountRepository.findLiveByOrganizationId).not.toHaveBeenCalled();
-  });
-});
-
 describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
   it('lists the organizations of an app-scoped id outside any unit of work (IA6)', async () => {
     const { service, accountRepository } = setup();
@@ -1198,7 +523,7 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
     accountRepository.revoke
       .mockResolvedValueOnce(accountRow({ connection_status: 'revoked' }))
       .mockResolvedValueOnce(null);
-    tokenService.eraseAccessToken.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    tokenService.revokeConnection.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 
     const changes = await service.disconnectForMeta({
       scope,
@@ -1268,7 +593,7 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
       }),
     ).resolves.toEqual([]);
     expect(accountRepository.revoke).not.toHaveBeenCalled();
-    expect(tokenService.eraseAccessToken).not.toHaveBeenCalled();
+    expect(tokenService.revokeConnection).not.toHaveBeenCalled();
   });
 
   it('leaves an account connected after Meta signed the request alone, and changes an older one (D53)', async () => {
@@ -1292,9 +617,7 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
     // The reconnected account is left out, so its stored posts stay too.
     expect(changes.map((change) => change.instagramAccount)).toEqual([revokedKey]);
     expect(accountRepository.revoke.mock.calls).toEqual([[revokedKey]]);
-    expect(tokenService.eraseAccessToken.mock.calls).toEqual([
-      [{ scope, instagramAccount: revokedKey }],
-    ]);
+    expect(tokenService.revokeConnection.mock.calls).toEqual([[{ scope, channelConnection }]]);
     expect(accountRepository.eraseProfile.mock.calls).toEqual([[revokedKey]]);
   });
 
@@ -1391,7 +714,7 @@ describe('InstagramAccountService and an organization delete (D54)', () => {
     accountRepository.revoke
       .mockResolvedValueOnce(accountRow({ connection_status: 'revoked' }))
       .mockResolvedValueOnce(null);
-    tokenService.eraseAccessToken.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    tokenService.revokeConnection.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 
     const changes = await service.disconnectForOrganizationOffboarding({ scope });
 

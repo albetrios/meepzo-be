@@ -1,6 +1,6 @@
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import type { MetaSignedRequestPayload } from '@/infrastructure/social/meta-signature.util.js';
-import { readInstagramAppSecret } from '@/infrastructure/social/instagram.client.js';
+import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
+import { readMetaAppSecret } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
@@ -88,7 +88,7 @@ export class InstagramAccountMetaCallbackService {
   async deleteData({ signedRequest }: MetaCallbackInput): Promise<MetaDataDeletionResult> {
     const confirmationCode = deriveMetaDataDeletionConfirmationCode({
       signedRequest,
-      appSecret: readInstagramAppSecret(),
+      appSecret: readMetaAppSecret(),
     });
     const changes = await this.changeEveryOrganization({ signedRequest, shouldEraseData: true });
     const answer = serializeMetaDataDeletionAnswer({

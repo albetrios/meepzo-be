@@ -118,7 +118,7 @@ beforeEach(async () => {
 describe('instagram-webhook.worker', () => {
   it('runs on the instagram-webhook queue, pausing for the instagram provider, at the family concurrency', () => {
     expect(workerState.queueName).toBe('instagram-webhook');
-    expect(workerState.provider).toBe('instagram');
+    expect(workerState.provider).toBe('meta');
     expect(workerState.options).toMatchObject({
       concurrency: 6,
       connection: { host: 'redis.test' },

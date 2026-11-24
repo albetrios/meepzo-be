@@ -4,7 +4,7 @@
 export interface InstagramWebhookSubscriptionCheck {
   /** `hub.mode` — must be `subscribe`. */
   mode: string;
-  /** `hub.verify_token` — compared in constant time with `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`. */
+  /** `hub.verify_token` — compared in constant time with `META_WEBHOOK_VERIFY_TOKEN`. */
   verifyToken: string;
   /** `hub.challenge` — echoed as received when the check passes. */
   challenge: string;

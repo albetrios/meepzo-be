@@ -13,14 +13,36 @@ import {
 } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { instagram_accounts } from './instagram-account.schema.js';
 import type { InstagramAccountBrokenConnectionStatus } from './instagram-account.constants.js';
 
 /** `updated_at` for every change of a account — never before the row's `created_at`. */
 const accountUpdatedAtTimestamp = databaseUpdatedAtTimestamp(instagram_accounts.created_at);
 
+/** `updated_at` of the mirrored channel account change (P116). */
+const channelAccountUpdatedAtTimestamp = databaseUpdatedAtTimestamp(channel_accounts.created_at);
+
 /** One `app.instagram_accounts` row as Drizzle reads it. */
-export type InstagramAccountRow = typeof instagram_accounts.$inferSelect;
+export type InstagramAccountRow = typeof instagram_accounts.$inferSelect & {
+  /** The connection of its channel account (`app.channel_accounts.channel_connection_id`, R5). */
+  channel_connection_id: number;
+};
+
+/**
+ * The columns every account read returns: the Instagram row plus its channel account's connection
+ * (feat-instagram-dm-sending R5 moved `channel_connection_id` onto `app.channel_accounts`, P116).
+ */
+const instagramAccountColumns = {
+  ...getTableColumns(instagram_accounts),
+  channel_connection_id: channel_accounts.channel_connection_id,
+};
+
+/** The join of an Instagram account to its channel account (1:1, same organization). */
+const channelAccountJoin = and(
+  eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+  eq(channel_accounts.id, instagram_accounts.channel_account_id),
+);
 
 /** The two keys every account write is scoped by: its organization and its internal id. */
 export interface InstagramAccountKey {
@@ -31,11 +53,15 @@ export interface InstagramAccountKey {
 }
 
 /**
- * What a connect writes onto the account (IA12 step 4): the `/me` profile, the granted scopes, the
- * token's expiry copy (IA5) and who connected it.
+ * What a pick writes onto the account (feat-instagram-dm-sending routes-final § 1 MC7): the
+ * connection it came through, its profile, the connection's granted scopes and who connected it.
  */
 export interface InstagramAccountConnectValues {
   organizationId: number;
+  /** `app.channel_accounts.id` this row extends (1:1, R5). */
+  channelAccountId: number;
+  /** `app.channel_connections.id` of that channel account — returned on the row. */
+  channelConnectionId: number;
   instagramUserId: string;
   instagramAppUserId: string;
   username: string;
@@ -47,8 +73,6 @@ export interface InstagramAccountConnectValues {
   followsCount: number;
   mediaCount: number;
   scopes: readonly string[];
-  /** The long-lived token's `expires_at`, copied in the same transaction (IA5). */
-  tokenExpiresAt: Date;
   /** `auth.users.id` of the connecting user; `null` when the caller has none. */
   connectedByUserId: number | null;
 }
@@ -117,28 +141,143 @@ export class InstagramAccountRepository {
   }
 
   /**
-   * The organization's not-revoked account — `connected`, `expired` or `error` (D5, IA13) — or
-   * `null` when it has none (only revoked rows, or no row at all).
+   * The organization's oldest-connected not-revoked account — `connected`, `expired` or `error`
+   * (IA13) — or `null` when it has none (only revoked rows, or no row at all). The launch's
+   * singular routes read it until ROUTE row R5 names the account in the path (CA2).
    */
   async findLiveByOrganizationId(organizationId: number): Promise<InstagramAccountRow | null> {
     const rows = await this.db()
-      .select()
+      .select(instagramAccountColumns)
       .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
       .where(
         and(
           eq(instagram_accounts.organization_id, organizationId),
           ne(instagram_accounts.connection_status, 'revoked'),
         ),
       )
+      .orderBy(asc(instagram_accounts.connected_at), asc(instagram_accounts.id))
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /** How many not-revoked accounts the organization has (the pick's plan count, MC7). */
+  async countLiveByOrganizationId(organizationId: number): Promise<number> {
+    const rows = await this.db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(instagram_accounts)
+      .where(
+        and(
+          eq(instagram_accounts.organization_id, organizationId),
+          ne(instagram_accounts.connection_status, 'revoked'),
+        ),
+      );
+    return rows[0]?.count ?? 0;
+  }
+
+  /** How many not-revoked accounts still use the connection (CA8: its token goes with the last). */
+  async countLiveByConnection({
+    organizationId,
+    channelConnectionId,
+  }: {
+    organizationId: number;
+    channelConnectionId: number;
+  }): Promise<number> {
+    const rows = await this.db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
+      .where(
+        and(
+          eq(instagram_accounts.organization_id, organizationId),
+          eq(channel_accounts.channel_connection_id, channelConnectionId),
+          ne(instagram_accounts.connection_status, 'revoked'),
+        ),
+      );
+    return rows[0]?.count ?? 0;
+  }
+
+  /** The organization's accounts, any status, with these Instagram user ids. */
+  async findByInstagramUserIds({
+    organizationId,
+    instagramUserIds,
+  }: {
+    organizationId: number;
+    instagramUserIds: readonly string[];
+  }): Promise<InstagramAccountRow[]> {
+    if (instagramUserIds.length === 0) return [];
+    return this.db()
+      .select(instagramAccountColumns)
+      .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
+      .where(
+        and(
+          eq(instagram_accounts.organization_id, organizationId),
+          inArray(instagram_accounts.instagram_user_id, [...instagramUserIds]),
+        ),
+      );
+  }
+
+  /**
+   * A reconnect (MC6): the not-revoked account goes `connected` (`expired` / `error` →
+   * `connected`; `connection_status_changed_at` moves only when the status changes) — the channel
+   * account's move to the connection is its own repository's (R5). Returns the changed row, or
+   * `null` when the account is revoked.
+   */
+  async markConnected({
+    organizationId,
+    instagramAccountId,
+  }: InstagramAccountKey): Promise<InstagramAccountRow | null> {
+    const rows = await this.db()
+      .update(instagram_accounts)
+      .set({
+        connection_status: 'connected',
+        connection_status_changed_at: sql`CASE WHEN ${instagram_accounts.connection_status} = 'connected' THEN ${instagram_accounts.connection_status_changed_at} ELSE now() END`,
+        updated_at: accountUpdatedAtTimestamp,
+      })
+      .from(channel_accounts)
+      .where(
+        and(
+          channelAccountJoin,
+          eq(instagram_accounts.organization_id, organizationId),
+          eq(instagram_accounts.id, instagramAccountId),
+          ne(instagram_accounts.connection_status, 'revoked'),
+        ),
+      )
+      .returning(instagramAccountColumns);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * The Instagram rows of these channel accounts (the 1:1 extension, R5), any status — the channel
+   * account's reads (routes 6–11) and its account port.
+   */
+  async findByChannelAccountIds({
+    organizationId,
+    channelAccountIds,
+  }: {
+    organizationId: number;
+    channelAccountIds: readonly number[];
+  }): Promise<InstagramAccountRow[]> {
+    if (channelAccountIds.length === 0) return [];
+    return this.db()
+      .select(instagramAccountColumns)
+      .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
+      .where(
+        and(
+          eq(instagram_accounts.organization_id, organizationId),
+          inArray(instagram_accounts.channel_account_id, [...channelAccountIds]),
+        ),
+      );
   }
 
   /** One account of the organization by its internal id, any status; `null` when absent. */
   async findById(key: InstagramAccountKey): Promise<InstagramAccountRow | null> {
     const rows = await this.db()
-      .select()
+      .select(instagramAccountColumns)
       .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
       .where(
         and(
           eq(instagram_accounts.organization_id, key.organizationId),
@@ -151,7 +290,7 @@ export class InstagramAccountRepository {
 
   /**
    * Inserts the account, or — when this organization had this Instagram account before, any
-   * status — updates that row (IA11, IA12 step 4): the profile, scopes and expiry copy,
+   * status — updates that row (IA11; the pick, MC7): its connection, the profile and scopes,
    * `connected`, `connected_at`, `profile_synced_at` and `connected_by_user_id`; clears
    * `disconnected_at` and `profile_erased_at`. `connection_status_changed_at` moves only when the
    * status changes. `webhook_subscribed_at` is kept (a revoke has already emptied it).
@@ -160,6 +299,7 @@ export class InstagramAccountRepository {
     values: InstagramAccountConnectValues,
   ): Promise<InstagramAccountConnectResult> {
     const connectedColumns = {
+      channel_account_id: values.channelAccountId,
       instagram_app_user_id: values.instagramAppUserId,
       username: values.username,
       name: values.name,
@@ -171,7 +311,7 @@ export class InstagramAccountRepository {
       media_count: values.mediaCount,
       scopes: [...values.scopes],
       connection_status: 'connected',
-      token_expires_at: values.tokenExpiresAt,
+      token_expires_at: null,
       connected_by_user_id: values.connectedByUserId,
       connected_at: databaseNowTimestamp,
       disconnected_at: null,
@@ -207,7 +347,10 @@ export class InstagramAccountRepository {
       throw new Error('instagram account upsert returned no row');
     }
     const { is_inserted: isInserted, ...account } = row;
-    return { account, isNewConnection: isInserted };
+    return {
+      account: { ...account, channel_connection_id: values.channelConnectionId },
+      isNewConnection: isInserted,
+    };
   }
 
   /**
@@ -229,21 +372,37 @@ export class InstagramAccountRepository {
         connection_status_changed_at: databaseNowTimestamp,
         updated_at: accountUpdatedAtTimestamp,
       })
+      .from(channel_accounts)
       .where(
         and(
+          channelAccountJoin,
           eq(instagram_accounts.organization_id, organizationId),
           eq(instagram_accounts.id, instagramAccountId),
           eq(instagram_accounts.connection_status, 'connected'),
         ),
       )
-      .returning();
+      .returning(instagramAccountColumns);
+    const broken = rows[0];
+    if (broken !== undefined) {
+      // The channel account's status follows (CA4: `error`), until R6 drops this copy (P116).
+      await this.db()
+        .update(channel_accounts)
+        .set({ connection_status: 'error', updated_at: channelAccountUpdatedAtTimestamp })
+        .where(
+          and(
+            eq(channel_accounts.organization_id, broken.organization_id),
+            eq(channel_accounts.id, broken.channel_account_id),
+            eq(channel_accounts.connection_status, 'connected'),
+          ),
+        );
+    }
     return rows[0] ?? null;
   }
 
   /**
    * Disconnects the account (IA14): `revoked`, `disconnected_at`, and the token's expiry copy and
    * the webhook stamp emptied; profile kept. Returns the revoked row, or `null` when it was already
-   * revoked. The token row itself is erased by the token service in the same transaction.
+   * revoked. The connection's token goes with its last account (the account service, CA8).
    */
   async revoke({
     organizationId,
@@ -259,14 +418,34 @@ export class InstagramAccountRepository {
         webhook_subscribed_at: null,
         updated_at: accountUpdatedAtTimestamp,
       })
+      .from(channel_accounts)
       .where(
         and(
+          channelAccountJoin,
           eq(instagram_accounts.organization_id, organizationId),
           eq(instagram_accounts.id, instagramAccountId),
           ne(instagram_accounts.connection_status, 'revoked'),
         ),
       )
-      .returning();
+      .returning(instagramAccountColumns);
+    const revoked = rows[0];
+    if (revoked !== undefined) {
+      // The channel account is revoked with it (CA8), until R6 drops this copy (P116).
+      await this.db()
+        .update(channel_accounts)
+        .set({
+          connection_status: 'revoked',
+          disconnected_at: databaseNowTimestamp,
+          updated_at: channelAccountUpdatedAtTimestamp,
+        })
+        .where(
+          and(
+            eq(channel_accounts.organization_id, revoked.organization_id),
+            eq(channel_accounts.id, revoked.channel_account_id),
+            ne(channel_accounts.connection_status, 'revoked'),
+          ),
+        );
+    }
     return rows[0] ?? null;
   }
 
@@ -296,15 +475,17 @@ export class InstagramAccountRepository {
         profile_erased_at: databaseNowTimestamp,
         updated_at: accountUpdatedAtTimestamp,
       })
+      .from(channel_accounts)
       .where(
         and(
+          channelAccountJoin,
           eq(instagram_accounts.organization_id, organizationId),
           eq(instagram_accounts.id, instagramAccountId),
           eq(instagram_accounts.connection_status, 'revoked'),
           isNull(instagram_accounts.profile_erased_at),
         ),
       )
-      .returning();
+      .returning(instagramAccountColumns);
     return rows[0] ?? null;
   }
 
@@ -334,8 +515,8 @@ export class InstagramAccountRepository {
       .select({ id: organizations.id })
       .from(organizations)
       .where(eq(organizations.public_id, organizationPublicId));
-    return this.db()
-      .select()
+    const locked = await this.db()
+      .select({ id: instagram_accounts.id, organization_id: instagram_accounts.organization_id })
       .from(instagram_accounts)
       .where(
         and(
@@ -345,6 +526,7 @@ export class InstagramAccountRepository {
       )
       .orderBy(asc(instagram_accounts.id))
       .for('no key update');
+    return this.readLockedRows(locked);
   }
 
   /**
@@ -352,12 +534,35 @@ export class InstagramAccountRepository {
    * organization delete's erase (D54). A connect racing it waits for the unit.
    */
   async lockByOrganizationId(organizationId: number): Promise<InstagramAccountRow[]> {
-    return this.db()
-      .select()
+    const locked = await this.db()
+      .select({ id: instagram_accounts.id, organization_id: instagram_accounts.organization_id })
       .from(instagram_accounts)
       .where(eq(instagram_accounts.organization_id, organizationId))
       .orderBy(asc(instagram_accounts.id))
       .for('no key update');
+    return this.readLockedRows(locked);
+  }
+
+  /**
+   * The rows of accounts the caller just locked, with their channel account's connection, oldest
+   * first (a join cannot carry `FOR NO KEY UPDATE OF` a schema-qualified table, so the lock takes the
+   * account rows alone and this reads them back in the same unit).
+   */
+  private async readLockedRows(
+    locked: ReadonlyArray<{ id: number; organization_id: number }>,
+  ): Promise<InstagramAccountRow[]> {
+    if (locked.length === 0) return [];
+    return this.db()
+      .select(instagramAccountColumns)
+      .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
+      .where(
+        inArray(
+          instagram_accounts.id,
+          locked.map((row) => row.id),
+        ),
+      )
+      .orderBy(asc(instagram_accounts.id));
   }
 
   /**
@@ -398,8 +603,9 @@ export class InstagramAccountRepository {
     instagramAccountPublicId: string;
   }): Promise<InstagramAccountRow | null> {
     const rows = await this.db()
-      .select(getTableColumns(instagram_accounts))
+      .select(instagramAccountColumns)
       .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
       .innerJoin(organizations, eq(organizations.id, instagram_accounts.organization_id))
       .where(
         and(
@@ -441,29 +647,6 @@ export class InstagramAccountRepository {
       )
       .orderBy(asc(instagram_accounts.id))
       .limit(limit);
-  }
-
-  /**
-   * Copies a renewed token's expiry onto the account (IA5), in the transaction that writes the
-   * token. Skips a revoked account. Returns whether a row was written.
-   */
-  async recordTokenExpiry({
-    organizationId,
-    instagramAccountId,
-    tokenExpiresAt,
-  }: InstagramAccountKey & { tokenExpiresAt: Date }): Promise<boolean> {
-    const rows = await this.db()
-      .update(instagram_accounts)
-      .set({ token_expires_at: tokenExpiresAt, updated_at: accountUpdatedAtTimestamp })
-      .where(
-        and(
-          eq(instagram_accounts.organization_id, organizationId),
-          eq(instagram_accounts.id, instagramAccountId),
-          ne(instagram_accounts.connection_status, 'revoked'),
-        ),
-      )
-      .returning({ id: instagram_accounts.id });
-    return rows.length > 0;
   }
 
   /**

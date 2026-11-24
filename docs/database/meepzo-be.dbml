@@ -12,9 +12,12 @@ TableGroup app {
   app.automation_run_events
   app.automation_runs
   app.automations
+  app.channel_accounts
+  app.channel_connection_tokens
+  app.channel_connection_usages
+  app.channel_connections
   app.contacts
   app.instagram_account_settings
-  app.instagram_account_tokens
   app.instagram_accounts
   app.instagram_media
   app.instagram_webhook_events
@@ -221,6 +224,90 @@ Note app.automations {
   'RLS: enabled\nPolicies: automations_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
+Table app.channel_accounts {
+  AND 
+  channel varchar(20) [not null]
+  channel_connection_id bigint [not null]
+  connected_at timestamptz [not null]
+  connected_by_user_id bigint
+  connection_status varchar(20) [not null]
+  created_at timestamptz [not null]
+  disconnected_at timestamptz
+  display_name varchar(100) [not null]
+  id bigint [pk, increment]
+  is_automation_enabled boolean [not null]
+  organization_id bigint [not null]
+  paused_at timestamptz
+  paused_by_user_id bigint
+  plan_stop_reason varchar(14)
+  plan_stopped_at timestamptz
+  provider_account_id varchar(64) [not null]
+  public_id varchar(28) [not null]
+  suspended_at timestamptz
+  updated_at timestamptz [not null]
+}
+
+Note app.channel_accounts {
+  'RLS: enabled\nPolicies: channel_accounts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.channel_connection_tokens {
+  channel_connection_id bigint [not null]
+  created_at timestamptz [not null]
+  encrypted_access_token text [not null]
+  encrypted_refresh_token text
+  expires_at timestamptz
+  id bigint [pk, increment]
+  organization_id bigint [not null]
+  token_type varchar(20) [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.channel_connection_tokens {
+  'RLS: enabled\nPolicies: channel_connection_tokens_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.channel_connection_usages {
+  asset_id varchar(64) [not null]
+  channel_connection_id bigint [not null]
+  created_at timestamptz [not null]
+  id bigint [pk, increment]
+  organization_id bigint [not null]
+  read_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  usage_percent smallint [not null]
+  usage_type varchar(64) [not null]
+  wait_until timestamptz
+}
+
+Note app.channel_connection_usages {
+  'RLS: enabled\nPolicies: channel_connection_usages_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.channel_connections {
+  client_business_id varchar(64) [not null]
+  config_id varchar(64) [not null]
+  connected_at timestamptz [not null]
+  connected_by_user_id bigint
+  created_at timestamptz [not null]
+  disconnected_at timestamptz
+  id bigint [pk, increment]
+  last_check_error varchar(500)
+  last_checked_at timestamptz
+  login_type varchar(20) [not null]
+  organization_id bigint [not null]
+  provider varchar(20) [not null]
+  public_id varchar(28) [not null]
+  scopes text [not null]
+  status varchar(10) [not null]
+  status_changed_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.channel_connections {
+  'RLS: enabled\nPolicies: channel_connections_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
 Table app.contacts {
   AND cardinality
   created_at timestamptz [not null]
@@ -272,25 +359,9 @@ Note app.instagram_account_settings {
   'RLS: enabled\nPolicies: instagram_account_settings_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
-Table app.instagram_account_tokens {
-  created_at timestamptz [not null]
-  encrypted_access_token text [not null]
-  expires_at timestamptz
-  id bigint [pk, increment]
-  instagram_account_id bigint [not null]
-  last_refresh_error varchar(500)
-  last_refreshed_at timestamptz
-  organization_id bigint [not null]
-  token_type varchar(20) [not null]
-  updated_at timestamptz [not null]
-}
-
-Note app.instagram_account_tokens {
-  'RLS: enabled\nPolicies: instagram_account_tokens_tenant_isolation\nFORCE ROW LEVEL SECURITY'
-}
-
 Table app.instagram_accounts {
   biography text
+  channel_account_id bigint [not null]
   connected_at timestamptz [not null]
   connected_by_user_id bigint
   connection_status varchar(20) [not null]

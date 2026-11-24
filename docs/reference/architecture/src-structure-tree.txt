@@ -129,6 +129,85 @@ src/
     │   │   │   ├── automation.service.ts
     │   │   │   ├── automation.types.ts
     │   │   │   └── automation.validator.ts
+    │   │   ├── channel-account/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── channel-account.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── channel-account.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts
+    │   │   │   │   │   ├── channel-account-feature-check.service.unit.test.ts
+    │   │   │   │   │   ├── channel-account.serializer.unit.test.ts
+    │   │   │   │   │   └── channel-account.validator.unit.test.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── channel-account.bulk.seed.ts
+    │   │   │   │   └── index.ts
+    │   │   │   ├── channel-account-capabilities.constants.ts
+    │   │   │   ├── channel-account-error.util.ts
+    │   │   │   ├── channel-account.constants.ts
+    │   │   │   ├── channel-account.controller.ts
+    │   │   │   ├── channel-account.dto.ts
+    │   │   │   ├── channel-account.overview.md
+    │   │   │   ├── channel-account.repository.ts
+    │   │   │   ├── channel-account.routes.ts
+    │   │   │   ├── channel-account.schema.ts
+    │   │   │   ├── channel-account.serializer.ts
+    │   │   │   ├── channel-account.service.ts
+    │   │   │   ├── channel-account.types.ts
+    │   │   │   └── channel-account.validator.ts
+    │   │   ├── channel-connection/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── channel-connection.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── channel-connection.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-connection-state.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-token-isolation.policy.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-token.service.db.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-usage.repository.db.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-usage.service.unit.test.ts
+    │   │   │   │   │   ├── channel-connection.serializer.unit.test.ts
+    │   │   │   │   │   └── channel-connection.validator.unit.test.ts
+    │   │   │   ├── channel-connection-meta/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── meta-graph-error.util.unit.test.ts
+    │   │   │   │   │   │   ├── meta-graph-usage.util.unit.test.ts
+    │   │   │   │   │   │   ├── meta-graph.client.unit.test.ts
+    │   │   │   │   │   │   ├── meta-login.unit.test.ts
+    │   │   │   │   │   │   └── meta-signature.unit.test.ts
+    │   │   │   │   ├── channel-connection-meta.overview.md
+    │   │   │   │   ├── meta-graph-error.util.ts
+    │   │   │   │   ├── meta-graph-usage.util.ts
+    │   │   │   │   ├── meta-graph.client.ts
+    │   │   │   │   ├── meta-login.ts
+    │   │   │   │   └── meta-signature.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── channel-connection.bulk.seed.ts
+    │   │   │   │   └── index.ts
+    │   │   │   ├── channel-connection-error.util.ts
+    │   │   │   ├── channel-connection-state.ts
+    │   │   │   ├── channel-connection-token.repository.ts
+    │   │   │   ├── channel-connection-token.schema.ts
+    │   │   │   ├── channel-connection-token.service.ts
+    │   │   │   ├── channel-connection-usage.cache.ts
+    │   │   │   ├── channel-connection-usage.repository.ts
+    │   │   │   ├── channel-connection-usage.schema.ts
+    │   │   │   ├── channel-connection-usage.service.ts
+    │   │   │   ├── channel-connection-usage.types.ts
+    │   │   │   ├── channel-connection.constants.ts
+    │   │   │   ├── channel-connection.controller.ts
+    │   │   │   ├── channel-connection.dto.ts
+    │   │   │   ├── channel-connection.overview.md
+    │   │   │   ├── channel-connection.repository.ts
+    │   │   │   ├── channel-connection.routes.ts
+    │   │   │   ├── channel-connection.schema.ts
+    │   │   │   ├── channel-connection.serializer.ts
+    │   │   │   ├── channel-connection.service.ts
+    │   │   │   ├── channel-connection.types.ts
+    │   │   │   └── channel-connection.validator.ts
     │   │   ├── contact/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
@@ -172,14 +251,9 @@ src/
     │   │   │   │   │   ├── instagram-account-erasure.service.unit.test.ts
     │   │   │   │   │   ├── instagram-account-queues.unit.test.ts
     │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
-    │   │   │   │   │   ├── instagram-account-token-isolation.policy.unit.test.ts
-    │   │   │   │   │   ├── instagram-account-token.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account-webhook-processing.service.db.unit.test.ts
-    │   │   │   │   │   ├── instagram-account.controller.unit.test.ts
     │   │   │   │   │   ├── instagram-account.repository.db.unit.test.ts
-    │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-account.service.unit.test.ts
-    │   │   │   │   │   ├── instagram-account.validator.unit.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
     │   │   │   ├── instagram-account-meta-callback/
     │   │   │   │   ├── __tests__/
@@ -269,20 +343,12 @@ src/
     │   │   │   │   └── instagram-reconnect-notice.worker.ts
     │   │   │   ├── instagram-account-erasure.service.ts
     │   │   │   ├── instagram-account-error.util.ts
-    │   │   │   ├── instagram-account-token.repository.ts
-    │   │   │   ├── instagram-account-token.schema.ts
-    │   │   │   ├── instagram-account-token.service.ts
     │   │   │   ├── instagram-account.constants.ts
-    │   │   │   ├── instagram-account.controller.ts
-    │   │   │   ├── instagram-account.dto.ts
     │   │   │   ├── instagram-account.overview.md
     │   │   │   ├── instagram-account.repository.ts
-    │   │   │   ├── instagram-account.routes.ts
     │   │   │   ├── instagram-account.schema.ts
-    │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
-    │   │   │   ├── instagram-account.types.ts
-    │   │   │   └── instagram-account.validator.ts
+    │   │   │   └── instagram-account.types.ts
     │   │   └── instagram-webhook/
     │   │   │   ├── __tests__/
     │   │   │       ├── integration/
@@ -1599,6 +1665,7 @@ src/
     │   │   │   ├── assert-redis-eviction-policy.unit.test.ts
     │   │   │   ├── assert-redis-tls-safety.unit.test.ts
     │   │   │   ├── redis-lock.util.unit.test.ts
+    │   │   │   ├── redis-one-use-value.util.unit.test.ts
     │   │   │   ├── redis-scan.util.unit.test.ts
     │   │   │   ├── redis-url.util.unit.test.ts
     │   │   │   └── resolve-bullmq-redis-url.util.unit.test.ts
@@ -1608,6 +1675,7 @@ src/
     │   ├── cache.overview.md
     │   ├── redis-close.util.ts
     │   ├── redis-lock.util.ts
+    │   ├── redis-one-use-value.util.ts
     │   ├── redis-prefix.util.ts
     │   ├── redis-scan.util.ts
     │   ├── redis-semaphore.util.ts
@@ -1847,16 +1915,6 @@ src/
     │   ├── circuit-breaker.ts
     │   ├── resilience.overview.md
     │   └── retry-with-backoff.util.ts
-    ├── social/
-    │   ├── __tests__/
-    │   │   └── unit/
-    │   │   │   ├── instagram-error.util.unit.test.ts
-    │   │   │   ├── instagram.client.unit.test.ts
-    │   │   │   └── meta-signature.util.unit.test.ts
-    │   ├── instagram-error.util.ts
-    │   ├── instagram.client.ts
-    │   ├── meta-signature.util.ts
-    │   └── social.overview.md
     ├── storage/
     │   ├── __tests__/
     │   │   └── unit/
@@ -2196,8 +2254,10 @@ src/
     │   └── webhook-delivery.chaos.test.ts
     ├── contract/
     │   ├── fixtures/
-    │   │   ├── instagram/
-    │   │   │   ├── access-token.success.response.json
+    │   │   ├── meta-graph/
+    │   │   │   ├── ad-accounts.success.response.json
+    │   │   │   ├── ads.success.response.json
+    │   │   │   ├── assigned-instagram-accounts.success.response.json
     │   │   │   ├── comment-replies.success.response.json
     │   │   │   ├── graph-error.application-throttled.response.json
     │   │   │   ├── graph-error.business-throttled.response.json
@@ -2207,18 +2267,18 @@ src/
     │   │   │   ├── graph-error.token-expired.response.json
     │   │   │   ├── graph-error.token-invalidated.response.json
     │   │   │   ├── graph-error.unexpected.response.json
-    │   │   │   ├── me.success.response.json
-    │   │   │   ├── me.wrapped.success.response.json
+    │   │   │   ├── instagram-account.success.response.json
+    │   │   │   ├── instagram-account.wrapped.success.response.json
+    │   │   │   ├── me-client-business.success.response.json
     │   │   │   ├── media-item.success.response.json
     │   │   │   ├── media.first-page.response.json
     │   │   │   ├── media.last-page.response.json
     │   │   │   ├── messages.success.response.json
     │   │   │   ├── oauth-access-token.error.response.json
-    │   │   │   ├── oauth-access-token.flat.success.response.json
-    │   │   │   ├── oauth-access-token.success.response.json
-    │   │   │   ├── refresh-access-token.success.response.json
+    │   │   │   ├── permissions.success.response.json
     │   │   │   ├── stories.success.response.json
     │   │   │   ├── subscribed-apps.success.response.json
+    │   │   │   ├── unified-login-access-token.success.response.json
     │   │   │   └── user-profile.success.response.json
     │   │   ├── oauth/
     │   │   │   ├── github.emails.success.response.json
@@ -2267,7 +2327,7 @@ src/
     │   ├── contract.overview.md
     │   ├── github-oauth.contract.test.ts
     │   ├── google-oauth.contract.test.ts
-    │   ├── instagram.contract.test.ts
+    │   ├── meta-graph.contract.test.ts
     │   ├── request-id-eventbus.contract.test.ts
     │   ├── resend.contract.test.ts
     │   ├── resend.live.contract.test.ts

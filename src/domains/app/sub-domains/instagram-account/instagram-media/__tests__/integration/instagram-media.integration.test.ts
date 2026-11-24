@@ -1,16 +1,16 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { resetEnvCacheForTests } from '@/shared/config/env.config.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
@@ -22,13 +22,11 @@ import {
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
-  INSTAGRAM_CONNECT_PATH,
   TEST_INSTAGRAM_LONG_LIVED_TOKEN,
   buildInstagramProfile,
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
   type InstagramTeamFixture,
@@ -152,29 +150,21 @@ describe('Instagram media routes (post and story pickers)', () => {
 
   afterEach(async () => {
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
-  /** Connects a fresh Instagram account for `fixture` through route 1 and returns its profile. */
+  /** Connects a fresh Instagram account for `fixture` (start, callback, pick) and returns its profile. */
   async function connectAccount(
     fixture: InstagramTeamFixture = team,
   ): Promise<TestInstagramProfile> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await injectAuthenticated(app, {
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
-      token: fixture.ownerToken,
-      payload: { code: 'AQB-test-authorization-code#_' },
-      headers: { 'x-idempotency-key': `ig-connect-${generatePublicId('instagramAccount')}` },
-    });
-    expect(response.statusCode).toBe(200);
+    await connectInstagramAccount({ app, token: fixture.ownerToken, profile });
     return profile;
   }
 
   /** The Graph host, expecting the stored token (decrypted by the client) in the header only. */
   function graph(): nock.Scope {
-    return nock(INSTAGRAM_GRAPH_BASE_URL).matchHeader(
+    return nock(META_GRAPH_BASE_URL).matchHeader(
       'authorization',
       `Bearer ${TEST_INSTAGRAM_LONG_LIVED_TOKEN}`,
     );
@@ -187,7 +177,7 @@ describe('Instagram media routes (post and story pickers)', () => {
     profile: TestInstagramProfile;
     edge: 'media' | 'stories';
   }) {
-    return `/${INSTAGRAM_GRAPH_API_VERSION}/${profile.id}/${edge}`;
+    return `/${META_GRAPH_VERSION}/${profile.id}/${edge}`;
   }
 
   function get({
@@ -334,7 +324,7 @@ describe('Instagram media routes (post and story pickers)', () => {
       mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
       const disconnected = await injectAuthenticated(app, {
         method: 'DELETE',
-        url: INSTAGRAM_ACCOUNT_PATH,
+        url: await organizationChannelAccountPath(team.organization.id),
         token: team.ownerToken,
       });
       expect(disconnected.statusCode).toBe(204);
@@ -380,12 +370,13 @@ describe('Instagram media routes (post and story pickers)', () => {
 
       // The account page now shows the reconnect card (IA13).
       const account = await injectAuthenticated(app, {
-        url: INSTAGRAM_ACCOUNT_PATH,
+        url: await organizationChannelAccountPath(team.organization.id),
         token: team.ownerToken,
       });
+      // The channel account has no `expired`: the connection's token never ends (CA4).
       expect(
         (account.json() as { data: { connection_status: string } }).data.connection_status,
-      ).toBe('expired');
+      ).toBe('error');
     });
 
     it('marks the account error on any other refused token', async () => {
@@ -435,8 +426,8 @@ describe('Instagram media routes (post and story pickers)', () => {
 
     it('answers 503 instagram_not_configured, with its reason, when the Instagram app is not set', async () => {
       await connectAccount();
-      const savedAppId = process.env.INSTAGRAM_APP_ID;
-      delete process.env.INSTAGRAM_APP_ID;
+      const savedAppId = process.env.META_APP_ID;
+      delete process.env.META_APP_ID;
       resetEnvCacheForTests();
       try {
         const response = await get({ url: INSTAGRAM_MEDIA_PATH });
@@ -445,7 +436,7 @@ describe('Instagram media routes (post and story pickers)', () => {
         expect(errorOf(response).code).toBe('service_unavailable');
         expect(errorOf(response).reason).toBe('instagram_not_configured');
       } finally {
-        process.env.INSTAGRAM_APP_ID = savedAppId;
+        process.env.META_APP_ID = savedAppId;
         resetEnvCacheForTests();
       }
     });

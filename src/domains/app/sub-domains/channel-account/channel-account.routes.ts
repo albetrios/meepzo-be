@@ -1,0 +1,132 @@
+import type { FastifyPluginAsync } from 'fastify';
+import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
+import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
+import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import type { ChannelAccountService } from './channel-account.service.js';
+import { createChannelAccountController } from './channel-account.controller.js';
+import {
+  activateChannelAccountDto,
+  channelAccountIdParamsDto,
+  emptyChannelAccountBodyDto,
+  listChannelAccountsQueryDto,
+} from './channel-account.dto.js';
+
+/** The OpenAPI tag of every channel account route (CA1). */
+const CHANNEL_ACCOUNT_TAG = 'Channel account';
+
+/**
+ * Returns the Fastify plugin that registers the channel account routes (routes-final § 1B.7),
+ * mounted under `/api/v1/app` at `/social/channel-accounts/…`: list (6), one (7), disconnect (8),
+ * pause (9), resume (10) and choose active accounts (11).
+ *
+ * @remarks
+ * Gates (P59): `channel-account:read` on 6, 7; `channel-account:manage` on 8–11. Route 11 requires
+ * `X-Idempotency-Key` — merged into its `config`, never a top-level preset spread, which would drop
+ * the flag; 8–10 take none (a repeat lands in the same state, CA7). The route schemas validate the
+ * path, query and body first (`400`); the controller's validators then check the public-id shapes.
+ */
+export function channelAccountRoutes(service: ChannelAccountService): FastifyPluginAsync {
+  const controller = createChannelAccountController(service);
+
+  return async (app) => {
+    const zodApplication = app.withTypeProvider<ZodTypeProvider>();
+    zodApplication.get(
+      '/social/channel-accounts',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ)],
+        schema: {
+          summary: 'List channel accounts',
+          description:
+            "Returns the organization's connected accounts that are not revoked — the account menu — oldest connected first, at most the plan's limit: each with its channel, display name, picture, status, connection, whether it is paused, suspended or in the plan, the automation switch and whether anything stops its sending. Filter with channel (comma-separated: instagram; default every channel). No paging. Reads the database only. 400 channel for an unknown channel. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
+          tags: [CHANNEL_ACCOUNT_TAG],
+          querystring: listChannelAccountsQueryDto,
+        },
+      },
+      controller.listChannelAccounts,
+    );
+    zodApplication.get<{ Params: { channel_account_id: string } }>(
+      '/social/channel-accounts/:channel_account_id',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ)],
+        schema: {
+          summary: 'Get a channel account',
+          description:
+            "Returns one account — connected or in error (a reconnect is needed) — with its connection, its pause, suspend and plan stop, the automation switch, the new-account limit's end, and its Instagram part with the settings. Never a token. Reads the database only. 404 channel_account_not_found when it is not this organization's or is revoked. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
+          tags: [CHANNEL_ACCOUNT_TAG],
+          params: channelAccountIdParamsDto,
+        },
+      },
+      controller.getChannelAccount,
+    );
+    zodApplication.delete<{ Params: { channel_account_id: string } }>(
+      '/social/channel-accounts/:channel_account_id',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
+        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Disconnect a channel account',
+          description:
+            "Disconnects one account: unsubscribes it from its webhook events (best effort), then marks it revoked and stops its sending in one commit. The connection's token is erased only with the connection's last account. Automations stay live, contacts and history stay, and the plan frees one place. 404 channel_account_not_found when it is not this organization's or already revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
+          tags: [CHANNEL_ACCOUNT_TAG],
+          params: channelAccountIdParamsDto,
+        },
+      },
+      controller.disconnectChannelAccount,
+    );
+    zodApplication.post<{ Params: { channel_account_id: string } }>(
+      '/social/channel-accounts/:channel_account_id/pause',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
+        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Pause a channel account',
+          description:
+            "Pauses the account's sending: comments and taps are still saved, nothing is sent. An already paused account answers the same, so no X-Idempotency-Key. An account in error may be paused. Answers the account. 404 channel_account_not_found when it is not this organization's or is revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
+          tags: [CHANNEL_ACCOUNT_TAG],
+          params: channelAccountIdParamsDto,
+          body: emptyChannelAccountBodyDto,
+        },
+      },
+      controller.pauseChannelAccount,
+    );
+    zodApplication.post<{ Params: { channel_account_id: string } }>(
+      '/social/channel-accounts/:channel_account_id/resume',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
+        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Resume a channel account',
+          description:
+            "Clears only the owner's pause — a team suspend, a plan stop and the sending error stops stay. A repeat answers the same, so no X-Idempotency-Key. Answers the account. 404 channel_account_not_found when it is not this organization's or is revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
+          tags: [CHANNEL_ACCOUNT_TAG],
+          params: channelAccountIdParamsDto,
+          body: emptyChannelAccountBodyDto,
+        },
+      },
+      controller.resumeChannelAccount,
+    );
+    zodApplication.post<{ Params: { channel_account_id: string } }>(
+      '/social/channel-accounts/:channel_account_id/activate',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)],
+        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        schema: {
+          summary: 'Choose an active channel account',
+          description:
+            "Makes an account that is not in the plan active again. Under the organization's lock it counts the active accounts; at the plan's channel_accounts_max the body must name stop_channel_account_id — another active account of this organization — which leaves the plan in the same commit. 409 channel_account_already_active when the account is already in the plan; 409 plan_account_limit at the limit with no account named; 400 stop_channel_account_id when the named account is malformed, the same, not active or not this organization's. 404 channel_account_not_found when it is not this organization's or is revoked. Answers the account. Team organizations only. Requires X-Idempotency-Key and CHANNEL_ACCOUNT_MANAGE permission.",
+          tags: [CHANNEL_ACCOUNT_TAG],
+          params: channelAccountIdParamsDto,
+          body: activateChannelAccountDto,
+        },
+      },
+      controller.activateChannelAccount,
+    );
+  };
+}

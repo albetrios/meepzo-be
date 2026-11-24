@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
@@ -6,11 +7,10 @@ import type {
   InstagramMessageRecipient,
   InstagramOutgoingMessage,
   InstagramUserProfile,
-} from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { AutomationPublicReplySafetyService } from '@/domains/app/sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
 import {
   type AutomationInstagramClient,
@@ -41,13 +41,11 @@ import {
   readAccountContactRows,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-  INSTAGRAM_CONNECT_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
   createInstagramTeam,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
@@ -188,8 +186,8 @@ export function createRecordingInstagramClient(): RecordingInstagramClient {
 }
 
 /** Instagram refusing one DM for good — the person is outside the messaging window (D32). */
-export function refusedSend(): InstagramApiError {
-  return new InstagramApiError({
+export function refusedSend(): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass: 'refused',
     category: 'http_4xx',
     httpStatus: 400,
@@ -204,8 +202,8 @@ export function refusedSend(): InstagramApiError {
 }
 
 /** Instagram asking to slow down — a temporary failure: nothing was sent. */
-export function throttledSend(): InstagramApiError {
-  return new InstagramApiError({
+export function throttledSend(): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass: 'throttled',
     category: 'http_4xx',
     httpStatus: 429,
@@ -320,22 +318,20 @@ export class InstagramMessageFlow {
   /** Connects a new Instagram account (route 1; Instagram's connect calls are nocked). */
   async connect(): Promise<void> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await this.asOwner({
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
-      payload: { code: `AQB-${generatePublicId('instagramAccount')}#_` },
-      headers: { 'x-idempotency-key': `message-flow-${randomUUID()}` },
+    const { account } = await connectInstagramAccount({
+      app: this.app,
+      token: this.team.ownerToken,
+      profile,
     });
-    expect(response.statusCode).toBe(200);
     expect(nock.pendingMocks()).toEqual([]);
-    const answer = response.json() as { data: { instagram_account: { id: string } } };
-    const publicId = answer.data.instagram_account.id;
+    // The Instagram row of the connected channel account (route 7 answers the `cha_` id, R5).
     const rows = await readInstagramAccountRows(this.team.organization.id);
-    const row = rows.find((candidate) => candidate.public_id === publicId);
+    const row = rows.find(
+      (candidate) => candidate.instagram_user_id === account.instagram.instagram_user_id,
+    );
     this.connectedAccount = {
       id: Number(row?.id),
-      publicId,
+      publicId: row?.public_id ?? '',
       instagramUserId: profile.user_id,
       instagramAppUserId: profile.id,
     };
@@ -344,7 +340,10 @@ export class InstagramMessageFlow {
   /** Disconnects the account (route 4). */
   async disconnect(): Promise<void> {
     mockInstagramUnsubscribe({ instagramAppUserId: this.account.instagramAppUserId });
-    const response = await this.asOwner({ method: 'DELETE', url: INSTAGRAM_ACCOUNT_PATH });
+    const response = await this.asOwner({
+      method: 'DELETE',
+      url: await organizationChannelAccountPath(this.team.organization.id),
+    });
     expect(response.statusCode).toBe(204);
   }
 
@@ -458,7 +457,7 @@ export class InstagramMessageFlow {
       object: 'instagram',
       entry: [{ id: this.account.instagramUserId, time: Date.now(), [source]: [item] }],
     });
-    const secret = getEnv().INSTAGRAM_APP_SECRET ?? '';
+    const secret = getEnv().META_APP_SECRET ?? '';
     const response = await injectRoute(this.app, {
       method: 'POST',
       url: INSTAGRAM_WEBHOOK_PATH,

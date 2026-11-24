@@ -1,0 +1,9 @@
+{
+  "data": [
+    { "id": "17841400000000001", "username": "contract.fixture.shop" },
+    { "id": "17841400000000002", "username": "contract.fixture.studio" }
+  ],
+  "paging": {
+    "cursors": { "before": "QVFIUmJlZAWZDZD", "after": "QVFIUmFmdGVyZAWZDZD" }
+  }
+}

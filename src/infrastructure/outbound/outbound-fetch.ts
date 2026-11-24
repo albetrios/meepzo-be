@@ -183,3 +183,33 @@ export async function outboundFetchJson<T>(options: OutboundFetchOptions): Promi
     readResponse: async (response) => (await response.json()) as T,
   });
 }
+
+/** A JSON answer and its response headers — for a client that reads headers on success too. */
+export interface OutboundJsonAnswer<T> {
+  body: T;
+  headers: Headers;
+}
+
+/**
+ * {@link outboundFetchJson} that also returns the response headers — for an integration whose
+ * headers carry state the caller keeps (Meta's usage headers, routes-final § 1 MC19).
+ *
+ * @remarks
+ * - **Algorithm:** the same fetch, then `response.json()` under the same timeout; the headers are
+ *   returned beside the body.
+ * - **Failure modes:** as {@link outboundFetchJson}; an error answer's headers reach the caller
+ *   through `classifyResponseError`, which receives the response.
+ * - **Side effects:** one HTTP request.
+ * - **Notes:** the payload is cast, not validated — check the fields you rely on.
+ */
+export async function outboundFetchJsonWithHeaders<T>(
+  options: OutboundFetchOptions,
+): Promise<OutboundJsonAnswer<T>> {
+  return runOutboundFetch({
+    fetchOptions: options,
+    readResponse: async (response) => ({
+      body: (await response.json()) as T,
+      headers: response.headers,
+    }),
+  });
+}

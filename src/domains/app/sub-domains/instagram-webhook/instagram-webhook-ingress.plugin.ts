@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
-import { verifyMetaWebhookSignature } from '@/infrastructure/social/meta-signature.util.js';
+import { verifyMetaWebhookSignature } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { getRequestIdentifier } from '@/shared/utils/http/request.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -11,7 +11,7 @@ import {
 
 /** The app secret every delivery is signed with, or the 503 without one (D20, WH8). */
 function readConfiguredAppSecret(): string {
-  const appSecret = getEnv().INSTAGRAM_APP_SECRET;
+  const appSecret = getEnv().META_APP_SECRET;
   if (!appSecret) {
     throw instagramWebhookNotConfiguredError();
   }
@@ -51,7 +51,7 @@ function parseVerifiedBody(rawBody: Buffer): unknown {
  * context — the Instagram webhook delivery (route 17, WH8). Mirrors `stripeWebhookIngressPlugin`.
  *
  * @remarks
- * - **Algorithm:** the app secret (sub-domain 1's one `INSTAGRAM_APP_SECRET` setting, D20) must be
+ * - **Algorithm:** the app secret (sub-domain 1's one `META_APP_SECRET` setting, D20) must be
  *   set. (1) A `preParsing` hook — after the rate limit, before the body is read — refuses a request
  *   that carries no signature header (D53). (2) A `preHandler` hook: the header must be `sha256=` +
  *   64 hex characters and the HMAC-SHA256 of the **raw** body (`request.rawBody`, kept unparsed

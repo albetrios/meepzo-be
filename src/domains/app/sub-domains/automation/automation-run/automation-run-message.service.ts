@@ -9,8 +9,8 @@ import {
   readInstagramUserProfile,
   replyToInstagramComment,
   sendInstagramMessage,
-} from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import {
   AUTOMATION_MESSAGE_KEYS,
@@ -34,7 +34,7 @@ import type { AutomationRandomSource } from './automation-public-reply-safety.se
  * The three Instagram client calls the engine makes (K10) — injectable for tests (a fake client).
  *
  * @remarks
- * Production uses the one Instagram client (`src/infrastructure/social/instagram.client.ts`); the
+ * Production uses the one Instagram client (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`); the
  * engine never calls Instagram any other way.
  */
 export interface AutomationInstagramClient {
@@ -43,7 +43,7 @@ export interface AutomationInstagramClient {
   readInstagramUserProfile: typeof readInstagramUserProfile;
 }
 
-/** The real client of `src/infrastructure/social/instagram.client.ts`. */
+/** The real client of `src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`. */
 const INSTAGRAM_CLIENT: AutomationInstagramClient = {
   sendInstagramMessage,
   replyToInstagramComment,
@@ -76,8 +76,8 @@ export type AutomationPause = (milliseconds: number) => Promise<void>;
 export type AutomationSendResult =
   | { outcome: 'delivered' }
   | { outcome: 'temporary'; error: unknown; errorType: AutomationCommentLogErrorType }
-  | { outcome: 'refused'; error: InstagramApiError }
-  | { outcome: 'token'; error: InstagramApiError }
+  | { outcome: 'refused'; error: MetaGraphApiError }
+  | { outcome: 'token'; error: MetaGraphApiError }
   | { outcome: 'unknown'; error: unknown; errorType: AutomationCommentLogErrorType };
 
 /**
@@ -89,7 +89,7 @@ export type AutomationSendResult =
  */
 export type AutomationFollowReadResult =
   | { outcome: 'read'; isFollowing: boolean | null; profile: InstagramUserProfile | null }
-  | { outcome: 'token'; error: InstagramApiError }
+  | { outcome: 'token'; error: MetaGraphApiError }
   | { outcome: 'temporary'; error: unknown; errorType: AutomationCommentLogErrorType };
 
 /** Node's codes for a connection that never opened — nothing reached Instagram. */
@@ -133,7 +133,7 @@ export function classifyAutomationSendFailure(
   if (error instanceof CircuitBreakerOpenError) {
     return { outcome: 'temporary', error, errorType: 'network' };
   }
-  if (!(error instanceof InstagramApiError)) {
+  if (!(error instanceof MetaGraphApiError)) {
     return { outcome: 'unknown', error, errorType: 'code' };
   }
   switch (error.errorClass) {
@@ -307,13 +307,13 @@ export class AutomationRunMessageService {
       });
       return { outcome: 'read', isFollowing: profile.isUserFollowingBusiness, profile };
     } catch (error) {
-      if (error instanceof InstagramApiError && error.errorClass === 'auth') {
+      if (error instanceof MetaGraphApiError && error.errorClass === 'auth') {
         return { outcome: 'token', error };
       }
-      if (error instanceof InstagramApiError && error.errorClass === 'refused') {
+      if (error instanceof MetaGraphApiError && error.errorClass === 'refused') {
         return { outcome: 'read', isFollowing: null, profile: null };
       }
-      if (error instanceof InstagramApiError && error.category === 'http_5xx') {
+      if (error instanceof MetaGraphApiError && error.category === 'http_5xx') {
         return { outcome: 'temporary', error, errorType: 'instagram_api' };
       }
       const failure = classifyAutomationSendFailure(error);

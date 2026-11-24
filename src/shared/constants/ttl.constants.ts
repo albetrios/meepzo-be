@@ -151,6 +151,16 @@ export const PERMISSION_CACHE_RECOMPUTE_LOCK_TTL_SECONDS = 15;
 export const NOTIFICATION_UNREAD_COUNT_CACHE_TTL_SECONDS = 60;
 
 /**
+ * How long a channel connection's Meta usage is served from Redis, in seconds (routes-final § 1
+ * MC19, P5 — the Redis copy of the usage Postgres holds, P32).
+ *
+ * @remarks
+ * A backstop, not the invalidation strategy: every usage write tombstones the entry. Its own
+ * literal (not an alias of another cache's TTL), at the 60 s ceiling of be-read-cache-guard.
+ */
+export const CHANNEL_CONNECTION_USAGE_CACHE_TTL_SECONDS = 60;
+
+/**
  * How long a FRESHNESS invalidation tombstone blocks repopulation, in seconds.
  *
  * @remarks

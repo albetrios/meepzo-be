@@ -63,9 +63,6 @@ export const MEMBERSHIP_DISPLAY_NAME_MAX_LENGTH = RECORD_SHORT_TEXT_MAX;
 /** Most addresses one invite takes (feat-instagram-dm-sending TN10, route 117). */
 export const INVITE_EMAILS_MAX = 20;
 
-/** Longest address an invite line accepts before its own email check (`auth.users.email` is 255). */
-export const MEMBERSHIP_INVITE_EMAIL_MAX_LENGTH = 320;
-
 /**
  * What one address of an invite came to (route 117, routes-final § 9.C.6): `invited` (a new invited
  * membership and its emailed invitation), `already_member` (a live member has the email),

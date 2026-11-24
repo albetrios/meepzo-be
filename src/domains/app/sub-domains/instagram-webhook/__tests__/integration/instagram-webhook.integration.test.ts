@@ -64,7 +64,7 @@ async function countAllEvents(): Promise<number> {
 }
 
 /** `sha256=` + the HMAC of the exact bytes with the harness's fake Instagram app secret. */
-function signatureFor(rawBody: string, secret = getEnv().INSTAGRAM_APP_SECRET ?? ''): string {
+function signatureFor(rawBody: string, secret = getEnv().META_APP_SECRET ?? ''): string {
   return `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
 }
 
@@ -175,7 +175,7 @@ describe('Instagram webhook — routes 16–17', () => {
     }
     const validQuery = () => ({
       'hub.mode': 'subscribe',
-      'hub.verify_token': getEnv().INSTAGRAM_WEBHOOK_VERIFY_TOKEN ?? '',
+      'hub.verify_token': getEnv().META_WEBHOOK_VERIFY_TOKEN ?? '',
       'hub.challenge': '1158201444',
     });
 
@@ -229,8 +229,8 @@ describe('Instagram webhook — routes 16–17', () => {
     });
 
     it('answers 503 instagram_webhook_not_configured without the verify token setting', async () => {
-      const savedVerifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
-      delete process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+      const savedVerifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
+      delete process.env.META_WEBHOOK_VERIFY_TOKEN;
       resetEnvCacheForTests();
       try {
         const response = await check({ ...validQuery(), 'hub.verify_token': 'anything' });
@@ -238,7 +238,7 @@ describe('Instagram webhook — routes 16–17', () => {
         expect(response.statusCode).toBe(503);
         expect(errorOf(response).reason).toBe('instagram_webhook_not_configured');
       } finally {
-        process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = savedVerifyToken;
+        process.env.META_WEBHOOK_VERIFY_TOKEN = savedVerifyToken;
         resetEnvCacheForTests();
       }
     });
@@ -284,8 +284,8 @@ describe('Instagram webhook — routes 16–17', () => {
     it('answers 503 instagram_webhook_not_configured without the app secret, storing nothing', async () => {
       const rawBody = deliveryBody();
       const signature = signatureFor(rawBody);
-      const savedAppSecret = process.env.INSTAGRAM_APP_SECRET;
-      delete process.env.INSTAGRAM_APP_SECRET;
+      const savedAppSecret = process.env.META_APP_SECRET;
+      delete process.env.META_APP_SECRET;
       resetEnvCacheForTests();
       try {
         const response = await deliver({ rawBody, signature });
@@ -294,7 +294,7 @@ describe('Instagram webhook — routes 16–17', () => {
         expect(errorOf(response).reason).toBe('instagram_webhook_not_configured');
         expect(await countAllEvents()).toBe(0);
       } finally {
-        process.env.INSTAGRAM_APP_SECRET = savedAppSecret;
+        process.env.META_APP_SECRET = savedAppSecret;
         resetEnvCacheForTests();
       }
     });

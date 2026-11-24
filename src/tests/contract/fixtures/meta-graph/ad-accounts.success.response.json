@@ -1,0 +1,13 @@
+{
+  "data": [
+    {
+      "account_id": "1234567890123",
+      "name": "Contract Fixture Ads",
+      "account_status": 1,
+      "id": "act_1234567890123"
+    }
+  ],
+  "paging": {
+    "cursors": { "before": "QVFIUmFkYWNjYmVmb3JlZAWZDZD", "after": "QVFIUmFkYWNjYWZ0ZXIZD" }
+  }
+}

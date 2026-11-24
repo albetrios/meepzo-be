@@ -1,5 +1,6 @@
 /**
- * App domain resource schemas — the Instagram account (routes-final § 1.A.6, § 1.B.6, § 1.C.6), the
+ * App domain resource schemas — the channel connection (feat-instagram-dm-sending routes-final
+ * § 1.6), the channel account (§ 1B.6), the Instagram account settings (routes-final § 1.A.6, § 1.B.6, § 1.C.6), the
  * contact (§ 2.6), the automation (§ 3.A.6) and the Instagram webhook event (§ 4.B.6).
  */
 import {
@@ -41,73 +42,288 @@ export const instagramAccountSettingsExample = {
   updated_at: '2026-11-21T09:00:00.000Z',
 };
 
-// ── Instagram account ──
-// Mirrors serializeInstagramAccount key for key. Never the token.
-export const instagramAccountSchema = {
+// ── Channel account (feat-instagram-dm-sending routes-final § 1B.6) ──
+// Mirrors serializeChannelAccountSummary / serializeChannelAccount key for key. Never a token.
+export const channelAccountSummarySchema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
-    instagram_user_id: { type: 'string' },
-    username: { type: 'string', nullable: true },
-    name: { type: 'string', nullable: true },
-    biography: { type: 'string', nullable: true },
-    website: { type: 'string', nullable: true },
+    channel: { type: 'string', enum: ['instagram'] },
+    display_name: { type: 'string' },
     profile_picture_url: { type: 'string', nullable: true },
-    profile_url: { type: 'string', format: 'uri', nullable: true },
-    followers_count: { type: 'integer' },
-    follows_count: { type: 'integer' },
-    media_count: { type: 'integer' },
-    scopes: { type: 'array', items: { type: 'string' } },
-    connection_status: { type: 'string', enum: ['connected', 'expired', 'error'] },
-    access_expires_at: { type: 'string', format: 'date-time', nullable: true },
-    is_webhook_subscribed: { type: 'boolean' },
-    settings: instagramAccountSettingsSchema,
+    connection_status: { type: 'string', enum: ['connected', 'error', 'revoked'] },
+    channel_connection_id: { type: 'string' },
+    is_paused: { type: 'boolean' },
+    is_suspended: { type: 'boolean' },
+    is_in_plan: { type: 'boolean' },
+    is_automation_enabled: { type: 'boolean' },
+    has_sending_stop: { type: 'boolean' },
+    connected_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const channelAccountSummaryExample = {
+  id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  channel: 'instagram',
+  display_name: '@handmade.shop',
+  profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
+  connection_status: 'connected',
+  channel_connection_id: 'chc_p4k8m2x9q1w7n3v5a1b2c',
+  is_paused: false,
+  is_suspended: false,
+  is_in_plan: true,
+  is_automation_enabled: true,
+  has_sending_stop: false,
+  connected_at: '2026-11-21T09:00:00.000Z',
+};
+
+export const channelAccountSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    channel: { type: 'string', enum: ['instagram'] },
+    display_name: { type: 'string' },
+    connection_status: { type: 'string', enum: ['connected', 'error', 'revoked'] },
+    channel_connection: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        provider: { type: 'string' },
+        status: { type: 'string' },
+      },
+    },
+    is_automation_enabled: { type: 'boolean' },
+    is_paused: { type: 'boolean' },
+    paused_at: { type: 'string', format: 'date-time', nullable: true },
+    is_suspended: { type: 'boolean' },
+    is_in_plan: { type: 'boolean' },
+    plan_stop_reason: {
+      type: 'string',
+      enum: ['plan_limit', 'plan_ended', 'plan_downgrade'],
+      nullable: true,
+    },
+    plan_stopped_at: { type: 'string', format: 'date-time', nullable: true },
+    active_stop: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        lane: { type: 'string' },
+        reason: { type: 'string' },
+        stop_until: { type: 'string', format: 'date-time', nullable: true },
+      },
+    },
+    new_account_limit_ends_at: { type: 'string', format: 'date-time', nullable: true },
     connected_by_user_id: { type: 'string', nullable: true },
     connected_at: { type: 'string', format: 'date-time' },
-    profile_synced_at: { type: 'string', format: 'date-time', nullable: true },
+    disconnected_at: { type: 'string', format: 'date-time', nullable: true },
+    instagram: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        instagram_user_id: { type: 'string' },
+        username: { type: 'string', nullable: true },
+        profile_picture_url: { type: 'string', nullable: true },
+        followers_count: { type: 'integer' },
+        is_webhook_subscribed: { type: 'boolean' },
+        profile_synced_at: { type: 'string', format: 'date-time', nullable: true },
+        settings: instagramAccountSettingsSchema,
+      },
+    },
+  },
+};
+
+export const channelAccountExample = {
+  id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  channel: 'instagram',
+  display_name: '@handmade.shop',
+  connection_status: 'connected',
+  channel_connection: { id: 'chc_p4k8m2x9q1w7n3v5a1b2c', provider: 'meta', status: 'connected' },
+  is_automation_enabled: true,
+  is_paused: false,
+  paused_at: null,
+  is_suspended: false,
+  is_in_plan: true,
+  plan_stop_reason: null,
+  plan_stopped_at: null,
+  active_stop: null,
+  new_account_limit_ends_at: '2026-11-28T09:00:00.000Z',
+  connected_by_user_id: 'usr_m7n2p5q8w1r4x9k3a1b2c',
+  connected_at: '2026-11-21T09:00:00.000Z',
+  disconnected_at: null,
+  instagram: {
+    instagram_user_id: '17841400000000001',
+    username: 'handmade.shop',
+    profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
+    followers_count: 1204,
+    is_webhook_subscribed: true,
+    profile_synced_at: '2026-11-21T09:00:00.000Z',
+    settings: instagramAccountSettingsExample,
+  },
+};
+
+// ── Channel connection (feat-instagram-dm-sending routes-final § 1.6) ──
+// Mirrors serializeChannelConnection key for key. Never the token.
+const channelConnectionAccountSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    channel: { type: 'string', enum: ['instagram'] },
+    display_name: { type: 'string' },
+    profile_picture_url: { type: 'string', nullable: true },
+    connection_status: { type: 'string', enum: ['connected', 'error', 'revoked'] },
+  },
+};
+
+const channelConnectionAccountExample = {
+  id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  channel: 'instagram',
+  display_name: '@handmade.shop',
+  profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
+  connection_status: 'connected',
+};
+
+export const channelConnectionSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    provider: { type: 'string', enum: ['meta'] },
+    client_business_id: { type: 'string' },
+    login_type: { type: 'string', enum: ['unified'] },
+    status: { type: 'string', enum: ['connected', 'error', 'revoked'] },
+    status_changed_at: { type: 'string', format: 'date-time' },
+    scopes: { type: 'array', items: { type: 'string' } },
+    has_ads_access: { type: 'boolean' },
+    connected_by_user_id: { type: 'string', nullable: true },
+    connected_at: { type: 'string', format: 'date-time' },
+    last_checked_at: { type: 'string', format: 'date-time', nullable: true },
+    last_check_error: { type: 'string', nullable: true },
+    disconnected_at: { type: 'string', format: 'date-time', nullable: true },
+    channel_accounts: { type: 'array', items: channelConnectionAccountSchema },
+    created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
   },
 };
 
-export const instagramAccountExample = {
-  id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
-  instagram_user_id: '17841400000000001',
-  username: 'handmade.shop',
-  name: 'Handmade Shop',
-  biography: 'Handmade things, shipped weekly.',
-  website: 'https://example.com/shop',
-  profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
-  profile_url: 'https://instagram.com/handmade.shop',
-  followers_count: 1204,
-  follows_count: 87,
-  media_count: 54,
-  scopes: [
-    'instagram_business_basic',
-    'instagram_business_manage_messages',
-    'instagram_business_manage_comments',
-  ],
-  connection_status: 'connected',
-  access_expires_at: '2027-01-20T09:00:00.000Z',
-  is_webhook_subscribed: true,
-  settings: instagramAccountSettingsExample,
+export const channelConnectionExample = {
+  id: 'chc_q4w8n1v3a1b2ck7x9m2pr',
+  provider: 'meta',
+  client_business_id: '5550001234567890',
+  login_type: 'unified',
+  status: 'connected',
+  status_changed_at: '2026-11-24T09:00:00.000Z',
+  scopes: ['instagram_basic', 'instagram_manage_messages', 'instagram_manage_comments'],
+  has_ads_access: false,
   connected_by_user_id: 'usr_m7n2p5q8w1r4x9k3a1b2c',
-  connected_at: '2026-11-21T09:00:00.000Z',
-  profile_synced_at: '2026-11-21T09:00:00.000Z',
-  updated_at: '2026-11-21T09:00:00.000Z',
+  connected_at: '2026-11-24T09:00:00.000Z',
+  last_checked_at: '2026-11-24T09:00:00.000Z',
+  last_check_error: null,
+  disconnected_at: null,
+  channel_accounts: [channelConnectionAccountExample],
+  created_at: '2026-11-24T09:00:00.000Z',
+  updated_at: '2026-11-24T09:00:00.000Z',
 };
 
-// ── Instagram connect result ──
-export const instagramConnectResultSchema = {
+// Routes 1 and 40.
+export const channelConnectStartSchema = {
   type: 'object',
   properties: {
-    is_new_connection: { type: 'boolean' },
-    instagram_account: instagramAccountSchema,
+    login_url: { type: 'string', format: 'uri' },
+    state_expires_at: { type: 'string', format: 'date-time' },
   },
 };
 
-export const instagramConnectResultExample = {
-  is_new_connection: true,
-  instagram_account: instagramAccountExample,
+export const channelConnectStartExample = {
+  login_url:
+    'https://www.facebook.com/dialog/oauth?client_id=1234567890&config_id=987654321&redirect_uri=https%3A%2F%2Fapp.example.com%2Fconnect%2Fmeta&response_type=code&state=Vh3k-example-state-43-characters-long-aaaaa&prompt=login',
+  state_expires_at: '2026-11-24T09:10:00.000Z',
+};
+
+const channelAccountPlanRoomSchema = {
+  type: 'object',
+  properties: {
+    accounts_max: { type: 'integer' },
+    accounts_used: { type: 'integer' },
+    accounts_free: { type: 'integer' },
+  },
+};
+
+const channelAccountPlanRoomExample = { accounts_max: 3, accounts_used: 1, accounts_free: 2 };
+
+// Route 2.
+export const channelConnectResultSchema = {
+  type: 'object',
+  properties: {
+    is_reconnect: { type: 'boolean' },
+    channel_connection: channelConnectionSchema,
+    accounts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          channel: { type: 'string', enum: ['instagram'] },
+          provider_account_id: { type: 'string' },
+          username: { type: 'string', nullable: true },
+          profile_picture_url: { type: 'string', nullable: true },
+          state: { type: 'string', enum: ['connected_here', 'connected_elsewhere', 'free'] },
+          channel_account_id: { type: 'string', nullable: true },
+        },
+      },
+    },
+    reconnected_account_ids: { type: 'array', items: { type: 'string' } },
+    plan_room: channelAccountPlanRoomSchema,
+  },
+};
+
+export const channelConnectResultExample = {
+  is_reconnect: false,
+  channel_connection: { ...channelConnectionExample, channel_accounts: [] },
+  accounts: [
+    {
+      channel: 'instagram',
+      provider_account_id: '17841400000000001',
+      username: 'handmade.shop',
+      profile_picture_url: null,
+      state: 'free',
+      channel_account_id: null,
+    },
+  ],
+  reconnected_account_ids: [],
+  plan_room: { accounts_max: 3, accounts_used: 0, accounts_free: 3 },
+};
+
+// Route 3.
+export const channelAccountPickResultSchema = {
+  type: 'object',
+  properties: {
+    channel_connection_id: { type: 'string' },
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          provider_account_id: { type: 'string' },
+          result: {
+            type: 'string',
+            enum: ['connected', 'already_connected', 'connected_elsewhere', 'not_assigned'],
+          },
+          channel_account: { ...channelConnectionAccountSchema, nullable: true },
+        },
+      },
+    },
+    plan_room: channelAccountPlanRoomSchema,
+  },
+};
+
+export const channelAccountPickResultExample = {
+  channel_connection_id: 'chc_q4w8n1v3a1b2ck7x9m2pr',
+  results: [
+    {
+      provider_account_id: '17841400000000001',
+      result: 'connected',
+      channel_account: channelConnectionAccountExample,
+    },
+  ],
+  plan_room: channelAccountPlanRoomExample,
 };
 
 // ── Instagram media item (route 5) ──

@@ -183,7 +183,7 @@ process.env.OAUTH_GOOGLE_REDIRECT_URI ??= `${DEFAULT_FRONTEND_URL}/callback/goog
 process.env.OAUTH_GITHUB_REDIRECT_URI ??= `${DEFAULT_FRONTEND_URL}/callback/github`;
 // The Instagram webhook's verify token (WH7) — Meta's subscription check compares hub.verify_token
 // with it; tests read the value back through getEnv(), never hard-code it.
-process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ??= 'test-instagram-webhook-verify-token-min-32-chars';
+process.env.META_WEBHOOK_VERIFY_TOKEN ??= 'test-meta-webhook-verify-token-minimum-32-chars';
 // Isolate the test Redis keyspace from a running `pnpm dev` (both are NODE_ENV=development); a hard
 // set (not the developer's `.env.local` value) keeps the test prefix deterministic and isolated.
 process.env.REDIS_KEY_PREFIX = testRedisKeyPrefix(REDIS_KEY_PREFIX_STEM);

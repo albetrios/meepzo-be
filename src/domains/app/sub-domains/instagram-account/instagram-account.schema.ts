@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   check,
+  foreignKey,
   index,
   integer,
   pgPolicy,
@@ -14,16 +15,21 @@ import {
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 import { users } from '@/domains/user/user.schema.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 
 /**
  * `app.instagram_accounts` — the organization's connected Instagram professional account
  * (routes-final § 1.A.3, IA11): one row per organization and Instagram account, so a reconnect
- * reuses the row (revoked included) and its settings come back; at most one not-revoked row per
- * organization (D5) and one per Instagram account across all organizations. The status moves by
+ * reuses the row (revoked included) and its settings come back; many per organization up to the
+ * plan's limit (D26, counted at the pick under the organization lock) and one not-revoked row per
+ * Instagram account across all organizations. Since feat-instagram-dm-sending ROUTE row R5 the row
+ * is the Instagram part of a channel account (`channel_account_id`, 1:1 — routes-final § 2.A.3); the
+ * connection and its token are the channel account's. Its `public_id`, status and connection columns
+ * mirror the channel account's until ROUTE row R6 drops them (P116). The status moves by
  * actions only (`connected` → `expired` | `error` through the guarded change, IA9; any →
  * `revoked` on a disconnect, IA14); there is no soft delete — `revoked` stands in, and the row
- * stays until the organization is deleted. `token_expires_at` copies the token's expiry in the
- * same transaction, so the account read and the daily sweep never touch the token table (IA5).
+ * stays until the organization is deleted. `token_expires_at` stays empty (the connection's token
+ * never ends, D24; dropped at ROUTE row R6).
  * RLS: the organization policy, plus the retention sweep arm in `USING` only.
  */
 export const instagram_accounts = appSchema
@@ -35,9 +41,14 @@ export const instagram_accounts = appSchema
       organization_id: bigint('organization_id', { mode: 'number' })
         .notNull()
         .references(() => organizations.id, { onDelete: 'cascade' }),
+      /** The channel account this row extends (1:1, R5); composite → `app.channel_accounts`. */
+      channel_account_id: bigint('channel_account_id', { mode: 'number' }).notNull(),
       /** `/me` `user_id` — equals the webhook `entry.id`; digits only. */
       instagram_user_id: varchar('instagram_user_id', { length: 64 }).notNull(),
-      /** `/me` `id` — app-scoped; the send URLs and Meta's callbacks (IQ3); digits only. */
+      /**
+       * The id the Graph calls take; under Unified Login it equals `instagram_user_id` (the pick
+       * writes it, P111) — dropped at ROUTE row R6. Digits only.
+       */
       instagram_app_user_id: varchar('instagram_app_user_id', { length: 64 }).notNull(),
       username: varchar('username', { length: 64 }),
       name: varchar('name', { length: 255 }),
@@ -71,6 +82,11 @@ export const instagram_accounts = appSchema
       updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
+      foreignKey({
+        name: 'instagram_accounts_channel_account_fk',
+        columns: [table.organization_id, table.channel_account_id],
+        foreignColumns: [channel_accounts.organization_id, channel_accounts.id],
+      }).onDelete('restrict'),
       uniqueIndex('idx_instagram_accounts_public_id').on(table.public_id),
       // The children's composite key (organization_id, instagram_account_id) → (organization_id, id).
       uniqueIndex('idx_instagram_accounts_organization_id_id').on(table.organization_id, table.id),
@@ -79,10 +95,11 @@ export const instagram_accounts = appSchema
         table.organization_id,
         table.instagram_user_id,
       ),
-      // At most one not-revoked account per organization (D5).
-      uniqueIndex('idx_instagram_accounts_organization_live')
-        .on(table.organization_id)
-        .where(sql`${table.connection_status} <> 'revoked'`),
+      // The 1:1 extension of the channel account and its composite key's index (2.A.3).
+      uniqueIndex('idx_instagram_accounts_channel_account').on(
+        table.organization_id,
+        table.channel_account_id,
+      ),
       // One organization at a time per Instagram account.
       uniqueIndex('idx_instagram_accounts_instagram_user_live')
         .on(table.instagram_user_id)

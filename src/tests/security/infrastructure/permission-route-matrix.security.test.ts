@@ -70,6 +70,8 @@ function grantedPermissionCodes(route: (typeof organizationPermissionRoutes)[num
 }
 
 function placeholderForParamName(paramName: string): string {
+  // `{provider}` is a non-entity param whose schema takes `meta` only (feat-instagram-dm-sending MC1).
+  if (paramName === 'provider') return 'meta';
   const entity = PARAM_NAME_TO_ENTITY[paramName as keyof typeof PARAM_NAME_TO_ENTITY];
   return entity ? publicIdPlaceholderFor(entity) : 'placeholder';
 }
@@ -182,9 +184,12 @@ function payloadForPermissionRoute(
   if (route.method === 'PATCH' && route.path.includes('/app/automations/:automation_id')) {
     return { name: 'Matrix automation renamed' };
   }
-  if (route.path.endsWith('/app/social/instagram/connect')) {
-    // A well-formed code, so body validation (400) does not preempt the permission check (403).
-    return { code: 'AQB-permission-matrix-code' };
+  if (route.path.endsWith('/app/social/channel-connections/:provider/callback')) {
+    // A well-formed code and state, so body validation (400) does not preempt the permission check.
+    return { code: 'AQB-permission-matrix-code', state: 'A'.repeat(43) };
+  }
+  if (route.path.endsWith('/app/social/channel-connections/:channel_connection_id/accounts')) {
+    return { channel: 'instagram', provider_account_ids: ['17841400000000001'] };
   }
   return {};
 }

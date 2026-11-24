@@ -14,7 +14,6 @@ import {
 import {
   INVITE_EMAILS_MAX,
   MEMBERSHIP_COMMISSION_PERCENT_MAX,
-  MEMBERSHIP_INVITE_EMAIL_MAX_LENGTH,
   MEMBERSHIP_DISPLAY_NAME_MAX_LENGTH,
   MEMBERSHIP_ROLE_IDS_MAX,
   MEMBERSHIP_STATUS,
@@ -72,6 +71,9 @@ function workEndsAfterStarts({
  * an email is checked per address by the service, so one bad address answers `invalid_email` in
  * its own line instead of refusing the whole invite.
  */
+/** Longest address an invite line accepts before its own email check (`auth.users.email` is 255; RFC 5321 path limit). */
+const MEMBERSHIP_INVITE_EMAIL_MAX_LENGTH = 320;
+
 const inviteEmail = z.string().trim().toLowerCase().max(MEMBERSHIP_INVITE_EMAIL_MAX_LENGTH);
 
 /**

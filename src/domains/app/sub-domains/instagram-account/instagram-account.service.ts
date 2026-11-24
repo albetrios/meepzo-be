@@ -3,144 +3,40 @@ import {
   type OrganizationPrincipalDatabaseScope,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
-import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  type InstagramAccountProfile,
-  exchangeInstagramAuthorizationCode,
-  exchangeInstagramLongLivedAccessToken,
-  readInstagramAccountProfile,
   subscribeInstagramWebhookFields,
   unsubscribeInstagramWebhookFields,
-} from '@/infrastructure/social/instagram.client.js';
-import {
-  InstagramApiError,
-  buildInstagramMalformedAnswerError,
-} from '@/infrastructure/social/instagram-error.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import type { ChannelConnectionTokenService } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
-import {
-  assertTeamOrganization,
-  assertTeamOrganizationForRead,
-} from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
+import { assertTeamOrganizationForRead } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
 import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
-import { ConflictError, UnprocessableEntityError } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import {
-  getPostgresConstraintName,
-  isPostgresUniqueViolation,
-} from '@/shared/utils/infrastructure/postgres-error.util.js';
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
-import { serializeInstagramAccountSettings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.serializer.js';
-import type { InstagramAccountSettingsRow } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
-import {
-  INSTAGRAM_ACCOUNT_REQUIRED_SCOPES,
-  INSTAGRAM_ACCOUNT_UNIQUE_INDEXES,
-  INSTAGRAM_PROFESSIONAL_ACCOUNT_TYPES,
-  type InstagramAccountBrokenConnectionStatus,
-  type InstagramAccountConnectionStatus,
+import type {
+  InstagramAccountBrokenConnectionStatus,
+  InstagramAccountConnectionStatus,
 } from './instagram-account.constants.js';
 import type {
   InstagramAccountKey,
   InstagramAccountRepository,
   InstagramAccountRow,
 } from './instagram-account.repository.js';
-import type { InstagramAccountTokenService } from './instagram-account-token.service.js';
-import {
-  instagramCircuitOpenError,
-  instagramConnectRestartRequiredError,
-  instagramNotConnectedError,
-  instagramUnavailableError,
-} from './instagram-account-error.util.js';
+import { instagramNotConnectedError } from './instagram-account-error.util.js';
 import {
   type InstagramConnectionBreak,
   enqueueInstagramReconnectNoticeBestEffort,
 } from './queues/instagram-reconnect-notice.queue.js';
-import {
-  serializeInstagramAccount,
-  serializeInstagramConnectResult,
-} from './instagram-account.serializer.js';
 import type {
   InstagramAccountAccess,
-  InstagramAccountConnectInput,
   InstagramAccountDisconnectChange,
-  InstagramAccountDisconnectInput,
   InstagramAccountMetaDisconnectInput,
-  InstagramAccountOutput,
   InstagramAccountVisibleConnectionStatus,
   InstagramAutomationAccountAccess,
-  InstagramConnectResultOutput,
   InstagramWebhookAccountState,
   InstagramWebhookProcessingAccount,
 } from './instagram-account.types.js';
-
-/** What the Instagram half of a connect (IA12 step 1) hands to the database half. */
-interface InstagramConnection {
-  profile: InstagramAccountProfile;
-  /** The long-lived token, encrypted by the client (IA5). */
-  encryptedAccessToken: string;
-  expiresAt: Date;
-  grantedPermissions: string[];
-}
-
-/**
- * A connect's Instagram failure as its route error (1.A.9): Instagram refusing the code or the
- * token it just issued → `422 instagram_code_invalid` (the same code never passes again — the
- * person restarts "Connect Instagram"); Instagram down, throttling or its circuit open →
- * `503 instagram_unavailable` while the code may still pass, and once it is spent
- * `409 instagram_connect_restart_required` (D56): a retry of the same code could only be refused.
- * Anything else (our own failure, `instagram_not_configured`) passes unchanged.
- */
-function toConnectRouteError({
-  error,
-  isCodeSpent,
-}: {
-  error: unknown;
-  /** Instagram answered the code exchange: the one-time code never passes again. */
-  isCodeSpent: boolean;
-}): unknown {
-  if (error instanceof CircuitBreakerOpenError) {
-    return isCodeSpent ? instagramConnectRestartRequiredError() : instagramCircuitOpenError(error);
-  }
-  if (!(error instanceof InstagramApiError)) return error;
-  if (error.errorClass === 'refused' || error.errorClass === 'auth') {
-    return new UnprocessableEntityError('errors:instagramCodeInvalid').withReason(
-      'instagram_code_invalid',
-    );
-  }
-  return isCodeSpent
-    ? instagramConnectRestartRequiredError()
-    : instagramUnavailableError(error.retryAfterSeconds);
-}
-
-/**
- * The connect's unique-index race (IA12 step 4) as its `409`: another not-revoked account landed in
- * this organization, or this Instagram account went live in another one, between the checks and the
- * write. Anything else passes unchanged.
- */
-function toConnectRaceError(error: unknown): unknown {
-  if (!isPostgresUniqueViolation(error)) return error;
-  const constraintName = getPostgresConstraintName(error);
-  if (constraintName === INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.organizationLive) {
-    return organizationAlreadyHasAccountError();
-  }
-  if (constraintName === INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.instagramUserLive) {
-    return connectedElsewhereError();
-  }
-  return error;
-}
-
-/** `409 organization_already_has_instagram_account` (D5). */
-function organizationAlreadyHasAccountError(): ConflictError {
-  return new ConflictError('errors:organizationAlreadyHasInstagramAccount').withReason(
-    'organization_already_has_instagram_account',
-  );
-}
-
-/** `409 instagram_account_connected_elsewhere`. */
-function connectedElsewhereError(): ConflictError {
-  return new ConflictError('errors:instagramAccountConnectedElsewhere').withReason(
-    'instagram_account_connected_elsewhere',
-  );
-}
 
 /**
  * Whether the account was connected — or connected again: a reconnect moves `connected_at` — after
@@ -162,7 +58,7 @@ function isConnectedAfterMetaRequest({
 
 /** What a failed Instagram call may say in a log line — its class and codes, never its text. */
 function describeInstagramFailure(error: unknown): Record<string, unknown> {
-  if (error instanceof InstagramApiError) {
+  if (error instanceof MetaGraphApiError) {
     return {
       errorClass: error.errorClass,
       instagramErrorCode: error.instagramErrorCode,
@@ -174,8 +70,8 @@ function describeInstagramFailure(error: unknown): Record<string, unknown> {
 }
 
 /**
- * The Instagram account service (routes-final § 1.A): connect (route 1, IA12), read (route 2,
- * IA13), disconnect (route 4, IA14), the live account and its encrypted token for the post and
+ * The Instagram account service (routes-final § 1.A): read (route 2, IA13), disconnect (route 4,
+ * IA14), the live account and its encrypted token for the post and
  * story pickers (routes 5–6, IA16), the disconnect and profile erase of Meta's deauthorize and
  * data-deletion callbacks (routes 7–8, IA19, IA20) and of an organization delete (D54), the one
  * guarded status change every later caller uses (IA9), and the Instagram webhook's lookups — the
@@ -192,149 +88,27 @@ function describeInstagramFailure(error: unknown): Record<string, unknown> {
  *   permission gate, since a personal Owner never holds the codes.
  *
  * Failure modes:
- * - `404 instagram_not_connected` (read, disconnect); the connect's `422`
- *   (`instagram_code_invalid`, `instagram_account_not_professional`, `instagram_scopes_missing`),
- *   `409` (`organization_already_has_instagram_account`, `instagram_account_connected_elsewhere`,
- *   `instagram_connect_restart_required` — Instagram failed once the one-time code was spent, D56)
- *   and `503` (`instagram_unavailable`, `instagram_not_configured`) — 1.A.9. Nothing is stored when
- *   a connect fails before its transaction, and nothing stays when the transaction fails.
+ * - `404 instagram_not_connected` (read, disconnect) — 1.A.9.
  *
  * Side effects:
- * - Writes the account, its token (through {@link InstagramAccountTokenService}) and its default
- *   settings (through {@link InstagramAccountSettingsService}); calls Instagram (exchanges, `/me`,
- *   `subscribed_apps`). The audit entries are the controller's, after commit (D36).
+ * - Writes the account; reads and — with the connection's last account — revokes the connection's
+ *   token (through {@link ChannelConnectionTokenService}, CA8); calls Instagram (`subscribed_apps`).
+ *   The audit entries are the controller's, after commit (D36).
  *
  * Notes:
- * - The token stays ciphertext here: the client takes and returns it encrypted (IA5).
+ * - The launch's connect (route 1, Instagram Login) is gone (RC-6): accounts come in through a
+ *   channel connection's pick (`ChannelAccountService`, feat-instagram-dm-sending MC7, R5).
+ * - The token lives on the account's channel connection (P111) and stays ciphertext here: the
+ *   client takes it encrypted (MC9).
  * - A disconnect cancels no automation run (IQ1, D24).
  */
 export class InstagramAccountService {
   constructor(
     private readonly accountRepository: InstagramAccountRepository,
-    private readonly tokenService: InstagramAccountTokenService,
+    private readonly connectionTokenService: ChannelConnectionTokenService,
     private readonly settingsService: InstagramAccountSettingsService,
     private readonly organizationService: OrganizationService,
   ) {}
-
-  /**
-   * Finishes "Connect Instagram" (route 1, IA12): swaps the code for a long-lived token, reads the
-   * profile, refuses what may not connect, then writes the account, its default settings and its
-   * token in one transaction, and subscribes the account to the webhook fields. The audit entry is
-   * the controller's, after commit (D36).
-   *
-   * @remarks
-   * Algorithm:
-   * 1. Organization scope: the organization must be a team (`422`); resolve the connecting user.
-   * 2. Instagram, outside any context: the code exchange, the long-lived exchange, `/me`.
-   * 3. Refuse a personal Instagram account and a missing permission (`422`).
-   * 4. The resolver (IA6): another organization holds this account live → `409`.
-   * 5. One transaction: this organization has another live account → `409`; upsert the account
-   *    (a reconnect reuses its row, revoked included); default settings when it has none; the
-   *    encrypted token; the users' public ids the answer names. A unique-index race → the matching
-   *    `409`. Every read the answer needs is in here, so a failed read connects nothing (D56).
-   * 6. After commit, when `webhook_subscribed_at` is empty: `subscribed_apps`; success stamps it,
-   *    a failure is logged (`app.instagram_account.webhook_subscription_failed`) and never fails
-   *    the connect — the next connect or the daily check retries.
-   *
-   * Failure modes: as the class lists for route 1; nothing is stored when steps 1–5 fail.
-   * Side effects: the transaction of step 5; Instagram calls; one log line on a failed subscription.
-   */
-  async connect({
-    scope,
-    code,
-    connectedByUserPublicId,
-    requestId,
-  }: InstagramAccountConnectInput): Promise<InstagramConnectResultOutput> {
-    const { organizationId, connectedByUserId } = await withAppDatabaseContext({
-      scope,
-      callback: async () => {
-        const organization = await this.organizationService.requireOrganizationByPublicId(
-          scope.organizationPublicId,
-        );
-        assertTeamOrganization({ organization, capability: 'INSTAGRAM' });
-        const connectedByUserId =
-          await this.organizationService.resolveUserInternalIdByPublicId(connectedByUserPublicId);
-        return { organizationId: organization.id, connectedByUserId };
-      },
-    });
-
-    const connection = await this.readInstagramConnection({ code, requestId });
-    this.assertConnectable(connection);
-    const { profile } = connection;
-
-    const holderOrganizationPublicId =
-      await this.accountRepository.resolveOrganizationPublicIdForInstagramUser(
-        profile.instagramUserId,
-      );
-    if (
-      holderOrganizationPublicId !== null &&
-      holderOrganizationPublicId !== scope.organizationPublicId
-    ) {
-      throw connectedElsewhereError();
-    }
-
-    const { account, settings, userPublicIds, isNewConnection } = await this.writeConnection({
-      scope,
-      organizationId,
-      connectedByUserId,
-      connection,
-    });
-
-    const subscribedAccount = await this.subscribeWebhookFieldsBestEffort({
-      scope,
-      account,
-      encryptedAccessToken: connection.encryptedAccessToken,
-      requestId,
-    });
-
-    return serializeInstagramConnectResult({
-      is_new_connection: isNewConnection,
-      instagram_account: this.toAccountOutput({
-        account: subscribedAccount,
-        settings,
-        userPublicIds,
-      }),
-    });
-  }
-
-  /**
-   * The organization's not-revoked account with its settings (route 2, IA13) — `expired` and
-   * `error` included, so a reload shows the reconnect card.
-   *
-   * @remarks
-   * Algorithm: one unit of work — the team check (`404 team_organization_required` on a personal
-   * organization), the live account, its settings, the two users' public ids. Failure modes:
-   * `404 instagram_not_connected` when the organization has none (or only revoked rows). Side
-   * effects: none — the database only, never Instagram; the token is never read.
-   */
-  async getAccount({
-    scope,
-  }: {
-    scope: OrganizationPrincipalDatabaseScope;
-  }): Promise<InstagramAccountOutput> {
-    const { account, settings } = await withAppDatabaseContext({
-      scope,
-      callback: async () => {
-        const organization = await this.organizationService.requireOrganizationByPublicId(
-          scope.organizationPublicId,
-        );
-        assertTeamOrganizationForRead({ organization });
-        const account = await this.accountRepository.findLiveByOrganizationId(organization.id);
-        if (account === null) throw instagramNotConnectedError();
-        const settings = await this.settingsService.findSettings({
-          scope,
-          instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
-        });
-        return { account, settings };
-      },
-    });
-    if (settings === null) {
-      // The connect transaction always writes the settings row with the account (1.B.10).
-      throw new Error('instagram account has no settings row');
-    }
-    const userPublicIds = await this.resolveUserPublicIds({ account, settings });
-    return this.toAccountOutput({ account, settings, userPublicIds });
-  }
 
   /**
    * The organization's not-revoked account — `connected`, `expired` or `error`, the account route 2
@@ -369,7 +143,7 @@ export class InstagramAccountService {
    * @remarks
    * Algorithm: one unit of work in the caller's organization scope — the team check
    * (`404 team_organization_required` on a personal organization, IA3), the live account, its
-   * encrypted token (through {@link InstagramAccountTokenService}). Failure modes:
+   * encrypted token (through {@link ChannelConnectionTokenService}). Failure modes:
    * `404 instagram_not_connected` when the organization has none (or only revoked rows). Side
    * effects: none — reads only, never Instagram. Notes: an `expired` or `error` account is returned
    * as it is; the caller decides (`404 instagram_reconnect_required` without a call). The token
@@ -466,7 +240,7 @@ export class InstagramAccountService {
    * @remarks
    * Algorithm: one unit of work in the caller's organization scope (the job's, relayed by the
    * engine): the organization, its live account (it must carry this public id), the token
-   * (through {@link InstagramAccountTokenService}) and the settings row. Failure modes: none of its
+   * (through {@link ChannelConnectionTokenService}) and the settings row. Failure modes: none of its
    * own. Side effects: none — reads only, never Instagram. Notes: an `expired` or `error` account
    * is returned with its status — the engine sends nothing for it; the token stays ciphertext
    * (IA5).
@@ -492,7 +266,7 @@ export class InstagramAccountService {
           organizationId: organization.id,
           instagramAccountId: account.id,
         };
-        const token = await this.tokenService.findAccessToken({ scope, instagramAccount });
+        const token = await this.findAccountToken({ scope, account });
         const settings = await this.settingsService.findSettings({ scope, instagramAccount });
         return {
           instagramAccount,
@@ -517,7 +291,7 @@ export class InstagramAccountService {
    * Algorithm: one unit of work in the caller's organization scope (the processing job's): the
    * organization, the account by its public id within that organization (revoked included — its
    * waiting events must still be marked), its settings row, and the token only for a `connected`
-   * account (through {@link InstagramAccountTokenService}). Read once when the job starts (the key
+   * account (through {@link ChannelConnectionTokenService}). Read once when the job starts (the key
    * its claims use) and again before each event (the switch and the status can change while an
    * event waits, WH12). Failure modes: none of its own. Side effects: none — reads only, never
    * Instagram. Notes: an account without its settings row reads the column default (automation
@@ -550,7 +324,7 @@ export class InstagramAccountService {
         const settings = await this.settingsService.findSettings({ scope, instagramAccount });
         const token =
           account.connection_status === 'connected'
-            ? await this.tokenService.findAccessToken({ scope, instagramAccount })
+            ? await this.findAccountToken({ scope, account })
             : null;
         return {
           instagramAccount,
@@ -559,57 +333,6 @@ export class InstagramAccountService {
           isAutomationEnabled: settings?.is_automation_enabled ?? true,
           encryptedAccessToken: token?.encryptedAccessToken ?? null,
         };
-      },
-    });
-  }
-
-  /**
-   * Disconnects the organization's account (route 4, IA14): a best-effort unsubscribe, then one
-   * transaction — `revoked`, `disconnected_at`, the token erased, the expiry copy and the webhook
-   * stamp emptied. Settings and profile stay; no run is cancelled (IQ1). Returns the revoked
-   * account's public id for the caller's audit entry.
-   *
-   * @remarks
-   * Algorithm:
-   * 1. Organization scope: the team check (`422`), the live account (`404 instagram_not_connected`)
-   *    and its encrypted token.
-   * 2. Outside any context, when a token is there: `DELETE subscribed_apps`; a failure is logged
-   *    (`app.instagram_account.webhook_unsubscription_failed`) and never blocks.
-   * 3. One transaction: revoke (a concurrent disconnect that won → `404 instagram_not_connected`),
-   *    erase the token.
-   *
-   * Failure modes: as above. Side effects: the transaction of step 3; one Instagram call. The
-   * audit entry is the controller's, after commit (the repository's audit-emission pattern).
-   */
-  async disconnect({
-    scope,
-    requestId,
-  }: InstagramAccountDisconnectInput): Promise<{ instagramAccountPublicId: string }> {
-    const access = await withAppDatabaseContext({
-      scope,
-      callback: async () => {
-        const organization = await this.organizationService.requireOrganizationByPublicId(
-          scope.organizationPublicId,
-        );
-        assertTeamOrganization({ organization, capability: 'INSTAGRAM' });
-        const access = await this.findLiveAccess({ scope, organizationId: organization.id });
-        if (access === null) throw instagramNotConnectedError();
-        return access;
-      },
-    });
-
-    await this.unsubscribeWebhookFieldsBestEffort({ scope, access, requestId });
-
-    return withAppDatabaseContext({
-      scope,
-      callback: async () => {
-        const revoked = await this.accountRepository.revoke(access.instagramAccount);
-        if (revoked === null) throw instagramNotConnectedError();
-        await this.tokenService.eraseAccessToken({
-          scope,
-          instagramAccount: access.instagramAccount,
-        });
-        return { instagramAccountPublicId: revoked.public_id };
       },
     });
   }
@@ -646,8 +369,8 @@ export class InstagramAccountService {
    * connected (or connected again) after `issuedAt` — Meta retries a request it got no answer for,
    * and a new connection was never part of it (D53) — and {@link disconnectAccounts} the rest.
    * Failure modes: none of its own — an organization with no such account answers an empty list.
-   * Side effects: writes `app.instagram_accounts` and deletes `app.instagram_account_tokens` rows
-   * (through {@link InstagramAccountTokenService}); settings stay. No Instagram call. Notes: a
+   * Side effects: writes `app.instagram_accounts` and, with a connection's last account, revokes the connection and deletes its token
+   * (through {@link ChannelConnectionTokenService}); settings stay. No Instagram call. Notes: a
    * disconnect cancels no automation run (IQ1, D24); safe to repeat — an account already changed
    * answers every flag `false`, one connected since is not in the answer. The row lock makes a
    * connect racing this one wait and then connect again on top of it.
@@ -716,8 +439,8 @@ export class InstagramAccountService {
    * Algorithm: one unit of work in the organization's scope (joining the caller's, so the erasure
    * service can erase the stored posts in the same transaction): lock the organization's accounts,
    * then disconnect each. Failure modes: none of its own — an organization gone or without accounts
-   * answers an empty list. Side effects: writes `app.instagram_accounts` and deletes
-   * `app.instagram_account_tokens` rows; settings, automations, runs and contacts stay until the
+   * answers an empty list. Side effects: writes `app.instagram_accounts`, revokes its connections
+   * and deletes their tokens; settings, automations, runs and contacts stay until the
    * organization's purge. No Instagram call. Notes: it must run before the organization is
    * soft-deleted — row-level security hides a deleted organization's rows from its own scope; safe
    * to repeat.
@@ -812,10 +535,7 @@ export class InstagramAccountService {
         instagramAccountId: account.id,
       };
       const revoked = await this.accountRepository.revoke(key);
-      const wasTokenErased = await this.tokenService.eraseAccessToken({
-        scope,
-        instagramAccount: key,
-      });
+      const wasTokenErased = await this.releaseConnectionWhenUnused({ scope, account });
       const erased = shouldEraseProfile ? await this.accountRepository.eraseProfile(key) : null;
       changes.push({
         instagramAccount: key,
@@ -845,7 +565,7 @@ export class InstagramAccountService {
       organizationId,
       instagramAccountId: account.id,
     };
-    const token = await this.tokenService.findAccessToken({ scope, instagramAccount });
+    const token = await this.findAccountToken({ scope, account });
     return {
       account,
       instagramAccount,
@@ -857,7 +577,7 @@ export class InstagramAccountService {
    * `DELETE subscribed_apps` outside any database context, when the account has a token. Never
    * throws: a failure is logged and the caller goes on.
    */
-  private async unsubscribeWebhookFieldsBestEffort({
+  async unsubscribeWebhookFieldsBestEffort({
     scope,
     access,
     requestId,
@@ -888,130 +608,52 @@ export class InstagramAccountService {
   }
 
   /**
-   * IA12 step 1 — the three Instagram calls, outside any database context, mapped to 1.A.9: an
-   * outage of the code exchange is a `503` (the code may still pass), one of a later call a `409`
-   * (the code is spent, D56).
+   * The account's encrypted token — its channel connection's (P111, MC9) — inside the caller's unit
+   * of work; `null` when the connection has none (revoked).
    */
-  private async readInstagramConnection({
-    code,
-    requestId,
-  }: {
-    code: string;
-    requestId: string;
-  }): Promise<InstagramConnection> {
-    let isCodeSpent = false;
-    try {
-      const shortLivedToken = await exchangeInstagramAuthorizationCode({ code, requestId });
-      isCodeSpent = true;
-      const longLivedToken = await exchangeInstagramLongLivedAccessToken({
-        encryptedShortLivedAccessToken: shortLivedToken.encryptedAccessToken,
-        requestId,
-      });
-      const profile = await readInstagramAccountProfile({
-        encryptedAccessToken: longLivedToken.encryptedAccessToken,
-        requestId,
-      });
-      if (profile.username === null) {
-        // A professional account always has one; an answer without it is Instagram misbehaving.
-        throw buildInstagramMalformedAnswerError({ operation: '/me', missing: 'username' });
-      }
-      return {
-        profile,
-        encryptedAccessToken: longLivedToken.encryptedAccessToken,
-        expiresAt: longLivedToken.expiresAt,
-        grantedPermissions: shortLivedToken.grantedPermissions,
-      };
-    } catch (error) {
-      throw toConnectRouteError({ error, isCodeSpent });
-    }
-  }
-
-  /** IA12 step 2 — a personal Instagram account, then a missing permission, each a `422`. */
-  private assertConnectable({ profile, grantedPermissions }: InstagramConnection): void {
-    const professionalTypes: readonly string[] = INSTAGRAM_PROFESSIONAL_ACCOUNT_TYPES;
-    if (profile.accountType === null || !professionalTypes.includes(profile.accountType)) {
-      throw new UnprocessableEntityError('errors:instagramAccountNotProfessional').withReason(
-        'instagram_account_not_professional',
-      );
-    }
-    const granted = new Set(grantedPermissions);
-    if (INSTAGRAM_ACCOUNT_REQUIRED_SCOPES.some((scope) => !granted.has(scope))) {
-      throw new UnprocessableEntityError('errors:instagramScopesMissing').withReason(
-        'instagram_scopes_missing',
-      );
-    }
-  }
-
-  /**
-   * IA12 step 4 — the one connect transaction, with every read the answer needs (D56); a
-   * unique-index race becomes its `409`.
-   */
-  private async writeConnection({
+  private async findAccountToken({
     scope,
-    organizationId,
-    connectedByUserId,
-    connection,
+    account,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    organizationId: number;
-    connectedByUserId: number | null;
-    connection: InstagramConnection;
-  }): Promise<{
     account: InstagramAccountRow;
-    settings: InstagramAccountSettingsRow;
-    userPublicIds: ReadonlyMap<number, string>;
-    isNewConnection: boolean;
-  }> {
-    const { profile } = connection;
-    try {
-      return await withAppDatabaseContext({
-        scope,
-        callback: async () => {
-          const live = await this.accountRepository.findLiveByOrganizationId(organizationId);
-          if (live !== null && live.instagram_user_id !== profile.instagramUserId) {
-            throw organizationAlreadyHasAccountError();
-          }
-          const { account, isNewConnection } = await this.accountRepository.upsertConnected({
-            organizationId,
-            instagramUserId: profile.instagramUserId,
-            instagramAppUserId: profile.instagramAppUserId,
-            username: profile.username as string,
-            name: profile.name,
-            biography: profile.biography,
-            website: profile.website,
-            profilePictureUrl: profile.profilePictureUrl,
-            followersCount: profile.followersCount ?? 0,
-            followsCount: profile.followsCount ?? 0,
-            mediaCount: profile.mediaCount ?? 0,
-            scopes: [...new Set(connection.grantedPermissions)],
-            tokenExpiresAt: connection.expiresAt,
-            connectedByUserId,
-          });
-          const key: InstagramAccountKey = { organizationId, instagramAccountId: account.id };
-          const settings = await this.settingsService.createDefaultSettings({
-            scope,
-            instagramAccount: key,
-          });
-          await this.tokenService.storeAccessToken({
-            scope,
-            instagramAccount: key,
-            encryptedAccessToken: connection.encryptedAccessToken,
-            expiresAt: connection.expiresAt,
-          });
-          const userPublicIds = await this.resolveUserPublicIds({ account, settings });
-          return { account, settings, userPublicIds, isNewConnection };
-        },
-      });
-    } catch (error) {
-      throw toConnectRaceError(error);
-    }
+  }): Promise<{ encryptedAccessToken: string } | null> {
+    return this.connectionTokenService.findAccessToken({
+      scope,
+      channelConnection: {
+        organizationId: account.organization_id,
+        channelConnectionId: account.channel_connection_id,
+      },
+    });
   }
 
   /**
-   * IA12 step 5 — `subscribed_apps` after commit when the account is not subscribed yet; returns
-   * the account as it now stands. Never throws: a failure is logged and the connect stands.
+   * CA8 (feat-instagram-dm-sending): once no other not-revoked account uses the revoked account's
+   * connection, the connection is revoked and its token deleted, in the caller's unit of work.
+   * Returns whether the token went now.
    */
-  private async subscribeWebhookFieldsBestEffort({
+  private async releaseConnectionWhenUnused({
+    scope,
+    account,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    account: InstagramAccountRow;
+  }): Promise<boolean> {
+    const channelConnection = {
+      organizationId: account.organization_id,
+      channelConnectionId: account.channel_connection_id,
+    };
+    const liveCount = await this.accountRepository.countLiveByConnection(channelConnection);
+    if (liveCount > 0) return false;
+    return this.connectionTokenService.revokeConnection({ scope, channelConnection });
+  }
+
+  /**
+   * `subscribed_apps` after a pick's or a reconnect's commit when the account is not subscribed yet
+   * (MC7, AC-1.7); returns the account as it now stands. Never throws: a failure is logged and the
+   * account stays connected (the daily check retries).
+   */
+  async subscribeWebhookFieldsBestEffort({
     scope,
     account,
     encryptedAccessToken,
@@ -1020,7 +662,7 @@ export class InstagramAccountService {
     scope: OrganizationPrincipalDatabaseScope;
     account: InstagramAccountRow;
     encryptedAccessToken: string;
-    requestId: string;
+    requestId: string | undefined;
   }): Promise<InstagramAccountRow> {
     if (account.webhook_subscribed_at !== null) return account;
     try {
@@ -1053,42 +695,5 @@ export class InstagramAccountService {
       );
       return account;
     }
-  }
-
-  /** The `usr_…` ids of the connecting user and the settings' last editor (one resolver call). */
-  private async resolveUserPublicIds({
-    account,
-    settings,
-  }: {
-    account: InstagramAccountRow;
-    settings: InstagramAccountSettingsRow;
-  }): Promise<ReadonlyMap<number, string>> {
-    return this.organizationService.resolveUserPublicIdsByInternalIds(
-      [account.connected_by_user_id, settings.updated_by_user_id].filter(
-        (identifier): identifier is number => identifier !== null,
-      ),
-    );
-  }
-
-  /** The account object from rows already read — no read of its own. */
-  private toAccountOutput({
-    account,
-    settings,
-    userPublicIds,
-  }: {
-    account: InstagramAccountRow;
-    settings: InstagramAccountSettingsRow;
-    userPublicIds: ReadonlyMap<number, string>;
-  }): InstagramAccountOutput {
-    const publicIdOf = (identifier: number | null): string | null =>
-      identifier === null ? null : (userPublicIds.get(identifier) ?? null);
-    return serializeInstagramAccount({
-      account,
-      settings: serializeInstagramAccountSettings({
-        settings,
-        updated_by_user_public_id: publicIdOf(settings.updated_by_user_id),
-      }),
-      connected_by_user_public_id: publicIdOf(account.connected_by_user_id),
-    });
   }
 }

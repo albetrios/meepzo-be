@@ -1,7 +1,7 @@
 import type {
   InstagramMessageRecipient,
   InstagramOutgoingMessage,
-} from '@/infrastructure/social/instagram.client.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
 import type {
   AutomationFinalMessage,

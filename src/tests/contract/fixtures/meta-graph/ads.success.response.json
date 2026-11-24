@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "id": "120200000000000001",
+      "name": "Winter sale",
+      "effective_status": "ACTIVE",
+      "created_time": "2026-11-01T10:00:00+0000",
+      "creative": {
+        "effective_instagram_media_id": "18030000000000001",
+        "thumbnail_url": "https://scontent.cdninstagram.com/v/contract-fixture-ad.jpg",
+        "id": "120200000000000101"
+      }
+    }
+  ],
+  "paging": {
+    "cursors": { "before": "QVFIUmFkc2JlZm9yZQZDZD", "after": "QVFIUmFkc2FmdGVyZAWZDZD" },
+    "next": "https://graph.facebook.com/v27.0/act_1234567890123/ads?access_token=EAAG-redacted&after=QVFIUmFkc2FmdGVyZAWZDZD"
+  }
+}

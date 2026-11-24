@@ -51,13 +51,18 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'app.automations': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // Contacts: organization-scoped, plus the retention sweep arm in USING (routes-final § 2.3).
   'app.contacts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // The channel connection: organization-scoped, plus the token check's sweep (MC10). Its token and
+  // usage: the organization arm only — no sweep arm reads a token (MC9).
+  'app.channel_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  'app.channel_connection_tokens': ['app.current_organization_public_id'],
+  'app.channel_connection_usages': ['app.current_organization_public_id'],
+  'app.channel_connections': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The Instagram account and its settings: organization-scoped, plus the daily sweep's read
-  // (IA8). The token: the organization arm only — no sweep arm reads a token (IA5).
+  // (IA8).
   'app.instagram_account_settings': [
     'app.current_organization_public_id',
     'app.global_retention_cleanup',
   ],
-  'app.instagram_account_tokens': ['app.current_organization_public_id'],
   'app.instagram_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The stored posts (launch R5): organization-scoped, plus the retention sweep arm (1.3).
   'app.instagram_media': ['app.current_organization_public_id', 'app.global_retention_cleanup'],

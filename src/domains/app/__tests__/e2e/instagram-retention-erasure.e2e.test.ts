@@ -11,7 +11,7 @@ import {
   getBullMQConnectionOptions,
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -140,7 +140,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
   /** Makes a waiting run look as if it waited since `days` ago. */
@@ -926,7 +926,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
             userId: team.profile.id,
             issuedAt: metaIssuedAtAfterConnections(),
           }),
-          appSecret: getEnv().INSTAGRAM_APP_SECRET ?? '',
+          appSecret: getEnv().META_APP_SECRET ?? '',
         }),
       ),
     });
@@ -940,7 +940,9 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       const { waitingRun } = await writeHistory({ app, team, person: JORDAN, automations });
       const {
         instagram_accounts: _account,
-        instagram_account_tokens: tokensBefore,
+        channel_accounts: _channelAccounts,
+        channel_connections: _connections,
+        channel_connection_tokens: tokensBefore,
         instagram_media: postsBefore,
         ...before
       } = await readAppRowsOfOrganization(team.organization.id);
@@ -953,13 +955,19 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       const after = await readAppRowsOfOrganization(team.organization.id);
       const {
         instagram_accounts: accounts,
-        instagram_account_tokens: tokens,
+        channel_accounts: channelAccounts,
+        channel_connections: connections,
+        channel_connection_tokens: tokens,
         instagram_media: posts,
         ...untouched
       } = after;
       expect(accounts).toEqual([
         expect.objectContaining({ connection_status: 'revoked', username: null, name: null }),
       ]);
+      // The channel account is revoked with its Instagram row (P116).
+      expect(channelAccounts).toEqual([expect.objectContaining({ connection_status: 'revoked' })]);
+      // The connection's last account went, so the connection is revoked with its token (CA8).
+      expect(connections).toEqual([expect.objectContaining({ status: 'revoked' })]);
       expect(tokens).toEqual([]);
       expect(posts).toEqual([]);
       expect(untouched).toEqual(before);
@@ -986,9 +994,14 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       }
       const [team, otherTeam] = teams as [ConnectedInstagramTeam, ConnectedInstagramTeam];
       const counts = await countAppRowsOfOrganization(team.organization.id);
-      // Every table of the schema that holds an organization's rows has some to lose.
+      // Every table of the schema that holds an organization's rows has some to lose — but Meta's
+      // usage, which only answers carrying the usage headers write (the mocks send none).
       expect(Object.keys(counts).length).toBeGreaterThanOrEqual(10);
-      expect(Object.entries(counts).filter(([, count]) => count === 0)).toEqual([]);
+      expect(
+        Object.entries(counts).filter(
+          ([table, count]) => count === 0 && table !== 'channel_connection_usages',
+        ),
+      ).toEqual([]);
       const otherBefore = await readAppRowsOfOrganization(otherTeam.organization.id);
       const token = await generateTestToken({
         userId: team.owner.public_id,
@@ -1024,7 +1037,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(await purge()).toMatchObject({ deletedCount: 0 });
       expect(await countAppRowsOfOrganization(team.organization.id)).toEqual({
         ...counts,
-        instagram_account_tokens: 0,
+        channel_connection_tokens: 0,
         instagram_media: 0,
       });
       const pastTheWindow = daysBefore({

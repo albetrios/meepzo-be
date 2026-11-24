@@ -49,7 +49,7 @@ export function createInstagramAccountDailyCheckWorker({
 }): WorkerHandle {
   const worker = createProviderPausableWorker<InstagramAccountDailyCheckJobData>({
     queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
-    provider: 'instagram',
+    provider: 'meta',
     processor: async (job) => {
       if (job.name === INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME) {
         return runInstagramAccountDailyCheckSweep();

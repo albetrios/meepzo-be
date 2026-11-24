@@ -6,7 +6,7 @@ import {
   getBullMQConnectionOptions,
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   MILLISECONDS_PER_DAY,
   MILLISECONDS_PER_HOUR,
@@ -85,7 +85,7 @@ describe('Instagram comment automation flow (e2e)', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
     // Instagram takes one private reply per comment — the flow never sends a second one.
     expect(instagram.commentsAnsweredPrivatelyTwice()).toEqual([]);
   });

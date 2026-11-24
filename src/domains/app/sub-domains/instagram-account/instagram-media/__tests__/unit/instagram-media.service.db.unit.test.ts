@@ -1,3 +1,5 @@
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
@@ -8,7 +10,7 @@ import {
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
-import type { InstagramMediaGraphItem } from '@/infrastructure/social/instagram.client.js';
+import type { InstagramMediaGraphItem } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
   InstagramAccountRepository,
   type InstagramAccountKey,
@@ -65,10 +67,17 @@ describe('InstagramMediaService stored posts (database)', () => {
     otherOrganizationId = otherOrganization.id;
     scope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organization.public_id });
     otherScope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: otherOrganization.public_id });
+    const channelConnection = await insertChannelConnection({ organizationId: organization.id });
+    const channelAccount = await insertChannelAccount({
+      organizationId: organization.id,
+      providerAccountId: '17841400000000001',
+      channelConnectionId: channelConnection.id,
+    });
     const { account } = await withAppDatabaseContext({
       scope,
       callback: () =>
         new InstagramAccountRepository().upsertConnected({
+          channelAccountId: channelAccount.id,
           organizationId: organization.id,
           instagramUserId: '17841400000000001',
           instagramAppUserId: '917841400000000001',
@@ -81,7 +90,7 @@ describe('InstagramMediaService stored posts (database)', () => {
           followsCount: 0,
           mediaCount: 0,
           scopes: [],
-          tokenExpiresAt: new Date(),
+          channelConnectionId: channelConnection.id,
           connectedByUserId: null,
         }),
     });

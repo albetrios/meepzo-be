@@ -3,8 +3,8 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
-import type { InstagramMessageRecipient } from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+import type { InstagramMessageRecipient } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
@@ -147,7 +147,7 @@ type PreparedAction =
 type RecordedAction =
   | { kind: 'continue'; isFollowNotConfirmed?: boolean }
   | { kind: 'stop' }
-  | { kind: 'failed'; errorType: AutomationCommentLogErrorType; tokenError?: InstagramApiError }
+  | { kind: 'failed'; errorType: AutomationCommentLogErrorType; tokenError?: MetaGraphApiError }
   | { kind: 'rethrow'; error: unknown };
 
 /** Why a step failed, as the run and its comment log record it. */
@@ -229,7 +229,7 @@ function failedCommentLogStep({
 function describeFailure(failure: AutomationRunFailure): string {
   const { error } = failure;
   const message =
-    error instanceof InstagramApiError && error.instagramErrorCode !== null
+    error instanceof MetaGraphApiError && error.instagramErrorCode !== null
       ? `${failure.errorType}:${error.instagramErrorCode}/${error.instagramErrorSubcode ?? '-'}`
       : `${failure.errorType}:${failure.reason}`;
   return message.slice(0, AUTOMATION_RUN_ERROR_MESSAGE_MAX_LENGTH);
@@ -241,7 +241,7 @@ function describeFailure(failure: AutomationRunFailure): string {
  */
 function failureColumns(failure: AutomationRunFailure): AutomationCommentLogChanges {
   const { error } = failure;
-  const isInstagramAnswer = error instanceof InstagramApiError;
+  const isInstagramAnswer = error instanceof MetaGraphApiError;
   return {
     error_type: failure.errorType,
     http_status: isInstagramAnswer ? (error.status ?? null) : null,
@@ -283,7 +283,7 @@ function unsetColumns({
 /** The reason slug of a send that did not deliver. */
 function failureReasonOf(result: Exclude<AutomationSendResult, { outcome: 'delivered' }>): string {
   if (result.outcome === 'unknown') return 'send_outcome_unknown';
-  if (result.error instanceof InstagramApiError) return result.error.errorClass;
+  if (result.error instanceof MetaGraphApiError) return result.error.errorClass;
   return result.outcome;
 }
 
@@ -2648,7 +2648,7 @@ export class AutomationRunService {
     error,
   }: {
     call: AutomationRunCall;
-    error: InstagramApiError;
+    error: MetaGraphApiError;
   }): Promise<void> {
     await this.instagramAccountService.markConnectionBroken({
       scope: call.scope,

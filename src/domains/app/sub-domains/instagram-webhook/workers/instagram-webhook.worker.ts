@@ -48,7 +48,7 @@ export function createInstagramWebhookWorker(
 ): WorkerHandle {
   const worker = createProviderPausableWorker<InstagramWebhookAccountJobData>({
     queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
-    provider: 'instagram',
+    provider: 'meta',
     processor: async (job) => {
       // The every-minute pick-up rides this queue (no worker or pool of its own); no payload.
       if (job.name === INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME) {

@@ -93,7 +93,7 @@ function firstEventPerKey(
  *
  * @remarks
  * Algorithm:
- * - Route 16 (WH7): `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` must be set (`503`); `hub.mode` must be
+ * - Route 16 (WH7): `META_WEBHOOK_VERIFY_TOKEN` must be set (`503`); `hub.mode` must be
  *   `subscribe` and `hub.verify_token` equal the setting in constant time (`400`); the challenge is
  *   then returned as received.
  * - Route 17 (WH10), after the ingress plugin checked `X-Hub-Signature-256` (WH8): a body that is
@@ -147,7 +147,7 @@ export class InstagramWebhookService {
    * `503 instagram_webhook_not_configured`; `400 invalid_webhook_verify_token`. Side effects: none.
    */
   verifySubscription({ mode, verifyToken, challenge }: InstagramWebhookSubscriptionCheck): string {
-    const expectedToken = getEnv().INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+    const expectedToken = getEnv().META_WEBHOOK_VERIFY_TOKEN;
     if (!expectedToken) {
       throw instagramWebhookNotConfiguredError();
     }

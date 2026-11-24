@@ -37,7 +37,7 @@ changes to the platform domains are new migrations only (D48, [P38](decisions.md
 
 | Change | Count | Entities |
 | --- | --- | --- |
-| NEW | 22 | **Common, Stages 1 and 6 (5):** channel_connection, channel_connection_token, channel_account, message_month_count, sending_state (`sending_helper_slot` dropped — P73) · **Shared product data, Stages 2, 3 and 5 (8, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, automation_run_open_key (P100), segment, broadcast, broadcast_recipient · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account |
+| NEW | 22 | **Common, Stages 1 and 6 (5):** channel_connection, channel_connection_token, channel_account (**Built R5**: `app.channel_accounts` — `public_id` `cha_`, `channel`, `channel_connection_id`, `provider_account_id`, `display_name`, `connection_status`, `is_automation_enabled`, `paused_at`, `paused_by_user_id`, `suspended_at`, `plan_stop_reason`, `plan_stopped_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`; `app.instagram_accounts.channel_account_id` added, its `channel_connection_id` moved here — [AS-BUILT](../AS-BUILT.md), [P116](decisions.md), [P117](decisions.md)), message_month_count, sending_state (`sending_helper_slot` dropped — P73) · **Shared product data, Stages 2, 3 and 5 (8, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, automation_run_open_key (P100), segment, broadcast, broadcast_recipient · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account |
 | CHANGED | 15 | **app (9):** instagram_account (now the Instagram extension of channel_account), instagram_account_setting, instagram_media, contact, automation, automation_run, automation_run_event, automation_comment_log (the four launch product tables, shared and keyed by `channel_account_id`, no rename — P48), instagram_webhook_event · **Stage 7 (2):** plan, subscription · **Stage 8 (4):** organization, user, user_setting, session |
 | REMOVED | 1 | instagram_account_token |
 | EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `instagram_attachment` names an upload by its public id. **Built R12** ([AS-BUILT](../AS-BUILT.md)): `upload.uploads` unchanged, no migration; the `message-media` purpose is recorded in the object key prefix `message-media/<organization public id>/` (the table has no purpose column, [P201](decisions.md)) |
@@ -341,6 +341,18 @@ fields stay in `instagram_account`, its 1:1 extension (P42).
   and until when calls wait — so every channel of that business shares one limit; every channel's engine
   reads it before a call (80 % or more slows, 95 % or more waits the time Meta gives or 15 minutes,
   plan:L2353–L2360). Postgres holds it; a short Redis copy serves gate 1 (P32).
+  **R2 ([AS-BUILT](../AS-BUILT.md), [P107](decisions.md)):** the client parses the usage per (asset id,
+  type) as S13 asks, behind `ChannelConnectionUsageStore`; R3 builds its Postgres store (recommended a child
+  table `app.channel_connection_usages` instead of these three columns) and the Redis copy
+  `app:meta_usage:<organization>:<connection>` is built (60 s, tombstoned).
+- **Built R3 ([AS-BUILT](../AS-BUILT.md), [P112](decisions.md)):** `app.channel_connections` (`public_id` prefix
+  `chc`; `provider`, `client_business_id`, `config_id`, `login_type`, `status`, `status_changed_at`, `scopes`,
+  `connected_by_user_id`, `connected_at`, `last_checked_at`, `last_check_error`, `disconnected_at`) — no
+  `usage_*` columns: the usage is the child table **`app.channel_connection_usages`** (`channel_connection_id`,
+  `asset_id`, `usage_type`, `usage_percent`, `wait_until`, `read_at`; unique per connection, asset and type, the newer
+  `read_at` wins; organization-arm RLS). Both in the account migration `20261121064529_app_instagram_account.sql`,
+  changed in place (P29). Until R5, `app.instagram_accounts.channel_connection_id` (composite FK, RESTRICT) is the
+  account → connection link ([P111](decisions.md)).
 - **Table:** `app.channel_connections` ([P41](decisions.md); was `app.meta_connections`, P38)
 - **Sources:** plan:L3517–L3553 (columns, rules), plan:L3998–L4013 (status), plan:L4528–L4575 (connect),
   plan:L876–L880 (ads picker), plan:L4695–L4705 (Meta's callbacks).
@@ -390,6 +402,9 @@ erDiagram
   `token_type`: `system_user` (Meta today) · `oauth_user` (P49). One per connection; deleted only when the
   connection is `revoked`. Read only on the provider client's path — never in a cache, a log or a job
   payload. No public id. Goes away with its connection.
+- **Built R3 ([AS-BUILT](../AS-BUILT.md)):** `app.channel_connection_tokens` as designed (`channel_connection_id`,
+  `encrypted_access_token`, `token_type` `system_user` · `oauth_user`, `encrypted_refresh_token`, `expires_at`);
+  organization-arm RLS only; the secrets-key rotation walks both encrypted columns.
 - **Table:** `app.channel_connection_tokens` ([P41](decisions.md); was `app.meta_connection_tokens`,
   P38)
 - **Sources:** plan:L3555–L3574; plan:L4577 (connect writes it), plan:L4236–L4251 (organization
@@ -622,7 +637,8 @@ erDiagram
 - **Holds (before):** the account's long-lived Instagram Login token, encrypted, renewed daily before
   its 60 days ran out. Removed with the daily renewal, the Instagram Login client and its app secret
   (plan:L2938).
-- **Table:** `app.instagram_account_tokens` (live) — removed
+- **Table:** `app.instagram_account_tokens` (live) — removed (**built R3**: dropped from the account migration in
+  place, with its schema, repository, service and tests)
 - **Sources:** plan:L2938, plan:L8458; current schema
   `src/domains/app/sub-domains/instagram-account/instagram-account-token.schema.ts`.
 - **Added:** none.

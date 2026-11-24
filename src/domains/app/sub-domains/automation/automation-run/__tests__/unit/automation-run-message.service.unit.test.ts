@@ -2,9 +2,9 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExternalServiceError } from '@/infrastructure/outbound/outbound-error.js';
 import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  InstagramApiError,
-  toInstagramApiError,
-} from '@/infrastructure/social/instagram-error.util.js';
+  MetaGraphApiError,
+  toMetaGraphApiError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import {
@@ -28,13 +28,13 @@ function instagramError({
   cause,
 }: {
   errorClass: 'auth' | 'throttled' | 'refused' | 'outage';
-  category?: ConstructorParameters<typeof InstagramApiError>[0]['category'];
+  category?: ConstructorParameters<typeof MetaGraphApiError>[0]['category'];
   httpStatus?: number;
   code?: number | null;
   subcode?: number | null;
   cause?: unknown;
-}): InstagramApiError {
-  return new InstagramApiError({
+}): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass,
     category,
     connectionStatus: errorClass === 'auth' ? 'error' : null,
@@ -96,14 +96,14 @@ describe('classifyAutomationSendFailure (AU19, 3.B.9)', () => {
       instagramError({ errorClass: 'outage', category: 'circuit_open' }),
       'temporary',
     ],
-    ['a raw open circuit', new CircuitBreakerOpenError('instagram', 1000, 'open'), 'temporary'],
+    ['a raw open circuit', new CircuitBreakerOpenError('meta', 1000, 'open'), 'temporary'],
     [
       'a connection refused before sending',
       instagramError({
         errorClass: 'outage',
         category: 'network',
         cause: new ExternalServiceError({
-          integration: 'instagram',
+          integration: 'meta-graph',
           category: 'network',
           cause: Object.assign(new Error('fetch failed'), {
             cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
@@ -143,8 +143,8 @@ describe('classifyAutomationSendFailure (AU19, 3.B.9)', () => {
   );
 
   it('a bare 502 from the outbound layer is unknown too', () => {
-    const error = toInstagramApiError(
-      new ExternalServiceError({ integration: 'instagram', category: 'http_5xx', status: 502 }),
+    const error = toMetaGraphApiError(
+      new ExternalServiceError({ integration: 'meta-graph', category: 'http_5xx', status: 502 }),
     );
     expect(classifyAutomationSendFailure(error).outcome).toBe('unknown');
   });

@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -6,11 +7,11 @@ import { ExternalServiceError } from '@/infrastructure/outbound/outbound-error.j
 import type {
   InstagramMessageRecipient,
   InstagramOutgoingMessage,
-} from '@/infrastructure/social/instagram.client.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
-  readInstagramErrorResponse,
-  toInstagramApiError,
-} from '@/infrastructure/social/instagram-error.util.js';
+  readMetaGraphErrorResponse,
+  toMetaGraphApiError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import {
   MILLISECONDS_PER_MINUTE,
@@ -35,13 +36,11 @@ import {
   processInstagramWebhookAccountJob,
 } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-  INSTAGRAM_CONNECT_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
   createInstagramTeam,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import {
@@ -115,7 +114,7 @@ function instagramErrorAnswer({
   code: number;
   subcode?: number;
 }): unknown {
-  return readInstagramErrorResponse({
+  return readMetaGraphErrorResponse({
     httpStatus,
     body: JSON.stringify({
       error: {
@@ -145,8 +144,8 @@ export const instagramFailure = {
   deadToken: () => instagramErrorAnswer({ httpStatus: 400, code: 190 }),
   /** The request left and no answer came back — it may have been delivered. */
   timeout: () =>
-    toInstagramApiError(
-      new ExternalServiceError({ integration: 'instagram', category: 'timeout' }),
+    toMetaGraphApiError(
+      new ExternalServiceError({ integration: 'meta-graph', category: 'timeout' }),
     ),
 };
 
@@ -333,16 +332,10 @@ export class InstagramCommentFlow {
     return this.connectedAccount;
   }
 
-  /** Connects a new Instagram account for the team (route 1). */
+  /** Connects a new Instagram account for the team (a channel connection's start, callback and pick). */
   async connectAccount(): Promise<TestConnectedAccount> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await this.request({
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
-      payload: { code: `AQB-${randomUUID()}#_` },
-    });
-    expect(response.statusCode, response.body).toBe(200);
+    await connectInstagramAccount({ app: this.app, token: this.team.ownerToken, profile });
     const [account] = await getOperatorDatabase()
       .select()
       .from(instagram_accounts)
@@ -366,7 +359,10 @@ export class InstagramCommentFlow {
   /** Disconnects the team's account (route 4). */
   async disconnectAccount(): Promise<void> {
     mockInstagramUnsubscribe({ instagramAppUserId: this.account.instagramAppUserId });
-    const response = await this.request({ method: 'DELETE', url: INSTAGRAM_ACCOUNT_PATH });
+    const response = await this.request({
+      method: 'DELETE',
+      url: await organizationChannelAccountPath(this.team.organization.id),
+    });
     expect(response.statusCode, response.body).toBe(204);
     this.connectedAccount = null;
   }
@@ -455,7 +451,7 @@ export class InstagramCommentFlow {
         },
       ],
     });
-    const signature = createHmac('sha256', getEnv().INSTAGRAM_APP_SECRET ?? '')
+    const signature = createHmac('sha256', getEnv().META_APP_SECRET ?? '')
       .update(rawBody)
       .digest('hex');
     const response = await injectRoute(this.app, {

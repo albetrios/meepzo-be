@@ -26,7 +26,10 @@ import { mfa_recovery_codes } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa
 import { mfa_methods } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-method.schema.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
-import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
+import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
+import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
+import { channel_connection_usages } from '@/domains/app/sub-domains/channel-connection/channel-connection-usage.schema.js';
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
@@ -532,11 +535,15 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     organizationB: uploadB!.id,
   });
 
-  // The Instagram account sub-domain (launch R3, R5, R12): one connected account per organization,
-  // with its token (ciphertext placeholder — never decrypted here), its default settings, a stored
-  // post and a received webhook event.
+  // The channel connection (feat-instagram-dm-sending R3): one connection per organization with its
+  // token (ciphertext placeholder — never decrypted here) and one usage reading; then the Instagram
+  // account sub-domain (launch R3, R5, R12): one connected account per organization through that
+  // connection, its default settings, a stored post and a received webhook event.
+  const channelConnectionIds = { organizationA: 0, organizationB: 0 };
+  const channelConnectionTokenIds = { organizationA: 0, organizationB: 0 };
+  const channelConnectionUsageIds = { organizationA: 0, organizationB: 0 };
+  const channelAccountIds = { organizationA: 0, organizationB: 0 };
   const instagramAccountIds = { organizationA: 0, organizationB: 0 };
-  const instagramTokenIds = { organizationA: 0, organizationB: 0 };
   const instagramSettingsIds = { organizationA: 0, organizationB: 0 };
   const instagramMediaIds = { organizationA: 0, organizationB: 0 };
   const instagramWebhookEventIds = { organizationA: 0, organizationB: 0 };
@@ -545,22 +552,54 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     ['organizationB', organizationB],
   ] as const) {
     const instagramUserId = side === 'organizationA' ? '17841400000000001' : '17841400000000002';
+    const [connection] = await database
+      .insert(channel_connections)
+      .values({
+        public_id: generatePublicId('channelConnection'),
+        organization_id: organization.id,
+        client_business_id: side === 'organizationA' ? '5550000000001' : '5550000000002',
+        config_id: '1234567890',
+      })
+      .returning();
+    const [token] = await database
+      .insert(channel_connection_tokens)
+      .values({
+        organization_id: organization.id,
+        channel_connection_id: connection!.id,
+        encrypted_access_token: `v1:rls-matrix-placeholder-${side}`,
+      })
+      .returning();
+    const [usage] = await database
+      .insert(channel_connection_usages)
+      .values({
+        organization_id: organization.id,
+        channel_connection_id: connection!.id,
+        asset_id: instagramUserId,
+        usage_type: 'instagram',
+        usage_percent: 10,
+        read_at: new Date(),
+      })
+      .returning();
+    // The channel account (R5) the Instagram account extends, 1:1.
+    const [channelAccount] = await database
+      .insert(channel_accounts)
+      .values({
+        public_id: generatePublicId('channelAccount'),
+        organization_id: organization.id,
+        channel_connection_id: connection!.id,
+        provider_account_id: instagramUserId,
+        display_name: `@rls_${side.toLowerCase()}`,
+      })
+      .returning();
     const [account] = await database
       .insert(instagram_accounts)
       .values({
         public_id: generatePublicId('instagramAccount'),
         organization_id: organization.id,
+        channel_account_id: channelAccount!.id,
         instagram_user_id: instagramUserId,
         instagram_app_user_id: `9${instagramUserId}`,
         username: `rls_${side.toLowerCase()}`,
-      })
-      .returning();
-    const [token] = await database
-      .insert(instagram_account_tokens)
-      .values({
-        organization_id: organization.id,
-        instagram_account_id: account!.id,
-        encrypted_access_token: `v1:rls-matrix-placeholder-${side}`,
       })
       .returning();
     const [settings] = await database
@@ -591,19 +630,34 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
         payload: { field: 'comments', value: { id: `rls-matrix-${side}`, text: 'Price?' } },
       })
       .returning();
+    channelConnectionIds[side] = connection!.id;
+    channelConnectionTokenIds[side] = token!.id;
+    channelConnectionUsageIds[side] = usage!.id;
+    channelAccountIds[side] = channelAccount!.id;
     instagramAccountIds[side] = account!.id;
-    instagramTokenIds[side] = token!.id;
     instagramSettingsIds[side] = settings!.id;
     instagramMediaIds[side] = media!.id;
     instagramWebhookEventIds[side] = webhookEvent!.id;
   }
   rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'channel_accounts' }),
+    channelAccountIds,
+  );
+  rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_accounts' }),
     instagramAccountIds,
   );
   rowIdsByTable.set(
-    tableKey({ schemaName: 'app', tableName: 'instagram_account_tokens' }),
-    instagramTokenIds,
+    tableKey({ schemaName: 'app', tableName: 'channel_connections' }),
+    channelConnectionIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'channel_connection_tokens' }),
+    channelConnectionTokenIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'channel_connection_usages' }),
+    channelConnectionUsageIds,
   );
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_account_settings' }),

@@ -1,10 +1,10 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -13,13 +13,11 @@ import {
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-  INSTAGRAM_CONNECT_PATH,
   buildInstagramProfile,
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
   readStagedAuditRows,
@@ -92,27 +90,30 @@ describe('Instagram account settings route (change)', () => {
 
   afterEach(async () => {
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
   /** Connects a fresh account for `fixture`'s Owner and returns its public id and profile. */
-  async function connectAccount(
-    fixture: InstagramTeamFixture = team,
-  ): Promise<{ id: string; profile: TestInstagramProfile; settings: SettingsAnswer }> {
+  async function connectAccount(fixture: InstagramTeamFixture = team): Promise<{
+    id: string;
+    instagramAccountPublicId: string;
+    profile: TestInstagramProfile;
+    settings: SettingsAnswer;
+  }> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await injectAuthenticated(app, {
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
+    const { account } = await connectInstagramAccount({
+      app,
       token: fixture.ownerToken,
-      payload: { code: 'AQB-test-authorization-code#_' },
-      headers: { 'x-idempotency-key': `ig-settings-${generatePublicId('instagramAccount')}` },
+      profile,
     });
-    expect(response.statusCode).toBe(200);
-    const account = (
-      response.json() as { data: { instagram_account: { id: string; settings: SettingsAnswer } } }
-    ).data.instagram_account;
-    return { id: account.id, profile, settings: account.settings };
+    const rows = await readInstagramAccountRows(fixture.organization.id);
+    const row = rows.find((each) => each.instagram_user_id === profile.user_id);
+    return {
+      id: account.id,
+      instagramAccountPublicId: row?.public_id ?? '',
+      profile,
+      settings: account.instagram.settings as SettingsAnswer,
+    };
   }
 
   function patchSettings({
@@ -188,17 +189,19 @@ describe('Instagram account settings route (change)', () => {
       expect(Number(row?.updated_by_user_id)).toBe(team.owner.id);
 
       const read = await injectAuthenticated(app, {
-        url: INSTAGRAM_ACCOUNT_PATH,
+        url: await organizationChannelAccountPath(team.organization.id),
         token: team.editorToken,
       });
       expect(read.statusCode).toBe(200);
-      const account = (read.json() as { data: { id: string; settings: SettingsAnswer } }).data;
+      const account = (
+        read.json() as { data: { id: string; instagram: { settings: SettingsAnswer } } }
+      ).data;
       expect(account.id).toBe(accountId);
-      expect(account.settings).toEqual(data);
+      expect(account.instagram.settings).toEqual(data);
     });
 
     it('writes one INFO audit entry naming the account and the changed fields — never the values', async () => {
-      const { id: accountId, settings } = await connectAccount();
+      const { instagramAccountPublicId: accountId, settings } = await connectAccount();
 
       const response = await patchSettings({
         payload: {
@@ -379,7 +382,7 @@ describe('Instagram account settings route (change)', () => {
       mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
       const disconnected = await injectAuthenticated(app, {
         method: 'DELETE',
-        url: INSTAGRAM_ACCOUNT_PATH,
+        url: await organizationChannelAccountPath(team.organization.id),
         token: team.ownerToken,
       });
       expect(disconnected.statusCode).toBe(204);

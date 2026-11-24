@@ -1,3 +1,4 @@
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { and, eq } from 'drizzle-orm';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
@@ -25,8 +26,9 @@ export function nextInstagramUserId(): string {
 }
 
 /**
- * Inserts a connected Instagram account for an organization through the operator, as a connect
- * leaves it (the token and settings are not needed by the contact routes).
+ * Inserts a connected Instagram account for an organization through the operator, with its own
+ * channel connection and token (P111), as a pick leaves it (the settings are not needed by the
+ * contact routes).
  */
 export async function insertInstagramAccount({
   organizationId,
@@ -36,13 +38,19 @@ export async function insertInstagramAccount({
   connectionStatus?: 'connected' | 'revoked';
 }): Promise<{ id: number; public_id: string }> {
   const instagramUserId = nextInstagramUserId();
+  const channelAccount = await insertChannelAccount({
+    organizationId,
+    providerAccountId: instagramUserId,
+    connectionStatus,
+  });
   const [account] = await getOperatorDatabase()
     .insert(instagram_accounts)
     .values({
       public_id: generatePublicId('instagramAccount'),
       organization_id: organizationId,
+      channel_account_id: channelAccount.id,
       instagram_user_id: instagramUserId,
-      instagram_app_user_id: `9${instagramUserId}`,
+      instagram_app_user_id: instagramUserId,
       username: `acme.shop.${instagramUserId.slice(-6)}`,
       connection_status: connectionStatus,
       disconnected_at: connectionStatus === 'revoked' ? new Date() : null,

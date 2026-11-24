@@ -21,7 +21,7 @@ import {
   insertInstagramAccount,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
-import { InstagramAccountTokenRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.repository.js';
+import { ChannelConnectionTokenRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.repository.js';
 import { InstagramAccountSettingsRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramMediaRepository } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
@@ -295,9 +295,9 @@ describe('app tables: updated_at when the row was created after this transaction
     });
   });
 
-  describe('Instagram accounts, tokens, settings and posts', () => {
+  describe('Instagram accounts, connection tokens, settings and posts', () => {
     const accountRepository = new InstagramAccountRepository();
-    const tokenRepository = new InstagramAccountTokenRepository();
+    const tokenRepository = new ChannelConnectionTokenRepository();
     const settingsRepository = new InstagramAccountSettingsRepository();
     const mediaRepository = new InstagramMediaRepository();
 
@@ -307,6 +307,20 @@ describe('app tables: updated_at when the row was created after this transaction
       const inserted = await insertInstagramAccount({ organizationId: organization.id });
       return { organizationId: organization.id, instagramAccountId: inserted.id };
     };
+
+    async function readChannelConnectionId(instagramAccountId: number): Promise<number> {
+      const rows = await operatorQuery<Array<{ channel_connection_id: string }>>`
+        SELECT c.channel_connection_id FROM app.instagram_accounts AS a
+        INNER JOIN app.channel_accounts AS c ON c.id = a.channel_account_id
+        WHERE a.id = ${instagramAccountId}`;
+      return Number(rows[0]?.channel_connection_id);
+    }
+
+    async function readChannelAccountId(instagramAccountId: number): Promise<number> {
+      const rows = await operatorQuery<Array<{ channel_account_id: string }>>`
+        SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${instagramAccountId}`;
+      return Number(rows[0]?.channel_account_id);
+    }
 
     async function readInstagramUserId(instagramAccountId: number): Promise<string> {
       const rows = await operatorQuery<Array<{ instagram_user_id: string }>>`
@@ -319,7 +333,9 @@ describe('app tables: updated_at when the row was created after this transaction
         insert: insertNew,
         change: async (key) =>
           accountRepository.upsertConnected({
+            channelAccountId: await readChannelAccountId(key.instagramAccountId),
             organizationId: organization.id,
+            channelConnectionId: await readChannelConnectionId(key.instagramAccountId),
             instagramUserId: await readInstagramUserId(key.instagramAccountId),
             instagramAppUserId: '91784140000000001',
             username: 'acme.shop',
@@ -331,7 +347,6 @@ describe('app tables: updated_at when the row was created after this transaction
             followsCount: 1,
             mediaCount: 1,
             scopes: [],
-            tokenExpiresAt: new Date(Date.now() + 60 * DAY_MILLISECONDS),
             connectedByUserId: null,
           }),
       });
@@ -360,15 +375,11 @@ describe('app tables: updated_at when the row was created after this transaction
       expectNotBeforeCreation(erased);
     });
 
-    it('stamps the webhook subscription, the expiry copy and the daily profile refresh', async () => {
+    it('stamps the webhook subscription and the daily profile refresh', async () => {
       const written = await changeAfterInsert({
         insert: insertNew,
         change: async (key) => [
           await accountRepository.recordWebhookSubscribed(key),
-          await accountRepository.recordTokenExpiry({
-            ...key,
-            tokenExpiresAt: new Date(Date.now() + 60 * DAY_MILLISECONDS),
-          }),
           await accountRepository.recordProfileRefresh({
             ...key,
             instagramUserId: await readInstagramUserId(key.instagramAccountId),
@@ -385,50 +396,36 @@ describe('app tables: updated_at when the row was created after this transaction
           }),
         ],
       });
-      expect(written).toEqual([true, true, true]);
+      expect(written).toEqual([true, true]);
     });
 
-    /** The account's token row, written by another connection. */
+    /** The account's channel connection token row, written by another connection. */
     const insertToken = async (encryptedAccessToken: string) => {
+      const channelConnectionId = await readChannelConnectionId(account.id);
       await operatorQuery`
-        INSERT INTO app.instagram_account_tokens (organization_id, instagram_account_id, encrypted_access_token)
-        VALUES (${organization.id}, ${account.id}, ${encryptedAccessToken})`;
-      return { organizationId: organization.id, instagramAccountId: account.id };
+        UPDATE app.channel_connection_tokens SET encrypted_access_token = ${encryptedAccessToken}
+        WHERE channel_connection_id = ${channelConnectionId}`;
+      return { organizationId: organization.id, channelConnectionId };
     };
 
     it('replaces a token on reconnect', async () => {
-      await changeAfterInsert({
+      const { channelConnectionId } = await changeAfterInsert({
         insert: () => insertToken('ciphertext-one'),
-        change: (key) =>
-          tokenRepository.upsert({
+        change: async (key) => {
+          await tokenRepository.upsert({
             ...key,
             encryptedAccessToken: 'ciphertext-two',
-            expiresAt: new Date(Date.now() + 60 * DAY_MILLISECONDS),
-          }),
+            encryptedRefreshToken: null,
+            tokenType: 'system_user',
+            expiresAt: null,
+          });
+          return key;
+        },
       });
       const rows = await operatorQuery<Array<{ encrypted_access_token: string }>>`
-        SELECT encrypted_access_token FROM app.instagram_account_tokens WHERE instagram_account_id = ${account.id}`;
+        SELECT encrypted_access_token FROM app.channel_connection_tokens
+        WHERE channel_connection_id = ${channelConnectionId}`;
       expect(rows).toEqual([{ encrypted_access_token: 'ciphertext-two' }]);
-    });
-
-    it('renews a token and keeps a failed renewal’s error', async () => {
-      const written = await changeAfterInsert({
-        insert: () => insertToken('ciphertext-one'),
-        change: async (key) => [
-          await tokenRepository.recordRefreshError({
-            ...key,
-            encryptedAccessToken: 'ciphertext-one',
-            refreshError: 'throttled',
-          }),
-          await tokenRepository.replaceRenewedToken({
-            ...key,
-            previousEncryptedAccessToken: 'ciphertext-one',
-            encryptedAccessToken: 'ciphertext-two',
-            expiresAt: new Date(Date.now() + 60 * DAY_MILLISECONDS),
-          }),
-        ],
-      });
-      expect(written).toEqual([true, true]);
     });
 
     it('changes the settings', async () => {

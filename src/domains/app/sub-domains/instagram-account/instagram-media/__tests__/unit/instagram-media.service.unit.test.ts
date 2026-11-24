@@ -7,8 +7,8 @@ vi.mock('@/infrastructure/resilience/circuit-breaker.js', async (importOriginal)
     await importOriginal<typeof import('@/infrastructure/resilience/circuit-breaker.js')>();
   return {
     ...actual,
-    instagramCircuit: new actual.CircuitBreaker({
-      name: 'instagram',
+    metaGraphCircuit: new actual.CircuitBreaker({
+      name: 'meta',
       failureThreshold: 3,
       resetTimeoutMs: 60_000,
     }),
@@ -16,12 +16,12 @@ vi.mock('@/infrastructure/resilience/circuit-breaker.js', async (importOriginal)
 });
 
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { resetEnvCacheForTests } from '@/shared/config/env.config.js';
 import { encryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 import type { InstagramAccountRow } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
@@ -32,8 +32,8 @@ import { InstagramMediaService } from '@/domains/app/sub-domains/instagram-accou
 
 const ACCOUNT_TOKEN = 'IGAA-picker-plain-token';
 const APP_USER_ID = '8724000000000001';
-const MEDIA_PATH = `/${INSTAGRAM_GRAPH_API_VERSION}/${APP_USER_ID}/media`;
-const STORIES_PATH = `/${INSTAGRAM_GRAPH_API_VERSION}/${APP_USER_ID}/stories`;
+const MEDIA_PATH = `/${META_GRAPH_VERSION}/${APP_USER_ID}/media`;
+const STORIES_PATH = `/${META_GRAPH_VERSION}/${APP_USER_ID}/stories`;
 const scope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: 'org_aaaaaaaaaaaaaaaaaaaaa' });
 const instagramAccount = { organizationId: 41, instagramAccountId: 7 };
 
@@ -81,7 +81,7 @@ describe('InstagramMediaService pickers', () => {
   let service: InstagramMediaService;
 
   beforeEach(async () => {
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
     findLiveAccountAccess = vi.fn().mockResolvedValue(accountAccess());
     markConnectionBroken = vi.fn().mockResolvedValue(null);
     mediaRepository = { upsertForAccount: vi.fn() };
@@ -97,7 +97,7 @@ describe('InstagramMediaService pickers', () => {
   });
 
   function graph(): nock.Scope {
-    return nock(INSTAGRAM_GRAPH_BASE_URL).matchHeader('authorization', `Bearer ${ACCOUNT_TOKEN}`);
+    return nock(META_GRAPH_BASE_URL).matchHeader('authorization', `Bearer ${ACCOUNT_TOKEN}`);
   }
 
   async function captureError(run: () => Promise<unknown>): Promise<Record<string, unknown>> {
@@ -248,7 +248,7 @@ describe('InstagramMediaService pickers', () => {
 
     expect(error).toMatchObject({ statusCode: 503, reason: 'instagram_unavailable' });
     expect(error.retryAfterSeconds).toBeGreaterThan(0);
-    expect(error).not.toBeInstanceOf(InstagramApiError);
+    expect(error).not.toBeInstanceOf(MetaGraphApiError);
   });
 
   it('answers 503 instagram_unavailable when Instagram refuses the request itself', async () => {
@@ -273,15 +273,15 @@ describe('InstagramMediaService pickers', () => {
   });
 
   describe('with an app setting unset', () => {
-    const savedAppId = process.env.INSTAGRAM_APP_ID;
+    const savedAppId = process.env.META_APP_ID;
 
     beforeEach(() => {
-      delete process.env.INSTAGRAM_APP_ID;
+      delete process.env.META_APP_ID;
       resetEnvCacheForTests();
     });
 
     afterEach(() => {
-      process.env.INSTAGRAM_APP_ID = savedAppId;
+      process.env.META_APP_ID = savedAppId;
       resetEnvCacheForTests();
     });
 
@@ -310,7 +310,7 @@ describe('InstagramMediaService.upsertFromInstagram (mapping)', () => {
         instagramAccount,
         mediaItem: mediaItem as never,
       }),
-    ).rejects.toMatchObject({ name: 'InstagramApiError', errorClass: 'outage' });
+    ).rejects.toMatchObject({ name: 'MetaGraphApiError', errorClass: 'outage' });
     expect(upsertForAccount).not.toHaveBeenCalled();
   });
 });

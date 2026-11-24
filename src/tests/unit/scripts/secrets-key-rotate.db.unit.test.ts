@@ -1,14 +1,13 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { database } from '@/infrastructure/database/connection.js';
-import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
-import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
+import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
+import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { resetEnvCacheForTests } from '@/shared/config/env.config.js';
 import {
   DATABASE_APP_ROLE,
   DATABASE_MAINTENANCE_ROLE,
 } from '@/shared/constants/project-identity.constants.js';
-import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { ConfigurationError } from '@/shared/errors/index.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import {
@@ -26,14 +25,15 @@ import {
 
 const KEY_V1 = '11'.repeat(32);
 const KEY_V2 = '22'.repeat(32);
-const INSTAGRAM_TOKEN_COLUMN = 'app.instagram_account_tokens.encrypted_access_token';
+const INSTAGRAM_TOKEN_COLUMN = 'app.channel_connection_tokens.encrypted_access_token';
+const REFRESH_TOKEN_COLUMN = 'app.channel_connection_tokens.encrypted_refresh_token';
 const OLD_TOKEN = 'IGAA-rotation-test-token-on-v1';
 const CURRENT_TOKEN = 'IGAA-rotation-test-token-on-v2';
 
 /**
  * The secrets-key rotation (`pnpm ops:secrets:rotate`): every `encryptFieldSecret` column moves
- * onto the current `SECRETS_ENCRYPTION` key version — the Instagram access token included (launch
- * D37), so a stored token still decrypts once the old key leaves the keyring. This lane's role
+ * onto the current `SECRETS_ENCRYPTION` key version — the channel connection's tokens included
+ * (launch D37, feat-instagram-dm-sending MC9, MC18), so a stored token still decrypts once the old key leaves the keyring. This lane's role
  * bypasses RLS, as the script's connection must.
  */
 describe('rotateFieldSecrets', () => {
@@ -51,7 +51,7 @@ describe('rotateFieldSecrets', () => {
     else process.env[name] = original;
   }
 
-  /** A connected account with its token stored as `ciphertext`; returns the token row id. */
+  /** A channel connection with its token stored as `ciphertext`; returns the token row id. */
   async function storeInstagramToken({
     instagramUserId,
     ciphertext,
@@ -62,35 +62,31 @@ describe('rotateFieldSecrets', () => {
     const organization = await createTestOrganization({
       ownerUserId: (await createTestUser()).id,
     });
-    const expiresAt = new Date(Date.now() + 60 * MILLISECONDS_PER_DAY);
-    const [account] = await database
-      .insert(instagram_accounts)
+    const [connection] = await database
+      .insert(channel_connections)
       .values({
-        public_id: generatePublicId('instagramAccount'),
+        public_id: generatePublicId('channelConnection'),
         organization_id: organization.id,
-        instagram_user_id: instagramUserId,
-        instagram_app_user_id: `9${instagramUserId}`,
-        username: `rotation_${instagramUserId.slice(-4)}`,
-        token_expires_at: expiresAt,
+        client_business_id: instagramUserId,
+        config_id: '1234567890',
       })
-      .returning({ id: instagram_accounts.id });
+      .returning({ id: channel_connections.id });
     const [token] = await database
-      .insert(instagram_account_tokens)
+      .insert(channel_connection_tokens)
       .values({
         organization_id: organization.id,
-        instagram_account_id: account!.id,
+        channel_connection_id: connection!.id,
         encrypted_access_token: ciphertext,
-        expires_at: expiresAt,
       })
-      .returning({ id: instagram_account_tokens.id });
+      .returning({ id: channel_connection_tokens.id });
     return token!.id;
   }
 
   async function readCiphertext(tokenId: number): Promise<string | undefined> {
     const [row] = await database
-      .select({ stored: instagram_account_tokens.encrypted_access_token })
-      .from(instagram_account_tokens)
-      .where(eq(instagram_account_tokens.id, tokenId));
+      .select({ stored: channel_connection_tokens.encrypted_access_token })
+      .from(channel_connection_tokens)
+      .where(eq(channel_connection_tokens.id, tokenId));
     return row?.stored;
   }
 
@@ -105,11 +101,12 @@ describe('rotateFieldSecrets', () => {
     resetEnvCacheForTests();
   });
 
-  it('walks the Instagram access token with the other encrypted fields (D37)', () => {
+  it('walks the channel connection tokens with the other encrypted fields (D37)', () => {
     expect(FIELD_SECRET_ROTATION_COLUMNS.map(({ column }) => column)).toEqual([
       'auth.mfa_methods.encrypted_secret',
       'notify.webhooks.encrypted_secret',
       INSTAGRAM_TOKEN_COLUMN,
+      REFRESH_TOKEN_COLUMN,
     ]);
   });
 
@@ -137,6 +134,7 @@ describe('rotateFieldSecrets', () => {
         'auth.mfa_methods.encrypted_secret': 0,
         'notify.webhooks.encrypted_secret': 0,
         [INSTAGRAM_TOKEN_COLUMN]: 1,
+        [REFRESH_TOKEN_COLUMN]: 0,
       },
     });
     expect(await readCiphertext(oldTokenId)).toBe(oldCiphertext);

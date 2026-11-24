@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import type { MetaSignedRequestPayload } from '@/infrastructure/social/meta-signature.util.js';
+import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import { PUBLIC_ID_LENGTH } from '@/shared/utils/identity/public-id.util.js';
 
 /** The code's length: 21 characters, as a public id's tail (IA20). */

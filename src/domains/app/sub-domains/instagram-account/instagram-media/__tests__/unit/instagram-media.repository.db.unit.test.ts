@@ -1,3 +1,5 @@
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
@@ -53,8 +55,16 @@ async function connectAccount({
   organization: TestOrganization;
   instagramUserId: string;
 }): Promise<InstagramAccountKey> {
+  const channelConnection = await insertChannelConnection({ organizationId: organization.id });
+  const channelAccount = await insertChannelAccount({
+    organizationId: organization.id,
+    providerAccountId: instagramUserId,
+    channelConnectionId: channelConnection.id,
+  });
   const { account } = await inOrganization(organization, () =>
     new InstagramAccountRepository().upsertConnected({
+      channelAccountId: channelAccount.id,
+      channelConnectionId: channelConnection.id,
       organizationId: organization.id,
       instagramUserId,
       instagramAppUserId: `9${instagramUserId}`,
@@ -67,7 +77,7 @@ async function connectAccount({
       followsCount: 0,
       mediaCount: 0,
       scopes: [],
-      tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+
       connectedByUserId: null,
     }),
   );

@@ -23,6 +23,7 @@ src/infrastructure/
                               #   redis-lock.util.ts (withRedisLock compare-and-del lock), redis-url.parse.util.ts,
                               #   redis-scan.util.ts (SCAN under the client's key prefix — ioredis leaves it off patterns)
                               #   redis-close.util.ts (closeRedisClient: QUIT a ready client, disconnect one that is not, so no client holds the process open)
+                              #   redis-one-use-value.util.ts (one-use login state: SET … EX / GETDEL — OAuth sign-in, channel connection)
   queue/
     connection.ts             # Re-exports Redis for BullMQ + getBullMQConnectionOptions()
     health.ts                  # BullMQ readiness helper (notification queue client ping)
@@ -45,17 +46,12 @@ src/infrastructure/
       mail.worker.ts          # BullMQ processor for email delivery (+ mail-outbox-sweeper.worker.ts)
   payment/
     stripe.client.ts          # Stripe SDK client + helpers (customer, subscription, webhook)
-  social/
-    instagram.client.ts       # The one Instagram client (Graph API v24.0, `instagram` integration + instagramCircuit):
-                              #   code / token exchanges, renewal, /me, media, stories, subscribed_apps, messages, replies,
-                              #   profile + follow check; takes encrypted tokens, returns new ones encrypted
-    instagram-error.util.ts   # InstagramApiError — Instagram's error read once into auth / throttled / refused / outage
-    meta-signature.util.ts    # Constant-time Meta checks: X-Hub-Signature-256 (webhook) and signed_request (callbacks)
   storage/
     object-storage.port.ts    # ObjectStoragePort — the one storage contract (services inject it; workers use the default adapter)
     s3-adapter.ts             # Its S3 implementation, getDefaultS3ObjectStorageAdapter() (+ s3-error.util.ts: not-found +
                               #   circuit classifier, stored-object-purge.util.ts)
-  outbound/                   # Hardened outbound HTTP for third-party calls: outbound-fetch.ts (timeouts, redaction),
+  outbound/                   # Hardened outbound HTTP for third-party calls: outbound-fetch.ts (timeouts, redaction;
+                              # outboundFetchJsonWithHeaders for a client that keeps response headers — Meta's usage),
                               # outbound-call.ts, outbound-defaults.ts, outbound-error.ts, outbound-redaction.ts, index.ts
   resilience/                 # Circuit breaker + retry-with-backoff for outbound/third-party calls (circuit-breaker.ts, retry-with-backoff.util.ts, lua/)
   api-reference/              # Scalar API-reference wiring (scalar-api-reference.ts)

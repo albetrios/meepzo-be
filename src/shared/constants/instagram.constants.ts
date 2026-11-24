@@ -72,3 +72,48 @@ export const AUTOMATION_COMMENT_LOG_RETENTION_DAYS = 180;
  * Rationale: `src/POLICIES.md`.
  */
 export const AUTOMATION_TOMBSTONE_RETENTION_DAYS = 180;
+
+/**
+ * Minutes a channel connection's login state stays usable (routes-final § 1 MC3, MC4, P26): the
+ * one-use Redis value routes 1 and 40 mint and the callback (route 2) reads and deletes.
+ *
+ * @remarks
+ * Rationale: `src/POLICIES.md`.
+ */
+export const CONNECT_STATE_MINUTES = 10;
+
+/**
+ * How long one Instagram profile read may take during a pick before the pick goes on without it
+ * (routes-final § 1 MC3, MC7 — fails open, the username is enough).
+ *
+ * @remarks
+ * Rationale: `src/POLICIES.md`.
+ */
+export const PROFILE_READ_TIMEOUT_MILLISECONDS = 3000;
+
+/**
+ * Meta usage percentage from which every channel's calls on that connection slow down
+ * (routes-final § 1 MC19, P51, plan:L2353–L2360).
+ *
+ * @remarks
+ * Rationale: `src/POLICIES.md`.
+ */
+export const META_USAGE_SLOW_PERCENT = 80;
+
+/**
+ * Meta usage percentage from which every channel's calls on that connection wait until the time
+ * Meta gave, else {@link META_USAGE_DEFAULT_WAIT_MINUTES} (routes-final § 1 MC19, P51).
+ *
+ * @remarks
+ * Rationale: `src/POLICIES.md`.
+ */
+export const META_USAGE_WAIT_PERCENT = 95;
+
+/**
+ * Minutes a connection waits at {@link META_USAGE_WAIT_PERCENT} when Meta's answer names no
+ * `estimated_time_to_regain_access` (routes-final § 1 MC19).
+ *
+ * @remarks
+ * Rationale: `src/POLICIES.md`.
+ */
+export const META_USAGE_DEFAULT_WAIT_MINUTES = 15;

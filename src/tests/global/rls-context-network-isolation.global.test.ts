@@ -21,9 +21,13 @@ const DATABASE_CONTEXT_WRAPPERS = [
  * read from the client's own `export async function` declarations so a new call is covered at once.
  */
 const INSTAGRAM_CLIENT_CALL_NAMES = [
-  ...readFileSync(join(ROOT, 'src/infrastructure/social/instagram.client.ts'), 'utf-8').matchAll(
-    /^export async function (\w+)/gm,
-  ),
+  ...readFileSync(
+    join(
+      ROOT,
+      'src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts',
+    ),
+    'utf-8',
+  ).matchAll(/^export async function (\w+)/gm),
 ].map((match) => match[1]);
 
 /**
@@ -165,7 +169,7 @@ function findViolations(content: string, relativePath: string): string[] {
 describe('RLS database context network isolation (production-readiness finding #5)', () => {
   it('reads the Instagram client calls it guards', () => {
     expect(INSTAGRAM_CLIENT_CALL_NAMES).toEqual(
-      expect.arrayContaining(['exchangeInstagramAuthorizationCode', 'sendInstagramMessage']),
+      expect.arrayContaining(['listMetaAssignedInstagramAccounts', 'sendInstagramMessage']),
     );
   });
 

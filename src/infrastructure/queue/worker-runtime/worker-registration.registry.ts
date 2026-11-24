@@ -81,7 +81,7 @@ import { createInstagramAccountDailyCheckWorker } from '@/domains/app/sub-domain
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
-import { isInstagramConfigured } from '@/infrastructure/social/instagram.client.js';
+import { isInstagramConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { createAutomationNextPostExpiryWorker } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.worker.js';
 import { AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.constants.js';
 import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';

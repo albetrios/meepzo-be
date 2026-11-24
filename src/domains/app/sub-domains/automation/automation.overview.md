@@ -18,7 +18,10 @@ keyword (routes 27–35, `/api/v1/app/automations`). All-time counts live in 16 
 (sub-domain 5) links waiting "next post" automations to a new post through this service (no end
 date — P12); a worker removes for good the automations deleted long ago that nothing points at. The
 runs, their history, the per-comment logs and the run engine are the nested
-[`automation-run/`](automation-run/automation-run.overview.md) (§ 4.B — rebuilt at ROUTE row R14).
+[`automation-run/`](automation-run/automation-run.overview.md) (§ 4.B — rebuilt at ROUTE row R14). Its
+past-comments reads (routes 38–39, `app.automation_backfills`) are the nested
+[`automation-backfill/`](automation-backfill/automation-backfill.overview.md) (§ 4.C — ROUTE row R15;
+the read job at R41); the automation object shows the open one as `open_backfill`.
 
 ## Layout
 
@@ -44,8 +47,10 @@ runs, their history, the per-comment logs and the run engine are the nested
 - `workers/` — the deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC)
 - `automation-run/` — the nested run sub-domain: runs, run events, comment logs, the run engine and,
   until R14, its step view of the shared row (`automation-run-automation.repository.ts`)
+- `automation-backfill/` — the nested past-comments sub-domain: routes 38–39 and the open read the
+  automation object shows (`openBackfills` port)
 - `seed/` — bulk: one automation of each of the 15 ways per seeded account, drafts, a paused one,
-  counts; then the runs
+  counts; then the runs and the past-comments reads
 
 ## Key invariants
 

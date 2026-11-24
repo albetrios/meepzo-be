@@ -298,6 +298,7 @@
     "Instagram account": "la cuenta de Instagram",
     "Contact": "el contacto",
     "Automation": "Automatización",
+    "Past-comments read": "Lectura de comentarios anteriores",
     "Channel connection": "Conexión de canal",
     "Channel account": "Cuenta de canal",
     "Ad account": "Cuenta publicitaria",
@@ -328,6 +329,9 @@
   "automationContentInvalid": "No se puede guardar esta automatización: corrige los problemas indicados.",
   "automationRefCodeExists": "Este nombre de enlace ya lo usa \"{{name}}\". Elige otro.",
   "automationTransitionNotAllowed": "Un borrador no se puede pausar. Actívalo primero.",
+  "automationNotLive": "Solo una automatización activa puede responder comentarios anteriores. Actívala primero.",
+  "automationBackfillNotSupported": "Solo una automatización de comentarios o de comentarios de anuncios puede responder comentarios anteriores.",
+  "automationBackfillInProgress": "Ya se están leyendo los comentarios anteriores.",
   "automationProblems": {
     "missing": "Completa este campo.",
     "too_many": "Demasiados: quita algunos.",

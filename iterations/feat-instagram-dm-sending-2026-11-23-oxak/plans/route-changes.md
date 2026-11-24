@@ -298,8 +298,8 @@ PRO, comment and ad-comment automations only (not Live), plan D69.
 
 | # | Change | Method | Path | Access | Operation | Source | Built |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| RC-54 | NEW | POST | `/api/v1/app/automations/{automation_id}/backfills` | automation · update · team-only · X-Idempotency-Key required | `startAutomationBackfill` — "Also answer comments from the last N days" (1 to 7) on a live comment or ad-comment automation; refused while one runs for this automation ("Past comments are already being read"); one read at a time per account, the rest queue | plan:L2619, L2694–L2698, L5148–L5166; routes-final § 4, route 38 | — |
-| RC-55 | NEW | GET | `/api/v1/app/automations/{automation_id}/backfills/{automation_backfill_id}` | automation · read · team-only | `getAutomationBackfill` — one read: status (queued, reading, done, failed), found, matched, queued so far | plan:L2696, L3818–L3849; routes-final § 4, route 39 | — |
+| RC-54 | NEW | POST | `/api/v1/app/automations/{automation_id}/backfills` | automation · update · team-only · X-Idempotency-Key required | `startAutomationBackfill` — "Also answer comments from the last N days" (1 to 7) on a live comment or ad-comment automation; refused while one runs for this automation ("Past comments are already being read"); one read at a time per account, the rest queue | plan:L2619, L2694–L2698, L5148–L5166; routes-final § 4, route 38 | R15 — `POST /api/v1/app/automations/{automation_id}/backfills` ([AS-BUILT](../AS-BUILT.md)) |
+| RC-55 | NEW | GET | `/api/v1/app/automations/{automation_id}/backfills/{automation_backfill_id}` | automation · read · team-only | `getAutomationBackfill` — one read: status (queued, reading, done, failed), found, matched, queued so far | plan:L2696, L3818–L3849; routes-final § 4, route 39 | R15 — `GET /api/v1/app/automations/{automation_id}/backfills/{automation_backfill_id}` ([AS-BUILT](../AS-BUILT.md)) |
 
 ## Organization usage & notices
 

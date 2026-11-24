@@ -35,6 +35,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   automationRun: 'automation run',
   automationCommentLog: 'automation comment log',
   segment: 'segment',
+  automationBackfill: 'past-comments read',
   trialAccount: 'trial account',
 };
 

@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 185
+  Total routes: 187
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 46
+  Routes: 48
 ================================================================================
 
   — Sub Domains —
@@ -22,10 +22,12 @@ Legend:
   GET    /api/v1/app/automations/:automation_id                   200  -    team  PERM: automation:read
   PATCH  /api/v1/app/automations/:automation_id                   200  -    team  PERM: automation:update
   DELETE /api/v1/app/automations/:automation_id                   204  -    team  PERM: automation:delete
-  POST   /api/v1/app/automations/:automation_id/duplicate         200  req  ???   PERM: automation:create
-  POST   /api/v1/app/automations/:automation_id/go-live           200  -    ???   PERM: automation:update
-  POST   /api/v1/app/automations/:automation_id/keyword-test      200  -    ???   PERM: automation:read
-  POST   /api/v1/app/automations/:automation_id/pause             200  -    ???   PERM: automation:update
+  POST   /api/v1/app/automations/:automation_id/backfills         200  req  team  PERM: automation:update
+  GET    /api/v1/app/automations/:automation_id/backfills/:automation_backfill_id  200  -    team  PERM: automation:read
+  POST   /api/v1/app/automations/:automation_id/duplicate         200  req  team  PERM: automation:create
+  POST   /api/v1/app/automations/:automation_id/go-live           200  -    team  PERM: automation:update
+  POST   /api/v1/app/automations/:automation_id/keyword-test      200  -    team  PERM: automation:read
+  POST   /api/v1/app/automations/:automation_id/pause             200  -    team  PERM: automation:update
   GET    /api/v1/app/contact-tags                                 200  -    team  PERM: contact:read
   GET    /api/v1/app/contacts                                     200  -    team  PERM: contact:read
   GET    /api/v1/app/contacts/:contact_id                         200  -    team  PERM: contact:read
@@ -276,22 +278,23 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 185
+  Total routes    : 187
   Public          : 20
   Authenticated   : 54
   Role-guarded    : 9
-  Perm-guarded    : 97
+  Perm-guarded    : 99
   Token-guarded   : 5
-  Team-only (O)   : 50
+  Team-only (O)   : 56
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (27) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (28) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
   accepts an optional key (24h Redis cache).
 
     POST /api/v1/app/automations
+    POST /api/v1/app/automations/:automation_id/backfills
     POST /api/v1/app/automations/:automation_id/duplicate
     POST /api/v1/app/contacts/bulk-actions
     POST /api/v1/app/segments

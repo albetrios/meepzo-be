@@ -49,6 +49,30 @@ src/
     │   │   │   │   │   ├── automation.repository.db.unit.test.ts
     │   │   │   │   │   ├── automation.serializer.unit.test.ts
     │   │   │   │   │   └── automation.validator.unit.test.ts
+    │   │   │   ├── automation-backfill/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── automation-backfill.factory.ts
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── automation-backfill.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── automation-backfill.serializer.unit.test.ts
+    │   │   │   │   │   │   ├── automation-backfill.service.unit.test.ts
+    │   │   │   │   │   │   └── automation-backfill.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── automation-backfill.bulk.seed.ts
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── automation-backfill.constants.ts
+    │   │   │   │   ├── automation-backfill.controller.ts
+    │   │   │   │   ├── automation-backfill.dto.ts
+    │   │   │   │   ├── automation-backfill.overview.md
+    │   │   │   │   ├── automation-backfill.repository.ts
+    │   │   │   │   ├── automation-backfill.routes.ts
+    │   │   │   │   ├── automation-backfill.schema.ts
+    │   │   │   │   ├── automation-backfill.serializer.ts
+    │   │   │   │   ├── automation-backfill.service.ts
+    │   │   │   │   ├── automation-backfill.types.ts
+    │   │   │   │   └── automation-backfill.validator.ts
     │   │   │   ├── automation-run/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── factories/

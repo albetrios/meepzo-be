@@ -126,6 +126,7 @@ import {
   pauseAutomationDto,
   updateAutomationDto,
 } from '@/domains/app/sub-domains/automation/automation.dto.js';
+import { startAutomationBackfillDto } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.dto.js';
 
 /**
  * Route key format: "METHOD /openapi/path" (with {param} placeholders).
@@ -237,6 +238,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/app/automations/{automation_id}/pause': pauseAutomationDto,
   'POST /api/v1/app/automations/{automation_id}/duplicate': emptyAutomationActionDto,
   'POST /api/v1/app/automations/{automation_id}/keyword-test': keywordTestAutomationDto,
+  // The past-comments read's start (DM-sending routes-final § 4.C.8, route 38): its days.
+  'POST /api/v1/app/automations/{automation_id}/backfills': startAutomationBackfillDto,
   // App: contacts (DM-sending routes-final § 3.A.8, routes 20 and 21).
   'PATCH /api/v1/app/contacts/{contact_id}': updateContactBodyDto,
   'POST /api/v1/app/contacts/bulk-actions': contactBulkActionBodyDto,

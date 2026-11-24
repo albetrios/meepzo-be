@@ -129,6 +129,7 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 | `app.automation.pause` | `automation` | Automation paused (`INFO`, `metadata.automation_public_id`, `metadata.mode` — `keep` or `cancel` for its open runs) — none when it was already paused (R13, route 33) |
 | `app.automation.duplicate` | `automation` | Automation copied as a draft (`INFO`, `metadata.automation_public_id` — the copy, `metadata.source_automation_public_id`) (R13, route 34) |
 | `app.automation.delete` | `automation` | Automation deleted with why (`WARNING`, `metadata.automation_public_id`, `metadata.delete_reason`, `metadata.cancelled_run_count` — the open runs cancelled with it) |
+| `app.automation_backfill.start` | `automation_backfill` | A past-comments read started on a live comment automation (`INFO`, `metadata.automation_backfill_public_id`, `metadata.automation_public_id`, `metadata.days`) — after the start commits, best-effort (feat-instagram-dm-sending R15, route 38) |
 | `app.segment.create` | `segment` | A segment saved on one channel account (`INFO`, `metadata.segment_public_id`, `channel_account_public_id`) — after the create commits, best-effort (feat-instagram-dm-sending BC6) |
 | `app.segment.update` | `segment` | A segment's name or conditions changed (`INFO`, `metadata.segment_public_id`, `changed_fields` — names only); none when nothing changed |
 | `app.segment.delete` | `segment` | A segment deleted (soft, `WARNING`, `metadata.segment_public_id`) |

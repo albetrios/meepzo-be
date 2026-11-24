@@ -50,6 +50,7 @@ describe('app domain wiring', () => {
     registerAppContainer(application);
 
     expect(Object.keys(application.appDomain).sort()).toEqual([
+      'automationBackfillService',
       'automationCountService',
       'automationReplyStateService',
       'automationRunService',
@@ -125,6 +126,7 @@ describe('app domain wiring', () => {
       `DELETE ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
       `GET ${APP_PREFIX}/automations`,
       `GET ${APP_PREFIX}/automations/:automation_id`,
+      `GET ${APP_PREFIX}/automations/:automation_id/backfills/:automation_backfill_id`,
       `GET ${APP_PREFIX}/contact-tags`,
       `GET ${APP_PREFIX}/contacts`,
       `GET ${APP_PREFIX}/contacts/:contact_id`,
@@ -147,6 +149,7 @@ describe('app domain wiring', () => {
       `PATCH ${APP_PREFIX}/segments/:segment_id`,
       `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
       `POST ${APP_PREFIX}/automations`,
+      `POST ${APP_PREFIX}/automations/:automation_id/backfills`,
       `POST ${APP_PREFIX}/automations/:automation_id/duplicate`,
       `POST ${APP_PREFIX}/automations/:automation_id/go-live`,
       `POST ${APP_PREFIX}/automations/:automation_id/keyword-test`,
@@ -179,14 +182,14 @@ describe('app domain wiring', () => {
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
     // Without organizations the channel connection, channel account, Instagram account, settings, stored-posts,
-    // sending, contact, contact tag event, automation, automation-run, segment and webhook event seeders
-    // warn and write nothing.
+    // sending, contact, contact tag event, automation, automation-run, automation-backfill, segment and webhook
+    // event seeders warn and write nothing.
     const warn = vi.fn();
     const context = {
       registry: createSeedRegistry(),
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(12);
+    expect(warn).toHaveBeenCalledTimes(13);
   });
 });

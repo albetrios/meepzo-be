@@ -51,6 +51,11 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'app.automations': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.automation_counts': ['app.current_organization_public_id'],
   'app.automation_reply_states': ['app.current_organization_public_id'],
+  // Past-comments reads (4.C): the organization arm, plus the read's watch across organizations (R41).
+  'app.automation_backfills': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // Contacts: organization-scoped, plus the retention sweep arm in USING (routes-final § 2.3).
   'app.contacts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.contact_activities': ['app.current_organization_public_id'],

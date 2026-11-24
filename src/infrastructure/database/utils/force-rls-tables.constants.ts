@@ -18,6 +18,7 @@ export type ForceRlsTableRef = {
  * - Keep alphabetical within each schema for reviewability.
  */
 export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
+  { schemaName: 'app', tableName: 'automation_backfills' },
   { schemaName: 'app', tableName: 'automation_comment_logs' },
   { schemaName: 'app', tableName: 'automation_counts' },
   { schemaName: 'app', tableName: 'automation_reply_states' },

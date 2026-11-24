@@ -36,6 +36,13 @@
   "POST /api/v1/app/automations/:automation_id/keyword-test": {
     "model": "organization"
   },
+  "POST /api/v1/app/automations/:automation_id/backfills": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "GET /api/v1/app/automations/:automation_id/backfills/:automation_backfill_id": {
+    "model": "organization"
+  },
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": {
     "model": "organization"
   },

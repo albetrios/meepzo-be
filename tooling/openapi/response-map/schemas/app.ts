@@ -766,6 +766,45 @@ const automationCountsSchema = {
   },
 };
 
+// ── Automation backfill (feat-instagram-dm-sending § 4.C — routes 38–39) ──
+
+export const automationBackfillSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', example: 'abf_q7w2e9r4t1y6u3i8a1b2c' },
+    automation_id: { type: 'string', example: 'aut_m4q8x2k7p9r3t1v5a1b2c' },
+    days: { type: 'integer', minimum: 1, maximum: 7 },
+    status: { type: 'string', enum: ['queued', 'reading', 'done', 'failed'] },
+    posts_read: { type: 'integer', minimum: 0 },
+    found: { type: 'integer', minimum: 0 },
+    matched: { type: 'integer', minimum: 0 },
+    queued_count: { type: 'integer', minimum: 0 },
+    fail_reason: { type: 'string', enum: ['meta_error', 'plan_feature_off'], nullable: true },
+    requested_by_user_id: { type: 'string', nullable: true },
+    created_at: { type: 'string', format: 'date-time' },
+    started_at: { type: 'string', format: 'date-time', nullable: true },
+    done_at: { type: 'string', format: 'date-time', nullable: true },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const automationBackfillExample = {
+  id: 'abf_q7w2e9r4t1y6u3i8a1b2c',
+  automation_id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
+  days: 3,
+  status: 'queued',
+  posts_read: 0,
+  found: 0,
+  matched: 0,
+  queued_count: 0,
+  fail_reason: null,
+  requested_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
+  created_at: '2026-11-21T09:00:00.000Z',
+  started_at: null,
+  done_at: null,
+  updated_at: '2026-11-21T09:00:00.000Z',
+};
+
 export const automationSchema = {
   type: 'object',
   properties: {
@@ -809,7 +848,7 @@ export const automationSchema = {
     cancelled_before_at: { type: 'string', format: 'date-time', nullable: true },
     counts: automationCountsSchema,
     pro_parts_off: { type: 'array', items: { type: 'string' } },
-    open_backfill: { type: 'object', nullable: true },
+    open_backfill: { ...automationBackfillSchema, nullable: true },
     last_triggered_at: { type: 'string', format: 'date-time', nullable: true },
     created_by_user_id: { type: 'string', nullable: true },
     updated_by_user_id: { type: 'string', nullable: true },

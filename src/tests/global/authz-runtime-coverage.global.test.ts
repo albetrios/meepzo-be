@@ -95,6 +95,13 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-mutation: automation duplicate',
   'POST /api/v1/app/automations/:automation_id/keyword-test':
     'cross-organization-resource: automation keyword test',
+  // feat-instagram-dm-sending R15: automation-backfill.integration.test.ts starts a read on another
+  // organization's automation → 404 automation_not_found with no row written, and reads another
+  // organization's read → 404.
+  'POST /api/v1/app/automations/:automation_id/backfills':
+    'cross-organization-mutation: automation backfill start',
+  'GET /api/v1/app/automations/:automation_id/backfills/:automation_backfill_id':
+    'cross-organization-resource: automation backfill',
   // feat-instagram-dm-sending R3: channel-connection.integration.test.ts reads, reconnects, picks
   // and disconnects another organization's connection → 404 channel_connection_not_found with the
   // row and token unchanged; a login state another organization started is refused (400) and

@@ -50,6 +50,8 @@ export function buildTagDefinitions(
       "What answers comments, DMs and story replies on the organization's Instagram accounts — list, create, read, edit and delete",
     Segments:
       'Saved audiences of one channel account that broadcasts reuse — list, save, read, change and delete them, and count an audience',
+    'Automation backfill':
+      "An automation's past-comments reads — answer the comments of the last 1 to 7 days, and follow a read",
   };
   const tagDescriptions = tagStrings ?? builtInTagDescriptions;
 
@@ -92,6 +94,7 @@ export function buildTagDefinitions(
     'Contact',
     'Automation',
     'Segments',
+    'Automation backfill',
     'Instagram Webhook',
   ];
 

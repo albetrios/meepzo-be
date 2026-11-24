@@ -13,13 +13,13 @@ import {
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
 
 /**
- * The statements the settings repository builds (routes-final § 1.B.3), read off a recording Drizzle
- * handle — no Postgres: every one names both keys, the connect insert leaves the values to the
+ * The statements the settings repository builds (feat-instagram-dm-sending routes-final § 2.B.3), read off a recording Drizzle
+ * handle — no Postgres: every one names both keys, the pick's insert leaves the values to the
  * column defaults, the locked read locks, and the change sets only what it was given. What they do
  * to a row is in `instagram-account-settings.repository.db.unit.test.ts`.
  */
 
-const key = { organizationId: 7, instagramAccountId: 3 };
+const key = { organizationId: 7, channelAccountId: 3 };
 
 /** One statement as it reached the driver. */
 interface RecordedStatement {
@@ -43,13 +43,19 @@ function recordingDatabase() {
       const row: Record<string, unknown> = {
         id: 91,
         organization_id: key.organizationId,
-        instagram_account_id: key.instagramAccountId,
-        is_automation_enabled: true,
-        is_public_reply_safety_enabled: false,
-        public_reply_chance_percent: 80,
-        public_reply_hour_limit: 60,
-        public_reply_gap_min_seconds: 20,
-        public_reply_gap_max_seconds: 60,
+        channel_account_id: key.channelAccountId,
+        opening_hour_limit: null,
+        opening_day_limit: null,
+        fast_hour_limit: null,
+        person_hour_limit: null,
+        broadcast_hour_limit: null,
+        is_automatic_notice_enabled: false,
+        extra_stop_words: '{}',
+        is_comment_reply_trigger_enabled: true,
+        is_once_per_person_per_post_enabled: true,
+        is_mark_seen_after_reply_enabled: false,
+        extra_delay_seconds_min: null,
+        extra_delay_seconds_max: null,
         updated_by_user_id: null,
         created_at: '2026-11-21 08:00:00+00',
         updated_at: '2026-11-21 08:30:00+00',
@@ -78,45 +84,45 @@ describe('InstagramAccountSettingsRepository', () => {
 
   const keyCondition = (first: number): string =>
     `("app"."instagram_account_settings"."organization_id" = $${first} and ` +
-    `"app"."instagram_account_settings"."instagram_account_id" = $${first + 1})`;
+    `"app"."instagram_account_settings"."channel_account_id" = $${first + 1})`;
 
-  describe('findByInstagramAccount', () => {
+  describe('findByChannelAccount', () => {
     it('reads one row by the organization and the account, without a lock', async () => {
       recording.answerRow();
 
-      const row = await repository.findByInstagramAccount(key);
+      const row = await repository.findByChannelAccount(key);
 
       expect(row).toMatchObject({
         id: 91,
-        is_automation_enabled: true,
-        public_reply_chance_percent: 80,
+        is_comment_reply_trigger_enabled: true,
+        opening_hour_limit: null,
         updated_at: new Date('2026-11-21T08:30:00.000Z'),
       });
       const { text, parameters } = onlyStatement();
       expect(text).toContain(`where ${keyCondition(1)} limit $3`);
       expect(text).not.toContain('for update');
-      expect(parameters).toEqual([key.organizationId, key.instagramAccountId, 1]);
+      expect(parameters).toEqual([key.organizationId, key.channelAccountId, 1]);
     });
 
     it('answers null when the account has no row', async () => {
-      await expect(repository.findByInstagramAccount(key)).resolves.toBeNull();
+      await expect(repository.findByChannelAccount(key)).resolves.toBeNull();
     });
   });
 
-  describe('findByInstagramAccountForUpdate', () => {
+  describe('findByChannelAccountForUpdate', () => {
     it('reads the same row and locks it', async () => {
-      recording.answerRow({ public_reply_gap_min_seconds: 5 });
+      recording.answerRow({ extra_delay_seconds_min: 5, extra_delay_seconds_max: 5 });
 
-      const row = await repository.findByInstagramAccountForUpdate(key);
+      const row = await repository.findByChannelAccountForUpdate(key);
 
-      expect(row?.public_reply_gap_min_seconds).toBe(5);
+      expect(row?.extra_delay_seconds_min).toBe(5);
       const { text, parameters } = onlyStatement();
       expect(text).toContain(`where ${keyCondition(1)} limit $3 for update`);
-      expect(parameters).toEqual([key.organizationId, key.instagramAccountId, 1]);
+      expect(parameters).toEqual([key.organizationId, key.channelAccountId, 1]);
     });
 
     it('answers null when the account has no row', async () => {
-      await expect(repository.findByInstagramAccountForUpdate(key)).resolves.toBeNull();
+      await expect(repository.findByChannelAccountForUpdate(key)).resolves.toBeNull();
     });
   });
 
@@ -129,9 +135,9 @@ describe('InstagramAccountSettingsRepository', () => {
       expect(row?.id).toBe(91);
       const { text, parameters } = onlyStatement();
       expect(text).toMatch(/^insert into "app"\."instagram_account_settings"/);
-      expect(parameters).toEqual([key.organizationId, key.instagramAccountId]);
+      expect(parameters).toEqual([key.organizationId, key.channelAccountId]);
       expect(text).toContain(
-        'on conflict ("organization_id","instagram_account_id") do nothing returning',
+        'on conflict ("organization_id","channel_account_id") do nothing returning',
       );
     });
 
@@ -142,52 +148,52 @@ describe('InstagramAccountSettingsRepository', () => {
 
   describe('update', () => {
     it('sets only the settings sent, the editor and the database clock, on this account only', async () => {
-      recording.answerRow({ is_automation_enabled: false, updated_by_user_id: 12 });
+      recording.answerRow({ is_automatic_notice_enabled: true, updated_by_user_id: 12 });
 
       const row = await repository.update({
         ...key,
-        changes: { is_automation_enabled: false, public_reply_gap_max_seconds: 90 },
+        changes: { opening_hour_limit: 90, is_automatic_notice_enabled: true },
         updatedByUserId: 12,
       });
 
-      expect(row).toMatchObject({ is_automation_enabled: false, updated_by_user_id: 12 });
+      expect(row).toMatchObject({ is_automatic_notice_enabled: true, updated_by_user_id: 12 });
       const { text, parameters } = onlyStatement();
       expect(text).toMatch(
-        /^update "app"\."instagram_account_settings" set "is_automation_enabled" = \$1, "public_reply_gap_max_seconds" = \$2, "updated_by_user_id" = \$3, "updated_at" = greatest\("app"\."instagram_account_settings"\."created_at", now\(\)\) where /,
+        /^update "app"\."instagram_account_settings" set "opening_hour_limit" = \$1, "is_automatic_notice_enabled" = \$2, "updated_by_user_id" = \$3, "updated_at" = greatest\("app"\."instagram_account_settings"\."created_at", now\(\)\) where /,
       );
       expect(text).toContain(`where ${keyCondition(4)} returning`);
-      expect(parameters).toEqual([false, 90, 12, key.organizationId, key.instagramAccountId]);
+      expect(parameters).toEqual([90, true, 12, key.organizationId, key.channelAccountId]);
     });
 
     it('leaves out a setting the body did not send', async () => {
       await repository.update({
         ...key,
-        changes: { public_reply_hour_limit: 10, is_public_reply_safety_enabled: undefined },
+        changes: { fast_hour_limit: 10, is_mark_seen_after_reply_enabled: undefined },
         updatedByUserId: 12,
       });
 
       const setClause = onlyStatement().text.split(' where ')[0];
-      expect(setClause).toContain('"public_reply_hour_limit" = $1');
-      expect(setClause).not.toContain('is_public_reply_safety_enabled');
+      expect(setClause).toContain('"fast_hour_limit" = $1');
+      expect(setClause).not.toContain('is_mark_seen_after_reply_enabled');
     });
 
     it('clears the editor for an API key', async () => {
       await repository.update({
         ...key,
-        changes: { public_reply_chance_percent: 0 },
+        changes: { person_hour_limit: null },
         updatedByUserId: null,
       });
 
       const { text, parameters } = onlyStatement();
       expect(text).toContain('"updated_by_user_id" = $2');
-      expect(parameters.slice(0, 2)).toEqual([0, null]);
+      expect(parameters.slice(0, 2)).toEqual([null, null]);
     });
 
     it('answers null when the account has no row', async () => {
       await expect(
         repository.update({
           ...key,
-          changes: { is_automation_enabled: true },
+          changes: { is_automatic_notice_enabled: true },
           updatedByUserId: null,
         }),
       ).resolves.toBeNull();
@@ -210,9 +216,7 @@ describe('createWorkerInstagramAccountSettingsRepository', () => {
     await runWithWorkerDatabaseContext({
       context: { kind: 'organization', organizationPublicId: 'org_a1b2c3d4e5f6g7h8i9j0k' },
       callback: () =>
-        createWorkerInstagramAccountSettingsRepository(recording.handle).findByInstagramAccount(
-          key,
-        ),
+        createWorkerInstagramAccountSettingsRepository(recording.handle).findByChannelAccount(key),
     });
 
     expect(recording.statements).toHaveLength(1);

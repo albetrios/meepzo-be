@@ -15,7 +15,7 @@ import {
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_ACCOUNT_SETTINGS_PATH,
+  instagramAccountSettingsPath,
   buildInstagramProfile,
   createInstagramTeam,
   endPaidPlanWithoutPaying,
@@ -101,7 +101,7 @@ describe('Instagram account (read-only plan, guarded break)', () => {
 
       const changed = await injectAuthenticated(app, {
         method: 'PATCH',
-        url: INSTAGRAM_ACCOUNT_SETTINGS_PATH,
+        url: instagramAccountSettingsPath(String(account.id)),
         token: team.ownerToken,
         payload: { is_automation_enabled: false },
       });

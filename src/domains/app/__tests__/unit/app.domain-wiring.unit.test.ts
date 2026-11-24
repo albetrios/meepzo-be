@@ -118,7 +118,7 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/social/instagram/webhook`,
       `GET ${APP_PREFIX}/social/instagram/webhook-events`,
       `PATCH ${APP_PREFIX}/automations/:automation_id`,
-      `PATCH ${APP_PREFIX}/social/instagram/account/settings`,
+      `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
       `POST ${APP_PREFIX}/automations`,
       `POST ${APP_PREFIX}/social/channel-accounts/:channel_account_id/activate`,
       `POST ${APP_PREFIX}/social/channel-accounts/:channel_account_id/pause`,

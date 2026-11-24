@@ -199,11 +199,10 @@ export class InstagramAccountService {
    * @remarks
    * Algorithm: one unit of work in the caller's organization scope (the receiver's verified scope —
    * it joins the receiver's open unit): the organization, its live account (it must carry this
-   * webhook user id), the account's settings. Failure modes: none of its own — the organization
-   * gone, no live account, or a live account with another Instagram id (disconnected and another
-   * connected since the resolver ran) are all `null`. Side effects: none — reads only; never the
-   * token, never Instagram. Notes: an account without its settings row reads the column default
-   * (automation on) — connect always creates the row (IA12).
+   * webhook user id) with its channel account's automation switch (P42). Failure modes: none of
+   * its own — the organization gone, no live account, or a live account with another Instagram id
+   * (disconnected and another connected since the resolver ran) are all `null`. Side effects: none
+   * — reads only; never the token, never Instagram.
    */
   async findWebhookAccountState({
     scope,
@@ -225,14 +224,13 @@ export class InstagramAccountService {
           organizationId: organization.id,
           instagramAccountId: account.id,
         };
-        const settings = await this.settingsService.findSettings({ scope, instagramAccount });
         return {
           instagramAccount,
           channelAccountId: account.channel_account_id,
           instagramAccountPublicId: account.public_id,
           instagramUserId: account.instagram_user_id,
           connectionStatus: account.connection_status as InstagramAccountVisibleConnectionStatus,
-          isAutomationEnabled: settings?.is_automation_enabled ?? true,
+          isAutomationEnabled: account.is_automation_enabled,
         };
       },
     });
@@ -274,7 +272,13 @@ export class InstagramAccountService {
           instagramAccountId: account.id,
         };
         const token = await this.findAccountToken({ scope, account });
-        const settings = await this.settingsService.findSettings({ scope, instagramAccount });
+        const settings = await this.settingsService.findSettings({
+          scope,
+          channelAccount: {
+            organizationId: organization.id,
+            channelAccountId: account.channel_account_id,
+          },
+        });
         return {
           instagramAccount,
           instagramAccountPublicId: account.public_id,
@@ -297,12 +301,12 @@ export class InstagramAccountService {
    * @remarks
    * Algorithm: one unit of work in the caller's organization scope (the processing job's): the
    * organization, the account by its public id within that organization (revoked included — its
-   * waiting events must still be marked), its settings row, and the token only for a `connected`
+   * waiting events must still be marked) with its channel account's automation switch (P42), and
+   * the token only for a `connected`
    * account (through {@link ChannelConnectionTokenService}). Read once when the job starts (the key
    * its claims use) and again before each event (the switch and the status can change while an
    * event waits, WH12). Failure modes: none of its own. Side effects: none — reads only, never
-   * Instagram. Notes: an account without its settings row reads the column default (automation
-   * on); the token stays ciphertext (IA5).
+   * Instagram. Notes: the token stays ciphertext (IA5).
    */
   async findWebhookProcessingAccount({
     scope,
@@ -328,7 +332,6 @@ export class InstagramAccountService {
           organizationId: organization.id,
           instagramAccountId: account.id,
         };
-        const settings = await this.settingsService.findSettings({ scope, instagramAccount });
         const token =
           account.connection_status === 'connected'
             ? await this.findAccountToken({ scope, account })
@@ -338,7 +341,7 @@ export class InstagramAccountService {
           channelAccountId: account.channel_account_id,
           instagramAccountPublicId: account.public_id,
           connectionStatus: account.connection_status as InstagramAccountConnectionStatus,
-          isAutomationEnabled: settings?.is_automation_enabled ?? true,
+          isAutomationEnabled: account.is_automation_enabled,
           encryptedAccessToken: token?.encryptedAccessToken ?? null,
         };
       },

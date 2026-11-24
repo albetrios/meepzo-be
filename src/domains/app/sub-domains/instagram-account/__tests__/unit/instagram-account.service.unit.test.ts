@@ -15,6 +15,7 @@ import type {
 import { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { ChannelConnectionTokenService } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.service.js';
 import type { InstagramAccountSettingsRow } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
+import { buildInstagramAccountSettingsRow } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/__tests__/factories/instagram-account-settings.factory.js';
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 
 const { unitOfWork, instagramClient, enqueueReconnectNotice, runEnqueueAfterCommit, loggerWarn } =
@@ -121,6 +122,7 @@ function accountRow(overrides: Partial<InstagramAccountRow> = {}): InstagramAcco
     webhook_subscribed_at: null,
     starter_questions_set_at: null,
     connected_at: NOW,
+    is_automation_enabled: true,
     profile_synced_at: NOW,
     profile_erased_at: null,
     created_at: NOW,
@@ -132,21 +134,14 @@ function accountRow(overrides: Partial<InstagramAccountRow> = {}): InstagramAcco
 function settingsRow(
   overrides: Partial<InstagramAccountSettingsRow> = {},
 ): InstagramAccountSettingsRow {
-  return {
-    id: 91,
+  return buildInstagramAccountSettingsRow({
     organization_id: TEAM.id,
-    instagram_account_id: instagramAccount.instagramAccountId,
-    is_automation_enabled: true,
-    is_public_reply_safety_enabled: false,
-    public_reply_chance_percent: 80,
-    public_reply_hour_limit: 60,
-    public_reply_gap_min_seconds: 20,
-    public_reply_gap_max_seconds: 60,
+    channel_account_id: 5,
     updated_by_user_id: SETTINGS_EDITOR_ID,
     created_at: NOW,
     updated_at: NOW,
     ...overrides,
-  };
+  });
 }
 
 /** An Instagram error of one class, as the client throws it. */
@@ -368,8 +363,7 @@ describe('InstagramAccountService lookups', () => {
   describe('findWebhookAccountState (WH3, WH10)', () => {
     it('answers the account’s ids, status and switch — never the token', async () => {
       const { service, tokenService } = setup({
-        liveAccount: accountRow({ connection_status: 'error' }),
-        settings: settingsRow({ is_automation_enabled: false }),
+        liveAccount: accountRow({ connection_status: 'error', is_automation_enabled: false }),
       });
 
       await expect(
@@ -385,12 +379,13 @@ describe('InstagramAccountService lookups', () => {
       expect(tokenService.findAccessToken).not.toHaveBeenCalled();
     });
 
-    it('reads the switch as on without a settings row', async () => {
-      const { service } = setup({ settings: null });
+    it('reads the switch from the channel account, never the settings (P42, R7)', async () => {
+      const { service, settingsService } = setup({ settings: null });
 
       await expect(
         service.findWebhookAccountState({ scope, instagramUserId: INSTAGRAM_USER_ID }),
       ).resolves.toMatchObject({ isAutomationEnabled: true });
+      expect(settingsService.findSettings).not.toHaveBeenCalled();
     });
 
     it.each([

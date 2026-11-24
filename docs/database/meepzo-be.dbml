@@ -342,16 +342,22 @@ Note app.contacts {
 }
 
 Table app.instagram_account_settings {
+  broadcast_hour_limit smallint
+  channel_account_id bigint [not null]
   created_at timestamptz [not null]
+  extra_delay_seconds_max smallint
+  extra_delay_seconds_min smallint
+  extra_stop_words text [not null]
+  fast_hour_limit int
   id bigint [pk, increment]
-  instagram_account_id bigint [not null]
-  is_automation_enabled boolean [not null]
-  is_public_reply_safety_enabled boolean [not null]
+  is_automatic_notice_enabled boolean [not null]
+  is_comment_reply_trigger_enabled boolean [not null]
+  is_mark_seen_after_reply_enabled boolean [not null]
+  is_once_per_person_per_post_enabled boolean [not null]
+  opening_day_limit int
+  opening_hour_limit smallint
   organization_id bigint [not null]
-  public_reply_chance_percent smallint [not null]
-  public_reply_gap_max_seconds smallint [not null]
-  public_reply_gap_min_seconds smallint [not null]
-  public_reply_hour_limit smallint [not null]
+  person_hour_limit smallint
   updated_at timestamptz [not null]
   updated_by_user_id bigint
 }

@@ -25,6 +25,7 @@ import { serializeInstagramAccountExtension } from '@/domains/app/sub-domains/in
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { serializeInstagramAccountSettings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.serializer.js';
+import type { InstagramAccountSettingsChannelAccountPort } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import { CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import { planAccountLimitError } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
 import {
@@ -169,7 +170,9 @@ function checkFeature({
  *   (R18, R24); until then the app container passes none.
  * - The audit entries are the controller's, after commit (D36).
  */
-export class ChannelAccountService implements ChannelConnectionAccountPort {
+export class ChannelAccountService
+  implements ChannelConnectionAccountPort, InstagramAccountSettingsChannelAccountPort
+{
   constructor(
     private readonly accountRepository: ChannelAccountRepository,
     private readonly instagramExtensionService: InstagramAccountExtensionService,
@@ -613,6 +616,64 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
     return problems;
   }
 
+  // Route 12's channel account port (routes-final § 2.B, IA12 — ROUTE row R7).
+
+  /**
+   * The organization's not-revoked Instagram account by its public id, in the caller's unit — route
+   * 12's account (2.5).
+   *
+   * @remarks
+   * Algorithm: one read. Failure modes: `404 channel_account_not_found` when it is another
+   * organization's, revoked, missing or not `instagram`. Side effects: none.
+   */
+  async requireLiveInstagramAccount({
+    scope,
+    organizationId,
+    channelAccountPublicId,
+  }: ChannelConnectionAccountScope & {
+    channelAccountPublicId: string;
+  }): Promise<ChannelAccountRow> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const account = await this.requireLiveAccount({ organizationId, channelAccountPublicId });
+        if (account.channel !== 'instagram') throw channelAccountNotFoundError();
+        return account;
+      },
+    });
+  }
+
+  /**
+   * Sets the account's automation switch (P42) in the caller's unit — route 12 writes it with the
+   * Instagram settings in one commit (IA12; no channel-account `PATCH` this iteration).
+   *
+   * @remarks
+   * Algorithm: one guarded update (a repeat writes nothing), then the row. Failure modes: `404
+   * channel_account_not_found` when it is revoked. Side effects: one row update.
+   */
+  async setAutomationEnabled({
+    scope,
+    organizationId,
+    channelAccountId,
+    isAutomationEnabled,
+  }: ChannelConnectionAccountScope & {
+    channelAccountId: number;
+    isAutomationEnabled: boolean;
+  }): Promise<ChannelAccountRow> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const account = await this.accountRepository.setAutomationEnabled({
+          organizationId,
+          channelAccountId,
+          isAutomationEnabled,
+        });
+        if (account === null) throw channelAccountNotFoundError();
+        return account;
+      },
+    });
+  }
+
   // The channel connection's account port (routes-final § 1 MC5–MC8).
 
   /**
@@ -818,7 +879,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
         });
         await this.instagramSettingsService.createDefaultSettings({
           scope,
-          instagramAccount: instagramKeyOf(instagram),
+          channelAccount: { organizationId, channelAccountId: account.id },
         });
         return toConnectionAccount({ account, instagram });
       },
@@ -1024,7 +1085,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
         ? null
         : await this.instagramSettingsService.findSettings({
             scope,
-            instagramAccount: instagramKeyOf(instagram),
+            channelAccount: { organizationId, channelAccountId: account.id },
           });
     const userPublicIds = await this.organizationService.resolveUserPublicIdsByInternalIds(
       [account.connected_by_user_id, settings?.updated_by_user_id ?? null].filter(
@@ -1055,7 +1116,9 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
               instagram,
               settings: serializeInstagramAccountSettings({
                 settings,
+                channel_account: account,
                 updated_by_user_public_id: publicIdOf(settings.updated_by_user_id),
+                now: new Date(Date.now()),
               }),
             }),
       now: new Date(Date.now()),

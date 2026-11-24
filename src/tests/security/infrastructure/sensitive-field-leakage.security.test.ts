@@ -197,18 +197,15 @@ describe('Security: sensitive-field leakage sweep', () => {
         display_name: '@leak_probe',
       })
       .returning({ id: channel_accounts.id, public_id: channel_accounts.public_id });
-    const [account] = await database
-      .insert(instagram_accounts)
-      .values({
-        organization_id: organization.id,
-        channel_account_id: channelAccount!.id,
-        instagram_user_id: '17841400000000099',
-        username: 'leak_probe',
-      })
-      .returning({ id: instagram_accounts.id });
+    await database.insert(instagram_accounts).values({
+      organization_id: organization.id,
+      channel_account_id: channelAccount!.id,
+      instagram_user_id: '17841400000000099',
+      username: 'leak_probe',
+    });
     await database.insert(instagram_account_settings).values({
       organization_id: organization.id,
-      instagram_account_id: account!.id,
+      channel_account_id: channelAccount!.id,
     });
 
     const token = await generateTestToken({

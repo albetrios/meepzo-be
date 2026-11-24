@@ -43,6 +43,10 @@
     "model": "organization",
     "verifyNoMutation": true
   },
+  "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
   "POST /api/v1/app/social/channel-accounts/:channel_account_id/pause": {
     "model": "organization",
     "verifyNoMutation": true

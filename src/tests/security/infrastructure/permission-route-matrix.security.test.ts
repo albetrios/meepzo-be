@@ -161,7 +161,7 @@ function payloadForPermissionRoute(
   if (route.path.includes('/roles/:role_id')) {
     return { name: 'Matrix role updated' };
   }
-  if (route.path.endsWith('/app/social/instagram/account/settings')) {
+  if (route.path.endsWith('/app/social/instagram/accounts/:channel_account_id/settings')) {
     // A setting in range, so body validation (400) does not preempt the permission check (403).
     return { is_automation_enabled: false };
   }

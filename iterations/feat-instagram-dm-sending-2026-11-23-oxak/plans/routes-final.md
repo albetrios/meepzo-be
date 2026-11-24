@@ -1229,6 +1229,9 @@ what the lanes use now, the new-account limit included), `is_day_limit_enabled` 
 | --- | --- |
 | IAC8 | IA12–IA14: schema and migration changed in place (2.B.3, the key renamed, `is_automation_enabled` moved); DTO (the 14 optional fields + `is_automation_enabled`, nullable numbers, strict, at least one), validator (merged min ≤ max; PRO and the untested list through 1B's feature check, CA11), serializer with `effective_limits` (the settings file's defaults, sub-domain 6's new-account rule), service (the switch through 1B's service in the same commit, lane wake after commit), the audit's changed fields; reasons `plan_lacks_feature`, `feature_not_offered` (`errors:` keys, `response-codes.md`); integration tests for every error of 2.B.9, the null-clears-to-default case and the switch landing on the channel account |
 
+
+**As built at ROUTE row R7** ([P122](decisions.md)): route 12 at `PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings`; the table changed in place as 2.B.3; the five public-reply columns dropped and the launch engine's account-level reply safety off until R13's per-automation pacing; the channel account reached through `InstagramAccountSettingsChannelAccountPort` (implemented by `ChannelAccountService`: `requireLiveInstagramAccount`, `setAutomationEnabled`, the one feature check) and the lane wake through `InstagramAccountSettingsLanePort` (R18); the settings-file values in `instagram-account-settings.constants.ts` until R18; the feature check only for what a save turns on; the audit entry (IA7) carries the changed fields with their old and new values (AC-3.11); the day limit judged against the owner hour limit, else 600; event processing reads the switch from the channel account.
+
 ---
 
 ### 2.C Instagram media — `instagram-account/instagram-media/` — final (rev 4, confirmed 2026-11-24)

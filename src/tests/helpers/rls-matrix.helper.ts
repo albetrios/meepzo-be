@@ -604,7 +604,7 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       .returning();
     const [settings] = await database
       .insert(instagram_account_settings)
-      .values({ organization_id: organization.id, instagram_account_id: account!.id })
+      .values({ organization_id: organization.id, channel_account_id: channelAccount!.id })
       .returning();
     // One stored post (launch R5), owned by the account through the composite key.
     const [media] = await database

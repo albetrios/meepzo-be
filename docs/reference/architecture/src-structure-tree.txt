@@ -278,6 +278,8 @@ src/
     │   │   │   │   └── instagram-account-meta-callback.types.ts
     │   │   │   ├── instagram-account-settings/
     │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── instagram-account-settings.factory.ts
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── instagram-account-settings.integration.test.ts
     │   │   │   │   │   └── unit/
@@ -291,6 +293,7 @@ src/
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── index.ts
     │   │   │   │   │   └── instagram-account-settings.bulk.seed.ts
+    │   │   │   │   ├── instagram-account-settings.constants.ts
     │   │   │   │   ├── instagram-account-settings.controller.ts
     │   │   │   │   ├── instagram-account-settings.dto.ts
     │   │   │   │   ├── instagram-account-settings.overview.md

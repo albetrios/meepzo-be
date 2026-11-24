@@ -597,7 +597,7 @@ erDiagram
   case), whether replies under comments start comment automations (on), once per person per post
   (on), mark as seen after a reply (off), and the extra random delay before each answer (1–20
   seconds, both ends or neither; PRO).
-- **Table:** `app.instagram_account_settings` (live)
+- **Table:** `app.instagram_account_settings` (live) — **Built R7** ([AS-BUILT](../AS-BUILT.md), [P122](decisions.md)): `channel_account_id` (composite FK → `app.channel_accounts` RESTRICT, unique per organization), `opening_hour_limit`, `opening_day_limit`, `fast_hour_limit`, `person_hour_limit`, `broadcast_hour_limit` (each nullable), `is_automatic_notice_enabled`, `extra_stop_words text[]`, `is_comment_reply_trigger_enabled`, `is_once_per_person_per_post_enabled`, `is_mark_seen_after_reply_enabled`, `extra_delay_seconds_min` / `_max`; checks `chk_instagram_account_settings_opening_hour_limit`, `_opening_day_limit`, `_fast_hour_limit`, `_person_hour_limit`, `_broadcast_hour_limit`, `_extra_stop_words`, `_extra_delay`; `instagram_account_id`, `is_automation_enabled` and the five public-reply columns with their checks dropped.
 - **Sources:** plan:L2895–L2920; D5, D11, D22, D32, D64–D68; current schema
   `src/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.ts`.
 - **Added:** the 13 fields marked `ADDED` below.

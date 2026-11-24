@@ -28,12 +28,26 @@ import {
   connectInstagramAccountsThroughRoutes,
   readChannelConnectionTokenCiphertexts,
 } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
-import { channelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import {
+  channelAccountPath,
+  organizationChannelAccountPath,
+} from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import type { InstagramAccountPickValues } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
-/** `PATCH /app/social/instagram/account/settings` (route 3). */
-export const INSTAGRAM_ACCOUNT_SETTINGS_PATH = testApiPath(
-  '/app/social/instagram/account/settings',
-);
+/** `PATCH /app/social/instagram/accounts/{channel_account_id}/settings` (route 12, R7). */
+export function instagramAccountSettingsPath(channelAccountPublicId: string): string {
+  return testApiPath(`/app/social/instagram/accounts/${channelAccountPublicId}/settings`);
+}
+
+/**
+ * Route 12's path for the organization's live account (else its latest), like
+ * `organizationChannelAccountPath` — for the flows written against the launch's singular route.
+ */
+export async function organizationInstagramAccountSettingsPath(
+  organizationId: number,
+): Promise<string> {
+  const accountPath = await organizationChannelAccountPath(organizationId);
+  return instagramAccountSettingsPath(accountPath.slice(accountPath.lastIndexOf('/') + 1));
+}
 
 /**
  * The plain token every mocked connect issues — the channel connection's system-user token
@@ -316,13 +330,24 @@ export async function readInstagramTokenCiphertexts(organizationId: number): Pro
   return readChannelConnectionTokenCiphertexts({ organizationId });
 }
 
-/** The settings rows of an organization — read as the operator. */
-export async function readInstagramSettingsRows(
-  organizationId: number,
-): Promise<Array<{ id: string; instagram_account_id: string; is_automation_enabled: boolean }>> {
+/**
+ * The settings rows of an organization with their channel account's automation switch (P42, R7) —
+ * read as the operator.
+ */
+export async function readInstagramSettingsRows(organizationId: number): Promise<
+  Array<{
+    id: string;
+    channel_account_id: string;
+    is_automation_enabled: boolean;
+    extra_stop_words: string[];
+  }>
+> {
   return operatorQuery`
-    SELECT id, instagram_account_id, is_automation_enabled
-    FROM app.instagram_account_settings WHERE organization_id = ${organizationId} ORDER BY id`;
+    SELECT s.id, s.channel_account_id, c.is_automation_enabled, s.extra_stop_words
+    FROM app.instagram_account_settings AS s
+    INNER JOIN app.channel_accounts AS c
+      ON c.organization_id = s.organization_id AND c.id = s.channel_account_id
+    WHERE s.organization_id = ${organizationId} ORDER BY s.id`;
 }
 
 /** The audit outbox rows an organization staged for one action — read as the operator. */

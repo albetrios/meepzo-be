@@ -411,15 +411,20 @@ describe('app tables: updated_at when the row was created after this transaction
     it('changes the settings', async () => {
       const row = await changeAfterInsert({
         insert: async () => {
-          await operatorQuery`
-            INSERT INTO app.instagram_account_settings (organization_id, instagram_account_id)
-            VALUES (${organization.id}, ${account.id})`;
-          return { organizationId: organization.id, instagramAccountId: account.id };
+          const [settings] = await operatorQuery<Array<{ channel_account_id: number }>>`
+            INSERT INTO app.instagram_account_settings (organization_id, channel_account_id)
+            SELECT organization_id, channel_account_id FROM app.instagram_accounts
+            WHERE id = ${account.id}
+            RETURNING channel_account_id`;
+          return {
+            organizationId: organization.id,
+            channelAccountId: Number(settings?.channel_account_id),
+          };
         },
         change: (key) =>
           settingsRepository.update({
             ...key,
-            changes: { is_automation_enabled: false },
+            changes: { is_automatic_notice_enabled: true },
             updatedByUserId: null,
           }),
       });

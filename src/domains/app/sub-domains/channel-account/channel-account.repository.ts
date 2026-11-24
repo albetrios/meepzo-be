@@ -378,6 +378,28 @@ export class ChannelAccountRepository {
   }
 
   /**
+   * Sets the automation switch (P42, route 12 through the Instagram settings, IA12) — a repeat that
+   * sets the same value writes nothing. Returns the row as it now stands, or `null` when it is
+   * revoked.
+   */
+  async setAutomationEnabled({
+    isAutomationEnabled,
+    ...key
+  }: ChannelAccountKey & { isAutomationEnabled: boolean }): Promise<ChannelAccountRow | null> {
+    await this.db()
+      .update(channel_accounts)
+      .set({ is_automation_enabled: isAutomationEnabled, updated_at: accountUpdatedAtTimestamp })
+      .where(
+        and(
+          this.keyOf(key),
+          isLive,
+          ne(channel_accounts.is_automation_enabled, isAutomationEnabled),
+        ),
+      );
+    return this.findLiveById(key);
+  }
+
+  /**
    * Sets the plan stop's reason (CA3, CA9) — `null` clears it. Returns the changed row, or `null`
    * when the account is revoked.
    */

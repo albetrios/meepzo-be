@@ -30,7 +30,7 @@ const connectionAndAccountSeed = composeContributions(
 /**
  * The channel connection and Instagram account bulk seeds (launch IAC10, feat-instagram-dm-sending
  * MCC7) against the real schema: each registry team organization gets one connection with a token
- * that is `encryptFieldSecret` ciphertext, a connected account through it and the default settings —
+ * that is `encryptFieldSecret` ciphertext, a connected account through it and its empty settings —
  * and a second run writes nothing new.
  */
 
@@ -113,13 +113,13 @@ describe('Instagram account bulk seed (database)', () => {
 
     expect(settings).toHaveLength(1);
     expect(settings[0]).toMatchObject({
-      instagram_account_id: account.id,
-      is_automation_enabled: true,
-      is_public_reply_safety_enabled: false,
-      public_reply_chance_percent: 80,
-      public_reply_hour_limit: 60,
-      public_reply_gap_min_seconds: 20,
-      public_reply_gap_max_seconds: 60,
+      channel_account_id: account.channel_account_id,
+      opening_hour_limit: null,
+      extra_stop_words: [],
+      is_comment_reply_trigger_enabled: true,
+      is_once_per_person_per_post_enabled: true,
+      is_mark_seen_after_reply_enabled: false,
+      extra_delay_seconds_min: null,
       updated_by_user_id: null,
     });
   });

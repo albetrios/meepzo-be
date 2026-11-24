@@ -86,7 +86,7 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
   // ── Instagram account settings ──
-  'PATCH /api/v1/app/social/instagram/account/settings': {
+  'PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings': {
     statusCode: 200,
     schema: wrapSuccess(
       schemas.instagramAccountSettingsSchema,

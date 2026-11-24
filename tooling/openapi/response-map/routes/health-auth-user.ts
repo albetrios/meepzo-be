@@ -124,7 +124,7 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
   },
   'GET /api/v1/auth/oauth/providers': {
     statusCode: 200,
-    schema: wrapSuccess(schemas.oauthProvidersSchema, { providers: ['google', 'github'] }),
+    schema: wrapSuccess(schemas.oauthProvidersSchema, { providers: ['google', 'apple'] }),
     example: null,
   },
   'GET /api/v1/auth/oauth/{provider}': {
@@ -135,6 +135,13 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
       { type: 'object', properties: { redirect_url: { type: 'string', format: 'uri' } } },
       { redirect_url: 'https://accounts.google.com/o/oauth2/v2/auth?...' },
     ),
+    example: null,
+  },
+  'POST /api/v1/auth/oauth/apple/callback': {
+    // Apple's form post (route 124): no body — 303 with Location to the app's /callback/apple page,
+    // the one named exception to the method→status policy (P85).
+    statusCode: 303,
+    schema: null,
     example: null,
   },
   'GET /api/v1/auth/oauth/{provider}/callback': {

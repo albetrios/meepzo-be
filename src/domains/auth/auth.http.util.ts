@@ -4,7 +4,8 @@ import { NotImplementedError } from '@/shared/errors/index.js';
 import { translateRequestMessage } from '@/shared/utils/i18n/translate-request.util.js';
 import { env } from '@/shared/config/env.config.js';
 import { deriveSecretsSubKey } from '@/shared/utils/security/secrets-sub-key.util.js';
-import { OAUTH_STATE_TTL_SECONDS } from '@/shared/constants/ttl.constants.js';
+import { OAUTH_STATE_TTL_SECONDS, SECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
+import { TRUSTED_DEVICE_DAYS } from '@/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.js';
 
 /** Name of the httpOnly cookie that carries the opaque session public id used for refresh and auth-route flows. */
 export const SESSION_COOKIE_NAME = 'session_id';
@@ -175,6 +176,50 @@ export function setSessionCookie({
 export function clearSessionCookie(reply: FastifyReply): void {
   reply.clearCookie(SESSION_COOKIE_NAME, getSessionCookieOptions());
   clearCsrfCookie(reply);
+}
+
+/** Name of the httpOnly cookie that marks a browser the person trusted for 30 days after a right 2FA code (AT17). */
+export const TRUSTED_DEVICE_COOKIE_NAME = 'trusted_device';
+
+/**
+ * Cookie attributes of {@link TRUSTED_DEVICE_COOKIE_NAME}: httpOnly, `Secure` per `COOKIE_SECURE`,
+ * scoped to `/api/v1/auth` (every sign-in route reads it), lasting `TRUSTED_DEVICE_DAYS`.
+ *
+ * @remarks
+ * `SameSite` is `lax` (AT17) — or `none` when the deployment's cookies are cross-site
+ * (`COOKIE_SAMESITE=none`), since a browser ignores a `lax` cookie set on a cross-site `fetch`
+ * response, like the OAuth nonce cookie. Shared by the set and clear paths so a clear always lands.
+ */
+export function getTrustedDeviceCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: env.COOKIE_SECURE,
+    sameSite: getOauthNonceSameSite(),
+    path: SESSION_COOKIE_PATH,
+    maxAge: TRUSTED_DEVICE_DAYS * SECONDS_PER_DAY,
+  };
+}
+
+/** Writes the trusted-device cookie carrying the raw token (the server stores only its SHA-256). */
+export function setTrustedDeviceCookie({
+  reply,
+  token,
+}: {
+  reply: FastifyReply;
+  token: string;
+}): void {
+  reply.setCookie(TRUSTED_DEVICE_COOKIE_NAME, token, getTrustedDeviceCookieOptions());
+}
+
+/** Reads the trusted-device cookie from the request; `undefined` when absent or empty. */
+export function readTrustedDeviceCookie(request: FastifyRequest): string | undefined {
+  const token = request.cookies?.[TRUSTED_DEVICE_COOKIE_NAME];
+  return typeof token === 'string' && token.length > 0 ? token : undefined;
+}
+
+/** Removes the trusted-device cookie (its row was ended — 2FA turned off). */
+export function clearTrustedDeviceCookie(reply: FastifyReply): void {
+  reply.clearCookie(TRUSTED_DEVICE_COOKIE_NAME, getTrustedDeviceCookieOptions());
 }
 
 /** Name of the short-lived httpOnly cookie that binds an OAuth callback to the browser that started the authorize flow. */

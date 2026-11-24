@@ -10,6 +10,7 @@ import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
 import {
+  AppleFormCallbackDto,
   EmailSendCodeDto,
   EmailLoginDto,
   MfaVerifyDto,
@@ -119,6 +120,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Auth ──
   'POST /api/v1/auth/email/send-code': EmailSendCodeDto,
   'POST /api/v1/auth/email/login': EmailLoginDto,
+  // Apple's form post (route 124) — application/x-www-form-urlencoded, not JSON.
+  'POST /api/v1/auth/oauth/apple/callback': AppleFormCallbackDto,
   'POST /api/v1/auth/me/mfa/verify': MfaVerifyDto,
   'POST /api/v1/auth/me/mfa/enroll': MfaEnrollDto,
   'POST /api/v1/auth/me/mfa/enroll/confirm': MfaEnrollConfirmDto,

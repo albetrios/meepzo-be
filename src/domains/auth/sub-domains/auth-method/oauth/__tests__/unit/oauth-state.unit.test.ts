@@ -87,7 +87,7 @@ describe('oauth-state', () => {
   });
 
   it('consumeOAuthState rejects provider mismatch', async () => {
-    const { raw } = buildStatePayload({ provider: 'github' });
+    const { raw } = buildStatePayload({ provider: 'apple' });
     vi.mocked(redis.getdel).mockResolvedValue(raw);
     await expect(
       consumeOAuthState({
@@ -155,7 +155,7 @@ describe('oauth-state', () => {
     await expect(
       consumeOAuthState({
         redis,
-        provider: 'github',
+        provider: 'apple',
         state: 'cross-provider',
         nonce: 'browser-nonce',
       }),

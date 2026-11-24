@@ -6,26 +6,23 @@ Manual and scripted checks against a running API (`pnpm dev` + `pnpm dev:worker`
 
 ```bash
 docker compose up -d
-DEMO_PASSWORD=DemoPassword123! pnpm db:seed:full   # create, migrate, logins, full seed; fixed demo password
+pnpm db:seed:full     # create, migrate, logins, full seed
 pnpm db:seed:sync-demo   # sync admin permissions (after permission changes)
 pnpm dev              # terminal 1 — http://localhost:3000
 pnpm dev:worker       # terminal 2
 ```
 
-Set in `.env` for a repeatable password on every seed:
-
-```bash
-DEMO_PASSWORD=DemoPassword123!
-```
+There are no passwords (P84): sign in by email code. With `TEST_MODE=true` (which `pnpm setup:local`
+turns on for a local machine) `POST /auth/email/send-code` echoes the code as `debug_verification_code`.
 
 ## Seeded credentials
 
-| Field                  | Value                                               |
-| ---------------------- | --------------------------------------------------- |
-| Email                  | `demo@example.com`                                  |
-| Password               | `DemoPassword123!` (or `DEMO_PASSWORD` from `.env`) |
-| Demo organization slug | `demo-org`                                          |
-| Demo organization name | Demo Organization                                   |
+| Field                  | Value                                                             |
+| ---------------------- | ----------------------------------------------------------------- |
+| Email                  | `demo@example.com`                                                |
+| Sign-in                | email code (`send-code`, then `email/login`; echoed in TEST_MODE) |
+| Demo organization slug | `demo-org`                                                        |
+| Demo organization name | Demo Organization                                                 |
 
 After seed, note the resource ids from logs or fetch them via the flows below. Every id is prefixed by entity (`org_…`, `usr_…`, `pln_…`):
 
@@ -94,17 +91,21 @@ curl -sS -w '\nHTTP %{http_code}\n' http://localhost:3000/readyz
 
 ### 2. Auth — login and token
 
-| #   | Method | Path                                  | Expected                 |
-| --- | ------ | ------------------------------------- | ------------------------ |
-| 2.1 | POST   | `/api/v1/auth/login`                  | 200, `data.access_token` |
-| 2.2 | POST   | `/api/v1/auth/login` (wrong password) | 401                      |
-| 2.3 | GET    | `/api/v1/users/me` (no token)         | 401                      |
+| #   | Method | Path                                    | Expected                                        |
+| --- | ------ | --------------------------------------- | ----------------------------------------------- |
+| 2.1 | POST   | `/api/v1/auth/email/send-code`          | 200, `data.debug_verification_code` (TEST_MODE) |
+| 2.2 | POST   | `/api/v1/auth/email/login`              | 200, `data.access_token`                        |
+| 2.3 | POST   | `/api/v1/auth/email/login` (wrong code) | 401, `error.reason` `code_wrong` + `tries_left` |
+| 2.4 | GET    | `/api/v1/users/me` (no token)           | 401                                             |
 
 ```bash
-# Login — save token
-LOGIN=$(curl -s -X POST http://localhost:3000/api/v1/auth/login \
+# Sign in by email code — save token
+CODE=$(curl -s -X POST http://localhost:3000/api/v1/auth/email/send-code \
   -H 'Content-Type: application/json' \
-  -d '{"email":"demo@example.com","password":"DemoPassword123!"}')
+  -d '{"email":"demo@example.com"}' | jq -r '.data.debug_verification_code')
+LOGIN=$(curl -s -X POST http://localhost:3000/api/v1/auth/email/login \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"demo@example.com\",\"code\":\"$CODE\"}")
 echo "$LOGIN" | jq .
 export TOKEN=$(echo "$LOGIN" | jq -r '.data.access_token')
 ```
@@ -191,7 +192,7 @@ pnpm test:api-smoke    # smoke only (server + seed must already be in place)
 
 If organization-scoped routes return **403** after a permission seed change, run `pnpm db:seed:sync-demo` and retry.
 
-Optional env: `BASE_URL`, `DEMO_EMAIL`, `DEMO_PASSWORD` (defaults `demo@example.com` / `DemoPassword123!` — seed with `DEMO_PASSWORD=DemoPassword123! pnpm db:seed:full`).
+Optional env: `BASE_URL`, `DEMO_EMAIL` (default `demo@example.com` — signed in by email code; the API must run with `TEST_MODE=true`).
 
 **CI:** Every PR runs the same probes against ephemeral Postgres + Redis after migrate + full seed ([CI/CD and deployment](../deployment/ci-cd/cicd-and-deployment.md)).
 

@@ -310,7 +310,7 @@ describe('Security: object-ownership BOLA matrix', () => {
         .values({
           public_id: generatePublicId('authMethod'),
           user_id: victim.id,
-          method_type: 'PASSWORD',
+          method_type: 'EMAIL_CODE',
           is_primary: true,
         })
         .returning();

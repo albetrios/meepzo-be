@@ -29,19 +29,19 @@ export function isOAuthProviderRejection(error: unknown): boolean {
  *
  * @remarks
  * - **Algorithm:** a 4xx refusing the code or token ({@link isOAuthProviderRejection}) → 401 with
- *   `rejectedMessageKey`; anything else (network, timeout, 5xx, throttling, a body that is not
+ *   `rejectedMessageKey` and reason `oauth_failed` (AT2); anything else (network, timeout, 5xx, throttling, a body that is not
  *   JSON) → 503 `errors:oauthProviderUnavailable`, so the client retries instead of telling the
  *   user their sign-in was refused.
  * - **Failure modes:** none — pure mapping; a non-outbound error passes through unchanged.
  * - **Side effects:** none (`outboundCall` already logged the failure).
- * - **Notes:** shared by the Google and GitHub providers.
+ * - **Notes:** shared by the Google and Apple providers.
  */
 export function toOAuthProviderFailure({
   error,
   rejectedMessageKey,
 }: ToOAuthProviderFailureOptions): unknown {
   if (isOAuthProviderRejection(error)) {
-    return new UnauthorizedError(rejectedMessageKey);
+    return new UnauthorizedError(rejectedMessageKey).withReason('oauth_failed');
   }
   if (error instanceof ExternalServiceError) {
     return new ServiceUnavailableError('errors:oauthProviderUnavailable');

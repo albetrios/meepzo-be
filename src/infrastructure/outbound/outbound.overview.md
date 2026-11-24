@@ -4,7 +4,7 @@
 
 ## Purpose
 
-The one way the app calls a third party: Stripe, S3, Resend, OAuth providers (Google, GitHub),
+The one way the app calls a third party: Stripe, S3, Resend, OAuth providers (Google, Apple),
 Cloudflare Turnstile, Meta ([the channel connection's Meta adapter](src/domains/app/sub-domains/channel-connection/channel-connection-meta/)). [`outboundCall`](src/infrastructure/outbound/outbound-call.ts) wraps any
 operation with the integration's timeout, circuit breaker and optional retry;
 [`outboundFetch` / `outboundFetchJson`](src/infrastructure/outbound/outbound-fetch.ts) are the HTTP

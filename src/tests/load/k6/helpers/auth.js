@@ -1,5 +1,48 @@
 import http from 'k6/http';
+import { sleep } from 'k6';
 import { API_PREFIX, PUBLIC_AUTH_FORM_HEADERS } from './config.js';
+
+/**
+ * `POST /auth/email/send-code` and return the code the target echoes under `TEST_MODE`
+ * (`debug_verification_code`). A send within 60 s of the last one for this email answers
+ * `429 code_resend_too_soon` with `retry_after_seconds`: this waits that long once and sends again.
+ */
+export function sendCodeAndReadEcho(email) {
+  let sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
+    headers: PUBLIC_AUTH_FORM_HEADERS,
+    tags: { name: 'send-code' },
+    // The send spacing's 429 is waited out below, not a failed request.
+    responseCallback: http.expectedStatuses(200, 429),
+  });
+  if (sent.status === 429) {
+    const waitSeconds = Number(JSON.parse(sent.body).error?.retry_after_seconds ?? 60);
+    sleep(waitSeconds + 1);
+    sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
+      headers: PUBLIC_AUTH_FORM_HEADERS,
+      tags: { name: 'send-code' },
+    });
+  }
+  if (sent.status !== 200) throw new Error(`Load send-code failed with HTTP ${sent.status}`);
+  const code = JSON.parse(sent.body).data?.debug_verification_code;
+  if (typeof code !== 'string' || code.length === 0) {
+    throw new Error('Load send-code returned no code echo — the target needs TEST_MODE');
+  }
+  return code;
+}
+
+/**
+ * Step up on `token`'s session with an email code (`POST /auth/step-up`, route 127) and return the
+ * response. For a person without settled 2FA this is a strong step-up (AT15): it covers deleting an
+ * organization, the data export, revoking sessions and removing a credential. A person with settled
+ * 2FA is refused with `403 mfa_step_up_required` and steps up with `POST /auth/me/mfa/verify`.
+ */
+export function stepUpByEmailCode(token, email, tags = { name: 'step-up' }) {
+  const code = sendCodeAndReadEcho(email);
+  return http.post(`${API_PREFIX}/auth/step-up`, JSON.stringify({ code }), {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    tags,
+  });
+}
 
 /**
  * Sign in by email code and return the access token (passwords are off, P84).
@@ -16,14 +59,7 @@ import { API_PREFIX, PUBLIC_AUTH_FORM_HEADERS } from './config.js';
  * organization, re-mint the token with `switchToOrganization` / `switchToPersonal`.
  */
 export function login(email) {
-  const sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
-    headers: PUBLIC_AUTH_FORM_HEADERS,
-  });
-  if (sent.status !== 200) throw new Error(`Load send-code failed with HTTP ${sent.status}`);
-  const code = JSON.parse(sent.body).data?.debug_verification_code;
-  if (typeof code !== 'string' || code.length === 0) {
-    throw new Error('Load send-code returned no code echo — the target needs TEST_MODE');
-  }
+  const code = sendCodeAndReadEcho(email);
   const response = http.post(`${API_PREFIX}/auth/email/login`, JSON.stringify({ email, code }), {
     headers: PUBLIC_AUTH_FORM_HEADERS,
   });

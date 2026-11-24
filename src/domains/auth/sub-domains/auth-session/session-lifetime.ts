@@ -19,7 +19,7 @@ export type SessionLapseReason = (typeof SESSION_LAPSE_REASON)[keyof typeof SESS
  *
  * @remarks
  * - **Algorithm:** `now + AUTH_SESSION_ABSOLUTE_TIMEOUT_SECONDS`, stored as the row's `expires_at`
- *   by every sign-in path (password, email code, OAuth, passkey, MFA).
+ *   by every sign-in path (email code, OAuth, passkey, MFA).
  * - **Failure modes:** none.
  * - **Side effects:** none.
  * - **Notes:** E-2 — the absolute cap lives on the server; the client's own 12-hour stamp is a

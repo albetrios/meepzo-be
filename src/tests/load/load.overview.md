@@ -20,7 +20,7 @@ One script per scenario (`package.json` → `load:*`), each running a file under
 
 ```bash
 pnpm load:health                  # health probe SLO
-pnpm load:auth                    # sign-in flow (needs the full seed with DEMO_PASSWORD)
+pnpm load:auth                    # sign-in flow (needs the full seed; signs DEMO_EMAIL in by email code under TEST_MODE)
 pnpm load:journey                 # comprehensive journey: sets up every prerequisite, then runs k6
 ```
 

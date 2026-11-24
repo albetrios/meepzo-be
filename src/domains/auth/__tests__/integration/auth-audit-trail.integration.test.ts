@@ -29,6 +29,10 @@ import {
   injectUnauthenticated,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper.js';
+import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
+import { emailCodeSendCooldownKey } from '@/domains/auth/sub-domains/auth-method/email-login.service.js';
 
 /**
  * The security events an investigator reads from `audit.logs` must actually get there. Each event
@@ -90,6 +94,66 @@ describe('auth audit trail — security events reach audit.logs', () => {
     expect(recoveryCodes.length).toBeGreaterThan(0);
     return recoveryCodes[0]!;
   }
+
+  it('AC-13.13: a sign-in, a step-up and removing a way each leave exactly one audit entry', async () => {
+    const user = await createTestUser({ isEmailVerified: true });
+    const [google] = await getOperatorDatabase()
+      .insert(auth_methods)
+      .values({
+        public_id: generatePublicId('authMethod'),
+        user_id: user.id,
+        method_type: 'OAUTH',
+        provider: 'google',
+        provider_user_id: 'google-audit-user',
+        verified_at: new Date(),
+      })
+      .returning();
+    await getOperatorDatabase()
+      .insert(auth_methods)
+      .values({
+        public_id: generatePublicId('authMethod'),
+        user_id: user.id,
+        method_type: 'EMAIL_CODE',
+        verified_at: new Date(),
+      });
+
+    const signedIn = await signInWithEmailCode(application, { email: user.email });
+    expect(signedIn.statusCode, signedIn.body).toBe(200);
+    const token = (signedIn.json() as { data: { access_token: string } }).data.access_token;
+
+    await redisConnection.del(emailCodeSendCooldownKey(user.email));
+    const sent = await injectUnauthenticated(application, {
+      method: 'POST',
+      url: testApiPath('/auth/email/send-code'),
+      payload: { email: user.email },
+    });
+    const code = (sent.json() as { data: { debug_verification_code: string } }).data
+      .debug_verification_code;
+    const steppedUp = await injectAuthenticated(application, {
+      method: 'POST',
+      url: testApiPath('/auth/step-up'),
+      token,
+      payload: { code },
+    });
+    expect(steppedUp.statusCode, steppedUp.body).toBe(200);
+
+    const removed = await injectAuthenticated(application, {
+      method: 'DELETE',
+      url: testApiPath(`/auth/me/auth-methods/${google!.public_id}`),
+      token,
+    });
+    expect(removed.statusCode, removed.body).toBe(204);
+
+    // Trusting a device (auth.trusted_device.create) is pinned the same way in
+    // auth-trusted-device.integration.test.ts (AC-13.8).
+    for (const action of ['auth.login', 'auth.step_up', 'auth.auth_method.delete']) {
+      const staged = await getOperatorDatabase()
+        .select({ actor: audit_outbox.actor_user_public_id })
+        .from(audit_outbox)
+        .where(eq(audit_outbox.action, action));
+      expect(staged, action).toEqual([{ actor: user.public_id }]);
+    }
+  });
 
   it('a failed email-code login is recorded as an anonymous auth.login_failure', async () => {
     const user = await createTestUser({ isEmailVerified: true });

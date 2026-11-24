@@ -21,6 +21,8 @@ export const PUBLIC_ID_PREFIXES = {
   authSession: 'ses',
   authMethod: 'am',
   webauthnCredential: 'wac',
+  /** A browser a person trusted for 30 days after a right 2FA code (`auth.trusted_devices`, AT17). */
+  trustedDevice: 'tdv',
   notification: 'ntf',
   webhook: 'whk',
   plan: 'pln',

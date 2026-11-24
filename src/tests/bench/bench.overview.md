@@ -26,7 +26,7 @@ pnpm test:bench:quick                  # readyz only, 5s
 
 ## Fixtures and helpers
 
-- `run-benches.ts` spawns `npx autocannon --json` per endpoint (autocannon stays out of the dependency tree), logs in with `DEMO_EMAIL`/`DEMO_PASSWORD` for the authed rows (skipped with a notice when login fails), and prints the summary table. Pure helpers (`summarizeAutocannonRun`, `formatBenchTable`, `parseBenchCliOptions`) are unit-tested in `src/tests/unit/bench/`.
+- `run-benches.ts` spawns `npx autocannon --json` per endpoint (autocannon stays out of the dependency tree), signs `DEMO_EMAIL` in by email code (the `TEST_MODE` echo; no passwords, P84) for the authed rows (skipped with a notice when login fails), and prints the summary table. Pure helpers (`summarizeAutocannonRun`, `formatBenchTable`, `parseBenchCliOptions`) are unit-tested in `src/tests/unit/bench/`.
 - Exit code is 1 only when an endpoint returns zero 2xx (broken route); latency numbers are informational.
 
 ## Dependencies

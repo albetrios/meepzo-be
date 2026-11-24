@@ -2,7 +2,7 @@ import type { users } from './user.schema.js';
 
 /**
  * Drizzle-inferred select row from `auth.users` — the canonical record used by auth, billing,
- * and offboarding flows (includes `password_hash`, lockout fields, and `deleted_at`).
+ * and offboarding flows (includes the emptied `password_hash` (P84), lockout fields, and `deleted_at`).
  */
 export type UserAuthRecord = typeof users.$inferSelect;
 

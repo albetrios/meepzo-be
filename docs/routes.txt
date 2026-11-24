@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 162
+  Total routes: 163
 ================================================================================
 
 Legend:
@@ -55,7 +55,7 @@ Legend:
 
 ================================================================================
   DOMAIN: AUTH (/api/v1/auth)
-  Routes: 29
+  Routes: 30
 ================================================================================
 
   POST   /api/v1/auth/email/login                                 200  -    both  PUBLIC
@@ -80,6 +80,7 @@ Legend:
   POST   /api/v1/auth/mfa/login                                   200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/:provider                             200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/:provider/callback                    200  -    both  PUBLIC
+  POST   /api/v1/auth/oauth/apple/callback                        303  -    both  PUBLIC
   GET    /api/v1/auth/oauth/providers                             200  -    both  PUBLIC
   POST   /api/v1/auth/refresh                                     200  -    both  TOKEN: session-cookie
   POST   /api/v1/auth/step-up                                     200  -    both  AUTH
@@ -253,8 +254,8 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 162
-  Public          : 18
+  Total routes    : 163
+  Public          : 19
   Authenticated   : 53
   Role-guarded    : 9
   Perm-guarded    : 77

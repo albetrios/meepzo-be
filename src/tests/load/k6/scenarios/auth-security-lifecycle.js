@@ -5,8 +5,15 @@ import { API_PREFIX, PUBLIC_AUTH_FORM_HEADERS } from '../helpers/config.js';
 import { assertCondition, requireData } from '../helpers/checks.js';
 import { credentialPool } from '../helpers/pool.js';
 import { totpCode } from '../helpers/totp.js';
+import { sendCodeAndReadEcho, stepUpByEmailCode } from '../helpers/auth.js';
 
-/** Distinct real accounts: session revocation, password changes, linked methods and full MFA ceremony. */
+/**
+ * Distinct real accounts: session revocation under an email-code step-up, the email-code way always
+ * on, the password routes gone, and the full MFA ceremony with "trust this device"
+ * (feat-instagram-dm-sending R32). Every sign-in and step-up sends an email code; a target with the
+ * 60 s send spacing on makes each VU wait between them (set
+ * `AUTH_EMAIL_CODE_RESEND_COOLDOWN_ENABLED=false` on a local or development target).
+ */
 const VUS = Number(__ENV.VUS || '4');
 const ITERATIONS = Number(__ENV.ITERATIONS || '1');
 const completed = new Counter('auth_security_journeys_completed');
@@ -16,7 +23,7 @@ export const options = {
       executor: 'per-vu-iterations',
       vus: VUS,
       iterations: ITERATIONS,
-      maxDuration: '5m',
+      maxDuration: '15m',
     },
   },
   thresholds: {
@@ -63,19 +70,35 @@ function request(method, path, token, body, expected = 200, phase = 'credential'
   );
   return response;
 }
-function login(credential, password = credential.password) {
+/**
+ * Email-code sign-in (passwords are off, P84): send-code with the TEST_MODE echo, then
+ * `POST /auth/email/login`. Returns the sign-in result — a session, or the 2FA screen
+ * (`mfa_required`, `mfa_session_token`). k6's cookie jar sends this VU's `trusted_device` cookie.
+ */
+function login(credential) {
+  const code = sendCodeAndReadEcho(credential.email);
   return requireData(
-    request('POST', '/auth/login', null, { email: credential.email, password }),
-    'password login',
+    request('POST', '/auth/email/login', null, { email: credential.email, code }),
+    'email-code sign-in',
   );
 }
+
+function emailCodeStepUp({ token, credential, name }) {
+  const response = stepUpByEmailCode(token, credential.email, {
+    name: 'POST /auth/step-up',
+    route: '/auth/step-up',
+    phase: 'credential',
+  });
+  assertCondition(response.status === 200, `${name}: exact 200`);
+  const data = JSON.parse(response.body).data;
+  assertCondition(data?.stepped_up === true && data?.factor === 'email_code', `${name}: factor`);
+  return data;
+}
+
 function verifySessionRevocations({ credential, primary, token }) {
   const secondary = login(credential);
   request('DELETE', `/auth/me/sessions/${secondary.session_id}`, token, null, 403);
-  requireData(
-    request('POST', '/auth/step-up', token, { password: credential.password }),
-    'password step-up',
-  );
+  emailCodeStepUp({ token, credential, name: 'email-code step-up (strong without 2FA)' });
   request('DELETE', `/auth/me/sessions/${secondary.session_id}`, token, null, 204);
   request('GET', '/users/me', secondary.access_token, null, 401, 'read');
   const third = login(credential);
@@ -91,67 +114,43 @@ function verifySessionRevocations({ credential, primary, token }) {
   );
 }
 
-function verifyLinkedMethod({ token, state }) {
-  const method = requireData(
-    request('POST', '/auth/me/auth-methods', token, { method_type: 'EMAIL_CODE' }),
-    'linked method',
-  );
-  state.linkedMethod = method.id;
+function verifyEmailCodeAlwaysOn({ token }) {
   const methods = requireData(
     request('GET', '/auth/me/auth-methods', token, null, 200, 'read'),
-    'linked methods persisted',
-  );
-  assertCondition(
-    methods.some((row) => row.id === state.linkedMethod && row.method_type === 'EMAIL_CODE'),
-    'linked method is listed',
+    'sign-in ways',
   );
   assertCondition(
     !methods.some((row) => 'encrypted_secret' in row || 'user_id' in row),
     'credential material omitted',
   );
-  request('DELETE', `/auth/me/auth-methods/${state.linkedMethod}`, token, null, 204);
-  const afterDelete = requireData(
-    request('GET', '/auth/me/auth-methods', token, null, 200, 'read'),
-    'linked method removed',
-  );
-  assertCondition(
-    !afterDelete.some((row) => row.id === state.linkedMethod),
-    'linked method absent',
-  );
-  state.linkedMethod = null;
+  const emailCodes = methods.filter((row) => row.method_type === 'EMAIL_CODE');
+  if (emailCodes.length < 2) {
+    // Add an email-code way (the only type this route creates). It can never be removed again
+    // (AT13), so a pool user gains at most this one extra row across runs.
+    const added = requireData(
+      request('POST', '/auth/me/auth-methods', token, { method_type: 'EMAIL_CODE' }),
+      'added email-code way',
+    );
+    emailCodes.push(added);
+  }
+  const emailCode = emailCodes[0];
+  if (emailCode) {
+    // The email-code way can never be removed (AT13), even under a strong step-up.
+    request('DELETE', `/auth/me/auth-methods/${emailCode.id}`, token, null, 409);
+  }
 }
 
-function verifyPasswordChanges({ token, credential, nextPassword, state }) {
+function verifyPasswordsGone({ token, credential }) {
+  // Passwords are off (P84): the four routes are not registered, and the step-up takes no password.
+  request('POST', '/auth/login', null, { email: credential.email, password: 'x' }, 404);
   request(
     'POST',
     '/auth/password/change',
     token,
-    { current_password: credential.password, new_password: nextPassword },
-    200,
+    { current_password: 'x', new_password: 'y' },
+    404,
   );
-  state.changedPassword = true;
-  request(
-    'POST',
-    '/auth/login',
-    null,
-    { email: credential.email, password: credential.password },
-    401,
-  );
-  const changedLogin = login(credential, nextPassword);
-  assertCondition(Boolean(changedLogin.access_token), 'new password actually authenticates');
-  requireData(
-    request('POST', '/auth/step-up', token, { password: nextPassword }),
-    'step-up new password',
-  );
-  request(
-    'POST',
-    '/auth/password/change',
-    token,
-    { current_password: nextPassword, new_password: credential.password },
-    200,
-  );
-  state.changedPassword = false;
-  request('GET', '/users/me', changedLogin.access_token, null, 401, 'read');
+  request('POST', '/auth/step-up', token, { password: 'x' }, 400);
 }
 
 function verifyMfaLifecycle({ token, credential, state }) {
@@ -193,27 +192,26 @@ function verifyMfaLifecycle({ token, credential, state }) {
     challenge.mfa_required === true &&
       !challenge.access_token &&
       Boolean(challenge.mfa_session_token),
-    'password alone cannot bypass MFA',
+    'the email code alone cannot bypass MFA',
   );
+  // "Trust this device for 30 days" (AT17): the jar keeps the trusted_device cookie.
   const secondFactor = requireData(
     request('POST', '/auth/mfa/login', null, {
       mfa_session_token: challenge.mfa_session_token,
       recovery_code: confirmation.recovery_codes[0],
+      trust_device: true,
     }),
     'MFA login',
   );
   assertCondition(Boolean(secondFactor.access_token), 'second factor grants session');
-  const replayChallenge = login(credential);
-  request(
-    'POST',
-    '/auth/mfa/login',
-    null,
-    {
-      mfa_session_token: replayChallenge.mfa_session_token,
-      recovery_code: confirmation.recovery_codes[0],
-    },
-    401,
+  const trusted = login(credential);
+  assertCondition(
+    Boolean(trusted.access_token) && !trusted.mfa_required,
+    'a trusted browser skips the 2FA code',
   );
+  // The factor was enrolled under an email-code window, so it is provisional for 72 hours: the
+  // email code still opens the strong step-up that removing it needs (AT15).
+  emailCodeStepUp({ token, credential, name: 'email-code step-up with a provisional factor' });
   request('DELETE', `/auth/me/mfa/${state.mfaMethod}`, token, null, 204);
   const cleared = requireData(
     request('GET', '/auth/me/mfa', token, null, 200, 'read'),
@@ -227,7 +225,7 @@ function verifyMfaLifecycle({ token, credential, state }) {
   const restored = login(credential);
   assertCondition(
     Boolean(restored.access_token) && !restored.mfa_required,
-    'original password login restored without MFA',
+    'email-code sign-in restored without MFA',
   );
   request('POST', '/auth/logout', restored.access_token, null, 200);
 }
@@ -247,30 +245,17 @@ export default function (credentials) {
     'distinct non-MFA fixture',
   );
 
-  const state = { linkedMethod: null, mfaMethod: null, changedPassword: false };
-  const nextPassword = `${credential.password}Load7!`;
+  const state = { mfaMethod: null };
   try {
     verifySessionRevocations({ credential, primary, token });
-    verifyLinkedMethod({ token, state });
-    verifyPasswordChanges({ token, credential, nextPassword, state });
+    verifyEmailCodeAlwaysOn({ token });
+    verifyPasswordsGone({ token, credential });
     verifyMfaLifecycle({ token, credential, state });
     completed.add(1);
   } finally {
-    if (state.mfaMethod) request('DELETE', `/auth/me/mfa/${state.mfaMethod}`, token, null, 204);
-    if (state.linkedMethod)
-      request('DELETE', `/auth/me/auth-methods/${state.linkedMethod}`, token, null, 204);
-    if (state.changedPassword) {
-      requireData(
-        request('POST', '/auth/step-up', token, { password: nextPassword }),
-        'restore password step-up',
-      );
-      request(
-        'POST',
-        '/auth/password/change',
-        token,
-        { current_password: nextPassword, new_password: credential.password },
-        200,
-      );
+    if (state.mfaMethod) {
+      emailCodeStepUp({ token, credential, name: 'clean-up step-up' });
+      request('DELETE', `/auth/me/mfa/${state.mfaMethod}`, token, null, 204);
     }
   }
 }

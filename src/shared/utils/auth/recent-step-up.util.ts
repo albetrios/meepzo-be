@@ -7,20 +7,22 @@ export const RECENT_STEP_UP_TTL_SECONDS = 10 * 60;
  * The factor a caller used to complete step-up. Stored as the sentinel value so a
  * destructive-mutation gate can require a STRONG factor.
  *
- * @remarks There is no `password` factor — passwords are off (P84). `email_code` is a
- * bootstrap-only factor (an account enrolling its FIRST
- * MFA/passkey). It CANNOT satisfy {@link hasRecentStrongStepUp}, so an email-code step-up window
- * can enroll a factor but can never revoke a session or delete a credential.
- * `provisional_mfa` is an MFA step-up with a factor that was enrolled under an email-code window
- * and is still provisional (A-1, `PROVISIONAL_FACTOR_PERIOD_SECONDS`, or the enrolling session) —
- * weak like `email_code`.
+ * @remarks There is no `password` factor — passwords are off (P84). `email_code` is the step-up of
+ * a person WITHOUT settled 2FA (feat-instagram-dm-sending AT15): `POST /auth/step-up` refuses it
+ * (`403 mfa_step_up_required`) for anyone holding a settled 2FA factor, so every `email_code`
+ * window belongs to a person whose mailbox can already sign them in — it is STRONG (it can revoke
+ * sessions and remove a passkey, a sign-in way or the 2FA factor). A person with only a
+ * provisional factor still opens it with an email code (A-1). `provisional_mfa` is an MFA step-up
+ * with a factor that was enrolled under an email-code window and is still provisional
+ * (`PROVISIONAL_FACTOR_PERIOD_SECONDS`, or the enrolling session) — weak: enough to enroll, not to
+ * revoke.
  */
 export const STEP_UP_FACTORS = ['mfa', 'email_code', 'provisional_mfa'] as const;
 /** A factor accepted by `POST /auth/step-up` / MFA verify — see {@link STEP_UP_FACTORS}. */
 export type StepUpFactor = (typeof STEP_UP_FACTORS)[number];
 
-/** Factors strong enough to authorize destructive credential/session mutations (never `email_code`). */
-const STRONG_STEP_UP_FACTORS: readonly StepUpFactor[] = ['mfa'];
+/** Factors strong enough to authorize destructive credential/session mutations (AT15 — never `provisional_mfa`). */
+const STRONG_STEP_UP_FACTORS: readonly StepUpFactor[] = ['mfa', 'email_code'];
 
 const RECENT_STEP_UP_KEY_PREFIX = 'step-up:';
 
@@ -51,7 +53,7 @@ function buildRecentStepUpKey({
  * @remarks Requires a non-empty `sessionPublicId` so the sentinel is per-session (sec-A2);
  * an empty/missing session id is a programming error and would defeat the binding. The stored
  * value is the factor (not the session id) so {@link hasRecentStrongStepUp} can exclude
- * `email_code` windows from destructive mutations.
+ * `provisional_mfa` windows from destructive mutations.
  */
 export async function recordRecentStepUp({
   redis,
@@ -122,12 +124,12 @@ export async function hasRecentStepUp({
 
 /**
  * Returns true only when the session's recent step-up was completed via a STRONG factor
- * (`mfa`) — used to gate destructive credential/session mutations.
+ * (`mfa`, or `email_code` — only a person without settled 2FA can open that one, AT15) — used to
+ * gate destructive credential/session mutations.
  *
- * @remarks Excludes `email_code` bootstrap windows: an account may open a step-up
- * window with an email code to enroll its first MFA/passkey, but must NOT be able to revoke
- * sessions or delete credentials on that weaker factor. Fails closed on a missing session id and
- * on any stored value that is not a strong factor.
+ * @remarks Excludes `provisional_mfa` windows: a factor enrolled minutes ago under an email-code
+ * window must not by itself revoke sessions or delete credentials. Fails closed on a missing
+ * session id and on any stored value that is not a strong factor.
  */
 export async function hasRecentStrongStepUp({
   redis,

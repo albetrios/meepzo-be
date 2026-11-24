@@ -43,10 +43,10 @@ export function assertUserAccountActive(input: AccountActiveInput): void {
  *
  * @remarks
  * Closes the Trojan-credential account pre-hijacking vector: an attacker who pre-registers a
- * victim's email holds an UNVERIFIED account whose password they set, so a password step-up lets
- * them seed an MFA method or passkey — a factor that survives the victim's password-reset recovery
- * (reset revokes sessions, not enrolled credentials), yielding a silent retained takeover or a
- * lockout. Gating enrollment on email control — the one thing the pre-registering attacker lacks —
+ * victim's email holds an UNVERIFIED account, so a step-up on it would let them seed an MFA method
+ * or passkey — a factor that survives the victim's later email-code sign-in (signing in revokes
+ * nothing enrolled), yielding a silent retained takeover or a lockout. Passwords are off (P84), so
+ * today no unverified account can sign in at all; the gate stays as defence in depth. Gating enrollment on email control — the one thing the pre-registering attacker lacks —
  * collapses the attack, mirroring the invitation-accept verified-email gate. Throws
  * `ForbiddenError('errors:emailVerificationRequiredForCredential')` (403) for an unverified account.
  * OAuth linking is guarded separately by the verified-account linking guard in `oauth-user-session`.

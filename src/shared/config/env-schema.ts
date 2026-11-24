@@ -687,6 +687,14 @@ const envSchemaBase = z.object({
   /** WebAuthn relying party display name shown in passkey prompts. */
   WEBAUTHN_RP_NAME: z.string().min(1).optional(),
 
+  /**
+   * Local IP-to-place file (`.mmdb`, DB-IP "IP to City Lite") that gives each session its city and
+   * country (GET /auth/me/sessions). Optional: unset → every session's place stays empty, never an
+   * error. The image build puts the file at `/app/data/session-place.mmdb` when it is built with
+   * `SESSION_PLACE_DATABASE_URL`; no address ever leaves the process.
+   */
+  SESSION_PLACE_DATABASE_PATH: z.string().min(1).optional(),
+
   // App URLs
   // Required (https) in production — see the FRONTEND_URL production refine below.
   FRONTEND_URL: z.url().optional(),
@@ -803,9 +811,13 @@ const envSchemaBase = z.object({
   OAUTH_GOOGLE_CLIENT_ID: z.string().min(1).optional(),
   OAUTH_GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   OAUTH_GOOGLE_REDIRECT_URI: z.url().optional(),
-  OAUTH_GITHUB_CLIENT_ID: z.string().min(1).optional(),
-  OAUTH_GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
-  OAUTH_GITHUB_REDIRECT_URI: z.url().optional(),
+  // Sign in with Apple (feat-instagram-dm-sending AT11) — optional, like Google's: unset, Apple is
+  // absent from GET /auth/oauth/providers and its start answers 404. All five together (refine below).
+  OAUTH_APPLE_CLIENT_ID: z.string().min(1).optional(),
+  OAUTH_APPLE_TEAM_ID: z.string().min(1).optional(),
+  OAUTH_APPLE_KEY_ID: z.string().min(1).optional(),
+  OAUTH_APPLE_PRIVATE_KEY: z.string().min(1).optional(),
+  OAUTH_APPLE_REDIRECT_URI: z.url().optional(),
 
   // Meta — declared in the META_VARS registry above (allowed values + description).
   ...toSchemaShape(META_VARS),
@@ -1590,7 +1602,7 @@ export const envSchema = envSchemaBase
   .refine(
     (data) => {
       /**
-       * Every emailed link (verification code, password reset, invitation) and the OAuth callback
+       * Every emailed link (verification code, invitation) and the OAuth callback
        * fallback is built from `FRONTEND_URL`; unset, they point at the local-dev fallback
        * `DEFAULT_FRONTEND_URL` (http://localhost:5173). Production requires it, over https.
        */
@@ -1641,13 +1653,13 @@ export const envSchema = envSchemaBase
   .refine(
     (data) =>
       /**
-       * Email codes, password resets and invitations are sent through Resend. Without a key the
+       * Email codes and invitations are sent through Resend. Without a key the
        * mail worker never starts and every one of those mails waits in the outbox forever.
        */
       data.NODE_ENV !== 'production' || Boolean(data.RESEND_API_KEY),
     {
       message:
-        'RESEND_API_KEY must be set in production (email codes, password resets and invitations are sent through it).',
+        'RESEND_API_KEY must be set in production (email codes and invitations are sent through it).',
       path: ['RESEND_API_KEY'],
     },
   )
@@ -1755,11 +1767,23 @@ export const envSchema = envSchemaBase
     },
   )
   .refine(
-    (data) => !data.OAUTH_GITHUB_CLIENT_ID || Boolean(data.OAUTH_GITHUB_REDIRECT_URI?.trim()),
+    (data) => {
+      const appleKeys = [
+        data.OAUTH_APPLE_CLIENT_ID,
+        data.OAUTH_APPLE_TEAM_ID,
+        data.OAUTH_APPLE_KEY_ID,
+        data.OAUTH_APPLE_PRIVATE_KEY,
+        data.OAUTH_APPLE_REDIRECT_URI,
+      ];
+      const setCount = appleKeys.filter((value) => Boolean(value?.trim())).length;
+      return setCount === 0 || setCount === appleKeys.length;
+    },
     {
+      // A half-configured Apple sign-in fails at the first swap (no key to sign the client secret,
+      // or Apple's `redirect_uri_mismatch`); refuse it at boot instead.
       message:
-        "OAUTH_GITHUB_REDIRECT_URI is required when OAUTH_GITHUB_CLIENT_ID is set — it must match the GitHub App callback URL exactly and point at the SPA's /callback/github page (e.g. https://app.example.com/callback/github).",
-      path: ['OAUTH_GITHUB_REDIRECT_URI'],
+        'Sign in with Apple needs all five of OAUTH_APPLE_CLIENT_ID, OAUTH_APPLE_TEAM_ID, OAUTH_APPLE_KEY_ID, OAUTH_APPLE_PRIVATE_KEY and OAUTH_APPLE_REDIRECT_URI, or none. OAUTH_APPLE_REDIRECT_URI is the public URL of POST /api/v1/auth/oauth/apple/callback (e.g. https://api.example.com/api/v1/auth/oauth/apple/callback), registered on the Apple Services ID.',
+      path: ['OAUTH_APPLE_CLIENT_ID'],
     },
   )
   .refine(

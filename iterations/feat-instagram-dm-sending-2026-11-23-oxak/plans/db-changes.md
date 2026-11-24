@@ -1900,6 +1900,10 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   FORCE bracket). No column change; `failed_login_count` / `account_locked_until` stay with no writer.
   `PASSWORD_RESET` is gone from `VerificationTokenType` (existing rows untouched); the per-email wrong-code day
   counter lives in Redis only.
+- `auth.auth_methods` (no column change, routes-final § 10.B.3): `OAUTH` rows with `provider = 'apple'`,
+  `provider_user_id` = Apple's `sub`. **Built R31** ([AS-BUILT](../AS-BUILT.md), [P206](decisions.md)): no
+  migration; existing `provider = 'github'` rows stay and can no longer sign in (AT5). Apple's first-time
+  `user` JSON waits in Redis next to the state (`oauth:provider-user:<state>`, the state's life, one read).
 - `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
   goes with the password routes (UN6, UN7, P84; routes-final § 11).
 - Notification preferences keep their stored form — one row per type — and the routes speak kinds:
@@ -1972,6 +1976,9 @@ erDiagram
 - **Added:** `place_city`, `place_country` (the ISO 3166-1 two-letter code; AT18, routes-final § 10).
 - **Replaced:** none.
 - **Open:** none — the IP-to-place file and its licence are DB-IP Lite (P86).
+- **Built R33** ([AS-BUILT](../AS-BUILT.md), [P208](decisions.md)): migration `20261124120000_auth_sessions_place.sql` —
+  `auth.sessions.place_city` `varchar(100)`, `place_country` `varchar(2)` with `chk_sessions_place_country` (`^[A-Z]{2}$`);
+  both null without a file or a match.
 
 ```mermaid
 erDiagram
@@ -2021,6 +2028,12 @@ erDiagram
 - **Added:** new.
 - **Replaced:** none.
 - **Open:** public id prefix — chosen at kickoff (P22, AMBER).
+- **Built R32** ([AS-BUILT](../AS-BUILT.md), [P207](decisions.md)): migration `20261124110000_auth_trusted_devices.sql` —
+  `auth.trusted_devices` (`id`, `public_id` `tdv_…`, `user_id` → `auth.users` ON DELETE CASCADE, `token_hash` varchar(64) unique,
+  `user_agent` varchar(512), `created_at`, `expires_at` (CHECK `> created_at`), `last_used_at`, `revoked_at`); indexes unique
+  `public_id`, unique `token_hash`, `(user_id, created_at) WHERE revoked_at IS NULL`, `(user_id)`, `(expires_at)`; ENABLE + FORCE RLS,
+  policy `trusted_devices_user_access` on `app.current_user_public_id` (`USING` and `WITH CHECK`) plus the session clean-up's
+  maintenance arm in `USING` only; `EXPECTED_FORCE_RLS_TABLES` +1. Schema `auth-trusted-device.schema.ts`.
 
 ```mermaid
 erDiagram

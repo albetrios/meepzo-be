@@ -5,7 +5,7 @@ import {
   decryptFieldSecret,
   encryptFieldSecret,
 } from '@/shared/utils/security/field-secret-encryption.util.js';
-import { ForbiddenError, UnauthorizedError } from '@/shared/errors/index.js';
+import { ForbiddenError, RateLimitedError, UnauthorizedError } from '@/shared/errors/index.js';
 import {
   assertEmailVerifiedForCredentialEnrollment,
   assertUserAccountActive,
@@ -18,6 +18,8 @@ import type { UserService } from '@/domains/user/user.service.js';
 import type { AuthMethodService } from '@/domains/auth/sub-domains/auth-method/auth-method.service.js';
 import type { AuthSessionService } from '@/domains/auth/sub-domains/auth-session/auth-session.service.js';
 import type { OrganizationSettingsService } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-settings.service.js';
+import type { TrustedDeviceService } from '@/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.service.js';
+import type { TrustedDeviceOwner } from '@/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.types.js';
 import {
   MAX_MFA_VERIFICATION_ATTEMPTS,
   MFA_RECOVERY_CODE_COUNT,
@@ -59,6 +61,29 @@ import {
 const ERROR_KEY_MFA_USER_NOT_FOUND = 'errors:mfaUserNotFound';
 const ERROR_KEY_MFA_INVALID_OR_EXPIRED_CODE = 'errors:mfaInvalidOrExpiredCode';
 
+/**
+ * The stable `error.reason` values of the 2FA sign-in step (`POST /auth/mfa/login`, AT2, AT16 —
+ * routes-final § 10.C.9).
+ *
+ * @remarks
+ * - **Notes:** `mfa_code_wrong` carries `tries_left` (a TOTP code; a wrong recovery code carries
+ *   none — recovery codes are not counted); `mfa_locked` is a `429` with `retry_after_seconds` (the
+ *   counter's remaining time); `mfa_session_invalid` is set where the MFA session token is read.
+ *   Listed in `docs/reference/api/response-codes.md`.
+ */
+export const MFA_SIGN_IN_FAILURE_REASON = {
+  MFA_CODE_WRONG: 'mfa_code_wrong',
+  MFA_LOCKED: 'mfa_locked',
+  MFA_SESSION_INVALID: 'mfa_session_invalid',
+} as const;
+
+/** `401 mfa_code_wrong` with the tries the sign-in counter has left after `attempts` (AT16). */
+function mfaCodeWrongError(attempts: number): UnauthorizedError {
+  return new UnauthorizedError('errors:mfaCodeWrong')
+    .withReason(MFA_SIGN_IN_FAILURE_REASON.MFA_CODE_WRONG)
+    .withFields({ tries_left: Math.max(0, MAX_MFA_VERIFICATION_ATTEMPTS - attempts) });
+}
+
 /** Redis key prefix marking a TOTP code consumed by a user (by public id), used to reject replay within its validity window. */
 const MFA_TOTP_CONSUMED_KEY_PREFIX = 'mfa:totp:consumed:';
 
@@ -68,7 +93,7 @@ const MFA_VERIFICATION_FAILURE_KEY_PREFIX = 'mfa:verify:fail:';
 /**
  * The flow a TOTP verification belongs to — each has its own attempt counter (A-8): the MFA
  * sign-in challenge (`login`) and the authenticated step-up (`step_up`). With one shared counter,
- * someone holding the password could spend the sign-in budget and lock the signed-in owner out of
+ * someone who can pass the first factor could spend the sign-in budget and lock the signed-in owner out of
  * every step-up (and the other way round).
  */
 type MfaVerificationFlow = 'login' | 'step_up';
@@ -129,8 +154,8 @@ const MFA_TOTP_ENROLLMENT_STAGE_KEY_PREFIX = 'mfa:enroll:';
  * - **Notes:** secrets are encrypted at rest using the field-secret KMS path;
  *   recovery codes are stored only as SHA-256 hashes and consumed exactly once
  *   via an atomic `UPDATE … WHERE used_at IS NULL`. The public login step is
- *   reachable only with a valid `mfa_session_token` minted by `auth.login`
- *   after first-factor (password) verification — there is no TOTP-only login.
+ *   reachable only with a valid `mfa_session_token` minted by `completeFirstFactorAuth`
+ *   after first-factor (email code, OAuth, passkey) verification — there is no TOTP-only login.
  */
 export class MfaService {
   constructor(
@@ -139,7 +164,40 @@ export class MfaService {
     private readonly authSessionService: AuthSessionService,
     private readonly redis: Redis,
     private readonly organizationSettingsService?: OrganizationSettingsService,
+    private readonly trustedDeviceService?: TrustedDeviceService,
   ) {}
+
+  /**
+   * Whether the browser's `trusted_device` cookie is a live trusted device of `owner` (AT17) — read
+   * by `completeFirstFactorAuth` after it ruled out an organization requiring 2FA and a
+   * `super_admin`. `false` when the trusted-device store is not wired.
+   */
+  async acceptTrustedDevice(options: {
+    owner: TrustedDeviceOwner;
+    token: string | undefined;
+  }): Promise<boolean> {
+    if (!this.trustedDeviceService) return false;
+    return this.trustedDeviceService.acceptTrustedDevice(options);
+  }
+
+  /**
+   * Whether the person holds a **settled** 2FA factor on `sessionPublicId` (AT15): a live `MFA_TOTP`
+   * method that is not provisional (A-1). An email-code step-up is strong only when this is false.
+   */
+  async hasSettledSecondFactor(options: {
+    owner: TrustedDeviceOwner;
+    sessionPublicId: string | undefined;
+  }): Promise<boolean> {
+    const methods = await withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: options.owner.public_id }),
+      callback: () => this.authMethodService.listMfaMethodsByUserId(options.owner.id),
+    });
+    return methods.some(
+      (method) =>
+        method.method_type === 'MFA_TOTP' &&
+        !isProvisionalFactor({ factor: method, sessionPublicId: options.sessionPublicId }),
+    );
+  }
 
   async createMfaSession(userPublicId: string): Promise<string> {
     return createMfaSession({ redis: this.redis, userPublicId });
@@ -163,6 +221,13 @@ export class MfaService {
     session_public_id: string;
     session_refresh_secret: string;
     factor: 'totp' | 'recovery_code';
+    /** Set when the person ticked "trust this device" (AT17): the cookie value and the row it made. */
+    trusted_device?: {
+      token: string;
+      public_id: string;
+      revoked_public_ids: string[];
+      user_public_id: string;
+    };
   }> {
     const parsed = validateMfaLoginVerify(body);
     const session = await verifyMfaSession({
@@ -181,11 +246,14 @@ export class MfaService {
     if (parsed.totp_code) {
       // audit-#12 / reaudit-#3: the brute-force lockout gates ONLY the TOTP path (6-digit,
       // guessable). Recovery codes are single-use high-entropy break-glass and are
-      // intentionally NOT subject to it — otherwise an attacker who knows the password could
+      // intentionally NOT subject to it — otherwise an attacker who passes the first factor could
       // burn TOTP attempts to also lock the victim out of their recovery path (victim DoS).
       // route-audit-#4: atomically count this attempt up-front so concurrent guesses can't
       // overspend the budget; a successful verify clears the counter below.
-      await this.consumeMfaVerificationAttempt({ userPublicId: user.public_id, flow: 'login' });
+      const attempts = await this.consumeMfaVerificationAttempt({
+        userPublicId: user.public_id,
+        flow: 'login',
+      });
       // auth.auth_methods is FORCE RLS (audit #7); pin the owner context for every credential
       // read/write — the MFA session already authenticated this user.
       const totpMethod = await withAppDatabaseContext({
@@ -201,13 +269,18 @@ export class MfaService {
         epochTolerance: MFA_TOTP_TOLERANCE_STEPS * TOTP_STEP_SECONDS,
       });
       if (!result.valid) {
-        // The attempt was already counted in consumeMfaVerificationAttempt above (route-audit-#4).
-        throw new UnauthorizedError(ERROR_KEY_MFA_INVALID_OR_EXPIRED_CODE);
+        // The attempt was already counted in consumeMfaVerificationAttempt above (route-audit-#4);
+        // AT16: the answer says how many tries the counter has left.
+        throw mfaCodeWrongError(attempts);
       }
-      await this.rejectReplayedTotpCode({
-        userPublicId: user.public_id,
-        totpCode: parsed.totp_code,
-      });
+      try {
+        await this.rejectReplayedTotpCode({
+          userPublicId: user.public_id,
+          totpCode: parsed.totp_code,
+        });
+      } catch {
+        throw mfaCodeWrongError(attempts);
+      }
       await withAppDatabaseContext({
         scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: user.public_id }),
         callback: () =>
@@ -229,7 +302,9 @@ export class MfaService {
         // reaudit-#3: a wrong recovery code does NOT increment the TOTP lockout counter,
         // so recovery attempts can never lock the user out of TOTP (or vice versa). Recovery
         // codes are bounded by the route rate limit + their own high entropy + single use.
-        throw new UnauthorizedError('errors:mfaInvalidOrExpiredRecoveryCode');
+        throw new UnauthorizedError('errors:mfaInvalidOrExpiredRecoveryCode').withReason(
+          MFA_SIGN_IN_FAILURE_REASON.MFA_CODE_WRONG,
+        );
       }
       verified = true;
       factor = 'recovery_code';
@@ -242,9 +317,30 @@ export class MfaService {
     // audit-#12: successful second factor clears the failure counter.
     await this.clearMfaVerificationFailures({ userPublicId: user.public_id, flow: 'login' });
     const issued = await this.issueAccessTokenAndSession({ user, ipAddress, userAgent });
+    // AT17: "trust this device for 30 days" — only after a right code, never extended by use.
+    const trustedDevice =
+      parsed.trust_device === true && this.trustedDeviceService
+        ? await this.trustedDeviceService.trustDevice({
+            owner: { id: user.id, public_id: user.public_id },
+            userAgent,
+          })
+        : undefined;
     // Surface the factor so the handler can audit recovery-code use (the TOTP-bypass break-glass
     // path) distinctly from a normal TOTP second factor.
-    return { ...issued, factor };
+    return {
+      ...issued,
+      factor,
+      ...(trustedDevice
+        ? {
+            trusted_device: {
+              token: trustedDevice.token,
+              public_id: trustedDevice.public_id,
+              revoked_public_ids: trustedDevice.revoked_public_ids,
+              user_public_id: user.public_id,
+            },
+          }
+        : {}),
+    };
   }
 
   /**
@@ -290,7 +386,7 @@ export class MfaService {
   }: {
     userPublicId: string;
     flow: MfaVerificationFlow;
-  }): Promise<void> {
+  }): Promise<number> {
     const key = mfaVerificationFailureKey({ userPublicId, flow });
     // Atomic INCR + first-increment EXPIRE (route-audit C5) — a crash between a separate INCR and
     // EXPIRE would otherwise leave a no-TTL counter that locks the user out indefinitely.
@@ -301,7 +397,26 @@ export class MfaService {
     });
     if (count > MAX_MFA_VERIFICATION_ATTEMPTS) {
       logger.warn({ userPublicId, flow }, 'auth.mfa.verification_locked_out');
+      if (flow === 'login') {
+        // AT16: the sign-in step says it is locked and for how long (the counter's remaining time).
+        const retryAfterSeconds = await this.remainingLockSeconds(key);
+        throw new RateLimitedError('errors:mfaLocked')
+          .withReason(MFA_SIGN_IN_FAILURE_REASON.MFA_LOCKED)
+          .withRetryAfter(retryAfterSeconds)
+          .withFields({ retry_after_seconds: retryAfterSeconds });
+      }
       throw new UnauthorizedError(ERROR_KEY_MFA_INVALID_OR_EXPIRED_CODE);
+    }
+    return count;
+  }
+
+  /** Seconds the lock counter at `key` has left; the full lock time when Redis cannot say. */
+  private async remainingLockSeconds(key: string): Promise<number> {
+    try {
+      const ttl = await this.redis.ttl(key);
+      return ttl > 0 ? ttl : MFA_VERIFICATION_LOCKOUT_TTL_SECONDS;
+    } catch {
+      return MFA_VERIFICATION_LOCKOUT_TTL_SECONDS;
     }
   }
 
@@ -449,7 +564,7 @@ export class MfaService {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new UnauthorizedError(ERROR_KEY_MFA_USER_NOT_FOUND);
     // Pre-hijacking guard: an unverified (e.g. attacker-pre-registered) account must not seed an
-    // MFA factor that would survive the real owner's password-reset recovery (sec — account
+    // MFA factor that would survive the real owner's later email-code sign-in (sec — account
     // pre-hijacking, Trojan-credential variant).
     assertEmailVerifiedForCredentialEnrollment(user);
     if (parsed.method_type !== 'MFA_TOTP') {
@@ -626,7 +741,7 @@ export class MfaService {
    * the method would leave the user with zero MFA factors AND any organization the user
    * belongs to has `organization_settings.require_mfa = true` (sec-A4). Without this
    * guard, a member of an MFA-required organization could silently downgrade themselves to
-   * password-only authentication in direct contradiction of organization policy. The check
+   * single-factor authentication in direct contradiction of organization policy. The check
    * pre-computes the remaining-count by listing first, so the revoke does NOT execute
    * when the policy would be violated. Non-last deletions and users in MFA-non-required
    * organizations are unaffected.
@@ -637,10 +752,10 @@ export class MfaService {
   }: {
     userPublicId: string;
     mfaMethodPublicId: string;
-  }): Promise<void> {
+  }): Promise<{ revoked_trusted_device_ids: string[] }> {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new UnauthorizedError(ERROR_KEY_MFA_USER_NOT_FOUND);
-    await withAppDatabaseContext({
+    const revokedTrustedDeviceIds = await withAppDatabaseContext({
       scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: user.public_id }),
       callback: async () => {
         // route-audit C1 (deleteMfa sibling): serialize concurrent credential mutations for this user
@@ -676,9 +791,18 @@ export class MfaService {
         // The nested withAppDatabaseContext (user scope) call reuses the already-pinned handle.
         if (remaining.length === 0) {
           await this.userService.updateMfaEnabled({ public_id: user.public_id, enabled: false });
+          // AT17: 2FA turned off ends every trusted device — in the same transaction, so a crash
+          // cannot leave a trusted device that would skip a 2FA turned back on later.
+          if (this.trustedDeviceService) {
+            return this.trustedDeviceService.revokeAllForUser({
+              owner: { id: user.id, public_id: user.public_id },
+            });
+          }
         }
+        return [];
       },
     });
+    return { revoked_trusted_device_ids: revokedTrustedDeviceIds };
   }
 
   /** List MFA methods for the current user. */

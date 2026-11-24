@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { loadRouteRegistryFromCatalog } from '@/tests/helpers/route-catalog-registry.js';
 import { buildRouteSmokeCases } from '@/tests/helpers/route-http-coverage.helper.js';
+import { METHOD_STATUS_POLICY_EXCEPTIONS } from '@/shared/middlewares/core/method-status-policy.middleware.js';
 import {
-  ALLOWED_SUCCESS_STATUSES,
   getDeclaredSuccessStatus,
+  isAllowedSuccessStatus,
   loadRouteSuccessStatusMap,
   routeSuccessStatusKey,
 } from '@/tests/helpers/route-success-status.helper.js';
@@ -27,14 +28,22 @@ describe('route success-status map', () => {
     expect(stale, `Stale map entries:\n${stale.join('\n')}`).toEqual([]);
   });
 
-  it('only uses allowed success statuses (200/204)', () => {
+  it('only uses allowed success statuses (200/204, or the one named exception)', () => {
     const invalid = Object.entries(successStatusMap).filter(
-      ([, status]) => !ALLOWED_SUCCESS_STATUSES.has(status),
+      ([key, status]) => !isAllowedSuccessStatus({ key, status }),
     );
     expect(invalid, `Invalid statuses: ${JSON.stringify(invalid)}`).toEqual([]);
   });
 
-  it('pins documented happy paths — only DELETE deviates from 200', () => {
+  it("names exactly one exception — Apple's form callback answers 303 (P85)", () => {
+    expect([...METHOD_STATUS_POLICY_EXCEPTIONS]).toEqual([
+      ['POST /api/v1/auth/oauth/apple/callback', 303],
+    ]);
+    expect(successStatusMap['POST /api/v1/auth/oauth/apple/callback']).toBe(303);
+    expect(isAllowedSuccessStatus({ key: 'POST /api/v1/auth/logout', status: 303 })).toBe(false);
+  });
+
+  it('pins documented happy paths — only DELETE and the named exception deviate from 200', () => {
     expect(successStatusMap['POST /api/v1/auth/logout']).toBe(200);
     expect(successStatusMap['DELETE /api/v1/auth/me/sessions']).toBe(204);
     expect(successStatusMap['POST /api/v1/tenancy/organizations']).toBe(200);
@@ -43,9 +52,13 @@ describe('route success-status map', () => {
       200,
     );
     expect(successStatusMap['POST /api/v1/users/me/data-export']).toBe(200);
-    // The uniform policy: success is 200 for every method except DELETE (204). No POST is 201.
+    // The uniform policy: success is 200 for every method except DELETE (204), and the one named
+    // exception (Apple's form callback, 303). No POST is 201.
     const nonStandard = Object.entries(successStatusMap).filter(
-      ([key, status]) => status !== 200 && !(key.startsWith('DELETE ') && status === 204),
+      ([key, status]) =>
+        status !== 200 &&
+        !(key.startsWith('DELETE ') && status === 204) &&
+        METHOD_STATUS_POLICY_EXCEPTIONS.get(key) !== status,
     );
     expect(nonStandard, JSON.stringify(nonStandard)).toEqual([]);
   });

@@ -10,10 +10,9 @@ import { dirname, resolve } from 'node:path';
  * enough to complete a transfer in another tab.
  *
  * Both routes now require `requireStrongRecentStepUpPreHandler` — a STRONG step-up
- * (password or MFA), stricter than the enroll gate. A bootstrap email-code step-up
- * (a passwordless-no-MFA account enrolling its first factor) can open a window but must
- * NOT revoke sessions, so a stolen session plus inbox access on a passwordless account
- * cannot disrupt session state.
+ * (the 2FA code, or the email code for a person without settled 2FA — AT15), stricter than
+ * the enroll gate: a provisional-MFA window can open the enroll gate but must NOT revoke
+ * sessions, and a person with settled 2FA must step up with the 2FA code.
  *
  * Tests against the source text of `auth.routes.ts` because registering the live
  * plugin in a unit test pulls in `@fastify/rate-limit`, `zod-type-provider`, and the

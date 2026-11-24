@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UnauthorizedError } from '@/shared/errors/index.js';
+import { RateLimitedError, UnauthorizedError } from '@/shared/errors/index.js';
 import { TOTP_ISSUER } from '@/shared/constants/project-identity.constants.js';
 import { MfaService } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa.service.js';
 import type { UserService } from '@/domains/user/user.service.js';
@@ -221,13 +221,13 @@ describe('MfaService', () => {
     redis.eval.mockResolvedValue(11); // > MAX_MFA_VERIFICATION_ATTEMPTS — atomic counter says locked
     vi.mocked(consumeMfaRecoveryCode).mockResolvedValueOnce(true);
 
-    // TOTP is rejected while locked...
+    // TOTP is rejected while locked (AT16: 429 mfa_locked)...
     await expect(
       service.verifyLoginMfa({
         body: { mfa_session_token: 'token', totp_code: '123456' },
         ipAddress: '127.0.0.1',
       }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
+    ).rejects.toBeInstanceOf(RateLimitedError);
 
     // ...but the recovery (break-glass) code still works — the lockout does not gate it.
     const result = await service.verifyLoginMfa({
@@ -765,5 +765,128 @@ describe('MfaService', () => {
     await expect(
       service.verify({ userPublicId: 'user_public', body: { code: '123456' } }),
     ).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  describe('R32 — the 2FA sign-in reasons, trust this device, settled factor (AT15–AT17)', () => {
+    const trustedDeviceService = {
+      trustDevice: vi.fn().mockResolvedValue({
+        token: 'raw-token',
+        public_id: 'tdv_aaaaaaaaaaaaaaaaaaaaa',
+        expires_at: new Date(),
+        revoked_public_ids: [],
+      }),
+      acceptTrustedDevice: vi.fn().mockResolvedValue(true),
+      revokeAllForUser: vi.fn().mockResolvedValue(['tdv_bbbbbbbbbbbbbbbbbbbbb']),
+    };
+    const trustingService = new MfaService(
+      userService,
+      authMethodService,
+      authSessionService,
+      Object.assign(redis, { ttl: vi.fn().mockResolvedValue(420) }) as never,
+      undefined,
+      trustedDeviceService as never,
+    );
+
+    it('a wrong TOTP code answers mfa_code_wrong with the tries left', async () => {
+      const { verify } = await import('otplib');
+      vi.mocked(verify).mockResolvedValueOnce({ valid: false } as never);
+      redis.eval.mockResolvedValueOnce(3);
+      await expect(
+        trustingService.verifyLoginMfa({
+          body: { mfa_session_token: 'session-token', totp_code: '000000' },
+          ipAddress: '127.0.0.1',
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 401,
+        reason: 'mfa_code_wrong',
+        fields: { tries_left: 7 },
+      });
+    });
+
+    it("over the limit the sign-in step answers 429 mfa_locked with the counter's remaining time", async () => {
+      redis.eval.mockResolvedValueOnce(11);
+      await expect(
+        trustingService.verifyLoginMfa({
+          body: { mfa_session_token: 'session-token', totp_code: '000000' },
+          ipAddress: '127.0.0.1',
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 429,
+        reason: 'mfa_locked',
+        fields: { retry_after_seconds: 420 },
+      });
+    });
+
+    it('trust_device on a right code trusts this browser; without it nothing is trusted', async () => {
+      const trusted = await trustingService.verifyLoginMfa({
+        body: { mfa_session_token: 'session-token', totp_code: '123456', trust_device: true },
+        ipAddress: '127.0.0.1',
+        userAgent: 'vitest',
+      });
+      expect(trusted.trusted_device).toMatchObject({
+        token: 'raw-token',
+        public_id: 'tdv_aaaaaaaaaaaaaaaaaaaaa',
+        user_public_id: 'user_public',
+      });
+      expect(trustedDeviceService.trustDevice).toHaveBeenCalledWith({
+        owner: { id: 1, public_id: 'user_public' },
+        userAgent: 'vitest',
+      });
+
+      vi.mocked(trustedDeviceService.trustDevice).mockClear();
+      const untrusted = await trustingService.verifyLoginMfa({
+        body: { mfa_session_token: 'session-token', totp_code: '654321' },
+        ipAddress: '127.0.0.1',
+      });
+      expect(untrusted.trusted_device).toBeUndefined();
+      expect(trustedDeviceService.trustDevice).not.toHaveBeenCalled();
+    });
+
+    it('removing the last factor ends every trusted device; a remaining factor ends none', async () => {
+      vi.mocked(authMethodService.revokeAuthMethod).mockResolvedValue({ id: 5 } as never);
+      vi.mocked(authMethodService.findAuthMethodByPublicIdForUser).mockResolvedValue({
+        id: 5,
+        method_type: 'MFA_TOTP',
+      } as never);
+      vi.mocked(authMethodService.listMfaMethodsByUserId).mockResolvedValue([]);
+      await expect(
+        trustingService.deleteMfa({
+          userPublicId: 'user_public',
+          mfaMethodPublicId: 'mfamethodpublicid0001',
+        }),
+      ).resolves.toEqual({ revoked_trusted_device_ids: ['tdv_bbbbbbbbbbbbbbbbbbbbb'] });
+
+      vi.mocked(trustedDeviceService.revokeAllForUser).mockClear();
+      vi.mocked(authMethodService.listMfaMethodsByUserId).mockResolvedValue([
+        { id: 6, method_type: 'MFA_TOTP' },
+      ] as never);
+      await expect(
+        trustingService.deleteMfa({
+          userPublicId: 'user_public',
+          mfaMethodPublicId: 'mfamethodpublicid0001',
+        }),
+      ).resolves.toEqual({ revoked_trusted_device_ids: [] });
+      expect(trustedDeviceService.revokeAllForUser).not.toHaveBeenCalled();
+    });
+
+    it('hasSettledSecondFactor: a provisional factor is not settled, a plain one is', async () => {
+      const owner = { id: 1, public_id: 'user_public' };
+      vi.mocked(authMethodService.listMfaMethodsByUserId).mockResolvedValue([
+        {
+          method_type: 'MFA_TOTP',
+          provisional_until: new Date(Date.now() + 60_000),
+          enrolled_on_session_public_id: 'ses_other',
+        },
+      ] as never);
+      await expect(
+        trustingService.hasSettledSecondFactor({ owner, sessionPublicId: 'ses_this' }),
+      ).resolves.toBe(false);
+      vi.mocked(authMethodService.listMfaMethodsByUserId).mockResolvedValue([
+        { method_type: 'MFA_TOTP', provisional_until: null, enrolled_on_session_public_id: null },
+      ] as never);
+      await expect(
+        trustingService.hasSettledSecondFactor({ owner, sessionPublicId: 'ses_this' }),
+      ).resolves.toBe(true);
+    });
   });
 });

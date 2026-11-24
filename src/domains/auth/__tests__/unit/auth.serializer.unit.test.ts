@@ -81,7 +81,7 @@ describe('AuthSerializer', () => {
   });
 
   it('message returns payload unchanged', () => {
-    const payload = { message: 'Password reset email sent' };
+    const payload = { message: 'Verification code sent' };
     expect(AuthSerializer.message(payload)).toBe(payload);
   });
 

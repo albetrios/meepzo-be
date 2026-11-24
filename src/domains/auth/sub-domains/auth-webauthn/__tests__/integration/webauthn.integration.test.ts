@@ -60,8 +60,7 @@ describe('Auth WebAuthn — Integration', () => {
     it('rejects registration for an UNVERIFIED account with 403, even with a valid step-up', async () => {
       // Account pre-hijacking (Trojan-credential variant): an unverified (e.g. attacker-pre-
       // registered) account must not seed a passkey that would survive the real owner's
-      // password-reset recovery. Step-up (a password the attacker set) is not enough — email
-      // verification is the required gate.
+      // later email-code sign-in. A step-up is not enough — email verification is the required gate.
       const user = await createTestUser({ isEmailVerified: false });
       const { token, sessionPublicId } = await generateTestTokenWithActiveSession(
         app,

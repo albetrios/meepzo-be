@@ -7,7 +7,7 @@
 | Intake mode | brief (from scratch) |
 | Intake hash | `e2875698ea64` |
 | Date | 2026-11-23 |
-| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1, awaiting the owner's OK), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied: common channel tables, Instagram tables named `instagram_*`. Each table section names the route-review section that owns its columns, keys and indexes |
+| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1, awaiting the owner's OK), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied, then room for WhatsApp and TikTok ([P48](decisions.md), [P49](decisions.md); P48 supersedes P44): common channel tables, the product data shared across channels, the Instagram adapter tables named `instagram_*`. Each table section names the route-review section that owns its columns, keys and indexes |
 
 The iteration's data model, kept current at every planning step. WHAT must be true, never HOW: logical
 types only, no SQL, no indexes, no constraints — the column types, keys and indexes are the route review's
@@ -16,7 +16,8 @@ are cited as `plan:L<line>` — lines of `intake-files/Instagram-DM-Sending-Plan
 decisions are `D1`–`D73` (plan:L210–L284, locked); this plan's are `P<n>` in
 [decisions.md](decisions.md): `P1`–`P27` are the AMBER defaults A1–A27 (`P21`–`P25` are this file's
 former data questions N1–N5), `P28`–`P39` the owner's Step 4 answers (RED), `P40`–`P47` the owner's
-channel split (P47 its derived defaults, AMBER).
+channel split (P47 its derived defaults, AMBER), `P48`–`P49` the room for WhatsApp and TikTok (RED; P48
+supersedes P44).
 
 **Scope (P28, P39).** Track A (the sending engine, plan §4–43) and Part F (plan §44–47) are both in this
 iteration; only the referral program (plan §48) moves to a later iteration — see **Out of scope (P39)**
@@ -26,18 +27,30 @@ at the end.
 built the 10 `app` tables marked `EXISTING`, `CHANGED` or `REMOVED` here. Per plan D1 (plan:L212,
 plan:L2888) this plan states every change against those tables, before → after. It ships in one PR on
 `feat/instagram-automation` with the frozen launch: the 7 `app` migrations change in place (D1,
-[P29](decisions.md)) — so a launch table the channel split renames (`app.contacts` →
-`app.instagram_contacts`, …) is `CHANGED`, "renamed from …", not removed and made again; Part F's
+[P29](decisions.md)) — the four launch product tables (`app.contacts`, `app.automations`,
+`app.automation_runs` with its events, `app.automation_comment_logs`) keep their names and are
+`CHANGED` in place: shared across channels, no rename (P48 supersedes P44's `instagram_` rename); Part F's
 changes to the platform domains are new migrations only (D48, [P38](decisions.md)).
 
 | Change | Count | Entities |
 | --- | --- | --- |
-| NEW | 22 | **Common, Stages 1 and 6 (6):** channel_connection, channel_connection_token, channel_account, message_month_count, sending_state, sending_helper_slot · **Instagram, Stages 2–6 (14):** instagram_contact_tag_event, instagram_automation_count, instagram_automation_reply_state, instagram_automation_backfill, instagram_webhook_event_key, instagram_segment, instagram_broadcast, instagram_broadcast_recipient, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account |
-| CHANGED | 15 | **app (9):** instagram_account (now the Instagram extension of channel_account), instagram_account_setting, instagram_media, instagram_contact (renamed from `app.contacts`), instagram_automation (from `app.automations`), instagram_automation_run (from `app.automation_runs`), instagram_automation_run_event (from `app.automation_run_events`), instagram_automation_comment_log (from `app.automation_comment_logs`), instagram_webhook_event · **Stage 7 (2):** plan, subscription · **Stage 8 (4):** organization, user, user_setting, session |
+| NEW | 22 | **Common, Stages 1 and 6 (6):** channel_connection, channel_connection_token, channel_account, message_month_count, sending_state, sending_helper_slot · **Shared product data, Stages 2, 3 and 5 (7, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, segment, broadcast, broadcast_recipient · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account |
+| CHANGED | 15 | **app (9):** instagram_account (now the Instagram extension of channel_account), instagram_account_setting, instagram_media, contact, automation, automation_run, automation_run_event, automation_comment_log (the four launch product tables, shared and keyed by `channel_account_id`, no rename — P48), instagram_webhook_event · **Stage 7 (2):** plan, subscription · **Stage 8 (4):** organization, user, user_setting, session |
 | REMOVED | 1 | instagram_account_token |
 | EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `instagram_attachment` names an upload by its public id |
 
-Since the last version (the channel split, [P40](decisions.md)–[P47](decisions.md)): the Meta login is
+Since the last version (room for WhatsApp and TikTok, [P48](decisions.md), [P49](decisions.md)): the
+product data is **shared again** (P48 supersedes P44) — `contact`, `contact_tag_event`, `automation`,
+`automation_count`, `automation_reply_state`, `automation_backfill`, `automation_run`,
+`automation_run_event`, `automation_comment_log`, `segment`, `broadcast` and `broadcast_recipient` lose
+the `instagram_` prefix and are keyed by `channel_account_id`, with a `channel` column where the row
+needs it (contact, automation, broadcast); the four launch tables keep their launch names, changed in
+place. `channel_connection_token` gains an encrypted refresh token (empty for Meta) and `token_type`
+`system_user` · `oauth_user` (P49). The account extension, its settings, media, the sending tables,
+`instagram_attachment` and the webhook tables stay Instagram's (P43, P45). No table is added or removed,
+so the counts stand.
+
+Earlier (the channel split, [P40](decisions.md)–[P47](decisions.md)): the Meta login is
 the common `channel_connection` + `channel_connection_token` (was `meta_connection*`, P41 — provider
 `meta`, one Unified Login for Instagram, Facebook and ads; ad accounts are read through it); the new
 common `channel_account` holds what every channel's account has — channel, connection, status, display
@@ -45,20 +58,33 @@ name, the owner's pause, the team's suspend, the plan stop and the automation sw
 `instagram_account` (its connection fields), `instagram_account_setting` (the switch) and
 `instagram_send_lane` (pause, suspend, plan stop); `instagram_account` becomes its 1:1 Instagram
 extension (P42); every `instagram_account_id` on the product and sending tables becomes
-`channel_account_id` → `channel_accounts` (P47); the product tables take the `instagram_` prefix (P44),
-`meta_attachment` becomes `instagram_attachment` (P43) and the month count `message_month_count`
+`channel_account_id` → `channel_accounts` (P47); the product tables took the `instagram_` prefix (P44,
+superseded by P48 above), `meta_attachment` becomes `instagram_attachment` (P43) and the month count `message_month_count`
 (P43); the plan features are `channel_accounts_max` and `message_month_limit` (P47).
 `sending_helper_slot` stays until SNQ1 is answered (the route review recommends dropping it).
 
-**Where the tables live (P38, P40–P44).** Every new or changed sending table stays in the `app` schema
+**Where the tables live (P38, P40–P43, P48).** Every new or changed sending table stays in the `app` schema
 (plan:L2800, plan:L8481), and its label carries that `domain.table`. **Common** — any channel's:
 `app.channel_connections`, `app.channel_connection_tokens`, `app.channel_accounts` (sub-domains
 `channel-connection/`, `channel-account/`), `app.message_month_counts` (the plan limit spans channels)
-and `app.sending_states` (the global send switch). **Instagram** — everything else of this iteration's
-`app` tables is `app.instagram_*` (sub-domains `instagram-account/`, `instagram-contact/`,
-`instagram-automation/` with its run and backfill, `instagram-broadcast/` with its segment and recipient,
-`instagram-sending/`, `instagram-webhook/`); a later Facebook channel adds its own `facebook_*` tables
-beside them (P45). Part F's new tables go in their merged domains' schemas (`auth.trusted_devices`,
+and `app.sending_states` (the global send switch). **Shared product data** (P48) — any channel's,
+keyed by `channel_account_id`: `app.contacts`, `app.contact_tag_events`, `app.automations`,
+`app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs`,
+`app.automation_counts`, `app.automation_reply_states`, `app.automation_backfills`, `app.segments`,
+`app.broadcasts`, `app.broadcast_recipients` (sub-domains `contact/`, `automation/` with
+`automation-run/` and `automation-backfill/`, `broadcast/` with `broadcast-segment/` and
+`broadcast-recipient/`). **Instagram** — the adapter: `app.instagram_accounts` (the extension),
+`app.instagram_account_settings`, `app.instagram_media`, the sending tables, `app.instagram_attachments`
+and the webhook tables (sub-domains `instagram-account/`, `instagram-sending/`, `instagram-webhook/`); a
+later WhatsApp, TikTok or Facebook channel adds its own adapter tables beside them and reuses the shared
+ones (P45, P48). The shared run engine hands every send to the channel's sending sub-domain through one
+interface — save a waiting message (P48).
+
+**Per-channel capability list (P48).** Which ways to start, steps and message kinds a channel offers is
+a **code constant**, one entry per channel — Instagram the only entry now; no table and no column. Go-live
+(RC-31), saving a live automation (RC-29) and sending a broadcast (RC-52) check the automation's or
+broadcast's `channel` against it; a later channel adds its entry. P36's untested-features code list
+stays beside it for Instagram's Meta-test-gated parts. Part F's new tables go in their merged domains' schemas (`auth.trusted_devices`,
 `billing.trial_accounts`; plan:L8467); the plan rows stay in `billing`.
 
 **Names.** The plan's identifiers are rewritten to full names (A6, [P6](decisions.md)): `dm_month_counts`
@@ -69,10 +95,9 @@ beside them (P45). Part F's new tables go in their merged domains' schemas (`aut
 (`message_number`, `version_number`, `wording_number`, `text_number`, `chain_number`,
 `version_numbers`, `duration_milliseconds`). New true/false fields take the `is_` form the repository's
 SQL guide asks for (be-sql-design-guard rule 5, like the launch's `is_automation_enabled`); the plan's
-name is in each field's comment ([P21](decisions.md), AMBER). Reference fields inside the Instagram
-tables keep their short names — `contact_id`, `automation_id`, `automation_run_id`, `broadcast_id`,
-`segment_id` — with their `instagram_*` target in the field's comment, as the route params keep
-`{contact_id}`, `{automation_id}` … (P44, P47).
+name is in each field's comment ([P21](decisions.md), AMBER). Reference fields name the shared tables
+directly — `contact_id`, `automation_id`, `automation_run_id`, `broadcast_id`, `segment_id` — as the
+route params do (`{contact_id}`, `{automation_id}` …; P47, P48).
 
 **Rules every new table follows** (plan:L2800, plan:L4223–L4298):
 
@@ -117,20 +142,20 @@ erDiagram
   instagram_account_setting["instagram_account_setting · CHANGED · app.instagram_account_settings"]
   instagram_account_token["instagram_account_token · REMOVED · app.instagram_account_tokens"]
   instagram_media["instagram_media · CHANGED · app.instagram_media"]
-  instagram_contact["instagram_contact · CHANGED · app.instagram_contacts"]
-  instagram_contact_tag_event["instagram_contact_tag_event · NEW · app.instagram_contact_tag_events"]
-  instagram_automation["instagram_automation · CHANGED · app.instagram_automations"]
-  instagram_automation_count["instagram_automation_count · NEW · app.instagram_automation_counts"]
-  instagram_automation_reply_state["instagram_automation_reply_state · NEW · app.instagram_automation_reply_states"]
-  instagram_automation_backfill["instagram_automation_backfill · NEW · app.instagram_automation_backfills"]
-  instagram_automation_run["instagram_automation_run · CHANGED · app.instagram_automation_runs"]
-  instagram_automation_run_event["instagram_automation_run_event · CHANGED · app.instagram_automation_run_events"]
-  instagram_automation_comment_log["instagram_automation_comment_log · CHANGED · app.instagram_automation_comment_logs"]
+  contact["contact · CHANGED · app.contacts"]
+  contact_tag_event["contact_tag_event · NEW · app.contact_tag_events"]
+  automation["automation · CHANGED · app.automations"]
+  automation_count["automation_count · NEW · app.automation_counts"]
+  automation_reply_state["automation_reply_state · NEW · app.automation_reply_states"]
+  automation_backfill["automation_backfill · NEW · app.automation_backfills"]
+  automation_run["automation_run · CHANGED · app.automation_runs"]
+  automation_run_event["automation_run_event · CHANGED · app.automation_run_events"]
+  automation_comment_log["automation_comment_log · CHANGED · app.automation_comment_logs"]
   instagram_webhook_event["instagram_webhook_event · CHANGED · app.instagram_webhook_events"]
   instagram_webhook_event_key["instagram_webhook_event_key · NEW · app.instagram_webhook_event_keys"]
-  instagram_segment["instagram_segment · NEW · app.instagram_segments"]
-  instagram_broadcast["instagram_broadcast · NEW · app.instagram_broadcasts"]
-  instagram_broadcast_recipient["instagram_broadcast_recipient · NEW · app.instagram_broadcast_recipients"]
+  segment["segment · NEW · app.segments"]
+  broadcast["broadcast · NEW · app.broadcasts"]
+  broadcast_recipient["broadcast_recipient · NEW · app.broadcast_recipients"]
   instagram_send_lane["instagram_send_lane · NEW · app.instagram_send_lanes"]
   instagram_message["instagram_message · NEW · app.instagram_messages"]
   instagram_send_attempt["instagram_send_attempt · NEW · app.instagram_send_attempts"]
@@ -154,31 +179,31 @@ erDiagram
   channel_account ||--|| instagram_account_setting : "is set up by"
   instagram_account ||--|| instagram_account_token : "REMOVED: signs in with"
   channel_account ||--o{ instagram_media : "stores the posts of"
-  channel_account ||--o{ instagram_contact : "brings in"
-  instagram_contact ||--o{ instagram_contact_tag_event : "ADDED: has tag changes"
-  instagram_automation |o--o{ instagram_contact_tag_event : "ADDED: tagged by"
-  instagram_automation |o--o{ instagram_contact : "ADDED: first brought in"
-  user |o--o{ instagram_contact : "ADDED: paused automations for"
-  channel_account ||--o{ instagram_automation : "runs"
-  instagram_automation ||--o{ instagram_automation_count : "ADDED: is counted in"
-  instagram_automation ||--o| instagram_automation_reply_state : "ADDED: paces public replies by"
-  instagram_automation ||--o{ instagram_automation_backfill : "ADDED: answers past comments through"
-  instagram_automation ||--o{ instagram_automation_run : "starts"
-  instagram_contact ||--o{ instagram_automation_run : "goes through"
-  instagram_automation_run ||--o{ instagram_automation_run_event : "records"
-  instagram_automation ||--o{ instagram_automation_comment_log : "logs"
-  instagram_automation_run |o--o{ instagram_automation_comment_log : "is logged by"
-  instagram_contact ||--o{ instagram_automation_comment_log : "is logged by"
+  channel_account ||--o{ contact : "brings in"
+  contact ||--o{ contact_tag_event : "ADDED: has tag changes"
+  automation |o--o{ contact_tag_event : "ADDED: tagged by"
+  automation |o--o{ contact : "ADDED: first brought in"
+  user |o--o{ contact : "ADDED: paused automations for"
+  channel_account ||--o{ automation : "runs"
+  automation ||--o{ automation_count : "ADDED: is counted in"
+  automation ||--o| automation_reply_state : "ADDED: paces public replies by"
+  automation ||--o{ automation_backfill : "ADDED: answers past comments through"
+  automation ||--o{ automation_run : "starts"
+  contact ||--o{ automation_run : "goes through"
+  automation_run ||--o{ automation_run_event : "records"
+  automation ||--o{ automation_comment_log : "logs"
+  automation_run |o--o{ automation_comment_log : "is logged by"
+  contact ||--o{ automation_comment_log : "is logged by"
   channel_account ||--o{ instagram_webhook_event : "receives events for"
   channel_account ||--o{ instagram_webhook_event_key : "ADDED: remembers event keys of"
-  channel_account ||--o{ instagram_segment : "ADDED: saves audiences in"
-  instagram_segment |o--o{ instagram_broadcast : "ADDED: is the audience of"
-  channel_account ||--o{ instagram_broadcast : "ADDED: sends"
-  instagram_broadcast ||--o{ instagram_broadcast_recipient : "ADDED: goes to"
-  instagram_contact ||--o{ instagram_broadcast_recipient : "ADDED: receives"
+  channel_account ||--o{ segment : "ADDED: saves audiences in"
+  segment |o--o{ broadcast : "ADDED: is the audience of"
+  channel_account ||--o{ broadcast : "ADDED: sends"
+  broadcast ||--o{ broadcast_recipient : "ADDED: goes to"
+  contact ||--o{ broadcast_recipient : "ADDED: receives"
   channel_account ||--|{ instagram_send_lane : "ADDED: sends through 4 lanes"
-  instagram_automation_run |o--o{ instagram_message : "ADDED: sends"
-  instagram_broadcast |o--o{ instagram_message : "ADDED: sends"
+  automation_run |o--o{ instagram_message : "ADDED: sends"
+  broadcast |o--o{ instagram_message : "ADDED: sends"
   instagram_message ||--o{ instagram_send_attempt : "ADDED: is tried by (no reference)"
   channel_account ||--o{ instagram_send_minute_count : "ADDED: is counted per minute in"
   organization ||--o{ message_month_count : "ADDED: is counted per month in"
@@ -259,8 +284,10 @@ erDiagram
 
 ### channel_connection_token
 
-- **Holds:** the connection's system-user access token, stored encrypted, its type and when it ends
-  (empty = never, the default for a system-user token, D24). One per connection; deleted only when the
+- **Holds:** the connection's access token, stored encrypted, its type and when it ends (empty =
+  never, the default for a system-user token, D24) — plus an encrypted refresh token for a provider
+  whose tokens expire (a later WhatsApp or TikTok login), empty for Meta ([P49](decisions.md)).
+  `token_type`: `system_user` (Meta today) · `oauth_user` (P49). One per connection; deleted only when the
   connection is `revoked`. Read only on the provider client's path — never in a cache, a log or a job
   payload. No public id. Goes away with its connection.
 - **Table:** `app.channel_connection_tokens` ([P41](decisions.md); was `app.meta_connection_tokens`,
@@ -271,7 +298,8 @@ erDiagram
   daily check — the connection's own scheduled work (P47) — only tests it and sets the connection to
   `error` when Meta rejects it.
 - **Replaced:** `instagram_account_token` (removed below) — one token per account → one per
-  connection. `meta_connection_token` → `channel_connection_token` (P41).
+  connection. `meta_connection_token` → `channel_connection_token` (P41). `encrypted_refresh_token` and
+  the `oauth_user` token type added now, so an expiring provider needs no table change (P49).
 - **Open:** none.
 
 ```mermaid
@@ -281,7 +309,8 @@ erDiagram
     id organization_id FK
     id channel_connection_id FK, UK "one per connection"
     text encrypted_access_token "stored encrypted; never returned, cached or logged"
-    choice token_type "system_user"
+    text encrypted_refresh_token "stored encrypted; empty for Meta; for providers whose tokens expire (P49)"
+    choice token_type "system_user · oauth_user (P49); Meta is system_user"
     datetime expires_at "empty = never ends"
     datetime created_at
     datetime updated_at
@@ -446,7 +475,7 @@ erDiagram
 - **Sources:** plan:L2895–L2920; D5, D11, D22, D32, D64–D68; current schema
   `src/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.ts`.
 - **Added:** the 13 fields marked `ADDED` below.
-- **Replaced:** the 5 public reply safety fields → per automation (`instagram_automation.is_reply_like_person_enabled`,
+- **Replaced:** the 5 public reply safety fields → per automation (`automation.is_reply_like_person_enabled`,
   `public_reply_hour_limit`) and the settings file (D32); `is_automation_enabled` → `channel_account`
   (P42); `instagram_account_id` → `channel_account_id` (P47).
 - **Open:** none — true/false names take the `is_` form (P21, AMBER).
@@ -510,7 +539,7 @@ erDiagram
   last read the post's comments, when it reads again — empty = not watched — and the newest comment
   known) and when a Live ended, so waiting Live private replies expire without a call (D40).
   `media_product_type` adds Meta's value for a Live; `ad` marks an ad's post (D41). Stays Instagram's
-  (P44); names its account by `channel_account_id` (P47).
+  (P48); names its account by `channel_account_id` (P47).
 - **Table:** `app.instagram_media` (live)
 - **Sources:** plan:L2946–L2958; current schema
   `src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.ts`.
@@ -538,9 +567,10 @@ erDiagram
 
 Contacts and automations get the fields the 15 ways to start, the message list and the owner's
 controls need; four small tables carry tag changes, all-time counts, public reply pacing and
-past-comment runs.
+past-comment runs. All of them are **shared across channels** ([P48](decisions.md)): keyed by
+`channel_account_id`, the channel's own rules held by its capability list, not by its own tables.
 
-### instagram_contact
+### contact
 
 - **Holds:** as at launch, one person who wrote to or commented on one account — plus the 24-hour
   private-reply rule (last opening message), the stop word (opted out), the channel (`instagram`,
@@ -553,7 +583,7 @@ past-comment runs.
   automations pause (when and by whom), came-in ref, first message, last comment, last story activity
   and last broadcast, and sets her comment count to 0 — her activity is personal data too; the
   "via" automation, how she came in and the channel stay (CT11).
-- **Table:** `app.instagram_contacts` (live; **renamed from `app.contacts`**, [P44](decisions.md) — the launch migration changes in place, P29)
+- **Table:** `app.contacts` (live; shared across channels, no rename — [P48](decisions.md); the launch migration changes in place, P29)
 - **Sources:** plan:L2960–L2993; D27, D45, D46, D49, D68, D71; current schema
   `src/domains/app/sub-domains/contact/contact.schema.ts`.
 - **Added:** the 14 fields marked `ADDED`. The list and its sorts are per account (D26). The reference
@@ -562,12 +592,13 @@ past-comment runs.
   through one index the contact writer adds (BC13, routes-final § 7).
 - **Replaced:** the email check: the launch refused plus addresses (Standing deviation "Email and
   phone checks") → accepted (A19, [P19](decisions.md)); tags 1–255 → 1–50 (CT9); `instagram_account_id`
-  → `channel_account_id` (P47); the table `app.contacts` → `app.instagram_contacts` (P44).
+  → `channel_account_id` (P47). The table keeps its launch name — P44's rename to
+  `app.instagram_contacts` is withdrawn (P48).
 - **Open:** none — columns and checks: routes-final § 3, 3.A.3.
 
 ```mermaid
 erDiagram
-  instagram_contact["instagram_contact · CHANGED · app.instagram_contacts"] {
+  contact["contact · CHANGED · app.contacts"] {
     id id PK
     id organization_id FK
     id channel_account_id FK "CHANGED: was instagram_account_id; → channel_account (P47)"
@@ -579,8 +610,8 @@ erDiagram
     datetime deleted_at "referenced"
     datetime last_opening_message_at "ADDED: 24-hour private-reply rule (D8); cleared on erase"
     datetime opted_out_at "ADDED: stop word (D49); cleared on erase"
-    choice channel "ADDED: instagram (D27)"
-    id first_automation_id FK "ADDED: → instagram_automation; set once; emptied when it goes (D46); its reference added by the automations migration"
+    choice channel "ADDED: instagram (D27); copy of the account's channel (P48)"
+    id first_automation_id FK "ADDED: → automation; set once; emptied when it goes (D46); its reference added by the automations migration"
     choice came_in_via "ADDED: a trigger_type value; set once"
     text came_in_ref "ADDED: ref code or ad id, at most 64; cleared on erase"
     text note "ADDED: 1 to 2000; owner only; cleared on erase (D46)"
@@ -592,13 +623,13 @@ erDiagram
     datetime last_story_activity_at "ADDED; cleared on erase"
     datetime last_broadcast_at "ADDED: 24-hour broadcast gap (D68); cleared on erase"
   }
-  instagram_automation["instagram_automation · CHANGED · app.instagram_automations"] {
+  automation["automation · CHANGED · app.automations"] {
     id id PK
   }
-  instagram_automation |o--o{ instagram_contact : "ADDED: first brought in"
+  automation |o--o{ contact : "ADDED: first brought in"
 ```
 
-### instagram_contact_tag_event
+### contact_tag_event
 
 - **Holds:** one row per tag added to or removed from a contact, written in the same commit as the
   change, so tag starts never lose one (D45). `kind`: `added` · `removed`; `source`: `automation` (a
@@ -606,7 +637,7 @@ erDiagram
   nothing at 3 or more. Its id is part of the once key of a tag start. Kept 8 days. No public id.
   Goes with its contact; a deleted automation only empties `source_automation_id` (that reference is
   added by the automations migration, which builds after contacts).
-- **Table:** `app.instagram_contact_tag_events` ([P44](decisions.md); the plan's `app.contact_tag_events`)
+- **Table:** `app.contact_tag_events` (the plan's name; shared, [P48](decisions.md))
 - **Sources:** plan:L3685–L3717; D45; routes-final § 3, 3.B.3.
 - **Added:** new.
 - **Replaced:** none.
@@ -614,31 +645,31 @@ erDiagram
 
 ```mermaid
 erDiagram
-  instagram_contact_tag_event["instagram_contact_tag_event · NEW · app.instagram_contact_tag_events"] {
+  contact_tag_event["contact_tag_event · NEW · app.contact_tag_events"] {
     id id PK "part of the tag start's once key"
     id organization_id FK
     id channel_account_id FK "→ channel_account; copy of the contact's account"
-    id contact_id FK "→ instagram_contact; goes with the contact"
+    id contact_id FK "→ contact; goes with the contact"
     text tag "1 to 50"
     choice kind "added · removed"
     choice source "automation · owner"
-    id source_automation_id FK "→ instagram_automation; set exactly when source is automation; emptied when it goes (added by the automations migration)"
+    id source_automation_id FK "→ automation; set exactly when source is automation; emptied when it goes (added by the automations migration)"
     number chain_number "0 or more; plan name chain_no"
     datetime created_at
     datetime queued_at
     datetime done_at
   }
-  instagram_contact["instagram_contact · CHANGED · app.instagram_contacts"] {
+  contact["contact · CHANGED · app.contacts"] {
     id id PK
   }
-  instagram_automation["instagram_automation · CHANGED · app.instagram_automations"] {
+  automation["automation · CHANGED · app.automations"] {
     id id PK
   }
-  instagram_contact ||--o{ instagram_contact_tag_event : "ADDED: has tag changes"
-  instagram_automation |o--o{ instagram_contact_tag_event : "ADDED: tagged by"
+  contact ||--o{ contact_tag_event : "ADDED: has tag changes"
+  automation |o--o{ contact_tag_event : "ADDED: tagged by"
 ```
 
-### instagram_automation
+### automation
 
 - **Holds:** as at launch, one automation of one account — now flat fields for how it starts and
   its public reply, and one `steps` object for everything it sends (hello, follow, email, phone, the
@@ -653,7 +684,7 @@ erDiagram
   delete reason becomes optional, `other` still needs a note (A11, [P11](decisions.md)). Files in steps
   are referred to by upload public id, same workspace, checked by file type and content (magic bytes)
   — the malware scan comes in a later iteration (plan:L3094; [P34](decisions.md), a D58 deviation).
-- **Table:** `app.instagram_automations` (live; **renamed from `app.automations`**, [P44](decisions.md), P29)
+- **Table:** `app.automations` (live; shared across channels, no rename — [P48](decisions.md), P29)
 - **Sources:** plan:L2995–L3145; D28–D45, D52, D57, D59, D63; current schema
   `src/domains/app/sub-domains/automation/automation.schema.ts`.
 - **Added:** the fields marked `ADDED`; the go-live checks of §5.1 plus the "next step" button rule
@@ -664,25 +695,26 @@ erDiagram
   - `is_dm_keyword_trigger_enabled` → `also_start_from` (D38).
   - `next_post_starts_at` / `next_post_ends_at` → `target_starts_at` / `target_ends_at` (D39).
   - `tags` → `steps.tags` (D45).
-  - `completed_run_count` → `instagram_automation_count` (D36).
+  - `completed_run_count` → `automation_count` (D36).
   - `is_public_reply_enabled` stays as it is; the plan renames it `public_reply_enabled`, which the
     repository's true/false rule does not allow ([P21](decisions.md)).
-  - `instagram_account_id` → `channel_account_id` (P47); the table `app.automations` →
-    `app.instagram_automations` (P44).
+  - `instagram_account_id` → `channel_account_id` (P47). The table keeps its launch name — P44's
+    rename is withdrawn (P48).
 - **Open:** none (columns, keys and checks: routes-final § 4, 4.A.3). Every way to start is built; the ones that need a Meta test (`story_repost`,
   `live_comment`, `ad_comment`, the 7-day ad window, quick replies and cards on Unified Login) are
   refused at go-live by a code list of offered ways to start and features until their plan §43 test
-  passes — a code list, no column ([P36](decisions.md)).
+  passes — a code list, no column ([P36](decisions.md)). Ways to start, steps and message kinds are
+  checked against the channel's capability list (a code constant, Instagram the only entry; P48).
 
 ```mermaid
 erDiagram
-  instagram_automation["instagram_automation · CHANGED · app.instagram_automations"] {
+  automation["automation · CHANGED · app.automations"] {
     id id PK
     id organization_id FK
     id channel_account_id FK "CHANGED: was instagram_account_id; → channel_account (P47); referenced"
     choice status "CHANGED: live · inactive → draft · live · paused (D28)"
     choice trigger_type "CHANGED: comment · story_reply · dm → the 15 ways to start (D37)"
-    choice channel "ADDED: instagram (D27)"
+    choice channel "ADDED: instagram (D27); checked against the channel's capability list (P48)"
     json also_start_from "ADDED: list of story_reply, dm; at most 2 (D38)"
     choice target_scope "CHANGED: adds between (D39)"
     datetime target_starts_at "ADDED (D39)"
@@ -705,7 +737,7 @@ erDiagram
     datetime cancelled_before_at "ADDED: Pause and Cancel"
     choice delete_reason "CHANGED: optional; other needs a note (A11)"
     boolean is_dm_keyword_trigger_enabled "REMOVED: → also_start_from"
-    number completed_run_count "REMOVED: → instagram_automation_count"
+    number completed_run_count "REMOVED: → automation_count"
     json tags "REMOVED: → steps.tags"
     boolean is_opening_message_enabled "REMOVED: → steps"
     json opening_message "REMOVED: → steps"
@@ -719,22 +751,22 @@ erDiagram
   }
 ```
 
-### instagram_automation_count
+### automation_count
 
 - **Holds:** an automation's all-time counters — runs started, taps, typed answers, and the same per
   step version (for example `hello.1`) — split over 16 slots so busy automations do not wait on one
   row (D36). Survives the 90-day run delete. No public id. Goes away with its automation.
-- **Table:** `app.instagram_automation_counts` ([P44](decisions.md); the plan's `app.automation_counts`)
+- **Table:** `app.automation_counts` (the plan's name; shared, [P48](decisions.md))
 - **Sources:** plan:L3576–L3599; D36, D61.
 - **Added:** new.
-- **Replaced:** `instagram_automation.completed_run_count` (removed).
+- **Replaced:** `automation.completed_run_count` (removed).
 - **Open:** none.
 
 ```mermaid
 erDiagram
-  instagram_automation_count["instagram_automation_count · NEW · app.instagram_automation_counts"] {
+  automation_count["automation_count · NEW · app.automation_counts"] {
     id organization_id FK
-    id automation_id FK, PK "→ instagram_automation"
+    id automation_id FK, PK "→ automation"
     number slot PK "0 to 15"
     number runs_started "0 or more"
     number taps "0 or more"
@@ -744,18 +776,18 @@ erDiagram
     json typed_by_version "flat object"
     datetime updated_at
   }
-  instagram_automation["instagram_automation · CHANGED · app.instagram_automations"] {
+  automation["automation · CHANGED · app.automations"] {
     id id PK
   }
-  instagram_automation ||--o{ instagram_automation_count : "ADDED: is counted in"
+  automation ||--o{ automation_count : "ADDED: is counted in"
 ```
 
-### instagram_automation_reply_state
+### automation_reply_state
 
 - **Holds:** the "Reply like a person" pacing of one automation's public replies: the current random
   box, the last reply line used, and how many replies wait (D32). One per automation, made at its
   first public reply. No public id.
-- **Table:** `app.instagram_automation_reply_states` ([P44](decisions.md); the plan names it in the singular,
+- **Table:** `app.automation_reply_states` (shared, [P48](decisions.md); the plan names it in the singular,
   `app.automation_reply_state` — the repository's tables are plural)
 - **Sources:** plan:L3601–L3621; D32, D52.
 - **Added:** new — replaces the account-wide reply safety of the launch (D32).
@@ -764,22 +796,22 @@ erDiagram
 
 ```mermaid
 erDiagram
-  instagram_automation_reply_state["instagram_automation_reply_state · NEW · app.instagram_automation_reply_states"] {
+  automation_reply_state["automation_reply_state · NEW · app.automation_reply_states"] {
     id organization_id FK
-    id automation_id FK, PK "→ instagram_automation; one per automation"
+    id automation_id FK, PK "→ automation; one per automation"
     id channel_account_id FK "→ channel_account; copy"
     datetime box_start
     number last_text_number "plan name last_text_no"
     number waiting_count "0 or more"
     datetime updated_at
   }
-  instagram_automation["instagram_automation · CHANGED · app.instagram_automations"] {
+  automation["automation · CHANGED · app.automations"] {
     id id PK
   }
-  instagram_automation ||--o| instagram_automation_reply_state : "ADDED: paces public replies by"
+  automation ||--o| automation_reply_state : "ADDED: paces public replies by"
 ```
 
-### instagram_automation_backfill
+### automation_backfill
 
 - **Holds:** one "also answer comments from the last N days" run of a live comment or ad-comment
   automation (D69, PRO): the days (1–7), its status, posts read, comments found, matched and opening
@@ -787,7 +819,7 @@ erDiagram
   `queued` · `reading` · `done` · `failed`; `fail_reason`: `meta_error` · `plan_feature_off`. One
   queued or reading per automation; a new press after a failure makes a new row. Has a public id
   (prefix not named by the plan).
-- **Table:** `app.instagram_automation_backfills` ([P44](decisions.md); the plan's `app.automation_backfills`)
+- **Table:** `app.automation_backfills` (the plan's name; shared, [P48](decisions.md))
 - **Sources:** plan:L3818–L3844, plan:L4109–L4120; D69.
 - **Added:** new.
 - **Replaced:** none.
@@ -796,11 +828,11 @@ erDiagram
 
 ```mermaid
 erDiagram
-  instagram_automation_backfill["instagram_automation_backfill · NEW · app.instagram_automation_backfills"] {
+  automation_backfill["automation_backfill · NEW · app.automation_backfills"] {
     id id PK
     id organization_id FK
     id channel_account_id FK "→ channel_account; copy"
-    id automation_id FK "→ instagram_automation; a live comment or ad-comment automation"
+    id automation_id FK "→ automation; a live comment or ad-comment automation"
     number days "1 to 7"
     choice status "queued · reading · done · failed"
     number posts_read "0 or more"
@@ -815,10 +847,10 @@ erDiagram
     datetime done_at
     datetime updated_at
   }
-  instagram_automation["instagram_automation · CHANGED · app.instagram_automations"] {
+  automation["automation · CHANGED · app.automations"] {
     id id PK
   }
-  instagram_automation ||--o{ instagram_automation_backfill : "ADDED: answers past comments through"
+  automation ||--o{ automation_backfill : "ADDED: answers past comments through"
 ```
 
 ## Stage 3 — Runs and logs
@@ -828,7 +860,7 @@ moves to the message row (Stage 6). Runs, run events and comment logs keep 90 da
 plain tables emptied by batch deletes ([P33](decisions.md)). At most one open run per automation and
 person; a new comment that may start a run replaces the open one ([P35](decisions.md)).
 
-### instagram_automation_run
+### automation_run
 
 - **Holds:** as at launch, one person going through one automation — plus when the event that started
   it happened (the 7-day clock, D9), its once key (D13), when its first DM was sent, the highest list
@@ -843,7 +875,7 @@ person; a new comment that may start a run replaces the open one ([P35](decision
   with `replaced` (its waiting messages too) and the new run starts. A second comment on the same post
   with "once" on is still ignored (`once_per_post`); every other way to start is ignored while her run
   is open (`run_in_progress`).
-- **Table:** `app.instagram_automation_runs` (live; **renamed from `app.automation_runs`**, [P44](decisions.md), P29)
+- **Table:** `app.automation_runs` (live; shared across channels, no rename — [P48](decisions.md), P29)
 - **Sources:** plan:L3147–L3173, plan:L3893–L3924; D9, D13, D16, D29–D31, D46; current schema
   `src/domains/app/sub-domains/automation/automation-run/automation-run.schema.ts`.
 - **Added:** the fields marked `ADDED`.
@@ -860,10 +892,10 @@ person; a new comment that may start a run replaces the open one ([P35](decision
 
 ```mermaid
 erDiagram
-  instagram_automation_run["instagram_automation_run · CHANGED · app.instagram_automation_runs"] {
+  automation_run["automation_run · CHANGED · app.automation_runs"] {
     id id PK
-    id automation_id FK "→ instagram_automation"
-    id contact_id FK "→ instagram_contact"
+    id automation_id FK "→ automation"
+    id contact_id FK "→ contact"
     datetime started_at "referenced: messages copy it as their split key (P33)"
     choice trigger_type "CHANGED: the 15 kinds; how this run started"
     datetime trigger_occurred_at "ADDED: the 7-day clock (D9)"
@@ -880,11 +912,11 @@ erDiagram
   }
 ```
 
-### instagram_automation_run_event
+### automation_run_event
 
 - **Holds:** as at launch, the append-only history of a run — `event_type` adds `hello_tapped` and
   `follow_tapped` (the tap counts of D61). Kept with its run — a plain table, batch deletes (P33).
-- **Table:** `app.instagram_automation_run_events` (live; **renamed from `app.automation_run_events`**, [P44](decisions.md), P29)
+- **Table:** `app.automation_run_events` (live; shared across channels, no rename — [P48](decisions.md), P29)
 - **Sources:** plan:L3175–L3182; current schema
   `src/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.ts`.
 - **Added:** two event types.
@@ -893,18 +925,18 @@ erDiagram
 
 ```mermaid
 erDiagram
-  instagram_automation_run_event["instagram_automation_run_event · CHANGED · app.instagram_automation_run_events"] {
+  automation_run_event["automation_run_event · CHANGED · app.automation_run_events"] {
     id id PK
-    id automation_run_id FK "→ instagram_automation_run"
+    id automation_run_id FK "→ automation_run"
     choice event_type "CHANGED: adds hello_tapped · follow_tapped"
   }
-  instagram_automation_run["instagram_automation_run · CHANGED · app.instagram_automation_runs"] {
+  automation_run["automation_run · CHANGED · app.automation_runs"] {
     id id PK
   }
-  instagram_automation_run ||--o{ instagram_automation_run_event : "records"
+  automation_run ||--o{ automation_run_event : "records"
 ```
 
-### instagram_automation_comment_log
+### automation_comment_log
 
 - **Holds:** as at launch, one row per comment an automation saw, with each step's status — plus the
   comment's time and the hide step (status and when). The
@@ -915,7 +947,7 @@ erDiagram
   `comment_already_answered`. `public_reply_skip_reason`: `duplicate` · `random` · `hour_limit` ·
   `deleted_comment` (`gap` removed). Live and ad comments get logs; a Live's reply and hide stay
   `off`. Kept 90 days (D16; launch 180) — a plain table, batch deletes (P33).
-- **Table:** `app.instagram_automation_comment_logs` (live; **renamed from `app.automation_comment_logs`**, [P44](decisions.md), P29)
+- **Table:** `app.automation_comment_logs` (live; shared across channels, no rename — [P48](decisions.md), P29)
 - **Sources:** plan:L3184–L3205; D16, D32, D33, D64; current schema
   `src/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.ts`.
 - **Added:** the fields marked `ADDED`.
@@ -929,11 +961,11 @@ erDiagram
 
 ```mermaid
 erDiagram
-  instagram_automation_comment_log["instagram_automation_comment_log · CHANGED · app.instagram_automation_comment_logs"] {
+  automation_comment_log["automation_comment_log · CHANGED · app.automation_comment_logs"] {
     id id PK
-    id automation_id FK "→ instagram_automation"
-    id automation_run_id FK "→ instagram_automation_run"
-    id contact_id FK "→ instagram_contact"
+    id automation_id FK "→ automation"
+    id automation_run_id FK "→ automation_run"
+    id contact_id FK "→ contact"
     datetime comment_occurred_at "ADDED"
     choice hide_status "ADDED: a step status; default off (D33)"
     datetime hidden_at "ADDED"
@@ -948,10 +980,10 @@ erDiagram
     choice ignored_reason "CHANGED: previous_run_final → once_per_post; adds thread_reply_off · own_comment · contact_excluded"
     choice public_reply_skip_reason "CHANGED: gap removed; adds deleted_comment"
   }
-  instagram_automation_run["instagram_automation_run · CHANGED · app.instagram_automation_runs"] {
+  automation_run["automation_run · CHANGED · app.automation_runs"] {
     id id PK
   }
-  instagram_automation_run |o--o{ instagram_automation_comment_log : "is logged by"
+  automation_run |o--o{ automation_comment_log : "is logged by"
 ```
 
 ## Stage 4 — Received content
@@ -1030,14 +1062,14 @@ erDiagram
 Saved audiences and the message sets sent to them, only to people whose chat window is open (D68,
 PRO). Segments and broadcasts are soft-deleted and purged later (A9, [P9](decisions.md)).
 
-### instagram_segment
+### segment
 
 - **Holds:** a saved audience of one account: a name and its conditions in AND / OR groups (at most 2
   levels, 20 conditions) on tags, the automation she came through, how she came in, comments, activity,
   her details, story activity and "no broadcast in N days" (D68). Used again by many broadcasts. Has a
   public id (prefix not named by the plan). Soft delete (A9); purged 90 days after its delete, once no
   live broadcast points at it (BC4, BCQ1).
-- **Table:** `app.instagram_segments` ([P44](decisions.md); the plan's `app.segments`)
+- **Table:** `app.segments` (the plan's name; shared, [P48](decisions.md))
 - **Sources:** plan:L3719–L3750; D68.
 - **Added:** `deleted_at` — the plan hard-deletes; A9 keeps the repository's soft delete.
 - **Replaced:** none.
@@ -1046,7 +1078,7 @@ PRO). Segments and broadcasts are soft-deleted and purged later (A9, [P9](decisi
 
 ```mermaid
 erDiagram
-  instagram_segment["instagram_segment · NEW · app.instagram_segments"] {
+  segment["segment · NEW · app.segments"] {
     id id PK
     id organization_id FK
     id channel_account_id FK "→ channel_account"
@@ -1061,10 +1093,10 @@ erDiagram
   channel_account["channel_account · NEW · app.channel_accounts"] {
     id id PK
   }
-  channel_account ||--o{ instagram_segment : "ADDED: saves audiences in"
+  channel_account ||--o{ segment : "ADDED: saves audiences in"
 ```
 
-### instagram_broadcast
+### broadcast
 
 - **Holds:** one message set (1–3 messages, the same shape as the automation's message list, with
   versions) sent to the people of a segment or a one-off audience — a copy of the conditions is kept
@@ -1074,8 +1106,10 @@ erDiagram
   end; BC10); `cancel_reason`: `owner` · `plan_feature_off`. Counts of matched, sent, skipped, failed,
   replies and taps. Has a public id (prefix not named; it goes in the messages' button payload). Soft
   delete (A9); purged 90 days after its delete, its recipients and messages with it (BC4, BCQ1). Only a
-  `draft`, `done` or `cancelled` broadcast may be deleted (BC11).
-- **Table:** `app.instagram_broadcasts` ([P44](decisions.md); the plan's `app.broadcasts`)
+  `draft`, `done` or `cancelled` broadcast may be deleted (BC11). Shared across channels (P48): it
+  carries its account's `channel`, and its message kinds are checked against that channel's capability
+  list at send; its waiting messages go to the channel's sending tables (Instagram: `instagram_message`).
+- **Table:** `app.broadcasts` (the plan's name; shared, [P48](decisions.md))
 - **Sources:** plan:L3752–L3791, plan:L4070–L4087; D57, D68.
 - **Added:** `deleted_at` (A9).
 - **Replaced:** none.
@@ -1085,14 +1119,15 @@ erDiagram
 
 ```mermaid
 erDiagram
-  instagram_broadcast["instagram_broadcast · NEW · app.instagram_broadcasts"] {
+  broadcast["broadcast · NEW · app.broadcasts"] {
     id id PK
     id organization_id FK
     id channel_account_id FK "→ channel_account"
+    choice channel "copy of the account's channel; message kinds checked against its capability list (P48)"
     text name "1 to 255"
     choice status "draft · scheduled · sending · waiting_for_chats · done · cancelled"
     choice mode "now · scheduled · when_chat_opens; set at send (BC10)"
-    id segment_id FK "→ instagram_segment; emptied when the segment goes; empty for a one-off audience"
+    id segment_id FK "→ segment; emptied when the segment goes; empty for a one-off audience"
     json conditions "one-off conditions, and the copy taken at start"
     json messages "1 to 3 messages with versions"
     datetime scheduled_at "set exactly for scheduled"
@@ -1113,13 +1148,13 @@ erDiagram
     datetime updated_at
     datetime deleted_at "soft delete (A9)"
   }
-  instagram_segment["instagram_segment · NEW · app.instagram_segments"] {
+  segment["segment · NEW · app.segments"] {
     id id PK
   }
-  instagram_segment |o--o{ instagram_broadcast : "ADDED: is the audience of"
+  segment |o--o{ broadcast : "ADDED: is the audience of"
 ```
 
-### instagram_broadcast_recipient
+### broadcast_recipient
 
 - **Holds:** one person a broadcast goes to: status, reason, which version she got, when it was sent
   and when she first replied. `status`: `waiting` · `sent` · `skipped` · `failed` · `unknown`;
@@ -1129,7 +1164,7 @@ erDiagram
   row goes back to `waiting` instead of a second one (BC16). One broadcast per person per 24 hours. Its
   account is a copy of the broadcast's, with no reference of its own. Kept 90 days — a plain table,
   batch deletes (P33). No public id.
-- **Table:** `app.instagram_broadcast_recipients` ([P44](decisions.md); the plan's `app.broadcast_recipients`)
+- **Table:** `app.broadcast_recipients` (the plan's name; shared, [P48](decisions.md))
 - **Sources:** plan:L3793–L3816, plan:L4089–L4107; D68.
 - **Added:** new.
 - **Replaced:** none.
@@ -1137,12 +1172,12 @@ erDiagram
 
 ```mermaid
 erDiagram
-  instagram_broadcast_recipient["instagram_broadcast_recipient · NEW · app.instagram_broadcast_recipients"] {
+  broadcast_recipient["broadcast_recipient · NEW · app.broadcast_recipients"] {
     id id PK
     id organization_id FK
     id channel_account_id "→ channel_account; copy of the broadcast's account, no reference (BC16)"
-    id broadcast_id FK "→ instagram_broadcast; unique with contact_id per organization (BC16)"
-    id contact_id FK "→ instagram_contact"
+    id broadcast_id FK "→ broadcast; unique with contact_id per organization (BC16)"
+    id contact_id FK "→ contact"
     choice status "waiting · sent · skipped · failed · unknown"
     choice reason "recent_broadcast · owner_chat · window_closed · opted_out · contact_excluded · broadcast_cancelled · plan_feature_off · contact_deleted, plus the message reasons"
     number version_number "plan name version_no"
@@ -1151,14 +1186,14 @@ erDiagram
     datetime replied_at
     datetime updated_at
   }
-  instagram_broadcast["instagram_broadcast · NEW · app.instagram_broadcasts"] {
+  broadcast["broadcast · NEW · app.broadcasts"] {
     id id PK
   }
-  instagram_contact["instagram_contact · CHANGED · app.instagram_contacts"] {
+  contact["contact · CHANGED · app.contacts"] {
     id id PK
   }
-  instagram_broadcast ||--o{ instagram_broadcast_recipient : "ADDED: goes to"
-  instagram_contact ||--o{ instagram_broadcast_recipient : "ADDED: receives"
+  broadcast ||--o{ broadcast_recipient : "ADDED: goes to"
+  contact ||--o{ broadcast_recipient : "ADDED: receives"
 ```
 
 ## Stage 6 — Sending engine
@@ -1256,8 +1291,8 @@ erDiagram
     id organization_id FK
     id channel_account_id "→ channel_account; copy, no reference"
     id automation_id "copy, no reference; empty only for a broadcast"
-    id automation_run_id FK "→ instagram_automation_run; empty only for a broadcast"
-    id broadcast_id FK "→ instagram_broadcast; set exactly for a broadcast message"
+    id automation_run_id FK "→ automation_run; empty only for a broadcast"
+    id broadcast_id FK "→ broadcast; set exactly for a broadcast message"
     datetime automation_run_started_at "split key only (P33): the run's start, or the recipient's creation for a broadcast"
     id contact_id "copy, no reference"
     choice message_type "opening_message · nudge · public_reply · hide_comment · follow_check · follow_request · email_question · invalid_email · phone_question · message · broadcast"
@@ -1284,14 +1319,14 @@ erDiagram
     datetime created_at
     datetime updated_at
   }
-  instagram_automation_run["instagram_automation_run · CHANGED · app.instagram_automation_runs"] {
+  automation_run["automation_run · CHANGED · app.automation_runs"] {
     id id PK
   }
-  instagram_broadcast["instagram_broadcast · NEW · app.instagram_broadcasts"] {
+  broadcast["broadcast · NEW · app.broadcasts"] {
     id id PK
   }
-  instagram_automation_run |o--o{ instagram_message : "ADDED: sends"
-  instagram_broadcast |o--o{ instagram_message : "ADDED: sends"
+  automation_run |o--o{ instagram_message : "ADDED: sends"
+  broadcast |o--o{ instagram_message : "ADDED: sends"
 ```
 
 ### instagram_send_attempt
@@ -1792,11 +1827,11 @@ One row per `CHANGED` or `REMOVED` table. Plan decisions are `D<n>`; this plan's
 | `app.instagram_account_settings` | Master switch + five public reply safety settings; keyed by the Instagram account | Owner limits (opening hour/day, fast, person, broadcast), stop words, notice, three account behaviours, extra delay; reply safety moved per automation; the master switch moved to `channel_account`; keyed by `channel_account_id` | D5, D11, D22, D32, D64–D68, P42, P47 |
 | `app.instagram_account_tokens` | One encrypted Instagram Login token per account, renewed daily | Removed; one system-user token per channel connection (`app.channel_connection_tokens`) | D24, P41 |
 | `app.instagram_media` | Stored posts of an Instagram account | + missed-comment watch times, Live end, the Live product type; points at `channel_account_id` | D40, D41, P47 |
-| `app.instagram_contacts` (renamed from `app.contacts`) | `app.contacts`: person per account; plus addresses refused; tags 1–255; erase clears her personal columns | Renamed `app.instagram_contacts`; points at `channel_account_id`; + 24-hour rule, opted out, channel, "via" automation and how she came in, note, first message, owner pause, comment and story activity, last broadcast; plus addresses accepted; tags 1–50; erase also clears her activity columns | D8, D27, D45, D46, D49, D68, D71, P19, P44, P47, CT9, CT11 |
-| `app.instagram_automations` (renamed from `app.automations`) | `app.automations`: `live` · `inactive`; 3 trigger types; message fields as columns; DM keyword switch; run counter; next-post window that expires | Renamed `app.instagram_automations`; points at `channel_account_id`; `draft` · `live` · `paused`; 15 ways to start; `steps` object; also start from; between dates; ref link, starter questions, ad, tag, default reply; per-automation public reply pacing and mention; hide comment; automatic stop; counters moved out | D28–D45, D52, D57, D59, D63, P11, P12, P44, P47 |
-| `app.instagram_automation_runs` (renamed from `app.automation_runs`) | `app.automation_runs`: send claim on the run; free trigger text kept; one open run per automation and person; 180 days | Renamed; once key, 7-day clock, first DM time, last list message, step versions; send claim on the message; free text never kept; still one open run per automation and person, and a new start replaces it (`replaced`); no open-run key table (confirmed, AUQ4); 90 days, plain table | D9, D13, D16, D46, P33, P35, P44, AUQ4 |
-| `app.instagram_automation_run_events` (renamed from `app.automation_run_events`) | `app.automation_run_events`: history of a run | Renamed; + two tap events; plain table, no run start copy | D16, D61, P33, P44 |
-| `app.instagram_automation_comment_logs` (renamed from `app.automation_comment_logs`) | `app.automation_comment_logs`: final DM step; 180 days | Renamed; message list step, hide step, comment time; more step statuses and reasons; 90 days, plain table, no run start copy | D16, D32, D33, D64, P33, P44 |
+| `app.contacts` | Person per account; plus addresses refused; tags 1–255; erase clears her personal columns | Shared across channels, same name (no rename, P48); points at `channel_account_id`; + 24-hour rule, opted out, channel, "via" automation and how she came in, note, first message, owner pause, comment and story activity, last broadcast; plus addresses accepted; tags 1–50; erase also clears her activity columns | D8, D27, D45, D46, D49, D68, D71, P19, P47, P48, CT9, CT11 |
+| `app.automations` | `live` · `inactive`; 3 trigger types; message fields as columns; DM keyword switch; run counter; next-post window that expires | Shared across channels, same name (no rename, P48); points at `channel_account_id`; a `channel` checked against the channel's capability list; `draft` · `live` · `paused`; 15 ways to start; `steps` object; also start from; between dates; ref link, starter questions, ad, tag, default reply; per-automation public reply pacing and mention; hide comment; automatic stop; counters moved out | D28–D45, D52, D57, D59, D63, P11, P12, P47, P48 |
+| `app.automation_runs` | Send claim on the run; free trigger text kept; one open run per automation and person; 180 days | Shared, same name (P48); once key, 7-day clock, first DM time, last list message, step versions; send claim on the message; free text never kept; still one open run per automation and person, and a new start replaces it (`replaced`); no open-run key table (confirmed, AUQ4); 90 days, plain table | D9, D13, D16, D46, P33, P35, P48, AUQ4 |
+| `app.automation_run_events` | History of a run | Shared, same name (P48); + two tap events; plain table, no run start copy | D16, D61, P33, P48 |
+| `app.automation_comment_logs` | Final DM step; 180 days | Shared, same name (P48); message list step, hide step, comment time; more step statuses and reasons; 90 days, plain table, no run start copy | D16, D32, D33, D64, P33, P48 |
 | `app.instagram_webhook_events` | Kept 30 days with their dedupe key and body; failed final after 5 tries; `read` events; echoes and reactions skipped; points at the Instagram account | Kept 8 days, split by day, body null when done (none when born skipped); key in its own (plain) table, led by the organization; failed retried hourly up to 7 days; five new kinds, `read` gone; echoes and reactions saved `received`; skip reasons `own_comment`, `flood` added and `echo`, `reaction` gone; a stored intake group; no Redis buffer; points at `channel_account_id`, stays Instagram's | D15, D64, P24, P32, P33, P45, P47, WH10, WH16, WH22 |
 | `billing.plans` | Free, Starter, Growth, Pro; free-form features; seats | Free, Creator, Studio (old rows off, their features mapped up) with seeded placeholder prices; exactly four feature keys (`message_month_limit`, `channel_accounts_max` — both across channels — `is_pro_enabled`, `has_priority_support`); unlimited members | D26, D34, D55, D57, P37, P47, BL12, BLQ3, BLQ4 |
 | `billing.subscriptions` | Every plan change applied at once; no planned-change column | + a scheduled move down (`scheduled_plan_id`, `scheduled_change_at`) and the channel accounts kept after it | D57, P47, BLQ1 |
@@ -1807,7 +1842,8 @@ One row per `CHANGED` or `REMOVED` table. Plan decisions are `D<n>`; this plan's
 
 `upload.uploads` is not in the table: it does not change this iteration (no scan result — P34, a D58
 deviation). The common NEW tables (`app.channel_connections`, `app.channel_connection_tokens`,
-`app.channel_accounts`, `app.message_month_counts`) are not in it either — they are new, not changed; the
+`app.channel_accounts`, `app.message_month_counts`) are not in it either — they are new, not changed
+(`app.channel_connection_tokens` takes its refresh token and `oauth_user` type as new, P49); the
 plan's `meta_connections`, `meta_connection_tokens`, `direct_message_month_counts` and `meta_attachments`
 were never built, so their new names (P41, P43) are renames of a proposal only.
 

@@ -48,6 +48,7 @@ src/
     │   │   │   │   │   ├── automation-tombstone-retention.processor.db.unit.test.ts
     │   │   │   │   │   ├── automation.repository.db.unit.test.ts
     │   │   │   │   │   ├── automation.serializer.unit.test.ts
+    │   │   │   │   │   ├── automation.service.unit.test.ts
     │   │   │   │   │   └── automation.validator.unit.test.ts
     │   │   │   ├── automation-backfill/
     │   │   │   │   ├── __tests__/
@@ -166,6 +167,7 @@ src/
     │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts
     │   │   │   │   │   ├── channel-account-feature-check.service.unit.test.ts
     │   │   │   │   │   ├── channel-account.serializer.unit.test.ts
+    │   │   │   │   │   ├── channel-account.service.unit.test.ts
     │   │   │   │   │   └── channel-account.validator.unit.test.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── channel-account.bulk.seed.ts
@@ -204,6 +206,7 @@ src/
     │   │   │   │   │   ├── channel-connection-usage.repository.db.unit.test.ts
     │   │   │   │   │   ├── channel-connection-usage.service.unit.test.ts
     │   │   │   │   │   ├── channel-connection.serializer.unit.test.ts
+    │   │   │   │   │   ├── channel-connection.service.unit.test.ts
     │   │   │   │   │   └── channel-connection.validator.unit.test.ts
     │   │   │   ├── channel-connection-meta/
     │   │   │   │   ├── __tests__/
@@ -405,6 +408,7 @@ src/
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
     │   │   │   ├── seed/
@@ -773,8 +777,10 @@ src/
     │   │   │   └── session-token-cache.service.ts
     │   │   ├── auth-trusted-device/
     │   │   │   ├── __tests__/
-    │   │   │   │   └── integration/
+    │   │   │   │   ├── integration/
     │   │   │   │   │   └── auth-trusted-device.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   └── auth-trusted-device.service.unit.test.ts
     │   │   │   ├── auth-trusted-device.constants.ts
     │   │   │   ├── auth-trusted-device.overview.md
     │   │   │   ├── auth-trusted-device.repository.ts

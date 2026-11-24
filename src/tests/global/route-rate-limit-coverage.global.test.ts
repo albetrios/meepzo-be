@@ -63,6 +63,8 @@ const GLOBAL_LIMITER_ONLY_ALLOWLIST = new Set<string>([
   // The automation reads (launch R9): plain authenticated reads of the organization's automations.
   'src/domains/app/sub-domains/automation/automation.routes.ts → GET /automations',
   'src/domains/app/sub-domains/automation/automation.routes.ts → GET /automations/:automation_id',
+  // The segment list (feat-instagram-dm-sending R21, route 77): a plain authenticated read.
+  'src/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.routes.ts → GET /segments',
   // The channel connections list (feat-instagram-dm-sending R3): a plain authenticated read.
   'src/domains/app/sub-domains/channel-connection/channel-connection.routes.ts → GET /social/channel-connections',
   // (The organization-switch POSTs previously lived here as a flagged follow-up; they now carry

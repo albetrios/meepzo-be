@@ -103,6 +103,14 @@ const CONVERSIONS: readonly Conversion[] = [
     'restrict',
     'contact_tag_counts_channel_account_fk',
   ),
+  // feat-instagram-dm-sending R21 (7.3): a segment names its account, CASCADE.
+  link(
+    'app.segments',
+    'channel_account_id',
+    'app.channel_accounts',
+    'cascade',
+    'segments_channel_account_fk',
+  ),
   // launch R12 (WH16): an Instagram webhook event names its account through the composite key.
   link(
     'app.instagram_webhook_events',
@@ -278,6 +286,16 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
     `INSERT INTO app.contact_tag_counts (organization_id, channel_account_id, tag, contact_count)
      VALUES ($1, $2, 'vip', 1)`,
     [organization.id, Number(channelAccount?.id)],
+  );
+  // One segment of the account (R21).
+  await operatorQuery.unsafe(
+    `INSERT INTO app.segments (public_id, organization_id, channel_account_id, name, conditions)
+     VALUES ($1, $2, $3, 'VIP', '{"op":"and","items":[{"field":"details","has":"email"}]}'::jsonb)`,
+    [
+      `seg_${String(organization.id).padStart(21, '0')}`,
+      organization.id,
+      Number(channelAccount?.id),
+    ],
   );
   const [run] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(

@@ -7,6 +7,7 @@ import { instagramAccountMetaCallbackRoutes } from './sub-domains/instagram-acco
 import { contactRoutes } from './sub-domains/contact/contact.routes.js';
 import { instagramWebhookRoutes } from './sub-domains/instagram-webhook/instagram-webhook.routes.js';
 import { automationRoutes } from './sub-domains/automation/automation.routes.js';
+import { broadcastSegmentRoutes } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.routes.js';
 import { createAppPlanAccessPreHandler } from './app-plan-access.js';
 
 /**
@@ -20,7 +21,7 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
  * (`/social/instagram/deauthorize`, `/social/instagram/data-deletion` — form-encoded, in their own
  * encapsulated plugin so their body parser reaches no other route), contacts (`/contacts`), the
  * Instagram webhook (Meta's `/social/instagram/webhook` and the team's
- * `/social/instagram/webhook-events`), and automations (`/automations`).
+ * `/social/instagram/webhook-events`), automations (`/automations`) and segments (`/segments`).
  *
  * @remarks
  * The read-only plan guard (`app-plan-access.ts`, AQ8) is built here from billing's subscription
@@ -42,6 +43,7 @@ export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
       planAccessPreHandler: createAppPlanAccessPreHandler(app.billingDomain.subscriptionService),
     }),
   );
+  await app.register(broadcastSegmentRoutes(appDomain.broadcastSegmentService));
   await app.register(
     instagramWebhookRoutes({
       instagramWebhookService: appDomain.instagramWebhookService,

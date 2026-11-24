@@ -165,5 +165,11 @@
   "PUT /api/v1/tenancy/organization/roles/:role_id/permissions": "both",
   "PUT /api/v1/users/me/avatar": "both",
   "PUT /api/v1/users/me/notification-preferences": "both",
-  "PUT /api/v1/users/me/presence": "both"
+  "PUT /api/v1/users/me/presence": "both",
+  "GET /api/v1/app/segments": "team",
+  "POST /api/v1/app/segments": "team",
+  "POST /api/v1/app/segments/audience-count": "team",
+  "GET /api/v1/app/segments/:segment_id": "team",
+  "PATCH /api/v1/app/segments/:segment_id": "team",
+  "DELETE /api/v1/app/segments/:segment_id": "team"
 }

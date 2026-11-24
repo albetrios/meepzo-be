@@ -165,5 +165,11 @@
   "PUT /api/v1/tenancy/organization/roles/:role_id/permissions": 200,
   "PUT /api/v1/users/me/avatar": 200,
   "PUT /api/v1/users/me/notification-preferences": 200,
-  "PUT /api/v1/users/me/presence": 200
+  "PUT /api/v1/users/me/presence": 200,
+  "GET /api/v1/app/segments": 200,
+  "POST /api/v1/app/segments": 200,
+  "POST /api/v1/app/segments/audience-count": 200,
+  "GET /api/v1/app/segments/:segment_id": 200,
+  "PATCH /api/v1/app/segments/:segment_id": 200,
+  "DELETE /api/v1/app/segments/:segment_id": 204
 }

@@ -116,7 +116,14 @@
     "contactTagInBothLists": "A tag cannot be both added and removed",
     "contactIdsRepeated": "Each contact may be named once",
     "contactBulkSelection": "Send either contact_ids or filter, not both",
-    "contactBulkTag": "Send a tag for the tag actions, and none for the pause actions"
+    "contactBulkTag": "Send a tag for the tag actions, and none for the pause actions",
+    "segmentMessageNumber": "Send message_number with got_message, and only with it",
+    "segmentCameInValue": "Send an automation id as value for first_automation, an optional value for ref, and none for the other ways in",
+    "segmentActiveOneWindow": "Send exactly one of last_message_within_hours, last_message_within_days and first_seen_within_days",
+    "segmentConditionsTooMany": "A segment holds at most 20 conditions",
+    "segmentAudienceSelection": "Send either segment_id or conditions, not both",
+    "segmentConditionsForeignId": "An automation in the conditions is not one of this account's",
+    "segmentOfAnotherAccount": "This segment belongs to another account"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -295,7 +302,8 @@
     "Contact": "Contact",
     "Automation": "Automation",
     "Channel connection": "Channel connection",
-    "Channel account": "Channel account"
+    "Channel account": "Channel account",
+    "Segment": "Segment"
   },
   "emailCodeWrong": "That code is not right. Check the latest email we sent and try again.",
   "emailCodeExpired": "That code has expired. Ask for a new code.",
@@ -307,5 +315,6 @@
   "mfaLocked": "Too many wrong codes. Wait a few minutes, then try again or use a recovery code.",
   "contactTagLimit": "A contact can hold at most {{max}} tags.",
   "contactBulkTooMany": "This action reaches more than {{max}} contacts. Narrow the filter.",
-  "contactBulkActionUnavailable": "Bulk actions on contacts are not available yet. Try again later."
+  "contactBulkActionUnavailable": "Bulk actions on contacts are not available yet. Try again later.",
+  "segmentCountUnavailable": "This audience is too large to count right now. Try again later."
 }

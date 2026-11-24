@@ -129,6 +129,31 @@ src/
     │   │   │   ├── automation.service.ts
     │   │   │   ├── automation.types.ts
     │   │   │   └── automation.validator.ts
+    │   │   ├── broadcast/
+    │   │   │   ├── broadcast-segment/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── broadcast-segment.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── broadcast-segment.repository.db.unit.test.ts
+    │   │   │   │   │   │   ├── broadcast-segment.serializer.unit.test.ts
+    │   │   │   │   │   │   ├── broadcast-segment.service.unit.test.ts
+    │   │   │   │   │   │   └── broadcast-segment.validator.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── broadcast-segment.bulk.seed.ts
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── broadcast-segment.constants.ts
+    │   │   │   │   ├── broadcast-segment.controller.ts
+    │   │   │   │   ├── broadcast-segment.dto.ts
+    │   │   │   │   ├── broadcast-segment.overview.md
+    │   │   │   │   ├── broadcast-segment.repository.ts
+    │   │   │   │   ├── broadcast-segment.routes.ts
+    │   │   │   │   ├── broadcast-segment.schema.ts
+    │   │   │   │   ├── broadcast-segment.serializer.ts
+    │   │   │   │   ├── broadcast-segment.service.ts
+    │   │   │   │   ├── broadcast-segment.types.ts
+    │   │   │   │   └── broadcast-segment.validator.ts
+    │   │   │   └── broadcast.overview.md
     │   │   ├── channel-account/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/

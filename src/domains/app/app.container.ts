@@ -39,6 +39,8 @@ import type { AutomationOpenRunCancelStep } from './sub-domains/automation/autom
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
 import { AutomationRunMessageService } from './sub-domains/automation/automation-run/automation-run-message.service.js';
 import { AutomationPublicReplySafetyService } from './sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
+import { BroadcastSegmentRepository } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
+import { BroadcastSegmentService } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.service.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
@@ -55,7 +57,8 @@ import { AutomationPublicReplySafetyService } from './sub-domains/automation/aut
  * (route 18; the one write path for the events table the receiver and processing use), the
  * Instagram webhook receiver (Meta's routes 16–17), the automation service (routes 11–15 and
  * "next post" linking for event processing), and the run engine (sub-domain 3.B — the entry points
- * event processing calls per comment, DM, story reply and button click).
+ * event processing calls per comment, DM, story reply and button click), and the segment service
+ * (routes 77–82 of feat-instagram-dm-sending § 7.B, ROUTE row R21).
  *
  * @remarks
  * The connection's token service is exposed for the Instagram workers that call Meta with an
@@ -82,6 +85,7 @@ export type AppContainer = {
   instagramWebhookService: InstagramWebhookService;
   automationService: AutomationService;
   automationRunService: AutomationRunService;
+  broadcastSegmentService: BroadcastSegmentService;
 };
 
 /**
@@ -127,6 +131,28 @@ function createInstagramAccountServices({
     instagramAccountSettingsService,
     instagramAccountService,
   };
+}
+
+/**
+ * The segment service (feat-instagram-dm-sending routes-final § 7.B, ROUTE row R21): the `segments`
+ * switch through the channel account's one feature check (BC19).
+ *
+ * @remarks
+ * Notes: the delete step that empties drafts' segment (R22) and the background count (R46) join at
+ * their rows; wiring only, no side effects.
+ */
+function createSegmentService({
+  organizationService,
+  channelAccountService,
+}: {
+  organizationService: OrganizationService;
+  channelAccountService: ChannelAccountService;
+}): BroadcastSegmentService {
+  return new BroadcastSegmentService(
+    new BroadcastSegmentRepository(),
+    organizationService,
+    (input) => channelAccountService.canChannelAccountUseFeature(input),
+  );
 }
 
 /**
@@ -265,6 +291,7 @@ export function createAppContainer({
     instagramWebhookService,
     automationService,
     automationRunService,
+    broadcastSegmentService: createSegmentService({ organizationService, channelAccountService }),
   };
 }
 

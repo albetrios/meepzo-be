@@ -54,6 +54,11 @@ export const PUBLIC_ID_PREFIXES = {
   automationRun: 'run',
   /** One comment × automation log (`app.automation_comment_logs`, AU1) — unused until a read route (D13). */
   automationCommentLog: 'acl',
+  /**
+   * One saved audience of one channel account (`app.segments`, feat-instagram-dm-sending BC1;
+   * prefix chosen at kickoff, P22).
+   */
+  segment: 'seg',
 } as const;
 
 /** Entity keys of {@link PUBLIC_ID_PREFIXES}. */
@@ -136,6 +141,7 @@ export const PARAM_NAME_TO_ENTITY = {
   automation_id: 'automation',
   channel_connection_id: 'channelConnection',
   channel_account_id: 'channelAccount',
+  segment_id: 'segment',
 } as const satisfies Record<string, PublicIdEntity>;
 
 /** Deterministic placeholder id for an entity (valid shape, never a real row). */

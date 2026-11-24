@@ -97,19 +97,30 @@ function materializeOrganizationScopedPath(
     return `${path}?reason=mistake`;
   }
   // The contact list and the tag list name their channel account (feat-instagram-dm-sending CT2).
-  if (route.method === 'GET' && /\/app\/(contacts|contact-tags)$/.test(route.path)) {
+  if (route.method === 'GET' && /\/app\/(contacts|contact-tags|segments)$/.test(route.path)) {
     return `${path}?channel_account_id=${publicIdPlaceholderFor('channelAccount')}`;
   }
   return path;
 }
 
-/** The contact writes (feat-instagram-dm-sending R10): the smallest body each schema accepts. */
+/** The contact (R10) and segment (R21) writes of feat-instagram-dm-sending: the smallest body each schema accepts. */
 const CONTACT_WRITE_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
   'PATCH /contacts/:contact_id': { note: 'Matrix note' },
   'POST /contacts/bulk-actions': {
     channel_account_id: publicIdPlaceholderFor('channelAccount'),
     action: 'pause_automations',
     contact_ids: [publicIdPlaceholderFor('contact')],
+  },
+  // The segment writes (feat-instagram-dm-sending R21): a valid one-condition tree.
+  'POST /segments': {
+    channel_account_id: publicIdPlaceholderFor('channelAccount'),
+    name: 'Matrix segment',
+    conditions: { op: 'and', items: [{ field: 'details', has: 'email' }] },
+  },
+  'PATCH /segments/:segment_id': { name: 'Matrix segment renamed' },
+  'POST /segments/audience-count': {
+    channel_account_id: publicIdPlaceholderFor('channelAccount'),
+    conditions: { op: 'and', items: [{ field: 'details', has: 'email' }] },
   },
 };
 

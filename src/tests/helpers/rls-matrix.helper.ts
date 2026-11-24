@@ -41,6 +41,7 @@ import { automations } from '@/domains/app/sub-domains/automation/automation.sch
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
+import { segments } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -726,6 +727,26 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     tableKey({ schemaName: 'app', tableName: 'contact_tag_counts' }),
     contactTagCountIds,
   );
+
+  // Segments (feat-instagram-dm-sending R21): one saved segment of each organization's account.
+  const segmentIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [segment] = await database
+      .insert(segments)
+      .values({
+        public_id: generatePublicId('segment'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        name: `RLS matrix segment ${side}`,
+        conditions: { op: 'and', items: [{ field: 'details', has: 'email' }] },
+      })
+      .returning();
+    segmentIds[side] = segment!.id;
+  }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'segments' }), segmentIds);
 
   // The automation sub-domain (launch R9): one inactive comment automation of each organization's
   // account — the smallest complete flow (the opening message with its button, the final message).

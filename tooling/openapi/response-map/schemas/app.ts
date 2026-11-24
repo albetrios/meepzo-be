@@ -1,7 +1,8 @@
 /**
  * App domain resource schemas — the channel connection (feat-instagram-dm-sending routes-final
  * § 1.6), the channel account (§ 1B.6), the Instagram account settings (§ 2.B.6), the
- * contact (§ 2.6), the automation (§ 3.A.6) and the Instagram webhook event (§ 4.B.6).
+ * contact (§ 2.6), the automation (§ 3.A.6), the Instagram webhook event (§ 4.B.6) and the
+ * segment (§ 7.B.6).
  */
 import {
   AUTOMATION_NEXT_POST_STATUSES,
@@ -790,4 +791,61 @@ export const automationExample = {
   updated_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
   created_at: '2026-11-21T08:00:00.000Z',
   updated_at: '2026-11-21T08:30:00.000Z',
+};
+
+// ── Segment (feat-instagram-dm-sending routes-final § 7.B.6) ──
+// Mirrors serializeSegment key for key. `conditions` is the BC12 tree, documented on the request.
+export const segmentSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    channel_account_id: { type: 'string' },
+    name: { type: 'string' },
+    conditions: {
+      type: 'object',
+      properties: {
+        op: { type: 'string', enum: ['and', 'or'] },
+        items: { type: 'array', items: { type: 'object' } },
+      },
+    },
+    condition_count: { type: 'integer', minimum: 1 },
+    created_by_user_id: { type: 'string', nullable: true },
+    created_at: { type: 'string', format: 'date-time' },
+    updated_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const segmentExample = {
+  id: 'seg_p3k8x2m7q9r4t1v5a1b2c',
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  name: 'VIPs who commented this week',
+  conditions: {
+    op: 'and',
+    items: [
+      { field: 'tags', match: 'any', values: ['vip'] },
+      { field: 'commented', post: 'any', days: 7 },
+    ],
+  },
+  condition_count: 2,
+  created_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
+  created_at: '2026-11-24T10:00:00.000Z',
+  updated_at: '2026-11-24T10:00:00.000Z',
+};
+
+// Mirrors serializeSegmentAudienceCount (route 82, BC14): null numbers while counting.
+export const segmentAudienceCountSchema = {
+  type: 'object',
+  properties: {
+    matched: { type: 'integer', minimum: 0, nullable: true },
+    can_receive_now: { type: 'integer', minimum: 0, nullable: true },
+    is_counting: { type: 'boolean' },
+    counted_at: { type: 'string', format: 'date-time', nullable: true },
+  },
+};
+
+export const segmentAudienceCountExample = {
+  matched: 1240,
+  can_receive_now: 312,
+  is_counting: false,
+  counted_at: '2026-11-24T10:00:00.000Z',
 };

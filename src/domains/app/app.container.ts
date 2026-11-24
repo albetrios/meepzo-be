@@ -48,6 +48,8 @@ import { AutomationReplyStateRepository } from './sub-domains/automation/automat
 import { AutomationReplyStateService } from './sub-domains/automation/automation-reply-state.service.js';
 import type { AutomationMessageFilePort } from './sub-domains/automation/automation.types.js';
 import { AutomationService } from './sub-domains/automation/automation.service.js';
+import { AutomationBackfillRepository } from './sub-domains/automation/automation-backfill/automation-backfill.repository.js';
+import { AutomationBackfillService } from './sub-domains/automation/automation-backfill/automation-backfill.service.js';
 import type { AutomationOpenRunCancelStep } from './sub-domains/automation/automation.types.js';
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
 import { AutomationRunMessageService } from './sub-domains/automation/automation-run/automation-run-message.service.js';
@@ -109,6 +111,8 @@ export type AppContainer = {
   instagramWebhookEventService: InstagramWebhookEventService;
   instagramWebhookService: InstagramWebhookService;
   automationService: AutomationService;
+  /** The past-comments reads (4.C, routes 38–39 — R15); the read job joins at R41. */
+  automationBackfillService: AutomationBackfillService;
   /** The automations' all-time counts (AU19) — the run engine writes through it from R14. */
   automationCountService: AutomationCountService;
   /** The "Reply like a person" pacing (AU19) — sub-domain 6's reply lane reads and writes it. */
@@ -383,15 +387,28 @@ function createAutomationServices({
   const automationReplyStateService = new AutomationReplyStateService(
     new AutomationReplyStateRepository(),
   );
+  const automationRepository = new AutomationRepository();
+  // Past comments (4.C, R15): routes 38–39 and the automation object's open read; the read job
+  // (WC-41) is enqueued once ROUTE row R41 passes its queue here.
+  const automationBackfillService = new AutomationBackfillService(
+    new AutomationBackfillRepository(),
+    automationRepository,
+    channelAccountService,
+    organizationService,
+  );
   const automationService = new AutomationService(
-    new AutomationRepository(),
+    automationRepository,
     automationCountService,
     automationReplyStateService,
     channelAccountService,
     planAccessService,
     organizationService,
     automationOpenRunCancelSteps,
-    { monthLimit: messageMonthCountService, messageFiles: messageFilePort },
+    {
+      monthLimit: messageMonthCountService,
+      messageFiles: messageFilePort,
+      openBackfills: automationBackfillService,
+    },
   );
   const { contactService, contactTagEventService, contactErasureSteps } = createContactServices({
     organizationService,
@@ -412,6 +429,7 @@ function createAutomationServices({
   contactErasureSteps.push((input) => automationRunService.eraseContactRunCopies(input));
   return {
     automationService,
+    automationBackfillService,
     automationCountService,
     automationReplyStateService,
     contactService,
@@ -523,6 +541,7 @@ export function createAppContainer({
   });
   const {
     automationService,
+    automationBackfillService,
     automationCountService,
     automationReplyStateService,
     contactService,
@@ -555,6 +574,7 @@ export function createAppContainer({
     instagramWebhookEventService,
     instagramWebhookService,
     automationService,
+    automationBackfillService,
     automationCountService,
     automationReplyStateService,
     automationRunService,

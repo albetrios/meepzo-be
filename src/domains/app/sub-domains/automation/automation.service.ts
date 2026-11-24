@@ -44,6 +44,7 @@ import type {
   AutomationWithAccountRow,
 } from './automation.repository.js';
 import type { AutomationCountService } from './automation-count.service.js';
+import type { AutomationOpenBackfillReader } from './automation-backfill/automation-backfill.types.js';
 import type { AutomationReplyStateService } from './automation-reply-state.service.js';
 import { serializeAutomation, serializeAutomationListRow } from './automation.serializer.js';
 import type {
@@ -97,8 +98,9 @@ export type AutomationChannelAccountPort = Pick<
  * The optional seams of later rows; each absent one skips its side effect.
  *
  * @remarks
- * Notes: the app container wires the month count (R18) and the usable-file read (R12); the
- * starter-question sync joins at R40, the channels' sending ports at R19–R20.
+ * Notes: the app container wires the month count (R18), the usable-file read (R12) and the open
+ * past-comments read (R15); the starter-question sync joins at R40, the channels' sending ports at
+ * R19–R20.
  */
 export interface AutomationServicePorts {
   /** Go-live check 4 — sub-domain 6's month count (`MessageMonthCountService`, R18). */
@@ -109,6 +111,8 @@ export interface AutomationServicePorts {
   starterQuestionSync?: AutomationStarterQuestionSyncQueue | undefined;
   /** Each channel's sending port (AU35, R19–R20): the waiting messages a delete or edit ends. */
   sendingPorts?: ChannelSendingPorts | undefined;
+  /** The automation's open past-comments read on its object (`open_backfill`, 4.C — R15). */
+  openBackfills?: AutomationOpenBackfillReader | undefined;
 }
 
 /** `404 automation_not_found` — absent, deleted or another organization's (4.A.9). */
@@ -1367,6 +1371,13 @@ export class AutomationService {
             account: { channelAccountId: row.channel_account_id },
           })
         : account;
+    const openBackfill =
+      (await this.ports.openBackfills?.findOpenAutomationBackfill({
+        scope,
+        organizationId,
+        automationId: row.id,
+        automationPublicId: row.public_id,
+      })) ?? null;
     return serializeAutomation({
       automation: row,
       channel_account_public_id: row.channel_account_public_id,
@@ -1375,6 +1386,7 @@ export class AutomationService {
       counts: counts.get(row.id),
       pro_parts_off: proPartsOff,
       username: resolvedAccount?.username ?? null,
+      open_backfill: openBackfill,
     });
   }
 }

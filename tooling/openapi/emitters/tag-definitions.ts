@@ -48,6 +48,8 @@ export function buildTagDefinitions(
       'Instagram events Meta delivers for the connected account, and the list of what happened to each',
     Automation:
       "What answers comments, DMs and story replies on the organization's Instagram accounts — list, create, read, edit and delete",
+    'Automation backfill':
+      "An automation's past-comments reads — answer the comments of the last 1 to 7 days, and follow a read",
   };
   const tagDescriptions = tagStrings ?? builtInTagDescriptions;
 
@@ -89,6 +91,7 @@ export function buildTagDefinitions(
     'Instagram sending',
     'Contact',
     'Automation',
+    'Automation backfill',
     'Instagram Webhook',
   ];
 

@@ -249,6 +249,26 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: wrapSuccess(schemas.automationKeywordTestSchema, schemas.automationKeywordTestExample),
     example: null,
   },
+  'POST /api/v1/app/automations/{automation_id}/backfills': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.automationBackfillSchema, schemas.automationBackfillExample),
+    example: null,
+  },
+  'GET /api/v1/app/automations/{automation_id}/backfills/{automation_backfill_id}': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.automationBackfillSchema, {
+      ...schemas.automationBackfillExample,
+      status: 'done',
+      posts_read: 12,
+      found: 340,
+      matched: 87,
+      queued_count: 85,
+      started_at: '2026-11-21T09:00:05.000Z',
+      done_at: '2026-11-21T09:40:00.000Z',
+      updated_at: '2026-11-21T09:40:00.000Z',
+    }),
+    example: null,
+  },
   'DELETE /api/v1/app/automations/{automation_id}': {
     statusCode: 204,
     schema: null,

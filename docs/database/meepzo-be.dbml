@@ -8,6 +8,7 @@ Project meepzo_be {
 }
 
 TableGroup app {
+  app.automation_backfills
   app.automation_comment_logs
   app.automation_counts
   app.automation_reply_states
@@ -86,6 +87,31 @@ TableGroup tenancy {
 
 TableGroup upload {
   upload.uploads
+}
+
+Table app.automation_backfills {
+  automation_id bigint [not null]
+  channel_account_id bigint [not null]
+  created_at timestamptz [not null]
+  days smallint [not null]
+  done_at timestamptz
+  fail_reason varchar(30)
+  found int [not null]
+  id bigint [pk, increment]
+  last_error varchar(500)
+  matched int [not null]
+  organization_id bigint [not null]
+  posts_read int [not null]
+  public_id varchar(28) [not null]
+  queued_count int [not null]
+  requested_by_user_id bigint
+  started_at timestamptz
+  status varchar(10) [not null]
+  updated_at timestamptz [not null]
+}
+
+Note app.automation_backfills {
+  'RLS: enabled\nPolicies: automation_backfills_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.automation_comment_logs {

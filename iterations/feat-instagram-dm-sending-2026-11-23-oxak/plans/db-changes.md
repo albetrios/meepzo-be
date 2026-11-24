@@ -990,6 +990,10 @@ erDiagram
 - **Replaced:** none.
 - **Open:**
   - Public id prefix — chosen at kickoff (P22, AMBER).
+- **Built R15:** `app.automation_backfills` — `public_id` `abf_`, `channel_account_id`, `automation_id`,
+  `days`, `status`, `posts_read`, `found`, `matched`, `queued_count`, `fail_reason`, `last_error`,
+  `requested_by_user_id`, `started_at`, `done_at`, `created_at`, `updated_at`; + two plain indexes for the
+  foreign keys ([AS-BUILT](../AS-BUILT.md), [P311](decisions.md)).
 
 ```mermaid
 erDiagram

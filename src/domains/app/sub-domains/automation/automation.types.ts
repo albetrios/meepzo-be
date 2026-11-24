@@ -1,3 +1,4 @@
+import type { AutomationBackfillOutput } from './automation-backfill/automation-backfill.types.js';
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { RecordDeleteReason } from '@/shared/constants/record-fields.constants.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
@@ -123,8 +124,8 @@ export interface AutomationOutput {
   counts: AutomationCountsOutput;
   /** The PRO parts it uses that the plan ignores now — the editor's "PRO, off on your plan" (D57). */
   pro_parts_off: ChannelFeature[];
-  /** The open past-comments read (4.C, ROUTE row R15) — `null` until then. */
-  open_backfill: null;
+  /** The automation's `queued` or `reading` past-comments read (4.C.6), or `null`. */
+  open_backfill: AutomationBackfillOutput | null;
   last_triggered_at: string | null;
   created_by_user_id: string | null;
   updated_by_user_id: string | null;

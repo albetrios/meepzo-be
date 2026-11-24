@@ -55,6 +55,11 @@ export const PUBLIC_ID_PREFIXES = {
   /** One comment × automation log (`app.automation_comment_logs`, AU1) — unused until a read route (D13). */
   automationCommentLog: 'acl',
   /**
+   * One past-comments read of an automation (`app.automation_backfills`, feat-instagram-dm-sending
+   * AU1; prefix chosen at kickoff, P22).
+   */
+  automationBackfill: 'abf',
+  /**
    * One Instagram account that had the 7-day trial, in any organization (`billing.trial_accounts`,
    * feat-instagram-dm-sending BL7; prefix chosen at kickoff, P22).
    */
@@ -139,6 +144,7 @@ export const PARAM_NAME_TO_ENTITY = {
   auth_method_id: 'authMethod',
   contact_id: 'contact',
   automation_id: 'automation',
+  automation_backfill_id: 'automationBackfill',
   channel_connection_id: 'channelConnection',
   channel_account_id: 'channelAccount',
 } as const satisfies Record<string, PublicIdEntity>;

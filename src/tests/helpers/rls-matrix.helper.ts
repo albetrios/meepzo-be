@@ -42,6 +42,7 @@ import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-ta
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_counts } from '@/domains/app/sub-domains/automation/automation-count.schema.js';
 import { automation_reply_states } from '@/domains/app/sub-domains/automation/automation-reply-state.schema.js';
+import { automation_backfills } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
@@ -857,6 +858,31 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'automation_reply_states' }),
     automationReplyStateIds,
+  );
+
+  // The past-comments reads (feat-instagram-dm-sending R15): one done read of each organization's
+  // automation.
+  const automationBackfillIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [backfill] = await database
+      .insert(automation_backfills)
+      .values({
+        public_id: generatePublicId('automationBackfill'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        automation_id: automationIds[side],
+        days: 3,
+        status: 'done',
+      })
+      .returning();
+    automationBackfillIds[side] = backfill!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'automation_backfills' }),
+    automationBackfillIds,
   );
 
   // The run engine (launch R10): one waiting run of each organization's automation for its

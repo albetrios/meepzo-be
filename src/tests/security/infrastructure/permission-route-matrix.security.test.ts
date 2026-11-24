@@ -120,6 +120,7 @@ function materializeOrganizationScopedPath(
 const APP_WRITE_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
   'POST /automations/:automation_id/pause': { mode: 'keep' },
   'POST /automations/:automation_id/keyword-test': { text: 'price please' },
+  'POST /automations/:automation_id/backfills': { days: 3 },
   'PATCH /contacts/:contact_id': { note: 'Matrix note' },
   'POST /contacts/bulk-actions': {
     channel_account_id: publicIdPlaceholderFor('channelAccount'),

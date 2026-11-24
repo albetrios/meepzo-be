@@ -17,6 +17,8 @@
 --                                by actions only (AU3). Soft-deleted, the reason optional (AU16).
 --   app.automation_counts        its all-time counters in 16 slot rows (AU19, D36, D61).
 --   app.automation_reply_states  its "Reply like a person" pacing, one per automation (AU19, D32).
+--   app.automation_backfills     its past-comments reads, at most one queued or reading (ROUTE R15,
+--                                § 4.C.3 — AU31–AU33).
 --
 -- And the two keys sub-domain 3 left for this migration (§ 4.3): contacts.first_automation_id and
 -- contact_tag_events.source_automation_id -> app.automations (organization_id, id), each
@@ -32,9 +34,10 @@
 -- most 64 KB), and the go-live rules written `status = 'draft' OR (...)`, so a live or paused row must
 -- pass them; the API checks every rule first and answers with the problems.
 --
--- Row-level security: ENABLE + FORCE on all three. automations: one policy FOR ALL — USING the
+-- Row-level security: ENABLE + FORCE on all four. automations: one policy FOR ALL — USING the
 -- organization arm plus the retention sweep arm bound to the maintenance role (the purge reads and
--- deletes across organizations), WITH CHECK the organization arm only. Counts and reply states: the
+-- deletes across organizations), WITH CHECK the organization arm only. Backfills: as automations (the read's watch
+-- sweeps across organizations — R41). Counts and reply states: the
 -- organization arm only (they go with their automation by cascade).
 
 CREATE TABLE IF NOT EXISTS app.automations (
@@ -341,3 +344,90 @@ CREATE POLICY automation_reply_states_tenant_isolation ON app.automation_reply_s
 ALTER TABLE app.contacts ADD CONSTRAINT contacts_first_automation_fk FOREIGN KEY (organization_id, first_automation_id) REFERENCES app.automations (organization_id, id) ON DELETE SET NULL (first_automation_id);
 --> statement-breakpoint
 ALTER TABLE app.contact_tag_events ADD CONSTRAINT contact_tag_events_source_automation_fk FOREIGN KEY (organization_id, source_automation_id) REFERENCES app.automations (organization_id, id) ON DELETE SET NULL (source_automation_id);
+--> statement-breakpoint
+-- ROUTE R15 (routes-final § 4.C.3 — AU31–AU33, AUC12; changed in place, P29): one past-comments read
+-- of a live comment or ad-comment automation. At most one queued or reading per automation (the
+-- partial unique index); the account is a copy (one read at a time per account — the read job, R41).
+-- The automation key cascades (the purge takes it along); the account key restricts (an account is
+-- revoked, never deleted).
+CREATE TABLE IF NOT EXISTS app.automation_backfills (
+  id BIGSERIAL PRIMARY KEY,
+  public_id VARCHAR(28) NOT NULL,
+  organization_id BIGINT NOT NULL,
+  channel_account_id BIGINT NOT NULL,
+  automation_id BIGINT NOT NULL,
+  days SMALLINT NOT NULL,
+  status VARCHAR(10) NOT NULL DEFAULT 'queued',
+  posts_read INTEGER NOT NULL DEFAULT 0,
+  found INTEGER NOT NULL DEFAULT 0,
+  matched INTEGER NOT NULL DEFAULT 0,
+  queued_count INTEGER NOT NULL DEFAULT 0,
+  fail_reason VARCHAR(30),
+  last_error VARCHAR(500),
+  requested_by_user_id BIGINT,
+  started_at TIMESTAMPTZ,
+  done_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT automation_backfills_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
+  CONSTRAINT automation_backfills_automation_fk FOREIGN KEY (organization_id, automation_id) REFERENCES app.automations (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT automation_backfills_channel_account_fk FOREIGN KEY (organization_id, channel_account_id) REFERENCES app.channel_accounts (organization_id, id) ON DELETE RESTRICT,
+  CONSTRAINT automation_backfills_requested_by_user_id_users_id_fk FOREIGN KEY (requested_by_user_id) REFERENCES auth.users (id) ON DELETE SET NULL,
+  CONSTRAINT chk_automation_backfills_days CHECK (days BETWEEN 1 AND 7),
+  CONSTRAINT chk_automation_backfills_status CHECK (status IN ('queued', 'reading', 'done', 'failed')),
+  CONSTRAINT chk_automation_backfills_fail_reason CHECK ((status = 'failed') = (fail_reason IS NOT NULL) AND (fail_reason IS NULL OR fail_reason IN ('meta_error', 'plan_feature_off'))),
+  CONSTRAINT chk_automation_backfills_counters CHECK (posts_read >= 0 AND found >= 0 AND matched >= 0 AND queued_count >= 0),
+  CONSTRAINT chk_automation_backfills_updated CHECK (updated_at >= created_at)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_backfills_public_id ON app.automation_backfills USING btree (public_id);
+--> statement-breakpoint
+-- One queued or reading read per automation (route 38's 409 automation_backfill_in_progress).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_backfills_open ON app.automation_backfills USING btree (organization_id, automation_id) WHERE status IN ('queued', 'reading');
+--> statement-breakpoint
+-- The automation key's index (the open index is partial, so the cascade cannot use it).
+CREATE INDEX IF NOT EXISTS idx_automation_backfills_automation_created_at ON app.automation_backfills USING btree (organization_id, automation_id, created_at);
+--> statement-breakpoint
+-- The account key's index (the queued index is partial, so the key cannot use it).
+CREATE INDEX IF NOT EXISTS idx_automation_backfills_organization_id_channel_account_id ON app.automation_backfills USING btree (organization_id, channel_account_id);
+--> statement-breakpoint
+-- The read's 10-minute watch across organizations (AU32, R41).
+CREATE INDEX IF NOT EXISTS idx_automation_backfills_watch ON app.automation_backfills USING btree (status, updated_at) WHERE status IN ('queued', 'reading');
+--> statement-breakpoint
+-- The next queued read of an account (AU32, R41).
+CREATE INDEX IF NOT EXISTS idx_automation_backfills_account_queued ON app.automation_backfills USING btree (organization_id, channel_account_id, created_at) WHERE status = 'queued';
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS idx_automation_backfills_requested_by_user_id ON app.automation_backfills USING btree (requested_by_user_id) WHERE requested_by_user_id IS NOT NULL;
+--> statement-breakpoint
+ALTER TABLE app.automation_backfills OWNER TO meepzo_be_owner;
+--> statement-breakpoint
+GRANT SELECT, INSERT, UPDATE, DELETE ON app.automation_backfills TO meepzo_be_app, meepzo_be_maintenance;
+--> statement-breakpoint
+GRANT USAGE, SELECT ON SEQUENCE app.automation_backfills_id_seq TO meepzo_be_app, meepzo_be_maintenance;
+--> statement-breakpoint
+ALTER TABLE app.automation_backfills ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE app.automation_backfills FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+DROP POLICY IF EXISTS automation_backfills_tenant_isolation ON app.automation_backfills;
+--> statement-breakpoint
+CREATE POLICY automation_backfills_tenant_isolation ON app.automation_backfills
+  AS PERMISSIVE
+  FOR ALL
+  TO PUBLIC
+  USING (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+    OR (
+      (SELECT current_setting('app.global_retention_cleanup', true)) = 'true'
+      AND (SELECT current_user) = 'meepzo_be_maintenance'
+    )
+  )
+  WITH CHECK (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+  );

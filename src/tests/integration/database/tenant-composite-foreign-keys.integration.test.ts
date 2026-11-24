@@ -168,6 +168,20 @@ const CONVERSIONS: readonly Conversion[] = [
     'automation_reply_states_channel_account_fk',
   ),
   link(
+    'app.automation_backfills',
+    'automation_id',
+    'app.automations',
+    'cascade',
+    'automation_backfills_automation_fk',
+  ),
+  link(
+    'app.automation_backfills',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'automation_backfills_channel_account_fk',
+  ),
+  link(
     'app.contacts',
     'first_automation_id',
     'app.automations',
@@ -330,6 +344,17 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
   await operatorQuery.unsafe(
     `INSERT INTO app.automation_reply_states (organization_id, automation_id, channel_account_id) VALUES ($1, $2, $3)`,
     [organization.id, Number(automation?.id), Number(channelAccount?.id)],
+  );
+  // One done past-comments read of the automation (R15).
+  await operatorQuery.unsafe(
+    `INSERT INTO app.automation_backfills (public_id, organization_id, channel_account_id, automation_id, days, status)
+     VALUES ($1, $2, $3, $4, 3, 'done')`,
+    [
+      `abf_${String(organization.id).padStart(21, '0')}`,
+      organization.id,
+      Number(channelAccount?.id),
+      Number(automation?.id),
+    ],
   );
   // A contact of the account, a completed run of the automation for it, the run's event and a
   // comment log (launch R10).

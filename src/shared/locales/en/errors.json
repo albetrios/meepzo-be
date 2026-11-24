@@ -291,6 +291,7 @@
     "Instagram account": "Instagram account",
     "Contact": "Contact",
     "Automation": "Automation",
+    "Past-comments read": "Past-comments read",
     "Channel connection": "Channel connection",
     "Channel account": "Channel account",
     "Ad account": "Ad account",
@@ -319,6 +320,9 @@
   "automationContentInvalid": "This automation cannot be saved — fix the problems listed.",
   "automationRefCodeExists": "This link name is used by \"{{name}}\". Choose another one.",
   "automationTransitionNotAllowed": "A draft cannot be paused. Go live first.",
+  "automationNotLive": "Past comments can only be answered by a live automation. Go live first.",
+  "automationBackfillNotSupported": "Past comments can be answered only by a comment or ad comment automation.",
+  "automationBackfillInProgress": "Past comments are already being read.",
   "automationProblems": {
     "missing": "Fill this in.",
     "too_many": "Too many — remove some.",

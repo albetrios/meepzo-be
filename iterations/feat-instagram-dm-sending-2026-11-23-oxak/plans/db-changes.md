@@ -7,7 +7,7 @@
 | Intake mode | brief (from scratch) |
 | Intake hash | `e2875698ea64` |
 | Date | 2026-11-23 |
-| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1, awaiting the owner's OK), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied, then room for WhatsApp and TikTok ([P48](decisions.md), [P49](decisions.md); P48 supersedes P44): common channel tables, the product data shared across channels, the Instagram adapter tables named `instagram_*`. Each table section names the route-review section that owns its columns, keys and indexes |
+| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1, awaiting the owner's OK), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied, then room for WhatsApp and TikTok ([P48](decisions.md)–[P51](decisions.md); P48 supersedes P44): common channel tables, the product data shared across channels, the Instagram adapter tables named `instagram_*`. Each table section names the route-review section that owns its columns, keys and indexes |
 
 The iteration's data model, kept current at every planning step. WHAT must be true, never HOW: logical
 types only, no SQL, no indexes, no constraints — the column types, keys and indexes are the route review's
@@ -16,7 +16,7 @@ are cited as `plan:L<line>` — lines of `intake-files/Instagram-DM-Sending-Plan
 decisions are `D1`–`D73` (plan:L210–L284, locked); this plan's are `P<n>` in
 [decisions.md](decisions.md): `P1`–`P27` are the AMBER defaults A1–A27 (`P21`–`P25` are this file's
 former data questions N1–N5), `P28`–`P39` the owner's Step 4 answers (RED), `P40`–`P47` the owner's
-channel split (P47 its derived defaults, AMBER), `P48`–`P49` the room for WhatsApp and TikTok (RED; P48
+channel split (P47 its derived defaults, AMBER), `P48`–`P51` the room for WhatsApp and TikTok (RED; P48
 supersedes P44).
 
 **Scope (P28, P39).** Track A (the sending engine, plan §4–43) and Part F (plan §44–47) are both in this
@@ -39,14 +39,17 @@ changes to the platform domains are new migrations only (D48, [P38](decisions.md
 | REMOVED | 1 | instagram_account_token |
 | EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `instagram_attachment` names an upload by its public id |
 
-Since the last version (room for WhatsApp and TikTok, [P48](decisions.md), [P49](decisions.md)): the
+Since the last version (room for WhatsApp and TikTok, [P48](decisions.md)–[P51](decisions.md)): the
 product data is **shared again** (P48 supersedes P44) — `contact`, `contact_tag_event`, `automation`,
 `automation_count`, `automation_reply_state`, `automation_backfill`, `automation_run`,
 `automation_run_event`, `automation_comment_log`, `segment`, `broadcast` and `broadcast_recipient` lose
 the `instagram_` prefix and are keyed by `channel_account_id`, with a `channel` column where the row
 needs it (contact, automation, broadcast); the four launch tables keep their launch names, changed in
 place. `channel_connection_token` gains an encrypted refresh token (empty for Meta) and `token_type`
-`system_user` · `oauth_user` (P49). The account extension, its settings, media, the sending tables,
+`system_user` · `oauth_user` (P49). One shared feature check reads the connection's granted
+permissions — no new table (P50). Meta's usage is kept per connection: `channel_connection` gains
+`usage_percent`, `usage_checked_at` and `usage_wait_until`, and no Instagram lane keeps a usage of its
+own (P51). The account extension, its settings, media, the sending tables,
 `instagram_attachment` and the webhook tables stay Instagram's (P43, P45). No table is added or removed,
 so the counts stand.
 
@@ -80,11 +83,14 @@ later WhatsApp, TikTok or Facebook channel adds its own adapter tables beside th
 ones (P45, P48). The shared run engine hands every send to the channel's sending sub-domain through one
 interface — save a waiting message (P48).
 
-**Per-channel capability list (P48).** Which ways to start, steps and message kinds a channel offers is
-a **code constant**, one entry per channel — Instagram the only entry now; no table and no column. Go-live
-(RC-31), saving a live automation (RC-29) and sending a broadcast (RC-52) check the automation's or
-broadcast's `channel` against it; a later channel adds its entry. P36's untested-features code list
-stays beside it for Instagram's Meta-test-gated parts. Part F's new tables go in their merged domains' schemas (`auth.trusted_devices`,
+**Per-channel capability list and the one feature check (P48, P50).** Which ways to start, steps and
+message kinds a channel offers is a **code constant**, one entry per channel — Instagram the only entry
+now; no table and no column; a later channel adds its entry. One shared check, "can this channel
+account use feature X", asks four things — the channel's capability list supports X, the connection's
+granted permissions (`channel_connection.scopes`) include X's permission, the workspace's plan includes
+X (PRO, D35 / D57), and X's Meta test has passed (P36's code list) — and replaces the separate checks.
+Go-live (RC-31), the settings (RC-12), saving a live automation (RC-29), sending a broadcast (RC-52) and
+the engine all call it; it reads existing rows only — **no new table or column** (P50). Part F's new tables go in their merged domains' schemas (`auth.trusted_devices`,
 `billing.trial_accounts`; plan:L8467); the plan rows stay in `billing`.
 
 **Names.** The plan's identifiers are rewritten to full names (A6, [P6](decisions.md)): `dm_month_counts`
@@ -245,13 +251,20 @@ fields stay in `instagram_account`, its 1:1 extension (P42).
   not named by the plan). `status`: `connected` · `error` · `revoked` (plan §20.6) — `connected` to
   `error` on a token error, `revoked` on a disconnect or Meta's deauthorize request, back to
   `connected` by logging in with the same business again. `login_type`: `unified` only (room for a
-  Facebook Pages login later, D27).
+  Facebook Pages login later, D27). Its granted `scopes` feed the one feature check (P50: a feature
+  whose permission was not granted is refused `permission_not_granted`; reconnecting asks for it).
+  **Meta's usage, per business (P51):** the shared Meta client reads `X-Business-Use-Case-Usage` (and
+  the app-level usage) after every call and keeps the highest here — `usage_percent`, when it was read,
+  and until when calls wait — so every channel of that business shares one limit; every channel's engine
+  reads it before a call (80 % or more slows, 95 % or more waits the time Meta gives or 15 minutes,
+  plan:L2353–L2360). Postgres holds it; a short Redis copy serves gate 1 (P32).
 - **Table:** `app.channel_connections` ([P41](decisions.md); was `app.meta_connections`, P38)
 - **Sources:** plan:L3517–L3553 (columns, rules), plan:L3998–L4013 (status), plan:L4528–L4575 (connect),
   plan:L876–L880 (ads picker), plan:L4695–L4705 (Meta's callbacks).
 - **Added:** new — replaces the account-level login of the launch (Instagram Login, D24). The
   connect's plan check (accounts per plan, D26) locks the workspace's connection rows (plan:L3553).
-  `provider` (P41): `meta` only today.
+  `provider` (P41): `meta` only today. `usage_percent`, `usage_checked_at`, `usage_wait_until` (P51) —
+  the plan kept the usage per account in Redis only (`usage:{account}`, plan:L4333).
 - **Replaced:** the launch's per-account `scopes` move here (from `instagram_account`). The Graph API
   version is a code constant (`META_GRAPH_VERSION`), not a column or an environment variable (MC2).
   `meta_connection` → `channel_connection` (P41).
@@ -277,6 +290,9 @@ erDiagram
     datetime last_checked_at "last daily token check"
     text last_check_error "Meta's code, subcode and HTTP status only; at most 500"
     datetime disconnected_at "set exactly while revoked"
+    number usage_percent "Meta's highest usage, 0 to 100, shared by the business's products (P51)"
+    datetime usage_checked_at "when the usage was last read from a Meta answer (P51)"
+    datetime usage_wait_until "95 % or more: calls wait until then — Meta's time or 15 minutes (P51)"
     datetime created_at
     datetime updated_at
   }
@@ -1221,6 +1237,8 @@ counts, the stop history, the two global rows and the Meta file ids. Intake neve
 - **Replaced:** the plan's one stop for errors and plan states → an error stop and a plan stop (SN12,
   plan §33.2 rule 4); the pause, suspend and plan stop move from each lane to the account's
   `channel_account` row ([P42](decisions.md)); `instagram_account_id` → `channel_account_id` (P47).
+  Meta's usage is not kept per account or lane: the plan's `usage:{account}` copy (plan:L4333) → the
+  connection's `usage_*` fields ([P51](decisions.md)); the lane keeps only its own error stop.
 - **Open:** none.
 
 ```mermaid

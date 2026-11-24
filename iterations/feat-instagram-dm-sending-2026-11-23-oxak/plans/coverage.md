@@ -3,7 +3,7 @@
 Mode **initial** (Baseline `none`, Intake mode `brief`, from scratch) · Intake hash `e2875698ea64` · 2026-11-23.
 Sources: `intake-files/BRIEF.md` (the cover), `intake-files/Instagram-DM-Sending-Plan-v8.md` (`plan:L…`, the
 full truth) and `intake-files/DM-System-Simple-Guide-v8.md` (`guide:L…`, its short version — "if they ever
-disagree, the plan wins", guide:3). Questions `Qn` / defaults `An`: the Step 4 batch, answered in `decisions.md` (P1–P20 defaults, P26–P39 answers); the owner's channel split is P40–P47 (P47 its derived defaults) — rows whose requirement moves cite it, and **Channel split** below lists what it adds.
+disagree, the plan wins", guide:3). Questions `Qn` / defaults `An`: the Step 4 batch, answered in `decisions.md` (P1–P20 defaults, P26–P39 answers); the owner's channel split is P40–P47 (P47 its derived defaults) — rows whose requirement moves cite it, and **Channel split** below lists what it adds; the room for WhatsApp and TikTok is P48–P51 (P48 supersedes P44) — **Room for WhatsApp and TikTok** below lists what it adds.
 
 Status: `covered` (a requirement reaches it) · `open` (waits for a RED answer) · `out-of-scope` (with its reason).
 Requirement identifiers are proposals until Step 6 writes `plans/requirements/`.
@@ -55,10 +55,25 @@ P40–P47, 2026-11-23). Each row is what the split adds or moves; the rows above
 | decisions.md P41 | common connections (`app.channel_connections`, `app.channel_connection_tokens`, provider `meta`); one Unified Login for Instagram, Facebook and ads; ad accounts and ads read through the connection | `integrations.channel-connection-unified-login`, `operations.channel-connection-ad-picker` | channel-connection | BRIEF AC-2 | covered — P41 (db-changes Stage 1; route-changes RC-1–RC-5, RC-15, RC-112–RC-114) |
 | decisions.md P42 | common connected accounts (`app.channel_accounts`: channel, connection, status, display name, pause, suspend, plan stop, automation switch); `app.instagram_accounts` the 1:1 Instagram extension | `operations.channel-account`, `data.instagram-account-extension` | channel-account | — | covered — P42 (db-changes Stage 1; route-changes RC-7–RC-11, RC-60) |
 | decisions.md P43 | sending tables Instagram's (`instagram_send_*`, `instagram_messages`, `instagram_attachments`); `app.message_month_counts` and `app.sending_states` shared | `background.sending-lanes`, `billing.plan-message-month-limit` | sending-engine | BRIEF AC-6 | covered — P43 (db-changes Stage 6) |
-| decisions.md P44 | contacts, automations, runs, broadcasts, segments Instagram-named (`app.instagram_*`), launch tables renamed in place | `data.instagram-product-tables` | contacts, automations, broadcasts | BRIEF AC-10 | covered — P44 (db-changes Stages 2–5; route-changes under `/social/instagram/…`) |
+| decisions.md P44 | contacts, automations, runs, broadcasts, segments Instagram-named (`app.instagram_*`), launch tables renamed in place | `data.shared-product-tables` (was `data.instagram-product-tables`) | contacts, automations, broadcasts | BRIEF AC-10 | covered — superseded by P48: shared tables, no rename, routes under `/api/v1/app/…` (see **Room for WhatsApp and TikTok**) |
 | decisions.md P45 | webhook, event tables, queues and workers Instagram's | `integrations.instagram-webhook-save`, `background.*` | webhook, sending-engine | — | covered — P45 (worker-changes: every row but WC-34) |
 | decisions.md P46 | Meta's deauthorize and data-deletion callbacks with the connection | `integrations.channel-connection-meta-callbacks` | channel-connection | — | covered — P46 (route-changes RC-17, RC-18) |
 | decisions.md P47 | derived: features `channel_accounts_max`, `message_month_limit`; `{channel_account_id}` the one account id; common and Instagram route prefixes; `/app/usage` common; the token check the connection's; permission codes unchanged; F3 and F5 adopted | `billing.plan-channel-accounts-max`, `billing.plan-message-month-limit`, `background.token-check`, `background.intake`, `quality.lock-order` | channel-connection, channel-account, sending-engine, plans-and-limits | — | covered — P47 (route-changes, worker-changes WC-1–WC-4, WC-34, notes 7–9) |
+
+### Room for WhatsApp and TikTok (P48–P51)
+
+The owner's answers of 2026-11-24 (`decisions.md` P48–P51): the product data is shared again so a later
+channel reuses it, with Instagram-specific adapters around it. P48 supersedes P44.
+
+| Source | Item | Requirement | Feature | Acceptance | Status |
+| --- | --- | --- | --- | --- | --- |
+| decisions.md P48 | shared product data, keyed by `channel_account_id` (+ `channel` on contacts, automations, broadcasts): `app.contacts`, `app.contact_tag_events`, `app.automations`, `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs`, `app.automation_counts`, `app.automation_reply_states`, `app.automation_backfills`, `app.segments`, `app.broadcasts`, `app.broadcast_recipients`; the four launch tables changed in place with no rename | `data.shared-product-tables` | contacts, automations, broadcasts | BRIEF AC-10 | covered — P48 (db-changes Stages 2, 3 and 5; counts stand 22 / 15 / 1 / 1) |
+| decisions.md P48 | their routes back at `/api/v1/app/contacts…`, `/automations…`, `/broadcasts…`, `/segments…`, `/contact-tags` with a required `channel_account_id` filter; the launch's contacts and automations paths kept | `operations.shared-product-routes` | contacts, automations, broadcasts, past-comments | — | covered — P48 (route-changes RC-20–RC-34, RC-36–RC-55; counts stand 49 / 54 / 5) |
+| decisions.md P48 | per-channel capability list — ways to start, steps and message kinds — a code constant, Instagram the only entry; no table | `operations.channel-capability-list` | automations, broadcasts | — | covered — P48 (db-changes "Per-channel capability list and the one feature check"; route-changes RC-29, RC-31, RC-52) |
+| decisions.md P48 | still Instagram's: `instagram_accounts` (extension), settings, media, sending tables, `instagram_attachments`, webhook events and keys, their routes under `/social/instagram/…`, the Instagram background work; the shared run engine hands every send through one interface (save a waiting message) | `background.channel-send-interface` | sending-engine, webhook | — | covered — P48 with P43, P45 (worker-changes WC-1, WC-2 and the P48 note) |
+| decisions.md P49 | `channel_connection_tokens` gains `encrypted_refresh_token` (empty for Meta) and `token_type` `system_user` · `oauth_user` | `data.channel-connection-token-refresh` | channel-connection | — | covered — P49 (db-changes Stage 1, `channel_connection_token`; worker-changes WC-34 unchanged for Meta) |
+| decisions.md P50 | one feature check — channel capability ∧ granted permission ∧ plan ∧ Meta test — called by go-live, settings and the engine; refusals `channel_lacks_feature`, `permission_not_granted` (reconnect asks for it), `plan_lacks_feature`, `feature_not_offered`; the connection's granted permissions feed it, no new table | `operations.feature-check` | automations, account-settings, broadcasts, sending-engine | BRIEF AC-7 | covered — P50 (db-changes note and `channel_connection`; route-changes RC-12, RC-29, RC-31, RC-52; worker-changes WC-1, WC-2, WC-41) |
+| decisions.md P51 | Meta's usage (`X-Business-Use-Case-Usage` and app-level) kept per connection (`usage_percent`, `usage_checked_at`, `usage_wait_until`), Postgres with a short Redis copy; every channel's engine reads it before a call (80 % slows, 95 % waits Meta's time or 15 minutes); no per-lane usage | `background.meta-usage-per-connection` | channel-connection, sending-engine | — | covered — P51 (db-changes `channel_connection`, `instagram_send_lane`; worker-changes WC-6, WC-26, WC-41) |
 
 ### Part B — what people and owners see (§4–16)
 
@@ -81,9 +96,9 @@ P40–P47, 2026-11-23). Each row is what the split adds or moves; the rows above
 | plan:L1195–1443 | comment flow, Live, ads, no-hello, own comment, replies | `operations.automation-comment-flow`, `operations.automation-live-ended`, `operations.automation-ad-comment` | automations | — | covered (Live / ads: go-live gated — P36) |
 | plan:L1445–1818 | story reply, DM, first message, shared post, broadcasts, segments | `operations.automation-message-start-flow`, `operations.broadcast`, `operations.segment` | automations, broadcasts | — | covered (A9) |
 | plan:L1820–1949 | once rule, 24 h, window | `operations.automation-once-rule`, `operations.automation-window-table` | automations | — | covered (open run replaced: P35) |
-| plan:L1951–2103 | limits, month DMs, accounts max, plan states, PRO, choose active accounts, trial | `operations.instagram-send-limits`, `billing.plan-message-month-limit`, `billing.plan-states`, `billing.plan-pro-features`, `operations.channel-account-choose-active` | plans-and-limits, channel-account | BRIEF AC-6, AC-7 | covered (trial: P28; A3; `message_month_limit` and `channel_accounts_max` across channels, plan stop on the channel account — P42, P43, P47) |
+| plan:L1951–2103 | limits, month DMs, accounts max, plan states, PRO, choose active accounts, trial | `operations.instagram-send-limits`, `billing.plan-message-month-limit`, `billing.plan-states`, `billing.plan-pro-features`, `operations.channel-account-choose-active` | plans-and-limits, channel-account | BRIEF AC-6, AC-7 | covered (PRO parts checked by the one feature check — P50; trial: P28; A3; `message_month_limit` and `channel_accounts_max` across channels, plan stop on the channel account — P42, P43, P47) |
 | plan:L2105–2263 | human timing, extra delay, expiry, estimate | `operations.instagram-timing-boxes`, `operations.instagram-message-expiry`, `operations.instagram-pending-estimate` | sending-engine | — | covered |
-| plan:L2267–2362 | public replies per automation, usage header | `operations.automation-public-reply-per-automation` | automations | — | covered |
+| plan:L2267–2362 | public replies per automation, usage header | `operations.automation-public-reply-per-automation`, `background.meta-usage-per-connection` | automations | — | covered (the usage kept per connection — P51) |
 | plan:L2364–2510 | follow check, email / phone parse, answer table, stop words, ask once, mark seen, pause one person | `operations.automation-answer-table`, `operations.contact-stop-words`, `operations.contact-pause-automations` | automations, contacts | — | covered |
 | plan:L2512–2736 | owner screens: counters, switcher, 35 banners, workspace notices, pause / resume account, undo, fix text, limits, contacts (note, timeline, delete, tags), connect / reconnect / disconnect, team suspend, owner emails, broadcast screen, backfill button, retry failed | `operations.automation-list-counters`, `operations.instagram-account-banners`, `operations.workspace-notices`, `operations.contact-note`, `operations.contact-timeline`, `notifications.owner-emails` | owner-actions | — | covered (A14, A15, A18; connect, reconnect, disconnect, pause, resume and team suspend on the channel connection and account — P41, P42) |
 | plan:L2737–2791 | 26 Riya examples | acceptance seeds | all | `plans/acceptance.md` | covered |
@@ -93,12 +108,12 @@ P40–P47, 2026-11-23). Each row is what the split adds or moves; the rows above
 | Source | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
 | plan:L2798–2884 | table map, reused tables, "already solved" | `data.*` | all | — | covered |
-| plan:L2886–3225 | 9 changed `app` tables, token table removed | `data.*` (db-changes.md stages 1–5) | all | — | covered (P29; four launch tables renamed `instagram_*` in place, `instagram_accounts` the extension of `channel_accounts` — P42, P44) |
-| plan:L3226–3847 | 20 new tables | `data.*` (db-changes.md) | all | — | covered (names: P38, then the channel split P40–P44 — common `channel_*`, `message_month_counts`, `sending_states`; the rest `instagram_*`) |
+| plan:L2886–3225 | 9 changed `app` tables, token table removed | `data.*` (db-changes.md stages 1–5) | all | — | covered (P29; the four launch product tables changed in place with no rename — P48, superseding P44; `instagram_accounts` the extension of `channel_accounts` — P42) |
+| plan:L3226–3847 | 20 new tables | `data.*` (db-changes.md) | all | — | covered (names: P38, then the channel split P40–P43 — common `channel_*`, `message_month_counts`, `sending_states`; then P48 — the product tables shared under their plan names, the Instagram adapter `instagram_*`) |
 | plan:L3848–4123 | statuses and state pictures | `data.*-states` | sending-engine | — | covered (A3) |
 | plan:L4124–4220 | partitions and retention | `quality.retention`, `background.partition-upkeep` | sending-engine | BRIEF AC-8 | covered — P33 |
 | plan:L4221–4300 | row security, roles, organization context | `access.row-security`, `access.global-sending-tables` | all | — | covered (A16) |
-| plan:L4302–4342 | Redis keys | `quality.redis-notes` | sending-engine | — | covered (A5, A6; no buffer: P32; connect state a Redis nonce: P26) |
+| plan:L4302–4342 | Redis keys | `quality.redis-notes` | sending-engine | — | covered (A5, A6; no buffer: P32; connect state a Redis nonce: P26; the usage copy keyed by connection, Postgres first — P51) |
 
 ### Part D — the sending engine (§24–35)
 
@@ -193,8 +208,9 @@ it, and its Standing deviations this change touches go into `KICKOFF.md` section
 
 ## Counts
 
-Coverage rows 101 — covered 93, open 0, out-of-scope 8 (P39 referrals ×2, P34 file scan ×1, owner tasks ×3,
-later features ×2) — the 8 rows of **Channel split** (P40–P47) are new, all covered; a few covered rows carry an out-of-scope part (B6 scan — P34, referral payouts — P39, AI,
+Coverage rows 108 — covered 100, open 0, out-of-scope 8 (P39 referrals ×2, P34 file scan ×1, owner tasks ×3,
+later features ×2) — the 7 rows of **Room for WhatsApp and TikTok** (P48 ×4, P49, P50, P51) are new, all
+covered, and the P44 row is covered as superseded by P48; the 8 rows of **Channel split** (P40–P47), all covered; a few covered rows carry an out-of-scope part (B6 scan — P34, referral payouts — P39, AI,
 Neon ops runbook). Reconciliation rows 22 — 8 settled by an approved line, 7 by an owner answer (P32–P36;
 R7 and R22 with a default too), 7 by a default (A1–A19); none open. R10 is now settled by P47 (the webhook review's F3 adopted) instead of
 at kickoff.

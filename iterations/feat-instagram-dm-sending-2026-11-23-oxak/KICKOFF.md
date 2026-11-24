@@ -218,7 +218,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R29 | 9.C Members and invitations: several emails, the preview, counts per role; routes 116–118 — § 9 TNC3, § 9.C (TNC5–TNC7) | sub-domain | R28 | `/be-build-requirement` | AC-12.5–AC-12.7 | Rimeet Mavani | done |
 | R30 | 10.A Email code, passwords removed; routes 120–121 (four removed) — § 10 ATC1, ATC2, ATC4, § 10.A (ATC5) | sub-domain | R28 | `/be-build-requirement` | AC-13.1–AC-13.4 | Rimeet Mavani | done |
 | R31 | 10.B Google and Apple, the one `303` exception; routes 122–125, 143 — § 10 ATC3, § 10.B (ATC6, ATC7) | sub-domain | R30 | `/be-build-requirement` | AC-13.5–AC-13.7 | Rimeet Mavani | done |
-| R32 | 10.C Two-factor, trusted devices, step-up; routes 126–127, 145, 147 — § 10.C (ATC8–ATC10) | sub-domain | R30 | staged-build prompt | AC-13.8–AC-13.11 | Rimeet Mavani | open |
+| R32 | 10.C Two-factor, trusted devices, step-up; routes 126–127, 145, 147 — § 10.C (ATC8–ATC10) | sub-domain | R30 | staged-build prompt | AC-13.8–AC-13.11 | Rimeet Mavani | done |
 | R33 | 10.D Sessions with their place; routes 128, 144, 146 — § 10.D (ATC11) | sub-domain | R30 | `/be-build-requirement` | AC-13.12, AC-13.13 | Rimeet Mavani | open |
 | R34 | 11.A The person and the organization chooser (the app's counts port); routes 130–132, 148–149 — § 11 UNC1, UNC2, § 11.A (UNC3, UNC4) | sub-domain | R13, R18, R29 | `/be-build-requirement` | AC-14.1–AC-14.3 | Rimeet Mavani | open |
 | R35 | 11.B Confirm your email; routes 133–134 — § 11.B (UNC5) | sub-domain | R30 | `/be-build-requirement` | AC-14.4 | Rimeet Mavani | open |

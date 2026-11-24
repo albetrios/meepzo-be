@@ -22,6 +22,7 @@ import { user_settings } from '@/domains/user/sub-domains/user-settings/user-set
 import { user_data_exports } from '@/domains/user/sub-domains/user-data-export/user-data-export.schema.js';
 import { user_bug_reports } from '@/domains/user/sub-domains/user-bug-report/user-bug-report.schema.js';
 import { webauthn_credentials } from '@/domains/auth/sub-domains/auth-webauthn/webauthn-credential.schema.js';
+import { trusted_devices } from '@/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.schema.js';
 import { mfa_recovery_codes } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-recovery-code.schema.js';
 import { mfa_methods } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-method.schema.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
@@ -66,6 +67,7 @@ export const USER_SCOPED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'auth', tableName: 'user_data_exports' },
   { schemaName: 'auth', tableName: 'user_bug_reports' },
   { schemaName: 'auth', tableName: 'webauthn_credentials' },
+  { schemaName: 'auth', tableName: 'trusted_devices' },
   { schemaName: 'auth', tableName: 'mfa_recovery_codes' },
   { schemaName: 'auth', tableName: 'mfa_methods' },
 ];
@@ -848,6 +850,25 @@ export async function seedUserScopedRlsFixtures(): Promise<RlsUserFixture> {
   rowIdsByTable.set(tableKey({ schemaName: 'auth', tableName: 'webauthn_credentials' }), {
     userA: credentialA!.id,
     userB: credentialB!.id,
+  });
+
+  const trustedDeviceRow = (user: { id: number }) => ({
+    public_id: generatePublicId('trustedDevice'),
+    user_id: user.id,
+    token_hash: generatePublicId('trustedDevice').padEnd(64, '0'),
+    expires_at: new Date(Date.now() + 86_400_000),
+  });
+  const [trustedDeviceA] = await database
+    .insert(trusted_devices)
+    .values(trustedDeviceRow(userA))
+    .returning();
+  const [trustedDeviceB] = await database
+    .insert(trusted_devices)
+    .values(trustedDeviceRow(userB))
+    .returning();
+  rowIdsByTable.set(tableKey({ schemaName: 'auth', tableName: 'trusted_devices' }), {
+    userA: trustedDeviceA!.id,
+    userB: trustedDeviceB!.id,
   });
 
   const [recoveryA] = await database

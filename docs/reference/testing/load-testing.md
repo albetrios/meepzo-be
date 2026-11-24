@@ -47,10 +47,14 @@ Report separately: executed route coverage, concurrency profile, fixture/identit
 ## Lifecycle journeys
 
 `auth-security-lifecycle.js` runs in the nightly strict step against the running API on the
-seeded credential pool (`VUS=4`, `ITERATIONS=5`: 20 distinct users). Each journey revokes
-sessions, links and removes a sign-in method, changes and restores the password, enrolls real
-TOTP MFA, verifies and replays codes, consumes a recovery code and removes MFA, so every pool
-user ends as it started. It requires 100% checks, zero unexpected HTTP failures, zero dropped
+seeded credential pool (`VUS=4`, `ITERATIONS=5`: 20 distinct users). Each journey signs in by
+email code, revokes sessions under an email-code step-up (strong for a person without 2FA —
+feat-instagram-dm-sending AT15), checks the email-code way cannot be removed and the password
+routes are gone, enrolls real TOTP MFA, verifies and replays codes, consumes a recovery code with
+"trust this device", signs in again without the code on that trusted browser, then removes MFA
+under an email-code step-up (the factor is still provisional), so every pool user ends as it
+started. Every sign-in and step-up sends a code: on a target with the 60 s send spacing on, each VU
+waits it out (`AUTH_EMAIL_CODE_RESEND_COOLDOWN_ENABLED=false` on a local or development target). It requires 100% checks, zero unexpected HTTP failures, zero dropped
 iterations and exactly 20 completed journeys.
 
 The account, tenant, upload, passkey, billing-provider and webhook-delivery journeys are
@@ -216,11 +220,10 @@ from noise.
    inflates the route it targets and adds load that does not exist in production. `POST
    /auth/switch-to-organization` returns the active-organization context inline and meepzo-fe writes it straight
    into its cache, so a `GET /auth/me/context` after a switch measures a request the app never makes.
-4. **Hold the auth method constant, and know what it costs.** `POST /auth/login` verifies with
-   argon2id — roughly 100 ms of deliberate CPU per call. Node runs one thread, so 50 concurrent
-   password logins queue several seconds of CPU that inflates *every other route in the run* and can
-   trip `overloadGuardMiddleware` into shedding 503s. A journey using password auth and one using
-   email-code auth are not comparable, and the difference between them is not an application change.
+4. **Hold the auth method constant, and know what it costs.** Every sign-in is an email code
+   (passwords are off, P84): `send-code` pays the 300 ms anti-enumeration floor, and `AUTH=otp`
+   also creates an account per VU. A journey that signs up and one that signs in pool users are not
+   comparable, and the difference between them is not an application change.
 
 **Diagnosing a failing journey**
 
@@ -367,7 +370,7 @@ Walks the complete front-end user journey once per virtual user, so **VUs are us
 - **File**: `src/tests/load/k6/scenarios/fe-login-to-organization.js`
 - **Auth**: `AUTH=code` (default) signs a pool user in the way the app does: `send-code` → read
   `debug_verification_code` → login (needs `TEST_MODE=true`, and no more VUs than pool users, because an
-  address gets one code per resend cooldown); `AUTH=password` uses `POST /auth/login`; `AUTH=otp` does
+  address gets one code per resend cooldown); `AUTH=otp` does
   the same round trip for a brand-new account, so each VU signs up (needs `TEST_MODE=true`).
 - **Credentials**: the pool at `src/tests/load/k6/data/credential-pool.json` — build it with
   `pnpm db:seed:loadtest`.
@@ -379,7 +382,7 @@ Walks the complete front-end user journey once per virtual user, so **VUs are us
 | --- | ------- | ------- |
 | `VUS` | `50` | Virtual users; each performs the journey once |
 | `POOL` | — | `DATABASE_POOL_MAX` the API was started with; printed in the header for the record |
-| `AUTH` | `code` | `code` \| `password` \| `otp` |
+| `AUTH` | `code` | `code` \| `otp` (passwords are off, P84) |
 | `STAGGER` | `5` | Milliseconds between VU starts, to avoid a synthetic thundering herd |
 | `RESULT_TAG` | — | Label recorded with the run |
 

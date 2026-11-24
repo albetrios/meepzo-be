@@ -161,6 +161,8 @@ export async function completeOAuthUserSession(parameters: {
   profile: OAuthProfile;
   ipAddress: string;
   userAgent?: string;
+  /** The browser's `trusted_device` cookie (AT17), read by the first-factor gate. */
+  trustedDeviceToken?: string | undefined;
 }): Promise<FirstFactorAuthResult & { user: UserAuthRecord }> {
   const {
     userService,
@@ -294,6 +296,7 @@ export async function completeOAuthUserSession(parameters: {
     organizationSettingsService,
     mfaService,
     authSessionService,
+    trustedDeviceToken: parameters.trustedDeviceToken,
   });
 
   return { ...authResult, user };

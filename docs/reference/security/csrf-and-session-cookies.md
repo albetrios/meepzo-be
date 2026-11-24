@@ -49,6 +49,26 @@ Implementation: [`src/domains/auth/auth.http.util.ts`](../../../src/domains/auth
 
 Routes that set or clear the cookie include login, email verification-code verify, OAuth callback, MFA challenge completion, and logout (clear). **`POST /api/v1/auth/refresh`** reads the cookie and returns a new access token.
 
+### `trusted_device` (httpOnly, 30 days)
+
+"Trust this device for 30 days" (feat-instagram-dm-sending AT17): set by `POST /auth/mfa/login` with
+`trust_device: true` after a right 2FA code; read by every first-factor sign-in (email login, the OAuth
+callback, the passkey verify) and by `DELETE /auth/me/sessions` (which keeps this browser's trusted
+device); cleared when the last 2FA factor is removed.
+
+| Property | Value | Notes |
+| --- | --- | --- |
+| **Name** | `trusted_device` | 32 random bytes, base64url; the server stores only its SHA-256 (`auth.trusted_devices`). |
+| **Path** | `/api/v1/auth` | Same scope as `session_id`. |
+| **HttpOnly** | `true` | Never readable by page scripts. |
+| **Secure** | `COOKIE_SECURE` | As the session cookie. |
+| **SameSite** | `lax` (`none` when `COOKIE_SAMESITE=none`) | Like the OAuth nonce cookie: a browser ignores a `lax` cookie set on a cross-site `fetch` answer. |
+| **Max-Age** | 30 days | `TRUSTED_DEVICE_DAYS`; the row's `expires_at` decides, the cookie only carries the token. |
+
+It never signs anyone in by itself: it only lets the 2FA step be skipped after a first factor, never
+for a `super_admin` or a person in an organization that requires 2FA, and the session it opens has
+no proved second factor.
+
 ### Refresh-secret rotation and reuse detection
 
 The `session_id` cookie value is `<session public id>.<refresh secret>`. Every refresh rotates the secret; the previous one stays accepted for a short grace window so concurrent tabs do not trip reuse detection.

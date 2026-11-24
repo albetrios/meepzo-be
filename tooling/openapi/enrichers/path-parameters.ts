@@ -15,6 +15,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   authSession: 'session',
   authMethod: 'auth method',
   webauthnCredential: 'passkey',
+  trustedDevice: 'trusted device',
   notification: 'notification',
   webhook: 'webhook',
   plan: 'plan',

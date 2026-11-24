@@ -76,6 +76,26 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → larger replay window for a half-completed login; review with security.
 - **Last reviewed**: 2026-05-28
 
+## TRUSTED_DEVICE_DAYS
+
+- **Value**: 30 days
+- **Source**: [src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts](src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts)
+- **Rationale**: How long "trust this device" lets a browser skip the 2FA code at sign-in (feat-instagram-dm-sending AT17, D56). Counted from the tick; use never extends it. The `trusted_device` cookie lasts as long.
+- **Consequences of change**:
+  - Decreasing → people re-enter the 2FA code more often.
+  - Increasing → a stolen browser profile skips the 2FA code longer; review with security.
+- **Last reviewed**: 2026-11-24
+
+## TRUSTED_DEVICES_MAX
+
+- **Value**: 10 live trusted devices per person
+- **Source**: [src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts](src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts)
+- **Rationale**: Bounds the rows and the trusted surface per person (AT17); an 11th revokes the oldest under a per-user advisory lock.
+- **Consequences of change**:
+  - Decreasing → people with many browsers lose trust on the oldest sooner.
+  - Increasing → more live trusted cookies per account.
+- **Last reviewed**: 2026-11-24
+
 ## WEBAUTHN_CHALLENGE_TTL_SECONDS
 
 - **Value**: 300 seconds (5 minutes; alias of `MFA_SESSION_TTL_SECONDS`)

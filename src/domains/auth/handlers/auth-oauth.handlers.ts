@@ -11,6 +11,7 @@ import {
   sendOauthProviderNotImplementedResponse,
   setOauthNonceCookie,
   setSessionCookie,
+  readTrustedDeviceCookie,
 } from '@/domains/auth/auth.http.util.js';
 import { getUserAgent } from '@/shared/utils/http/user-agent.util.js';
 import type {
@@ -91,6 +92,7 @@ export function createAuthOauthHandlers({ oauthService }: AuthOauthHandlersDepen
             ipAddress,
             userAgent,
             requestId: getRequestIdentifier(request),
+            trustedDeviceToken: readTrustedDeviceCookie(request),
           }),
         );
       } catch (error) {

@@ -1,10 +1,9 @@
 # Frontend auth & headers guide
 
-> **Passwords are off (feat-instagram-dm-sending P84, row R30).** `POST /auth/login`,
-> `/auth/password/forgot`, `/reset` and `/change` no longer exist (404), and `POST /auth/step-up`
-> takes only `{ code }` (six digits). Sign in by email code, Google/Apple OAuth or a passkey. The
-> password-based examples further down (the `login` / `requestPasswordReset` helpers, the password
-> step-up branch) are obsolete and are rewritten with the strong email-code step-up (R32).
+> **No passwords.** Sign in by email code, Google/Apple OAuth or a passkey; `POST /auth/login` and
+> `/auth/password/*` do not exist (404). A person with two-factor sign-in (TOTP) adds the 2FA code
+> after the first factor, and may tick "trust this device for 30 days". Step-up before a sensitive
+> action is the email code for a person without settled 2FA, the 2FA code otherwise.
 
 How a browser frontend (SPA) authenticates against meepzo-be, keeps the user logged in, switches the
 active organization, and which headers it must send on which routes. This is the **client-integration**
@@ -75,7 +74,7 @@ flowchart LR
 | `Authorization: Bearer <access_token>` | every authenticated request | **Yes** (authed routes) | The in-memory access token. Carries the active `org` claim. |
 | `Content-Type: application/json` | any request with a JSON body | **Yes** for JSON bodies | — |
 | `X-Idempotency-Key: <uuid>` | `POST`/`PUT`/`PATCH` writes | **Required** on the routes marked `req` in the [route catalog](../../routes.txt), optional elsewhere | `422` if missing on a required route. See [Idempotency keys](#idempotency-keys). |
-| `X-Captcha-Token: <widget token>` | public auth forms | **Required only when Turnstile is configured** (production) | From the Cloudflare Turnstile widget. Routes: `login`, `email/send-code`, `email/login`, `password/forgot`, `password/reset`, `mfa/login`, `webauthn/authenticate/options`. Not OAuth init (`GET /auth/oauth/:provider`) — the provider authenticates the user. |
+| `X-Captcha-Token: <widget token>` | public auth forms | **Required only when Turnstile is configured** (production) | From the Cloudflare Turnstile widget. Routes: `email/send-code`, `email/login`, `mfa/login`, `webauthn/authenticate/options`. Not OAuth init (`GET /auth/oauth/:provider`) — the provider authenticates the user. |
 | `X-CSRF-Token: <csrf_token cookie value>` | `POST /auth/refresh` **only**, **only if you don't send `Origin`** | Browsers: **not needed** | Browsers always send `Origin`, which satisfies the refresh origin check. This is a fallback for non-browser clients. |
 
 **Cookies — never touched by JS.** The browser stores and sends `session_id` (httpOnly) and
@@ -251,28 +250,54 @@ The recovery is the same in every case:
 Deleting the account (`DELETE /users/me`), requesting the data export (`POST /users/me/data-export`),
 transferring ownership (`POST /tenancy/organization/transfer-ownership`), deleting the organization
 (`DELETE /tenancy/organization`) and changing its `status` (`PATCH /tenancy/organization` with
-`status` — the owner's alone, like deleting it) need a recent step-up on **this** session, valid for 10 minutes:
-`POST /auth/step-up` with the password (a passwordless account without MFA uses an emailed code), or an
-MFA verification for an MFA user. Without it they answer
-`403 errors:recentStepUpRequired` — ask the user to confirm who they are, then retry. A stolen access
-token alone can therefore not erase an account or an organization.
+`status` — the owner's alone, like deleting it) need a recent step-up on **this** session, valid for 10 minutes: `POST /auth/step-up` with an
+emailed code for a person without settled two-factor sign-in, or `POST /auth/me/mfa/verify` with the
+2FA code for a person with it. Without it they answer `403 errors:recentStepUpRequired` — ask the
+user to confirm who they are, then retry. A stolen access token alone can therefore not erase an
+account or an organization.
+
+The same step-up guards the security settings: revoking one session or every other one
+(`DELETE /auth/me/sessions/{session_id}`, `DELETE /auth/me/sessions`), removing a passkey, a sign-in
+way or the 2FA factor. Those need a **strong** step-up (`403 errors:strongStepUpRequired`
+otherwise): the email code is strong for a person without settled 2FA — their mailbox can already
+sign them in, so it gives no new power — and the 2FA code is strong for everyone. A TOTP factor
+enrolled in the last 72 hours under an email-code step-up is not settled yet: until then the email
+code still opens a strong step-up, and the new factor's own code opens only a weak one (enough to
+enroll another factor).
 
 **Client checklist (meepzo-fe).** Each of the calls above needs the same wrapper:
 
 1. Send the request. On `403` with `errors:recentStepUpRequired`, keep the request and open a
    "confirm it's you" prompt; any other status is handled as before.
-2. Step up on the current session, by the account's kind (`GET /auth/me` / `GET /auth/me/context`):
-   - MFA enabled → `POST /auth/me/mfa/verify { code }` (TOTP or recovery code). A password here is
-     refused with `403 errors:mfaStepUpRequired`.
-   - has a password → `POST /auth/step-up { password }`. A wrong password is `401`; an email code is
-     refused with `403 errors:passwordStepUpRequired`.
-   - passwordless, no MFA → `POST /auth/email/send-code { email }` (one code per 60 s), then
-     `POST /auth/step-up { code }`.
+2. Step up on the current session with the email code first:
+   - `POST /auth/email/send-code { email }` (one code per 60 s — a sooner send answers
+     `429 code_resend_too_soon` with `retry_after_seconds`), then `POST /auth/step-up { code }` →
+     `200 { stepped_up: true, factor: 'email_code' }`. A wrong code answers `401 code_wrong` with
+     `tries_left`; `401 code_expired` asks for a new code; `401 code_used_up` after 5 wrong tries.
+   - If it answers `403` with reason `mfa_step_up_required`, the person has settled 2FA: ask for the
+     2FA code and `POST /auth/me/mfa/verify { code }` instead.
 3. Retry the original request once. The window lasts 10 minutes on this session only — a token
    refresh keeps the session, a new login does not — so a second action inside it needs no prompt.
 
-The k6 scenarios `user-data-export.js` and `fe-full-surface.js` (step 53) do exactly this with a
-password.
+```ts
+/** Opens a step-up window on this session: the email code, or the 2FA code when asked for it. */
+export async function stepUp(email: string, askForCode: (kind: 'email' | 'mfa') => Promise<string>) {
+  await postPublic('/auth/email/send-code', { email });
+  const emailCode = await askForCode('email');
+  const res = await apiFetch('/auth/step-up', { method: 'POST', body: JSON.stringify({ code: emailCode }) });
+  if (res.ok) return;
+  const { error } = await res.json();
+  if (res.status === 403 && error?.reason === 'mfa_step_up_required') {
+    const mfaCode = await askForCode('mfa');
+    const verified = await apiFetch('/auth/me/mfa/verify', { method: 'POST', body: JSON.stringify({ code: mfaCode }) });
+    if (verified.ok) return;
+  }
+  throw new Error(error?.reason ?? 'step_up_failed');                // code_wrong (tries_left), code_expired, …
+}
+```
+
+The k6 scenarios `comprehensive-journey.js`, `fe-full-surface.js` (step 53) and
+`auth-security-lifecycle.js` step up with the email code exactly this way.
 
 ## Entry flows → how many calls to the dashboard
 
@@ -283,10 +308,10 @@ sequenceDiagram
   participant FE as Frontend SPA
   participant API as meepzo-be
   Note over FE,API: step 1 — obtain an access token (any entry flow below)
-  FE->>API: POST /auth/login  [or email verification-code login / oauth callback / passkey verify / refresh]
-  alt user has MFA, or organization policy requires it
+  FE->>API: POST /auth/email/login  [or oauth callback / passkey verify / refresh]
+  alt user has 2FA (and this browser is not trusted), or organization policy requires it
     API-->>FE: 200 { mfa_required: true, mfa_session_token }
-    FE->>API: POST /auth/mfa/login { mfa_session_token, totp_code }
+    FE->>API: POST /auth/mfa/login { mfa_session_token, totp_code, trust_device? }
   end
   API-->>FE: 200 { access_token, session_id }  + Set-Cookie session_id
   Note over FE: keep access_token in memory
@@ -295,10 +320,24 @@ sequenceDiagram
   Note over FE: dashboard painted
 ```
 
-The first-factor entry points (`login`, `email/send-code`, `email/login`, `oauth/.../callback`, `webauthn/authenticate/verify`, `password/reset`) all return the **same discriminated body** — branch on the field, **not** the HTTP status (every POST here is `200`):
+The first-factor entry points (`email/login`, `oauth/.../callback`, `webauthn/authenticate/verify`) all return the **same discriminated body** — branch on the field, **not** the HTTP status (every POST here is `200`):
 
 - `{ access_token, session_id }` → logged in; store the token and call `GET /auth/me/context`.
 - `{ mfa_required: true, mfa_session_token }` → collect a TOTP or recovery code and call `POST /auth/mfa/login`, which then returns `{ access_token, session_id }`.
+
+**The 2FA step (`POST /auth/mfa/login`).** Offer a "Trust this device for 30 days" box and send it as
+`trust_device: true`: a right code then also sets the httpOnly `trusted_device` cookie (path
+`/api/v1/auth`, 30 days — sent with `credentials: 'include'` like the session cookie), and the next
+sign-in on this browser skips the 2FA code — never when one of the person's organizations requires
+2FA, never for a super_admin, and never for a step-up. A person keeps at most 10 trusted browsers (an
+11th ends the oldest); turning 2FA off, removing the last factor, or "sign out everywhere else" (all
+but this browser) ends them. Its answers, by `error.reason`:
+
+| Status · reason | When | What the app shows |
+| --- | --- | --- |
+| `401 mfa_code_wrong` (+ `tries_left`) | a wrong TOTP or recovery code | "That code is not right" — from the 3rd wrong try, a stronger line with the tries left |
+| `429 mfa_locked` (+ `retry_after_seconds`) | over 10 wrong codes in 15 minutes | the wait; offer a recovery code (not counted) |
+| `401 mfa_session_invalid` | the `mfa_session_token` expired, was spent or is unknown | start the sign-in again |
 
 | Entry flow | API call sequence (in order) | Terminal success body | Calls to dashboard |
 |------------|------------------------------|-----------------------|--------------------|
@@ -380,23 +419,25 @@ function refresh() {
 }
 
 // --- entry points -------------------------------------------------------------
-export async function login(email, password, captchaToken) {
-  const r = await fetch(`${API}/auth/login`, {
+// Email-code sign-in: POST /auth/email/send-code { email }, then this with the code the person typed.
+export async function login(email, code, captchaToken) {
+  const r = await fetch(`${API}/auth/email/login`, {
     method: 'POST',
-    credentials: 'include',
+    credentials: 'include', // sends the trusted_device cookie, so a trusted browser skips the 2FA step
     headers: {
       'Content-Type': 'application/json',
       ...(captchaToken ? { 'X-Captcha-Token': captchaToken } : {}),
     },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, code }),
   });
-  const { data } = await r.json();
+  const { data, error } = await r.json();
+  if (!r.ok) throw new Error(error?.reason ?? 'login_failed'); // code_wrong (tries_left), code_expired, …
   if (data.mfa_required) return data; // { mfa_required: true, mfa_session_token } → MFA step
   accessToken = data.access_token;
   return data;
 }
 
-export async function completeMfaLogin(mfaSessionToken, totpCode, captchaToken) {
+export async function completeMfaLogin(mfaSessionToken, totpCode, captchaToken, trustDevice = false) {
   const r = await fetch(`${API}/auth/mfa/login`, {
     method: 'POST',
     credentials: 'include',
@@ -404,10 +445,11 @@ export async function completeMfaLogin(mfaSessionToken, totpCode, captchaToken) 
       'Content-Type': 'application/json',
       ...(captchaToken ? { 'X-Captcha-Token': captchaToken } : {}),
     },
-    // send `recovery_code` instead of `totp_code` to use a backup code
-    body: JSON.stringify({ mfa_session_token: mfaSessionToken, totp_code: totpCode }),
+    // send `recovery_code` instead of `totp_code` to use a backup code; trust_device: "trust this device for 30 days"
+    body: JSON.stringify({ mfa_session_token: mfaSessionToken, totp_code: totpCode, trust_device: trustDevice }),
   });
-  const { data } = await r.json();
+  const { data, error } = await r.json();
+  if (!r.ok) throw new Error(error?.reason ?? 'mfa_failed'); // mfa_code_wrong (tries_left), mfa_locked, mfa_session_invalid
   accessToken = data.access_token;
   return data;
 }
@@ -616,10 +658,6 @@ export const passkeyOptions = (email?: string) =>
   postPublic<unknown>('/auth/webauthn/authenticate/options', { email });   // feed to navigator.credentials.get()
 export const verifyPasskey = (assertion: unknown) =>
   postPublic<FirstFactorResponse>('/auth/webauthn/authenticate/verify', assertion);
-export const requestPasswordReset = (email: string, captcha?: string) =>
-  postPublic<{ message: string }>('/auth/password/forgot', { email }, captcha);
-export const resetPassword = (token: string, password: string, captcha?: string) =>
-  postPublic<FirstFactorResponse>('/auth/password/reset', { token, password }, captcha);
 export const acceptInvitation = (invitationId: string, token: string) =>   // authenticated write → apiFetch
   apiFetch(`/tenancy/membership-invitations/${invitationId}/accept`, { method: 'POST', body: JSON.stringify({ token }) })
     .then(async (r) => {
@@ -632,17 +670,10 @@ export const landOnDashboard = {
   // 3 calls — send-code + login + /me/context (unknown emails are auto-signed-up)
   emailCodeLogin: async (email: string, code: string) => finishFirstFactor(await emailLogin(email, code)),
 
-  // 2 calls (+1 if MFA) — login + /me/context; the reference login() sets the token on the non-MFA branch
-  login: async (email: string, password: string, captcha?: string): Promise<LandResult> => {
-    const data = await login(email, password, captcha);
-    return 'mfa_required' in data
-      ? { status: 'mfa_required', mfaSessionToken: data.mfa_session_token }
-      : { status: 'ready', dashboard: await getMeContext() };
-  },
-
   // the +1 for any MFA flow — mfa/login + /me/context. Recovery code: completeMfaLogin posts { recovery_code } instead.
-  completeMfa: async (mfaSessionToken: string, totpCode: string, captcha?: string) => {
-    await completeMfaLogin(mfaSessionToken, totpCode, captcha);   // reference client fn (sets the token)
+  // trustDevice: the "trust this device for 30 days" box — the next sign-in on this browser skips this step.
+  completeMfa: async (mfaSessionToken: string, totpCode: string, trustDevice = false, captcha?: string) => {
+    await completeMfaLogin(mfaSessionToken, totpCode, captcha, trustDevice); // reference client fn (sets the token)
     return getMeContext();
   },
 
@@ -659,11 +690,6 @@ export const landOnDashboard = {
   // 3 calls — options + verify + /me/context
   passkeyOptions: (email?: string) => passkeyOptions(email),
   passkeyVerify: async (assertion: unknown) => finishFirstFactor(await verifyPasskey(assertion)),
-
-  // 3 calls — forgot + reset + /me/context (user clicks the emailed link between the two)
-  passwordForgot: (email: string, captcha?: string) => requestPasswordReset(email, captcha),
-  passwordReset: async (token: string, password: string, captcha?: string) =>
-    finishFirstFactor(await resetPassword(token, password, captcha)),
 
   // 2 calls — silent refresh + /me/context; null when there is no live session
   resume: async (): Promise<MeContext | null> => (await bootstrap()) ? getMeContext() : null,

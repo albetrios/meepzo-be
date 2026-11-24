@@ -29,6 +29,8 @@ export const RESOURCE_QUOTA_LOCK_NAMESPACE = {
   WEBAUTHN_CREDENTIAL: 0x57_42_41_4e,
   /** Per-user concurrent active-session cap, keyed by user id. ASCII `SESN`. */
   AUTH_SESSION: 0x53_45_53_4e,
+  /** Per-user live trusted-device cap (`TRUSTED_DEVICES_MAX`), keyed by user id. ASCII `TDEV`. */
+  TRUSTED_DEVICE: 0x54_44_45_56,
   /** Per-organization pending membership-invitation cap, keyed by organization id. ASCII `INVT`. */
   MEMBERSHIP_INVITATION: 0x49_4e_56_54,
   /**

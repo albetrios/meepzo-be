@@ -106,7 +106,7 @@ describe('MfaService.deleteMfa — organization MFA policy guard (sec-A4)', () =
 
     await expect(
       service.deleteMfa({ userPublicId: 'user_pub', mfaMethodPublicId: 'mfamethodpublicid0001' }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ revoked_trusted_device_ids: [] });
 
     expect(authMethodService.revokeAuthMethod).toHaveBeenCalledWith({
       methodId: 42,
@@ -131,7 +131,7 @@ describe('MfaService.deleteMfa — organization MFA policy guard (sec-A4)', () =
 
     await expect(
       service.deleteMfa({ userPublicId: 'user_pub', mfaMethodPublicId: 'mfamethodpublicid0001' }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ revoked_trusted_device_ids: [] });
 
     expect(authMethodService.revokeAuthMethod).toHaveBeenCalledWith({
       methodId: 42,

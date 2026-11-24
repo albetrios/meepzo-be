@@ -78,11 +78,13 @@ export function createAuthAuthMethodHandlers({
       if (!sessionPublicId) {
         throw new ForbiddenError('errors:recentStepUpRequired');
       }
-      // Email-code step-up (passwords are off, P84): the service rejects it for an MFA account (that
-      // one steps up through MFA verify). The window is `email_code`-tagged — it can enroll a first
-      // factor; whether it also satisfies the strong gate without 2FA is route 127's change (R32).
+      // Email-code step-up (passwords are off, P84; AT15): refused with `403 mfa_step_up_required`
+      // for a person with settled 2FA (that one steps up through MFA verify). The window is
+      // `email_code`-tagged and STRONG — only a person without settled 2FA can open it, and their
+      // mailbox can already sign them in, so it gives no new power.
       await emailLoginService.verifyCodeForStepUp({
         userPublicId: auth.userId,
+        sessionPublicId,
         code: parsed.code,
       });
       const factor: StepUpFactor = 'email_code';
@@ -102,7 +104,7 @@ export function createAuthAuthMethodHandlers({
         },
       });
       return successResponse({
-        data: { stepped_up: true },
+        data: { stepped_up: true, factor },
         request_id: getRequestIdentifier(request),
       });
     },

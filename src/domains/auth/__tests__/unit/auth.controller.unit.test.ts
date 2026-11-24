@@ -138,14 +138,14 @@ describe('createAuthController', () => {
       session_refresh_secret: 'refresh-secret',
     }),
     listMfaMethods: vi.fn().mockResolvedValue([]),
-    deleteMfa: vi.fn().mockResolvedValue(undefined),
+    deleteMfa: vi.fn().mockResolvedValue({ revoked_trusted_device_ids: [] }),
   };
 
   const authSessionService = {
     list: vi.fn().mockResolvedValue([]),
     revoke: vi.fn().mockResolvedValue(undefined),
     revokeAllSessions: vi.fn().mockResolvedValue(undefined),
-    revokeAllSessionsExceptCurrent: vi.fn().mockResolvedValue(undefined),
+    revokeAllSessionsExceptCurrent: vi.fn().mockResolvedValue({ revoked_trusted_device_ids: [] }),
     markSessionMfaVerified: vi.fn().mockResolvedValue(true),
   };
 
@@ -441,6 +441,7 @@ describe('createAuthController', () => {
     expect(authSessionService.revokeAllSessionsExceptCurrent).toHaveBeenCalledWith({
       userPublicId: expect.any(String),
       currentAccessToken: 'current-session-token',
+      keepTrustedDeviceToken: undefined,
     });
     expect(authSessionService.revokeAllSessions).not.toHaveBeenCalled();
     // Cookie must NOT be cleared — the preserved session still needs it.
@@ -454,6 +455,7 @@ describe('createAuthController', () => {
     expect(authSessionService.revokeAllSessionsExceptCurrent).toHaveBeenCalledWith({
       userPublicId: expect.any(String),
       currentAccessToken: '',
+      keepTrustedDeviceToken: undefined,
     });
     // Cookie must NOT be cleared — the caller's preserved session still needs it.
     expect(reply.clearCookie).not.toHaveBeenCalled();

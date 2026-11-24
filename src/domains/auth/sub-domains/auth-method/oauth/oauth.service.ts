@@ -219,6 +219,8 @@ export class OAuthService {
     ipAddress?: string;
     userAgent?: string;
     requestId?: string;
+    /** The browser's `trusted_device` cookie (AT17), read by the first-factor gate. */
+    trustedDeviceToken?: string | undefined;
   }): Promise<OAuthCallbackResult> {
     const ipAddress = options.ipAddress ?? '127.0.0.1';
     const consumed = await consumeOAuthState({
@@ -256,6 +258,7 @@ export class OAuthService {
       profile,
       ipAddress,
       ...(options.userAgent !== undefined ? { userAgent: options.userAgent } : {}),
+      trustedDeviceToken: options.trustedDeviceToken,
     });
 
     if ('mfa_required' in session) {

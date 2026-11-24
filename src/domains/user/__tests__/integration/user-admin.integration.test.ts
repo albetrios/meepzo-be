@@ -475,8 +475,8 @@ describe('User admin routes — happy paths', () => {
         expect(refused.statusCode, `${attempt.method} ${attempt.url}: ${refused.body}`).toBe(403);
       }
 
-      // An email-code window is not strong enough.
-      await seedRecentStepUpForTestUser(admin.public_id, sessionPublicId, 'email_code');
+      // A provisional-factor window is not strong enough (A-1).
+      await seedRecentStepUpForTestUser(admin.public_id, sessionPublicId, 'provisional_mfa');
       const weak = await injectAuthenticated(app, {
         method: 'POST',
         url: testApiPath(`/users/${target.public_id}/suspend`),

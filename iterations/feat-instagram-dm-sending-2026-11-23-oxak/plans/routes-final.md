@@ -4924,9 +4924,11 @@ None.
 | `revoked_at` | `timestamptz` | yes | | |
 
 Indexes: unique `public_id`; unique `token_hash`; `(user_id, created_at) WHERE revoked_at IS NULL` — the live count and "revoke the
-oldest". RLS: the user policy (`app.current_user_public_id`), `USING` and `WITH CHECK`, enabled and forced; it is read after the
-first factor proves the person, in the same database context the session insert uses (as built for `auth.sessions`). Clean-up:
-the existing session clean-up worker also deletes rows expired or revoked over 30 days ago (a batch delete — **WC-64**, CHANGED).
+oldest"; as built also `(user_id)` (the FK cascade) and `(expires_at)` (the clean-up) ([P207](decisions.md)). RLS: the user policy
+(`app.current_user_public_id`), `USING` and `WITH CHECK`, enabled and forced, plus the session clean-up's maintenance arm in `USING`
+only ([P207](decisions.md)); it is read after the first factor proves the person, in the same database context the session insert
+uses (as built for `auth.sessions`). Clean-up: the session clean-up deletes rows expired or revoked over 30 days ago (a batch delete —
+**WC-64**, CHANGED) — built at R50 through `TrustedDeviceRepository.deleteEndedBefore`, which R32 left ([P207](decisions.md)).
 
 #### 10.C.4 Permissions
 
@@ -4985,6 +4987,13 @@ true, factor }` (`factor` added: `email_code` · `mfa`).
 | ATC8 | AT15: `StepUpVerifyDto` (code only), `recent-step-up.util.ts` (strong when no settled factor), the handler; tests — no 2FA: email code removes a passkey; settled 2FA: `403 mfa_step_up_required`; provisional only: email code is strong |
 | ATC9 | AT16: the `mfa_code_wrong` / `mfa_locked` reasons with the counter's remaining tries and time in `auth-mfa.service.ts` |
 | ATC10 | AT17: new auth migration `auth_trusted_devices` (table, indexes, user policy, FORCE; `EXPECTED_FORCE_RLS_TABLES` +1); `auth-trusted-device/auth-trusted-device.{schema,repository,service,constants}.ts`; the cookie in `auth.http.util.ts`; the skip in `complete-first-factor-auth.ts`; the early ends in the MFA removal, sign-out-everywhere-else, account delete and suspend paths; the session clean-up worker's extra delete; tests — trusted + no 2FA organization skips, trusted + 2FA organization asks, `super_admin` asks, the 11th revokes the oldest, a stolen cookie of another person does nothing, an expired row does nothing |
+
+**As built (R32, [P207](decisions.md)).** AT15: route 127 refuses a person with settled 2FA (`403 mfa_step_up_required`), so every
+`email_code` window is strong (`STRONG_STEP_UP_FACTORS` = `mfa`, `email_code`; `provisional_mfa` stays weak). AT16: the reasons are
+route 126's (the authenticated MFA step-up keeps its generic 401); a wrong recovery code is `mfa_code_wrong` without `tries_left`.
+AT17: the skip is refused when **any** organization of the person requires 2FA (the existing gate) and for any `GLOBAL_ADMIN_EMAILS`
+address; the cookie's `SameSite` is `lax` (`none` when `COOKIE_SAMESITE=none`) and it is cleared when 2FA is turned off; the
+session clean-up worker's extra delete is R50's. Prefix `tdv_`.
 
 ---
 

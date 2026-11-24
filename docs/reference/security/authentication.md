@@ -10,6 +10,8 @@ meepzo-be has no passwords (feat-instagram-dm-sending P84 — the password route
 | OAuth                   | `GET /api/v1/auth/oauth/{provider}`     | PKCE + state cookie                              |
 | API key                 | `Authorization: Bearer` with key prefix | Organization-scoped permissions                  |
 | MFA                     | TOTP + recovery codes                   | Encrypted secrets at rest                        |
+| Trusted device          | `POST /api/v1/auth/mfa/login` `trust_device` | Skips the 2FA code on that browser for 30 days (`auth.trusted_devices`, hash only; never for `super_admin` or a 2FA-required organization) |
+| Step-up                 | `POST /api/v1/auth/step-up` (email code) · `POST /api/v1/auth/me/mfa/verify` | The email code is a strong step-up without settled 2FA (AT15) |
 | WebAuthn / passkeys     | `POST /api/v1/auth/webauthn/*`          | FIDO2 credentials in `auth.webauthn_credentials` |
 
 Implementation lives under `src/domains/auth/` (see [sub-domains-layout.md](../architecture/sub-domains-layout.md)).

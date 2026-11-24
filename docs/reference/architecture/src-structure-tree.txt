@@ -443,7 +443,8 @@ src/
     │   │   │   ├── refresh-preserves-active-organization.integration.test.ts
     │   │   │   ├── refresh-reuse-detection.integration.test.ts
     │   │   │   ├── refresh-rotates-token-hash.integration.test.ts
-    │   │   │   └── refresh-session-lifetime.integration.test.ts
+    │   │   │   ├── refresh-session-lifetime.integration.test.ts
+    │   │   │   └── step-up-email-code.integration.test.ts
     │   │   ├── unit/
     │   │   │   ├── auth-me-context.serializer.unit.test.ts
     │   │   │   ├── auth-me-context.service.unit.test.ts
@@ -607,6 +608,16 @@ src/
     │   │   │   ├── auth-session.types.ts
     │   │   │   ├── session-lifetime.ts
     │   │   │   └── session-token-cache.service.ts
+    │   │   ├── auth-trusted-device/
+    │   │   │   ├── __tests__/
+    │   │   │   │   └── integration/
+    │   │   │   │   │   └── auth-trusted-device.integration.test.ts
+    │   │   │   ├── auth-trusted-device.constants.ts
+    │   │   │   ├── auth-trusted-device.overview.md
+    │   │   │   ├── auth-trusted-device.repository.ts
+    │   │   │   ├── auth-trusted-device.schema.ts
+    │   │   │   ├── auth-trusted-device.service.ts
+    │   │   │   └── auth-trusted-device.types.ts
     │   │   └── auth-webauthn/
     │   │   │   ├── __tests__/
     │   │   │       ├── integration/

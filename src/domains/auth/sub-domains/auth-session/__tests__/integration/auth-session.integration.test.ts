@@ -175,14 +175,14 @@ describe('Auth Session Sub-Domain — Integration', () => {
   });
 
   describe('step-up factor gating on destructive session routes (item #8)', () => {
-    it('rejects DELETE /me/sessions when the recent step-up used the bootstrap email_code factor', async () => {
+    it('rejects DELETE /me/sessions when the recent step-up used a provisional factor', async () => {
       const user = await createTestUser();
       const { token, sessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      // A bootstrap email-code step-up window (a passwordless account enrolling its first factor)
-      // may NOT authorize a destructive session revoke — the strong gate requires password/MFA.
-      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'email_code');
+      // A factor enrolled minutes ago under an email-code window (A-1) may NOT authorize a
+      // destructive session revoke — the strong gate requires 2FA or the email code (AT15).
+      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'provisional_mfa');
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',

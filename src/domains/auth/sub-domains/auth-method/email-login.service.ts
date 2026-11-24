@@ -512,10 +512,13 @@ export class EmailLoginService {
     body,
     ipAddress,
     userAgent,
+    trustedDeviceToken,
   }: {
     body: unknown;
     ipAddress: string;
     userAgent?: string | undefined;
+    /** The browser's `trusted_device` cookie (AT17), read by the first-factor gate. */
+    trustedDeviceToken?: string | undefined;
   }): Promise<FirstFactorAuthResult> {
     const parsed = validateEmailLogin(body);
     const normalizedEmail = parsed.email.trim().toLowerCase();
@@ -623,6 +626,7 @@ export class EmailLoginService {
               organizationSettingsService: this.organizationSettingsService,
               mfaService: this.mfaService,
               authSessionService: this.authSessionService,
+              trustedDeviceToken,
             });
           },
         }),
@@ -667,27 +671,40 @@ export class EmailLoginService {
   }
 
   /**
-   * Verifies an email verification-code as a **bootstrap-only** step-up factor for an authenticated
-   * user, WITHOUT minting a session. Consuming the code proves current control of the account's
-   * email — the same assurance a passwordless login uses — so the caller (the `/auth/step-up`
-   * handler) may open a recent-step-up window and record the `email_code` factor.
+   * Verifies an emailed code as a step-up for a signed-in person, WITHOUT minting a session
+   * (`POST /auth/step-up`, route 127). Consuming the code proves current control of the account's
+   * email — the same assurance an email-code sign-in uses — so the caller opens a recent-step-up
+   * window tagged `email_code`.
    *
    * @remarks
-   * - **Algorithm:** load the user; reject if MFA is enabled (preserve the MFA invariant — an MFA
-   *   user must step up via MFA); else atomically consume a single-use code scoped to
-   *   `(user_id, EMAIL_CODE)` and invalidate the user's remaining live codes.
-   * - **Failure modes:** `NotFoundError('User')`; `ForbiddenError('errors:mfaStepUpRequired')` for an
-   *   MFA account; `UnauthorizedError('errors:invalidOrExpiredVerificationCode')` for a
-   *   wrong/expired/spent code.
-   * - **Side effects:** consumes + invalidates verification tokens. Mints NO session (unlike
-   *   {@link EmailLoginService.login}). The window this authorizes is `email_code`-tagged, so it can
-   *   enroll a first factor but never satisfy the strong gate on destructive mutations.
+   * - **Algorithm:** load the user; refuse when the person holds a **settled** 2FA factor on this
+   *   session (AT15 — a live `MFA_TOTP` method that is not provisional: that person steps up with
+   *   the 2FA code, `POST /auth/me/mfa/verify`); count the try on the step-up's own budget (A-8);
+   *   atomically consume a single-use code scoped to `(user_id, EMAIL_CODE)` and invalidate the
+   *   user's other live codes. Because a person with settled 2FA never reaches the window, an
+   *   `email_code` window is a **strong** step-up (`hasRecentStrongStepUp`): it can revoke sessions
+   *   and remove a passkey, a sign-in way or the 2FA factor (AT15, routes 144–147, 125).
+   * - **Failure modes:** `NotFoundError('User')`; `403 mfa_step_up_required` for settled 2FA (not
+   *   counted as a try); a code not redeemed → `401 code_wrong` + `tries_left`, `401 code_expired`
+   *   (this user's newest code unused and past its 15 minutes), `401 code_used_up` (this budget's
+   *   5th wrong try and after) — the reasons of the sign-in (AT8, routes-final § 10.C.9). The
+   *   per-email day limit of the public sign-in does not apply here.
+   * - **Side effects:** consumes + invalidates verification tokens; mints NO session.
    */
-  async verifyCodeForStepUp(options: { userPublicId: string; code: string }): Promise<void> {
+  async verifyCodeForStepUp(options: {
+    userPublicId: string;
+    sessionPublicId: string | undefined;
+    code: string;
+  }): Promise<void> {
     const user = await this.userService.requireUserRecordByPublicId(options.userPublicId);
     if (!user) throw new NotFoundError('User');
-    if (user.is_mfa_enabled) {
-      throw new ForbiddenError('errors:mfaStepUpRequired');
+    if (
+      await this.mfaService.hasSettledSecondFactor({
+        owner: { id: user.id, public_id: user.public_id },
+        sessionPublicId: options.sessionPublicId,
+      })
+    ) {
+      throw new ForbiddenError('errors:mfaStepUpRequired').withReason('mfa_step_up_required');
     }
     // Parity with `login` (sec-review): bound online code-guessing with the same try cap (checked
     // AFTER the MFA guard so a legitimate wrong-method rejection is not counted as a guess), not just
@@ -700,7 +717,7 @@ export class EmailLoginService {
       ttlSeconds: VERIFICATION_CODE_TTL_MINUTES * 60,
     });
     if (attempts > VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS) {
-      throw new UnauthorizedError('errors:invalidOrExpiredVerificationCode');
+      throw codeUsedUpError();
     }
     const record = await this.verificationTokenRepository.consumeOtpForUser(
       user.id,
@@ -711,9 +728,36 @@ export class EmailLoginService {
         code: options.code,
       }),
     );
-    if (!record) throw new UnauthorizedError('errors:invalidOrExpiredVerificationCode');
+    if (!record) {
+      throw await this.classifyStepUpNotRedeemed({ userId: user.id, attempts });
+    }
     await this.verificationTokenRepository.invalidateAllForUser(user.id, EMAIL_CODE_TOKEN_TYPE);
     // Clear the step-up attempt counter so a later legitimate step-up is not pre-throttled.
     await this.clearRedisKeys([attemptKey]);
+  }
+
+  /**
+   * The step-up's refusal for a code the consume did not redeem: `code_expired` when this user's
+   * newest code is unused and past `expires_at`, else `code_used_up` on the budget's last try, else
+   * `code_wrong` with the tries left (no day counter — that limit is the public sign-in's).
+   */
+  private async classifyStepUpNotRedeemed(options: {
+    userId: number;
+    attempts: number;
+  }): Promise<Error> {
+    const newest = await this.verificationTokenRepository.findNewestForUser(
+      options.userId,
+      EMAIL_CODE_TOKEN_TYPE,
+    );
+    if (newest && newest.used_at === null && newest.expires_at.getTime() <= Date.now()) {
+      return new UnauthorizedError('errors:emailCodeExpired').withReason(
+        EMAIL_CODE_FAILURE_REASON.CODE_EXPIRED,
+      );
+    }
+    const triesLeft = VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS - options.attempts;
+    if (triesLeft <= 0) return codeUsedUpError();
+    return new UnauthorizedError('errors:emailCodeWrong')
+      .withReason(EMAIL_CODE_FAILURE_REASON.CODE_WRONG)
+      .withFields({ tries_left: triesLeft });
   }
 }

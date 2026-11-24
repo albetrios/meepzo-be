@@ -120,6 +120,8 @@ export const MfaLoginVerifyDto = z
     mfa_session_token: trimmedStringMinMax({ min: 1, max: 128 }),
     totp_code: z.string().trim().length(6).regex(/^\d+$/).optional(),
     recovery_code: trimmedStringMinMax({ min: 8, max: 64 }).optional(),
+    /** "Trust this device for 30 days" (AT17) — a right code then sets the `trusted_device` cookie. */
+    trust_device: z.boolean().optional(),
   })
   .strict()
   .refine((value) => value.totp_code !== undefined || value.recovery_code !== undefined, {

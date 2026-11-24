@@ -292,11 +292,14 @@ export class WebauthnService {
     ipAddress,
     requestOrigin,
     userAgent,
+    trustedDeviceToken,
   }: {
     body: unknown;
     ipAddress: string;
     requestOrigin?: string | undefined;
     userAgent?: string | undefined;
+    /** The browser's `trusted_device` cookie (AT17), read by the first-factor gate. */
+    trustedDeviceToken?: string | undefined;
   }): Promise<FirstFactorAuthResult> {
     const parsed = validateWebauthnAuthenticateVerify(body);
     const challenge = await consumeWebauthnChallenge({
@@ -381,6 +384,7 @@ export class WebauthnService {
       authSessionService: this.authSessionService,
       // Non-pinned path: self-heal a missing personal organization into the token (item #5).
       ensurePersonalOrganizationOnMiss: true,
+      trustedDeviceToken,
     });
   }
 

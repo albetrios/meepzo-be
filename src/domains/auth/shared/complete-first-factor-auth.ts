@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
-import { resolveAccessTokenRoleForUser } from '@/shared/utils/auth/global-admin-role.util.js';
+import {
+  resolveAccessTokenRoleForUser,
+  resolveGlobalRoleForEmail,
+} from '@/shared/utils/auth/global-admin-role.util.js';
 import { signAccessToken } from '@/shared/utils/security/jwt.util.js';
 import { env } from '@/shared/config/env.config.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
@@ -28,11 +31,32 @@ export type FirstFactorAuthResult =
   | { mfa_required: true; mfa_session_token: string };
 
 /**
+ * Whether a person with 2FA may skip the code on this sign-in: a trusted device (AT17) — a live,
+ * unexpired `auth.trusted_devices` row of this person matching the browser's cookie — and never for
+ * a `super_admin` (any email on the global-admin list). The caller has already ruled out an
+ * organization that requires 2FA. A skipped sign-in opens a session whose `mfa_verified_at` stays
+ * empty, so it never counts as a proved second factor (D56).
+ */
+async function skipsSecondFactor(options: {
+  user: FirstFactorAuthUser;
+  mfaService: MfaService;
+  trustedDeviceToken?: string | undefined;
+}): Promise<boolean> {
+  if (!options.trustedDeviceToken) return false;
+  if (resolveGlobalRoleForEmail(options.user.email) !== undefined) return false;
+  return options.mfaService.acceptTrustedDevice({
+    owner: { id: options.user.id, public_id: options.user.public_id },
+    token: options.trustedDeviceToken,
+  });
+}
+
+/**
  * Central post-first-factor gate: enforces organization MFA policy before issuing a JWT/session.
  *
  * @remarks
- * Password login, email code, OAuth, and WebAuthn must all call this helper so tenant-required MFA
- * cannot be bypassed by alternate authentication methods.
+ * Email code, OAuth, and WebAuthn must all call this helper so tenant-required MFA cannot be
+ * bypassed by alternate authentication methods. A person with 2FA skips the code only on a trusted
+ * device (AT17) — never when one of their organizations requires 2FA, never as a `super_admin`.
  *
  * `ensurePersonalOrganizationOnMiss` (item #5) opts a caller into self-healing: when the user
  * resolves to NO active organization but personal organizations are enabled, provision their personal organization so
@@ -50,10 +74,15 @@ export async function completeFirstFactorAuth(options: {
   authSessionService: AuthSessionService;
   /** Non-pinned callers only: provision a personal organization when the user resolves to none (see @remarks). */
   ensurePersonalOrganizationOnMiss?: boolean;
+  /** The browser's `trusted_device` cookie, when it sent one (AT17). */
+  trustedDeviceToken?: string | undefined;
 }): Promise<FirstFactorAuthResult> {
   const organizationRequiresMfa =
     await options.organizationSettingsService.userHasOrganizationRequiringMfa(options.user.id);
-  if (options.user.is_mfa_enabled || organizationRequiresMfa) {
+  if (
+    organizationRequiresMfa ||
+    (options.user.is_mfa_enabled && !(await skipsSecondFactor(options)))
+  ) {
     const mfaSessionToken = await options.mfaService.createMfaSession(options.user.public_id);
     return { mfa_required: true, mfa_session_token: mfaSessionToken };
   }
@@ -98,7 +127,7 @@ export async function completeFirstFactorAuth(options: {
 
   // First-factor login deliberately does NOT grant a step-up window: a sensitive
   // credential mutation must be preceded by an explicit re-authentication (MFA verify
-  // for MFA users, or `POST /auth/step-up` with the password for password users) so a
+  // for a person with settled 2FA, else `POST /auth/step-up` with an email code) so a
   // stolen bearer token alone cannot mutate credentials. See `requireRecentStepUpPreHandler`.
   return {
     access_token: jsonWebToken,

@@ -72,7 +72,7 @@ sequenceDiagram
 - **Mail enqueue failure** → does not fail the HTTP request; mail outbox sweeper retries.
 - **Code replay** → atomic `UPDATE ... RETURNING` consumes the code on the first login; the post-consume `invalidateAllForUser` invalidates any other live code, keeping login single-use. Two concurrent `/email/login` requests yield exactly one session.
 - **Wrong code, unknown email, used code** → 401 `code_wrong` + `tries_left`; **this email's newest code over 15 minutes old** → 401 `code_expired`; **the code's 5th wrong try** → 401 `code_used_up`; **20 wrong tries for the email in 24 hours** → 429 `code_day_limit` + `retry_after_seconds` (cleared by a success).
-- **MFA enrolled** → login returns `mfa_required` + `mfa_session_token`; the client completes via `POST /auth/mfa/login`.
+- **MFA enrolled** → login returns `mfa_required` + `mfa_session_token`; the client completes via `POST /auth/mfa/login` — unless the browser's `trusted_device` cookie is a live trusted device of this person and none of their organizations requires 2FA and they are not a `super_admin` (AT17): then the session opens without the code (`mfa_verified_at` empty).
 
 ## login-flow
 
@@ -90,9 +90,18 @@ An OAuth sign-in matches the person by the provider account first (Apple's later
 no email), then by email. A signed-in person with a recent step-up links Google or Apple with
 `GET /auth/oauth/{provider}?intent=link`; the callback then answers the linked way.
 
+The 2FA step (feat-instagram-dm-sending § 10.C): `POST /auth/mfa/login` with the TOTP or recovery
+code; `trust_device: true` on a right code also stores an `auth.trusted_devices` row (SHA-256 of the
+cookie, 30 days, at most 10 live) and sets the `trusted_device` cookie, so the next first factor on
+this browser skips the step. Step-up before a sensitive action: `POST /auth/step-up` with an email
+code (strong for a person without settled 2FA — AT15), or `POST /auth/me/mfa/verify` with the 2FA
+code.
+
 ### Failure modes
 
-- **MFA challenge expired, already used, or burned by a wrong code** → 401 `errors:mfaInvalidOrExpiredSession`; client must sign in again.
+- **MFA challenge expired, already used, or burned by a wrong code** → 401 `mfa_session_invalid`; client must sign in again.
+- **Wrong 2FA code** → 401 `mfa_code_wrong` + `tries_left`; **over 10 in 15 minutes** → 429 `mfa_locked` + `retry_after_seconds`.
+- **Trusted-device cookie of another person, expired or revoked** → ignored; the 2FA step shows as without it.
 - **Suspended, locked or deleted account** → 401 `account_not_active`; **the sign-in way turned off by the owner** → 403 `login_method_turned_off`.
 - **OAuth state spent, expired or not this browser's** → 401 `oauth_expired`; **the provider refused or its answer did not verify** → 401 `oauth_failed`; **link mode, the account is someone else's** → 409 `provider_account_in_use`.
 

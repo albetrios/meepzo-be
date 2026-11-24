@@ -2009,6 +2009,12 @@ erDiagram
 - **Added:** new.
 - **Replaced:** none.
 - **Open:** public id prefix — chosen at kickoff (P22, AMBER).
+- **Built R32** ([AS-BUILT](../AS-BUILT.md), [P207](decisions.md)): migration `20261124110000_auth_trusted_devices.sql` —
+  `auth.trusted_devices` (`id`, `public_id` `tdv_…`, `user_id` → `auth.users` ON DELETE CASCADE, `token_hash` varchar(64) unique,
+  `user_agent` varchar(512), `created_at`, `expires_at` (CHECK `> created_at`), `last_used_at`, `revoked_at`); indexes unique
+  `public_id`, unique `token_hash`, `(user_id, created_at) WHERE revoked_at IS NULL`, `(user_id)`, `(expires_at)`; ENABLE + FORCE RLS,
+  policy `trusted_devices_user_access` on `app.current_user_public_id` (`USING` and `WITH CHECK`) plus the session clean-up's
+  maintenance arm in `USING` only; `EXPECTED_FORCE_RLS_TABLES` +1. Schema `auth-trusted-device.schema.ts`.
 
 ```mermaid
 erDiagram

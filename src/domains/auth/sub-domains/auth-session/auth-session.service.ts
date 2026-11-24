@@ -12,6 +12,7 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { AuthSessionRepository } from './auth-session.repository.js';
 import type { AuthSessionCreateData } from './auth-session.types.js';
+import type { TrustedDeviceService } from '@/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.service.js';
 import {
   getCachedSessionTokenValid,
   invalidateCachedSessionToken,
@@ -59,6 +60,7 @@ export class AuthSessionService {
   constructor(
     private readonly userService: UserService,
     private readonly sessionRepository: AuthSessionRepository,
+    private readonly trustedDeviceService?: TrustedDeviceService,
   ) {}
 
   async list(userPublicId: string) {
@@ -141,6 +143,16 @@ export class AuthSessionService {
     }
   }
 
+  /**
+   * Revokes every session of the user and ends every trusted device (AT17) — the account is being
+   * deleted, suspended or otherwise deactivated, so nothing of it may sign in or skip a 2FA code.
+   *
+   * @remarks
+   * - **Algorithm:** one user-scoped `UPDATE` of `auth.sessions`, then the session-token cache
+   *   purge, then the trusted devices' revoke (its own user-scoped transaction).
+   * - **Failure modes:** `NotFoundError('User')` when the user is gone.
+   * - **Side effects:** writes `auth.sessions` and `auth.trusted_devices`; purges the token cache.
+   */
   async revokeAllSessions(userPublicId: string): Promise<void> {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new NotFoundError('User');
@@ -149,6 +161,9 @@ export class AuthSessionService {
       callback: (_databaseHandle) => this.sessionRepository.revokeAllByUserId(user.id),
     });
     await this.invalidateRevokedSessionCaches(revokedSessions);
+    await this.trustedDeviceService?.revokeAllForUser({
+      owner: { id: user.id, public_id: user.public_id },
+    });
   }
 
   /**
@@ -164,16 +179,20 @@ export class AuthSessionService {
    *   simply revokes the remaining sessions.
    * - **Side effects:** writes `auth.sessions` rows; invalidates cached
    *   token-validity entries so revocation takes effect immediately.
-   * - **Notes:** used by the authenticated change-password flow to terminate all
-   *   other devices while keeping the caller's current session alive.
+   * - **Notes:** "sign out everywhere else" (`DELETE /auth/me/sessions`, route 144) — keeps the
+   *   caller's current session alive and also ends every trusted device but this browser's
+   *   (`keepTrustedDeviceToken`, the caller's `trusted_device` cookie; AT17). Returns the trusted
+   *   devices it ended, for the audit.
    */
   async revokeAllSessionsExceptCurrent({
     userPublicId,
     currentAccessToken,
+    keepTrustedDeviceToken,
   }: {
     userPublicId: string;
     currentAccessToken: string;
-  }): Promise<void> {
+    keepTrustedDeviceToken?: string | undefined;
+  }): Promise<{ revoked_trusted_device_ids: string[] }> {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new NotFoundError('User');
     const currentTokenHash = hashAccessToken(currentAccessToken);
@@ -183,6 +202,12 @@ export class AuthSessionService {
         this.sessionRepository.revokeAllByUserIdExcept(user.id, currentTokenHash),
     });
     await this.invalidateRevokedSessionCaches(revokedSessions);
+    const revokedTrustedDeviceIds =
+      (await this.trustedDeviceService?.revokeAllForUser({
+        owner: { id: user.id, public_id: user.public_id },
+        keepToken: keepTrustedDeviceToken,
+      })) ?? [];
+    return { revoked_trusted_device_ids: revokedTrustedDeviceIds };
   }
 
   async createSessionForUser({

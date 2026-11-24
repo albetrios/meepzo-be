@@ -38,6 +38,8 @@ through a resolver that sees deleted organizations.
 | `auth.auth_method.create` | `auth_method` | Sign-in method linked |
 | `auth.auth_method.delete` | `auth_method` | Sign-in method removed |
 | `auth.oauth.link` | `auth_method` | A Google or Apple account linked to the signed-in person by the OAuth link mode (`WARNING`, `metadata.provider`, `metadata.auth_method_id`) |
+| `auth.trusted_device.create` | `trusted_device` | "Trust this device for 30 days" ticked on a right 2FA code (`POST /auth/mfa/login`, `metadata.trusted_device_ids`) |
+| `auth.trusted_device.revoke` | `trusted_device` | Trusted devices ended early, one row per action (`metadata.trusted_device_ids`, `metadata.reason`: `over_limit` — an 11th ended the oldest, `mfa_off` — the last 2FA factor removed, `sign_out_everywhere_else`) |
 | `auth.mfa.enroll_init` | `mfa_method` | MFA enrollment started |
 | `auth.mfa.enroll_confirm` | `mfa_method` | MFA enrollment confirmed — recovery codes issued |
 | `auth.mfa.delete` | `mfa_method` | MFA method removed |

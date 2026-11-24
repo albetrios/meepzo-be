@@ -93,7 +93,7 @@ export function requireRecentStepUpWhenQueryIs({
  *
  * @remarks
  * - **Algorithm:** a body without `field` (or with it `undefined`) passes; otherwise a user must
- *   hold a recent strong (MFA) step-up on this session. An API key can never step up.
+ *   hold a recent strong step-up on this session (MFA, or the email code without settled 2FA). An API key can never step up.
  * - **Failure modes:** `ForbiddenError('errors:strongStepUpRequired')`.
  */
 export function requireStrongRecentStepUpWhenBodyHas(
@@ -118,14 +118,14 @@ function bodyCarries({ request, field }: { request: FastifyRequest; field: strin
 /**
  * PreHandler for DESTRUCTIVE credential/session mutations (revoke sessions, delete an MFA method,
  * passkey, or auth-method) — requires a recent step-up completed via a STRONG factor
- * (MFA), on THIS session, within the last ten minutes.
+ * (MFA, or the email code without settled 2FA), on THIS session, within the last ten minutes.
  *
  * @remarks
- * Stricter than {@link requireRecentStepUpPreHandler}: a bootstrap `email_code` step-up (a
- * passwordless account enrolling its first factor) opens a window that can ENROLL but must not
- * REVOKE/DELETE. Enroll routes use the weaker gate; destructive routes use this one, so a stolen
- * session + inbox on a passwordless account cannot revoke the victim's sessions or credentials.
- * Fails closed when `sessionPublicId` is absent on `request.auth`.
+ * Stricter than {@link requireRecentStepUpPreHandler}: it admits an `mfa` window, or an
+ * `email_code` window — which `POST /auth/step-up` opens only for a person WITHOUT settled 2FA
+ * (AT15; their mailbox can already sign them in, so it gives no new power) — but not a
+ * `provisional_mfa` window. A person with settled 2FA must step up with the 2FA code. Fails closed
+ * when `sessionPublicId` is absent on `request.auth`.
  */
 export async function requireStrongRecentStepUpPreHandler(
   request: FastifyRequest,

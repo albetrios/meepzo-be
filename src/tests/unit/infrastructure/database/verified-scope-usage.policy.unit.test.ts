@@ -19,6 +19,9 @@ const ALLOWED_IMPORTERS = [
   'src/domains/auth/sub-domains/auth-method/auth-method.service.ts',
   'src/domains/auth/sub-domains/auth-mfa/auth-mfa.service.ts',
   'src/domains/auth/sub-domains/auth-session/auth-session.service.ts',
+  // Trusted devices (R32, AT17): read and written for a person the first factor, the 2FA step or the
+  // signed-in session already proved.
+  'src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.service.ts',
   'src/domains/auth/sub-domains/auth-webauthn/webauthn.service.ts',
   // Admin/system flows resolving actors outside a token scope.
   'src/domains/audit/audit.service.ts',

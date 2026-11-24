@@ -179,7 +179,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Complete MFA during login',
         description:
-          'Completes the login flow for an MFA-enabled account. Requires the short-lived mfa_session_token issued by the first factor (email code, OAuth or passkey), plus a valid TOTP or recovery code. Returns access and refresh tokens and sets the session cookie on success.',
+          "Completes the login flow for an MFA-enabled account. Requires the short-lived mfa_session_token issued by the first factor (email code, OAuth or passkey), plus a valid TOTP or recovery code. Returns access and refresh tokens and sets the session cookie on success. With trust_device true a right code also sets the httpOnly trusted_device cookie for 30 days: the next sign-in on this browser skips the code — never when one of the person's organizations requires 2FA, never for a super_admin, and never for a step-up (at most 10 trusted devices per person; an 11th ends the oldest). A wrong code answers 401 mfa_code_wrong with tries_left; over 10 wrong codes in 15 minutes answers 429 mfa_locked with retry_after_seconds; an unknown or expired mfa_session_token answers 401 mfa_session_invalid.",
         tags: ['MFA'],
         body: MfaLoginVerifyDto,
       },
@@ -268,7 +268,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Step-up (re-authenticate)',
         description:
-          'Opens a short "recent step-up" window required before sensitive credential mutations. Re-verify with a 6-digit email verification code (an account with no MFA). MFA users must complete an MFA verification instead. An email-code window can enroll a factor but cannot perform destructive mutations (revoking sessions, deleting a credential / MFA / auth-method), which require an MFA step-up. Returns 401 for a wrong code.',
+          'Opens a short "recent step-up" window on this session, required before sensitive credential mutations. Re-verify with the 6-digit email code (send one with POST /auth/email/send-code). For a person without settled two-factor sign-in the window is strong: it can revoke sessions and remove a passkey, a sign-in way or a 2FA factor. A person with settled 2FA is refused with 403 mfa_step_up_required and steps up with POST /auth/me/mfa/verify instead (a factor enrolled in the last 72 hours under an email-code window is not settled yet). Answers { stepped_up, factor }. A wrong code answers 401 code_wrong with tries_left, 401 code_expired or 401 code_used_up.',
         tags: ['Auth'],
         body: StepUpVerifyDto,
       },
@@ -357,13 +357,13 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/webauthn/credentials/:credential_id',
     {
       onRequest: [app.authenticate],
-      // Destructive: a bootstrap email-code step-up window must not revoke a credential (sec-A2).
+      // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Revoke a passkey',
         description:
-          'Revokes one of the authenticated user’s passkeys by its opaque id. Requires recent step-up authentication. Refused with 409 if it would remove a passkey-only user’s last remaining login credential.',
+          'Revokes one of the authenticated user’s passkeys by its opaque id. Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA. Refused with 409 if it would remove a passkey-only user’s last remaining login credential.',
         tags: ['WebAuthn'],
         params: webauthnCredentialIdParamsDto,
       },
@@ -387,13 +387,13 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/mfa/:mfa_method_id',
     {
       onRequest: [app.authenticate],
-      // Destructive: a bootstrap email-code step-up window must not delete an MFA method (sec-A2).
+      // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Remove MFA method',
         description:
-          'Deletes an enrolled MFA method. Cannot remove the last MFA method if MFA is required by organization policy.',
+          "Deletes an enrolled MFA method. Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA. Cannot remove the last MFA method if MFA is required by organization policy. Removing the last one turns 2FA off and ends every trusted device of the person (and clears this browser's trusted_device cookie).",
         tags: ['MFA'],
         params: mfaMethodIdParamsDto,
       },
@@ -406,15 +406,15 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // sec-A7: a stolen bearer must not be able to kick the legitimate user out of their
       // own browser. Requiring recent step-up forces the attacker to also possess the
-      // second factor (sec-A1 blocks the email-code step-up path for MFA-enabled accounts).
-      // A STRONG step-up is required, so a bootstrap email-code window (no MFA) can enroll a
-      // factor but never revoke sessions.
+      // second factor (sec-A1 blocks the email-code step-up path for accounts with settled 2FA).
+      // A STRONG step-up is required: 2FA, or the email code for a person without settled 2FA
+      // (AT15 — their mailbox can already sign them in, so it gives no new power).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Revoke all sessions',
         description:
-          'Revokes all active sessions for the authenticated user except the current one. Requires recent step-up authentication.',
+          "Revokes all active sessions for the authenticated user except the current one, and ends every trusted device but this browser's (its trusted_device cookie). Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA.",
         tags: ['Session'],
       },
     },
@@ -428,7 +428,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Verify MFA code',
         description:
-          "Validates a TOTP code as an authenticated MFA step-up. On success the current session is marked as having proved a second factor, so organizations requiring MFA admit it: re-mint the token (switch organization or refresh) to receive `amr: ['mfa']`. A factor enrolled under an email-code step-up window opens only a weak step-up window (enough to enroll, not to revoke sessions or delete a credential) for 72 hours after enrollment, and always on the session that enrolled it.",
+          "Validates a TOTP code as an authenticated MFA step-up. On success the current session is marked as having proved a second factor, so organizations requiring MFA admit it: re-mint the token (switch organization or refresh) to receive `amr: ['mfa']`. A factor enrolled under an email-code step-up window opens only a weak step-up window (enough to enroll, not to revoke sessions or delete a credential) for 72 hours after enrollment, and always on the session that enrolled it — meanwhile the email code (POST /auth/step-up) still opens a strong one.",
         tags: ['MFA'],
         body: MfaVerifyDto,
       },
@@ -483,13 +483,13 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/auth-methods/:auth_method_id',
     {
       onRequest: [app.authenticate],
-      // Destructive: a bootstrap email-code step-up window must not remove an auth method (sec-A2).
+      // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Remove auth method',
         description:
-          "Removes an authentication method from the user's account. The email-code way can never be removed (409 email_code_always_on); the last sign-in way cannot be removed either.",
+          "Removes an authentication method from the user's account. Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA. The email-code way can never be removed (409 email_code_always_on); the last sign-in way cannot be removed either.",
         tags: ['Auth Method'],
         params: authMethodPublicIdParamsDto,
       },
@@ -520,7 +520,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Revoke a specific session',
         description:
-          'Revokes a specific session by its ID. Cannot revoke the current session (use logout instead). Requires recent step-up authentication.',
+          'Revokes a specific session by its ID. Cannot revoke the current session (use logout instead). Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA.',
         tags: ['Session'],
         params: sessionIdParamsDto,
       },

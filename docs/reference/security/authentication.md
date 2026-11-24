@@ -1,6 +1,6 @@
 # Authentication
 
-meepzo-be has no passwords (feat-instagram-dm-sending P84 — the password routes and every password code path are removed, every stored hash emptied); it supports email verification-code login, OAuth (Google, GitHub), JWT access tokens, session cookies, MFA (TOTP), and organization API keys. Session CSRF and cookie rules are documented in [csrf-and-session-cookies.md](../security/csrf-and-session-cookies.md).
+meepzo-be has no passwords (feat-instagram-dm-sending P84 — the password routes and every password code path are removed, every stored hash emptied); it supports email verification-code login, OAuth (Google, Apple — Apple posts its answer to `POST /auth/oauth/apple/callback`, which answers 303 to the app page; a signed-in person with a recent step-up links either with `GET /auth/oauth/{provider}?intent=link`), JWT access tokens, session cookies, MFA (TOTP), and organization API keys. Session CSRF and cookie rules are documented in [csrf-and-session-cookies.md](../security/csrf-and-session-cookies.md).
 
 ## Current methods
 

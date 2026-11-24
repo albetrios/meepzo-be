@@ -82,10 +82,19 @@ email code (`POST /auth/email/send-code` then `POST /auth/email/login`) — or w
 or a passkey. Every first factor ends in `completeFirstFactorAuth`: a session, or an
 `mfa_required` challenge completed with `POST /auth/mfa/login`.
 
+Apple (feat-instagram-dm-sending § 10.B): `GET /auth/oauth/apple` → Apple's page → Apple posts its
+form to `POST /auth/oauth/apple/callback`, which signs nobody in — it checks the state, keeps the
+first-time name next to it and answers `303` to the app's `/callback/apple?code&state` (the one
+method→status exception, P85) → the app calls `GET /auth/oauth/apple/callback` with the nonce cookie.
+An OAuth sign-in matches the person by the provider account first (Apple's later sign-ins may carry
+no email), then by email. A signed-in person with a recent step-up links Google or Apple with
+`GET /auth/oauth/{provider}?intent=link`; the callback then answers the linked way.
+
 ### Failure modes
 
 - **MFA challenge expired, already used, or burned by a wrong code** → 401 `errors:mfaInvalidOrExpiredSession`; client must sign in again.
 - **Suspended, locked or deleted account** → 401 `account_not_active`; **the sign-in way turned off by the owner** → 403 `login_method_turned_off`.
+- **OAuth state spent, expired or not this browser's** → 401 `oauth_expired`; **the provider refused or its answer did not verify** → 401 `oauth_failed`; **link mode, the account is someone else's** → 409 `provider_account_in_use`.
 
 ## organization-switch-and-capability-discovery-flow
 

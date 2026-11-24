@@ -27,7 +27,7 @@ export type OutboundIntegrationName =
   | 'webhook'
   | 'webhook-test'
   | 'oauth-google'
-  | 'oauth-github'
+  | 'oauth-apple'
   | 'captcha-turnstile'
   | 'instagram';
 
@@ -79,7 +79,7 @@ const OUTBOUND_DEFAULT_FACTORIES: Record<OutboundIntegrationName, OutboundDefaul
   'oauth-google': () => ({
     timeoutMs: OAUTH_HTTP_TIMEOUT_MS,
   }),
-  'oauth-github': () => ({
+  'oauth-apple': () => ({
     timeoutMs: OAUTH_HTTP_TIMEOUT_MS,
   }),
   'captcha-turnstile': () => ({

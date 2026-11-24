@@ -66,8 +66,8 @@ describe('AuthMethodRepository (database)', () => {
     const oauth = await repository.create({
       user_id: user.id,
       method_type: 'OAUTH',
-      provider: 'github',
-      provider_user_id: 'github-user-c1',
+      provider: 'apple',
+      provider_user_id: 'apple-user-c1',
       is_primary: false,
       created_by_user_id: user.id,
     });

@@ -501,6 +501,7 @@ src/
     │   │   │   ├── oauth/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   ├── oauth-apple-and-link.integration.test.ts
     │   │   │   │   │   │   └── oauth-callback.integration.test.ts
     │   │   │   │   │   └── unit/
     │   │   │   │   │   │   ├── oauth-pkce.unit.test.ts
@@ -511,9 +512,8 @@ src/
     │   │   │   │   ├── providers/
     │   │   │   │   │   ├── __tests__/
     │   │   │   │   │   │   └── unit/
-    │   │   │   │   │   │   │   ├── github-oauth.provider.unit.test.ts
     │   │   │   │   │   │   │   └── google-oauth.provider.unit.test.ts
-    │   │   │   │   │   ├── github-oauth.provider.ts
+    │   │   │   │   │   ├── apple-oauth.provider.ts
     │   │   │   │   │   ├── google-oauth.provider.ts
     │   │   │   │   │   └── oauth-provider-failure.util.ts
     │   │   │   │   ├── oauth-pkce.ts
@@ -2211,9 +2211,7 @@ src/
     │   │   │   ├── subscribed-apps.success.response.json
     │   │   │   └── user-profile.success.response.json
     │   │   ├── oauth/
-    │   │   │   ├── github.emails.success.response.json
-    │   │   │   ├── github.token.success.response.json
-    │   │   │   ├── github.user.success.response.json
+    │   │   │   ├── apple.token.success.response.json
     │   │   │   ├── google.token.success.response.json
     │   │   │   └── google.userinfo.success.response.json
     │   │   ├── resend/
@@ -2253,9 +2251,9 @@ src/
     │   │   ├── s3.schemas.ts
     │   │   └── stripe.schemas.ts
     │   ├── README.md
+    │   ├── apple-oauth.contract.test.ts
     │   ├── contract-vitest-setup.ts
     │   ├── contract.overview.md
-    │   ├── github-oauth.contract.test.ts
     │   ├── google-oauth.contract.test.ts
     │   ├── instagram.contract.test.ts
     │   ├── request-id-eventbus.contract.test.ts

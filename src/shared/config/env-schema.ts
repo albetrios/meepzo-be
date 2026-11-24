@@ -794,9 +794,13 @@ const envSchemaBase = z.object({
   OAUTH_GOOGLE_CLIENT_ID: z.string().min(1).optional(),
   OAUTH_GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   OAUTH_GOOGLE_REDIRECT_URI: z.url().optional(),
-  OAUTH_GITHUB_CLIENT_ID: z.string().min(1).optional(),
-  OAUTH_GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
-  OAUTH_GITHUB_REDIRECT_URI: z.url().optional(),
+  // Sign in with Apple (feat-instagram-dm-sending AT11) — optional, like Google's: unset, Apple is
+  // absent from GET /auth/oauth/providers and its start answers 404. All five together (refine below).
+  OAUTH_APPLE_CLIENT_ID: z.string().min(1).optional(),
+  OAUTH_APPLE_TEAM_ID: z.string().min(1).optional(),
+  OAUTH_APPLE_KEY_ID: z.string().min(1).optional(),
+  OAUTH_APPLE_PRIVATE_KEY: z.string().min(1).optional(),
+  OAUTH_APPLE_REDIRECT_URI: z.url().optional(),
 
   // Instagram — declared in the INSTAGRAM_VARS registry above (allowed values + description).
   ...toSchemaShape(INSTAGRAM_VARS),
@@ -1746,11 +1750,23 @@ export const envSchema = envSchemaBase
     },
   )
   .refine(
-    (data) => !data.OAUTH_GITHUB_CLIENT_ID || Boolean(data.OAUTH_GITHUB_REDIRECT_URI?.trim()),
+    (data) => {
+      const appleKeys = [
+        data.OAUTH_APPLE_CLIENT_ID,
+        data.OAUTH_APPLE_TEAM_ID,
+        data.OAUTH_APPLE_KEY_ID,
+        data.OAUTH_APPLE_PRIVATE_KEY,
+        data.OAUTH_APPLE_REDIRECT_URI,
+      ];
+      const setCount = appleKeys.filter((value) => Boolean(value?.trim())).length;
+      return setCount === 0 || setCount === appleKeys.length;
+    },
     {
+      // A half-configured Apple sign-in fails at the first swap (no key to sign the client secret,
+      // or Apple's `redirect_uri_mismatch`); refuse it at boot instead.
       message:
-        "OAUTH_GITHUB_REDIRECT_URI is required when OAUTH_GITHUB_CLIENT_ID is set — it must match the GitHub App callback URL exactly and point at the SPA's /callback/github page (e.g. https://app.example.com/callback/github).",
-      path: ['OAUTH_GITHUB_REDIRECT_URI'],
+        'Sign in with Apple needs all five of OAUTH_APPLE_CLIENT_ID, OAUTH_APPLE_TEAM_ID, OAUTH_APPLE_KEY_ID, OAUTH_APPLE_PRIVATE_KEY and OAUTH_APPLE_REDIRECT_URI, or none. OAUTH_APPLE_REDIRECT_URI is the public URL of POST /api/v1/auth/oauth/apple/callback (e.g. https://api.example.com/api/v1/auth/oauth/apple/callback), registered on the Apple Services ID.',
+      path: ['OAUTH_APPLE_CLIENT_ID'],
     },
   )
   .refine(

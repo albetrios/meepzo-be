@@ -79,10 +79,21 @@ describe('env-schema', () => {
       expect(parsed.OAUTH_GOOGLE_REDIRECT_URI).toBe('https://app.example.com/callback/google');
     });
 
-    it('requires OAUTH_GITHUB_REDIRECT_URI once the GitHub client is configured', () => {
-      expect(() =>
-        envSchema.parse({ ...commonRequiredBase, OAUTH_GITHUB_CLIENT_ID: 'github-client-id' }),
-      ).toThrow();
+    const appleSignIn = {
+      OAUTH_APPLE_CLIENT_ID: 'com.example.signin',
+      OAUTH_APPLE_TEAM_ID: 'TEAMID1234',
+      OAUTH_APPLE_KEY_ID: 'KEYID12345',
+      OAUTH_APPLE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----',
+      OAUTH_APPLE_REDIRECT_URI: 'https://api.example.com/api/v1/auth/oauth/apple/callback',
+    };
+
+    it('accepts Sign in with Apple with all five settings (AT11)', () => {
+      expect(() => envSchema.parse({ ...commonRequiredBase, ...appleSignIn })).not.toThrow();
+    });
+
+    it('refuses a half-configured Sign in with Apple — all five or none (AT11)', () => {
+      const { OAUTH_APPLE_PRIVATE_KEY: _omitted, ...withoutKey } = appleSignIn;
+      expect(() => envSchema.parse({ ...commonRequiredBase, ...withoutKey })).toThrow();
     });
 
     it('leaves both optional when neither provider is configured', () => {

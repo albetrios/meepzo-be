@@ -51,6 +51,7 @@
     "forbidden": "Prohibido",
     "internalError": "Error interno del servidor",
     "noContent": "Sin contenido",
+    "seeOther": "See Other — el navegador continúa a la página de la app",
     "notAcceptable": "No aceptable — falta la cabecera Accept requerida o no es compatible",
     "notFound": "No encontrado",
     "payloadTooLarge": "El cuerpo de la solicitud excede el límite de tamaño",

@@ -12,7 +12,11 @@ const JWT_ALGORITHM = 'RS256';
 let _signingKey: CryptoKey | null = null;
 let _verifyKey: CryptoKey | null = null;
 
-function normalizePem(value: string): string {
+/**
+ * Turns a PEM key read from an env var into PEM text: `\n` escapes become newlines, and anything
+ * before the `-----BEGIN ` line is dropped. Shared by the JWT keys and the Sign in with Apple key.
+ */
+export function normalizePem(value: string): string {
   const normalized = value.replaceAll('\\n', '\n').trim();
   const beginIndex = normalized.indexOf('-----BEGIN ');
   return beginIndex > 0 ? normalized.slice(beginIndex) : normalized;

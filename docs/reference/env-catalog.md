@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**19 / 247** variables migrated to an explicit `{ allowed, description }` entry.
+**19 / 249** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -130,9 +130,11 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `NODE_ENV` | local \| development \| production | `local` | ✓ | Runtime environment name; names the .env file and gates the production-only refines. |
 | `NOTIFICATION_RETENTION_CRON` | — | — *(optional)* |  | — |
 | `NOTIFICATION_RETENTION_DAYS` | — | `90` |  | — |
-| `OAUTH_GITHUB_CLIENT_ID` | — | — *(optional)* |  | — |
-| `OAUTH_GITHUB_CLIENT_SECRET` | — | — *(optional)* |  | — |
-| `OAUTH_GITHUB_REDIRECT_URI` | — | — *(optional)* |  | — |
+| `OAUTH_APPLE_CLIENT_ID` | — | — *(optional)* |  | — |
+| `OAUTH_APPLE_KEY_ID` | — | — *(optional)* |  | — |
+| `OAUTH_APPLE_PRIVATE_KEY` | — | — *(optional)* |  | — |
+| `OAUTH_APPLE_REDIRECT_URI` | — | — *(optional)* |  | — |
+| `OAUTH_APPLE_TEAM_ID` | — | — *(optional)* |  | — |
 | `OAUTH_GOOGLE_CLIENT_ID` | — | — *(optional)* |  | — |
 | `OAUTH_GOOGLE_CLIENT_SECRET` | — | — *(optional)* |  | — |
 | `OAUTH_GOOGLE_REDIRECT_URI` | — | — *(optional)* |  | — |

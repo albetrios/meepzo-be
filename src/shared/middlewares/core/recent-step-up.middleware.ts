@@ -52,6 +52,41 @@ export function requireRecentStepUpWhenBodyHas(
 }
 
 /**
+ * PreHandler factory: a signed-in caller with a recent step-up on this session, but only when the
+ * query string's `field` equals `value` — for a PUBLIC route with one signed-in mode (the OAuth
+ * start's `intent=link`, feat-instagram-dm-sending AT12).
+ *
+ * @remarks
+ * - **Algorithm:** any other query passes; with the mode, `requireAuth` (the bearer is read
+ *   optionally before it by `authenticateWhenBearerPresent`), then the per-(user, session) step-up
+ *   sentinel.
+ * - **Failure modes:** no signed-in person → `401`; no recent step-up → `403`
+ *   `errors:recentStepUpRequired` with reason `recent_step_up_required`.
+ * - **Notes:** runs as a preHandler, so the query is already validated.
+ */
+export function requireRecentStepUpWhenQueryIs({
+  field,
+  value,
+}: {
+  field: string;
+  value: string;
+}): (request: FastifyRequest) => Promise<void> {
+  return async (request: FastifyRequest): Promise<void> => {
+    const query = request.query as Record<string, unknown> | undefined;
+    if (query?.[field] !== value) return;
+    const auth = requireAuth(request);
+    const steppedUp = await hasRecentStepUp({
+      redis: redisConnection,
+      userPublicId: auth.userId,
+      sessionPublicId: auth.sessionPublicId,
+    });
+    if (!steppedUp) {
+      throw new ForbiddenError('errors:recentStepUpRequired').withReason('recent_step_up_required');
+    }
+  };
+}
+
+/**
  * PreHandler factory: {@link requireStrongRecentStepUpPreHandler}, but only when the request body
  * carries `field` — for an admin edit whose `status` alone suspends an account (A-2) while the
  * rest of the body is routine.

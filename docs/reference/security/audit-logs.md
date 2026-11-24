@@ -28,17 +28,16 @@ through a resolver that sees deleted organizations.
 
 | Action | Resource type | When |
 | ------ | ------------- | ---- |
-| `auth.login` | `session` | Successful login on any surface — password, email code, WebAuthn, OAuth, MFA second factor (`metadata.source`) |
+| `auth.login` | `session` | Successful login on any surface — email code, WebAuthn, OAuth, MFA second factor (`metadata.source`) |
 | `auth.login_failure` | `session` | Failed login on any surface — anonymous actor (see [Actors](#actors)) |
 | `auth.logout` | `session` | Bearer logout |
 | `auth.organization.switch` | `session` | Active organization switched (`metadata.target`) |
 | `auth.session.revoke` | `session` | One session revoked |
 | `auth.session.revoke_all` | `session` | All sessions revoked |
-| `auth.password.change` | `user` | Authenticated password change |
-| `auth.password.reset` | `user` | Completed password reset (`WARNING`) |
 | `auth.step_up` | `user` | Step-up re-authentication passed (`metadata.factor`) |
 | `auth.auth_method.create` | `auth_method` | Sign-in method linked |
 | `auth.auth_method.delete` | `auth_method` | Sign-in method removed |
+| `auth.oauth.link` | `auth_method` | A Google or Apple account linked to the signed-in person by the OAuth link mode (`WARNING`, `metadata.provider`, `metadata.auth_method_id`) |
 | `auth.mfa.enroll_init` | `mfa_method` | MFA enrollment started |
 | `auth.mfa.enroll_confirm` | `mfa_method` | MFA enrollment confirmed — recovery codes issued |
 | `auth.mfa.delete` | `mfa_method` | MFA method removed |

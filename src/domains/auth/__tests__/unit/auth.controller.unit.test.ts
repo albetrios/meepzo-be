@@ -111,7 +111,7 @@ describe('createAuthController', () => {
   };
 
   const oauthService = {
-    listProviders: vi.fn().mockReturnValue({ providers: ['google', 'github'] }),
+    listProviders: vi.fn().mockReturnValue({ providers: ['google', 'apple'] }),
     getRedirectUrl: vi
       .fn()
       .mockResolvedValue({ redirect_url: 'https://oauth.example/authorize', nonce: 'oauth-nonce' }),

@@ -9,7 +9,7 @@ import { verifyAccessToken } from '@/shared/utils/security/jwt.util.js';
  * metadata field on `auth.login` audit events so an incident-response query
  * can filter by method (e.g. "every super_admin login via OAuth in the last
  * 24 h"). Provider-bound sources (OAuth) embed the provider id —
- * `oauth_google`, `oauth_github` — to preserve that information without
+ * `oauth_google`, `oauth_apple` — to preserve that information without
  * adding a separate column.
  */
 export type LoginAuditSource =

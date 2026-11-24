@@ -4886,6 +4886,13 @@ cookie, as built). Route 124: no body — `303` with `Location`.
 | ATC6 | AT10, AT11, ATQ2: `apple-oauth.provider.ts` (ES256 client secret with `node:crypto`, `id_token` check against Apple's keys — cached ≤ 60 s per be-read-cache-guard's TTL rule), the form route with its body limit and form parser, the `303` allowlist entry (method-status middleware + `validate:route-success-coverage` + `route-success-statuses.json` + CLAUDE.md and `response-codes.md` lines), the five env vars, contract fixtures (`src/tests/contract/apple*`), tests: name kept from the first post, a second post without `user`, a spent state, a cross-site post without the cookie still lands |
 | ATC7 | AT12–AT14: `intent=link` in the start DTO, the state payload, the callback's link branch; `provider_account_in_use`, `email_code_always_on`; tests |
 
+**As built (R31, [P206](decisions.md)):** Apple gets no PKCE — its `nonce` is the SHA-256 of the browser nonce and the
+`id_token`'s `nonce` must equal it (AT10's fallback); the client secret and the `id_token` check use `jose`. Route 124's
+failed page is `<FRONTEND_URL>/callback/apple?reason=oauth_cancelled|oauth_failed|oauth_expired`. Route 122 answers the
+as-built `{ providers: ["google", "apple"] }` (configured ones only). Route 123: another provider name is a `400`, an
+unset provider a `404` (Google's too). Route 143 takes no `error` query (§ 10.B.10) and matches the person by the
+provider account before the email. The `303` exception is `METHOD_STATUS_POLICY_EXCEPTIONS`.
+
 ---
 
 ### 10.C Two-factor, trusted devices and step-up — `auth/sub-domains/auth-mfa/`, `auth/sub-domains/auth-trusted-device/` (new) — final (rev 3, confirmed 2026-11-24)

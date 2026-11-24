@@ -1884,6 +1884,10 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   FORCE bracket). No column change; `failed_login_count` / `account_locked_until` stay with no writer.
   `PASSWORD_RESET` is gone from `VerificationTokenType` (existing rows untouched); the per-email wrong-code day
   counter lives in Redis only.
+- `auth.auth_methods` (no column change, routes-final § 10.B.3): `OAUTH` rows with `provider = 'apple'`,
+  `provider_user_id` = Apple's `sub`. **Built R31** ([AS-BUILT](../AS-BUILT.md), [P206](decisions.md)): no
+  migration; existing `provider = 'github'` rows stay and can no longer sign in (AT5). Apple's first-time
+  `user` JSON waits in Redis next to the state (`oauth:provider-user:<state>`, the state's life, one read).
 - `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
   goes with the password routes (UN6, UN7, P84; routes-final § 11).
 - Notification preferences keep their stored form — one row per type — and the routes speak kinds:

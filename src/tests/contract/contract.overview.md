@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Outbound HTTP contract tests for the platform's third-party integrations: Stripe (subscription, customer, webhook), Resend (mail), S3 (presigned URLs), Cloudflare Turnstile (captcha), OAuth providers (Google + GitHub code exchange, userinfo, and the primary+verified email guard), Instagram (`src/infrastructure/social/instagram.client.ts` — the code and token exchanges, renewal, `/me`, media, stories, webhook subscription, messages, comment replies, the follow check, profile and media reads, and Instagram's error bodies), and customer webhook endpoints. Uses `nock` to record / replay fixture interactions and pin our request shape against the upstream's documented API.
+Outbound HTTP contract tests for the platform's third-party integrations: Stripe (subscription, customer, webhook), Resend (mail), S3 (presigned URLs), Cloudflare Turnstile (captcha), OAuth providers (Google code exchange and userinfo with the verified-email guard; Apple code exchange with the ES256 client secret and the `id_token` check against Apple's keys), Instagram (`src/infrastructure/social/instagram.client.ts` — the code and token exchanges, renewal, `/me`, media, stories, webhook subscription, messages, comment replies, the follow check, profile and media reads, and Instagram's error bodies), and customer webhook endpoints. Uses `nock` to record / replay fixture interactions and pin our request shape against the upstream's documented API.
 
 Vitest config: [tooling/vitest/contract.config.ts](tooling/vitest/contract.config.ts).
 

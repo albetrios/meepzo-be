@@ -340,7 +340,7 @@ describe('planEnvironmentSyncPreview — the _SECRET suffix rule', () => {
   const rows = planEnvironmentSyncPreview({
     declared: parseEnvContents(
       [
-        'OAUTH_GITHUB_CLIENT_SECRET=a',
+        'OAUTH_GOOGLE_CLIENT_SECRET=a',
         'STRIPE_WEBHOOK_SECRET=b',
         'NEW_PROVIDER_SECRET=c',
         'WEBHOOK_SECRET_ROTATION_OVERLAP_HOURS=24',
@@ -353,7 +353,7 @@ describe('planEnvironmentSyncPreview — the _SECRET suffix rule', () => {
   const byName = new Map(rows.map((row) => [row.name, row]));
 
   it('treats every key ending in _SECRET as a secret, with no per-key list', () => {
-    expect(byName.get('OAUTH_GITHUB_CLIENT_SECRET')?.decision).toBe('secret-create');
+    expect(byName.get('OAUTH_GOOGLE_CLIENT_SECRET')?.decision).toBe('secret-create');
     expect(byName.get('STRIPE_WEBHOOK_SECRET')?.decision).toBe('secret-create');
     expect(byName.get('NEW_PROVIDER_SECRET')?.decision).toBe('secret-create');
   });

@@ -16,7 +16,7 @@ Notify **outbound webhooks** (customer URLs) use a separate **in-memory** [oposs
 | **Instagram** | every call in [`instagram.client.ts`](../../../src/infrastructure/social/instagram.client.ts) — the one Instagram client (`instagram` integration, 10 s timeout); Instagram refusing one request does not count against the circuit (`InstagramApiError.countsAsCircuitFailure`) | `verifyMetaWebhookSignature` / `parseMetaSignedRequest` in [`meta-signature.util.ts`](../../../src/infrastructure/social/meta-signature.util.ts) (local signature checks) |
 | **Notify webhooks** | `fetchWebhookWithCircuitBreaker` (opossum, per process) | — |
 
-OAuth provider `fetch` calls (Google/GitHub) are **not** circuit-wrapped today.
+OAuth provider `fetch` calls (Google/Apple) are **not** circuit-wrapped today.
 
 ---
 

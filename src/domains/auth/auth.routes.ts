@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { captchaPreHandler } from '@/shared/middlewares/security/captcha.middleware.js';
 import {
   requireRecentStepUpPreHandler,
+  requireRecentStepUpWhenQueryIs,
   requireStrongRecentStepUpPreHandler,
 } from '@/shared/middlewares/core/recent-step-up.middleware.js';
 import {
@@ -13,8 +14,12 @@ import {
   STRICT_PUBLIC_RATE_LIMIT,
 } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { createPerEmailRateLimitPreHandler } from '@/shared/middlewares/rate-limit/per-email-rate-limit.js';
+import { authenticateWhenBearerPresent } from '@/shared/middlewares/core/auth.middleware.js';
+import { OAUTH_FORM_CALLBACK_BODY_LIMIT_BYTES } from '@/shared/constants/limits.constants.js';
 import { createAuthController } from './auth.controller.js';
+import { OAUTH_LINK_INTENT } from '@/domains/auth/sub-domains/auth-method/oauth/oauth.types.js';
 import {
+  AppleFormCallbackDto,
   authMethodPublicIdParamsDto,
   CreateAuthMethodDto,
   EmailLoginDto,
@@ -26,6 +31,7 @@ import {
   mfaMethodIdParamsDto,
   OauthCallbackQueryDto,
   oauthProviderParamsDto,
+  OauthStartQueryDto,
   sessionIdParamsDto,
   StepUpVerifyDto,
 } from './auth.dto.js';
@@ -92,32 +98,69 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'List available OAuth providers',
         description:
-          'Returns a list of configured OAuth providers (e.g. Google, GitHub) available for login.',
+          'Returns the configured sign-in providers of Google and Apple ({ providers: ["google", "apple"] }); a provider whose settings are unset is left out.',
         tags: ['OAuth'],
       },
     },
     controller.listOauthProviders,
   );
   // No captcha: this only returns the provider's authorization URL (with a PKCE/state nonce);
-  // Google/GitHub authenticate the user themselves, and the strict public rate limit still
+  // Google/Apple authenticate the user themselves, and the strict public rate limit still
   // applies. A Turnstile challenge here was the slowest part of "Sign in with Google".
+  // `intent=link` (AT12) needs a bearer and a recent step-up — read optionally, so the route stays
+  // the PUBLIC sign-in start without it.
   zodApplication.get('/oauth/:provider', {
     ...STRICT_PUBLIC_RATE_LIMIT,
+    preHandler: [
+      authenticateWhenBearerPresent,
+      requireRecentStepUpWhenQueryIs({ field: 'intent', value: OAUTH_LINK_INTENT }),
+    ],
     schema: {
       summary: 'Initiate OAuth flow',
       description:
-        'Returns the OAuth provider authorization URL and nonce cookie for a browser client to begin the login flow.',
+        'Returns the OAuth provider authorization URL and nonce cookie for a browser client to begin the flow (provider google or apple; any other is a 400 on provider; a provider whose settings are unset is a 404). Apple is asked for response_mode=form_post with the name and email scopes, so it posts its answer to POST /auth/oauth/apple/callback. With intent=link (a bearer and a recent step-up required — 401 without a bearer, 403 recent_step_up_required without the step-up) the flow links that Google or Apple account to the signed-in person instead of signing in.',
       tags: ['OAuth'],
       params: oauthProviderParamsDto,
+      querystring: OauthStartQueryDto,
     },
     handler: controller.oauthRedirect,
+  });
+  // Apple's form callback (AT10, route 124): Apple posts application/x-www-form-urlencoded, the
+  // only body parser of this encapsulated context (so any other body answers 415), under a 16 KiB
+  // limit (413). No captcha (Apple posts it) and no cookie of ours arrives on this cross-site POST
+  // — the nonce cookie is checked by the app's GET …/apple/callback. The one named exception to
+  // the method→status policy: it answers 303 (P85, METHOD_STATUS_POLICY_EXCEPTIONS).
+  await app.register(async (formApplication) => {
+    formApplication.removeAllContentTypeParsers();
+    formApplication.addContentTypeParser(
+      'application/x-www-form-urlencoded',
+      { parseAs: 'string' },
+      (_request, body, done) => {
+        done(null, Object.fromEntries(new URLSearchParams(String(body))));
+      },
+    );
+    // Named like the outer one on purpose: the route catalogue and the OpenAPI extractor find a
+    // route by that name.
+    const zodApplication = formApplication.withTypeProvider<ZodTypeProvider>();
+    zodApplication.post('/oauth/apple/callback', {
+      ...STRICT_PUBLIC_RATE_LIMIT,
+      bodyLimit: OAUTH_FORM_CALLBACK_BODY_LIMIT_BYTES,
+      schema: {
+        summary: "Apple's sign-in form callback",
+        description:
+          "Apple posts its sign-in answer here (response_mode=form_post) as an application/x-www-form-urlencoded form: state, code or error, user (Apple's JSON with the name, sent the first time only, at most 4 KiB) and id_token (ignored here). Never signs anyone in: it checks the state is live without using it up, keeps the user JSON next to the state for the state's life, and answers 303 with Location <FRONTEND_URL>/callback/apple?code&state — the app then calls GET /auth/oauth/apple/callback with the nonce cookie. Apple's error answers 303 to the same page with reason oauth_cancelled (user_cancelled_authorize) or oauth_failed; an unknown, spent or expired state answers 303 with reason oauth_expired. A missing state is a 400; a body over 16 KiB a 413; a body that is not a form a 415. The one named exception to the method→status policy (303).",
+        tags: ['OAuth'],
+        body: AppleFormCallbackDto,
+      },
+      handler: controller.appleFormCallback,
+    });
   });
   zodApplication.get('/oauth/:provider/callback', {
     ...STRICT_PUBLIC_RATE_LIMIT,
     schema: {
       summary: 'OAuth callback',
       description:
-        'Handles the OAuth provider callback after user authorization. Exchanges the code for tokens and creates or links the user account.',
+        "Handles the OAuth provider callback after user authorization (google or apple; for Apple the app calls it after POST /auth/oauth/apple/callback sent the browser to its page). Uses the state once and checks the nonce cookie, swaps the code for tokens, matches the person by the provider account (Apple's later sign-ins may carry no email), then by email, and signs in — creating the person or linking the provider to a verified account. In link mode (the flow began with intent=link) it links that Google or Apple account to the signed-in person, even with another email, and answers the linked way instead of a session; an account already linked to someone else is a 409 provider_account_in_use. Refusals carry a reason: 401 oauth_expired (state missing, spent, expired or not this browser's), 401 oauth_failed (the provider refused the code or its answer did not verify), 403 oauth_link_needs_verified_email, 403 login_method_turned_off, 401 account_not_active.",
       tags: ['OAuth'],
       params: oauthProviderParamsDto,
       querystring: OauthCallbackQueryDto,

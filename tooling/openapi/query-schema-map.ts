@@ -14,7 +14,7 @@ import {
   deleteAutomationQueryDto,
   listAutomationsQueryDto,
 } from '@/domains/app/sub-domains/automation/automation.dto.js';
-import { OauthCallbackQueryDto } from '@/domains/auth/auth.dto.js';
+import { OauthCallbackQueryDto, OauthStartQueryDto } from '@/domains/auth/auth.dto.js';
 import { listInvoicesQueryDto } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
 import { listNotificationsQueryDto } from '@/domains/notify/sub-domains/notification/notification.dto.js';
 import { listWebhooksQueryDto } from '@/domains/notify/sub-domains/webhook/webhook.dto.js';
@@ -46,6 +46,7 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'GET /api/v1/notify/notifications': listNotificationsQueryDto,
   'GET /api/v1/notify/webhooks/{webhook_id}/delivery-attempts': listLimitQuerySchema,
   'GET /api/v1/auth/oauth/{provider}/callback': OauthCallbackQueryDto,
+  'GET /api/v1/auth/oauth/{provider}': OauthStartQueryDto,
   // Record deletes (launch D83 (6), QA B2): the `reason` (and `note`, required for `other`) every
   // one requires — the document read no query on a DELETE before.
   'DELETE /api/v1/tenancy/organization/memberships/{membership_id}': deleteMembershipQueryDto,

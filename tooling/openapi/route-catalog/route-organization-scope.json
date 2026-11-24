@@ -37,6 +37,7 @@
   "GET /api/v1/auth/oauth/:provider": "both",
   "GET /api/v1/auth/oauth/:provider/callback": "both",
   "GET /api/v1/auth/oauth/providers": "both",
+  "POST /api/v1/auth/oauth/apple/callback": "both",
   "GET /api/v1/billing/invoices": "both",
   "GET /api/v1/billing/payment-methods": "both",
   "GET /api/v1/billing/plans": "both",

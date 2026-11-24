@@ -67,5 +67,19 @@ export const WEBHOOK_INGRESS_BODY_LIMIT_BYTES = 5 * 1024 * 1024;
  */
 export const META_CALLBACK_BODY_LIMIT_BYTES = 16 * 1024;
 
+/**
+ * Per-route body limit (bytes) of Apple's form callback, `POST /auth/oauth/apple/callback`
+ * (16 KiB) — feat-instagram-dm-sending AT10.
+ *
+ * @remarks
+ * Apple posts `state`, `code`, an `id_token` and, the first time only, a small `user` JSON (the
+ * name, at most {@link OAUTH_FORM_CALLBACK_USER_MAX_LENGTH} characters); anybody can post to the
+ * route, so the body stays small (a body over it answers 413).
+ */
+export const OAUTH_FORM_CALLBACK_BODY_LIMIT_BYTES = 16 * 1024;
+
+/** Longest `user` JSON text Apple's form callback keeps next to the state (4 KiB) — AT10. */
+export const OAUTH_FORM_CALLBACK_USER_MAX_LENGTH = 4 * 1024;
+
 /** Bytes per mebibyte (1024 * 1024) — RSS / threshold byte math. */
 export const BYTES_PER_MEGABYTE = 1024 * 1024;

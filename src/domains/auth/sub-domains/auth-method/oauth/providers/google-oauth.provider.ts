@@ -19,6 +19,11 @@ type GoogleUserInfo = {
   picture?: string;
 };
 
+/** True when the Google client id and secret are set — Google is then offered (route 122). */
+export function isGoogleOAuthConfigured(): boolean {
+  return Boolean(env.OAUTH_GOOGLE_CLIENT_ID && env.OAUTH_GOOGLE_CLIENT_SECRET);
+}
+
 function getGoogleRedirectUri(): string {
   // The redirect URI is the SPA's provider-specific /callback/google page: the browser
   // lands there with `code`+`state`, and the SPA forwards them to this API's
@@ -112,7 +117,7 @@ export async function exchangeGoogleOAuthCode(
   }
 
   if (!tokenData.access_token) {
-    throw new UnauthorizedError('errors:googleTokenMissingAccessToken');
+    throw new UnauthorizedError('errors:googleTokenMissingAccessToken').withReason('oauth_failed');
   }
 
   let userInfo: GoogleUserInfo;
@@ -133,13 +138,13 @@ export async function exchangeGoogleOAuthCode(
   }
 
   if (!(userInfo.email && userInfo.sub)) {
-    throw new UnauthorizedError('errors:googleUserMissingEmailOrSub');
+    throw new UnauthorizedError('errors:googleUserMissingEmailOrSub').withReason('oauth_failed');
   }
 
   // Reject accounts whose email Google has not verified: linking by an
   // attacker-controlled unverified address would enable account takeover.
   if (userInfo.email_verified !== true) {
-    throw new UnauthorizedError('errors:googleEmailNotVerified');
+    throw new UnauthorizedError('errors:googleEmailNotVerified').withReason('oauth_failed');
   }
 
   return omitUndefined({

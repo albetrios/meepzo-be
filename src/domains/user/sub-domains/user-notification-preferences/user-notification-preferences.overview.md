@@ -10,7 +10,7 @@ Per-user opt-in / opt-out for the notification + email channels. The platform re
 
 ## Key invariants
 
-- **Default-on for transactional channels**: security-relevant notifications (login alerts, MFA enrolment, password change) ignore the preference and always deliver. Marketing / promotional channels are opt-out and respect the preference.
+- **Default-on for transactional channels**: security-relevant notifications (login alerts, MFA enrolment, sign-in method changes) ignore the preference and always deliver. Marketing / promotional channels are opt-out and respect the preference.
 - **One row per user**: missing row implies platform defaults (which are channel-aware as above).
 - **Granularity is per-channel × per-event-class**: the schema lets a user opt out of "billing notifications via email" but keep "billing notifications in-app".
 

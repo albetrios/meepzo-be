@@ -5,6 +5,10 @@ import {
   validateEmailLogin,
   validateStepUpVerify,
 } from '@/domains/auth/auth.validator.js';
+import {
+  AUTH_METHOD_TYPES,
+  LIVE_AUTH_METHOD_TYPES,
+} from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
 
 describe('auth.validator', () => {
   it('validateEmailLogin accepts a 6-digit code (AT6)', () => {
@@ -63,5 +67,13 @@ describe('auth.validator', () => {
     expect(validateCreateAuthMethod({ method_type: 'EMAIL_CODE' })).toMatchObject({
       method_type: 'EMAIL_CODE',
     });
+  });
+
+  it('PASSWORD stays a stored value for historic revoked rows but is never a live type (P84)', () => {
+    expect(AUTH_METHOD_TYPES).toContain('PASSWORD');
+    expect(LIVE_AUTH_METHOD_TYPES).not.toContain('PASSWORD');
+    expect(LIVE_AUTH_METHOD_TYPES).toEqual(
+      AUTH_METHOD_TYPES.filter((methodType) => methodType !== 'PASSWORD'),
+    );
   });
 });

@@ -301,8 +301,6 @@ describe('Auth Domain — Route gates (e2e)', () => {
     });
   });
 
-  // ─── Password: Forgot / Reset ─────────────────────────────────
-
   // ─── Step-up (sudo) ───────────────────────────────────────────
 
   describe('POST /api/v1/auth/step-up', () => {

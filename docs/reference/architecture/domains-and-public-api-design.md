@@ -370,9 +370,7 @@ All 19 phases from the Consolidated Master Plan (Domain API Upgrade + CI/CD + en
 ### Phase 3 — Security hardening
 
 - [x] JWT: RS256 only, 15-min access token expiry, issuer + audience claims
-- [x] Argon2id password hashing (`src/shared/utils/security/password.util.ts`) — Argon2id only
-- [x] NIST 12-character minimum password length enforced in DTOs (ResetPasswordDto, ChangePasswordDto)
-- [x] Account lockout after 10 failed attempts (30-min window)
+- [x] ~~Argon2id password hashing, 12-character minimum, account lockout after 10 failed attempts~~ — superseded: passwords removed (feat-instagram-dm-sending P84); sign-in is email code (5 tries per code, 20 wrong a day), Google / Apple, or a passkey
 - [x] `.strict()` on all 17 DTO files to reject unknown fields
 - [x] `maxLength` on all string fields across DTOs
 - [x] Helmet middleware with explicit CSP directives

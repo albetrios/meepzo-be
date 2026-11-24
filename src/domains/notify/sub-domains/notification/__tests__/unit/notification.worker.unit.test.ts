@@ -157,7 +157,7 @@ describe('notification.worker', () => {
         tags: [{ name: 'category', value: 'notification-billing.invoice_ready' }],
       }),
     );
-    // Fan-out email rides the bulk lane, behind sign-in codes and password resets.
+    // Fan-out email rides the bulk lane, behind sign-in codes and invitations.
     expect(dispatchOutboxEmailMock).toHaveBeenCalledWith({
       mailOutboxToken: MAIL_OUTBOX_TOKEN,
       options: {

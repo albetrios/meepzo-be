@@ -56,10 +56,11 @@ single POST — the browser must run `navigator.credentials.create()` between th
 > MFA** — a 6-character **email verification code** (`{ code }`, bootstrap-only, so it can enroll a
 > first factor). MFA users step up via an **MFA verification** instead.
 >
-> **Enroll vs destructive:** an email-code step-up window can *enroll* (MFA/passkey/add auth-method)
-> but **cannot** perform *destructive* mutations — revoking sessions or deleting a passkey / MFA
-> method / auth-method require a **strong** step-up (password or MFA), returning `403`
-> `strongStepUpRequired` otherwise.
+> **Enroll vs destructive:** revoking sessions or deleting a passkey / MFA method / auth-method
+> require a **strong** step-up — the 2FA code, or the email code for a person without settled 2FA
+> (a person with 2FA gets `403 mfa_step_up_required` from `POST /auth/step-up` and confirms with
+> the 2FA code instead) — returning `403` `strongStepUpRequired` otherwise. A provisional-MFA
+> window (2FA being set up) can enroll but not destroy.
 
 ### Notifications
 

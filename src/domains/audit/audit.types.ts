@@ -29,7 +29,7 @@ export type NewAuditLog = Omit<AuditLogInsert, 'public_id'>;
  * @remarks
  * Part of every audit write ({@link AuditLogRecordInput}), so the compiler rejects a call that
  * names no actor. The audit service used to drop such rows at runtime with only a log line — every
- * `auth.login_failure`, `auth.password.reset`, `auth.mfa.recovery_code_used` and API-key
+ * `auth.login_failure`, `auth.mfa.recovery_code_used` and API-key
  * `auth.permission.denied` row was lost that way. The `?: never` members forbid naming two kinds
  * at once. `AuditService.record` keeps a runtime backstop for a value that bypasses the type.
  */

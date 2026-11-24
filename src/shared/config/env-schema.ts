@@ -1593,7 +1593,7 @@ export const envSchema = envSchemaBase
   .refine(
     (data) => {
       /**
-       * Every emailed link (verification code, password reset, invitation) and the OAuth callback
+       * Every emailed link (verification code, invitation) and the OAuth callback
        * fallback is built from `FRONTEND_URL`; unset, they point at the local-dev fallback
        * `DEFAULT_FRONTEND_URL` (http://localhost:5173). Production requires it, over https.
        */
@@ -1644,13 +1644,13 @@ export const envSchema = envSchemaBase
   .refine(
     (data) =>
       /**
-       * Email codes, password resets and invitations are sent through Resend. Without a key the
+       * Email codes and invitations are sent through Resend. Without a key the
        * mail worker never starts and every one of those mails waits in the outbox forever.
        */
       data.NODE_ENV !== 'production' || Boolean(data.RESEND_API_KEY),
     {
       message:
-        'RESEND_API_KEY must be set in production (email codes, password resets and invitations are sent through it).',
+        'RESEND_API_KEY must be set in production (email codes and invitations are sent through it).',
       path: ['RESEND_API_KEY'],
     },
   )

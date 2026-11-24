@@ -424,7 +424,7 @@ describe('User admin routes — happy paths', () => {
 
   /**
    * A-2: a platform admin on one factor could suspend or delete any account. The role needs an
-   * MFA-verified session, and the destructive admin routes a recent password or MFA step-up.
+   * MFA-verified session, and the destructive admin routes a recent strong step-up (MFA, or the email code without settled 2FA).
    */
   describe('platform admin needs a second factor (A-2)', () => {
     it('refuses a super_admin whose session has not proved MFA', async () => {

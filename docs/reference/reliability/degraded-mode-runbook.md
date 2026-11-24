@@ -38,8 +38,8 @@ availability — that reintroduces double-execution risk for writes.
 (`src/shared/middlewares/security/captcha.middleware.ts`) fails **closed**: if Turnstile cannot
 answer — network or timeout, a non-200 or unreadable siteverify response, or the `turnstile` circuit
 breaker open — the request is rejected with **`503 captchaProviderUnavailable`** (with `Retry-After`
-while the circuit is open). Captcha-gated routes — login, email verification-code, password-reset
-request, MFA challenge, OAuth initiation — are therefore unavailable during a Turnstile outage, and
+while the circuit is open). Captcha-gated routes — email verification-code send and login, MFA challenge,
+passkey sign-in options — are therefore unavailable during a Turnstile outage, and
 clients see a retryable 503 rather than a "bad captcha" 401. Fail-open (`CAPTCHA_FAIL_OPEN`) is
 rejected by the env schema in production (it would invite credential stuffing during the outage); the
 bypass header is honored only in non-production.

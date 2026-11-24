@@ -5,7 +5,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-api-contract-guard/SKILL.md",
-      "computedHash": "f803cd0ec1fc3d40f9fc08c459dcbdb10a4348c8291e714f5e247eb7dcd84cfe"
+      "computedHash": "80e960d5dc9765c3c15b790ee6ddcb01266c32b8d1769527012c99ef79caaca1"
     },
     "be-auto-implement": {
       "source": "local",
@@ -173,7 +173,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-production-hardening-guard/SKILL.md",
-      "computedHash": "2dcd2ead38696664c94a5da1825ed84088db4748ff379e7b1fb5a2e2ac77fdf0"
+      "computedHash": "90fc0f6d7116bdd6ddd1a4cec3f287d8dde4a01ef20a5f124bd58d62de9e433c"
     },
     "be-read-cache-guard": {
       "source": "local",
@@ -209,7 +209,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-seed-maintainer/SKILL.md",
-      "computedHash": "d7f95e09fdd80037de3f5db39bf3b7beee05049b6ba162d97764e9eee3f40d6f"
+      "computedHash": "787abd75e3329c6a0a8af38410011979874fc04b6fb60465cd6b86a08c8a22da"
     },
     "be-skill-index": {
       "source": "local",
@@ -263,7 +263,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-workers-events/SKILL.md",
-      "computedHash": "194e2c7f24f807346efd785fb347e7bb584031944e6177f23ee599f68d7ef4d3"
+      "computedHash": "5b98f9c8225ae9f92bf8044f9378541d2b9f92639a52c2dbcd82a5e68cb28cba"
     },
     "ponytail": {
       "source": "DietrichGebert/ponytail",

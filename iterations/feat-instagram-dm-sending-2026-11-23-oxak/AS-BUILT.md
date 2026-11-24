@@ -61,3 +61,4 @@ new ones (the D58 file scan, P34, among them).
 | --- | --- | --- | --- | --- |
 | Malware scan of message files | Scanned before use (plan D58) | Type and content checks only | feat-instagram-dm-sending-2026-11-23-oxak | [P34](plans/decisions.md) |
 | Chip tone `lav` gone | Renamed `lavender` everywhere (P81) | Stored and validated as `lavender`; an expand-phase trigger still turns a written `lav` into `lavender` until the release after this one drops it (contract) | feat-instagram-dm-sending-2026-11-23-oxak | [P202](plans/decisions.md) |
+| `PASSWORD` auth-method type | Passwords removed end to end (P84) | Kept as a stored `method_type` for historic revoked rows (the CHECK accepts it); never created, accepted or returned — the API and OpenAPI use `LIVE_AUTH_METHOD_TYPES`; `auth.users.password_hash` stays, empty | feat-instagram-dm-sending-2026-11-23-oxak | [P209](plans/decisions.md) |

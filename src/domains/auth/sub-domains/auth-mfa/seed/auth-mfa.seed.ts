@@ -33,7 +33,7 @@ function storesSecret({
 /**
  * Ensures `userId` has exactly one active TOTP factor holding `secret`, the shape a real
  * enrollment leaves (`auth.auth_methods`, `method_type = 'MFA_TOTP'`, the secret encrypted with
- * `SECRETS_ENCRYPTION_KEY`), so a password sign-in answers `mfa_required` and `POST
+ * `SECRETS_ENCRYPTION_KEY`), so an email-code sign-in answers `mfa_required` and `POST
  * /auth/mfa/login` accepts a code computed from `secret`.
  *
  * @remarks

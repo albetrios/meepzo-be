@@ -303,7 +303,7 @@ export class EmailLoginService {
    * user so both requests converge on issuing a code — email login is auto-signup, so a duplicate
    * email is NOT a 409 here. Personal-organization provisioning runs AFTER the commit (it uses a separate
    * global-admin connection that cannot see an uncommitted user) and is best-effort, exactly
-   * mirroring email/password and OAuth signup.
+   * mirroring OAuth signup.
    */
   private async createEmailCodeUser(email: string): Promise<UserAuthRecord> {
     let user: UserAuthRecord;

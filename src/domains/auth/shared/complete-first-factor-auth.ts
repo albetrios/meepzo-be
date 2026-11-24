@@ -25,7 +25,7 @@ export interface FirstFactorAuthUser {
   is_mfa_enabled: boolean;
 }
 
-/** Result of a successful first-factor authentication step (password, email code, OAuth, WebAuthn). */
+/** Result of a successful first-factor authentication step (email code, OAuth, WebAuthn). */
 export type FirstFactorAuthResult =
   | { access_token: string; session_public_id: string; session_refresh_secret: string }
   | { mfa_required: true; mfa_session_token: string };

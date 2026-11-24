@@ -258,9 +258,8 @@ export class MembershipInvitationService {
 
   /**
    * The signed-in person behind an invitee-facing call (accept, decline): their user record, with
-   * a **verified** email. email-code / OAuth sign-in proves control of the email; an
-   * email/password claim of a pre-provisioned invited account stays unverified until the emailed
-   * code is entered — without this, someone merely FORWARDED the invite email could claim the
+   * a **verified** email. email-code / OAuth sign-in proves control of the email, and no
+   * other way (passwords are off, P84) can claim a pre-provisioned invited account — without this, someone merely FORWARDED the invite email could claim the
    * invited address and act on it (sec-T4 follow-up).
    *
    * @remarks

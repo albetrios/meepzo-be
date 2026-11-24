@@ -49,8 +49,8 @@ Report separately: executed route coverage, concurrency profile, fixture/identit
 `auth-security-lifecycle.js` runs in the nightly strict step against the running API on the
 seeded credential pool (`VUS=4`, `ITERATIONS=5`: 20 distinct users). Each journey signs in by
 email code, revokes sessions under an email-code step-up (strong for a person without 2FA —
-feat-instagram-dm-sending AT15), checks the email-code way cannot be removed and the password
-routes are gone, enrolls real TOTP MFA, verifies and replays codes, consumes a recovery code with
+feat-instagram-dm-sending AT15), checks the email-code way cannot be removed and the removed
+sign-in routes answer 404, enrolls real TOTP MFA, verifies and replays codes, consumes a recovery code with
 "trust this device", signs in again without the code on that trusted browser, then removes MFA
 under an email-code step-up (the factor is still provisional), so every pool user ends as it
 started. Every sign-in and step-up sends a code: on a target with the 60 s send spacing on, each VU

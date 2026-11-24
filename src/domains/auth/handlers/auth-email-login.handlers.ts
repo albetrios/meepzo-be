@@ -79,7 +79,7 @@ export function createAuthEmailLoginHandlers({
           sessionPublicId: data.session_public_id,
           refreshSecret: data.session_refresh_secret,
         });
-        // sec-A8: audit every login surface, not just password login.
+        // sec-A8: audit every login surface.
         if ('access_token' in data && typeof data.access_token === 'string') {
           await recordLoginAuditEvent({
             request,

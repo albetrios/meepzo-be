@@ -1,4 +1,5 @@
 /** Auth and user resource schemas. */
+import { LIVE_AUTH_METHOD_TYPES } from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
 import { loadConfig } from '@tooling/setup/common/config.js';
 
 /** TOTP issuer used in example provisioning URIs — matches the runtime issuer. */
@@ -189,9 +190,8 @@ export const authMethodSchema = {
     id: { type: 'string', pattern: '^am_[a-z0-9]{21}$' },
     method_type: {
       type: 'string',
-      enum: ['PASSWORD', 'EMAIL_CODE', 'OAUTH', 'MFA_TOTP', 'MFA_SMS', 'MFA_EMAIL'],
-      description:
-        'Possible values: PASSWORD | EMAIL_CODE | OAUTH | MFA_TOTP | MFA_SMS | MFA_EMAIL',
+      enum: [...LIVE_AUTH_METHOD_TYPES],
+      description: `Possible values: ${LIVE_AUTH_METHOD_TYPES.join(' | ')}`,
       example: 'EMAIL_CODE',
     },
     provider: { type: 'string', nullable: true },

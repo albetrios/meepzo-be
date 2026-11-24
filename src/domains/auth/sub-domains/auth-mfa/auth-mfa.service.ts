@@ -93,7 +93,7 @@ const MFA_VERIFICATION_FAILURE_KEY_PREFIX = 'mfa:verify:fail:';
 /**
  * The flow a TOTP verification belongs to — each has its own attempt counter (A-8): the MFA
  * sign-in challenge (`login`) and the authenticated step-up (`step_up`). With one shared counter,
- * someone holding the password could spend the sign-in budget and lock the signed-in owner out of
+ * someone who can pass the first factor could spend the sign-in budget and lock the signed-in owner out of
  * every step-up (and the other way round).
  */
 type MfaVerificationFlow = 'login' | 'step_up';
@@ -154,8 +154,8 @@ const MFA_TOTP_ENROLLMENT_STAGE_KEY_PREFIX = 'mfa:enroll:';
  * - **Notes:** secrets are encrypted at rest using the field-secret KMS path;
  *   recovery codes are stored only as SHA-256 hashes and consumed exactly once
  *   via an atomic `UPDATE … WHERE used_at IS NULL`. The public login step is
- *   reachable only with a valid `mfa_session_token` minted by `auth.login`
- *   after first-factor (password) verification — there is no TOTP-only login.
+ *   reachable only with a valid `mfa_session_token` minted by `completeFirstFactorAuth`
+ *   after first-factor (email code, OAuth, passkey) verification — there is no TOTP-only login.
  */
 export class MfaService {
   constructor(
@@ -246,7 +246,7 @@ export class MfaService {
     if (parsed.totp_code) {
       // audit-#12 / reaudit-#3: the brute-force lockout gates ONLY the TOTP path (6-digit,
       // guessable). Recovery codes are single-use high-entropy break-glass and are
-      // intentionally NOT subject to it — otherwise an attacker who knows the password could
+      // intentionally NOT subject to it — otherwise an attacker who passes the first factor could
       // burn TOTP attempts to also lock the victim out of their recovery path (victim DoS).
       // route-audit-#4: atomically count this attempt up-front so concurrent guesses can't
       // overspend the budget; a successful verify clears the counter below.
@@ -564,7 +564,7 @@ export class MfaService {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new UnauthorizedError(ERROR_KEY_MFA_USER_NOT_FOUND);
     // Pre-hijacking guard: an unverified (e.g. attacker-pre-registered) account must not seed an
-    // MFA factor that would survive the real owner's password-reset recovery (sec — account
+    // MFA factor that would survive the real owner's later email-code sign-in (sec — account
     // pre-hijacking, Trojan-credential variant).
     assertEmailVerifiedForCredentialEnrollment(user);
     if (parsed.method_type !== 'MFA_TOTP') {
@@ -741,7 +741,7 @@ export class MfaService {
    * the method would leave the user with zero MFA factors AND any organization the user
    * belongs to has `organization_settings.require_mfa = true` (sec-A4). Without this
    * guard, a member of an MFA-required organization could silently downgrade themselves to
-   * password-only authentication in direct contradiction of organization policy. The check
+   * single-factor authentication in direct contradiction of organization policy. The check
    * pre-computes the remaining-count by listing first, so the revoke does NOT execute
    * when the policy would be violated. Non-last deletions and users in MFA-non-required
    * organizations are unaffected.

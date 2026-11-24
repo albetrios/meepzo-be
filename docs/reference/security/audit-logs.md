@@ -181,7 +181,7 @@ Three layers hold the rule. The `AuditActor` type ([`audit.types.ts`](../../../s
 makes an actorless call fail to compile. The outbox CHECK `chk_audit_outbox_actor_present` admits an
 actorless row only when it is declared anonymous. `AuditService.record` logs `audit.record.missingActor`
 at `error` and drops a value that bypassed the type. Before the actor was a type, actorless calls
-compiled and were dropped at runtime — failed logins, password resets, recovery-code uses and API-key
+compiled and were dropped at runtime — failed logins, recovery-code uses and API-key
 permission denials never reached `audit.logs`.
 
 ## Storage & partitioning
@@ -211,7 +211,7 @@ Daily NDJSON export to S3 is documented in [audit-export.md](./audit-export.md).
 ## Tests
 
 - `src/tests/security/infrastructure/mutation-audit.security.test.ts` — login, logout, user settings.
-- `src/domains/auth/__tests__/integration/auth-audit-trail.integration.test.ts` — failed login, password reset, recovery-code login and API-key permission denial, end to end into `audit.logs` (real routes, real drain).
+- `src/domains/auth/__tests__/integration/auth-audit-trail.integration.test.ts` — one entry per sign-in / step-up / removed way (AC-13.13), failed email-code login, recovery-code login and API-key permission denial, end to end into `audit.logs` (real routes, real drain).
 - `src/tests/integration/queue/audit-outbox-drain.integration.test.ts` — the drain: anonymous rows, the actor CHECK, unresolvable actors, concurrent drainers, per-row savepoints.
 - `src/domains/tenancy/__tests__/integration/tenancy-audit-trail.integration.test.ts`, `src/domains/billing/__tests__/integration/billing-audit-trail.integration.test.ts`, `src/domains/notify/__tests__/integration/notify-audit-trail.integration.test.ts` — every organization governance change (membership, invitation, ownership, settings, role permissions, notification policies, API keys, subscriptions, webhooks, organization create and delete) staged with its actor and organization, then drained.
 - `src/domains/audit/__tests__/unit/audit-action-catalog.policy.unit.test.ts` — this catalog and the emitted actions are one set.

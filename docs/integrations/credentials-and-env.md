@@ -105,9 +105,9 @@ below show where the value comes from; the runbook above shows the workflow.
 
 ---
 
-## 2. Resend — email (email verification-code, invitations, password reset)
+## 2. Resend — email (email verification-code, invitations)
 
-**Used for:** Email verification-code login, invitations, password reset emails.
+**Used for:** Email verification-code login, invitations, account-security notices.
 
 | .env variable        | Where to get it                            |
 | -------------------- | ------------------------------------------ |

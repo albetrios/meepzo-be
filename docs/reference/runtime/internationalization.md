@@ -42,7 +42,7 @@ A job has no request, so the language travels in the event or job payload as `lo
 
 | Message | Language |
 | ------- | -------- |
-| Sign-in code, password reset | The request's (`toSupportedLanguage(request.language)`) |
+| Sign-in code, account-security notice | The request's (`toSupportedLanguage(request.language)`) |
 | Member invitation, invitation accepted | The organization's `default_locale` |
 
 Templates translate through `translateMailText({ key, locale, values })` (`src/infrastructure/mail/templates/base.template.ts`), which leaves escaping to the template (`escapeHtml` on every value) and sets `<html lang>`. The worker process loads the locale files once at start with `initializeI18nextForBackgroundWork()`; a unit test that renders copy calls the same function in `beforeAll`.
@@ -51,8 +51,8 @@ Templates translate through `translateMailText({ key, locale, values })` (`src/i
 
 1. **Translation keys in code**
    - Errors: use keys like `errors:notFound`, `errors:validation.invalidToken`, `errors:disposableEmail`.
-   - Success: use keys like `success:emailVerified`, `success:passwordResetEmailSent`.
-   - Namespace format: `namespace:key` (e.g. `errors:routeNotFound`, `success:verificationEmailSent`).
+   - Success: use keys like `success:verificationCodeSent`.
+   - Namespace format: `namespace:key` (e.g. `errors:routeNotFound`, `success:verificationCodeSent`).
 
 2. **Locale files**
    - Add new keys to **`src/shared/locales/en/`** first (e.g. `src/shared/locales/en/errors.json`, `src/shared/locales/en/success.json`).

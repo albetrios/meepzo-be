@@ -779,7 +779,7 @@ export async function seedUserScopedRlsFixtures(): Promise<RlsUserFixture> {
     .values({
       public_id: generatePublicId('organization'),
       user_id: userB.id,
-      method_type: 'PASSWORD',
+      method_type: 'EMAIL_CODE',
       is_primary: true,
     })
     .returning();

@@ -117,7 +117,7 @@ export class WebauthnService {
       throw new UnauthorizedError('errors:userNotFound');
     }
     // Pre-hijacking guard: an unverified (e.g. attacker-pre-registered) account must not seed a
-    // passkey that would survive the real owner's password-reset recovery (sec — account
+    // passkey that would survive the real owner's later email-code sign-in (sec — account
     // pre-hijacking, Trojan-credential variant).
     assertEmailVerifiedForCredentialEnrollment(user);
 
@@ -427,8 +427,8 @@ export class WebauthnService {
    *   strip a passkey-only user of every login credential.
    * - **Side effects:** writes `revoked_at` on the credential row; the partial unique index keeps the
    *   raw `credential_id` re-registrable afterwards.
-   * - **Notes:** sec-r5-M3 — wires the previously-orphaned `revokeByUserId`. A user with a password /
-   *   OAuth / email-code method may remove every passkey.
+   * - **Notes:** sec-r5-M3 — wires the previously-orphaned `revokeByUserId`. A user with an OAuth /
+   *   email-code method may remove every passkey.
    */
   async revokeCredential({
     userPublicId,

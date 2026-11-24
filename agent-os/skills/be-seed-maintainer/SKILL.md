@@ -76,7 +76,7 @@ Dependency order (declared via `dependsOn` at the domain level): `user` first; t
 
 - Re-running any tier must not duplicate rows. Two conflict-handling patterns:
   - **`onConflictDoNothing()`** — default for bulk rows, reference codes, and join tables where existing data is the source of truth.
-  - **`onConflictDoUpdate({ target, set })`** — required for demo seed helpers where fields must stay current on re-run (e.g. `password_hash`, `first_name`, `last_name` in `seedUser`; `name` in `seedOrganization`). For unique indexes with a `WHERE` clause (partial indexes), also supply `targetWhere: sql\`${table.deleted_at} IS NULL\`` so Drizzle resolves the correct index.
+  - **`onConflictDoUpdate({ target, set })`** — required for demo seed helpers where fields must stay current on re-run (e.g. `first_name`, `last_name` in `seedUser`; `name` in `seedOrganization`). For unique indexes with a `WHERE` clause (partial indexes), also supply `targetWhere: sql\`${table.deleted_at} IS NULL\`` so Drizzle resolves the correct index.
 - Use count-and-resume as an alternative for ordered bulk rows. Use `generatePublicId()` for `public_id` fields.
 - High-count tables (`audit.logs`, notifications) use batched multi-row inserts with `ON CONFLICT DO NOTHING`.
 - Pin faker via `SEED` (`initFakerSeed()`) so a given seed reproduces the same data.

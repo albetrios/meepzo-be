@@ -18,6 +18,7 @@ TableGroup app {
   app.channel_connections
   app.contact_activities
   app.contact_tag_counts
+  app.contact_tag_events
   app.contacts
   app.instagram_account_settings
   app.instagram_accounts
@@ -349,6 +350,25 @@ Table app.contact_tag_counts {
 
 Note app.contact_tag_counts {
   'RLS: enabled\nPolicies: contact_tag_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.contact_tag_events {
+  chain_number smallint [not null]
+  channel_account_id bigint [not null]
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  done_at timestamptz
+  id bigint [pk, increment]
+  kind varchar(10) [not null]
+  organization_id bigint [not null]
+  queued_at timestamptz
+  source varchar(12) [not null]
+  source_automation_id bigint
+  tag varchar(50) [not null]
+}
+
+Note app.contact_tag_events {
+  'RLS: enabled\nPolicies: contact_tag_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.contacts {

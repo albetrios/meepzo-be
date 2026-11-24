@@ -287,7 +287,8 @@ export interface ContactTagChangeEvent {
 /**
  * The tag-event port (routes-final § 3.B, CT5, D45): writes one `app.contact_tag_events` row per
  * change inside the tag change's unit of work and hands the events to intake after commit. ROUTE
- * row R11 builds 3.B and the app container passes it then; until then tag changes write no event.
+ * row R11 built it — `ContactTagEventService` (`contact/contact-tag-event/`), passed by the app
+ * container as `ports.tagEventRecorder`.
  */
 export interface ContactTagEventRecorder {
   /** Writes the events in the caller's unit of work (the request's, or the job's handle). */

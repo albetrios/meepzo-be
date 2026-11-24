@@ -28,6 +28,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'channel_connections' },
   { schemaName: 'app', tableName: 'contact_activities' },
   { schemaName: 'app', tableName: 'contact_tag_counts' },
+  { schemaName: 'app', tableName: 'contact_tag_events' },
   { schemaName: 'app', tableName: 'contacts' },
   { schemaName: 'app', tableName: 'instagram_account_settings' },
   { schemaName: 'app', tableName: 'instagram_accounts' },

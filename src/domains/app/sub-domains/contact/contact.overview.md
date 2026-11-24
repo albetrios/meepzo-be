@@ -17,7 +17,8 @@ both through this sub-domain's service; the team lists one account's contacts (r
 (20, `PATCH /contacts/{contact_id}`), runs one tag or pause on many (21,
 `POST /contacts/bulk-actions`), reads the account's tags with counts (22, `GET /contact-tags`) and
 erases one at the person's request (23). Routes 24–26 ("What happened", the failed messages) are
-ROUTE row R19's.
+ROUTE row R19's. Every tag change is an event in the nested
+[contact tag events](contact-tag-event/contact-tag-event.overview.md) (3.B, ROUTE row R11).
 
 ## Layout
 
@@ -40,15 +41,17 @@ ROUTE row R19's.
   `findLiveContact`, `lockLiveContact`
 - `contact.types.ts` — the objects, the queries and bodies, and the hooks: `ContactErasureStep`,
   `ContactPauseStep` (CTC4), `ContactAutomationFilterResolver`, the tag-event port
-  `ContactTagEventRecorder` (3.B, ROUTE R11) and the bulk queue port `ContactBulkActionQueue` (WC-36,
-  ROUTE R46)
+  `ContactTagEventRecorder` (3.B, built by `contact-tag-event/` at ROUTE R11) and the bulk queue port
+  `ContactBulkActionQueue` (WC-36, ROUTE R46)
+- `contact-tag-event/` — nested: `app.contact_tag_events`, one row per tag change written in its
+  commit, handed to intake after it; no routes
 - `contact.dto.ts`, `contact.validator.ts` — the list and tag-list queries, route 20's and 21's
   bodies; the email, phone and tag rules (CT9)
 - `contact.serializer.ts`, `contact.controller.ts`, `contact.routes.ts`, `contact.constants.ts`
 - `seed/` — bulk: contacts of every seeded live account, with notes, a paused and an opted-out one,
-  their activity rows and the account's tag counts
+  their activity rows and the account's tag counts; then the nested tag events' contribution
 - `__tests__/` — unit (validator, serializer, service), the service's and repository's database
-  suites, the route integration suite, and fixtures
+  suites, the route integration suite, the channel-neutral import policy (CTC12), and fixtures
 
 ## Key invariants
 
@@ -81,7 +84,8 @@ ROUTE row R19's.
   no cache: the table is kept in every tag commit (P123).
 - **Field rules (CT9):** email the strict shape, ≤ 254, plus addresses accepted (P19); phone an
   optional `+` and 10–15 digits; tags 1–50 characters without a comma.
-- **The erase anonymises in place (CT11):** lock, every registered `ContactErasureStep`, then the
+- **The erase anonymises in place (CT11):** lock, every registered `ContactErasureStep` (her tag
+  events deleted, 3.B; her run copies, 4.B), then the
   personal columns cleared — now with the note, the opt-out, the pause and the came-in ref — the
   activity row deleted and the tag counts lowered; `first_automation_id`, `came_in_via` and
   `channel` stay. A repeat is `404 contact_not_found`; nothing restores it.
@@ -95,8 +99,10 @@ ROUTE row R19's.
   newest first, on the activity row's index), first seen or username (contacts without one last).
 - **Personal data stays out of logs (CT4):** `note` joins `phone`, `full_name`, `username` and
   `profile_picture` in `PERSONAL_DATA_KEY_FRAGMENTS`; audit entries carry field names only.
-- **RLS:** `app.contacts` the organization policy plus the retention sweep arm in `USING`; the two
-  new tables the organization arm only.
+- **Channel-neutral (CT18, CTC12):** the runtime code of `contact/` imports no `instagram-*`
+  sub-domain — pinned by `contact-channel-neutral.policy.unit.test.ts`.
+- **RLS:** `app.contacts` the organization policy plus the retention sweep arm in `USING`; the
+  activity and tag-count tables the organization arm only.
 
 ## Lifecycle
 

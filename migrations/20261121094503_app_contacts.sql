@@ -44,6 +44,8 @@
 --   app.contact_tag_counts  NEW (S7): how many live contacts of one account hold each tag, kept in the
 --                           tag change's commit — route 22 reads it instead of unnest(tags) over the
 --                           account's contacts. A row at 0 is deleted.
+--   app.contact_tag_events  NEW at ROUTE R11 (§ 3.B.3): one tag change of one contact, in its commit —
+--                           see its block at the end of this file.
 --
 -- S6: the search and the tags filter lead with the account through btree_gin (a trusted contrib
 -- extension), so a `q` never pulls candidates from another tenant's contacts.
@@ -283,6 +285,86 @@ CREATE POLICY contact_tag_counts_tenant_isolation ON app.contact_tag_counts
     organization_id = (
       SELECT organizations.id FROM tenancy.organizations
       WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+  )
+  WITH CHECK (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+  );
+--> statement-breakpoint
+-- feat-instagram-dm-sending-2026-11-23-oxak, ROUTE R11 (routes-final.md § 3.B.3 — CT16, CT17; CTC11):
+-- app.contact_tag_events — one tag added to or removed from one contact, written in the tag change's
+-- commit (routes 20 and 21, the tag step), so a tag start is never lost; handed to intake after commit
+-- (`queued_at`), finished by intake (`done_at`). No public id: never returned; its id is part of a tag
+-- start's once key. Kept 8 days, deleted in batches (P33 — a plain table). `source_automation_id`'s key
+-- into app.automations (ON DELETE SET NULL (source_automation_id)) is added by the automations migration,
+-- as contacts.first_automation_id's is (§ 3.3: sub-domain 4 builds after contacts); its index is here.
+-- RLS: the organization arm plus the maintenance arm (the pick-up scan and the clean-up across
+-- organizations); WITH CHECK the organization only.
+CREATE TABLE IF NOT EXISTS app.contact_tag_events (
+  id BIGSERIAL PRIMARY KEY,
+  organization_id BIGINT NOT NULL,
+  channel_account_id BIGINT NOT NULL,
+  contact_id BIGINT NOT NULL,
+  tag VARCHAR(50) NOT NULL,
+  kind VARCHAR(10) NOT NULL,
+  source VARCHAR(12) NOT NULL,
+  source_automation_id BIGINT,
+  chain_number SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  queued_at TIMESTAMPTZ,
+  done_at TIMESTAMPTZ,
+  CONSTRAINT contact_tag_events_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
+  CONSTRAINT contact_tag_events_contact_fk FOREIGN KEY (organization_id, contact_id) REFERENCES app.contacts (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT contact_tag_events_channel_account_fk FOREIGN KEY (organization_id, channel_account_id) REFERENCES app.channel_accounts (organization_id, id) ON DELETE RESTRICT,
+  CONSTRAINT chk_contact_tag_events_kind CHECK (kind IN ('added', 'removed')),
+  CONSTRAINT chk_contact_tag_events_source CHECK (source IN ('automation', 'owner')),
+  CONSTRAINT chk_contact_tag_events_source_automation CHECK (source_automation_id IS NULL OR source = 'automation'),
+  CONSTRAINT chk_contact_tag_events_chain_number CHECK (chain_number >= 0),
+  CONSTRAINT chk_contact_tag_events_tag CHECK (char_length(tag) BETWEEN 1 AND 50 AND tag = btrim(tag) AND strpos(tag, ',') = 0)
+);
+--> statement-breakpoint
+-- The erase step and the contact key's index; intake's pass over one contact's undone events.
+CREATE INDEX IF NOT EXISTS idx_contact_tag_events_contact ON app.contact_tag_events USING btree (organization_id, contact_id);
+--> statement-breakpoint
+-- The account key's index (every key's delete action has an index to use — index hygiene).
+CREATE INDEX IF NOT EXISTS idx_contact_tag_events_channel_account ON app.contact_tag_events USING btree (organization_id, channel_account_id);
+--> statement-breakpoint
+-- The pick-up scan (WC-27): undone events by age, across organizations.
+CREATE INDEX IF NOT EXISTS idx_contact_tag_events_pickup ON app.contact_tag_events USING btree (created_at) WHERE done_at IS NULL;
+--> statement-breakpoint
+-- The 8-day clean-up (WC-54).
+CREATE INDEX IF NOT EXISTS idx_contact_tag_events_created ON app.contact_tag_events USING btree (created_at);
+--> statement-breakpoint
+-- The automation key's index (the key itself comes with the automations migration).
+CREATE INDEX IF NOT EXISTS idx_contact_tag_events_source_automation ON app.contact_tag_events USING btree (organization_id, source_automation_id) WHERE source_automation_id IS NOT NULL;
+--> statement-breakpoint
+ALTER TABLE app.contact_tag_events OWNER TO meepzo_be_owner;
+--> statement-breakpoint
+GRANT SELECT, INSERT, UPDATE, DELETE ON app.contact_tag_events TO meepzo_be_app, meepzo_be_maintenance;
+--> statement-breakpoint
+GRANT USAGE, SELECT ON SEQUENCE app.contact_tag_events_id_seq TO meepzo_be_app, meepzo_be_maintenance;
+--> statement-breakpoint
+ALTER TABLE app.contact_tag_events ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE app.contact_tag_events FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+DROP POLICY IF EXISTS contact_tag_events_tenant_isolation ON app.contact_tag_events;
+--> statement-breakpoint
+CREATE POLICY contact_tag_events_tenant_isolation ON app.contact_tag_events
+  AS PERMISSIVE
+  FOR ALL
+  TO PUBLIC
+  USING (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+    OR (
+      (SELECT current_setting('app.global_retention_cleanup', true)) = 'true'
+      AND (SELECT current_user) = 'meepzo_be_maintenance'
     )
   )
   WITH CHECK (

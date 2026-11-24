@@ -1640,6 +1640,8 @@ As 3.7.
 
 #### 3.B.1 Decisions
 
+**As built (ROUTE R11, [P406](decisions.md), [AS-BUILT](../AS-BUILT.md))**: the table, its repository and `ContactTagEventService` (the recorder R10's contact service calls, and the erase step); `queued_at` is stamped in the tag commit when intake is wired, and the after-commit hand-over names contacts by public id, at most 500 a job, through `ContactTagEventIntakeQueue` (R38); the two workers of CT17 are built at R47 (pick-up) and R50 (retention); `source_automation_id`'s key comes with R13's automations migration; a fifth index `idx_contact_tag_events_channel_account` backs the account key; `_source_automation` reads "null or `automation`". CTC12's `recordInboundContactEvent` is R38's.
+
 | # | Decision |
 | --- | --- |
 | CT16 | **One event per tag change, in the change's commit (D45, plan:L3685–L3717).** Today: none — tags change only inside a run's completion. After: every tag added or removed — by the tag step (4.B, `source` `automation`, `source_automation_id`) or by the owner (routes 20, 21, `source` `owner`) — writes one `app.contact_tag_events` row in the same commit, so a tag start is never lost; `chain_number` is how many tag starts led to it (intake starts nothing at 3 or more — the loop guard, sub-domain 5); its `id` is part of a tag start's once key (`tag:<tag>:<event id>`). After commit the service hands the event to intake (WC-4, sets `queued_at`); intake sets `done_at`. A nested sub-domain (not a persistence part) because it has its own service and two workers. No routes, no public id. |

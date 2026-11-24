@@ -782,6 +782,12 @@ erDiagram
   Goes with its contact; a deleted automation only empties `source_automation_id` (that reference is
   added by the automations migration, which builds after contacts).
 - **Table:** `app.contact_tag_events` (the plan's name; shared, [P48](decisions.md))
+- **Built R11 ([AS-BUILT](../AS-BUILT.md), [P406](decisions.md)):** `app.contact_tag_events` in
+  `20261121094503_app_contacts.sql` — `id`, `organization_id`, `channel_account_id`, `contact_id`, `tag`,
+  `kind`, `source`, `source_automation_id`, `chain_number`, `created_at`, `queued_at`, `done_at` as
+  designed; `source_automation_id` is null or with `source = 'automation'` (its key, `SET NULL`, comes with
+  the automations migration at R13); indexes `_contact`, `_channel_account`, `_pickup`, `_created`,
+  `_source_automation`; no public id.
 - **Sources:** plan:L3685–L3717; D45; routes-final § 3, 3.B.3.
 - **Added:** new.
 - **Replaced:** none.

@@ -54,6 +54,7 @@ describe('app domain wiring', () => {
       'channelConnectionTokenService',
       'channelConnectionUsageService',
       'contactService',
+      'contactTagEventService',
       'instagramAccountErasureService',
       'instagramAccountService',
       'instagramAccountSettingsService',
@@ -161,13 +162,14 @@ describe('app domain wiring', () => {
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
     // Without organizations the channel connection, channel account, Instagram account, settings, stored-posts,
-    // sending, contact, automation, automation-run and webhook event seeders warn and write nothing.
+    // sending, contact, contact tag event, automation, automation-run and webhook event seeders warn
+    // and write nothing.
     const warn = vi.fn();
     const context = {
       registry: createSeedRegistry(),
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(10);
+    expect(warn).toHaveBeenCalledTimes(11);
   });
 });

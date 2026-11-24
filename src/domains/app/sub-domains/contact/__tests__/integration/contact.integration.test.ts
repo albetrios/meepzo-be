@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
@@ -7,6 +8,8 @@ import { env } from '@/shared/config/env.config.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
+import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
+import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.schema.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import {
   injectAuthenticated,
@@ -881,6 +884,43 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
         { tag: 'vip', contact_count: 2 },
         { tag: 'spring sale', contact_count: 1 },
       ]);
+    });
+
+    it('writes one tag event per change in the commit, and the erase deletes them (AC-5.5, CT16, CT11)', async () => {
+      const contact = await contactOfTeam({ tags: ['lead'] });
+      const tagEvents = () =>
+        getOperatorDatabase()
+          .select({
+            tag: contact_tag_events.tag,
+            kind: contact_tag_events.kind,
+            source: contact_tag_events.source,
+            chain_number: contact_tag_events.chain_number,
+          })
+          .from(contact_tag_events)
+          .where(eq(contact_tag_events.contact_id, contact.id))
+          .orderBy(asc(contact_tag_events.id));
+
+      const response = await update({
+        contactPublicId: contact.public_id,
+        payload: { add_tags: ['vip'], remove_tags: ['lead'] },
+      });
+      const refused = await update({
+        contactPublicId: contact.public_id,
+        payload: {
+          add_tags: ['late'],
+          expected_updated_at: '2000-01-01T00:00:00.000Z',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(refused.statusCode).toBe(409);
+      // Exactly one event per change; the refused change rolled back and wrote none.
+      expect(await tagEvents()).toEqual([
+        { tag: 'vip', kind: 'added', source: 'owner', chain_number: 0 },
+        { tag: 'lead', kind: 'removed', source: 'owner', chain_number: 0 },
+      ]);
+      expect((await erase({ contactPublicId: contact.public_id })).statusCode).toBe(204);
+      expect(await tagEvents()).toEqual([]);
     });
 
     it('refuses a 51st tag with 422 contact_tag_limit', async () => {

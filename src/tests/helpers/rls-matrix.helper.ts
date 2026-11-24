@@ -38,6 +38,7 @@ import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-we
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { contact_tag_counts } from '@/domains/app/sub-domains/contact/contact-tag-count.schema.js';
+import { contact_tag_events } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
@@ -746,6 +747,7 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   const contactIds = { organizationA: 0, organizationB: 0 };
   const contactActivityIds = { organizationA: 0, organizationB: 0 };
   const contactTagCountIds = { organizationA: 0, organizationB: 0 };
+  const contactTagEventIds = { organizationA: 0, organizationB: 0 };
   for (const [side, organization] of [
     ['organizationA', organizationA],
     ['organizationB', organizationB],
@@ -783,6 +785,18 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       })
       .returning();
     contactTagCountIds[side] = tagCount!.id;
+    const [tagEvent] = await database
+      .insert(contact_tag_events)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        contact_id: contact!.id,
+        tag: 'vip',
+        kind: 'added',
+        source: 'owner',
+      })
+      .returning();
+    contactTagEventIds[side] = tagEvent!.id;
   }
   rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'contacts' }), contactIds);
   rowIdsByTable.set(
@@ -792,6 +806,10 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'contact_tag_counts' }),
     contactTagCountIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'contact_tag_events' }),
+    contactTagEventIds,
   );
 
   // The automation sub-domain (launch R9): one inactive comment automation of each organization's

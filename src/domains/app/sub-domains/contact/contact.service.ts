@@ -650,7 +650,7 @@ export class ContactService {
 
   /**
    * One contact's tag change in the caller's unit: the account's tag counts moved (S7) and one event
-   * per tag handed to the tag-event port (3.B; none until R11 wires it).
+   * per tag handed to the tag-event port (3.B — `ContactTagEventService`, in the same unit).
    */
   private async recordTagChanges({
     contact,

@@ -44,14 +44,14 @@ import { ServiceUnavailableError } from '@/shared/errors/index.js';
 import { encryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 
 const VERSION_PATH = `/${META_GRAPH_VERSION}`;
-const ACCOUNT_TOKEN = 'IGAA-long-lived-plain-token';
+const ACCOUNT_TOKEN = 'EAAG-long-lived-plain-token';
 const APP_USER_ID = '9876543210';
 const MEDIA_FIELDS =
   'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,comments_count,like_count,children{id,media_type,media_url}';
 
 let encryptedAccountToken: string;
 
-/** A Graph error body, as graph.instagram.com sends it. */
+/** A Graph error body, as graph.facebook.com sends it. */
 function graphError(code: number, errorSubcode?: number) {
   return {
     error: {
@@ -257,7 +257,7 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
         ],
         paging: {
           cursors: { before: 'b', after: 'cursor-two' },
-          next: 'https://graph.instagram.com/next',
+          next: 'https://graph.facebook.com/v27.0/next',
         },
       });
     graphWithAccountToken()

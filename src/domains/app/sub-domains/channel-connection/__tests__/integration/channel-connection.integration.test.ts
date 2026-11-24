@@ -40,6 +40,22 @@ import {
   readStateFromLoginUrl,
 } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import {
+  insertAutomation,
+  readAutomationRow,
+} from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
+import {
+  insertAutomationRun,
+  readRunRow,
+} from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
+import {
+  insertContact,
+  readContactRow,
+} from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
+import {
+  readLaneRows,
+  readStopRows,
+} from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 
 let accountSequence = 0;
 
@@ -617,6 +633,88 @@ describe('Channel connection routes', () => {
         action: 'app.channel_connection.disconnect',
       });
       expect(audit).toHaveLength(1);
+    });
+
+    it("stops every account's sending lanes and keeps their automations, contacts and history (AC-1.10, MC8)", async () => {
+      await useCreatorPlan();
+      const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [nextAccount(), nextAccount()],
+      });
+      const organizationId = team.organization.id;
+      const accounts = await readInstagramAccountRows(organizationId);
+      expect(accounts).toHaveLength(2);
+      const kept = [];
+      for (const account of accounts) {
+        const channelAccountId = Number(account.channel_account_id);
+        // The pick left four ready lanes (SN12).
+        expect((await readLaneRows(channelAccountId)).map((lane) => lane.state)).toEqual([
+          'ready',
+          'ready',
+          'ready',
+          'ready',
+        ]);
+        const automation = await insertAutomation({
+          organizationId,
+          instagramAccountId: Number(account.id),
+          status: 'live',
+        });
+        const contact = await insertContact({
+          organizationId,
+          instagramAccountId: Number(account.id),
+          tags: ['vip'],
+          note: 'Asked about the spring sale',
+        });
+        const run = await insertAutomationRun({
+          organizationId,
+          automationId: automation.id,
+          contactId: contact.id,
+        });
+        // An ended stop of the account's sending history (SN13).
+        await operatorQuery`
+          INSERT INTO app.instagram_send_stops
+            (organization_id, channel_account_id, lane, reason, started_at, ended_at, ended_by)
+          VALUES (${organizationId}, ${channelAccountId}, 'fast', 'too_fast',
+                  now() - interval '2 hours', now() - interval '1 hour', 'time')`;
+        kept.push({
+          channelAccountId,
+          automation: await readAutomationRow(automation.public_id),
+          contact: await readContactRow(contact.id),
+          run: await readRunRow(run.id),
+          stops: await readStopRows(channelAccountId),
+        });
+      }
+      nock('https://graph.facebook.com')
+        .delete(/subscribed_apps/)
+        .query(true)
+        .times(2)
+        .reply(200, { success: true });
+
+      const response = await injectAuthenticated(app, {
+        method: 'DELETE',
+        url: channelConnectionPath(channelConnectionPublicId),
+        token: team.ownerToken,
+      });
+
+      expect(response.statusCode, response.body).toBe(204);
+      expect(
+        (await readInstagramAccountRows(organizationId)).map((row) => row.connection_status),
+      ).toEqual(['revoked', 'revoked']);
+      expect(await readChannelConnectionTokenCiphertexts({ organizationId })).toHaveLength(0);
+      for (const account of kept) {
+        const lanes = await readLaneRows(account.channelAccountId);
+        expect(lanes).toHaveLength(4);
+        for (const lane of lanes) {
+          expect(lane).toMatchObject({ state: 'stopped', working_turn: null, next_run_at: null });
+        }
+        expect(await readAutomationRow(account.automation?.public_id ?? '')).toEqual(
+          account.automation,
+        );
+        expect(await readContactRow(account.contact?.id ?? 0)).toEqual(account.contact);
+        expect(await readRunRow(account.run?.id ?? 0)).toEqual(account.run);
+        expect(await readStopRows(account.channelAccountId)).toEqual(account.stops);
+      }
     });
   });
 

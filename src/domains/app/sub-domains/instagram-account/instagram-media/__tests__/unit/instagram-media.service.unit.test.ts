@@ -31,7 +31,7 @@ import type { InstagramMediaRepository } from '@/domains/app/sub-domains/instagr
 import { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
 import type { InstagramMediaConnectionBreakPort } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.types.js';
 
-const ACCOUNT_TOKEN = 'IGAA-picker-plain-token';
+const ACCOUNT_TOKEN = 'EAAG-picker-plain-token';
 const APP_USER_ID = '8724000000000001';
 const MEDIA_PATH = `/${META_GRAPH_VERSION}/${APP_USER_ID}/media`;
 const STORIES_PATH = `/${META_GRAPH_VERSION}/${APP_USER_ID}/stories`;
@@ -40,7 +40,7 @@ const channelAccount = { organizationId: 41, channelAccountId: 7 };
 const channelConnection = { organizationId: 41, channelConnectionId: 12 };
 const CHANNEL_ACCOUNT_PUBLIC_ID = 'cha_aaaaaaaaaaaaaaaaaaaaa';
 
-/** A Graph error body, as graph.instagram.com sends it. */
+/** A Graph error body, as graph.facebook.com sends it. */
 function graphError(code: number, errorSubcode?: number) {
   return {
     error: {
@@ -146,7 +146,7 @@ describe('InstagramMediaService pickers', () => {
         ],
         paging: {
           cursors: { after: 'QVFIUnext' },
-          next: 'https://graph.instagram.com/next-page',
+          next: 'https://graph.facebook.com/v27.0/next-page',
         },
       });
 

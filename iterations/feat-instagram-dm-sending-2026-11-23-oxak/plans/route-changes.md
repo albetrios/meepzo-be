@@ -68,7 +68,7 @@ one when it builds it and records any change in `AS-BUILT.md`; the built truth i
 | Channel accounts | 4 | 2 | 0 |
 | Instagram account settings | 0 | 1 | 0 |
 | Instagram media | 0 | 2 | 0 |
-| Instagram webhook | 0 | 2 | 0 |
+| Instagram webhook | 0 | 3 | 0 |
 | Contacts & tags | 4 | 2 | 0 |
 | Automations | 4 | 5 | 0 |
 | Runs & messages | 6 | 0 | 0 |
@@ -76,7 +76,7 @@ one when it builds it and records any change in `AS-BUILT.md`; the built truth i
 | Past comments | 2 | 0 | 0 |
 | Workspace usage & notices | 1 | 0 | 0 |
 | Product around sending | 6 | 38 | 4 |
-| **Total** | **49** | **54** | **5** |
+| **Total** | **49** | **55** | **5** |
 
 Since the last version ([P48](decisions.md)–[P51](decisions.md), 2026-11-24): no route is added or
 removed and no change kind moves, so the counts stand; five areas lose the "Instagram" in their name.
@@ -106,9 +106,6 @@ segments move under `/social/instagram/…` and their account filter and body fi
 
 **Unchanged (EXISTING)** — the routes the plan keeps as they are:
 
-- `GET /api/v1/app/social/instagram/webhook` — Meta's subscription check, as built; it reads the
-  renamed **Meta** webhook verify token (WH4 — the setting's rename is the channel connection's change)
-  (routes-final § 5, route 60).
 - RC-67 `GET /api/v1/billing/payment-methods` (subscription · read, `listPaymentMethods`) — already
   answers `is_default` per card (`BillingAccountSerializer`), so it is served as built (BL19,
   plan:L8073; routes-final § 8, route 104).
@@ -165,12 +162,15 @@ the API knows (P47).
 
 ## Instagram webhook
 
-Instagram's own ([P45](decisions.md)): Meta's app dashboard takes one callback per object (`instagram`,
-later `page`), so a later Facebook channel gets its own receiver.
+Instagram's own ([P45](decisions.md)), on a **per-object Meta path** ([P53](decisions.md)): the Meta dashboard takes one
+callback URL per object, so Instagram's is `…/channel-connections/meta/webhooks/instagram`; a later `page`,
+`whatsapp-business-account` or `ad-account` object gets its own path into the same shared receiver code, saving into its
+own channel's tables.
 
 | # | Change | Method | Path | Access | Operation | Source |
 | --- | --- | --- | --- | --- | --- | --- |
-| RC-16 | CHANGED | POST | `/api/v1/app/social/instagram/webhook` | PUBLIC (X-Hub-Signature-256, now signed with the Meta app secret) | `receiveInstagramWebhook` — signature first; read receipts and our own "sent" notices are dropped, our own echoes found by a Postgres lookup of the message id (WHQ1); an unknown or revoked channel account saves nothing (an `error` account is saved `received`, not `account_disconnected`; a paused or limit-full account still saves); echoes of the owner's hand-typed messages are saved `received`; events older than 8 days are dropped; a repeat is dropped by its stored event key; new kinds (Live comment, story mention, shared post, starter question, link, reaction, own comment, edit); saved before the answer, then handed to intake by kind. The store has a 3-second budget: Postgres down or slow answers 500 / 503 and saves nothing, so Meta delivers again — no Redis buffer ([P32](decisions.md), WH2) | plan:L4734–L4807; routes-final § 5, route 61 |
+| RC-115 | CHANGED: path (was `GET /api/v1/app/social/instagram/webhook`) | GET | `/api/v1/app/social/channel-connections/meta/webhooks/instagram` | PUBLIC (Meta's `hub.verify_token`) | `verifyInstagramWebhook` — Meta's subscription check; answers `hub.challenge` when the Meta webhook verify token matches | P53; routes-final § 5, route 60 |
+| RC-16 | CHANGED | POST | `/api/v1/app/social/channel-connections/meta/webhooks/instagram` | PUBLIC (X-Hub-Signature-256, now signed with the Meta app secret) | `receiveInstagramWebhook` — signature first; read receipts and our own "sent" notices are dropped, our own echoes found by a Postgres lookup of the message id (WHQ1); an unknown or revoked channel account saves nothing (an `error` account is saved `received`, not `account_disconnected`; a paused or limit-full account still saves); echoes of the owner's hand-typed messages are saved `received`; events older than 8 days are dropped; a repeat is dropped by its stored event key; new kinds (Live comment, story mention, shared post, starter question, link, reaction, own comment, edit); saved before the answer, then handed to intake by kind. The store has a 3-second budget: Postgres down or slow answers 500 / 503 and saves nothing, so Meta delivers again — no Redis buffer ([P32](decisions.md), WH2) | plan:L4734–L4807; routes-final § 5, route 61 |
 | RC-19 | CHANGED | GET | `/api/v1/app/social/instagram/webhook-events` | instagram-webhook-event · read · team-only | `listInstagramWebhookEvents` — adds the `channel_account_id` filter and field (many accounts, P47); shows the new event kinds and reasons (an own comment is `own_comment`; `flood` added, `echo` and `reaction` gone — echoes and reactions are saved `received`), a failed event's `next_attempt_at`, and only 8 days of events; `payload` is `null` once an event is done (WH23) | plan:L226, L3207–L3222, L4772–L4797; routes-final § 5, route 62 |
 
 ## Contacts & tags
@@ -323,12 +323,13 @@ proposed routes leave the plan:
 
 | # | Route | What changes | Before | After | Why |
 | --- | --- | --- | --- | --- | --- |
+| RC-115 | `GET /api/v1/app/social/channel-connections/meta/webhooks/instagram` | path | `GET /api/v1/app/social/instagram/webhook` | the Instagram object's per-object Meta path; the handshake itself unchanged (reads the Meta verify token) | P53 |
 | RC-8 | `GET /api/v1/app/social/channel-accounts/{channel_account_id}` | path, output | `GET …/social/instagram/account` — the workspace's one Instagram account, with the token end | a common channel account by its id (P42): channel, display name, status, its connection, paused / suspended, plan stop, new-account limit end; the Instagram extension and settings inside; no token end | many accounts (D26, [P1](decisions.md)); token never expires (D24); [P42](decisions.md), [P47](decisions.md) |
 | RC-9 | `DELETE /api/v1/app/social/channel-accounts/{channel_account_id}` | path, behaviour | `DELETE …/social/instagram/account` — the one account `revoked`, token erased | the named channel account `revoked`, lanes stopped, starter questions removed; token erased only with the connection's last account; waiting messages stay and expire | D26, plan:L4683–L4693, [P42](decisions.md) |
 | RC-12 | `PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings` | path, input | `…/account/settings` — automation switch + 5 public-reply settings | per account, by its channel account id: limits, stop words, automatic notice, comment replies, once per post, mark as seen, extra delay (PRO) — a feature the one feature check refuses is `422` with its reason (`channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature`, `feature_not_offered`); public-reply settings moved to the automation; the automation switch moved to the channel account | D14, D32, D26, [P36](decisions.md), [P42](decisions.md), [P47](decisions.md), [P50](decisions.md) |
 | RC-13 | `GET …/social/instagram/accounts/{channel_account_id}/media` | path, output | `GET …/social/instagram/media` — the one account's posts, Instagram Login | the named account's posts with caption and kind, Unified Login | D24, D26, [P47](decisions.md) |
 | RC-14 | `GET …/social/instagram/accounts/{channel_account_id}/stories` | path | `GET …/social/instagram/stories` | the named account's stories; "one story" offered only once Meta test 3 passes | D26, [P36](decisions.md), [P47](decisions.md) |
-| RC-16 | `POST /api/v1/app/social/instagram/webhook` | behaviour | Instagram app secret; dedupe on the events table; echoes skipped; an `error` account's events skipped `account_disconnected`; one in-order run per account that also sends; store failure answers a failure | Meta app secret; read receipts and own "sent" dropped, our own echoes by a Postgres message-id lookup; hand-typed echoes and `error` accounts' events saved `received`; 8-day replay guard; key table dedupe; new kinds; intake by kind, never sends; a 3 s store budget — Postgres down or slow answers 500 / 503 so Meta delivers again ([P32](decisions.md)) | D15, D24, WH2, WHQ1, plan:L4734–L4807 |
+| RC-16 | `POST /api/v1/app/social/channel-connections/meta/webhooks/instagram` | path (was `/api/v1/app/social/instagram/webhook`, P53), behaviour | Instagram app secret; dedupe on the events table; echoes skipped; an `error` account's events skipped `account_disconnected`; one in-order run per account that also sends; store failure answers a failure | Meta app secret; read receipts and own "sent" dropped, our own echoes by a Postgres message-id lookup; hand-typed echoes and `error` accounts' events saved `received`; 8-day replay guard; key table dedupe; new kinds; intake by kind, never sends; a 3 s store budget — Postgres down or slow answers 500 / 503 so Meta delivers again ([P32](decisions.md)) | D15, D24, WH2, WHQ1, plan:L4734–L4807 |
 | RC-17 | `POST …/social/channel-connections/{provider}/deauthorize` | path, behaviour | `POST …/social/instagram/deauthorize` — Instagram app secret; the account found by its app-scoped id | under the connection (Meta-wide, P46); Meta app secret; the connection resolves the accounts it reaches, by the Instagram user id (a new resolver); an unmatched id is answered and the team told | D24, IA19, plan:L4695–L4705, [P46](decisions.md) |
 | RC-18 | `POST …/social/channel-connections/{provider}/data-deletion` | path, behaviour | `POST …/social/instagram/data-deletion` — as RC-17 before, then erase | under the connection (P46); as RC-17 after, then erase the accounts' and people's data; unmatched id still gets its code | D24, [P46](decisions.md) |
 | RC-19 | `GET …/social/instagram/webhook-events` | input, output | 30 days, masked body kept, own comment `echo`, `failed` final; no account filter | 8 days, `payload` null when done, `own_comment` and `flood`, new kinds, `next_attempt_at`; the `channel_account_id` filter and field | D15, WH23, plan:L5105–L5115, [P47](decisions.md) |

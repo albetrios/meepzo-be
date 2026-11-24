@@ -5,7 +5,13 @@ import {
   trimmedStringMinMax,
   isTraversalFreeStorageKey,
 } from '@/shared/utils/validation/validation.util.js';
-import { USER_PRESENCE_VALUES, type UserPresence } from './user.constants.js';
+import {
+  USER_GOALS,
+  USER_INSTAGRAM_HANDLE_MAX_LENGTH,
+  USER_INSTAGRAM_HANDLE_PATTERN,
+  USER_PRESENCE_VALUES,
+  type UserPresence,
+} from './user.constants.js';
 
 /** Zod schema for the admin `:user_id` path param (get/update/delete/suspend/unsuspend). */
 export const userIdParamsDto = z
@@ -24,16 +30,42 @@ export const dataExportIdParamsDto = z
 // ── Self-service DTOs ────────────────────────────────────────
 
 /**
+ * Onboarding's Instagram handle (UN3): a leading `@` and capitals are accepted and saved without the
+ * `@`, in lower case; the saved form is Instagram's — letters, digits, `.` and `_`, 1–30.
+ */
+const instagramHandleSchema = z
+  .string()
+  .trim()
+  .transform((handle) => handle.replace(/^@/, '').toLowerCase())
+  .pipe(
+    z
+      .string()
+      .max(USER_INSTAGRAM_HANDLE_MAX_LENGTH)
+      .regex(USER_INSTAGRAM_HANDLE_PATTERN, 'errors:validation.instagramHandleForm'),
+  )
+  .describe(
+    'The Instagram handle, a profile note only: a leading `@` and capitals are fine; saved without `@`, in lower case (letters, digits, `.` and `_`, 1–30).',
+  );
+
+/**
  * Zod schema for the `PATCH /api/v1/users/me` request body. The optional `avatar_key` is the S3
  * object key returned from a confirmed upload — it must live under the `avatars/` prefix and is
  * verified by the service against the user's owned key namespace before being persisted. The
  * optional free-text `job_title` is the caller's role captured during onboarding / profile edits.
+ * Onboarding's `instagram_handle` and `goal` (feat-instagram-dm-sending UN3) may stay empty; `null`
+ * clears either.
  */
 export const UpdateMeDto = z
   .object({
     first_name: trimmedString().max(100).nullable().optional(),
     last_name: trimmedString().max(100).nullable().optional(),
     job_title: trimmedString().max(150).nullable().optional(),
+    instagram_handle: instagramHandleSchema.nullable().optional(),
+    goal: z
+      .enum(USER_GOALS)
+      .nullable()
+      .optional()
+      .describe('What the person wants first: `capture_leads`, `drive_sales` or `grow_community`.'),
     avatar_key: trimmedString()
       .max(512)
       .refine((key) => key.startsWith('avatars/'), {

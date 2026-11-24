@@ -19,3 +19,24 @@ export type UserPresence = (typeof USER_PRESENCE)[keyof typeof USER_PRESENCE];
 
 /** All presence values, used to derive the CHECK and the DTO enum. */
 export const USER_PRESENCE_VALUES = Object.values(USER_PRESENCE) as UserPresence[];
+
+/**
+ * Onboarding's goal (`auth.users.goal`, feat-instagram-dm-sending UN3) — the single source of truth
+ * for the `chk_users_goal` CHECK and the `PATCH /users/me` enum.
+ *
+ * @remarks
+ * - **Notes:** `null` means skipped ("Skip for now"); the values are the plan's (plan:L7819).
+ */
+export const USER_GOALS = ['capture_leads', 'drive_sales', 'grow_community'] as const;
+
+/** A value of {@link USER_GOALS}. */
+export type UserGoal = (typeof USER_GOALS)[number];
+
+/** Longest Instagram handle (Instagram's rule): the `auth.users.instagram_handle` width. */
+export const USER_INSTAGRAM_HANDLE_MAX_LENGTH = 30;
+
+/**
+ * A saved Instagram handle: letters, digits, `.` and `_` in lower case, 1–30 — the
+ * `chk_users_instagram_handle` CHECK's pattern (UN3).
+ */
+export const USER_INSTAGRAM_HANDLE_PATTERN = /^[a-z0-9._]{1,30}$/;

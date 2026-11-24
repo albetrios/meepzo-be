@@ -953,6 +953,7 @@ Table auth.user_settings {
   default_organization_id bigint
   is_dark_mode_enabled boolean [not null]
   is_notifications_enabled boolean [not null]
+  is_reduce_motion_enabled boolean [not null]
   language varchar(10) [not null]
   preferred_locales jsonb [not null]
   updated_at timestamptz [not null]
@@ -973,7 +974,9 @@ Table auth.users {
   email_hash varchar(64) [not null]
   failed_login_count int [not null]
   first_name varchar(100)
+  goal varchar(20)
   id bigint [pk, increment, not null]
+  instagram_handle varchar(30)
   is_email_verified boolean [not null]
   is_mfa_enabled boolean [not null]
   job_title varchar(150)

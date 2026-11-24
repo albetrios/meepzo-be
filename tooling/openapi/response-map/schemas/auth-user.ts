@@ -16,6 +16,19 @@ export const userSchema = {
     is_mfa_enabled: { type: 'boolean' },
     first_name: { type: 'string', nullable: true },
     last_name: { type: 'string', nullable: true },
+    instagram_handle: {
+      type: 'string',
+      nullable: true,
+      description: "Onboarding's Instagram handle — no `@`, lower case; a profile note only.",
+      example: 'john.doe',
+    },
+    goal: {
+      type: 'string',
+      nullable: true,
+      enum: ['capture_leads', 'drive_sales', 'grow_community', null],
+      description: 'Possible values: capture_leads | drive_sales | grow_community | null',
+      example: 'capture_leads',
+    },
     avatar_url: { type: 'string', nullable: true },
     presence: { type: 'string', enum: ['online', 'busy', 'away'] },
     status: {
@@ -36,6 +49,8 @@ export const userExample = {
   is_mfa_enabled: false,
   first_name: 'John',
   last_name: 'Doe',
+  instagram_handle: 'john.doe',
+  goal: 'capture_leads',
   avatar_url: 'https://cdn.example.com/avatars/john-doe.jpg',
   presence: 'online',
   status: 'ACTIVE',
@@ -50,6 +65,7 @@ export const userSettingsSchema = {
   type: 'object',
   required: [
     'is_dark_mode_enabled',
+    'is_reduce_motion_enabled',
     'is_notifications_enabled',
     'language',
     'preferred_locales',
@@ -59,6 +75,7 @@ export const userSettingsSchema = {
   ],
   properties: {
     is_dark_mode_enabled: { type: 'boolean' },
+    is_reduce_motion_enabled: { type: 'boolean' },
     is_notifications_enabled: { type: 'boolean' },
     language: { type: 'string' },
     preferred_locales: { type: 'array', items: { type: 'string' } },
@@ -70,6 +87,7 @@ export const userSettingsSchema = {
 
 export const userSettingsExample = {
   is_dark_mode_enabled: false,
+  is_reduce_motion_enabled: false,
   is_notifications_enabled: true,
   language: 'en',
   preferred_locales: ['en', 'es'],

@@ -115,7 +115,8 @@
     "automationTriggerTypeGroup": "La forma de empezar solo puede cambiar dentro de su grupo.",
     "automationStepsTooLarge": "Los pasos son demasiado grandes (máximo 64 KB).",
     "automationRefCodeInvalid": "Usa de 1 a 64 letras, dígitos, \"_\", \"=\" o \"-\".",
-    "automationChannelAccountUnknown": "Esta cuenta no es de la organización."
+    "automationChannelAccountUnknown": "Esta cuenta no es de la organización.",
+    "instagramHandleForm": "Usa un usuario de Instagram: letras, números, puntos y guiones bajos, hasta 30"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -241,6 +242,7 @@
   "seatLimitReached": "Se alcanzó el límite de asientos de tu plan ({{limit}}). Mejora tu plan o elimina un miembro antes de agregar otro.",
   "subscriptionNotMutable": "Esta suscripción está en estado terminal y ya no puede modificarse; crea una nueva suscripción en su lugar",
   "defaultOrganizationUnavailable": "Elige como organización de inicio una organización de la que seas miembro activo",
+  "teamOrganizationRequired": "Elige una organización de equipo como organización de inicio",
   "notificationPreferenceLocked": "Los correos de seguridad y de facturación siempre se envían y no se pueden desactivar",
   "planNotAvailableForBillingCycle": "Este plan no está disponible para el ciclo de facturación de tu suscripción",
   "paymentProviderUnavailable": "El proveedor de pagos no está disponible temporalmente. Vuelve a intentarlo.",

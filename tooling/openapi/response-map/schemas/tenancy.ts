@@ -58,6 +58,43 @@ export const organizationExample = {
   updated_at: '2026-02-10T12:00:00.000Z',
 };
 
+// ── Organization chooser (route 132, feat-instagram-dm-sending UN5) ──
+// The organization plus the caller's main role and the three counts the chooser shows.
+export const organizationChooserSchema = {
+  type: 'object',
+  properties: {
+    ...organizationSchema.properties,
+    role: {
+      type: 'object',
+      nullable: true,
+      description: "The caller's main role here.",
+      properties: {
+        id: { type: 'string', example: 'rol_a1b2c3d4e5f6g7h8i9j0k' },
+        name: { type: 'string', example: 'Owner' },
+      },
+    },
+    members_count: { type: 'integer', minimum: 0, description: 'Active members.' },
+    channel_accounts_count: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Channel accounts not revoked.',
+    },
+    live_automations_count: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Automations live and not deleted.',
+    },
+  },
+};
+
+export const organizationChooserExample = {
+  ...organizationExample,
+  role: { id: 'rol_a1b2c3d4e5f6g7h8i9j0k', name: 'Owner' },
+  members_count: 4,
+  channel_accounts_count: 2,
+  live_automations_count: 7,
+};
+
 // ── Organization Settings ──
 export const organizationSettingsSchema = {
   type: 'object',

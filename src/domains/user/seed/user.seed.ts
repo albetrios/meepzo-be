@@ -7,6 +7,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { users } from '@/domains/user/user.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import type { UserGoal } from '@/domains/user/user.constants.js';
 
 /** Payload for {@link seedUser}; no password — passwords are off (P84), seeded users sign in by email code. */
 export interface SeedUserPayload {
@@ -14,6 +15,10 @@ export interface SeedUserPayload {
   first_name: string;
   last_name: string;
   job_title?: string | null;
+  /** Onboarding's Instagram handle (no `@`, lower case) — feat-instagram-dm-sending UN3. */
+  instagram_handle?: string | null;
+  /** Onboarding's goal — one of `USER_GOALS` (UN3). */
+  goal?: UserGoal | null;
   status?: string;
   /**
    * Stamp `onboarding_completed_at` so the frontend routes this user straight
@@ -27,7 +32,8 @@ export interface SeedUserPayload {
  * Insert a single user row for dev/demo seeding (`pnpm db:seed`, `pnpm db:seed:full`).
  * Sets `is_email_verified = true`, generates a fresh `public_id`, and computes the
  * lowercased SHA-256 `email_hash` so case-insensitive lookups work post-seed.
- * Idempotent: re-running updates `first_name`, `last_name`, `job_title` on conflict.
+ * Idempotent: re-running updates `first_name`, `last_name`, `job_title`, `instagram_handle` and
+ * `goal` on conflict.
  */
 export async function seedUser(payload: SeedUserPayload) {
   const emailHash = createHash('sha256').update(payload.email.toLowerCase()).digest('hex');
@@ -41,6 +47,8 @@ export async function seedUser(payload: SeedUserPayload) {
       first_name: payload.first_name,
       last_name: payload.last_name,
       job_title: payload.job_title ?? null,
+      instagram_handle: payload.instagram_handle ?? null,
+      goal: payload.goal ?? null,
       status: payload.status ?? 'ACTIVE',
       onboarding_completed_at: payload.onboarding_completed_at ?? null,
     })
@@ -52,6 +60,8 @@ export async function seedUser(payload: SeedUserPayload) {
         first_name: payload.first_name,
         last_name: payload.last_name,
         job_title: payload.job_title ?? null,
+        instagram_handle: payload.instagram_handle ?? null,
+        goal: payload.goal ?? null,
         // Only stamp when the caller asked for it — an idempotent re-seed must
         // never NULL-out an existing user's onboarding progress.
         ...(payload.onboarding_completed_at
@@ -90,6 +100,9 @@ export async function seedDemoUser({
     email,
     first_name: options?.first_name ?? 'Demo',
     last_name: options?.last_name ?? 'User',
+    // The onboarding fields the demo profile shows (feat-instagram-dm-sending UN3).
+    instagram_handle: 'demo.creator',
+    goal: 'capture_leads',
     onboarding_completed_at: new Date(),
   });
 }

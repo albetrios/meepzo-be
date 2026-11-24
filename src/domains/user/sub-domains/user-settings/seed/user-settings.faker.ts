@@ -9,6 +9,8 @@ import { DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES } from '@/shared/constants/i18n.c
 export interface BulkUserSettingsProfile {
   /** Whether dark mode is enabled. */
   is_dark_mode_enabled: boolean;
+  /** Whether reduce motion is on (feat-instagram-dm-sending UN4). */
+  is_reduce_motion_enabled: boolean;
   /** Whether in-app notifications are enabled. */
   is_notifications_enabled: boolean;
   /** Primary UI language code. */
@@ -22,6 +24,7 @@ export function generateBulkUserSettings(faker: Faker): BulkUserSettingsProfile 
   const language = faker.helpers.arrayElement(SUPPORTED_LANGUAGES);
   return {
     is_dark_mode_enabled: faker.datatype.boolean(),
+    is_reduce_motion_enabled: faker.datatype.boolean({ probability: 0.1 }),
     is_notifications_enabled: faker.datatype.boolean({ probability: 0.8 }),
     language,
     preferred_locales: language === DEFAULT_LANGUAGE ? [language] : [language, DEFAULT_LANGUAGE],

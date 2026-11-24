@@ -1995,6 +1995,7 @@ routes-final § 11) — no table and no column.
 - **Sources:** plan:L7814–L7822, plan:L7613; current schema under `src/domains/user/`; routes-final
   § 10 (AT1), § 11.
 - **Added:** `instagram_handle`, `goal`.
+- **Built R34** ([AS-BUILT](../AS-BUILT.md), [P407](decisions.md)): `auth.users.instagram_handle` varchar(30) with `chk_users_instagram_handle` (`^[a-z0-9._]{1,30}$`) and `goal` varchar(20) with `chk_users_goal` — migration `20261124221623_auth_users_onboarding_fields.sql`. The chooser's counts: the app's SECURITY DEFINER `app.list_organization_counts_for_user(user_public_id, organization_public_ids)` (`20261124221625_app_member_organization_counts.sql`) and the main role through tenancy's `tenancy.resolve_main_roles_for_user(user_public_id, organization_ids)` (`20261124221626_tenancy_resolve_main_roles_for_user.sql`).
 - **Replaced:** `password_hash` set → empty for every person (column kept).
 - **Open:** none.
 
@@ -2016,6 +2017,7 @@ erDiagram
   `src/domains/user/sub-domains/user-settings/user-settings.schema.ts`.
 - **Added:** `is_reduce_motion_enabled` (plan name `reduce_motion`; the `is_` form matches
   `is_dark_mode_enabled`, P21).
+- **Built R34** ([AS-BUILT](../AS-BUILT.md)): `auth.user_settings.is_reduce_motion_enabled` boolean NOT NULL DEFAULT false — migration `20261124221624_user_settings_reduce_motion.sql`.
 - **Replaced:** none.
 - **Open:** none.
 

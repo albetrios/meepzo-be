@@ -67,6 +67,7 @@ export function createDomainContainers(
   });
   const notifyDomain = createNotifyContainer({
     organizationService: tenancyDomain.organizationService,
+    membershipService: tenancyDomain.membershipService,
     userService: userBase.userService,
   });
   const uploadDomain = createUploadContainer({
@@ -116,6 +117,10 @@ export function createDomainContainers(
     },
     webhookPayloadErasure: notifyDomain.webhookService,
   });
+
+  // feat-instagram-dm-sending UN1: the organization chooser's counts are the app's — a port, wired
+  // here because the app is built after tenancy (no container cycle).
+  tenancyDomain.organizationService.wireOrganizationCounts(appDomain.channelAccountService);
 
   tenancyDomain.organizationService.wireOffboardingUploadService({
     uploadService: uploadDomain.uploadService,

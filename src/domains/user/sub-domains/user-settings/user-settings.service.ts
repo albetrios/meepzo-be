@@ -28,7 +28,8 @@ import {
  * - **Failure modes:** unknown user → {@link NotFoundError}; invalid body →
  *   {@link ValidationError} from the validator; a `default_organization_id` that is not an active
  *   organization the caller actively belongs to → {@link UnprocessableEntityError}
- *   (`reason: default_organization_unavailable`).
+ *   (`reason: default_organization_unavailable`); the caller's personal organization →
+ *   `reason: team_organization_required` (feat-instagram-dm-sending UN4).
  * - **Side effects:** writes to `auth.user_settings`. No event emission today.
  * - **Notes:** the repository handles defaulting on first write so this service stays patch-only;
  *   `omitUndefined` avoids accidentally clearing fields the client did not send. The pinned organization
@@ -56,9 +57,11 @@ export class UserSettingsService {
   /**
    * Turns the validated body into the repository's patch. A `default_organization_id` is checked
    * against the caller's memberships: only an ACTIVE membership in an ACTIVE organization (TEAM) may be
-   * pinned, and it is stored by internal id; `null` clears the pin. Every other miss — an unknown
-   * id, someone else's organization, a suspended membership, a personal workspace — is the same 422, so
-   * the route never confirms that an organization exists (feat-choose-default-organization CD6).
+   * pinned, and it is stored by internal id; `null` clears the pin. The caller's own personal
+   * organization is `422 team_organization_required` (feat-instagram-dm-sending UN4); every other
+   * miss — an unknown id, someone else's organization, a suspended membership — is the same
+   * `422 default_organization_unavailable`, so the route never confirms that an organization exists
+   * (feat-choose-default-organization CD6).
    */
   private async toRepositoryPatch({
     parsed,
@@ -75,6 +78,12 @@ export class UserSettingsService {
       userInternalId: userId,
       organizationPublicId: defaultOrganizationPublicId,
     });
+    // The caller's own personal organization is a different 422 (UN4): Flowdm never opens it.
+    if (organization?.type === 'PERSONAL') {
+      throw new UnprocessableEntityError('errors:teamOrganizationRequired').withReason(
+        'team_organization_required',
+      );
+    }
     if (organization?.type !== 'TEAM') {
       throw new UnprocessableEntityError('errors:defaultOrganizationUnavailable').withReason(
         'default_organization_unavailable',

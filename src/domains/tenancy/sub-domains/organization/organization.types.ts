@@ -52,6 +52,31 @@ export interface OrganizationOutput {
   updated_at: string;
 }
 
+/**
+ * One organization of the chooser (`GET /users/me/organizations`, route 132, feat-instagram-dm-sending
+ * UN5): the organization, the caller's main role and the three counts.
+ */
+export interface OrganizationChooserOutput extends OrganizationOutput {
+  /** The caller's main role here (`rol_…` and its name). */
+  role: { id: string; name: string } | null;
+  /** Active members. */
+  members_count: number;
+  /** Channel accounts not revoked. */
+  channel_accounts_count: number;
+  /** Automations live and not deleted. */
+  live_automations_count: number;
+}
+
+/**
+ * The counts of one organization the chooser shows, as the app's counts port answers them (UN1, UN5).
+ */
+export interface OrganizationCounts {
+  organizationPublicId: string;
+  membersCount: number;
+  channelAccountsCount: number;
+  liveAutomationsCount: number;
+}
+
 /** Internal organization fields exposed to cross-domain billing services. */
 export interface OrganizationBillingContext {
   id: number;

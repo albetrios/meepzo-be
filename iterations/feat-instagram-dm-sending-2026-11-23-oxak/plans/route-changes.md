@@ -7,7 +7,7 @@
 | Intake mode | brief — from scratch |
 | Intake hash | `e2875698ea64` |
 | Date | 2026-11-23 |
-| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied: common channel-connection and channel-account routes, Instagram routes under `/social/instagram/…`; then [P48](decisions.md)–[P51](decisions.md) (2026-11-24): contacts, automations, broadcasts and segments shared again at `/api/v1/app/…` with a `channel_account_id` filter, one feature check with named refusals. Written from the plan (`intake-files/Instagram-DM-Sending-Plan-v8.md`) and the as-built launch (`docs/routes.txt`); the AMBER defaults ([P1](decisions.md)–[P20](decisions.md)) and the answers [P26](decisions.md)–[P39](decisions.md) applied; then the owner's route-review answers [P54](decisions.md)–[P89](decisions.md) (2026-11-24), every sub-domain confirmed ([P90](decisions.md)): the shared account codes, the refusal statuses, PRO segments, Apple's `303`, idempotency on creates and jobs only; then the alignment check ([P99](decisions.md), 2026-11-24): the Source cites point at the sub-domain that holds each route (§ 1 or § 1B), the webhook's path in the intro follows P53, the context answer carries `is_plan_choice_required` (P80). Each row's Source ends with its route-review number (`routes-final § n, route m`) |
+| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied: common channel-connection and channel-account routes, Instagram routes under `/social/instagram/…`; then [P48](decisions.md)–[P51](decisions.md) (2026-11-24): contacts, automations, broadcasts and segments shared again at `/api/v1/app/…` with a `channel_account_id` filter, one feature check with named refusals. Written from the plan (`intake-files/Instagram-DM-Sending-Plan-v8.md`) and the as-built launch (`docs/routes.txt`); the AMBER defaults ([P1](decisions.md)–[P20](decisions.md)) and the answers [P26](decisions.md)–[P39](decisions.md) applied; then the owner's route-review answers [P54](decisions.md)–[P89](decisions.md) (2026-11-24), every sub-domain confirmed ([P90](decisions.md)): the shared account codes, the refusal statuses, PRO segments, Apple's `303`, idempotency on creates and jobs only; then the alignment check ([P99](decisions.md), 2026-11-24): the Source cites point at the sub-domain that holds each route (§ 1 or § 1B), the webhook's path in the intro follows P53, the context answer carries `is_plan_choice_required` (P80); then routes-final rev 5 (2026-11-24): RC-102–RC-111 cite their new route numbers 141–150 ([P99](decisions.md)), and [P100](decisions.md) changes no route. Each row's Source ends with its route-review number (`routes-final § n, route m`); the five REMOVED rows cite the section only |
 
 Every route here is a **proposal** — requirement level, what must be true, not how. Kickoff confirms each
 one when it builds it and records any change in `AS-BUILT.md`; the built truth is `docs/routes.txt`.
@@ -92,7 +92,19 @@ one when it builds it and records any change in `AS-BUILT.md`; the built truth i
 | Product around sending | 6 | 38 | 4 |
 | **Total** | **49** | **55** | **5** |
 
-Since the last version (the alignment check, [P99](decisions.md), 2026-11-24): no route is added or
+**Against `routes-final.md` (rev 5):** it counts **105 routes = 49 new + 55 changed + 1 as built** (RC-67, route 104 —
+listed under **Unchanged (EXISTING)** below, so it is in no column here) **+ 5 removed** (RC-6, RC-98–RC-101). The same
+three numbers here: 49 NEW + 55 CHANGED (+ RC-67) = 105 routes served, and 5 REMOVED.
+
+Since the last version (routes-final rev 5, 2026-11-24 — [P99](decisions.md)'s route numbers and [P100](decisions.md)): no
+route is added or removed and no change kind moves, so the counts stand at **49 / 55 / 5**. What moves: the ten changed
+platform routes of **Product around sending** that routes-final had named without a number now cite their route —
+RC-109 → **141**, RC-110 → **142** (§ 9), RC-102 → **143**, RC-103 → **144**, RC-104 → **145**, RC-105 → **146**,
+RC-106 → **147** (§ 10), RC-107 → **148**, RC-108 → **149** (§ 11), RC-111 → **150** (§ 12) — so every row but the five
+REMOVED ones now ends with `routes-final § n, route m`. **P100** (the open-run key table) changes no route: it is data
+and background work (`db-changes.md`, `worker-changes.md`).
+
+Before that (the alignment check, [P99](decisions.md), 2026-11-24): no route is added or
 removed and no change kind moves, so the counts stand at **49 / 55 / 5**. What moves: **Source cites** —
 RC-7–RC-11 and RC-60 cite routes-final **§ 1B** (routes 6–11), RC-15, RC-17 and RC-18 cite **§ 1** (routes
 15, 16, 17), and RC-112, RC-113 and RC-114 gain their cites (§ 1, routes 42, 40, 41); **the intro** names
@@ -338,16 +350,16 @@ The plan's Part F (§44–47), all in this iteration ([P28](decisions.md)) excep
 | RC-92 | CHANGED | DELETE | `/api/v1/tenancy/organization/roles/{role_id}` | role · delete | `deleteRole` — refused while custom roles are off | plan:L7861–L7889; routes-final § 9, route 113 |
 | RC-93 | CHANGED | PUT | `/api/v1/tenancy/organization/roles/{role_id}/permissions` | role · update | `replaceRolePermissions` — refused while custom roles are off | plan:L7861–L7889; routes-final § 9, route 114 |
 | RC-94 | CHANGED | POST | `/api/v1/tenancy/organization/roles/{role_id}/restore` | role · delete · X-Idempotency-Key required | `restoreRole` — refused while custom roles are off | plan:L7861–L7889; routes-final § 9, route 115 |
-| RC-102 | CHANGED | GET | `/api/v1/auth/oauth/{provider}/callback` | PUBLIC (the OAuth state) | `oauthCallback` — takes `apple`, and the link mode of RC-72: links that Google or Apple account to the signed-in person (`409 provider_account_in_use` when it is someone else's) and answers the linked way instead of a new session (AT10, AT12) | plan:L7662–L7693, L7776; routes-final § 10 |
-| RC-103 | CHANGED | DELETE | `/api/v1/auth/me/sessions` | AUTH | `revokeAllSessions` — "sign out everywhere else" also ends every trusted device but this browser's (AT17, AT19) | plan:L7736–L7750, L8199; routes-final § 10 |
-| RC-104 | CHANGED | DELETE | `/api/v1/auth/me/mfa/{mfa_method_id}` | AUTH | `deleteMfa` — removing the last 2FA factor also ends the person's trusted devices (AT17) | plan:L7736–L7750; routes-final § 10 |
-| RC-105 | CHANGED | DELETE | `/api/v1/auth/me/sessions/{session_id}` | AUTH | `revokeSession` — its strong step-up accepts the email code for a person without 2FA (no password, AT15) | plan:L7752–L7771; routes-final § 10 |
-| RC-106 | CHANGED | DELETE | `/api/v1/auth/me/webauthn/credentials/{credential_id}` | AUTH | `webauthnRevokeCredential` — its strong step-up accepts the email code for a person without 2FA (AT15) | plan:L7752–L7771; routes-final § 10 |
-| RC-107 | CHANGED | GET | `/api/v1/users/me` | AUTH | `getMe` — adds `instagram_handle` and `goal` (as RC-81 saves them) | plan:L7802–L7826; routes-final § 11 |
-| RC-108 | CHANGED | GET | `/api/v1/users/me/settings` | AUTH | `getSettings` — adds `is_reduce_motion_enabled` (as RC-82 saves it) | plan:L8201–L8205; routes-final § 11 |
-| RC-109 | CHANGED | POST | `/api/v1/tenancy/organizations` | AUTH · X-Idempotency-Key required | `createOrganization` — `slug` becomes optional: onboarding sends the name only, and the slug is made from it (kebab, unique with a short suffix); the tile colour is picked from the name (TN7) | plan:L7808, L7903; routes-final § 9 |
-| RC-110 | CHANGED | GET | `/api/v1/tenancy/organization` | AUTH | `getOrganization` — adds `logo_color` (the tile colour; tones include `lavender`, [P81](decisions.md)) | plan:L7903–L7906; routes-final § 9 |
-| RC-111 | CHANGED | POST | `/api/v1/uploads/{upload_id}/confirm` | AUTH | `confirmUpload` — adds the audio magic-byte checks (AAC, M4A, WAV), and a message file's every type must be checkable; still no scan ([P34](decisions.md), UP4) | plan:L8443; routes-final § 12 |
+| RC-102 | CHANGED | GET | `/api/v1/auth/oauth/{provider}/callback` | PUBLIC (the OAuth state) | `oauthCallback` — takes `apple`, and the link mode of RC-72: links that Google or Apple account to the signed-in person (`409 provider_account_in_use` when it is someone else's) and answers the linked way instead of a new session (AT10, AT12) | plan:L7662–L7693, L7776; routes-final § 10, route 143 |
+| RC-103 | CHANGED | DELETE | `/api/v1/auth/me/sessions` | AUTH | `revokeAllSessions` — "sign out everywhere else" also ends every trusted device but this browser's (AT17, AT19) | plan:L7736–L7750, L8199; routes-final § 10, route 144 |
+| RC-104 | CHANGED | DELETE | `/api/v1/auth/me/mfa/{mfa_method_id}` | AUTH | `deleteMfa` — removing the last 2FA factor also ends the person's trusted devices (AT17) | plan:L7736–L7750; routes-final § 10, route 145 |
+| RC-105 | CHANGED | DELETE | `/api/v1/auth/me/sessions/{session_id}` | AUTH | `revokeSession` — its strong step-up accepts the email code for a person without 2FA (no password, AT15) | plan:L7752–L7771; routes-final § 10, route 146 |
+| RC-106 | CHANGED | DELETE | `/api/v1/auth/me/webauthn/credentials/{credential_id}` | AUTH | `webauthnRevokeCredential` — its strong step-up accepts the email code for a person without 2FA (AT15) | plan:L7752–L7771; routes-final § 10, route 147 |
+| RC-107 | CHANGED | GET | `/api/v1/users/me` | AUTH | `getMe` — adds `instagram_handle` and `goal` (as RC-81 saves them) | plan:L7802–L7826; routes-final § 11, route 148 |
+| RC-108 | CHANGED | GET | `/api/v1/users/me/settings` | AUTH | `getSettings` — adds `is_reduce_motion_enabled` (as RC-82 saves it) | plan:L8201–L8205; routes-final § 11, route 149 |
+| RC-109 | CHANGED | POST | `/api/v1/tenancy/organizations` | AUTH · X-Idempotency-Key required | `createOrganization` — `slug` becomes optional: onboarding sends the name only, and the slug is made from it (kebab, unique with a short suffix); the tile colour is picked from the name (TN7) | plan:L7808, L7903; routes-final § 9, route 141 |
+| RC-110 | CHANGED | GET | `/api/v1/tenancy/organization` | AUTH | `getOrganization` — adds `logo_color` (the tile colour; tones include `lavender`, [P81](decisions.md)) | plan:L7903–L7906; routes-final § 9, route 142 |
+| RC-111 | CHANGED | POST | `/api/v1/uploads/{upload_id}/confirm` | AUTH | `confirmUpload` — adds the audio magic-byte checks (AAC, M4A, WAV), and a message file's every type must be checkable; still no scan ([P34](decisions.md), UP4) | plan:L8443; routes-final § 12, route 150 |
 | RC-98 | REMOVED | POST | `/api/v1/auth/login` | was PUBLIC | `login` — passwords are off everywhere, the password code paths removed with the four routes ([P84](decisions.md)); replaced by the email code (`/auth/email/login`), Google and Apple | plan:L7613; routes-final § 10 |
 | RC-99 | REMOVED | POST | `/api/v1/auth/password/forgot` | was PUBLIC | `forgotPassword` — no passwords; nothing replaces it | plan:L7613; routes-final § 10 |
 | RC-100 | REMOVED | POST | `/api/v1/auth/password/reset` | was PUBLIC | `resetPassword` — no passwords; nothing replaces it | plan:L7613; routes-final § 10 |

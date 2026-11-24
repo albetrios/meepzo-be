@@ -7,7 +7,7 @@
 | Intake mode | brief (from scratch) |
 | Intake hash | `e2875698ea64` |
 | Date | 2026-11-23 |
-| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied, then room for WhatsApp and TikTok ([P48](decisions.md)–[P51](decisions.md); P48 supersedes P44): common channel tables, the product data shared across channels, the Instagram adapter tables named `instagram_*`; then the route review's answers [P54](decisions.md)–[P89](decisions.md), every sub-domain confirmed ([P90](decisions.md), 2026-11-24): the helper slots dropped (P73), one switch per plan feature (P83), retired plans held to Free's (P80), the shared account codes `channel-account:*` (P59), organization for workspace (P72); then the scale review and the alignment check ([P91](decisions.md)–[P99](decisions.md), 2026-11-24): four more tables split by time (P96), the clean-ups hourly within a time budget (P92), the minimum compatible settings version (P95), routes-final's column names (P99). Each table section names the route-review section that owns its columns, keys and indexes |
+| Stage | Step 5 — matched to the route review (`routes-final.md` §§ 1–12, rev 1), then the owner's channel split ([P40](decisions.md)–[P47](decisions.md)) applied, then room for WhatsApp and TikTok ([P48](decisions.md)–[P51](decisions.md); P48 supersedes P44): common channel tables, the product data shared across channels, the Instagram adapter tables named `instagram_*`; then the route review's answers [P54](decisions.md)–[P89](decisions.md), every sub-domain confirmed ([P90](decisions.md), 2026-11-24): the helper slots dropped (P73), one switch per plan feature (P83), retired plans held to Free's (P80), the shared account codes `channel-account:*` (P59), organization for workspace (P72); then the scale review and the alignment check ([P91](decisions.md)–[P99](decisions.md), 2026-11-24): four more tables split by time (P96), the clean-ups hourly within a time budget (P92), the minimum compatible settings version (P95), routes-final's column names (P99); then routes-final rev 5's open-run key table (P100). Each table section names the route-review section that owns its columns, keys and indexes |
 
 The iteration's data model, kept current at every planning step. WHAT must be true, never HOW: logical
 types only, no SQL, no indexes, no constraints — the column types, keys and indexes are the route review's
@@ -19,7 +19,7 @@ former data questions N1–N5), `P28`–`P39` the owner's Step 4 answers (RED), 
 channel split (P47 its derived defaults, AMBER), `P48`–`P51` the room for WhatsApp and TikTok (RED; P48
 supersedes P44), `P52`–`P53` the asset list and the per-object webhook path, `P54`–`P90` the owner's route-review
 answers (RED; P79 the one AMBER default), `P91`–`P99` the scale review's fixes and defaults and the alignment check's
-settlement ([`reviews/scale-review-2026-11-24.md`](reviews/scale-review-2026-11-24.md), S1–S29;
+settlement, `P100` the open-run key table ([`reviews/scale-review-2026-11-24.md`](reviews/scale-review-2026-11-24.md), S1–S29;
 [`reviews/alignment-check-2026-11-24.md`](reviews/alignment-check-2026-11-24.md)).
 
 **Scope (P28, P39).** Track A (the sending engine, plan §4–43) and Part F (plan §44–47) are both in this
@@ -37,13 +37,22 @@ changes to the platform domains are new migrations only (D48, [P38](decisions.md
 
 | Change | Count | Entities |
 | --- | --- | --- |
-| NEW | 21 | **Common, Stages 1 and 6 (5):** channel_connection, channel_connection_token, channel_account, message_month_count, sending_state (`sending_helper_slot` dropped — P73) · **Shared product data, Stages 2, 3 and 5 (7, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, segment, broadcast, broadcast_recipient · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account |
+| NEW | 22 | **Common, Stages 1 and 6 (5):** channel_connection, channel_connection_token, channel_account, message_month_count, sending_state (`sending_helper_slot` dropped — P73) · **Shared product data, Stages 2, 3 and 5 (8, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, automation_run_open_key (P100), segment, broadcast, broadcast_recipient · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account |
 | CHANGED | 15 | **app (9):** instagram_account (now the Instagram extension of channel_account), instagram_account_setting, instagram_media, contact, automation, automation_run, automation_run_event, automation_comment_log (the four launch product tables, shared and keyed by `channel_account_id`, no rename — P48), instagram_webhook_event · **Stage 7 (2):** plan, subscription · **Stage 8 (4):** organization, user, user_setting, session |
 | REMOVED | 1 | instagram_account_token |
 | EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `instagram_attachment` names an upload by its public id |
 
-Since the last version (the scale review and the alignment check, [P91](decisions.md)–[P99](decisions.md),
-2026-11-24): no table is added or removed, so the counts stand at **21 / 15 / 1 / 1**. **Four more tables
+Since the last version (routes-final rev 5, [P100](decisions.md), 2026-11-24): **one table is added**, so NEW
+21 → **22** and the counts are **22 / 15 / 1 / 1**. `automation_run_open_key` (`app.automation_run_open_keys`,
+Stage 3) — one row per open run, its key the organization, automation and person, pointing at the run by its id
+and start month; written with the run in one commit, deleted in the commit that ends the run or replaces it
+(P35's swap in the same commit), leftovers removed by a repair duty; RLS forced. It reverses P71 (AUQ4): with
+runs split by month (P96) the launch's partial unique index holds only inside one part. Columns from routes-final
+§ 4, 4.B.3 (AU37). Also synced to 4.B.3: `automation_comment_log` gains `automation_run_started_at`, a copy of its
+run's start, and its run pointer has no database reference (AU36).
+
+Before that (the scale review and the alignment check, [P91](decisions.md)–[P99](decisions.md),
+2026-11-24): no table was added or removed, so the counts stood at **21 / 15 / 1 / 1**. **Four more tables
 are split by time** ([P96](decisions.md), supersedes P33's plain list): `automation_runs` and
 `automation_run_events` by month of the run's start (run events gain `automation_run_started_at`, a copy of
 the run's start), `automation_comment_logs` by month of when the comment was logged, and
@@ -86,7 +95,7 @@ caller's, in the mail outbox as built (P88). **Opens answered:** one live accoun
 held on `channel_account` (P60); Meta's callbacks match `provider_account_id`, else
 `client_business_id` (P56); a reconnect moves an account's row at the callback (P54) and the pick
 re-reads Meta (P55); our own echoes and the flood guard are read from Postgres (P62, P63); no open-run
-key table (P71); segments and broadcasts purged 90 days after delete (P75), segments PRO only (P76); the
+key table (P71 — reversed by P100, rev 5); segments and broadcasts purged 90 days after delete (P75), segments PRO only (P76); the
 Stripe schedule mirrored on `subscription` (P77); `lavender` (P81); the session place from DB-IP "IP to
 City Lite" (P86). **Workspace = organization (P72):** the plan's "workspace" is written "organization"
 in every name and in this file (`app_member_organization_counts`). CHANGED, REMOVED and EXISTING stand
@@ -217,6 +226,7 @@ erDiagram
   automation_run["automation_run · CHANGED · app.automation_runs"]
   automation_run_event["automation_run_event · CHANGED · app.automation_run_events"]
   automation_comment_log["automation_comment_log · CHANGED · app.automation_comment_logs"]
+  automation_run_open_key["automation_run_open_key · NEW · app.automation_run_open_keys"]
   instagram_webhook_event["instagram_webhook_event · CHANGED · app.instagram_webhook_events"]
   instagram_webhook_event_key["instagram_webhook_event_key · NEW · app.instagram_webhook_event_keys"]
   segment["segment · NEW · app.segments"]
@@ -257,6 +267,9 @@ erDiagram
   automation ||--o{ automation_run : "starts"
   contact ||--o{ automation_run : "goes through"
   automation_run ||--o{ automation_run_event : "records"
+  automation_run ||--o| automation_run_open_key : "ADDED: is held open by"
+  automation ||--o{ automation_run_open_key : "ADDED: has one per person in"
+  contact ||--o{ automation_run_open_key : "ADDED: has one per automation in"
   automation ||--o{ automation_comment_log : "logs"
   automation_run |o--o{ automation_comment_log : "is logged by"
   contact ||--o{ automation_comment_log : "is logged by"
@@ -959,7 +972,9 @@ moves to the message row (Stage 6). Runs, run events and comment logs keep 90 da
 now split by month, so expiry drops a whole part ([P96](decisions.md), made while the tables are empty;
 supersedes P33's plain tables): runs and run events by month of the run's start, comment logs by month of
 when the comment was logged. At most one open run per automation and
-person; a new comment that may start a run replaces the open one ([P35](decisions.md)).
+person; a new comment that may start a run replaces the open one ([P35](decisions.md)). Since the split, that
+rule is a small key table of its own, `automation_run_open_key` ([P100](decisions.md), reverses P71) — a unique
+rule on a split table holds only inside one part.
 
 ### automation_run
 
@@ -985,18 +1000,18 @@ person; a new comment that may start a run replaces the open one ([P35](decision
 - **Replaced:**
   - The send claim (`sending_message_kind`, `sending_started_at`) → the message row's status
     (`instagram_message`).
-  - The plan's open-run keys (one open run per automation, person and once key, in
-    `automation_run_open_key`, plan:L3465–L3480) → the launch's rule stays: one open run per
-    automation and person, and a new start replaces it (`replaced`, P35). **No open-run key table** —
-    confirmed by the route review ([P71](decisions.md), AUQ4, WH14): the new start cancels the open run in the same commit,
-    so the launch's one-open-run rule is the whole rule. The once key stays on the run, for the
-    `once_per_post` check (D13); WC-45 frees no key.
+  - The launch's one-open-run rule (the partial unique index across the one plain table) → the key table
+    `automation_run_open_key` ([P100](decisions.md), AU37 — reverses [P71](decisions.md) / AUQ4, which had
+    dropped the plan's `automation_run_open_key`, plan:L3465–L3480): one row per open run, written in the
+    run's commit and deleted in the commit that ends it; a new start replaces the open run (`replaced`, P35)
+    and swaps the key in the same commit. The launch's index stays as a look-up in each part. The once key
+    stays on the run, for the `once_per_post` check (D13); WC-45 now deletes the run's key when it ends a
+    wait.
   - Plain table, batch deletes (P33) → month parts by the run's start (P96).
-- **Open:** none — columns and keys: routes-final § 4, 4.B. **Follows from P96:** a unique rule on a split
-  table must hold the split key, so "one open run per automation and person" can no longer be one partial
-  unique index across months; it is checked under the contact lock that every intake path takes first (F5)
-  in the parts a run can still be open in (this month's and last month's — a run waits at most 7 days),
-  as the plan does for comment logs (plan:L4182–L4192). Kickoff builds it so; routes-final § 4 names it.
+- **Open:** none — columns and keys: routes-final § 4, 4.B (AU23, AU36, AU37). **Follows from P96:** a unique
+  rule on a split table must hold the split key, so "one open run per automation and person" can no longer be
+  one partial unique index across months — it is the key table below ([P100](decisions.md); rev 5's first
+  draft, a check under the contact lock alone, gave no database guarantee).
 
 ```mermaid
 erDiagram
@@ -1018,6 +1033,56 @@ erDiagram
     choice sending_message_kind "REMOVED: claim moves to the message row"
     datetime sending_started_at "REMOVED: claim moves to the message row"
   }
+```
+
+### automation_run_open_key
+
+- **Holds:** one row per **open** run (`running` or `waiting`) — the rule "one open run per automation and
+  person" now that runs are split by month ([P100](decisions.md), AU37). Its key is the organization, the
+  automation and the person, so a second start meets the conflict and is ignored (`run_in_progress`) or, for a
+  comment that may start a new run, replaces the open one (P35). It points at its run by the run's id and start
+  (the run's month part). The new run and its key are written **in one commit**; the key is **deleted in the
+  commit that ends the run** — `completed`, `failed`, `cancelled` (`replaced`, `wait_expired`, the person erased
+  or opted out, …); P35's replacement deletes the old key and inserts the new one in the same commit. A repair
+  duty removes a key whose run has ended, so a missed delete never blocks her for good (`worker-changes.md`).
+  No public id, no `updated_at`; RLS enabled and forced like every tenant table.
+- **Table:** `app.automation_run_open_keys` (the plan's table, plural — plan:L3465–L3480; shared,
+  [P48](decisions.md))
+- **Sources:** plan:L3465–L3480; [P35](decisions.md), [P100](decisions.md); routes-final § 4, 4.B.3 and AU37
+  (columns, keys, the RLS policy).
+- **Added:** new (rev 5) — reverses [P71](decisions.md) / AUQ4, which had dropped the plan's table while runs
+  were one plain table.
+- **Replaced:** the launch's partial unique index `idx_automation_runs_one_open` as the rule (it stays a
+  look-up in each month part).
+- **Open:** none.
+
+```mermaid
+erDiagram
+  automation_run_open_key["automation_run_open_key · NEW · app.automation_run_open_keys"] {
+    id organization_id FK, PK
+    id automation_id FK, PK "→ automation"
+    id contact_id FK, PK "→ contact; one open run per automation and person"
+    id automation_run_id FK "→ automation_run; the open run"
+    datetime automation_run_started_at FK "→ automation_run; its start, the run's month part"
+    datetime created_at
+  }
+  organization["organization · CHANGED · tenancy.organizations"] {
+    id id PK
+  }
+  automation["automation · CHANGED · app.automations"] {
+    id id PK
+  }
+  contact["contact · CHANGED · app.contacts"] {
+    id id PK
+  }
+  automation_run["automation_run · CHANGED · app.automation_runs"] {
+    id id PK
+    datetime started_at
+  }
+  organization ||--o{ automation_run_open_key : "ADDED: holds"
+  automation ||--o{ automation_run_open_key : "ADDED: has one per person in"
+  contact ||--o{ automation_run_open_key : "ADDED: has one per automation in"
+  automation_run ||--o| automation_run_open_key : "ADDED: is held open by"
 ```
 
 ### automation_run_event
@@ -1071,7 +1136,9 @@ erDiagram
 - **Open:**
   - The launch's ignored reasons `waiting_for_other_email` and `already_waiting` are kept — the plan
     is silent ([P23](decisions.md), AMBER).
-  - The plan's `automation_run_started_at` copy is not added: the log is split by its own month (P96).
+  - The plan's `automation_run_started_at` copy **is** added (routes-final 4.B.3, AU36): the log is split by
+    its own month (P96), and its run pointer is the run's id + start, with no reference (its parts drop on
+    their own clock, like the messages' copies).
   - The launch's `opening_dm_status` / `opening_dm_at` keep `dm` (as built); A6 renames only new
     names.
 
@@ -1080,7 +1147,8 @@ erDiagram
   automation_comment_log["automation_comment_log · CHANGED · app.automation_comment_logs"] {
     id id PK
     id automation_id FK "→ automation"
-    id automation_run_id FK "→ automation_run"
+    id automation_run_id FK "CHANGED: → automation_run by id + start, no database reference since the split (AU36)"
+    datetime automation_run_started_at "ADDED: copy of the run's start (AU36, P96)"
     id contact_id FK "→ contact"
     datetime comment_occurred_at "ADDED"
     choice hide_status "ADDED: a step status; default off (D33)"
@@ -1974,9 +2042,9 @@ One row per `CHANGED` or `REMOVED` table. Plan decisions are `D<n>`; this plan's
 | `app.instagram_media` | Stored posts of an Instagram account | + missed-comment watch times, Live end, the Live product type; points at `channel_account_id` | D40, D41, P47 |
 | `app.contacts` | Person per account; plus addresses refused; tags 1–255; erase clears her personal columns | Shared across channels, same name (no rename, P48); points at `channel_account_id`; + 24-hour rule, opted out, channel, "via" automation and how she came in, note, first message, owner pause, comment and story activity, last broadcast; plus addresses accepted; tags 1–50; erase also clears her activity columns | D8, D27, D45, D46, D49, D68, D71, P19, P47, P48, CT9, CT11 |
 | `app.automations` | `live` · `inactive`; 3 trigger types; message fields as columns; DM keyword switch; run counter; next-post window that expires | Shared across channels, same name (no rename, P48); points at `channel_account_id`; a `channel` checked against the channel's capability list; `draft` · `live` · `paused`; 15 ways to start; `steps` object; also start from; between dates; ref link, starter questions, ad, tag, default reply; per-automation public reply pacing and mention; hide comment; automatic stop; counters moved out | D28–D45, D52, D57, D59, D63, P11, P12, P47, P48 |
-| `app.automation_runs` | Send claim on the run; free trigger text kept; one open run per automation and person; 180 days | Shared, same name (P48); once key, 7-day clock, first DM time, last list message, step versions; send claim on the message; free text never kept; still one open run per automation and person, and a new start replaces it (`replaced`); no open-run key table (confirmed, P71) — the one-open-run rule checked under the contact lock in this and last month's parts; 90 days, split by month of the run's start, a part dropped once every run in it ended over 90 days ago | D9, D13, D16, D46, P35, P48, P71, P96 |
+| `app.automation_runs` | Send claim on the run; free trigger text kept; one open run per automation and person; 180 days | Shared, same name (P48); once key, 7-day clock, first DM time, last list message, step versions; send claim on the message; free text never kept; still one open run per automation and person, and a new start replaces it (`replaced`); the rule moves from the partial unique index to the new key table `app.automation_run_open_keys` (P100, reverses P71 — a unique index holds only inside one part), the index kept as a look-up; 90 days, split by month of the run's start, a part dropped once every run in it ended over 90 days ago | D9, D13, D16, D46, P35, P48, P96, P100 |
 | `app.automation_run_events` | History of a run | Shared, same name (P48); + two tap events; + a copy of the run's start, split by its month, dropped with the run's part | D16, D61, P48, P96 |
-| `app.automation_comment_logs` | Final DM step; 180 days | Shared, same name (P48); message list step, hide step, comment time; more step statuses and reasons; 90 days, split by month of when it was logged, no run start copy | D16, D32, D33, D64, P48, P96 |
+| `app.automation_comment_logs` | Final DM step; 180 days | Shared, same name (P48); message list step, hide step, comment time; more step statuses and reasons; 90 days, split by month of when it was logged; + a copy of its run's start, the run pointer with no database reference (AU36) | D16, D32, D33, D64, P48, P96 |
 | `app.instagram_webhook_events` | Kept 30 days with their dedupe key and body; failed final after 5 tries; `read` events; echoes and reactions skipped; points at the Instagram account | Kept 8 days, split by day, body null when done (none when born skipped); key in its own table, led by the organization and split by Meta's event day (P96); failed retried hourly up to 7 days; five new kinds, `read` gone; echoes and reactions saved `received`; our own echoes found by a Postgres lookup (P62); skip reasons `own_comment`, `flood` (counted in Postgres, P63) added and `echo`, `reaction` gone; a stored intake group; no Redis buffer; points at `channel_account_id`, stays Instagram's | D15, D64, P24, P32, P33, P45, P47, P62, P63, P96, WH10, WH16, WH22 |
 | `billing.plans` | Free, Starter, Growth, Pro; free-form features; seats | Free, Creator, Studio with seeded placeholder prices; typed features — the limits `message_month_limit` and `channel_accounts_max` (both across channels), `has_priority_support`, and `feature_switches`, one on / off switch per feature key (no `is_pro_enabled` bundle); Starter, Growth, Pro off and holding Free's features and limits; unlimited members | D26, D34, D55, D57, P37, P47, P79, P80, P83, P99, BL12, BLQ3 |
 | `billing.subscriptions` | Every plan change applied at once; no planned-change column | + a scheduled move down (`scheduled_plan_id`, `scheduled_change_at`) and the channel accounts kept after it (a Stripe subscription schedule, mirrored) | D57, P47, P77 |
@@ -1991,7 +2059,8 @@ deviation). The common NEW tables (`app.channel_connections`, `app.channel_conne
 (`app.channel_connection_tokens` takes its refresh token and `oauth_user` type as new, P49;
 `app.channel_accounts` takes routes-final's `connection_status` and `paused_by_user_id`, P99); the new
 `app.instagram_webhook_event_keys` is split by Meta's event day and `app.sending_states` holds the minimum
-compatible settings version (P95, P96) — new too; the
+compatible settings version (P95, P96) — new too, as is `app.automation_run_open_keys`, the open-run key of
+each automation and person (P100); the
 plan's `meta_connections`, `meta_connection_tokens`, `direct_message_month_counts` and `meta_attachments`
 were never built, so their new names (P41, P43) are renames of a proposal only.
 
@@ -2020,6 +2089,6 @@ decisions.md (still open to the owner's change) and applied above:
 
 From the scale review ([P96](decisions.md)), settled here: splitting `automation_runs` by month means a
 unique rule must carry the split key, so the launch's one partial unique index can no longer hold "one open
-run per automation and person" across months; the rule is checked under the contact lock in this and last
-month's parts (see `automation_run`). Kickoff builds it so and routes-final § 4 names it — a finding for the
-route review, not an open question.
+run per automation and person" across months. First settled as a check under the contact lock in this and
+last month's parts; then **settled by [P100](decisions.md)** (routes-final rev 5, AU37): the key table
+`automation_run_open_key` holds the rule (see its section, Stage 3). No open question remains.

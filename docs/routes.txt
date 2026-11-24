@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 155
+  Total routes: 156
 ================================================================================
 
 Legend:
@@ -133,12 +133,13 @@ Legend:
 
 ================================================================================
   DOMAIN: TENANCY (/api/v1/tenancy)
-  Routes: 43
+  Routes: 44
 ================================================================================
 
   — Sub Domains —
   POST   /api/v1/tenancy/membership-invitations/:membership_invitation_id/accept  200  req  both  AUTH
   POST   /api/v1/tenancy/membership-invitations/:membership_invitation_id/decline  200  req  both  AUTH
+  POST   /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview  200  -    both  PUBLIC
   GET    /api/v1/tenancy/organization                             200  -    both  AUTH
   PATCH  /api/v1/tenancy/organization                             200  -    both  PERM: organization:update
   DELETE /api/v1/tenancy/organization                             204  -    team  PERM: organization:delete
@@ -246,8 +247,8 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 155
-  Public          : 20
+  Total routes    : 156
+  Public          : 21
   Authenticated   : 54
   Role-guarded    : 9
   Perm-guarded    : 67

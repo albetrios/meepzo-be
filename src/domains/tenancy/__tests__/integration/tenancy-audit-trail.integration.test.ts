@@ -13,6 +13,10 @@ vi.mock(
 );
 
 import { eq } from 'drizzle-orm';
+import {
+  invitedMembershipPublicId,
+  pendingInvitationPublicId,
+} from '@/tests/helpers/membership-invite.helper.js';
 import type { FastifyInstance } from 'fastify';
 import { AUDIT_PERMISSIONS } from '@/domains/audit/audit.permissions.js';
 import { audit_outbox } from '@/domains/audit/audit-outbox.schema.js';
@@ -193,13 +197,18 @@ describe('tenancy audit trail — organization governance changes reach the audi
       method: 'POST',
       path: '/tenancy/organization/memberships',
       payload: {
-        email: `audit-invitee-${randomUUID()}@test.com`,
+        emails: [`audit-invitee-${randomUUID()}@test.com`],
         role_ids: [context.memberRole.public_id],
       },
     });
     expect(added.statusCode).toBe(200);
+    const invitedRead = await send({
+      token,
+      method: 'GET',
+      path: `/tenancy/organization/memberships/${invitedMembershipPublicId(added)}`,
+    });
     const invited = (
-      added.json() as {
+      invitedRead.json() as {
         data: {
           id: string;
           user_id: string;
@@ -269,14 +278,13 @@ describe('tenancy audit trail — organization governance changes reach the audi
       method: 'POST',
       path: '/tenancy/organization/memberships',
       payload: {
-        email: `audit-resend-${randomUUID()}@test.com`,
+        emails: [`audit-resend-${randomUUID()}@test.com`],
         role_ids: [context.memberRole.public_id],
       },
     });
     expect(added.statusCode).toBe(200);
-    const invited = (added.json() as { data: { id: string; invitation: { id: string } } }).data;
-    const membershipId = invited.id;
-    const invitationId = invited.invitation.id;
+    const membershipId = invitedMembershipPublicId(added);
+    const invitationId = await pendingInvitationPublicId(membershipId);
     expect(
       (
         await send({

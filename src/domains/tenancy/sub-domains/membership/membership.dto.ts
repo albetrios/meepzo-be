@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { listSearchSortSchema } from '@/shared/utils/http/list-query.util.js';
-import { trimmedEmail, trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
+import { trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
 import {
   addEndAfterStartIssue,
   chipToneSchema,
@@ -12,7 +12,9 @@ import {
   workingDaysSchema,
 } from '@/shared/utils/validation/record-fields.util.js';
 import {
+  INVITE_EMAILS_MAX,
   MEMBERSHIP_COMMISSION_PERCENT_MAX,
+  MEMBERSHIP_INVITE_EMAIL_MAX_LENGTH,
   MEMBERSHIP_DISPLAY_NAME_MAX_LENGTH,
   MEMBERSHIP_ROLE_IDS_MAX,
   MEMBERSHIP_STATUS,
@@ -33,7 +35,7 @@ const roleIds = z
   .max(MEMBERSHIP_ROLE_IDS_MAX)
   .refine((ids) => new Set(ids).size === ids.length, { message: 'errors:validation.eachRoleOnce' });
 
-/** The staff profile fields a create or update accepts (launch ROUTE #4, D3). */
+/** The staff profile fields an update accepts (launch ROUTE #4, D3). */
 const staffProfileFields = {
   phone: phoneNumberSchema.nullable().optional(),
   tone: chipToneSchema.optional(),
@@ -66,23 +68,29 @@ function workEndsAfterStarts({
 }
 
 /**
- * Zod schema for the `POST /organization/memberships` request body — the
- * "Add member" action (REQ-1). Identifies the invitee by `email` (a new
- * address provisions a bare ACTIVE user; an existing one resolves to that
- * account), the roles by public id (`role_ids`, the main role first — D5), the
- * staff profile (launch ROUTE #4), and an optional invitation `expires_in_days`
- * (1–365, default 7). The membership is always created `INVITED`; the invitee is
- * emailed a token and becomes `ACTIVE` on accept.
+ * One address of an invite as sent (route 117, TN10): trimmed and lower-cased only. Whether it is
+ * an email is checked per address by the service, so one bad address answers `invalid_email` in
+ * its own line instead of refusing the whole invite.
+ */
+const inviteEmail = z.string().trim().toLowerCase().max(MEMBERSHIP_INVITE_EMAIL_MAX_LENGTH);
+
+/**
+ * Zod schema for the `POST /organization/memberships` request body — the "Invite" action
+ * (feat-instagram-dm-sending route 117, TN10, P82): `emails` (1–{@link INVITE_EMAILS_MAX},
+ * trimmed, lower-cased; a repeat is folded into its first by the service), `role_ids` with exactly
+ * one role (the shape `PATCH` uses — a second role is refused `403 custom_roles_off` by the service
+ * while custom roles are off, TN3), and an optional invitation `expires_in_days` (1–365, default 7).
+ * The staff profile fields are not taken (one invite cannot carry one person's phone or hours — they
+ * stay on `PATCH`). Each membership is created `invited`; its invitee is emailed a token and becomes
+ * `active` on accept.
  */
 export const createMembershipDto = z
   .object({
-    email: trimmedEmail(),
+    emails: z.array(inviteEmail).min(1).max(INVITE_EMAILS_MAX),
     role_ids: roleIds,
     expires_in_days: z.number().int().min(1).max(365).optional().default(7),
-    ...staffProfileFields,
   })
-  .strict()
-  .superRefine((value, context) => workEndsAfterStarts({ value, context }));
+  .strict();
 
 /**
  * Zod schema for the `PATCH /organization/memberships/:membership_id` request body (launch §2.B.8):

@@ -120,6 +120,16 @@ export interface MembershipRoleSummaryRow {
   is_system: boolean;
 }
 
+/**
+ * One line of {@link MembershipRepository.countLiveByMainRole}: a role that is some live member's
+ * main role, and how many live members hold it as their main role.
+ */
+export interface MembershipMainRoleCountRow {
+  role_public_id: string;
+  name: string;
+  count: number;
+}
+
 /** Raw live-invitation reference from {@link MembershipRepository.resolveLiveInvitationsByMembershipIds}. */
 export interface MembershipInvitationRefRow {
   public_id: string;
@@ -459,6 +469,43 @@ export class MembershipRepository {
         ),
       );
     return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * The members list's header counts (feat-instagram-dm-sending TN9, route 116): live members
+   * (`invited`, `active`, `suspended` — not ended) grouped by their **main** role, whatever the
+   * list's filters.
+   *
+   * @remarks
+   * One grouped query beside the page query. Ordered with the organization owner's main role first
+   * (the Owner role — a role is never recognised by its name), then by the role's `created_at` and
+   * id, so the system roles keep their provisioning order. Bounded by the organization's roles.
+   */
+  async countLiveByMainRole(organization_id: number): Promise<MembershipMainRoleCountRow[]> {
+    const ownerMainRole = sql`(
+      SELECT owner_membership.role_id FROM ${memberships} AS owner_membership
+      JOIN ${organizations} ON ${organizations.id} = owner_membership.organization_id
+      WHERE owner_membership.organization_id = ${organization_id}
+        AND owner_membership.user_id = ${organizations.owner_user_id}
+        AND owner_membership.deleted_at IS NULL
+      LIMIT 1
+    )`;
+    const rows = await getRequestDatabase()
+      .select({
+        role_public_id: roles.public_id,
+        name: roles.name,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(memberships)
+      .innerJoin(roles, eq(roles.id, memberships.role_id))
+      .where(and(eq(memberships.organization_id, organization_id), isNull(memberships.deleted_at)))
+      .groupBy(roles.id, roles.public_id, roles.name, roles.created_at)
+      .orderBy(
+        sql`CASE WHEN ${roles.id} = ${ownerMainRole} THEN 0 ELSE 1 END`,
+        asc(roles.created_at),
+        asc(roles.id),
+      );
+    return rows.map((row) => ({ ...row, count: Number(row.count) }));
   }
 
   /**

@@ -243,6 +243,26 @@ export const REFRESH_RATE_LIMIT = {
   },
 } as const;
 
+/** Invitation page reads one IP may make a minute (feat-instagram-dm-sending TN11, route 118). */
+const INVITATION_PREVIEW_PER_MINUTE = 30;
+
+/**
+ * The invitation preview — `POST /tenancy/membership-invitations/{membership_invitation_id}/preview`
+ * (route 118): {@link INVITATION_PREVIEW_PER_MINUTE} req / 60s per IP, on the default hook
+ * (onRequest — the route is PUBLIC). No captcha: it answers nothing without the emailed token.
+ * Lifted when RATE_LIMIT_RELAXED_CAPS is set (development/test), like its siblings.
+ */
+export const INVITATION_PREVIEW_RATE_LIMIT = {
+  config: {
+    rateLimit: {
+      max: RATE_LIMIT_CAPS_RELAXED ? 5000 : INVITATION_PREVIEW_PER_MINUTE,
+      timeWindow: MILLISECONDS_PER_MINUTE,
+      keyGenerator: buildRateLimitKeyFromIpAddress,
+      onExceeded: recordRouteRateLimitExceeded,
+    },
+  },
+} as const;
+
 /** Stripe webhook ingress (60 req / 60s per IP) — signature verified but cap abuse. */
 export const WEBHOOK_RATE_LIMIT = {
   config: {

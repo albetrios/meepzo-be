@@ -86,3 +86,45 @@ export interface MyMembershipInvitationOutput {
   expires_at: string;
   created_at: string;
 }
+
+/** What the invitation page can say about an invitation (feat-instagram-dm-sending TN11, route 118). */
+export const MEMBERSHIP_INVITATION_PREVIEW_STATE = {
+  VALID: 'valid',
+  ACCEPTED: 'accepted',
+  EXPIRED: 'expired',
+  /** Revoked by the team, declined by the invitee, or the invited membership ended. */
+  REVOKED: 'revoked',
+} as const;
+
+/** Literal union of {@link MEMBERSHIP_INVITATION_PREVIEW_STATE} values. */
+export type MembershipInvitationPreviewState =
+  (typeof MEMBERSHIP_INVITATION_PREVIEW_STATE)[keyof typeof MEMBERSHIP_INVITATION_PREVIEW_STATE];
+
+/**
+ * One invitation as the SECURITY DEFINER `tenancy.resolve_membership_invitation_preview` answers it
+ * (route 118). `invitee_email` is for the signed-in email match only — never serialized.
+ */
+export interface MembershipInvitationPreviewRow {
+  state: MembershipInvitationPreviewState;
+  organization_name: string;
+  organization_logo_color: string;
+  role_name: string;
+  inviter_first_name: string | null;
+  expires_at: Date;
+  invitee_email: string;
+}
+
+/**
+ * `POST /tenancy/membership-invitations/{membership_invitation_id}/preview` answer (route 118,
+ * routes-final § 9.C.6): what the invitation page shows. `email_matches` is `null` when signed out —
+ * a signed-out caller never learns the invitee's email.
+ */
+export interface MembershipInvitationPreviewOutput {
+  state: MembershipInvitationPreviewState;
+  organization: { name: string; logo_color: string };
+  role_name: string;
+  inviter_first_name: string | null;
+  expires_at: string;
+  signed_in: boolean;
+  email_matches: boolean | null;
+}

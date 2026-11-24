@@ -50,6 +50,10 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   // (instagramWebhookIngressPlugin, before anything is parsed); see instagram-webhook.routes.ts.
   'GET /api/v1/app/social/instagram/webhook',
   'POST /api/v1/app/social/instagram/webhook',
+  // Tenancy — the invitation page (feat-instagram-dm-sending route 118, TN11): answers only for the
+  // emailed token (SHA-256 matched in a SECURITY DEFINER resolver; a wrong token or id is one 404),
+  // 30 a minute per IP; an optional bearer only tells whether the signed-in email is the invited one.
+  'POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview',
 ];
 
 describe('Security: public route allowlist', () => {

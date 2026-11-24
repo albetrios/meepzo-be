@@ -215,7 +215,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R26 | 8.D Stripe webhook: the four plan-state cases — § 8.D (BLC12) | sub-domain | R24 | `/be-build-requirement` | AC-11.8, AC-11.9 (the state change; the lane stops at R52) | Rimeet Mavani | open |
 | R27 | 9.A Organization: optional slug, the tile colour (`lavender`); routes 110, 141–142 — § 9.A (TNC4) | sub-domain | — | `/be-build-requirement` | AC-12.8–AC-12.11 | Rimeet Mavani | done |
 | R28 | 9.B Roles: Owner, Admin, Editor, Viewer on every team, `contact:update`, custom roles off; routes 111–115 — § 9 TNC1, TNC2, § 9.B | sub-domain | R27 | `/be-build-requirement` | AC-12.1–AC-12.4 | Rimeet Mavani | done |
-| R29 | 9.C Members and invitations: several emails, the preview, counts per role; routes 116–118 — § 9 TNC3, § 9.C (TNC5–TNC7) | sub-domain | R28 | `/be-build-requirement` | AC-12.5–AC-12.7 | Rimeet Mavani | open |
+| R29 | 9.C Members and invitations: several emails, the preview, counts per role; routes 116–118 — § 9 TNC3, § 9.C (TNC5–TNC7) | sub-domain | R28 | `/be-build-requirement` | AC-12.5–AC-12.7 | Rimeet Mavani | done |
 | R30 | 10.A Email code, passwords removed; routes 120–121 (four removed) — § 10 ATC1, ATC2, ATC4, § 10.A (ATC5) | sub-domain | R28 | `/be-build-requirement` | AC-13.1–AC-13.4 | Rimeet Mavani | open |
 | R31 | 10.B Google and Apple, the one `303` exception; routes 122–125, 143 — § 10 ATC3, § 10.B (ATC6, ATC7) | sub-domain | R30 | `/be-build-requirement` | AC-13.5–AC-13.7 | Rimeet Mavani | open |
 | R32 | 10.C Two-factor, trusted devices, step-up; routes 126–127, 145, 147 — § 10.C (ATC8–ATC10) | sub-domain | R30 | staged-build prompt | AC-13.8–AC-13.11 | Rimeet Mavani | open |

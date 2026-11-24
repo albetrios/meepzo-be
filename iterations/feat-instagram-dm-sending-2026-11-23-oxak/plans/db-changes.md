@@ -1863,6 +1863,12 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   `Viewer` row, tone `sky`, with `organization:read`, `instagram-account:read`, `automation:read`, `contact:read`).
   Viewer's `channel-account:read` and Editor's come with R3's `channel-account:*` codes (TN12), granted through
   `APP_PERMISSION_DEFAULT_TEAM_GRANTS` and the default-role reconcile.
+- The invitation page's read (routes-final § 9.C.3, TN11): no table or column change.
+  **Built R29** ([AS-BUILT](../AS-BUILT.md), [P204](decisions.md)): `20261124091500_tenancy_membership_invitation_preview.sql`
+  — the SECURITY DEFINER `tenancy.resolve_membership_invitation_preview(invitation_public_id, token_hash)` over
+  `tenancy.membership_invitations`, `tenancy.memberships`, `tenancy.roles`, `tenancy.organizations` and `auth.users`
+  (`state`, `organization_name`, `organization_logo_color`, `role_name`, `inviter_first_name`, `expires_at`,
+  `invitee_email`); EXECUTE for `meepzo_be_app` and `meepzo_be_maintenance` only.
 - The shared chip tone `lav` → `lavender` everywhere — the roles' and memberships' `tone` rows and
   checks and the organization's `logo_color` — so one tone list serves them ([P81](decisions.md), TNQ1;
   a tenancy migration; meepzo-fe follows).

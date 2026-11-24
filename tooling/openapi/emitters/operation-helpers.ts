@@ -83,6 +83,9 @@ const PUBLIC_ROUTE_KEYS = new Set<string>([
   // Meta's Instagram webhook: proved by the verify token (GET) and X-Hub-Signature-256 (POST).
   'GET /api/v1/app/social/instagram/webhook',
   'POST /api/v1/app/social/instagram/webhook',
+  // The invitation page (feat-instagram-dm-sending route 118): the emailed token is the key; a
+  // bearer is optional (read when sent, never required), so no scheme is advertised.
+  'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/preview',
 ]);
 
 export function getRouteSecurity(tags: string[], routeKey: string): object[] | undefined {

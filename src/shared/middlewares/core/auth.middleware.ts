@@ -118,6 +118,37 @@ async function authenticate(request: FastifyRequest, reply: FastifyReply): Promi
   await applyOrganizationDefaultLocale(request);
 }
 
+/**
+ * Optional sign-in for a PUBLIC route (feat-instagram-dm-sending § 9.C.5 — the invitation preview;
+ * the OAuth link start, § 10.A, uses the same one): when an `Authorization: Bearer` header comes
+ * with the request, verifies it exactly as `app.authenticate` does and sets `request.auth` and
+ * `request.principalScope`; without one — or with one that does not verify — the request goes on
+ * signed out. It never refuses.
+ *
+ * @remarks
+ * - **Algorithm:** no header → return; else the bearer verification; an `UnauthorizedError` (an
+ *   expired, revoked or malformed token) leaves `request.auth` null. API keys are not read — the
+ *   routes it serves are a person's.
+ * - **Failure modes:** none surfaced; a non-authentication error (the session store down) is
+ *   rethrown so it is not mistaken for a signed-out caller.
+ * - **Side effects:** may set `request.auth`, `request.principalScope`, `request.organizationId`.
+ * - **Notes:** a route that uses it carries no `app.authenticate`, so the route catalogue lists it
+ *   PUBLIC; it is no failed-authentication attempt (D-2) — a wrong token earns nothing to count.
+ */
+export async function authenticateWhenBearerPresent(request: FastifyRequest): Promise<void> {
+  if (request.auth || !request.headers.authorization) return;
+  try {
+    await authenticateWithBearerToken(request);
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      request.auth = null;
+      return;
+    }
+    throw error;
+  }
+  attachRequestPrincipalScope(request);
+}
+
 async function authenticateWithBearerToken(request: FastifyRequest): Promise<void> {
   const token = getBearerToken(request);
 

@@ -43,13 +43,18 @@ import {
   type CallerMembershipContext,
   type MembershipAccessRefs,
   type MembershipActionOptions,
+  type MembershipInviteeInput,
+  type MembershipInviteLine,
+  type MembershipInviteResultWithInvited,
   type MembershipOutput,
   type MembershipProfileData,
+  type MembershipRoleCount,
   type MembershipRow,
   membershipStatusConsumesSeat,
   type MembershipUserSummary,
 } from './membership.types.js';
 import {
+  isInvitableEmail,
   validateCreateMembership,
   validateDeleteMembershipQuery,
   validateUpdateMembership,
@@ -76,12 +81,16 @@ import { assertMembershipRolesAllowed } from '@/domains/tenancy/sub-domains/memb
 import { MembershipAdditionalRolesRepository } from './membership-additional-roles/membership-additional-roles.repository.js';
 import {
   MEMBERSHIP_DELETE_REASON,
+  MEMBERSHIP_INVITE_RESULT,
   MEMBERSHIP_ROLE_IDS_MAX,
   MEMBERSHIP_STATUS,
   type MembershipDeleteReason,
 } from './membership.constants.js';
 import { ADMIN_ROLE_NAME } from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
-import type { CreateMembershipInput, UpdateMembershipInput } from './membership.dto.js';
+import type { UpdateMembershipInput } from './membership.dto.js';
+
+/** An invite's expiry when the body names none, in days (the `expires_in_days` default). */
+const DEFAULT_INVITE_EXPIRES_IN_DAYS = 7;
 
 /**
  * Ends a manager cannot undo (B2-6): the person left or deleted their account, or the invite was
@@ -486,7 +495,7 @@ export class MembershipService {
   /** The staff profile columns of a create or update body (`commission_percent` as numeric text). */
   private toProfileData(
     parsed: Pick<
-      CreateMembershipInput & UpdateMembershipInput,
+      UpdateMembershipInput,
       'phone' | 'tone' | 'working_days' | 'work_starts_at' | 'work_ends_at' | 'commission_percent'
     >,
   ): MembershipProfileData {
@@ -838,7 +847,8 @@ export class MembershipService {
 
   /**
    * The team list (launch §2.B route 2): every status, filtered by `status`, `role_id` and `q`; ended members with `include_ended=true` (D58); the capped total on
-   * the first page.
+   * the first page; and `counts_by_role` — live members per main role, Owner first, whatever the
+   * filters (feat-instagram-dm-sending TN9, route 116).
    */
   async list({ scope, query }: { scope: OrganizationPrincipalDatabaseScope; query: unknown }) {
     const organization_public_id = scope.organizationPublicId;
@@ -850,12 +860,22 @@ export class MembershipService {
           await this.organizationService.requireOrganizationRecordByPublicId(
             organization_public_id,
           );
+        const counts_by_role: MembershipRoleCount[] = (
+          await this.membershipRepository.countLiveByMainRole(organization.id)
+        ).map((row) => ({ role_id: row.role_public_id, name: row.name, count: row.count }));
         const filters = await this.resolveListFilters({
           organizationId: organization.id,
           rolePublicId: parsed.role_id,
         });
         if (filters === null) {
-          return { items: [], total: 0, limit: parsed.limit, has_more: false, next_cursor: null };
+          return {
+            items: [],
+            total: 0,
+            limit: parsed.limit,
+            has_more: false,
+            next_cursor: null,
+            counts_by_role,
+          };
         }
         const result = await this.membershipRepository.list(organization.id, {
           ...filters,
@@ -872,6 +892,7 @@ export class MembershipService {
           ...result,
           // Batch-resolve user + role summaries + live invitations for the page (no N+1).
           items: await this.serializeMemberships({ rows: result.items, organization }),
+          counts_by_role,
         };
       },
     });
@@ -956,19 +977,30 @@ export class MembershipService {
     });
   }
 
+  /** Refuses the Owner role (the owner's main role) in `role_ids`: a 400 on `role_ids` (§ 9.C.9). */
+  private async assertNotOwnerRole(options: {
+    organization: OrganizationMembershipContext;
+    roleIds: readonly number[];
+  }): Promise<void> {
+    const ownerMembership = await this.membershipRepository.findByUserAndOrganization(
+      options.organization.owner_user_id,
+      options.organization.id,
+    );
+    if (ownerMembership && options.roleIds.includes(ownerMembership.role_id)) {
+      throw new ValidationError('errors:validation.inviteOwnerRole', undefined, undefined, [
+        { field: 'role_ids', messageKey: 'errors:validation.inviteOwnerRole' },
+      ]);
+    }
+  }
+
   /**
-   * The checks a member add must pass, in order — a TEAM organization, `role_ids` that are live roles
-   * here (main first, D5), the caller holding every code those roles grant, and a free seat — and
-   * what passed them. MUST run inside the organization's database context; the seat check takes the
-   * per-organization seat lock, held until that context commits.
-   *
-   * @remarks
-   * - **Failure modes:** `UnprocessableEntityError` for a PERSONAL organization; `ValidationError` on
-   *   `role_ids`; `ForbiddenError` (`custom_roles_off` — more than one role, or a custom one, while
-   *   custom roles are off; `cannotGrantPermissionNotHeld`); `ConflictError`
-   *   (`seat_limit_reached`).
+   * The role checks of a member add — a TEAM organization, `role_ids` that are live roles here
+   * (main first, D5) and allowed while custom roles are off, the caller holding every code they
+   * grant. MUST run inside the organization's database context. The invite runs it once for the
+   * whole request (with the Owner-role refusal); each address's add runs it again with the seat
+   * check.
    */
-  private async assertMemberAddAllowed(options: {
+  private async assertMemberRolesGrantable(options: {
     organizationPublicId: string;
     rolePublicIds: readonly string[];
     invitedByUserPublicId: string | undefined;
@@ -993,23 +1025,65 @@ export class MembershipService {
     assertMembershipRolesAllowed({ roles });
     const [role, ...additionalRoles] = roles;
     if (!role) throw new ValidationError('errors:invalidInput');
+    const roleIds = roles.map((resolved) => resolved.id);
     // Privilege-escalation guard: the caller must already hold every permission the assigned roles
     // would grant, or a MEMBERSHIP_CREATE holder could mint an Admin membership for a throwaway
     // address and accept it → full organization takeover. Runs BEFORE any row is persisted.
     await this.assertCallerCanGrantRoles({
-      roleIds: roles.map((resolved) => resolved.id),
+      roleIds,
       callerUserPublicId: options.invitedByUserPublicId,
       organizationPublicId: options.organizationPublicId,
     });
+    return { organization, role, additionalRoles };
+  }
+
+  /**
+   * The checks a member add must pass, in order — a TEAM organization, `role_ids` that are live roles
+   * here (main first, D5), the caller holding every code those roles grant, and a free seat — and
+   * what passed them. MUST run inside the organization's database context; the seat check takes the
+   * per-organization seat lock, held until that context commits.
+   *
+   * @remarks
+   * - **Failure modes:** `UnprocessableEntityError` for a PERSONAL organization; `ValidationError` on
+   *   `role_ids`; `ForbiddenError` (`custom_roles_off` — more than one role, or a custom one, while
+   *   custom roles are off; `cannotGrantPermissionNotHeld`); `ConflictError`
+   *   (`seat_limit_reached`).
+   */
+  private async assertMemberAddAllowed(options: {
+    organizationPublicId: string;
+    rolePublicIds: readonly string[];
+    invitedByUserPublicId: string | undefined;
+  }): Promise<{
+    organization: OrganizationMembershipContext;
+    role: ResolvedRole;
+    additionalRoles: ResolvedRole[];
+  }> {
+    const allowed = await this.assertMemberRolesGrantable(options);
     // REQ-4: enforce the plan seat limit before persisting the new membership. Runs INSIDE the
     // caller's organization transaction so the per-organization advisory lock (plus the FOR UPDATE
     // row lock when a subscription exists) serializes concurrent adds — two simultaneous adds cannot
     // both pass the same count and exceed the limit, on the paid OR the free-tier path (audit-#M1).
     // Ceiling of null (unlimited plan / unwired port) is a no-op.
-    await this.assertSeatAvailableForMemberAdd(organization.id);
-    return { organization, role, additionalRoles };
+    await this.assertSeatAvailableForMemberAdd(allowed.organization.id);
+    return allowed;
   }
 
+  /**
+   * Invites one address (one line of {@link MembershipService.invite}): provisions or finds the
+   * login, creates (or revives, K7) an `invited` membership with the given role and emails its
+   * invitation.
+   *
+   * @remarks
+   * - **Algorithm:** the add checks in a short unit of work first (team, roles, the grant guard, a
+   *   free seat — B2-7), then the login in its own transaction, then the membership,
+   *   the invitation and the events in the organization's unit of work. After commit: the
+   *   permission cache and the Stripe seat quantity.
+   * - **Failure modes:** `ValidationError` (`disposable_email`, `role_ids`); `ForbiddenError`
+   *   (`custom_roles_off`, a code the caller does not hold); `UnprocessableEntityError` (a personal
+   *   organization); `ConflictError` (`membership_already_exists` — a live membership of the login,
+   *   `seat_limit_reached`); `NotFoundError('User')` for an unknown inviter.
+   * - **Side effects:** may create a login; writes the membership and invitation; emails the token.
+   */
   async create({
     scope,
     body,
@@ -1017,12 +1091,15 @@ export class MembershipService {
     options,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    body: unknown;
+    body: MembershipInviteeInput;
     invited_by_user_public_id: string | undefined;
     options?: { requestId?: string } | undefined;
   }): Promise<MembershipOutput> {
     const organization_public_id = scope.organizationPublicId;
-    const parsed = validateCreateMembership(body);
+    const parsed = {
+      ...body,
+      expires_in_days: body.expires_in_days ?? DEFAULT_INVITE_EXPIRES_IN_DAYS,
+    };
     const userService = this.userService;
     const membershipInvitationService = this.membershipInvitationService;
     if (!(userService && membershipInvitationService)) {
@@ -1082,7 +1159,7 @@ export class MembershipService {
                 organizationId: organization.id,
                 roleId: role.id,
                 invitedByUserId: inviterId,
-                profile: this.toProfileData(parsed),
+                profile: {},
               })
             : null;
           created =
@@ -1094,7 +1171,7 @@ export class MembershipService {
               status: MEMBERSHIP_STATUS.INVITED,
               invited_by_user_id: inviterId,
               created_by_user_id: inviterId,
-              profile: this.toProfileData(parsed),
+              profile: {},
             }));
         } catch (error) {
           // The invitee already belongs to this organization (idx_memberships_user_org_unique) —
@@ -1148,6 +1225,144 @@ export class MembershipService {
     // Enqueued AFTER the organization transaction commits so the worker re-reads the new count. Best-effort.
     this.enqueueSeatQuantitySync(organization_public_id);
     return result;
+  }
+
+  /**
+   * The "Invite" action (feat-instagram-dm-sending route 117, TN10, P82): 1–20 addresses with one
+   * role, one line per address.
+   *
+   * @remarks
+   * - **Algorithm:** validate the body; fold repeats (the addresses are already trimmed and
+   *   lower-cased); refuse the whole invite up front when the role cannot be given (a team
+   *   organization, one live system role — not the Owner role — the caller holding its codes); then
+   *   each address in order, each in its own unit of work: not an email we accept →
+   *   `invalid_email`; a live membership of that login → `already_member` (or `already_invited`
+   *   while it is `invited`); else {@link MembershipService.create} → `invited`. A membership a
+   *   concurrent request created between the read and the write is read again and classified.
+   * - **Failure modes:** `ValidationError` (`emails`, `role_ids`), `ForbiddenError`
+   *   (`custom_roles_off`, `cannotGrantPermissionNotHeld`), `UnprocessableEntityError` (personal
+   *   organization) — before any address is touched; `ConflictError` `seat_limit_reached` from an
+   *   address (unreachable while plans carry no seats, TN4) ends the request after the lines before
+   *   it were committed — a retry with the same key re-runs and answers those `already_invited`.
+   * - **Side effects:** per `invited` address, as {@link MembershipService.create}.
+   */
+  async invite({
+    scope,
+    body,
+    invited_by_user_public_id,
+    options,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    body: unknown;
+    invited_by_user_public_id: string | undefined;
+    options?: { requestId?: string } | undefined;
+  }): Promise<MembershipInviteResultWithInvited> {
+    const parsed = validateCreateMembership(body);
+    const userService = this.userService;
+    if (!userService) {
+      throw new ConfigurationError(
+        'UserService must be wired on MembershipService (tenancy.container).',
+      );
+    }
+    const organization = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const allowed = await this.assertMemberRolesGrantable({
+          organizationPublicId: scope.organizationPublicId,
+          rolePublicIds: parsed.role_ids,
+          invitedByUserPublicId: invited_by_user_public_id,
+        });
+        // § 9.C.9: the Owner role is never given by an invite — ownership passes only by transfer.
+        await this.assertNotOwnerRole({
+          organization: allowed.organization,
+          roleIds: [allowed.role.id, ...allowed.additionalRoles.map((extra) => extra.id)],
+        });
+        return allowed.organization;
+      },
+    });
+    const results: MembershipInviteLine[] = [];
+    const invited: MembershipOutput[] = [];
+    for (const email of [...new Set(parsed.emails)]) {
+      if (!isInvitableEmail(email) || isDisposableEmailBlocked(email)) {
+        results.push({
+          email,
+          result: MEMBERSHIP_INVITE_RESULT.INVALID_EMAIL,
+          membership_id: null,
+        });
+        continue;
+      }
+      const existing = await this.classifyExistingInvitee({ scope, organization, email });
+      if (existing) {
+        results.push(existing);
+        continue;
+      }
+      try {
+        const membership = await this.create({
+          scope,
+          body: { email, role_ids: parsed.role_ids, expires_in_days: parsed.expires_in_days },
+          invited_by_user_public_id,
+          options,
+        });
+        invited.push(membership);
+        const echoedToken = membership.invitation?.debug_invitation_token;
+        results.push({
+          email,
+          result: MEMBERSHIP_INVITE_RESULT.INVITED,
+          membership_id: membership.id,
+          ...(echoedToken === undefined ? {} : { debug_invitation_token: echoedToken }),
+        });
+      } catch (error) {
+        if (!(error instanceof ConflictError && error.reason === 'membership_already_exists')) {
+          throw error;
+        }
+        results.push(
+          (await this.classifyExistingInvitee({ scope, organization, email })) ?? {
+            email,
+            result: MEMBERSHIP_INVITE_RESULT.ALREADY_INVITED,
+            membership_id: null,
+          },
+        );
+      }
+    }
+    return {
+      output: {
+        results,
+        invited_count: results.filter((line) => line.result === MEMBERSHIP_INVITE_RESULT.INVITED)
+          .length,
+      },
+      invited,
+    };
+  }
+
+  /**
+   * The invite line of an address whose login already holds a live membership here:
+   * `already_invited` while it is `invited`, else `already_member` with its id; `null` when the
+   * address has no login or the login no live membership.
+   */
+  private async classifyExistingInvitee(options: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organization: OrganizationMembershipContext;
+    email: string;
+  }): Promise<MembershipInviteLine | null> {
+    const user = await this.userService?.findByEmail(options.email);
+    if (!user || user.deleted_at) return null;
+    const membership = await withAppDatabaseContext({
+      scope: options.scope,
+      callback: () =>
+        this.membershipRepository.findByUserAndOrganization(user.id, options.organization.id),
+    });
+    if (!membership) return null;
+    return membership.status === MEMBERSHIP_STATUS.INVITED
+      ? {
+          email: options.email,
+          result: MEMBERSHIP_INVITE_RESULT.ALREADY_INVITED,
+          membership_id: null,
+        }
+      : {
+          email: options.email,
+          result: MEMBERSHIP_INVITE_RESULT.ALREADY_MEMBER,
+          membership_id: membership.public_id,
+        };
   }
 
   /**

@@ -61,6 +61,7 @@
     "uploadNotConfirmed": "La carga debe confirmarse antes de poder adjuntarse",
     "unrecognizedKey": "Clave no reconocida: \"{{key}}\"",
     "membershipRoleNotFound": "{{role_id}} no es un rol de esta organización",
+    "inviteOwnerRole": "El rol de propietario no se puede dar con una invitación: la propiedad solo pasa por transferencia",
     "formerOwnerRoleIsOwnerRole": "El propietario anterior pasa a otro rol; el rol de propietario pasa al nuevo propietario",
     "workEndsBeforeStarts": "El horario de trabajo debe terminar después de empezar",
     "receivedFromNotBeforeTo": "received_from debe ser anterior a received_to",

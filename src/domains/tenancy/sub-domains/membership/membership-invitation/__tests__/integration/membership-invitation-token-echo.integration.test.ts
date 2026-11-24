@@ -15,6 +15,11 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { env } from '@/shared/config/env.config.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import {
+  firstInviteLine,
+  invitedMembershipPublicId,
+  pendingInvitationPublicId,
+} from '@/tests/helpers/membership-invite.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -98,9 +103,19 @@ describe('Membership invitation accept-token echo (ROUTE #164)', () => {
     return { organization, adminToken, memberRole, invitee, inviteeToken };
   }
 
-  type AddMemberAnswer = {
-    data: { id: string; invitation: { id: string; debug_invitation_token?: string } | null };
-  };
+  /** The invited membership, its pending invitation and the echoed token (when the flag is on). */
+  async function readAdded(response: { json(): unknown }) {
+    const line = firstInviteLine(response);
+    const id = invitedMembershipPublicId(response);
+    return {
+      id,
+      line,
+      invitation: {
+        id: await pendingInvitationPublicId(id),
+        debug_invitation_token: line.debug_invitation_token,
+      },
+    };
+  }
   type InvitationAnswer = { data: { id: string; debug_invitation_token?: string } };
 
   async function addMember(context: Awaited<ReturnType<typeof createContext>>) {
@@ -109,7 +124,7 @@ describe('Membership invitation accept-token echo (ROUTE #164)', () => {
       url: testApiPath('/tenancy/organization/memberships'),
       token: context.adminToken,
       headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
-      payload: { email: context.invitee.email, role_ids: [context.memberRole.public_id] },
+      payload: { emails: [context.invitee.email], role_ids: [context.memberRole.public_id] },
     });
   }
 
@@ -151,15 +166,15 @@ describe('Membership invitation accept-token echo (ROUTE #164)', () => {
 
     const added = await addMember(context);
     expect(added.statusCode).toBe(200);
-    const { data: membership } = added.json() as AddMemberAnswer;
-    const echoedToken = membership.invitation?.debug_invitation_token;
+    const membership = await readAdded(added);
+    const echoedToken = membership.invitation.debug_invitation_token;
     expect(echoedToken).toMatch(/^[0-9a-f]{64}$/);
     // A secret-bearing answer is never cached by a proxy (compress.middleware).
     expect(String(added.headers['cache-control'])).toContain('no-store');
 
     const accepted = await acceptInvitation({
       inviteeToken: context.inviteeToken,
-      invitationPublicId: membership.invitation!.id,
+      invitationPublicId: membership.invitation.id,
       token: echoedToken!,
     });
     expect(accepted.statusCode).toBe(200);
@@ -172,13 +187,13 @@ describe('Membership invitation accept-token echo (ROUTE #164)', () => {
   it('on: the resend answer carries the new token — it accepts, the replaced one does not', async () => {
     env.MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED = true;
     const context = await createContext();
-    const { data: membership } = (await addMember(context)).json() as AddMemberAnswer;
-    const firstToken = membership.invitation!.debug_invitation_token!;
+    const membership = await readAdded(await addMember(context));
+    const firstToken = membership.invitation.debug_invitation_token!;
 
     const resent = await resendInvitation(context.adminToken, membership.id);
     expect(resent.statusCode).toBe(200);
     const { data: invitation } = resent.json() as InvitationAnswer;
-    expect(invitation.id).toBe(membership.invitation!.id);
+    expect(invitation.id).toBe(membership.invitation.id);
     expect(invitation.debug_invitation_token).toMatch(/^[0-9a-f]{64}$/);
     expect(invitation.debug_invitation_token).not.toBe(firstToken);
 
@@ -204,9 +219,8 @@ describe('Membership invitation accept-token echo (ROUTE #164)', () => {
 
     const added = await addMember(context);
     expect(added.statusCode).toBe(200);
-    const { data: membership } = added.json() as AddMemberAnswer;
-    expect(membership.invitation).not.toBeNull();
-    expect(membership.invitation).not.toHaveProperty('debug_invitation_token');
+    const membership = await readAdded(added);
+    expect(membership.line).not.toHaveProperty('debug_invitation_token');
 
     const resent = await resendInvitation(context.adminToken, membership.id);
     expect(resent.statusCode).toBe(200);
@@ -216,7 +230,7 @@ describe('Membership invitation accept-token echo (ROUTE #164)', () => {
   it('on: the resend route keeps its permission gate', async () => {
     env.MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED = true;
     const context = await createContext();
-    const { data: membership } = (await addMember(context)).json() as AddMemberAnswer;
+    const membership = await readAdded(await addMember(context));
 
     // A member holding only membership:read cannot resend — and so cannot mint a token.
     const reader = await createTestUser();

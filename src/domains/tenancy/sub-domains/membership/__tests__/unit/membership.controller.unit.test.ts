@@ -50,9 +50,18 @@ describe('createMembershipController', () => {
       total: null,
       has_more: true,
       next_cursor: 'membership_cursor_2',
+      counts_by_role: [{ role_id: 'rol_owner', name: 'Owner', count: 1 }],
     }),
     getByPublicId: vi.fn().mockResolvedValue(membership),
-    create: vi.fn().mockResolvedValue(membership),
+    invite: vi.fn().mockResolvedValue({
+      output: {
+        results: [
+          { email: 'invitee@example.com', result: 'invited', membership_id: membershipPublicId },
+        ],
+        invited_count: 1,
+      },
+      invited: [membership],
+    }),
     update: vi.fn().mockResolvedValue(membership),
     delete: vi.fn().mockResolvedValue(undefined),
     revokeInvitation: vi.fn().mockResolvedValue(undefined),
@@ -72,6 +81,8 @@ describe('createMembershipController', () => {
     expect(response).toMatchObject({
       meta: {
         pagination: expect.objectContaining({ has_more: true, next: 'membership_cursor_2' }),
+        // TN9 (route 116): the header counts ride in meta beside the page.
+        counts_by_role: [{ role_id: 'rol_owner', name: 'Owner', count: 1 }],
       },
     });
   });
@@ -91,7 +102,7 @@ describe('createMembershipController', () => {
     await controller.createMembership(
       mockRequest({
         params: {},
-        body: { email: 'invitee@example.com', role_ids: [generatePublicId('memberRole')] },
+        body: { emails: ['invitee@example.com'], role_ids: [generatePublicId('memberRole')] },
       }),
       reply as unknown as FastifyReply,
     );
@@ -231,8 +242,8 @@ describe('createMembershipController', () => {
       mockRequest({
         params: {},
         body: {
-          email: 'invitee@example.com',
-          role_id: generatePublicId('memberRole'),
+          emails: ['invitee@example.com'],
+          role_ids: [generatePublicId('memberRole')],
           expires_in_days: 14,
         },
       }),
@@ -241,7 +252,7 @@ describe('createMembershipController', () => {
     // The controller no longer sets an explicit status: the uniform method-status policy
     // (POST -> 200) owns the code, so the handler must leave reply.code untouched.
     expect(reply.code).not.toHaveBeenCalled();
-    expect(service.create).toHaveBeenCalled();
+    expect(service.invite).toHaveBeenCalled();
   });
 
   it('listMemberships rejects with ForbiddenError when params omit organization id', async () => {

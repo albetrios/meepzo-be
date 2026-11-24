@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+// These flows invite into a custom role; custom roles are switched off in this product
+// (feat-instagram-dm-sending TN3, P203 (7)), so the suite runs with the platform switch on.
+vi.mock(
+  '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    TENANCY_CUSTOM_ROLES_ENABLED: true,
+  }),
+);
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -97,7 +106,7 @@ describe('Subscription seat ceiling after the seat sync (ROUTE #165)', () => {
       url: testApiPath('/tenancy/organization/memberships'),
       token,
       headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
-      payload: { email: `seat-${randomUUID()}@test.com`, role_ids: [memberRolePublicId] },
+      payload: { emails: [`seat-${randomUUID()}@test.com`], role_ids: [memberRolePublicId] },
     });
   }
 

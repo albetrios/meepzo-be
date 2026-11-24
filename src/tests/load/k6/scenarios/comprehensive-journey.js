@@ -561,10 +561,10 @@ function inviteChangeRemoveRevoke(uniq, invitee) {
       'create-membership',
       'POST',
       '/tenancy/organization/memberships',
-      // `role_ids`, the main role first (launch D5).
-      { email: invitee.email, role_ids: [roleForMember], expires_in_days: 7 },
+      // Route 117 (TN10): `emails` (1–20) with one role; one line per email.
+      { emails: [invitee.email], role_ids: [roleForMember], expires_in_days: 7 },
       true,
-    ).json('data.id');
+    ).json('data.results.0.membership_id');
 
   const membershipId = invite();
   if (membershipId) {

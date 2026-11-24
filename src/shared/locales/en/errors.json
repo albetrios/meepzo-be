@@ -61,6 +61,7 @@
     "uploadNotConfirmed": "Upload must be confirmed before it can be attached",
     "unrecognizedKey": "Unrecognized key: \"{{key}}\"",
     "membershipRoleNotFound": "{{role_id}} is not a role of this organization",
+    "inviteOwnerRole": "The Owner role cannot be given by an invitation — ownership passes only by transfer",
     "formerOwnerRoleIsOwnerRole": "The former owner moves to another role; the Owner role passes to the new owner",
     "workEndsBeforeStarts": "Working hours must end after they start",
     "receivedFromNotBeforeTo": "received_from must be before received_to",

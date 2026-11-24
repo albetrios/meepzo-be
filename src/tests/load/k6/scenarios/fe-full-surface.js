@@ -810,7 +810,7 @@ function membershipBlock(auth, inviteeEmail, seatCeiling) {
 
   const invited = http.post(
     `${API}/tenancy/organization/memberships`,
-    JSON.stringify({ email: inviteeEmail, role_ids: [member.id] }),
+    JSON.stringify({ emails: [inviteeEmail], role_ids: [member.id] }),
     {
       headers: { ...auth, 'X-Idempotency-Key': idempotencyKey('fe-invite') },
       tags: { name: '44-invite-member' },
@@ -829,7 +829,8 @@ function membershipBlock(auth, inviteeEmail, seatCeiling) {
   if (seatLimited) seatLimitHit.add(1);
   const inviteOk = record('44-invite-member', invited, seatLimited ? [409] : [200, 201]);
   if (!inviteOk) state.ok = false;
-  const membershipId = !seatLimited && inviteOk ? (body(invited).id ?? null) : null;
+  const membershipId =
+    !seatLimited && inviteOk ? (body(invited).results?.[0]?.membership_id ?? null) : null;
 
   if (membershipId) {
     step(

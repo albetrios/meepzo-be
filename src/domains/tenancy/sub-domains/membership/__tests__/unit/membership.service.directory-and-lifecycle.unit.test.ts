@@ -161,6 +161,7 @@ describe('MembershipService — directory, restore, wired ports and setup reads'
     ),
     resolveLiveInvitationsByMembershipIds: vi.fn(async () => new Map()),
     countActiveByOrganization: vi.fn().mockResolvedValue(0),
+    countLiveByMainRole: vi.fn().mockResolvedValue([]),
   } as unknown as MembershipRepository;
 
   const authorizationService = {

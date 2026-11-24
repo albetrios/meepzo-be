@@ -58,7 +58,7 @@ through a resolver that sees deleted organizations.
 | `tenancy.organization.update` | `organization` | Name, slug or status changed (`metadata.changed_fields`; a status change at `WARNING`) |
 | `tenancy.organization.delete` | `organization` | Organization deleted (`WARNING`; when the delete erased Instagram accounts (launch D54), `metadata.erased_instagram_account_public_ids` and `metadata.erased_instagram_post_count` — the one record of that erase; a delete the reconcile worker finishes writes no row) |
 | `tenancy.organization_settings.update` | `organization_settings` | Settings changed (`metadata.changed_fields`; a `security_policy` change at `WARNING`) |
-| `tenancy.membership.create` | `membership` | Member added — an invitation is sent |
+| `tenancy.membership.create` | `membership` | Member invited — one entry per email of an invite answered `invited`; an invitation is sent |
 | `tenancy.membership.update` | `membership` | Member's role or status changed (the member in `target_user_id`) |
 | `tenancy.membership.delete` | `membership` | Member removed |
 | `tenancy.membership.leave` | `membership` | Member left the organization |

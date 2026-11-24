@@ -30,8 +30,8 @@ One code set (launch T8): `membership:read|create|update|delete`; every `POST` t
 
 | Route | Gate | Note |
 | --- | --- | --- |
-| `GET /tenancy/organization/memberships` | `membership:read` | every status; `q`, `status`, `role_id`, `include_ended` (D58), `sort` `created_at` / `name`; `estimated_total` on the first page; a bad filter is 400 invalid input on the field (USERS-M5) |
-| `POST /tenancy/organization/memberships` | `membership:create` | invite + `role_ids` + profile; the same login added again gets its ended membership back (K7); the dev-only `invitation.debug_invitation_token` echo (ROUTE #164) |
+| `GET /tenancy/organization/memberships` | `membership:read` | every status; `q`, `status`, `role_id`, `include_ended` (D58), `sort` `created_at` / `name`; `estimated_total` on the first page; a bad filter is 400 invalid input on the field (USERS-M5); `meta.counts_by_role` — live members per main role, Owner first, whatever the filters (feat-instagram-dm-sending TN9) |
+| `POST /tenancy/organization/memberships` | `membership:create` | invite 1–20 `emails` with exactly one `role_ids` (feat-instagram-dm-sending TN10, P82 — a system role, never the Owner role, 400); one line per email in order, each its own unit of work: `invited` · `already_member` · `already_invited` · `invalid_email`, plus `invited_count`; one audit entry per invited membership; the same login added again gets its ended membership back (K7); the dev-only `debug_invitation_token` echo on an invited line (ROUTE #164); staff details only by `PATCH` |
 | `GET /tenancy/organization/memberships/{membership_id}` | `membership:read` | live or ended (D58) |
 | `PATCH /tenancy/organization/memberships/{membership_id}` | `membership:update` | live: `status` `active` ↔ `suspended` (T10), `role_ids`, profile; ended: `display_name` only (K6, D58); `expected_updated_at` (T14) |
 | `DELETE /tenancy/organization/memberships/{membership_id}?reason=&note=` | `membership:delete` | soft delete with `delete_reason` (+ `delete_note` for `other`) |

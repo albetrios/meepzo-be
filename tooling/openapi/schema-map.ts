@@ -69,6 +69,7 @@ import {
 
 import {
   acceptMembershipInvitationDto,
+  previewMembershipInvitationDto,
   resendMembershipInvitationDto,
 } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.dto.js';
 
@@ -164,6 +165,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Invitations ── (add-member issues invitations via POST /organization/memberships, REQ-1)
   'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/accept':
     acceptMembershipInvitationDto,
+  'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/preview':
+    previewMembershipInvitationDto,
   'POST /api/v1/tenancy/organization/memberships/{membership_id}/invitation/resend':
     resendMembershipInvitationDto,
 

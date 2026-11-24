@@ -25,16 +25,19 @@ import type {
 import type {
   AcceptMembershipInvitationOutput,
   MembershipInvitationOutput,
+  MembershipInvitationPreviewOutput,
   MembershipInvitationRow,
   MyMembershipInvitationOutput,
 } from './membership-invitation.types.js';
 import {
   validateAcceptMembershipInvitation,
   validateListMyMembershipInvitationsQuery,
+  validatePreviewMembershipInvitation,
   validateResendMembershipInvitation,
 } from './membership-invitation.validator.js';
 import {
   serializeMembershipInvitation,
+  serializeMembershipInvitationPreview,
   serializeMyMembershipInvitation,
 } from './membership-invitation.serializer.js';
 import { resolveStoredMediaReadUrl } from '@/shared/utils/infrastructure/media-url.util.js';
@@ -409,6 +412,44 @@ export class MembershipInvitationService {
       }),
     );
     return withInvitationTokenEcho({ output, token });
+  }
+
+  /**
+   * The invitation page (feat-instagram-dm-sending route 118, TN11): what an invitation says to
+   * whoever holds its emailed token, signed in or not.
+   *
+   * @remarks
+   * - **Algorithm:** validate the body; the SECURITY DEFINER preview read by public id AND the
+   *   token's SHA-256; when a signed-in caller came with it, their login — `email_matches` is true
+   *   only for a verified email equal to the invitation's.
+   * - **Failure modes:** `ValidationError` (`token`); `NotFoundError` for an unknown id, a wrong
+   *   token or a deleted organization — one answer, so the route says nothing without the token.
+   * - **Side effects:** none — no row written, no audit entry.
+   */
+  async preview({
+    invitation_public_id,
+    body,
+    signedInUserPublicId,
+  }: {
+    invitation_public_id: string;
+    body: unknown;
+    /** The caller's user public id when a valid bearer came with the request; else `null`. */
+    signedInUserPublicId: string | null;
+  }): Promise<MembershipInvitationPreviewOutput> {
+    const parsed = validatePreviewMembershipInvitation(body);
+    const row = await this.invitationRepository.findPreviewByPublicIdAndTokenHash({
+      invitation_public_id,
+      token_hash: hashInvitationToken(parsed.token),
+    });
+    if (!row) throw new NotFoundError(MEMBERSHIP_INVITATION_RESOURCE);
+    if (signedInUserPublicId === null) {
+      return serializeMembershipInvitationPreview({ row, signed_in: false, email_matches: null });
+    }
+    const caller = await this.userService?.findUserRecordByPublicId(signedInUserPublicId);
+    const email_matches =
+      caller?.is_email_verified === true &&
+      caller.email.toLowerCase() === row.invitee_email.toLowerCase();
+    return serializeMembershipInvitationPreview({ row, signed_in: true, email_matches });
   }
 
   async accept({

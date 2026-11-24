@@ -304,6 +304,104 @@ export const debugInvitationTokenProperty = {
     'The raw invitation accept token — present only in non-production, when MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED is on (the env schema refuses it in production; there the token travels only in the invitation email). Pass it as `token` to POST /tenancy/membership-invitations/{membership_invitation_id}/accept.',
 };
 
+/** `meta.counts_by_role` on `GET /tenancy/organization/memberships` (route 116, TN9). */
+export const membershipCountsByRoleProperty = {
+  type: 'array',
+  description:
+    "Each role that is a live member's main role (invited, active or suspended — not ended) with how many hold it, the Owner role first — whatever the list's filters.",
+  items: {
+    type: 'object',
+    properties: {
+      role_id: { type: 'string' },
+      name: { type: 'string' },
+      count: { type: 'integer' },
+    },
+  },
+  example: [
+    { role_id: 'rol_a1b2c3d4e5f6g7h8i9j0k', name: 'Owner', count: 1 },
+    { role_id: 'rol_k7x9m2pqr4w8n1v3a1b2c', name: 'Editor', count: 3 },
+  ],
+};
+
+/** `POST /tenancy/organization/memberships` answer (route 117, TN10): one line per email. */
+export const membershipInviteSchema = {
+  type: 'object',
+  properties: {
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          email: { type: 'string' },
+          result: {
+            type: 'string',
+            enum: ['invited', 'already_member', 'already_invited', 'invalid_email'],
+          },
+          membership_id: {
+            type: 'string',
+            nullable: true,
+            description: 'The membership (mem_…) when invited or already_member; null otherwise.',
+          },
+          debug_invitation_token: debugInvitationTokenProperty,
+        },
+      },
+    },
+    invited_count: { type: 'integer' },
+  },
+};
+
+export const membershipInviteExample = {
+  results: [
+    {
+      email: 'jane.smith@example.com',
+      result: 'invited',
+      membership_id: 'mem_q8w3n7p2m5k1r4t6a1b2c',
+    },
+    {
+      email: 'sam.lee@example.com',
+      result: 'already_member',
+      membership_id: 'mem_k7x9m2pqr4w8n1v3a1b2c',
+    },
+    { email: 'not-an-email', result: 'invalid_email', membership_id: null },
+  ],
+  invited_count: 1,
+};
+
+/** `POST /tenancy/membership-invitations/{membership_invitation_id}/preview` (route 118, TN11). */
+export const invitationPreviewSchema = {
+  type: 'object',
+  properties: {
+    state: { type: 'string', enum: ['valid', 'accepted', 'expired', 'revoked'] },
+    organization: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        logo_color: { type: 'string', enum: ['sky', 'lavender', 'sage', 'peach', 'slate'] },
+      },
+    },
+    role_name: { type: 'string' },
+    inviter_first_name: { type: 'string', nullable: true },
+    expires_at: { type: 'string', format: 'date-time' },
+    signed_in: { type: 'boolean' },
+    email_matches: {
+      type: 'boolean',
+      nullable: true,
+      description:
+        'Whether the signed-in, verified email is the invited one; null when signed out.',
+    },
+  },
+};
+
+export const invitationPreviewExample = {
+  state: 'valid',
+  organization: { name: 'Glow Studio', logo_color: 'lavender' },
+  role_name: 'Editor',
+  inviter_first_name: 'Jane',
+  expires_at: '2026-02-21T10:30:00.000Z',
+  signed_in: true,
+  email_matches: true,
+};
+
 export const invitationExample = {
   id: 'inv_r4t6m3n7p2q8w5k1a1b2c',
   membership_id: 'mem_q8w3n7p2m5k1r4t6a1b2c',

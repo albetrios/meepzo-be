@@ -17,6 +17,7 @@ import {
   RESOURCE_QUOTA_LOCK_NAMESPACE,
 } from '@/infrastructure/database/resource-quota-lock.util.js';
 import type {
+  MembershipInvitationPreviewRow,
   MembershipInvitationRow,
   PendingInvitationForEmailRow,
 } from './membership-invitation.types.js';
@@ -198,6 +199,30 @@ export class MembershipInvitationRepository {
       membership_public_id: row.membership_public_id,
       membership_id: Number(row.membership_id),
     };
+  }
+
+  /**
+   * The invitation page's read (feat-instagram-dm-sending TN11, route 118): the invitation whose
+   * public id AND token hash both match, through the SECURITY DEFINER
+   * `tenancy.resolve_membership_invitation_preview` (the caller holds no organization context).
+   * `null` for an unknown id, a wrong token or a deleted organization — one answer for all three.
+   */
+  async findPreviewByPublicIdAndTokenHash(options: {
+    invitation_public_id: string;
+    token_hash: string;
+  }): Promise<MembershipInvitationPreviewRow | null> {
+    type PreviewDatabaseRow = Omit<MembershipInvitationPreviewRow, 'expires_at'> & {
+      expires_at: Date | string;
+    };
+    const result = await getContextFreeDatabase().execute<PreviewDatabaseRow>(
+      sql`SELECT state, organization_name, organization_logo_color, role_name, inviter_first_name, expires_at, invitee_email FROM tenancy.resolve_membership_invitation_preview(${options.invitation_public_id}, ${options.token_hash})`,
+    );
+    const rows = (
+      Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
+    ) as PreviewDatabaseRow[];
+    const row = rows[0];
+    if (!row) return null;
+    return { ...row, expires_at: new Date(row.expires_at) };
   }
 
   /**

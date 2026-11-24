@@ -1098,6 +1098,7 @@ src/
     │   │   ├── membership/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── membership-invite-preview.integration.test.ts
     │   │   │   │   │   ├── membership-lifecycle-guards.integration.test.ts
     │   │   │   │   │   ├── membership-ownership-transfer.integration.test.ts
     │   │   │   │   │   └── membership.integration.test.ts
@@ -2361,6 +2362,7 @@ src/
     │   ├── iteration-repository.helper.ts
     │   ├── json-query.helper.ts
     │   ├── local-test-database.ts
+    │   ├── membership-invite.helper.ts
     │   ├── object-storage-mock.helper.ts
     │   ├── operator-database.ts
     │   ├── organization-filter-audit.allowlist.ts
@@ -2596,6 +2598,7 @@ src/
     │   │   ├── billing-mutation-rate-limit.security.test.ts
     │   │   ├── cross-tenant-rate-limit.security.test.ts
     │   │   ├── failed-authentication-rate-limit.security.test.ts
+    │   │   ├── invitation-preview-rate-limit.security.test.ts
     │   │   ├── notify-mutation-rate-limit.security.test.ts
     │   │   ├── preset-authed-burst.security.test.ts
     │   │   ├── rate-limit-burst.security.test.ts

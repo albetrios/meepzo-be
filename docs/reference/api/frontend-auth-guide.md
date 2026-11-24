@@ -199,8 +199,13 @@ This works **identically for personal and team organizations** — there is one 
 > `POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/accept`.
 >
 > **Inviting is not a separate resource.** There is **no** `POST` or `GET /tenancy/organization/invitations`.
-> To invite a teammate, `POST /api/v1/tenancy/organization/memberships` with `{ email, role_id }` — this
-> creates an **`invited` membership** and emails a token. Invited people appear in the **members list**
+> To invite teammates, `POST /api/v1/tenancy/organization/memberships` with `{ emails, role_ids }` — 1–20
+> emails and exactly one role (a system role, not Owner). Each email answers its own line in `results`
+> (`invited` · `already_member` · `already_invited` · `invalid_email`, with `membership_id` when invited or
+> already a member) plus `invited_count`; each invited email gets an **`invited` membership** and an
+> emailed token. The members list's `meta.counts_by_role` gives the header counts per main role. The
+> invitation page reads `POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/preview`
+> with `{ token }` (public; send the bearer when signed in for `email_matches`). Invited people appear in the **members list**
 > (`GET /api/v1/tenancy/organization/memberships`) with `status: "invited"` and an embedded `invitation`
 > object; there is no separate pending-invitations list to fetch. Revoke with
 > `DELETE /api/v1/tenancy/organization/memberships/{membership_id}/invitation` and resend with

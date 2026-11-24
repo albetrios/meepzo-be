@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { invitedMembershipPublicId } from '@/tests/helpers/membership-invite.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -133,7 +134,7 @@ describe('Membership lifecycle guards (B2-2, B2-6, B2-7, B2-11)', () => {
       url: testApiPath('/tenancy/organization/memberships'),
       token: options.token,
       headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
-      payload: { email: options.email, role_ids: [options.rolePublicId] },
+      payload: { emails: [options.email], role_ids: [options.rolePublicId] },
     });
   }
 
@@ -230,7 +231,7 @@ describe('Membership lifecycle guards (B2-2, B2-6, B2-7, B2-11)', () => {
         rolePublicId: managerRole.public_id,
       });
       expect(invited.statusCode, invited.body).toBe(200);
-      const membershipPublicId = (invited.json() as { data: { id: string } }).data.id;
+      const membershipPublicId = invitedMembershipPublicId(invited);
       const revoked = await injectAuthenticated(app, {
         method: 'DELETE',
         url: testApiPath(`/tenancy/organization/memberships/${membershipPublicId}/invitation`),
@@ -272,7 +273,7 @@ describe('Membership lifecycle guards (B2-2, B2-6, B2-7, B2-11)', () => {
         rolePublicId: seniorRole.public_id,
       });
       expect(invited.statusCode, invited.body).toBe(200);
-      const membershipPublicId = (invited.json() as { data: { id: string } }).data.id;
+      const membershipPublicId = invitedMembershipPublicId(invited);
 
       const byManager = await injectAuthenticated(app, {
         method: 'DELETE',

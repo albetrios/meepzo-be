@@ -153,5 +153,6 @@
   "PUT /api/v1/users/me/presence": "both",
   "POST /api/v1/tenancy/organization/roles/:role_id/restore": "both",
   "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/decline": "both",
+  "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview": "both",
   "GET /api/v1/users/me/membership-invitations": "both"
 }

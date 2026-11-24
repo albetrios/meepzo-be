@@ -14,17 +14,25 @@ export const CONTENT_TYPE_TO_EXTENSIONS: Readonly<Record<string, readonly string
   'image/webp': ['.webp'],
   'image/svg+xml': ['.svg'],
   'application/pdf': ['.pdf'],
+  'audio/aac': ['.aac'],
+  'audio/mp4': ['.m4a', '.mp4'],
+  // What Safari and macOS send for a `.m4a` voice note.
+  'audio/x-m4a': ['.m4a'],
+  'audio/wav': ['.wav'],
 } as const;
 
 /**
  * Returns the content types accepted for an {@link UploadPurpose}, optionally
  * appending `image/svg+xml` when `UPLOAD_ALLOW_SVG` is enabled and the purpose
- * already permits image uploads. The base list comes from {@link UPLOAD_PURPOSE_CONFIG}.
+ * already permits image uploads and does not require every type to be magic-byte verifiable
+ * (`magicByteVerifiedTypesOnly` — SVG has no signature). The base list comes from
+ * {@link UPLOAD_PURPOSE_CONFIG}.
  */
 export function getAllowedContentTypesForPurpose(purpose: UploadPurpose): readonly string[] {
   // eslint-disable-next-line security/detect-object-injection -- purpose is a UploadPurpose enum key.
-  const baseTypes = UPLOAD_PURPOSE_CONFIG[purpose].allowedTypes;
-  if (!env.UPLOAD_ALLOW_SVG) {
+  const config = UPLOAD_PURPOSE_CONFIG[purpose];
+  const baseTypes = config.allowedTypes;
+  if (!env.UPLOAD_ALLOW_SVG || config.magicByteVerifiedTypesOnly === true) {
     return baseTypes;
   }
 

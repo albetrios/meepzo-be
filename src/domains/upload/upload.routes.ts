@@ -21,7 +21,7 @@ export const uploadRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Request pre-signed upload URL',
         description:
-          'Returns a pre-signed S3 URL for direct file upload. Specify the file purpose, content type, and size. An organization upload must target the active organization and needs UPLOAD_MANAGE there (with its MFA requirement). upload_method POST: submit a multipart form to upload_url with every entry of fields, then the file. upload_method PUT: send the file as the body with every entry of headers (the URL signs them). The browser sends the bytes straight to storage, so the bucket CORS must admit the web app origin.',
+          'Returns a pre-signed S3 URL for direct file upload. Specify the file purpose, content type, and size (at most 25 MB; each purpose and type has its own cap). The message-media purpose holds the files an Instagram message carries: png or jpeg up to 8 MB, a voice note (aac, m4a, wav) up to 25 MB, a pdf up to 25 MB; it targets the organization and never takes webp or SVG. An organization upload must target the active organization and needs UPLOAD_MANAGE there (with its MFA requirement). upload_method POST: submit a multipart form to upload_url with every entry of fields, then the file. upload_method PUT: send the file as the body with every entry of headers (the URL signs them). The browser sends the bytes straight to storage, so the bucket CORS must admit the web app origin.',
         tags: ['Upload'],
         body: createUploadDto,
       },
@@ -51,7 +51,7 @@ export const uploadRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Confirm uploaded object',
         description:
-          'Confirms a previously requested upload after the client has PUT the file to the pre-signed URL. Verifies the object exists in storage and marks the upload record complete.',
+          'Confirms a previously requested upload after the client has PUT the file to the pre-signed URL. Verifies the object exists in storage, checks its leading bytes against the declared type (images, PDF and audio), and marks the upload record complete. No malware scan runs.',
         tags: ['Upload'],
         params: uploadPublicIdParamDto,
       },

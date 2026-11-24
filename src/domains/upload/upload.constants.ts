@@ -4,6 +4,11 @@ export const UPLOAD_PURPOSES = {
   ORGANIZATION_LOGO: 'organization-logo',
   USER_FILE: 'user-file',
   ORGANIZATION_FILE: 'organization-file',
+  /**
+   * A file an Instagram message carries — a picture, a voice note, a PDF — uploaded by the
+   * organization's team and read by the sending engine through `UploadService.findUsableMessageFile`.
+   */
+  MESSAGE_MEDIA: 'message-media',
 } as const;
 
 /** Union of valid purpose codes from {@link UPLOAD_PURPOSES}. */
@@ -39,9 +44,23 @@ export type UploadStatus = (typeof UPLOAD_STATUS)[keyof typeof UPLOAD_STATUS];
  * content matches declared content-type.
  */
 
+/**
+ * One purpose's upload policy: the accepted types, the byte cap, the storage key prefix, the
+ * thumbnail opt-in, and the optional per-type caps and content-verification rule.
+ */
 export interface UploadPurposeConfig {
   allowedTypes: readonly string[];
   maxSize: number;
+  /**
+   * A tighter byte cap for some of the purpose's types, read before {@link maxSize} by the
+   * validator and the presigned `content-length-range` ({@link getUploadMaxSizeForContentType}).
+   */
+  maxSizeByContentType?: Readonly<Record<string, number>>;
+  /**
+   * When true every allowed type must have a magic-byte signature, so confirm always checks the
+   * leading bytes — and `image/svg+xml` (no signature) is never added under `UPLOAD_ALLOW_SVG`.
+   */
+  magicByteVerifiedTypesOnly?: boolean;
   keyPrefix: string;
   /**
    * The image types of this purpose that may have a thumbnail made next to them
@@ -49,6 +68,15 @@ export interface UploadPurposeConfig {
    */
   thumbnailTypes: readonly string[];
 }
+
+/** The byte cap of a message picture (png, jpeg) — Instagram's attachment limit for images. */
+export const MESSAGE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
+/** The byte cap of a message voice note (aac, m4a, wav). */
+export const MESSAGE_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
+
+/** The byte cap of a message document (pdf). */
+export const MESSAGE_FILE_MAX_BYTES = 25 * 1024 * 1024;
 
 /**
  * Per-purpose policy table consulted by the validator and presigned-URL
@@ -81,7 +109,49 @@ export const UPLOAD_PURPOSE_CONFIG: Record<UploadPurpose, UploadPurposeConfig> =
     // An organization's photos may have a thumbnail made next to them
     thumbnailTypes: ['image/jpeg', 'image/png', 'image/webp'],
   },
+  [UPLOAD_PURPOSES.MESSAGE_MEDIA]: {
+    // Instagram's attachment types: no webp, no SVG, every type checkable by its leading bytes.
+    allowedTypes: [
+      'image/png',
+      'image/jpeg',
+      'audio/aac',
+      'audio/mp4',
+      'audio/x-m4a',
+      'audio/wav',
+      'application/pdf',
+    ],
+    maxSize: Math.max(MESSAGE_IMAGE_MAX_BYTES, MESSAGE_AUDIO_MAX_BYTES, MESSAGE_FILE_MAX_BYTES),
+    maxSizeByContentType: {
+      'image/png': MESSAGE_IMAGE_MAX_BYTES,
+      'image/jpeg': MESSAGE_IMAGE_MAX_BYTES,
+      'audio/aac': MESSAGE_AUDIO_MAX_BYTES,
+      'audio/mp4': MESSAGE_AUDIO_MAX_BYTES,
+      'audio/x-m4a': MESSAGE_AUDIO_MAX_BYTES,
+      'audio/wav': MESSAGE_AUDIO_MAX_BYTES,
+      'application/pdf': MESSAGE_FILE_MAX_BYTES,
+    },
+    magicByteVerifiedTypesOnly: true,
+    keyPrefix: 'message-media',
+    thumbnailTypes: [],
+  },
 } as const;
+
+/**
+ * The byte cap for one upload of `purpose` declared as `contentType` — the purpose's per-type cap
+ * when it names one, else its `maxSize`.
+ */
+export function getUploadMaxSizeForContentType(options: {
+  purpose: UploadPurpose;
+  contentType: string;
+}): number {
+  const config = UPLOAD_PURPOSE_CONFIG[options.purpose];
+  const byType = config.maxSizeByContentType;
+  if (byType !== undefined && Object.hasOwn(byType, options.contentType)) {
+    // eslint-disable-next-line security/detect-object-injection -- own-property checked above
+    return byType[options.contentType] ?? config.maxSize;
+  }
+  return config.maxSize;
+}
 
 /**
  * The required upload target (`for`) for each purpose (route-audit L3). The validator rejects a
@@ -94,6 +164,7 @@ export const UPLOAD_PURPOSE_REQUIRED_TARGET: Record<UploadPurpose, UploadTarget>
   [UPLOAD_PURPOSES.USER_FILE]: UPLOAD_TARGETS.USER,
   [UPLOAD_PURPOSES.ORGANIZATION_LOGO]: UPLOAD_TARGETS.ORGANIZATION,
   [UPLOAD_PURPOSES.ORGANIZATION_FILE]: UPLOAD_TARGETS.ORGANIZATION,
+  [UPLOAD_PURPOSES.MESSAGE_MEDIA]: UPLOAD_TARGETS.ORGANIZATION,
 } as const;
 
 /**
@@ -144,7 +215,7 @@ export const UPLOAD_OFFBOARDING_DELETE_CONCURRENCY = 10;
  * config row. Must be kept in sync with the largest \`UPLOAD_PURPOSE_CONFIG\`
  * entry.
  */
-export const UPLOAD_DTO_FILE_SIZE_MAX_BYTES = 10 * 1024 * 1024;
+export const UPLOAD_DTO_FILE_SIZE_MAX_BYTES = 25 * 1024 * 1024;
 
 export { PRESIGNED_URL_EXPIRY_SECONDS } from '@/shared/constants/ttl.constants.js';
 

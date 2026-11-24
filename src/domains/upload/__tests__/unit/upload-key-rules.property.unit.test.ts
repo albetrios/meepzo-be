@@ -127,6 +127,11 @@ describe('content-type map (property)', () => {
   });
 
   it('extension sets of distinct content types never share an extension across one purpose', () => {
+    // The one sanctioned alias: `audio/x-m4a` is what Safari and macOS send for the same `.m4a`
+    // file browsers elsewhere declare `audio/mp4` (routes-final § 12 UP2) — one container, one
+    // magic-byte signature, so the shared `.m4a` is not ambiguous. Any other sharing still fails.
+    const canonicalType = (contentType: string) =>
+      contentType === 'audio/x-m4a' ? 'audio/mp4' : contentType;
     fc.assert(
       fc.property(fc.constantFrom(...purposes), (purpose) => {
         const seen = new Map<string, string>();
@@ -136,7 +141,7 @@ describe('content-type map (property)', () => {
             // One extension mapping to two MIME types within a purpose would make the
             // filename↔content-type consistency check ambiguous.
             if (previous !== undefined) {
-              expect(previous).toBe(contentType);
+              expect(canonicalType(previous)).toBe(canonicalType(contentType));
             }
             seen.set(extension, contentType);
           }

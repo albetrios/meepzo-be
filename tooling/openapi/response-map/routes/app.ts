@@ -52,6 +52,25 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: null,
     example: null,
   },
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ad-accounts': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      { type: 'array', items: schemas.metaAdAccountSchema },
+      [schemas.metaAdAccountExample],
+      schemas.adAccessMetaProperty,
+    ),
+    example: null,
+  },
+  // Meta's cursor — no estimated_total (MC13).
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ads': {
+    statusCode: 200,
+    schema: wrapUncountedPaginated(
+      schemas.metaAdSchema,
+      [schemas.metaAdExample],
+      schemas.adAccessMetaProperty,
+    ),
+    example: null,
+  },
   // ── Channel account (feat-instagram-dm-sending § 1B) ──
   'GET /api/v1/app/social/channel-accounts': {
     statusCode: 200,
@@ -94,26 +113,40 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     ),
     example: null,
   },
+  // ── Instagram sending (feat-instagram-dm-sending § 6.A — routes 63–64) ──
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/sending-status': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.instagramSendingStatusSchema,
+      schemas.instagramSendingStatusExample,
+    ),
+    example: null,
+  },
+  'GET /api/v1/app/usage': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.appUsageSchema, schemas.appUsageExample),
+    example: null,
+  },
   // ── Instagram media (the pickers, Instagram's cursor — no estimated_total, IA16) ──
-  'GET /api/v1/app/social/instagram/media': {
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/media': {
     statusCode: 200,
     schema: wrapUncountedPaginated(schemas.instagramMediaItemSchema, [
       schemas.instagramMediaItemExample,
     ]),
     example: null,
   },
-  'GET /api/v1/app/social/instagram/stories': {
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/stories': {
     statusCode: 200,
     schema: wrapUncountedPaginated(schemas.instagramStorySchema, [schemas.instagramStoryExample]),
     example: null,
   },
-  // ── Meta callbacks (PUBLIC, signed_request; route 8 outside the envelope, IA20) ──
-  'POST /api/v1/app/social/instagram/deauthorize': {
+  // ── Meta callbacks (PUBLIC, signed_request; route 17 outside the envelope, MC16) ──
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize': {
     statusCode: 200,
     schema: wrapSuccess(schemas.metaDeauthorizeAcknowledgementSchema, null),
     example: null,
   },
-  'POST /api/v1/app/social/instagram/data-deletion': {
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion': {
     statusCode: 200,
     schema: schemas.metaDataDeletionAnswerSchema,
     example: null,

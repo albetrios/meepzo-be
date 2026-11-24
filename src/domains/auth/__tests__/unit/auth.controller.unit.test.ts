@@ -4,6 +4,7 @@ import { NotImplementedError, UnauthorizedError, ValidationError } from '@/share
 import { createAuthController } from '@/domains/auth/auth.controller.js';
 import { createAuthSessionHandlers } from '@/domains/auth/handlers/auth-session.handlers.js';
 import { createAuthEmailLoginHandlers } from '@/domains/auth/handlers/auth-email-login.handlers.js';
+import { createAuthEmailConfirmationHandlers } from '@/domains/auth/handlers/auth-email-confirmation.handlers.js';
 import { createAuthOauthHandlers } from '@/domains/auth/handlers/auth-oauth.handlers.js';
 import { createAuthAuthMethodHandlers } from '@/domains/auth/handlers/auth-auth-method.handlers.js';
 import { createAuthMfaHandlers } from '@/domains/auth/handlers/auth-mfa.handlers.js';
@@ -160,6 +161,7 @@ describe('createAuthController', () => {
     authService: authService as never,
     authMethodService: authMethodService as never,
     emailLoginService: emailLoginService as never,
+    emailConfirmationService: { requestLink: vi.fn(), confirm: vi.fn() } as never,
     oauthService: oauthService as never,
     mfaService: mfaService as never,
     webauthnService: webauthnService as never,
@@ -517,7 +519,7 @@ describe('createAuthController', () => {
   });
 
   /**
-   * The seven `handlers/*.ts` factories are exercised transitively by the cases above, but nothing
+   * The eight `handlers/*.ts` factories are exercised transitively by the cases above, but nothing
    * asserted the composition itself. `createAuthController` is a flat spread of eight factory
    * results — dropping one line silently removes a whole flow's handlers, and the failure only
    * surfaces at route-registration time as an `undefined` handler.
@@ -527,6 +529,7 @@ describe('createAuthController', () => {
       authService: authService as never,
       authMethodService: authMethodService as never,
       emailLoginService: emailLoginService as never,
+      emailConfirmationService: { requestLink: vi.fn(), confirm: vi.fn() } as never,
       oauthService: oauthService as never,
       mfaService: mfaService as never,
       webauthnService: webauthnService as never,
@@ -537,6 +540,7 @@ describe('createAuthController', () => {
     const handlerFactories = [
       createAuthSessionHandlers,
       createAuthEmailLoginHandlers,
+      createAuthEmailConfirmationHandlers,
       createAuthOauthHandlers,
       createAuthAuthMethodHandlers,
       createAuthMfaHandlers,
@@ -544,7 +548,7 @@ describe('createAuthController', () => {
       createAuthMeContextHandlers,
     ];
 
-    it('exposes every handler contributed by all seven factories', () => {
+    it('exposes every handler contributed by all eight factories', () => {
       const composed = createAuthController(container);
       for (const factory of handlerFactories) {
         const contributed = Object.keys(factory(container));

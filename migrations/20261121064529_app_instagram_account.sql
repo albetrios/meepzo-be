@@ -196,6 +196,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_accounts_organization_provider_acc
 -- One organization at a time per provider account (CAQ1, P60) — decides a race between two organizations.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_accounts_provider_account_live ON app.channel_accounts USING btree (channel, provider_account_id) WHERE connection_status <> 'revoked';
 --> statement-breakpoint
+-- Meta's callbacks matched by account across organizations, any status (MC15 (1), P56 — ROUTE row R9).
+CREATE INDEX IF NOT EXISTS idx_channel_accounts_provider_account ON app.channel_accounts USING btree (provider_account_id);
+--> statement-breakpoint
 -- Route 6: the organization's not-revoked accounts of a channel, oldest connected first.
 CREATE INDEX IF NOT EXISTS idx_channel_accounts_organization_channel ON app.channel_accounts USING btree (organization_id, channel, connected_at) WHERE connection_status <> 'revoked';
 --> statement-breakpoint
@@ -482,12 +485,12 @@ AS $$
   LIMIT 1;
 $$;
 --> statement-breakpoint
--- IA6 (2): every organization holding an Instagram row of this id, any status — Meta's deauthorize
--- and data-deletion callbacks (1.D, IQ3). Under Unified Login the id Meta signs is the Instagram
--- user id (P111), so since ROUTE row R6 it matches `instagram_user_id` (the app-scoped column is
--- gone, IA8); ROUTE row R9 replaces this resolver (MC15). Public ids only, one per organization.
-CREATE OR REPLACE FUNCTION app.resolve_organization_public_ids_for_instagram_app_user (
-  instagram_app_user_id_param TEXT
+-- MC15 (1) (ROUTE row R9, P56): every organization with a channel account of this provider's
+-- channels and provider account id (for meta: an Instagram account's instagram_user_id), any status —
+-- Meta's deauthorize and data-deletion callbacks, tried first. Public ids only, one per organization.
+CREATE OR REPLACE FUNCTION app.resolve_organization_public_ids_for_provider_account (
+  provider_param TEXT,
+  provider_account_id_param TEXT
 ) RETURNS SETOF TEXT
 LANGUAGE sql
 STABLE
@@ -495,15 +498,41 @@ SECURITY DEFINER
 SET search_path = app, tenancy, public
 AS $$
   SELECT DISTINCT o.public_id::text
-  FROM app.instagram_accounts AS a
+  FROM app.channel_accounts AS a
+  INNER JOIN app.channel_connections AS c
+    ON c.organization_id = a.organization_id AND c.id = a.channel_connection_id
   INNER JOIN tenancy.organizations AS o ON o.id = a.organization_id
-  WHERE a.instagram_user_id = instagram_app_user_id_param;
+  WHERE a.provider_account_id = provider_account_id_param
+    AND c.provider = provider_param;
+$$;
+--> statement-breakpoint
+-- MC15 (2) (ROUTE row R9, P56): every organization with a connection of this provider and
+-- client_business_id, any status (idx_channel_connections_provider_business) — Meta's callbacks when
+-- (1) finds none. Public ids only, one per organization.
+CREATE OR REPLACE FUNCTION app.resolve_organization_public_ids_for_provider_business (
+  provider_param TEXT,
+  client_business_id_param TEXT
+) RETURNS SETOF TEXT
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = app, tenancy, public
+AS $$
+  SELECT DISTINCT o.public_id::text
+  FROM app.channel_connections AS c
+  INNER JOIN tenancy.organizations AS o ON o.id = c.organization_id
+  WHERE c.provider = provider_param
+    AND c.client_business_id = client_business_id_param;
 $$;
 --> statement-breakpoint
 REVOKE EXECUTE ON FUNCTION app.resolve_organization_public_id_for_instagram_user (TEXT) FROM PUBLIC;
 --> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app.resolve_organization_public_id_for_instagram_user (TEXT) TO meepzo_be_app, meepzo_be_maintenance;
 --> statement-breakpoint
-REVOKE EXECUTE ON FUNCTION app.resolve_organization_public_ids_for_instagram_app_user (TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION app.resolve_organization_public_ids_for_provider_account (TEXT, TEXT) FROM PUBLIC;
 --> statement-breakpoint
-GRANT EXECUTE ON FUNCTION app.resolve_organization_public_ids_for_instagram_app_user (TEXT) TO meepzo_be_app, meepzo_be_maintenance;
+GRANT EXECUTE ON FUNCTION app.resolve_organization_public_ids_for_provider_account (TEXT, TEXT) TO meepzo_be_app, meepzo_be_maintenance;
+--> statement-breakpoint
+REVOKE EXECUTE ON FUNCTION app.resolve_organization_public_ids_for_provider_business (TEXT, TEXT) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app.resolve_organization_public_ids_for_provider_business (TEXT, TEXT) TO meepzo_be_app, meepzo_be_maintenance;

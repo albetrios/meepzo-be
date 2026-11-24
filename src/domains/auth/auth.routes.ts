@@ -22,6 +22,7 @@ import {
   AppleFormCallbackDto,
   authMethodPublicIdParamsDto,
   CreateAuthMethodDto,
+  EmailConfirmDto,
   EmailLoginDto,
   EmailSendCodeDto,
   MfaEnrollConfirmDto,
@@ -42,7 +43,7 @@ import {
   webauthnRegisterVerifyDto,
 } from './sub-domains/auth-webauthn/webauthn.dto.js';
 
-/** Fastify plugin that registers all `/api/v1/auth/*` routes — logout, refresh, email verification-code login, OAuth, MFA, WebAuthn, sessions, and auth-method management (no password routes, P84). */
+/** Fastify plugin that registers all `/api/v1/auth/*` routes — logout, refresh, email verification-code login, the confirm-email link, OAuth, MFA, WebAuthn, sessions, and auth-method management (no password routes, P84). */
 export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
   const controller = createAuthController(app.authDomain);
   const zodApplication = app.withTypeProvider<ZodTypeProvider>();
@@ -90,6 +91,20 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       body: EmailLoginDto,
     },
     handler: controller.emailLogin,
+  });
+  // Route 134 (feat-instagram-dm-sending UN7): the emailed link's page posts its token here. No
+  // captcha — the 32-byte token is the proof and a guess space no captcha would shrink; the strict
+  // public limit (as the former reset route) bounds probing.
+  zodApplication.post('/email/confirm', {
+    ...STRICT_PUBLIC_RATE_LIMIT,
+    schema: {
+      summary: 'Confirm the email with the emailed link',
+      description:
+        "Public — body { token }, the token of the link `POST /users/me/email-confirmation` emailed. Consumes the one-use token and marks the person's email confirmed: 200 { is_email_verified: true }. A person whose email is already confirmed (a code sign-in confirmed it) gets the same success with nothing changed. An unknown, spent or expired (over 24 hours) token is 400 with reason email_confirm_token_invalid. No session is made.",
+      tags: ['Email Login'],
+      body: EmailConfirmDto,
+    },
+    handler: controller.confirmEmail,
   });
   zodApplication.get(
     '/oauth/providers',

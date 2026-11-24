@@ -7,6 +7,7 @@ import {
 } from '@/infrastructure/database/pool/organization-rls-checkout-counter.js';
 import errorHandlerMiddleware from '@/shared/middlewares/core/error-handler.middleware.js';
 import overloadGuardMiddleware, {
+  OVERLOAD_SHED_LAST_FACTOR,
   shouldShedRequest,
 } from '@/shared/middlewares/core/overload-guard.middleware.js';
 import {
@@ -75,6 +76,27 @@ describe('overload-guard.middleware', () => {
           }),
         ).toBe(false);
       }
+    });
+
+    it("holds a shed-last route (Meta's webhook, S10) to twice each threshold — the UI sheds first", () => {
+      const overloaded = {
+        ...baseShedOptions,
+        recentEventLoopDelayMs: 300,
+        activeDbCheckouts: 20,
+        oldestConnectionWaitMs: 2_500,
+      };
+      expect(OVERLOAD_SHED_LAST_FACTOR).toBe(2);
+      expect(shouldShedRequest(overloaded)).toBe(true);
+      expect(shouldShedRequest({ ...overloaded, isShedLast: true })).toBe(false);
+      expect(
+        shouldShedRequest({ ...baseShedOptions, isShedLast: true, activeDbCheckouts: 36 }),
+      ).toBe(true);
+      expect(
+        shouldShedRequest({ ...baseShedOptions, isShedLast: true, recentEventLoopDelayMs: 500 }),
+      ).toBe(true);
+      expect(
+        shouldShedRequest({ ...baseShedOptions, isShedLast: true, oldestConnectionWaitMs: 4_000 }),
+      ).toBe(true);
     });
 
     it('does not shed when both signals are below threshold', () => {

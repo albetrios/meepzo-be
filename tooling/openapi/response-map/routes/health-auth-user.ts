@@ -8,19 +8,26 @@ import * as schemas from '@tooling/openapi/response-map/resource-schemas.js';
 
 /**
  * The active organization in `GET /auth/me/context` and the organization switches: the organization
- * plus its plan access (owner decision D3 — read-only mode for unpaid organizations).
+ * plus its plan access (owner decision D3 — read-only mode for unpaid organizations) and its
+ * not-revoked channel account count (feat-instagram-dm-sending BL16).
  */
 const activeOrganizationSchema = {
   ...schemas.organizationSchema,
   properties: {
     ...schemas.organizationSchema.properties,
     plan_access: schemas.planAccessSchema,
+    channel_accounts_count: {
+      type: 'integer',
+      minimum: 0,
+      description: 'How many not-revoked channel accounts the organization has.',
+    },
   },
 };
 
 const activeOrganizationExample = {
   ...schemas.organizationExample,
   plan_access: schemas.planAccessExample,
+  channel_accounts_count: 1,
 };
 
 export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = {
@@ -122,6 +129,11 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
     schema: wrapSuccess(schemas.accessTokenSchema, schemas.accessTokenExample),
     example: null,
   },
+  'POST /api/v1/auth/email/confirm': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.emailConfirmedSchema, schemas.emailConfirmedExample),
+    example: null,
+  },
   'GET /api/v1/auth/oauth/providers': {
     statusCode: 200,
     schema: wrapSuccess(schemas.oauthProvidersSchema, { providers: ['google', 'apple'] }),
@@ -221,7 +233,13 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
         access_token: schemas.accessTokenExample.access_token,
         active_organization: {
           ...activeOrganizationExample,
-          plan_access: { state: 'active', grace_ends_at: null, trial_ends_at: null },
+          plan_access: {
+            ...schemas.planAccessExample,
+            state: 'active',
+            grace_ends_at: null,
+            plan: { id: 'pln_a1b2c3d4e5f6g7h8i9j0k', name: 'Free' },
+          },
+          channel_accounts_count: 0,
         },
         my_permissions: ['organization:read'],
         global_role: null,
@@ -420,6 +438,11 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
   'PATCH /api/v1/users/me/settings': {
     statusCode: 200,
     schema: wrapSuccess(schemas.userSettingsSchema, schemas.userSettingsExample),
+    example: null,
+  },
+  'POST /api/v1/users/me/email-confirmation': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.emailConfirmationSentSchema, schemas.emailConfirmationSentExample),
     example: null,
   },
   'GET /api/v1/users/me/notification-preferences': {

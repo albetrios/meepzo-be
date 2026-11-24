@@ -31,7 +31,7 @@ import {
 
 /**
  * Fastify plugin that mounts the user domain HTTP surface: admin user management routes, the
- * `/me` self-service routes (profile, settings, notification preferences, avatar, bug reports), and the GDPR
+ * `/me` self-service routes (profile, settings, notification preferences, avatar, bug reports, the confirm-email link), and the GDPR
  * data-export request/status endpoints. Admin routes require the `SUPER_ADMIN` or `ADMIN` global
  * role; data-export request is rate-limited via {@link EXPENSIVE_AUTHED_RATE_LIMIT}.
  */
@@ -45,6 +45,8 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
     ...app.userDomain,
     organizationService: app.tenancyDomain?.organizationService,
     membershipInvitationService: app.tenancyDomain?.membershipInvitationService,
+    // Route 133's confirm-email link is auth's token flow (feat-instagram-dm-sending § 11.B).
+    emailConfirmationService: app.authDomain?.emailConfirmationService,
   });
   const dataExportController = createUserDataExportController(app.userDomain.userDataExportService);
   const bugReportController = createUserBugReportController(app.userDomain.userBugReportService);
@@ -227,6 +229,21 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       },
     },
     controller.putMyPresence,
+  );
+  zodApplication.post(
+    '/me/email-confirmation',
+    {
+      onRequest: [app.authenticate],
+      // Each request sends an email: the strict authed tier on top of the 60 s wait per person.
+      ...STRICT_AUTHED_RATE_LIMIT,
+      schema: {
+        summary: 'Email me a confirm link',
+        description:
+          "Emails the signed-in person a one-use link (`<frontend>/confirm-email?token=…`, valid 24 hours) that confirms their email through `POST /auth/email/confirm`; a new link ends the previous one. No body (an empty object is accepted; any field is 400). Answers `resend_after_seconds` (60) and the link's `expires_at`. Within 60 seconds of the last link: 429 with reason email_confirmation_resend_too_soon and `retry_after_seconds`. Email already confirmed: 409 with reason email_already_confirmed. Always sent — not a notification choice.",
+        tags: ['User'],
+      },
+    },
+    controller.requestEmailConfirmation,
   );
   zodApplication.post(
     '/me/onboarding/complete',

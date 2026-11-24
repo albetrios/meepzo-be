@@ -75,7 +75,7 @@ describe('VerificationTokenService', () => {
       vi.mocked(repository.consumeIfValid).mockResolvedValueOnce(null);
       const result = await service.consumeIfValid({
         token_hash: 'expired-token-hash',
-        expected_type: 'EMAIL_CHANGE',
+        expected_type: 'EMAIL_CONFIRM',
       });
       expect(result).toBeNull();
     });
@@ -95,8 +95,8 @@ describe('VerificationTokenService', () => {
     });
 
     it('handles different token types', async () => {
-      await service.invalidateAllForUser({ user_id: 10, token_type: 'EMAIL_CHANGE' });
-      expect(repository.invalidateAllForUser).toHaveBeenCalledWith(10, 'EMAIL_CHANGE');
+      await service.invalidateAllForUser({ user_id: 10, token_type: 'EMAIL_CONFIRM' });
+      expect(repository.invalidateAllForUser).toHaveBeenCalledWith(10, 'EMAIL_CONFIRM');
     });
 
     it('propagates repository errors', async () => {

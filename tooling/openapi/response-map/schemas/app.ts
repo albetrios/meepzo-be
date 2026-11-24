@@ -372,6 +372,67 @@ export const channelAccountPickResultExample = {
   plan_room: channelAccountPlanRoomExample,
 };
 
+// ── The ad picker (routes 41 and 15, MC13) ──
+// Mirror serializeMetaAdAccount / serializeMetaAd key for key (routes-final § 1.6).
+export const metaAdAccountSchema = {
+  type: 'object',
+  properties: {
+    ad_account_id: { type: 'string', description: "Meta's ad account id, digits, no act_ prefix" },
+    name: { type: 'string', nullable: true },
+    account_status: {
+      type: 'integer',
+      nullable: true,
+      description: "Meta's account_status (1 active, 2 disabled, …)",
+    },
+  },
+};
+
+export const metaAdAccountExample = {
+  ad_account_id: '1234567890123',
+  name: 'Handmade Shop ads',
+  account_status: 1,
+};
+
+export const metaAdSchema = {
+  type: 'object',
+  properties: {
+    ad_id: { type: 'string' },
+    name: { type: 'string', nullable: true },
+    status: { type: 'string', nullable: true, description: "Meta's effective_status" },
+    ad_account_id: { type: 'string' },
+    instagram_media_id: { type: 'string', nullable: true },
+    channel_account_id: {
+      type: 'string',
+      nullable: true,
+      description:
+        "The organization's channel account the ad runs as (matched by its Instagram id)",
+    },
+    thumbnail_url: { type: 'string', nullable: true },
+    created_at: { type: 'string', nullable: true, description: "Meta's created_time, as sent" },
+  },
+};
+
+export const metaAdExample = {
+  ad_id: '120200000000000001',
+  name: 'Winter sale',
+  status: 'ACTIVE',
+  ad_account_id: '1234567890123',
+  instagram_media_id: '18030000000000001',
+  channel_account_id: 'iga_q4w8n1v3a1b2ck7x9m2pr',
+  thumbnail_url: 'https://scontent.cdninstagram.com/v/ad-thumbnail.jpg',
+  created_at: '2026-11-01T10:00:00+0000',
+};
+
+/** `meta.ad_access` of the ad picker (MC13): `missing` → an empty list and "Connect an ad account". */
+export const adAccessMetaProperty = {
+  ad_access: {
+    type: 'string',
+    enum: ['granted', 'missing'],
+    description:
+      'granted when the connection holds ads_read; missing → the list is empty (offer Connect an ad account)',
+  },
+};
+
 // ── Instagram media item (route 5) ──
 // Mirrors serializeInstagramMediaItem key for key (routes-final § 1.C.6).
 const instagramMediaChildSchema = {
@@ -387,11 +448,12 @@ export const instagramMediaItemSchema = {
   type: 'object',
   properties: {
     instagram_media_id: { type: 'string' },
+    kind: { type: 'string', enum: ['post', 'reel', 'ad_post'] },
     caption: { type: 'string', nullable: true },
     media_type: { type: 'string', enum: ['image', 'video', 'carousel_album'], nullable: true },
     media_product_type: {
       type: 'string',
-      enum: ['feed', 'reels', 'story', 'ad'],
+      enum: ['feed', 'reels', 'story', 'ad', 'live'],
       nullable: true,
     },
     media_url: { type: 'string', nullable: true },
@@ -406,6 +468,7 @@ export const instagramMediaItemSchema = {
 
 export const instagramMediaItemExample = {
   instagram_media_id: '18030000000000004',
+  kind: 'post',
   caption: 'Three colours, one price — comment SHOP',
   media_type: 'carousel_album',
   media_product_type: 'feed',
@@ -790,4 +853,191 @@ export const automationExample = {
   updated_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
   created_at: '2026-11-21T08:00:00.000Z',
   updated_at: '2026-11-21T08:30:00.000Z',
+};
+
+// ── Instagram sending (feat-instagram-dm-sending § 6.A — routes 63–64) ──
+
+const nullableDateTime = { type: 'string', format: 'date-time', nullable: true } as const;
+
+export const instagramSendingStatusSchema = {
+  type: 'object',
+  properties: {
+    channel_account_id: { type: 'string', example: 'cha_k7x9m2pqr4w8n1v3a1b2c' },
+    is_paused: { type: 'boolean' },
+    is_suspended: { type: 'boolean' },
+    new_account_limit_until: nullableDateTime,
+    lanes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          lane: { type: 'string', enum: ['slow', 'reply', 'fast', 'broadcast'] },
+          state: { type: 'string', enum: ['ready', 'working', 'sleeping', 'stopped'] },
+          waiting_count: { type: 'integer', minimum: 0 },
+          wait_reason: {
+            type: 'string',
+            nullable: true,
+            enum: ['box', 'gap', 'hour_limit', 'day_limit', 'not_before', 'stop', 'test'],
+          },
+          next_send_at: nullableDateTime,
+          stop: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              reason: { type: 'string' },
+              until: nullableDateTime,
+              started_at: nullableDateTime,
+            },
+          },
+          plan_stop: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              reason: { type: 'string', enum: ['plan_limit', 'plan_ended', 'plan_downgrade'] },
+              since: nullableDateTime,
+            },
+          },
+        },
+      },
+    },
+    all_accounts_stop: {
+      type: 'object',
+      nullable: true,
+      properties: { reason: { type: 'string' }, until: nullableDateTime },
+    },
+    estimate: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        waiting: { type: 'integer' },
+        will_go: { type: 'integer' },
+        may_expire: { type: 'integer' },
+        done_at: nullableDateTime,
+      },
+    },
+    today: {
+      type: 'object',
+      properties: {
+        sent: { type: 'integer' },
+        unknown: { type: 'integer' },
+        skipped: { type: 'integer' },
+        skipped_window_closed: { type: 'integer' },
+        expired: { type: 'integer' },
+      },
+    },
+    window_closed_by_automation: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { automation_id: { type: 'string' }, count: { type: 'integer' } },
+      },
+    },
+    last_broadcast: { type: 'object', nullable: true },
+    last_backfill: { type: 'object', nullable: true },
+    last_retry: { type: 'object', nullable: true },
+    as_of: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const instagramSendingStatusExample = {
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  is_paused: false,
+  is_suspended: false,
+  new_account_limit_until: '2026-12-01T10:00:00.000Z',
+  lanes: [
+    {
+      lane: 'slow',
+      state: 'sleeping',
+      waiting_count: 0,
+      wait_reason: 'box',
+      next_send_at: '2026-11-24T10:00:24.000Z',
+      stop: null,
+      plan_stop: null,
+    },
+    {
+      lane: 'reply',
+      state: 'ready',
+      waiting_count: 0,
+      wait_reason: null,
+      next_send_at: null,
+      stop: null,
+      plan_stop: null,
+    },
+    {
+      lane: 'fast',
+      state: 'stopped',
+      waiting_count: 0,
+      wait_reason: 'stop',
+      next_send_at: null,
+      stop: {
+        reason: 'too_fast',
+        until: '2026-11-24T10:15:00.000Z',
+        started_at: '2026-11-24T10:00:00.000Z',
+      },
+      plan_stop: null,
+    },
+    {
+      lane: 'broadcast',
+      state: 'ready',
+      waiting_count: 0,
+      wait_reason: null,
+      next_send_at: null,
+      stop: null,
+      plan_stop: null,
+    },
+  ],
+  all_accounts_stop: null,
+  estimate: null,
+  today: { sent: 42, unknown: 0, skipped: 3, skipped_window_closed: 1, expired: 0 },
+  window_closed_by_automation: [],
+  last_broadcast: null,
+  last_backfill: null,
+  last_retry: null,
+  as_of: '2026-11-24T10:00:00.000Z',
+};
+
+export const appUsageSchema = {
+  type: 'object',
+  properties: {
+    direct_messages: {
+      type: 'object',
+      properties: {
+        used: { type: 'integer', minimum: 0 },
+        limit: { type: 'integer', nullable: true },
+        resets_on: { type: 'string', format: 'date' },
+        state: { type: 'string', enum: ['ok', 'nearly', 'reached'] },
+      },
+    },
+    channel_accounts: {
+      type: 'object',
+      properties: { used: { type: 'integer' }, maximum: { type: 'integer' } },
+    },
+    notices: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          kind: {
+            type: 'string',
+            enum: [
+              'direct_message_limit_nearly',
+              'direct_message_limit_reached',
+              'payment_failed',
+              'plan_ended',
+              'trial_ending',
+              'being_set_up',
+              'paused',
+            ],
+          },
+          ends_on: { type: 'string', format: 'date', nullable: true },
+        },
+      },
+    },
+  },
+};
+
+export const appUsageExample = {
+  direct_messages: { used: 820, limit: 1000, resets_on: '2026-12-01', state: 'nearly' },
+  channel_accounts: { used: 1, maximum: 1 },
+  notices: [{ kind: 'direct_message_limit_nearly', ends_on: '2026-12-01' }],
 };

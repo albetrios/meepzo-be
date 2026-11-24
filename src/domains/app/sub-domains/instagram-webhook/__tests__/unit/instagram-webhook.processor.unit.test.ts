@@ -83,7 +83,7 @@ import { InstagramWebhookEventPermanentError } from '@/domains/app/sub-domains/i
  */
 
 const ORGANIZATION_PUBLIC_ID = 'org_acmeshop0000000000001';
-const ACCOUNT_PUBLIC_ID = 'iga_acmeshop0000000000001';
+const CHANNEL_ACCOUNT_PUBLIC_ID = 'cha_acmeshop0000000000001';
 const SENDER = '17841400000000777';
 const POST = '17900000000000001';
 const COMMENT_TEXT = 'Price please?';
@@ -215,7 +215,7 @@ function connectedAccount(
   return {
     instagramAccount: INSTAGRAM_ACCOUNT_KEY,
     channelAccountId: 33,
-    instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+    instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
     connectionStatus: 'connected',
     isAutomationEnabled: true,
     encryptedAccessToken: 'v1:fake-ciphertext',
@@ -305,7 +305,7 @@ function setup({
     processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: ORGANIZATION_PUBLIC_ID,
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+        channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
       },
       services,
       jobId: 'job-1',
@@ -386,13 +386,13 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(instagramClient.readInstagramMediaItem).not.toHaveBeenCalled();
     expect(automationService.linkNextPostAutomations).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
       instagramMediaId: POST,
       publishedAt: new Date('2026-11-20T09:00:00.000Z'),
     });
     expect(engine.startCommentRun).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
       contact: { id: 501, public_id: 'con_contact0000000000001' },
       event: {
         eventKey: event.event_key,
@@ -424,7 +424,7 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     });
     expect(mediaService.upsertFromInstagram).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      instagramAccount: INSTAGRAM_ACCOUNT_KEY,
+      channelAccount: { organizationId: 11, channelAccountId: 33 },
       mediaItem: { id: POST, timestamp: '2026-11-21T08:00:00+0000' },
     });
     expect(automationService.linkNextPostAutomations).toHaveBeenCalledWith(
@@ -476,7 +476,7 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(engine.handleDirectMessage).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+        instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
         text: DM_TEXT,
         quickReplyPayload: null,
         attachmentEmail: null,
@@ -515,6 +515,22 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
       expect.objectContaining({ instagramStoryId: '17950000000000001', text: 'love it' }),
     );
   });
+
+  it.each(['live_comment', 'ice_breaker', 'referral', 'reaction', 'echo'])(
+    'a %s (saved received since R17) is marked processed with nothing done until intake per kind (R38)',
+    async (eventKind) => {
+      const event = storedEvent({ event_kind: eventKind, payload: { sender: { id: SENDER } } });
+      const { run, engine, contactService } = setup({ events: [event] });
+
+      await run();
+
+      expect(event.status).toBe('processed');
+      expect(contactService.recordContactInteraction).not.toHaveBeenCalled();
+      expect(engine.handleDirectMessage).not.toHaveBeenCalled();
+      expect(engine.handleButtonClick).not.toHaveBeenCalled();
+      expect(engine.startCommentRun).not.toHaveBeenCalled();
+    },
+  );
 
   it('a button click: handleButtonClick with the payload ids; a foreign payload runs nothing', async () => {
     const automationPublicId = 'aut_acmeshop0000000000001';
@@ -660,7 +676,7 @@ describe('order, hold-back and yield (WH12, WQ3)', () => {
     expect(enqueueFollowUp).toHaveBeenCalledTimes(1);
     expect(enqueueFollowUp).toHaveBeenCalledWith({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
       requestId: 'job-1',
     });
   });

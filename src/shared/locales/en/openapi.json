@@ -37,12 +37,13 @@
     "Notification": "User notification feed",
     "Webhook": "Webhook endpoint management and delivery history",
     "Upload": "Pre-signed URL generation for file uploads",
-    "Channel connection": "The organization's provider logins — Meta's Unified Login for a business portfolio: start, finish, reconnect, pick its Instagram accounts under the plan's limit, list, read and disconnect the business",
+    "Channel connection": "The organization's provider logins — Meta's Unified Login for a business portfolio: start, finish, reconnect, pick its Instagram accounts under the plan's limit, list, read and disconnect the business, and Meta's deauthorize and data-deletion callbacks",
     "Channel account": "The organization's connected accounts, whatever their channel (Instagram now): list, read, disconnect one, pause and resume its sending, and choose which accounts are active within the plan",
-    "Instagram account": "The organization's connected Instagram professional account — read, change its settings, disconnect, browse its posts and stories, and Meta's deauthorize and data-deletion callbacks",
+    "Instagram account": "The organization's connected Instagram professional account — read, change its settings, disconnect, browse its posts and stories",
     "Contact": "The people who interacted with the organization's Instagram accounts — list and erase",
     "Instagram Webhook": "Instagram events Meta delivers for the connected account, and the list of what happened to each",
-    "Automation": "What answers comments, DMs and story replies on the organization's Instagram accounts — list, create, read, edit and delete"
+    "Automation": "What answers comments, DMs and story replies on the organization's Instagram accounts — list, create, read, edit and delete",
+    "Instagram sending": "How an organization's Instagram accounts are sending: an account's sending status (waiting messages, stops, today's results) and the organization's monthly DM meter"
   },
   "components": {
     "bearerAuthDescription": "JWT access token obtained from the login or token refresh endpoint."

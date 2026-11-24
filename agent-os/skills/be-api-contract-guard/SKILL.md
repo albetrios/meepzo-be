@@ -17,7 +17,7 @@ indexNote: route params / public-ids / method→status policy / header matrix �
 ## Route params — snake_case, semantic, entity-typed
 
 - Every path param is snake_case and semantic: `{plan_id}`, `{subscription_id}`, `{session_id}`, `{upload_id}`, `{auth_method_id}`, … — never `{id}` or camelCase. The active organization is NOT a path param — it is carried by the signed `org` JWT claim; the active-organization resource is the singular `/tenancy/organization` (sub-resources like settings/memberships/roles/api-keys nest under it).
-- Entity-id param names must exist in `PARAM_NAME_TO_ENTITY` (src/shared/utils/identity/public-id.util.ts) so validators, test materializers, and OpenAPI docs derive the entity automatically. The only non-entity params are `{provider}` (OAuth provider name) and `{slug}` (organization slug) — unregistered by design.
+- Entity-id param names must exist in `PARAM_NAME_TO_ENTITY` (src/shared/utils/identity/public-id.util.ts) so validators, test materializers, and OpenAPI docs derive the entity automatically. The only non-entity params are `{provider}` (OAuth / channel provider name), `{slug}` (organization slug) and `{payment_method_id}` (Stripe's `pm_…` card id — cards live only in Stripe, so it is shape-checked by `PAYMENT_METHOD_ID_PATTERN` and ownership-checked against the organization's customer; feat-instagram-dm-sending P78) — unregistered by design.
 - Zod params-DTO object keys must equal the route param name exactly.
 
 ## Public ids — Paddle-style prefixed
@@ -99,7 +99,7 @@ Every organization-scoped list endpoint uses the **shared** helpers in `src/shar
 - `X-Captcha-Token` — public auth forms only (email verification-code send + login, mfa/login, webauthn authenticate options).
 - `X-CSRF-Token` — POST /auth/refresh only (double-submit of the csrf_token cookie). Keeps the X- form (frontend-framework default).
 - `Stripe-Signature` — sent BY Stripe to the webhook routes; the app never sends it.
-- `X-Hub-Signature-256` — sent BY Meta to the Instagram webhook delivery (`POST /app/social/instagram/webhook`): `sha256=` + the hex HMAC-SHA256 of the raw body with the Instagram app secret; missing or wrong → `400 invalid_webhook_signature`. The app never sends it. Meta's subscription check (`GET` on the same path) is proved by `hub.verify_token` instead.
+- `X-Hub-Signature-256` — sent BY Meta to the Instagram webhook delivery (`POST /app/social/channel-connections/meta/webhooks/instagram`): `sha256=` + the hex HMAC-SHA256 of the raw body with the Instagram app secret; missing or wrong → `400 invalid_webhook_signature`. The app never sends it. Meta's subscription check (`GET` on the same path) is proved by `hub.verify_token` instead.
 
 ## Headers kept in X- form (ecosystem standards)
 

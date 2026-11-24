@@ -15,12 +15,12 @@ import {
 import type { AutomationFixtureRow } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
   FORM_CONTENT_TYPE,
-  INSTAGRAM_DEAUTHORIZE_PATH,
+  META_DEAUTHORIZE_PATH,
   buildMetaSignedRequest,
   metaCallbackFormBody,
   metaIssuedAtAfterConnections,
   metaSignedRequestPayload,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/__tests__/factories/instagram-account-meta-callback.factory.js';
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection-meta-callback.factory.js';
 import {
   buildInstagramProfile,
   connectInstagramAccount,
@@ -48,11 +48,11 @@ export async function disconnectOverRoute({ app, flow }: FlowOfApp): Promise<voi
   expect(response.statusCode, response.body).toBe(204);
 }
 
-/** The person removes the app on Instagram: Meta's signed deauthorize callback (route 7). */
+/** The person removes the app on Instagram: Meta’s signed deauthorize callback (route 16). */
 export async function deauthorizeOnInstagram({ app, flow }: FlowOfApp): Promise<void> {
   const response = await injectRoute(app, {
     method: 'POST',
-    url: INSTAGRAM_DEAUTHORIZE_PATH,
+    url: META_DEAUTHORIZE_PATH,
     headers: { 'content-type': FORM_CONTENT_TYPE },
     payload: metaCallbackFormBody(
       buildMetaSignedRequest({

@@ -1,4 +1,4 @@
-import { and, asc, eq, or } from 'drizzle-orm';
+import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import {
@@ -58,6 +58,27 @@ export class PlanRepository {
 
   async findById(id: number) {
     const rows = await getRequestDatabase().select().from(plans).where(eq(plans.id, id)).limit(1);
+    return rows[0] ? parsePlanRow(rows[0]) : null;
+  }
+
+  /**
+   * The catalog's Free plan — the active plan with both prices zero, lowest id first: the same rule
+   * the entitlement read uses for "Free" (`SubscriptionRepository.findPlanAccessSubject`). `null` when
+   * the catalog has none. Read by the Stripe webhook's unpaid trial end (routes-final § 8.D BL22).
+   */
+  async findFreePlan() {
+    const rows = await getRequestDatabase()
+      .select()
+      .from(plans)
+      .where(
+        and(
+          eq(plans.is_active, true),
+          sql`${plans.price_monthly} = 0`,
+          sql`${plans.price_yearly} = 0`,
+        ),
+      )
+      .orderBy(asc(plans.id))
+      .limit(1);
     return rows[0] ? parsePlanRow(rows[0]) : null;
   }
 

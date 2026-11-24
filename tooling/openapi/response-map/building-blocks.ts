@@ -41,12 +41,16 @@ export const paginationMetaSchema = {
   required: ['request_id', 'pagination'],
 };
 
-export function wrapSuccess(dataSchema: object, dataExample: unknown): object {
+export function wrapSuccess(
+  dataSchema: object,
+  dataExample: unknown,
+  extraMetaProperties: Readonly<Record<string, object>> = {},
+): object {
   return {
     type: 'object',
     properties: {
       data: dataSchema,
-      meta: metaSchema,
+      meta: { ...metaSchema, properties: { ...extraMetaProperties, ...metaSchema.properties } },
     },
     example: {
       data: dataExample,
@@ -87,8 +91,12 @@ export function wrapPaginated(
  * {@link wrapPaginated} for a list that never counts (`GET /tenancy/organization/roles`,
  * `GET /users/me/organizations`): its `meta.pagination` has no `estimated_total`, on any page.
  */
-export function wrapUncountedPaginated(itemSchema: object, itemExamples: unknown[]): object {
-  const wrapped = wrapPaginated(itemSchema, itemExamples) as {
+export function wrapUncountedPaginated(
+  itemSchema: object,
+  itemExamples: unknown[],
+  extraMetaProperties: Readonly<Record<string, object>> = {},
+): object {
+  const wrapped = wrapPaginated(itemSchema, itemExamples, extraMetaProperties) as {
     properties: { meta: { properties: Record<string, unknown> } };
     example: { meta: { pagination: Record<string, unknown> } };
   };

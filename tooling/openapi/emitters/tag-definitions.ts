@@ -35,11 +35,13 @@ export function buildTagDefinitions(
     Webhook: 'Webhook endpoint management and delivery history',
     Upload: 'Pre-signed URL generation for file uploads',
     'Channel connection':
-      "The organization's provider logins — Meta's Unified Login for a business portfolio: start, finish, reconnect, pick its Instagram accounts under the plan's limit, list, read and disconnect the business",
+      "The organization's provider logins — Meta's Unified Login for a business portfolio: start, finish, reconnect, pick its Instagram accounts under the plan's limit, list, read and disconnect the business, and Meta's deauthorize and data-deletion callbacks",
     'Channel account':
       "The organization's connected accounts, whatever their channel (Instagram now): list, read, disconnect one, pause and resume its sending, and choose which accounts are active within the plan",
     'Instagram account':
-      "The organization's connected Instagram professional accounts — change their settings, browse their posts and stories, and Meta's deauthorize and data-deletion callbacks",
+      "The organization's connected Instagram professional accounts — change their settings, and browse their posts and stories",
+    'Instagram sending':
+      "How an organization's Instagram accounts are sending: an account's sending status (waiting messages, stops, today's results) and the organization's monthly DM meter",
     Contact:
       "The people who interacted with the organization's Instagram accounts — list and erase",
     'Instagram Webhook':
@@ -84,6 +86,7 @@ export function buildTagDefinitions(
     'Channel connection',
     'Channel account',
     'Instagram account',
+    'Instagram sending',
     'Contact',
     'Automation',
     'Instagram Webhook',

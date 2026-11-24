@@ -4,6 +4,7 @@ import type { SupportedLanguage } from '@/shared/constants/i18n.constants.js';
 export const AUTH_EVENT = {
   EMAIL_VERIFICATION_CODE_REQUESTED: 'auth.email_verification_code.requested',
   ACCOUNT_SECURITY_NOTICE_REQUESTED: 'auth.account_security_notice.requested',
+  EMAIL_CONFIRM_LINK_REQUESTED: 'auth.email_confirm_link.requested',
 } as const;
 
 /** Union of valid event-bus topic codes in {@link AUTH_EVENT}. */
@@ -36,5 +37,18 @@ export interface AccountSecurityNoticePayload {
   email: string;
   notice: AccountSecurityNotice;
   /** The language of the request that made the change — the email is written in it. */
+  locale: SupportedLanguage;
+}
+
+/**
+ * Payload of `AUTH_EVENT.EMAIL_CONFIRM_LINK_REQUESTED` (feat-instagram-dm-sending UN6): the raw link
+ * token (persisted only as its SHA-256), the hours the link lasts and the email's language. The
+ * handler builds `<FRONTEND_URL>/confirm-email?token=<token>`.
+ */
+export interface EmailConfirmLinkPayload {
+  email: string;
+  token: string;
+  expires_in_hours: number;
+  /** The language of the request that asked for the link — the email is written in it. */
   locale: SupportedLanguage;
 }

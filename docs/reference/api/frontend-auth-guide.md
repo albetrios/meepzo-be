@@ -103,6 +103,8 @@ You don't watch a clock. When a call returns `401` (token expired), refresh once
 |------|---------|--------|
 | **Email code — send** | `POST /auth/email/send-code` | `200` (uniform — no enumeration). Emails a one-time 6-digit sign-in code; auto-creates an account for an unknown email. Answers `resend_after_seconds` (60) and `expires_in_seconds` (900); a resend sooner is `429 code_resend_too_soon` + `retry_after_seconds`. |
 | **Email code — login** | `POST /auth/email/login` | `200` → `{ data: { access_token } }` + `Set-Cookie: session_id` (or `{ mfa_required, mfa_session_token }`). Verifies the code, logging in or completing first-time sign-up. Refusals: `401 code_wrong` + `tries_left`, `401 code_expired`, `401 code_used_up` (ask a new code), `429 code_day_limit` + `retry_after_seconds`. |
+| **Confirm email — ask** | `POST /users/me/email-confirmation` + `Authorization: Bearer` | `200 { resend_after_seconds: 60, expires_at }` — emails a one-use link `<frontend>/confirm-email?token=…` (24 hours; a new link ends the old). Sooner than 60 s: `429 email_confirmation_resend_too_soon` + `retry_after_seconds`; already confirmed: `409 email_already_confirmed`. Show the "confirm your email" notice from `user.is_email_verified` in `GET /auth/me/context`. |
+| **Confirm email — click** | `POST /auth/email/confirm { token }` (public, from the `/confirm-email` page) | `200 { is_email_verified: true }` (also when a code sign-in already confirmed it). Unknown, spent or expired token: `400 email_confirm_token_invalid` — offer "send a new link". No session is made. |
 | Use | any route + `Authorization: Bearer` | `2xx` |
 | Expiry | any route | `401` → trigger refresh |
 | Refresh | `POST /auth/refresh` (cookie auto-sent) | `200` → `{ data: { access_token } }`, session cookie rotated |
@@ -158,7 +160,15 @@ while a pinned organization is not usable (they left it, or it was suspended).
     "active_organization": {
       "id": "org_…",
       "type": "TEAM",
-      "plan_access": { "state": "grace", "grace_ends_at": "2026-10-31T09:30:00.000Z", "trial_ends_at": null }
+      "plan_access": {
+        "state": "grace",
+        "grace_ends_at": "2026-10-31T09:30:00.000Z",
+        "trial_ends_at": null,
+        "plan": { "id": "pln_…", "name": "Creator" },
+        "features": { "message_month_limit": 10000, "channel_accounts_max": 3, "has_priority_support": false, "feature_switches": { "broadcasts": true } },
+        "is_plan_choice_required": false
+      },
+      "channel_accounts_count": 2
     },
     "membership_id": "mem_…",
     "my_permissions": ["organization:read", "membership:create"],
@@ -184,6 +194,11 @@ while a pinned organization is not usable (they left it, or it was suspended).
   billing (so the organization can choose a plan), auth, user, tenancy and upload stay open.
   `grace_ends_at` is ISO 8601, `null` when `active`; `trial_ends_at` is when a running trial ends,
   `null` otherwise. Paying lifts it on the next request — re-fetch this context after checkout.
+  `plan` (`{ id, name }`) and `features` are the plan whose limits and switches apply now (read the
+  exact switch in `features.feature_switches` before showing a paid feature); `is_plan_choice_required`
+  is `true` while the organization still pays a retired plan (Starter, Growth, Pro) — it is held to
+  Free's features until it picks Creator or Studio, so show "Choose Creator or Studio".
+  `channel_accounts_count` is how many channel accounts are connected (not revoked).
 - **`type` vs `my_permissions` — render on the intersection.** The organization `type` says what the organization **kind** allows (only a `TEAM` organization can invite members); `my_permissions` is what **this caller** may do in the active organization (resolved permission codes). Show a team-only action only when `type === 'TEAM'` **and** the caller holds the permission.
 - **The organization-switcher list is NOT here.** It lives at `GET /users/me/organizations`, which is **paginated** — follow the cursor to the end before rendering, or a user in more than one page of organizations silently loses the rest from their switcher. It was embedded in this response once, as a flat array with no cursor filled by a default-limit read, which is exactly the truncation this split fixes. Derive each row's "is this the active one?" by comparing its `id` to `active_organization.id`.
 - **Switch flow (one call):** `POST /auth/switch-to-organization` (or `…-personal`) re-mints the token **and returns the active-organization delta** — `{ access_token, active_organization, my_permissions, global_role }`, `active_organization` carrying its `plan_access` as here. Swap your in-memory Bearer for the new `access_token` and repaint from `active_organization` + `my_permissions`. The `user` is stable across a switch, so **no follow-up `GET /auth/me/context` is needed** — re-fetch the full context only on a cold reload. Your cached organization list is stable too: switching changes which organization is active, not which ones you belong to, so re-derive the active row from the new `active_organization.id` rather than re-fetching the list.
@@ -548,14 +563,27 @@ export interface Organization {
   created_at: string;           // ISO-8601
   updated_at: string;
 }
+// source: src/domains/billing/sub-domains/plan/plan.types.ts → PlanFeatures
+export interface PlanFeatures {
+  message_month_limit: number;
+  channel_accounts_max: number;
+  has_priority_support: boolean;
+  feature_switches: Record<string, boolean>; // one switch per feature key
+}
 // source: src/domains/billing/sub-domains/subscription/subscription.types.ts → PlanAccessOutput
 export interface PlanAccess {
   state: 'active' | 'grace' | 'read_only';
   grace_ends_at: string | null; // ISO-8601; null when `active`
   trial_ends_at: string | null; // ISO-8601; null unless a trial runs
+  plan: { id: string; name: string } | null; // the plan whose features apply
+  features: PlanFeatures | null; // that plan's limits and one switch per feature
+  is_plan_choice_required: boolean; // on a retired plan: held to Free until Creator or Studio
 }
 // source: src/domains/auth/auth-me-context.types.ts → AuthMeContextActiveOrganizationOutput
-export type ActiveOrganization = Organization & { plan_access: PlanAccess };
+export type ActiveOrganization = Organization & {
+  plan_access: PlanAccess;
+  channel_accounts_count: number; // connected (not revoked) channel accounts
+};
 // source: src/shared/constants/roles.constants.ts → GlobalRole
 export type GlobalRole = 'super_admin' | 'user';
 

@@ -172,6 +172,10 @@ describe('billing audit trail — subscription changes reach the audit log', () 
           metadata: {
             subscription_public_id: subscription.public_id,
             plan_public_id: newPlan.public_id,
+            // feat-instagram-dm-sending BL10: a plan change says whether it waits for the period end.
+            ...(action === 'billing.subscription.change_plan'
+              ? { is_scheduled: false, scheduled_change_at: null, kept_channel_account_count: 0 }
+              : {}),
           },
         }),
       ]);
@@ -189,6 +193,9 @@ describe('billing audit trail — subscription changes reach the audit log', () 
           metadata: {
             subscription_public_id: subscription.public_id,
             plan_public_id: newPlan.public_id,
+            ...(action === 'billing.subscription.change_plan'
+              ? { is_scheduled: false, scheduled_change_at: null, kept_channel_account_count: 0 }
+              : {}),
           },
         }),
       ]);

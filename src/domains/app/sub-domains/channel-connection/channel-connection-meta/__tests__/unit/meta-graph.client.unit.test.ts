@@ -21,7 +21,7 @@ import {
   assertInstagramConfigured,
   META_GRAPH_VERSION,
   META_GRAPH_BASE_URL,
-  isInstagramConfigured,
+  isMetaConfigured,
   listMetaAdAccountAds,
   listMetaAdAccounts,
   listMetaAssignedInstagramAccounts,
@@ -113,7 +113,7 @@ describe('Instagram client settings', () => {
     });
 
     it('is not configured', () => {
-      expect(isInstagramConfigured()).toBe(false);
+      expect(isMetaConfigured()).toBe(false);
     });
 
     it('fails the configured check with 503 instagram_not_configured (the pickers, IA16)', () => {
@@ -131,7 +131,7 @@ describe('Instagram client settings', () => {
   });
 
   it('is configured with all four settings', () => {
-    expect(isInstagramConfigured()).toBe(true);
+    expect(isMetaConfigured()).toBe(true);
     expect(() => assertInstagramConfigured()).not.toThrow();
   });
 
@@ -609,7 +609,7 @@ describe('Unified Login reads with a connection token (MC2)', () => {
       .query(
         withProof({
           fields:
-            'id,name,effective_status,created_time,creative{effective_instagram_media_id,thumbnail_url}',
+            'id,name,effective_status,created_time,creative{effective_instagram_media_id,instagram_user_id,thumbnail_url}',
           limit: '25',
           after: 'cursor-one',
         }),
@@ -623,6 +623,7 @@ describe('Unified Login reads with a connection token (MC2)', () => {
             created_time: '2026-11-01T10:00:00+0000',
             creative: {
               effective_instagram_media_id: '18000000000000009',
+              instagram_user_id: '17841400000000001',
               thumbnail_url: 'https://x/t.jpg',
             },
           },
@@ -644,6 +645,7 @@ describe('Unified Login reads with a connection token (MC2)', () => {
           name: 'Winter sale',
           status: 'ACTIVE',
           instagramMediaId: '18000000000000009',
+          instagramUserId: '17841400000000001',
           thumbnailUrl: 'https://x/t.jpg',
           createdAt: '2026-11-01T10:00:00+0000',
         },

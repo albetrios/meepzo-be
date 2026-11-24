@@ -276,29 +276,49 @@ export const WEBHOOK_RATE_LIMIT = {
 } as const;
 
 /**
- * Instagram webhook deliveries — `POST /app/social/instagram/webhook` (route 17): 1,200 req / 60s
- * per IP (5,000 when caps are relaxed, like the others) — WH11, D21.
+ * Unsigned Instagram webhook deliveries a client address may send per minute — `POST
+ * /app/social/channel-connections/meta/webhooks/instagram` (route 61): 1,200 (5,000 when caps are
+ * relaxed, like the others) — feat-instagram-dm-sending WH4, S9 (P97).
+ */
+const INSTAGRAM_WEBHOOK_UNSIGNED_MAX_PER_WINDOW = RATE_LIMIT_CAPS_RELAXED ? 5000 : 1200;
+
+/**
+ * Instagram webhook deliveries (route 61): **no per-IP cap on the route** — the global limiter is
+ * opted out (`rateLimit: false`) — because the cap counts unsigned traffic only (S9, P97, AC-16.6):
+ * the ingress plugin counts each request without a signature header, or whose signature is wrong,
+ * against {@link INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS}.
  *
  * @remarks
  * Meta sends from a small pool of addresses, and one viral "comment to get the link" post brings
- * thousands of comments a minute: {@link WEBHOOK_RATE_LIMIT}'s 60 — or the global 100 — would
- * throttle real events, and Meta answers repeated 429s by slowing, then disabling the subscription.
- * 1,200 is far above Meta's traffic and still a cap on a flood of junk: a request without the
- * signature header is refused before its body is read, a wrongly signed one costs reading its body
- * (5 MB at most) and one HMAC — its JSON is never parsed (D53) — and neither reaches the database.
- * Meta's subscription check (route 16, once per
- * subscription) keeps {@link WEBHOOK_RATE_LIMIT}.
+ * thousands of comments a minute: a per-IP cap on every request would throttle real events, and
+ * Meta answers repeated 429s by slowing, then disabling the subscription. A validly signed request
+ * is Meta's by proof, so it is never counted. Junk still meets the cap: a request without the
+ * signature header is counted and refused before its body is read, a wrongly signed one costs
+ * reading its body (5 MB at most) and one HMAC — its JSON is never parsed (D53) — and neither
+ * reaches the database. Meta's subscription check (route 60, once per subscription) keeps
+ * {@link WEBHOOK_RATE_LIMIT}.
  */
 export const INSTAGRAM_WEBHOOK_RATE_LIMIT = {
   config: {
-    rateLimit: {
-      max: RATE_LIMIT_CAPS_RELAXED ? 5000 : 1200,
-      timeWindow: MILLISECONDS_PER_MINUTE,
-      keyGenerator: buildRateLimitKeyFromIpAddress,
-      onExceeded: recordRouteRateLimitExceeded,
-    },
+    rateLimit: false,
   },
 } as const;
+
+/**
+ * The per-address limiter of unsigned Instagram webhook deliveries (S9, P97) — what
+ * `instagramWebhookIngressPlugin` builds with `app.createRateLimit(...)`: 1,200 a minute per IP
+ * (IPv6 /64), one bucket per address, shared with nothing else.
+ *
+ * @remarks
+ * Counted only on a refused signature (missing, malformed or wrong); the 1,201st such request in a
+ * window is a `429` instead of a `400`. Shares the rate-limit middleware's store (Redis, with its
+ * in-process fall-over).
+ */
+export const INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS: CreateRateLimitOptions = {
+  max: INSTAGRAM_WEBHOOK_UNSIGNED_MAX_PER_WINDOW,
+  timeWindow: MILLISECONDS_PER_MINUTE,
+  keyGenerator: (request) => `instagram-webhook-unsigned:${rateLimitIpKey(request.ip)}`,
+};
 
 /**
  * Unauthenticated read-only catalog endpoints (60 req / 60s per IP) — today the public plan

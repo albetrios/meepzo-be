@@ -6,18 +6,20 @@ import type { InstagramWebhookService } from './instagram-webhook.service.js';
 /** Meta reads only the status; both answers are plain text, outside the `{ data, meta }` envelope. */
 const PLAIN_TEXT_CONTENT_TYPE = 'text/plain; charset=utf-8';
 
-/** Route 17's body once the events are stored (4.A.6). */
+/** Route 61's body once the events are saved (5.A.6). */
 const DELIVERY_ACKNOWLEDGEMENT = 'OK';
 
 /**
- * Builds the Instagram webhook handlers (routes-final § 4.A, routes 16–17). Thin: each hands the
+ * Builds the Instagram webhook handlers (feat-instagram-dm-sending routes-final § 5.A, routes
+ * 60–61). Thin: each hands the
  * request to {@link InstagramWebhookService} and answers `200 text/plain` — the echoed challenge or
  * `OK` (the route config sets `raw_response`, so no envelope is added).
  */
 export function createInstagramWebhookController(service: InstagramWebhookService) {
   return {
     /**
-     * GET /api/v1/app/social/instagram/webhook — Meta's subscription check (route 16, WH7). The
+     * GET /api/v1/app/social/channel-connections/meta/webhooks/instagram — Meta's subscription
+     * check (route 60, WH4). The
      * query is validated by the route schema; the mode and token are the service's to check.
      */
     async verifyInstagramWebhookSubscription(request: FastifyRequest, reply: FastifyReply) {
@@ -31,7 +33,8 @@ export function createInstagramWebhookController(service: InstagramWebhookServic
     },
 
     /**
-     * POST /api/v1/app/social/instagram/webhook — a Meta delivery (route 17, WH10). The
+     * POST /api/v1/app/social/channel-connections/meta/webhooks/instagram — a Meta delivery
+     * (route 61, WH9). The
      * `X-Hub-Signature-256` check already ran in `instagramWebhookIngressPlugin`, which then parsed
      * the verified bytes: `request.body` is their JSON, or `undefined` for a signed body that is not
      * JSON. `OK` only once the events are stored — a store failure propagates to the error handler

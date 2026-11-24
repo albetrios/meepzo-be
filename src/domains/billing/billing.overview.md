@@ -8,10 +8,11 @@ Owns plan catalog, subscription lifecycle, and the Stripe webhook integration. S
 
 What it owns:
 
-- The `billing.plans`, `billing.subscriptions`, `billing.stripe_webhook_events`, and `billing.stripe_subscription_tombstones` tables.
+- The `billing.plans`, `billing.subscriptions`, `billing.trial_accounts` (one 7-day trial per Instagram account, ever — feat-instagram-dm-sending R24), `billing.stripe_webhook_events`, and `billing.stripe_subscription_tombstones` tables.
+- Two ports wired by the composition roots (§ 8.10): the accounts port it reads (the app's channel accounts — billing never reads app tables) and the trial port it gives the app's pick.
 - The Stripe client wrapper and webhook signature verification.
 - Idempotent inbound webhook ingestion (the `transactional-outbox` pattern, applied inbound).
-- The user-facing subscription HTTP API (create, change-plan, cancel and resume are all `POST`; there is no PATCH or DELETE) that proxies to Stripe.
+- The user-facing subscription HTTP API (create — or start the trial —, change-plan — up at once, down at the period end through a Stripe subscription schedule —, cancel and resume are all `POST`; there is no PATCH or DELETE) that proxies to Stripe, and the internal `subscription.plan_state_changed` event the app acts on.
 
 What it does not own: invoicing UI; customer dunning emails (Stripe's own dunning handles the retries and emails); an audit trail (billing emits no audit events today).
 

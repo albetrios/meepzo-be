@@ -137,6 +137,19 @@ describe('readInstagramWebhookEventDispatch', () => {
     ).toEqual({ kind: 'button_click', contactInstagramUserId: SENDER, button: null });
   });
 
+  it.each(['story_mention', 'shared_post'])(
+    'reads a %s as a DM until intake per kind (ROUTE R38)',
+    (eventKind) => {
+      expect(
+        readInstagramWebhookEventDispatch({
+          eventKind,
+          contactInstagramUserId: SENDER,
+          payload: { message: { mid: 'm_9', text: 'look', attachments: [{ type: 'share' }] } },
+        }),
+      ).toMatchObject({ kind: 'direct_message', contactInstagramUserId: SENDER, text: 'look' });
+    },
+  );
+
   it.each([
     {
       name: 'no sender',
@@ -176,7 +189,7 @@ describe('readInstagramWebhookEventDispatch', () => {
       reason: 'event_payload_invalid:message_missing',
     },
     {
-      name: 'a kind the receiver never stores `received`',
+      name: 'a kind the processor does not dispatch',
       input: { eventKind: 'reaction', contactInstagramUserId: SENDER, payload: {} },
       reason: 'event_payload_invalid:unhandled_kind:reaction',
     },

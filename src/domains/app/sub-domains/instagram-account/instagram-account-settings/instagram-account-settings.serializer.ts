@@ -8,7 +8,7 @@ import {
   NEW_ACCOUNT_HOUR_LIMIT,
   OPENING_HOUR_LIMIT_DEFAULT,
   PERSON_HOUR_LIMIT_DEFAULT,
-} from './instagram-account-settings.constants.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type { InstagramAccountSettingsRow } from './instagram-account-settings.repository.js';
 import type {
   InstagramAccountEffectiveLimitsOutput,
@@ -40,16 +40,16 @@ type InstagramAccountLimitColumns = Pick<
  */
 export function resolveInstagramEffectiveLimits({
   settings,
-  connectedAt,
+  connected_at,
   now,
 }: {
   settings: InstagramAccountLimitColumns;
   /** The channel account's latest pick or reconnect — starts the new-account window. */
-  connectedAt: Date;
+  connected_at: Date;
   now: Date;
 }): InstagramAccountEffectiveLimitsOutput {
   const isNewAccount =
-    now.getTime() - connectedAt.getTime() <
+    now.getTime() - connected_at.getTime() <
     CHANNEL_ACCOUNT_NEW_ACCOUNT_LIMIT_DAYS * MILLISECONDS_PER_DAY;
   const openingHourLimit =
     settings.opening_hour_limit ??
@@ -101,7 +101,7 @@ export function serializeInstagramAccountSettings({
     broadcast_hour_limit: settings.broadcast_hour_limit,
     effective_limits: resolveInstagramEffectiveLimits({
       settings,
-      connectedAt: channel_account.connected_at,
+      connected_at: channel_account.connected_at,
       now,
     }),
     is_day_limit_enabled: DAY_LIMIT_ENABLED,

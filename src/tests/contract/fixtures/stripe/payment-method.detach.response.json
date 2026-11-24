@@ -1,0 +1,13 @@
+{
+  "id": "pm_1CONTRACTfixtureCARD",
+  "object": "payment_method",
+  "type": "card",
+  "created": 1750000000,
+  "customer": null,
+  "card": {
+    "brand": "visa",
+    "last4": "4242",
+    "exp_month": 12,
+    "exp_year": 2030
+  }
+}

@@ -11,6 +11,10 @@ import {
   resumeStripeSubscription,
   updateStripeSubscription,
   updateStripeSubscriptionQuantity,
+  scheduleStripeSubscriptionPriceChange,
+  releaseStripeSubscriptionSchedule,
+  detachStripePaymentMethod,
+  setStripeCustomerDefaultPaymentMethod,
 } from '@/infrastructure/payment/stripe.client.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { AppError, ConfigurationError } from '@/shared/errors/index.js';
@@ -114,6 +118,7 @@ export class StripePaymentProvider implements PaymentProvider {
     billingCycle: 'monthly' | 'yearly';
     quantity?: number;
     trialEnd?: string;
+    trialPeriodDays?: number;
     idempotencyKey?: string;
   }): Promise<PaymentProviderCreateResult> {
     if (!isStripeConfigured()) return {};
@@ -153,6 +158,7 @@ export class StripePaymentProvider implements PaymentProvider {
           trialEnd: input.trialEnd
             ? Math.floor(new Date(input.trialEnd).getTime() / 1000)
             : undefined,
+          trialPeriodDays: input.trialPeriodDays,
           metadata: { organization_id: input.organization.public_id },
           idempotencyKey: input.idempotencyKey,
         }),
@@ -226,6 +232,92 @@ export class StripePaymentProvider implements PaymentProvider {
       });
     } catch (error) {
       logger.error({ error }, 'stripe.subscription.resume.failed');
+      throw toPaymentProviderFailure(error);
+    }
+  }
+
+  async schedulePriceChangeAtPeriodEnd({
+    providerSubscriptionId,
+    providerPriceId,
+    idempotencyKey,
+  }: {
+    providerSubscriptionId: string;
+    providerPriceId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void> {
+    if (!isStripeConfigured()) return;
+    try {
+      await scheduleStripeSubscriptionPriceChange(
+        omitUndefined({
+          subscriptionId: providerSubscriptionId,
+          priceId: providerPriceId,
+          idempotencyKey,
+        }),
+      );
+    } catch (error) {
+      logger.error({ error }, 'stripe.subscription.schedule_change.failed');
+      throw toPaymentProviderFailure(error);
+    }
+  }
+
+  async releaseScheduledPriceChange({
+    providerSubscriptionId,
+    idempotencyKey,
+  }: {
+    providerSubscriptionId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void> {
+    if (!isStripeConfigured()) return;
+    try {
+      await releaseStripeSubscriptionSchedule(
+        omitUndefined({ subscriptionId: providerSubscriptionId, idempotencyKey }),
+      );
+    } catch (error) {
+      logger.error({ error }, 'stripe.subscription.release_schedule.failed');
+      throw toPaymentProviderFailure(error);
+    }
+  }
+
+  async detachPaymentMethod({
+    paymentMethodId,
+    idempotencyKey,
+  }: {
+    paymentMethodId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void> {
+    if (!isStripeConfigured()) return;
+    try {
+      await detachStripePaymentMethod({
+        paymentMethodId,
+        options: omitUndefined({ idempotencyKey }),
+      });
+    } catch (error) {
+      logger.error({ error }, 'stripe.payment_method.detach.failed');
+      throw toPaymentProviderFailure(error);
+    }
+  }
+
+  async setDefaultPaymentMethod({
+    providerCustomerId,
+    providerSubscriptionId,
+    paymentMethodId,
+    idempotencyKey,
+  }: {
+    providerCustomerId: string;
+    providerSubscriptionId: string | null;
+    paymentMethodId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void> {
+    if (!isStripeConfigured()) return;
+    try {
+      await setStripeCustomerDefaultPaymentMethod({
+        customerId: providerCustomerId,
+        subscriptionId: providerSubscriptionId,
+        paymentMethodId,
+        idempotencyKey,
+      });
+    } catch (error) {
+      logger.error({ error }, 'stripe.payment_method.set_default.failed');
       throw toPaymentProviderFailure(error);
     }
   }

@@ -18,16 +18,21 @@ import { channel_accounts } from '@/domains/app/sub-domains/channel-account/chan
 import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
 import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import { ChannelConnectionRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 
 /**
  * IA6 / IAC6 (launch-2026-11-20-ujai, routes-final § 1): before the organization is known — connect's
  * "connected elsewhere" check, webhook routing, Meta's callbacks — two SECURITY DEFINER resolvers say
- * which organization holds an Instagram account, and return ONLY organization public ids:
+ * which organization holds an Instagram account or a business, and return ONLY organization public ids:
  *
  * - `app.resolve_organization_public_id_for_instagram_user(text)` — the organization whose
  *   NOT-revoked account has that Instagram user id;
- * - `app.resolve_organization_public_ids_for_instagram_app_user(text)` — every organization with a
- *   row of that app-scoped id, any status.
+ * - `app.resolve_organization_public_ids_for_provider_account(text, text)` — every organization with
+ *   a channel account of that provider's channels and provider account id, any status (feat-instagram-
+ *   dm-sending § 1 MC15 (1), P56 — Meta's callbacks, tried first);
+ * - `app.resolve_organization_public_ids_for_provider_business(text, text)` — every organization with
+ *   a connection of that provider and `client_business_id`, any status (MC15 (2) — tried when (1)
+ *   finds none).
  *
  * Run as `meepzo_be_app` (the production role, subject to FORCE RLS): a plain read of another
  * organization's account sees nothing, the resolvers still answer, and they answer only a public
@@ -48,11 +53,10 @@ const INSTAGRAM_USER = {
   revokedInAConnectedInB: '17841400000000033',
   unknown: '17841400000000099',
 } as const;
-/**
- * The id Meta signs on its callbacks: under Unified Login the Instagram user id (P111) — since ROUTE
- * row R6 the callbacks' resolver matches `instagram_user_id` (the app-scoped column is gone).
- */
-const INSTAGRAM_APP_USER = INSTAGRAM_USER;
+/** The business portfolio of each organization's connection (`555<organization id>`). */
+function businessOf(organizationId: number): string {
+  return `555${organizationId}`;
+}
 
 /** One channel connection per organization, with a placeholder token (MC9). */
 async function insertConnection(organizationId: number): Promise<{ id: number }> {
@@ -61,7 +65,7 @@ async function insertConnection(organizationId: number): Promise<{ id: number }>
     .values({
       public_id: generatePublicId('channelConnection'),
       organization_id: organizationId,
-      client_business_id: `555${organizationId}`,
+      client_business_id: businessOf(organizationId),
       config_id: '1234567890',
     })
     .returning({ id: channel_connections.id });
@@ -180,29 +184,54 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
     });
   });
 
-  it('resolves every organization holding an app-scoped id, any status — public ids only', async () => {
-    const resolve = (instagramAppUserId: string) =>
+  it('resolves every organization holding a provider account id, any status — public ids only', async () => {
+    const resolve = (providerAccountId: string, provider = 'meta') =>
       executeAsMeepzoBeAppTenant(null, async (transaction) =>
         rowsOf<Record<string, unknown>>(
           await transaction.execute(
-            drizzleSql`SELECT * FROM app.resolve_organization_public_ids_for_instagram_app_user(${instagramAppUserId}) AS organization_public_id`,
+            drizzleSql`SELECT * FROM app.resolve_organization_public_ids_for_provider_account(${provider}, ${providerAccountId}) AS organization_public_id`,
           ),
         ),
       );
 
-    const both = await resolve(INSTAGRAM_APP_USER.revokedInAConnectedInB);
+    const both = await resolve(INSTAGRAM_USER.revokedInAConnectedInB);
     // One column, nothing but the organization's public id.
     expect(both.every((row) => Object.keys(row).join() === 'organization_public_id')).toBe(true);
     expect(both.map((row) => row.organization_public_id).sort()).toEqual(
       [organizationA.public_id, organizationB.public_id].sort(),
     );
-    expect(await resolve(INSTAGRAM_APP_USER.onlyInA)).toEqual([
+    expect(await resolve(INSTAGRAM_USER.onlyInA)).toEqual([
       { organization_public_id: organizationA.public_id },
     ]);
-    expect(await resolve(INSTAGRAM_APP_USER.unknown)).toEqual([]);
+    expect(await resolve(INSTAGRAM_USER.unknown)).toEqual([]);
+    // Another provider's accounts are not this provider's.
+    expect(await resolve(INSTAGRAM_USER.onlyInA, 'other')).toEqual([]);
   });
 
-  it('the repository reads both resolvers the same way', async () => {
+  it('resolves every organization with a connection of a business, any status — public ids only', async () => {
+    const resolve = (clientBusinessId: string) =>
+      executeAsMeepzoBeAppTenant(organizationA.public_id, async (transaction) =>
+        rowsOf<Record<string, unknown>>(
+          await transaction.execute(
+            drizzleSql`SELECT * FROM app.resolve_organization_public_ids_for_provider_business('meta', ${clientBusinessId}) AS organization_public_id`,
+          ),
+        ),
+      );
+
+    // Run in A's scope: B's connection is still found, and only B's public id comes back.
+    expect(await resolve(businessOf(organizationB.id))).toEqual([
+      { organization_public_id: organizationB.public_id },
+    ]);
+    await database.execute(
+      drizzleSql`UPDATE app.channel_connections SET status = 'revoked', disconnected_at = now() WHERE organization_id = ${organizationA.id}`,
+    );
+    expect(await resolve(businessOf(organizationA.id))).toEqual([
+      { organization_public_id: organizationA.public_id },
+    ]);
+    expect(await resolve('555000000')).toEqual([]);
+  });
+
+  it('the repositories read the resolvers the same way', async () => {
     const repository = new InstagramAccountRepository();
     await expect(
       repository.resolveOrganizationPublicIdForInstagramUser(INSTAGRAM_USER.revokedInAConnectedInB),
@@ -210,13 +239,20 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
     await expect(
       repository.resolveOrganizationPublicIdForInstagramUser(INSTAGRAM_USER.unknown),
     ).resolves.toBeNull();
-    const organizations = await repository.resolveOrganizationPublicIdsForInstagramAppUser(
-      INSTAGRAM_APP_USER.revokedInAConnectedInB,
+    const connectionRepository = new ChannelConnectionRepository();
+    const organizations = await connectionRepository.resolveOrganizationPublicIdsForProviderAccount(
+      { provider: 'meta', providerAccountId: INSTAGRAM_USER.revokedInAConnectedInB },
     );
     expect(organizations.sort()).toEqual([organizationA.public_id, organizationB.public_id].sort());
+    await expect(
+      connectionRepository.resolveOrganizationPublicIdsForProviderBusiness({
+        provider: 'meta',
+        clientBusinessId: businessOf(organizationA.id),
+      }),
+    ).resolves.toEqual([organizationA.public_id]);
   });
 
-  it('both resolvers are SECURITY DEFINER, pin search_path, return text, and are not PUBLIC-executable', async () => {
+  it('the three resolvers are SECURITY DEFINER, pin search_path, return text, and are not PUBLIC-executable', async () => {
     const functions = rowsOf<{
       name: string;
       is_security_definer: boolean;
@@ -238,12 +274,16 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
           FROM pg_proc p
           JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'app'
+           -- The day-part maker (feat-instagram-dm-sending R16) is no resolver: a plain invoker
+           -- function, held by role-taxonomy.db.unit.test.ts and the events' RLS suite.
+           AND p.proname <> 'fn_create_daily_partitions'
          ORDER BY p.proname
       `),
     );
     expect(functions.map((entry) => entry.name)).toEqual([
       'resolve_organization_public_id_for_instagram_user',
-      'resolve_organization_public_ids_for_instagram_app_user',
+      'resolve_organization_public_ids_for_provider_account',
+      'resolve_organization_public_ids_for_provider_business',
     ]);
     for (const entry of functions) {
       expect(entry.is_security_definer, entry.name).toBe(true);
@@ -252,7 +292,7 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
       expect(entry.public_can_execute, entry.name).toBe(false);
       expect(entry.app_can_execute, entry.name).toBe(true);
     }
-    expect(functions.map((entry) => entry.returns_set)).toEqual([false, true]);
+    expect(functions.map((entry) => entry.returns_set)).toEqual([false, true, true]);
   });
 
   it('MC9: the retention sweep context sees every account but no connection token', async () => {

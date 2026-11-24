@@ -34,7 +34,10 @@ import type { OrganizationSettingsService } from '@/domains/tenancy/sub-domains/
 import type { AuthSessionService } from '@/domains/auth/sub-domains/auth-session/auth-session.service.js';
 import type { MfaService } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa.service.js';
 import type { VerificationTokenRepository } from './verification-token/verification-token.repository.js';
-import { AUTH_METHOD_TYPE } from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
+import {
+  AUTH_METHOD_TYPE,
+  VERIFICATION_TOKEN_TYPE,
+} from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
 import { eventBus } from '@/core/events/event-bus.js';
 import { withTransaction } from '@/infrastructure/database/transaction.js';
 import {
@@ -53,7 +56,7 @@ import {
 import { MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
 
 /** Token category persisted in `verification_tokens.token_type` for the email verification-code login flow. */
-const EMAIL_CODE_TOKEN_TYPE = 'EMAIL_CODE';
+const EMAIL_CODE_TOKEN_TYPE = VERIFICATION_TOKEN_TYPE.EMAIL_CODE;
 
 /** Redis key prefix for the email verification-code try counters (the per-code brute-force cap). */
 const EMAIL_CODE_VERIFY_ATTEMPT_KEY_PREFIX = 'auth:email_code_verify_attempts:';

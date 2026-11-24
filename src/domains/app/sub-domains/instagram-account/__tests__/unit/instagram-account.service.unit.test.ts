@@ -188,12 +188,11 @@ function setup({
     resolveOrganizationPublicIdForInstagramUser: vi.fn(
       async (_instagramUserId: string): Promise<string | null> => null,
     ),
-    resolveOrganizationPublicIdsForInstagramAppUser: vi.fn(
-      async (_instagramAppUserId: string): Promise<string[]> => [],
-    ),
     listLiveByOrganizationId: vi.fn(async () => (liveAccount === null ? [] : [liveAccount])),
-    lockByInstagramUserInOrganization: vi.fn(async (): Promise<InstagramAccountRow[]> => []),
+    lockByProviderAccountInOrganization: vi.fn(async (): Promise<InstagramAccountRow[]> => []),
+    lockLiveByConnections: vi.fn(async (): Promise<InstagramAccountRow[]> => []),
     lockByOrganizationId: vi.fn(async (): Promise<InstagramAccountRow[]> => []),
+    findByChannelAccountIds: vi.fn(async () => (liveAccount === null ? [] : [liveAccount])),
   };
   // The channel account's status moves (R6: the extension holds none).
   const channelAccountRepository = {
@@ -201,6 +200,13 @@ function setup({
     revoke: vi.fn(async (): Promise<{ id: number } | null> => ({ id: 5 })),
     // No other not-revoked account uses the connection: a disconnect takes its token (CA8).
     countLiveByConnection: vi.fn(async () => 0),
+    findByPublicId: vi.fn(
+      async (): Promise<{ id: number; channel: string; connection_status: string } | null> => ({
+        id: 5,
+        channel: 'instagram',
+        connection_status: 'connected',
+      }),
+    ),
   };
   const extensionService = {
     clearOnRevoke: vi.fn(async () => true),
@@ -217,6 +223,15 @@ function setup({
     ),
     revokeConnection: vi.fn(async () => true),
     revokeOrganizationConnections: vi.fn(async () => 0),
+    findConnectionAccess: vi.fn(
+      async (): Promise<{
+        connectionStatus: string;
+        encryptedAccessToken: string | null;
+      } | null> => ({
+        connectionStatus: 'connected',
+        encryptedAccessToken: storedToken,
+      }),
+    ),
   };
   const settingsService = {
     findSettings: vi.fn(async () => settings),
@@ -307,39 +322,68 @@ describe('InstagramAccountService lookups', () => {
     ).resolves.toBeNull();
   });
 
-  describe('findLiveAccountAccess (routes 5–6, IA16)', () => {
-    it('answers the account, its key and its ciphertext', async () => {
-      const { service, tokenService } = setup();
+  describe('findAccountReadAccess (routes 13–14, IA15)', () => {
+    const channelAccount = { organizationId: TEAM.id, channelAccountId: 5 };
 
-      await expect(service.findLiveAccountAccess({ scope })).resolves.toEqual({
+    it('answers the named account, its keys, its connection status and the ciphertext', async () => {
+      const { service, tokenService, channelAccountRepository } = setup();
+
+      await expect(
+        service.findAccountReadAccess({ scope, channelAccountPublicId: ACCOUNT_PUBLIC_ID }),
+      ).resolves.toEqual({
         account: accountRow(),
-        instagramAccount,
+        channelAccount,
+        channelConnection,
+        connectionStatus: 'connected',
         encryptedAccessToken: STORED_CIPHERTEXT,
       });
-      expect(tokenService.findAccessToken).toHaveBeenCalledWith({ scope, channelConnection });
+      expect(channelAccountRepository.findByPublicId).toHaveBeenCalledWith({
+        organizationId: TEAM.id,
+        channelAccountPublicId: ACCOUNT_PUBLIC_ID,
+      });
+      expect(tokenService.findConnectionAccess).toHaveBeenCalledWith({ scope, channelConnection });
     });
 
-    it('answers no token, and a broken account as it is — the caller decides', async () => {
-      const { service } = setup({
-        liveAccount: accountRow({ connection_status: 'error' }),
-        storedToken: null,
-      });
-
-      await expect(service.findLiveAccountAccess({ scope })).resolves.toMatchObject({
-        account: { connection_status: 'error' },
+    it('answers a broken connection and no token as they are — the caller decides', async () => {
+      const { service, tokenService } = setup({ storedToken: null });
+      tokenService.findConnectionAccess.mockResolvedValueOnce({
+        connectionStatus: 'error',
         encryptedAccessToken: null,
       });
+
+      await expect(
+        service.findAccountReadAccess({ scope, channelAccountPublicId: ACCOUNT_PUBLIC_ID }),
+      ).resolves.toMatchObject({ connectionStatus: 'error', encryptedAccessToken: null });
     });
 
-    it('answers 404 instagram_not_connected, and 404 team_organization_required on a personal organization', async () => {
-      const none = setup({ liveAccount: null });
-      const notConnected = await rejection(none.service.findLiveAccountAccess({ scope }));
-      expect((notConnected as NotFoundError).reason).toBe('instagram_not_connected');
-      expect(none.tokenService.findAccessToken).not.toHaveBeenCalled();
+    it.each([
+      ['an unknown id', null],
+      ['a revoked account', { id: 5, channel: 'instagram', connection_status: 'revoked' }],
+      [
+        'an account of another channel',
+        { id: 5, channel: 'whatsapp', connection_status: 'connected' },
+      ],
+    ])('answers 404 channel_account_not_found for %s', async (_case, channelAccountRow) => {
+      const { service, channelAccountRepository, tokenService } = setup();
+      channelAccountRepository.findByPublicId.mockResolvedValueOnce(channelAccountRow);
 
+      const refused = await rejection(
+        service.findAccountReadAccess({ scope, channelAccountPublicId: ACCOUNT_PUBLIC_ID }),
+      );
+      expect((refused as NotFoundError).reason).toBe('channel_account_not_found');
+      expect(tokenService.findConnectionAccess).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 team_organization_required on a personal organization', async () => {
       const personal = setup({ organizationType: 'PERSONAL' });
-      const teamOnly = await rejection(personal.service.findLiveAccountAccess({ scope }));
+      const teamOnly = await rejection(
+        personal.service.findAccountReadAccess({
+          scope,
+          channelAccountPublicId: ACCOUNT_PUBLIC_ID,
+        }),
+      );
       expect((teamOnly as NotFoundError).reason).toBe('team_organization_required');
+      expect(personal.channelAccountRepository.findByPublicId).not.toHaveBeenCalled();
     });
   });
 
@@ -489,23 +533,6 @@ describe('InstagramAccountService lookups', () => {
 });
 
 describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
-  it('lists the organizations of an app-scoped id outside any unit of work (IA6)', async () => {
-    const { service, accountRepository } = setup();
-    accountRepository.resolveOrganizationPublicIdsForInstagramAppUser.mockImplementationOnce(
-      async () => {
-        expect(unitOfWork.openCount).toBe(0);
-        return [ORGANIZATION_PUBLIC_ID, OTHER_ORGANIZATION_PUBLIC_ID];
-      },
-    );
-
-    await expect(
-      service.resolveOrganizationPublicIdsForInstagramAppUser(INSTAGRAM_APP_USER_ID),
-    ).resolves.toEqual([ORGANIZATION_PUBLIC_ID, OTHER_ORGANIZATION_PUBLIC_ID]);
-    expect(accountRepository.resolveOrganizationPublicIdsForInstagramAppUser).toHaveBeenCalledWith(
-      INSTAGRAM_APP_USER_ID,
-    );
-  });
-
   const revokedKey = { organizationId: TEAM.id, instagramAccountId: 4 };
   const accountsOfThePerson = () => [
     accountRow(),
@@ -519,7 +546,7 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
   it('a deauthorize revokes each account and erases its token, keeping the profile and calling no Instagram', async () => {
     const { service, accountRepository, channelAccountRepository, extensionService, tokenService } =
       setup();
-    accountRepository.lockByInstagramUserInOrganization.mockResolvedValueOnce(
+    accountRepository.lockByProviderAccountInOrganization.mockResolvedValueOnce(
       accountsOfThePerson(),
     );
     // The second account was already revoked and holds no token.
@@ -528,18 +555,19 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
 
     const changes = await service.disconnectForMeta({
       scope,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
+      match: { kind: 'provider_account', providerAccountId: INSTAGRAM_APP_USER_ID },
       issuedAt: NOW_SECONDS,
       shouldEraseProfile: false,
     });
 
-    expect(accountRepository.lockByInstagramUserInOrganization).toHaveBeenCalledWith({
+    expect(accountRepository.lockByProviderAccountInOrganization).toHaveBeenCalledWith({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramUserId: INSTAGRAM_APP_USER_ID,
+      providerAccountId: INSTAGRAM_APP_USER_ID,
     });
     expect(changes).toEqual([
       {
         instagramAccount,
+        channelAccount: { organizationId: TEAM.id, channelAccountId: 5 },
         instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
         wasRevoked: true,
         wasTokenErased: true,
@@ -547,6 +575,7 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
       },
       {
         instagramAccount: revokedKey,
+        channelAccount: { organizationId: TEAM.id, channelAccountId: 5 },
         instagramAccountPublicId: 'cha_z9y8x7w6v5u4t3s2r1q0p',
         wasRevoked: false,
         wasTokenErased: false,
@@ -561,7 +590,7 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
 
   it('a data deletion also erases each profile — a revoked account’s too, and only once', async () => {
     const { service, accountRepository, channelAccountRepository, extensionService } = setup();
-    accountRepository.lockByInstagramUserInOrganization.mockResolvedValueOnce(
+    accountRepository.lockByProviderAccountInOrganization.mockResolvedValueOnce(
       accountsOfThePerson(),
     );
     // The second profile was erased by an earlier request.
@@ -571,7 +600,7 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
 
     const changes = await service.disconnectForMeta({
       scope,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
+      match: { kind: 'provider_account', providerAccountId: INSTAGRAM_APP_USER_ID },
       issuedAt: NOW_SECONDS,
       shouldEraseProfile: true,
     });
@@ -587,13 +616,33 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
     );
   });
 
+  it('a business match locks the not-revoked accounts of the named connections and disconnects them (P56)', async () => {
+    const { service, accountRepository, channelAccountRepository } = setup();
+    accountRepository.lockLiveByConnections.mockResolvedValueOnce([accountRow()]);
+
+    const changes = await service.disconnectForMeta({
+      scope,
+      match: { kind: 'provider_business', channelConnectionIds: [7, 8] },
+      issuedAt: NOW_SECONDS,
+      shouldEraseProfile: false,
+    });
+
+    expect(accountRepository.lockLiveByConnections).toHaveBeenCalledWith({
+      organizationId: TEAM.id,
+      channelConnectionIds: [7, 8],
+    });
+    expect(accountRepository.lockByProviderAccountInOrganization).not.toHaveBeenCalled();
+    expect(changes.map((change) => change.wasRevoked)).toEqual([true]);
+    expect(channelAccountRepository.revoke).toHaveBeenCalledTimes(1);
+  });
+
   it('answers an empty list for an organization without such an account', async () => {
     const { service, channelAccountRepository, tokenService } = setup();
 
     await expect(
       service.disconnectForMeta({
         scope,
-        instagramAppUserId: INSTAGRAM_APP_USER_ID,
+        match: { kind: 'provider_account', providerAccountId: INSTAGRAM_APP_USER_ID },
         issuedAt: NOW_SECONDS,
         shouldEraseProfile: true,
       }),
@@ -609,14 +658,14 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
       InstagramAccountRow,
       InstagramAccountRow,
     ];
-    accountRepository.lockByInstagramUserInOrganization.mockResolvedValueOnce([
+    accountRepository.lockByProviderAccountInOrganization.mockResolvedValueOnce([
       { ...reconnected, connected_at: new Date(NOW.getTime() + 1000) },
       older,
     ]);
 
     const changes = await service.disconnectForMeta({
       scope,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
+      match: { kind: 'provider_account', providerAccountId: INSTAGRAM_APP_USER_ID },
       issuedAt: NOW_SECONDS,
       shouldEraseProfile: true,
     });
@@ -635,13 +684,13 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
   it('changes an account connected in the second Meta signed the request in', async () => {
     const { service, accountRepository } = setup();
     // Meta signs whole seconds: 09:00:00.900 is not after 09:00:00.
-    accountRepository.lockByInstagramUserInOrganization.mockResolvedValueOnce([
+    accountRepository.lockByProviderAccountInOrganization.mockResolvedValueOnce([
       accountRow({ connected_at: new Date(NOW.getTime() + 900) }),
     ]);
 
     const changes = await service.disconnectForMeta({
       scope,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
+      match: { kind: 'provider_account', providerAccountId: INSTAGRAM_APP_USER_ID },
       issuedAt: NOW_SECONDS,
       shouldEraseProfile: false,
     });
@@ -651,13 +700,13 @@ describe('InstagramAccountService and Meta’s callbacks (IA19, IA20)', () => {
 
   it('changes every account for a request without issued_at', async () => {
     const { service, accountRepository } = setup();
-    accountRepository.lockByInstagramUserInOrganization.mockResolvedValueOnce([
+    accountRepository.lockByProviderAccountInOrganization.mockResolvedValueOnce([
       accountRow({ connected_at: new Date(NOW.getTime() + 60_000) }),
     ]);
 
     const changes = await service.disconnectForMeta({
       scope,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
+      match: { kind: 'provider_account', providerAccountId: INSTAGRAM_APP_USER_ID },
       issuedAt: null,
       shouldEraseProfile: false,
     });
@@ -745,6 +794,7 @@ describe('InstagramAccountService and an organization delete (D54)', () => {
     expect(changes).toEqual([
       {
         instagramAccount,
+        channelAccount: { organizationId: TEAM.id, channelAccountId: 5 },
         instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
         wasRevoked: true,
         wasTokenErased: true,
@@ -752,6 +802,7 @@ describe('InstagramAccountService and an organization delete (D54)', () => {
       },
       {
         instagramAccount: formerKey,
+        channelAccount: { organizationId: TEAM.id, channelAccountId: 5 },
         instagramAccountPublicId: 'cha_z9y8x7w6v5u4t3s2r1q0p',
         wasRevoked: false,
         wasTokenErased: false,

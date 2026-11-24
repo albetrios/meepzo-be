@@ -17,7 +17,7 @@ describe('resolveInstagramEffectiveLimits (2.B.6, IA14)', () => {
     expect(
       resolveInstagramEffectiveLimits({
         settings: buildInstagramAccountSettingsRow(),
-        connectedAt: NEW_ACCOUNT_CONNECTED_AT,
+        connected_at: NEW_ACCOUNT_CONNECTED_AT,
         now: NOW,
       }),
     ).toEqual({
@@ -33,7 +33,7 @@ describe('resolveInstagramEffectiveLimits (2.B.6, IA14)', () => {
     expect(
       resolveInstagramEffectiveLimits({
         settings: buildInstagramAccountSettingsRow(),
-        connectedAt: OLD_ACCOUNT_CONNECTED_AT,
+        connected_at: OLD_ACCOUNT_CONNECTED_AT,
         now: NOW,
       }).opening_hour_limit,
     ).toBe(600);
@@ -49,7 +49,7 @@ describe('resolveInstagramEffectiveLimits (2.B.6, IA14)', () => {
           person_hour_limit: 5,
           broadcast_hour_limit: 1,
         }),
-        connectedAt: NEW_ACCOUNT_CONNECTED_AT,
+        connected_at: NEW_ACCOUNT_CONNECTED_AT,
         now: NOW,
       }),
     ).toEqual({

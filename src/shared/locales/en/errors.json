@@ -116,7 +116,8 @@
     "contactTagInBothLists": "A tag cannot be both added and removed",
     "contactIdsRepeated": "Each contact may be named once",
     "contactBulkSelection": "Send either contact_ids or filter, not both",
-    "contactBulkTag": "Send a tag for the tag actions, and none for the pause actions"
+    "contactBulkTag": "Send a tag for the tag actions, and none for the pause actions",
+    "invalidPaymentMethodId": "Must be a Stripe card id: pm_ and 1 to 250 letters or digits"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -295,7 +296,9 @@
     "Contact": "Contact",
     "Automation": "Automation",
     "Channel connection": "Channel connection",
-    "Channel account": "Channel account"
+    "Channel account": "Channel account",
+    "Ad account": "Ad account",
+    "Payment method": "Payment method"
   },
   "emailCodeWrong": "That code is not right. Check the latest email we sent and try again.",
   "emailCodeExpired": "That code has expired. Ask for a new code.",
@@ -307,5 +310,13 @@
   "mfaLocked": "Too many wrong codes. Wait a few minutes, then try again or use a recovery code.",
   "contactTagLimit": "A contact can hold at most {{max}} tags.",
   "contactBulkTooMany": "This action reaches more than {{max}} contacts. Narrow the filter.",
-  "contactBulkActionUnavailable": "Bulk actions on contacts are not available yet. Try again later."
+  "contactBulkActionUnavailable": "Bulk actions on contacts are not available yet. Try again later.",
+  "trialAlreadyUsed": "This workspace, or one of its Instagram accounts, has already had a free trial.",
+  "planHasNoTrial": "Only a paid plan has a free trial.",
+  "trialUsedByAccount": "One of these Instagram accounts has already had a free trial, so it cannot join this one.",
+  "keepChannelAccountsInvalid": "Choose only this workspace's connected accounts, at most as many as the new plan allows, and only when moving to a smaller plan.",
+  "defaultCardInUse": "This is your only card and a paid plan is on. Add another card before removing this one.",
+  "emailAlreadyConfirmed": "Your email is already confirmed",
+  "emailConfirmationResendTooSoon": "A confirm link was just sent. Wait a moment before asking for a new one.",
+  "emailConfirmTokenInvalid": "This confirm link is not valid any more. Ask for a new one."
 }

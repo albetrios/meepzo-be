@@ -143,7 +143,8 @@ export interface InstagramAccountSettingsChannelAccount {
 }
 
 /**
- * The lane step a limit change takes after commit (IA14): the account's slow and reply lanes get a
- * new turn — sub-domain 6's `ChannelAccountLanePort.wakeLanes` (ROUTE row R18); until then none.
+ * The lane step a limit change takes after commit (IA14): the account's lanes get a new turn —
+ * sub-domain 6's `InstagramSendLaneService.wakeLanes`, passed by the app container as the settings
+ * service's fourth constructor argument (ROUTE row R18).
  */
 export type InstagramAccountSettingsLanePort = Pick<ChannelAccountLanePort, 'wakeLanes'>;

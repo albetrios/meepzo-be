@@ -81,7 +81,7 @@ import { createInstagramAccountDailyCheckWorker } from '@/domains/app/sub-domain
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
-import { isInstagramConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { isMetaConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { createAutomationNextPostExpiryWorker } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.worker.js';
 import { AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.constants.js';
 import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';
@@ -386,7 +386,7 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
     resolvePostgresConcurrency: () => getWorkerConcurrencyInstagram(),
-    isEnabled: () => isInstagramConfigured(),
+    isEnabled: () => isMetaConfigured(),
     create: (workerContainers) =>
       createInstagramWebhookWorker({
         instagramAccountService: workerContainers.appDomain.instagramAccountService,
@@ -491,7 +491,7 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     family: 'retention',
     logLabel: 'Instagram account daily check worker',
     holdsConnectionDuringExternalIo: false,
-    isEnabled: () => isInstagramConfigured(),
+    isEnabled: () => isMetaConfigured(),
     create: (workerContainers) =>
       createInstagramAccountDailyCheckWorker({
         accountService: workerContainers.appDomain.instagramAccountService,

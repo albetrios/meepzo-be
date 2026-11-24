@@ -47,6 +47,7 @@ import {
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
   insertTestInstagramWebhookEvent,
+  readChannelAccountIdOfInstagramAccount,
   readTestInstagramWebhookEvent,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
@@ -116,12 +117,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     account = await insertInstagramAccount({ organizationId: organization.id });
     processingAccount = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
-      channelAccountId: Number(
-        (
-          await operatorQuery<Array<{ channel_account_id: string }>>`
-            SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id}`
-        )[0]?.channel_account_id,
-      ),
+      channelAccountId: await readChannelAccountIdOfInstagramAccount(account.id),
       instagramAccountPublicId: account.public_id,
       connectionStatus: 'connected',
       isAutomationEnabled: true,
@@ -179,6 +175,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       instagramMediaService: new InstagramMediaService(
         new InstagramMediaRepository(),
         accountService as unknown as InstagramAccountService,
+        { markConnectionBroken: async () => false },
       ),
       automationService: new AutomationService(
         new AutomationRepository(),
@@ -203,7 +200,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     return processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: organization.public_id,
-        instagramAccountPublicId: account.public_id,
+        channelAccountPublicId: processingAccount.instagramAccountPublicId,
       },
       services,
       jobId: 'job-1',

@@ -1,5 +1,6 @@
 import {
   type OrganizationPrincipalDatabaseScope,
+  PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
@@ -29,12 +30,13 @@ import type { InstagramAccountSettingsChannelAccountPort } from '@/domains/app/s
 import { CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import { planAccountLimitError } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
 import {
+  CHANNEL_ACCOUNT_CHANNELS,
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
   CHANNEL_ACCOUNT_STATUS,
   type ChannelAccountChannel,
 } from './channel-account.constants.js';
+import { APP_UNTESTED_META_FEATURES } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import {
-  APP_UNTESTED_META_FEATURES,
   CHANNEL_CAPABILITIES,
   CHANNEL_FEATURES,
   type ChannelFeature,
@@ -165,9 +167,10 @@ function checkFeature({
  *   Meta's `subscribed_apps` (best effort).
  *
  * Notes:
- * - The lane steps of routes 8–11 go through {@link ChannelAccountLanePort} (sub-domain 6, ROUTE row
- *   R18) and the plan stop an activated account takes through {@link ChannelAccountPlanStopPort}
- *   (R18, R24); until then the app container passes none.
+ * - The lane steps of routes 8–11 and of the break go through {@link ChannelAccountLanePort}
+ *   (sub-domain 6's lane service, ROUTE row R18) and the plan stop an activated account takes
+ *   through {@link ChannelAccountPlanStopPort} (`plan_limit` from sub-domain 6's month count, R18;
+ *   `plan_ended`, R24). Both are optional constructor arguments so a unit test can leave them out.
  * - The audit entries are the controller's, after commit (D36).
  */
 export class ChannelAccountService
@@ -486,6 +489,7 @@ export class ChannelAccountService
             scope,
             organizationId,
             channelAccountId: stopAccount.id,
+            planStopReason: CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_DOWNGRADE,
           });
         }
         const organizationStop =
@@ -496,6 +500,14 @@ export class ChannelAccountService
           reason: organizationStop,
         });
         if (activated === null) throw channelAccountNotFoundError();
+        if (organizationStop !== null) {
+          await this.lanePort?.stopLanes({
+            scope,
+            organizationId,
+            channelAccountId: activated.id,
+            planStopReason: organizationStop,
+          });
+        }
         return {
           organizationId,
           channelAccountId: activated.id,
@@ -524,11 +536,13 @@ export class ChannelAccountService
   /**
    * The guarded break of CA4: `connected → error`, for the connection's break (sub-domain 1, MC11),
    * an account missing from the assigned list, and the send errors (5, 6). The winner enqueues the
-   * reconnect notice (WC-46, through the Instagram account service).
+   * reconnect notice (WC-46, through the Instagram account service) and stops the account's lanes
+   * until a reconnect (`login_expired`, or `account_not_shared` — SN5, through the lane port).
    *
    * @remarks
    * Algorithm: one unit — the account, its Instagram row, the guarded change of the account's
-   * status through the Instagram account service (which enqueues the notice).
+   * status through the Instagram account service (which enqueues the notice), and for the winner
+   * the lanes' break stop.
    * Failure modes: none of its own — `false` when the account was not `connected` (another caller won
    * the race, or it was revoked). Side effects: the status change; one notice job per break.
    */
@@ -537,9 +551,12 @@ export class ChannelAccountService
     organizationId,
     channelAccountId,
     requestId,
+    stopReason = 'login_expired',
   }: ChannelConnectionAccountScope & {
     channelAccountId: number;
     requestId?: string | undefined;
+    /** The lanes' stop the break starts (SN5): a refused token by default. */
+    stopReason?: 'login_expired' | 'account_not_shared' | undefined;
   }): Promise<boolean> {
     return withAppDatabaseContext({
       scope,
@@ -556,7 +573,14 @@ export class ChannelAccountService
           connectionStatus: 'error',
           requestId,
         });
-        return broken !== null;
+        if (broken === null) return false;
+        await this.lanePort?.startBrokenAccountStop({
+          scope,
+          organizationId,
+          channelAccountId,
+          reason: stopReason,
+        });
+        return true;
       },
     });
   }
@@ -614,6 +638,53 @@ export class ChannelAccountService
       if (!result.isAllowed) problems.push({ feature, reason: result.reason });
     }
     return problems;
+  }
+
+  /**
+   * The organization's active accounts (not revoked, not `plan_downgrade`) — the count route 64 shows
+   * against the plan's `channel_accounts_max` (SN15), in the caller's unit.
+   *
+   * @remarks
+   * Algorithm: one count. Failure modes: none. Side effects: none.
+   */
+  async countActiveAccounts({
+    scope,
+    organizationId,
+  }: ChannelConnectionAccountScope): Promise<number> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.accountRepository.countActive(organizationId),
+    });
+  }
+
+  /**
+   * The organization's not-revoked Instagram account by its public id, or `null` — route 63's
+   * account (6.A.9 answers `404 instagram_not_connected` for `null`), in the caller's unit.
+   *
+   * @remarks
+   * Algorithm: one read. Failure modes: none. Side effects: none.
+   */
+  async findLiveInstagramAccount({
+    scope,
+    organizationId,
+    channelAccountPublicId,
+  }: ChannelConnectionAccountScope & {
+    channelAccountPublicId: string;
+  }): Promise<ChannelAccountRow | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const account = await this.accountRepository.findByPublicId({
+          organizationId,
+          channelAccountPublicId,
+        });
+        return account === null ||
+          account.connection_status === CHANNEL_ACCOUNT_STATUS.REVOKED ||
+          account.channel !== 'instagram'
+          ? null
+          : account;
+      },
+    });
   }
 
   // Route 12's channel account port (routes-final § 2.B, IA12 — ROUTE row R7).
@@ -714,6 +785,60 @@ export class ChannelAccountService
           if (row !== null) broken.push(row);
         }
         return this.toConnectionAccounts({ scope, organizationId, accounts: broken });
+      },
+    });
+  }
+
+  /**
+   * Billing's accounts port (routes-final § 8.10, `BillingChannelAccountsPort`): the organization's
+   * not-revoked channel accounts, oldest connected first, as `{ publicId, instagramUserId,
+   * connectedAt }` — the trial's accounts (route 102) and the kept accounts of a move down (route 103).
+   *
+   * @remarks
+   * One read under the organization's verified scope (a surrounding unit of the same organization
+   * lends its transaction). The provider account id is the Instagram user id (CAC5). An organization
+   * that does not exist answers `[]`.
+   */
+  async listActiveChannelAccounts({
+    organizationPublicId,
+  }: {
+    organizationPublicId: string;
+  }): Promise<{ publicId: string; instagramUserId: string; connectedAt: Date }[]> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
+      callback: async () => {
+        const organization =
+          await this.organizationService.findOrganizationByPublicId(organizationPublicId);
+        if (!organization) return [];
+        const accounts = await this.accountRepository.listLive({
+          organizationId: organization.id,
+          channels: CHANNEL_ACCOUNT_CHANNELS,
+        });
+        return accounts.map((account) => ({
+          publicId: account.public_id,
+          instagramUserId: account.provider_account_id,
+          connectedAt: account.connected_at,
+        }));
+      },
+    });
+  }
+
+  /**
+   * Billing's accounts port (routes-final § 8.10): how many not-revoked channel accounts the
+   * organization has — route 108's `active_organization.channel_accounts_count` (BL16). `0` for an
+   * organization that does not exist.
+   */
+  async countConnectedChannelAccounts({
+    organizationPublicId,
+  }: {
+    organizationPublicId: string;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
+      callback: async () => {
+        const organization =
+          await this.organizationService.findOrganizationByPublicId(organizationPublicId);
+        return organization ? this.accountRepository.countLive(organization.id) : 0;
       },
     });
   }

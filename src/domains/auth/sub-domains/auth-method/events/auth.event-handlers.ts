@@ -6,6 +6,9 @@ import {
   type MailEnqueueInput,
 } from '@/infrastructure/mail/queues/mail.queue.js';
 import { verificationCodeTemplate } from '@/infrastructure/mail/templates/verification-code.template.js';
+import { emailConfirmLinkTemplate } from '@/infrastructure/mail/templates/email-confirm-link.template.js';
+import { env } from '@/shared/config/env.config.js';
+import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
 import { isMailConfigured } from '@/infrastructure/mail/mail.service.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import {
@@ -13,6 +16,7 @@ import {
   AUTH_EVENT,
   type AccountSecurityNotice,
   type AccountSecurityNoticePayload,
+  type EmailConfirmLinkPayload,
   type EmailVerificationCodePayload,
 } from './auth.events.js';
 
@@ -61,6 +65,56 @@ async function handleVerificationCodeEmail({
     },
     options: requestId !== undefined ? { requestId } : undefined,
   });
+}
+
+/**
+ * The confirm-email link a person is sent (feat-instagram-dm-sending UN6): the frontend's
+ * `/confirm-email` page, which posts the token to `POST /auth/email/confirm`.
+ */
+export function buildEmailConfirmUrl(token: string): string {
+  const frontendUrl = env.FRONTEND_URL ?? DEFAULT_FRONTEND_URL;
+  return `${frontendUrl}/confirm-email?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Records the confirm-email link email in the mail outbox (always sent — never in the notification
+ * grid). Throws when mail is not configured: the request's transaction rolls the new token back,
+ * so a link that cannot be delivered is never left live.
+ */
+async function handleEmailConfirmLinkEmail({
+  payload,
+  requestId,
+}: {
+  payload: EmailConfirmLinkPayload;
+  requestId?: string | undefined;
+}): Promise<void> {
+  if (!isMailConfigured()) {
+    throw new ServiceUnavailableError('errors:mailNotConfigured');
+  }
+  const html = emailConfirmLinkTemplate({
+    confirmUrl: buildEmailConfirmUrl(payload.token),
+    expiresInHours: payload.expires_in_hours,
+    locale: payload.locale,
+  });
+  await recordAndScheduleOutboxEmail({
+    data: {
+      to: payload.email,
+      subject: i18next.t('mail:emailConfirmSubject', { lng: payload.locale }),
+      html,
+      tags: [{ name: 'category', value: 'email-confirm' }],
+    },
+    options: requestId !== undefined ? { requestId } : undefined,
+  });
+}
+
+async function onEmailConfirmLinkEvent(event: DomainEvent): Promise<void> {
+  const payload = event.payload as EmailConfirmLinkPayload;
+  try {
+    await handleEmailConfirmLinkEmail({ payload, requestId: event.requestId });
+  } catch (error) {
+    logger.warn({ error, eventType: event.type }, 'auth.email_confirm_link.email.enqueue.failed');
+    throw error;
+  }
 }
 
 /** The `mail:` keys of each account security notice's subject and opening paragraph. */
@@ -147,9 +201,13 @@ function registerAuthMethodEmailEventHandlers(): void {
     eventType: AUTH_EVENT.ACCOUNT_SECURITY_NOTICE_REQUESTED,
     handler: onAccountSecurityNoticeEvent,
   });
+  eventBus.on({
+    eventType: AUTH_EVENT.EMAIL_CONFIRM_LINK_REQUESTED,
+    handler: onEmailConfirmLinkEvent,
+  });
 }
 
-/** Subscribes the auth-method side-effect handlers to the in-process event bus (email verification code and account security notice emails). Idempotent: subsequent calls are no-ops. */
+/** Subscribes the auth-method side-effect handlers to the in-process event bus (email verification code, confirm-email link and account security notice emails). Idempotent: subsequent calls are no-ops. */
 export function registerAuthMethodEventHandlers(): void {
   if (authEventHandlersRegistered) return;
   authEventHandlersRegistered = true;

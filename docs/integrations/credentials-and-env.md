@@ -372,17 +372,18 @@ Instagram Login connect reads the same `META_*` settings.)
    Until the app has Advanced Access to them, only Instagram accounts with a role on the app
    (an Instagram tester accepted under **App roles**) can connect.
 5. **Instagram** → **API setup with Instagram login** → **Configure webhooks**: **Callback URL**
-   `https://<api host>/api/v1/app/social/instagram/webhook` and **Verify token** the value of
+   `https://<api host>/api/v1/app/social/channel-connections/meta/webhooks/instagram` and **Verify token** the value of
    `META_WEBHOOK_VERIFY_TOKEN` → **Verify and save** (Meta calls `GET …/webhook` with
    `hub.mode=subscribe`, the token and a challenge; the API echoes the challenge). Then subscribe the
    app to the three webhook fields (below). Meta signs each delivery (`POST …/webhook`) with
    `X-Hub-Signature-256` — the HMAC of the raw body with `META_APP_SECRET`.
 6. Same page → **Set up Instagram business login** → **Business login settings**: set the
-   **Deauthorize callback URL** to `https://<your API host>/api/v1/app/social/instagram/deauthorize`
+   **Deauthorize callback URL** to `https://<your API host>/api/v1/app/social/channel-connections/meta/deauthorize`
    and the **Data deletion request URL** to
-   `https://<your API host>/api/v1/app/social/instagram/data-deletion`. Meta posts a form with one
-   `signed_request` there, signed with `META_APP_SECRET`: the first disconnects the account in
-   every organization holding it, the second also erases its profile and stored posts and answers
+   `https://<your API host>/api/v1/app/social/channel-connections/meta/data-deletion`. Meta posts a form with one
+   `signed_request` there, signed with `META_APP_SECRET`: the first disconnects the accounts the
+   signed id reaches — the account of that id in every organization holding it, else every account
+   of that business's connections — the second also erases their profiles and stored posts and answers
    Meta with a confirmation code and a status link to the frontend's `/instagram/data-deletion`
    page (`FRONTEND_URL`). Without `META_APP_SECRET` both answer
    `503 instagram_not_configured`.

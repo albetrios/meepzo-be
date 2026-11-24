@@ -363,5 +363,48 @@ describe('Member Roles Sub-Domain — Integration', () => {
       const rolesAfter = await countRoles(team.organization.id);
       expect(rolesAfter).toBe(rolesBefore + 1);
     });
+
+    it('restores a deleted custom role (200): POST /roles/:role_id/restore brings it back live', async () => {
+      await seedOwnerGrantPermissions();
+      const owner = await createTestUser();
+      const team = await provisionOrganizationWithOwner({
+        name: 'Role-Restore Team',
+        slug: `rg-restore-${generatePublicId('organization').slice(4, 14)}`,
+        type: 'TEAM',
+        ownerUserId: owner.id,
+      });
+      const token = await generateTestToken({
+        userId: owner.public_id,
+        organizationPublicId: team.organization.public_id,
+      });
+      const created = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/tenancy/organization/roles'),
+        token,
+        headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
+        payload: { name: `Restorable Role ${randomUUID()}` },
+      });
+      expect(created.statusCode).toBe(200);
+      const role = (created.json() as { data: { id: string } }).data;
+      const rolesWithIt = await countRoles(team.organization.id);
+
+      const deleted = await injectAuthenticated(app, {
+        method: 'DELETE',
+        url: testApiPath(`/tenancy/organization/roles/${role.id}?reason=mistake`),
+        token,
+      });
+      expect(deleted.statusCode).toBe(204);
+      expect(await countRoles(team.organization.id)).toBe(rolesWithIt - 1);
+
+      const restored = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath(`/tenancy/organization/roles/${role.id}/restore`),
+        token,
+        headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
+      });
+      expect(restored.statusCode).toBe(200);
+      expect((restored.json() as { data: { id: string } }).data.id).toBe(role.id);
+      expect(await countRoles(team.organization.id)).toBe(rolesWithIt);
+    });
   });
 });

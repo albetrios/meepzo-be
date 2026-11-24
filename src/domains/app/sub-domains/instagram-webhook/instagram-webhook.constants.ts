@@ -1,5 +1,5 @@
 /**
- * The header Meta signs each Instagram webhook delivery in (route 17, WH8): `sha256=` and the hex
+ * The header Meta signs each Instagram webhook delivery in (route 61, WH4): `sha256=` and the hex
  * HMAC-SHA256 of the raw body with the app secret. Lower case, as Node delivers header names — the
  * raw-body registry keeps the body only when a request carries it (WH2).
  */
@@ -8,7 +8,7 @@ export const INSTAGRAM_WEBHOOK_SIGNATURE_HEADER = 'x-hub-signature-256';
 /** The only `object` an Instagram delivery carries; any other is answered OK and stored nowhere (WH10). */
 export const INSTAGRAM_WEBHOOK_OBJECT = 'instagram';
 
-/** The only `hub.mode` Meta's subscription check may carry (route 16, WH7). */
+/** The only `hub.mode` Meta's subscription check may carry (route 60, WH4). */
 export const INSTAGRAM_WEBHOOK_SUBSCRIBE_MODE = 'subscribe';
 
 /**

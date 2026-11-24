@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  readInstagramMediaKind,
   readInstagramMediaProductType,
   readInstagramMediaType,
   readInstagramTimestamp,
@@ -8,8 +9,9 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.serializer.js';
 
 /**
- * The post and story picker objects (routes-final § 1.C.6, IA16): Instagram's answer mapped key for
- * key — upper-case types lowered, `timestamp` → `published_at`, `children.data` → `children`, a
+ * The post and story picker objects (routes-final § 2.C.6, IA15, IA16): Meta's answer mapped key for
+ * key — upper-case types lowered, `kind` from the product type, `media_url` falling back to the
+ * thumbnail then the permalink, `timestamp` → `published_at`, `children.data` → `children`, a
  * story's `expires_at` 24 hours after it was published.
  */
 describe('Instagram media serializers', () => {
@@ -38,6 +40,7 @@ describe('Instagram media serializers', () => {
 
     expect(item).toEqual({
       instagram_media_id: '18030000000000004',
+      kind: 'post',
       caption: 'Three colours, one price — comment SHOP',
       media_type: 'carousel_album',
       media_product_type: 'feed',
@@ -68,6 +71,7 @@ describe('Instagram media serializers', () => {
 
     expect(item).toMatchObject({
       instagram_media_id: '18030000000000002',
+      kind: 'reel',
       caption: null,
       media_type: 'video',
       media_product_type: 'reels',
@@ -92,6 +96,39 @@ describe('Instagram media serializers', () => {
     expect(item.media_product_type).toBeNull();
     expect(item.published_at).toBeNull();
     expect(item.children).toBeNull();
+  });
+
+  it.each([
+    ['feed', 'post'],
+    ['reels', 'reel'],
+    ['ad', 'ad_post'],
+    ['story', 'post'],
+    [null, 'post'],
+  ] as const)('reads the kind of a %s product type as %s (IA15)', (productType, kind) => {
+    expect(readInstagramMediaKind(productType)).toBe(kind);
+  });
+
+  it('falls back to the thumbnail, then the permalink, when Meta sends no media_url (plan:L811)', () => {
+    const base = { id: '18030000000000008', timestamp: '2026-11-19T08:30:00+0000' };
+
+    expect(
+      serializeInstagramMediaItem({
+        ...base,
+        thumbnail_url: 'https://cdn.example.com/thumb.jpg',
+        permalink: 'https://www.instagram.com/p/A/',
+      }).media_url,
+    ).toBe('https://cdn.example.com/thumb.jpg');
+    expect(
+      serializeInstagramMediaItem({ ...base, permalink: 'https://www.instagram.com/p/A/' })
+        .media_url,
+    ).toBe('https://www.instagram.com/p/A/');
+    expect(
+      serializeInstagramMediaItem({
+        ...base,
+        media_url: 'https://cdn.example.com/full.jpg',
+        thumbnail_url: 'https://cdn.example.com/thumb.jpg',
+      }).media_url,
+    ).toBe('https://cdn.example.com/full.jpg');
   });
 
   it('shapes a story that ends 24 hours after it was published', () => {
@@ -126,6 +163,7 @@ describe('Instagram media serializers', () => {
     expect(readInstagramMediaType(undefined)).toBeNull();
     expect(readInstagramMediaProductType('AD')).toBe('ad');
     expect(readInstagramMediaProductType('STORY')).toBe('story');
+    expect(readInstagramMediaProductType('LIVE')).toBe('live');
     expect(readInstagramTimestamp('2026-11-20T10:00:00+0000')?.toISOString()).toBe(
       '2026-11-20T10:00:00.000Z',
     );

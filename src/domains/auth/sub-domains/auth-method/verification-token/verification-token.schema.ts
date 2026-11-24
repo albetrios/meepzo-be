@@ -3,8 +3,8 @@ import { authSchema } from '@/infrastructure/database/pg-schemas.js';
 import { users } from '@/domains/user/user.schema.js';
 
 /**
- * Drizzle table for `auth.verification_tokens` — unified store for email-code /
- * email-verification / email-change tokens (historic password-reset rows age out, P84). `token_hash` is
+ * Drizzle table for `auth.verification_tokens` — unified store for the email sign-in code and
+ * the confirm-email link (`VERIFICATION_TOKEN_TYPE`; historic password-reset rows age out, P84). `token_hash` is
  * unique and indexed for replay-safe lookups; FORCE RLS is role-gated — deny-all
  * for every role except the two runtime roles (`meepzo_be_app`,
  * `meepzo_be_maintenance`), which get full access. See sec-D9 notes below.

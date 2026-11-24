@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -9,7 +9,7 @@ import {
   databaseNowTimestamp,
   databaseUpdatedAtTimestamp,
 } from '@/shared/utils/infrastructure/database-timestamp.util.js';
-import type { InstagramAccountKey } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { InstagramMediaProductType, InstagramMediaType } from './instagram-media.constants.js';
 import { instagram_media } from './instagram-media.schema.js';
 
@@ -23,7 +23,7 @@ export type InstagramMediaRow = typeof instagram_media.$inferSelect;
  * What a stored post holds (routes-final § 1.C.3), already mapped from Instagram's answer: the
  * account it belongs to, Instagram's ids, the lowered types, the counts and the object as read.
  */
-export interface InstagramMediaValues extends InstagramAccountKey {
+export interface InstagramMediaValues extends ChannelAccountKey {
   /** Instagram's media id — digits. */
   instagramMediaId: string;
   shortcode: string | null;
@@ -43,9 +43,35 @@ export interface InstagramMediaValues extends InstagramAccountKey {
 }
 
 /**
- * Drizzle access to `app.instagram_media` (routes-final § 1.C.3, IAC15): the insert-or-refresh of a
- * stored post (IA17), the read of one stored post (event processing, WH13) and the erase of an
- * account's posts (IA20).
+ * The watch fields one {@link InstagramMediaRepository.updateCommentWatch} writes; `undefined` keeps
+ * a field as it is.
+ */
+export interface InstagramMediaCommentWatchValues {
+  /** When the watch read the post's comments now. */
+  commentsCheckedAt?: Date | undefined;
+  /** When it reads them next; `null` stops the watch. */
+  commentsNextCheckAt?: Date | null | undefined;
+  /** The newest comment it saw; never moves the stored time back. */
+  lastCommentAt?: Date | undefined;
+}
+
+/** The one stored post of an account, by its Instagram media id — every statement names the organization. */
+function storedMediaWhere({
+  organizationId,
+  channelAccountId,
+  instagramMediaId,
+}: ChannelAccountKey & { instagramMediaId: string }) {
+  return and(
+    eq(instagram_media.organization_id, organizationId),
+    eq(instagram_media.channel_account_id, channelAccountId),
+    eq(instagram_media.instagram_media_id, instagramMediaId),
+  );
+}
+
+/**
+ * Drizzle access to `app.instagram_media` (routes-final § 2.C.3, IAC10): the insert-or-refresh of a
+ * stored post (IA17), the read of one stored post (event processing, WH13), the missed-comment watch
+ * and a Live's end (D40), and the erase of an account's posts (IA20).
  *
  * @remarks
  * - **Algorithm:** every statement names `organization_id`, so tenant isolation does not rest on
@@ -93,14 +119,14 @@ export class InstagramMediaRepository {
       .insert(instagram_media)
       .values({
         organization_id: values.organizationId,
-        instagram_account_id: values.instagramAccountId,
+        channel_account_id: values.channelAccountId,
         instagram_media_id: values.instagramMediaId,
         ...columns,
       })
       .onConflictDoUpdate({
         target: [instagram_media.organization_id, instagram_media.instagram_media_id],
         set: { ...columns, synced_at: databaseNowTimestamp, updated_at: mediaUpdatedAtTimestamp },
-        setWhere: eq(instagram_media.instagram_account_id, values.instagramAccountId),
+        setWhere: eq(instagram_media.channel_account_id, values.channelAccountId),
       })
       .returning();
     return rows[0] ?? null;
@@ -112,34 +138,86 @@ export class InstagramMediaRepository {
    */
   async findByInstagramMediaId({
     organizationId,
-    instagramAccountId,
+    channelAccountId,
     instagramMediaId,
-  }: InstagramAccountKey & { instagramMediaId: string }): Promise<InstagramMediaRow | null> {
+  }: ChannelAccountKey & { instagramMediaId: string }): Promise<InstagramMediaRow | null> {
     const rows = await this.db()
       .select()
       .from(instagram_media)
-      .where(
-        and(
-          eq(instagram_media.organization_id, organizationId),
-          eq(instagram_media.instagram_account_id, instagramAccountId),
-          eq(instagram_media.instagram_media_id, instagramMediaId),
-        ),
-      )
+      .where(storedMediaWhere({ organizationId, channelAccountId, instagramMediaId }))
       .limit(1);
     return rows[0] ?? null;
   }
 
-  /** Deletes every stored post of the account (Meta's data deletion, IA20); returns how many. */
-  async deleteForAccount({
+  /**
+   * The missed-comment watch's write (D40): any of `comments_checked_at`, `comments_next_check_at`
+   * (`null` stops the watch) and `last_comment_at` on the account's stored post — a field left
+   * `undefined` keeps its value; `last_comment_at` never moves back. Returns the row, or `null`
+   * when the post is not stored for this account.
+   */
+  async updateCommentWatch({
     organizationId,
-    instagramAccountId,
-  }: InstagramAccountKey): Promise<number> {
+    channelAccountId,
+    instagramMediaId,
+    watch,
+  }: ChannelAccountKey & {
+    instagramMediaId: string;
+    watch: InstagramMediaCommentWatchValues;
+  }): Promise<InstagramMediaRow | null> {
+    const rows = await this.db()
+      .update(instagram_media)
+      .set({
+        ...(watch.commentsCheckedAt === undefined
+          ? {}
+          : { comments_checked_at: watch.commentsCheckedAt }),
+        ...(watch.commentsNextCheckAt === undefined
+          ? {}
+          : { comments_next_check_at: watch.commentsNextCheckAt }),
+        ...(watch.lastCommentAt === undefined
+          ? {}
+          : {
+              last_comment_at: sql`GREATEST(${instagram_media.last_comment_at}, ${watch.lastCommentAt.toISOString()}::timestamptz)`,
+            }),
+        updated_at: mediaUpdatedAtTimestamp,
+      })
+      .where(storedMediaWhere({ organizationId, channelAccountId, instagramMediaId }))
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Records a Live's end once (D40): `live_ended_at` set when it is empty — a later call keeps the
+   * first time. Returns the row as it now stands, or `null` when the post is not stored for this
+   * account.
+   */
+  async recordLiveEnded({
+    organizationId,
+    channelAccountId,
+    instagramMediaId,
+    endedAt,
+  }: ChannelAccountKey & {
+    instagramMediaId: string;
+    endedAt: Date;
+  }): Promise<InstagramMediaRow | null> {
+    const rows = await this.db()
+      .update(instagram_media)
+      .set({
+        live_ended_at: sql`COALESCE(${instagram_media.live_ended_at}, ${endedAt.toISOString()}::timestamptz)`,
+        updated_at: mediaUpdatedAtTimestamp,
+      })
+      .where(storedMediaWhere({ organizationId, channelAccountId, instagramMediaId }))
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  /** Deletes every stored post of the account (Meta's data deletion, IA20); returns how many. */
+  async deleteForAccount({ organizationId, channelAccountId }: ChannelAccountKey): Promise<number> {
     const rows = await this.db()
       .delete(instagram_media)
       .where(
         and(
           eq(instagram_media.organization_id, organizationId),
-          eq(instagram_media.instagram_account_id, instagramAccountId),
+          eq(instagram_media.channel_account_id, channelAccountId),
         ),
       )
       .returning({ id: instagram_media.id });

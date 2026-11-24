@@ -767,6 +767,14 @@ export const MAINTENANCE_CONTEXTS = {
     appliesWorkerStatementTimeout: true,
     grants: 'exclusive SELECT/UPDATE/DELETE on audit.outbox',
   },
+  SENDING_STATE: {
+    guc: 'app.sending_state_access',
+    opensTransaction: true,
+    workerContextKind: 'sending_state',
+    appliesWorkerStatementTimeout: false,
+    grants:
+      'exclusive SELECT/INSERT/UPDATE on app.sending_states (the one tenantless sending row, P16)',
+  },
   SYSTEM_TABLE_RETENTION: {
     guc: null,
     opensTransaction: true,

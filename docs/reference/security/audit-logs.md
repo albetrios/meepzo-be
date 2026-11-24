@@ -87,9 +87,12 @@ through a resolver that sees deleted organizations.
 | Action | Resource type | When |
 | ------ | ------------- | ---- |
 | `billing.subscription.create` | `subscription` | Subscription started (`metadata.plan_public_id`) |
-| `billing.subscription.change_plan` | `subscription` | Plan changed (`metadata.plan_public_id` is the new plan) |
+| `billing.subscription.trial_start` | `subscription` | The 7-day no-card trial started (WARNING; `metadata.plan_public_id`, `channel_account_count` — the Instagram accounts it covers) |
+| `billing.subscription.change_plan` | `subscription` | Plan changed (`metadata.plan_public_id` is the plan now; `is_scheduled` — a move down waiting for the period end; `scheduled_change_at`; `kept_channel_account_count`) |
 | `billing.subscription.cancel` | `subscription` | Cancellation requested |
 | `billing.subscription.resume` | `subscription` | Cancellation withdrawn |
+| `billing.payment_method.delete` | `payment_method` | A card removed from the organization's Stripe customer (WARNING; `metadata.card_brand`, `card_last_digits` — never more of the card) |
+| `billing.payment_method.set_default` | `payment_method` | A card made the default for the customer and the live subscription (WARNING; `metadata.card_brand`, `card_last_digits`) |
 
 ### Notify
 
@@ -105,14 +108,16 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 
 | Action | Resource type | When |
 | ------ | ------------- | ---- |
-| `app.instagram_account.connect` | `instagram_account` | Instagram account connected or reconnected (`WARNING`, `metadata.instagram_account_public_id`, `metadata.is_new_connection`) — recorded after the connect commits, best-effort |
+| `app.channel_connection.connect` | `channel_connection` | A channel connection's login finished — a new connection, or a reconnect of an existing one (`POST /app/social/channel-connections/{provider}/callback`) (`WARNING`, `metadata.channel_connection_public_id`, `metadata.provider`, `metadata.is_reconnect`, `metadata.reconnected_account_count`) — after the commit, best-effort; public ids only, never the token, the code or the state; replaces the launch's `app.instagram_account.connect` |
+| `app.channel_account.connect` | `channel_account` | One account connected by a pick (`POST /app/social/channel-connections/{channel_connection_id}/accounts`) — one row per account the pick connected (`WARNING`, `metadata.channel_account_public_id`, `metadata.channel_connection_public_id`) — after the pick's commit, best-effort |
+| `app.channel_connection.disconnect` | `channel_connection` | A channel connection disconnected (`DELETE /app/social/channel-connections/{channel_connection_id}`) — every account on it revoked and its token erased (`WARNING`, `metadata.channel_connection_public_id`, `metadata.disconnected_account_count`) — after the commit, best-effort |
 | `app.channel_account.disconnect` | `channel_account` | One channel account disconnected (route 8) — revoked, its lanes stopped; the connection's token erased with its last account (`WARNING`, `metadata.channel_account_public_id`, `metadata.old_value` / `metadata.new_value` — `{ connection_status }`) — after the commit, best-effort; replaces the launch's `app.instagram_account.disconnect` |
 | `app.channel_account.pause` | `channel_account` | The owner paused the account's sending (route 9) (`INFO`, `metadata.channel_account_public_id`, `metadata.old_value` / `metadata.new_value` — `{ is_paused }`) |
 | `app.channel_account.resume` | `channel_account` | The owner's pause cleared (route 10) (`INFO`, as pause) |
 | `app.channel_account.activate` | `channel_account` | A "not in your plan" account made active (route 11) (`WARNING`, `metadata.channel_account_public_id`, `metadata.stopped_channel_account_public_id` — the account swapped out, or `null`, `metadata.old_value` / `metadata.new_value` — `{ plan_stop_reason }`) |
-| `app.instagram_account.deauthorize` | `instagram_account` | Meta's deauthorize callback — the account's owner removed the app; in this organization the account was revoked and its token erased (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
-| `app.instagram_account.data_deletion` | `instagram_account` | Meta's data-deletion callback — revoked, token, profile and stored posts erased in this organization (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`, `metadata.confirmation_code` — the code Meta got, the request's only record, `metadata.erased_post_count`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
-| `app.instagram_account_settings.update` | `instagram_account` | Instagram account settings changed — the automation switch or the public reply safety (`INFO`, `metadata.instagram_account_public_id`, `metadata.changed_fields` — names only, never values) — recorded after the change commits, best-effort |
+| `app.channel_connection.deauthorize` | `channel_connection` | Meta's deauthorize callback (route 16, `…/channel-connections/meta/deauthorize`) — the app was removed; in this organization the accounts the signed id reached (the account of that id, else every account of that business's connections) were revoked, and a connection's token erased with its last account (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.match` — `provider_account` or `provider_business`, `metadata.channel_account_public_ids`, `metadata.revoked_channel_connection_public_ids` — on a business match) — one row per organization changed, after its commit, best-effort; none when nothing was left to do; replaces the launch's `app.instagram_account.deauthorize` |
+| `app.channel_connection.data_deletion` | `channel_connection` | Meta's data-deletion callback (route 17) — as the deauthorize, plus the accounts' profiles and stored posts erased in this organization (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.match`, `metadata.channel_account_public_ids`, `metadata.revoked_channel_connection_public_ids`, `metadata.confirmation_code` — the code Meta got, the request's only record, `metadata.erased_post_count`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do; replaces the launch's `app.instagram_account.data_deletion` |
+| `app.instagram_account_settings.update` | `instagram_account` | Instagram account settings changed (`PATCH /app/social/instagram/accounts/{channel_account_id}/settings`, route 12) (`INFO`, `metadata.channel_account_public_id`, `metadata.changed_fields` — the changed field names, `metadata.old_value` / `metadata.new_value` — those fields' values before and after) — recorded after the change commits, best-effort |
 | `app.contact.delete` | `contact` | A contact's personal data erased at the person's request (`WARNING`, `metadata.contact_public_id` only) — recorded after the erase commits, best-effort |
 | `app.contact.update` | `contact` | The team changed a contact's note or tags (`INFO`, `metadata.contact_public_id` and `changed_fields` — names only, never the note or a tag) — after commit, best-effort (feat-instagram-dm-sending CT10) |
 | `app.contact.automations_pause` | `contact` | The team paused automations for one contact (`WARNING`, `metadata.contact_public_id`; D71) — after commit, best-effort |
@@ -131,6 +136,7 @@ No Instagram account row ever holds the Instagram token or the authorization cod
 | `user.settings.update` | `user_settings` | User settings changed |
 | `user.settings.analytics_consent.update` | `user_settings` | The person gave an analytics answer while signed in (a receipt — the browser's cookie decides what runs); `metadata` holds the decision, its policy version and when — the proof of consent (launch D85, change-cookie-consent CC2) |
 | `user.self.delete` | `user` | Account deleted by its owner (`WARNING`) |
+| `user.email.confirm` | `user` | The person confirmed their email with the emailed link (`POST /auth/email/confirm`, feat-instagram-dm-sending UN7); the actor is the person the token belonged to |
 | `user.data_export.request` | `user_data_export` | Personal-data export requested |
 | `user.data_export.url_minted` | `user_data_export` | Export download link issued |
 | `user.admin.update` | `user` | A super admin changed a user |
@@ -177,7 +183,7 @@ Every row names exactly one actor:
 | ----- | ----------- | --------- |
 | User | `actorUserPublicId` | `actor_user_id` |
 | Organization API key | `actorApiKeyPublicId` | `actor_api_key_id` |
-| Anonymous — pre-authentication events (`auth.login_failure`) and Meta's signed Instagram callbacks (`app.instagram_account.deauthorize`, `.data_deletion` — `metadata.source = 'meta'`) | `anonymousActor: true` | both actor columns NULL, `metadata.actor_kind = 'anonymous'` |
+| Anonymous — pre-authentication events (`auth.login_failure`) and Meta's signed callbacks (`app.channel_connection.deauthorize`, `.data_deletion` — `metadata.source = 'meta'`) | `anonymousActor: true` | both actor columns NULL, `metadata.actor_kind = 'anonymous'` |
 | System — the DLQ sweeper's automatic retry (`queue.dlq.auto_retried`, written straight to `audit.logs`) | — | both actor columns NULL, `metadata.actor_kind = 'system'` |
 
 `buildAuditActorFields(auth)` picks the user or key field for a request principal. An anonymous row

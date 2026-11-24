@@ -3,6 +3,8 @@ import { responseBodyContainsSecretFields } from '@/shared/utils/idempotency/ide
 import {
   serializeChannelAccountPlanRoom,
   serializeChannelConnection,
+  serializeMetaAd,
+  serializeMetaAdAccount,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection.serializer.js';
 import type { ChannelConnectionRow } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 
@@ -102,5 +104,37 @@ describe('serializeChannelAccountPlanRoom', () => {
     expect(
       serializeChannelAccountPlanRoom({ accounts_max: 1, accounts_used: 2 }).accounts_free,
     ).toBe(0);
+  });
+
+  it("shapes the ad picker's ad account and ad (1.6) key for key", () => {
+    expect(serializeMetaAdAccount({ adAccountId: '42', name: 'Shop', accountStatus: 1 })).toEqual({
+      ad_account_id: '42',
+      name: 'Shop',
+      account_status: 1,
+    });
+    expect(
+      serializeMetaAd({
+        ad: {
+          adId: '7',
+          name: 'Sale',
+          status: 'ACTIVE',
+          instagramMediaId: '180',
+          instagramUserId: '178',
+          thumbnailUrl: null,
+          createdAt: '2026-11-01T10:00:00+0000',
+        },
+        ad_account_id: '42',
+        channel_account_public_id: 'iga_000000000000000000001',
+      }),
+    ).toEqual({
+      ad_id: '7',
+      name: 'Sale',
+      status: 'ACTIVE',
+      ad_account_id: '42',
+      instagram_media_id: '180',
+      channel_account_id: 'iga_000000000000000000001',
+      thumbnail_url: null,
+      created_at: '2026-11-01T10:00:00+0000',
+    });
   });
 });

@@ -527,6 +527,8 @@ import {
 import { parseCommandLine } from '@tooling/setup/common/script.js';
 
 function sweepPlaceholderFor(paramName: string): string {
+  // `{payment_method_id}` is Stripe's card id, a non-entity param (feat-instagram-dm-sending P78).
+  if (paramName === 'payment_method_id') return 'pm_placeholder';
   const entity = PARAM_NAME_TO_ENTITY[paramName as keyof typeof PARAM_NAME_TO_ENTITY];
   return entity ? publicIdPlaceholderFor(entity) : 'placeholder';
 }

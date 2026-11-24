@@ -105,6 +105,21 @@ code.
 - **Suspended, locked or deleted account** → 401 `account_not_active`; **the sign-in way turned off by the owner** → 403 `login_method_turned_off`.
 - **OAuth state spent, expired or not this browser's** → 401 `oauth_expired`; **the provider refused or its answer did not verify** → 401 `oauth_failed`; **link mode, the account is someone else's** → 409 `provider_account_in_use`.
 
+## email-confirmation-flow
+
+A signed-in person whose `is_email_verified` is false (an OAuth or invited account not yet proven
+by a code) confirms the address with an emailed link (feat-instagram-dm-sending § 11.B).
+
+### Sequence
+
+1. `POST /users/me/email-confirmation` (AUTH) → `EmailConfirmationService.requestLink`: `409 email_already_confirmed` when confirmed; `429 email_confirmation_resend_too_soon` + `retry_after_seconds` when the person's newest link is under 60 s old; else, in one transaction, the person's earlier links end, the SHA-256 of a 32-byte token is stored as `EMAIL_CONFIRM` (24 hours) and `AUTH_EVENT.EMAIL_CONFIRM_LINK_REQUESTED` records a `mail_outbox` row with `<FRONTEND_URL>/confirm-email?token=…` (always sent — not a notification choice). `200 { resend_after_seconds, expires_at }`.
+2. The frontend's `/confirm-email` page posts `POST /auth/email/confirm { token }` (PUBLIC) → `EmailConfirmationService.confirm`: one transaction consumes the token (`consumeIfValid(hash, EMAIL_CONFIRM)`) and sets `is_email_verified`; audit `user.email.confirm`. `200 { is_email_verified: true }` — also when a code sign-in already confirmed it. No session is made.
+
+### Failure modes
+
+- **Unknown, spent or expired token**, or one sent to an address the person no longer has → 400 `email_confirm_token_invalid`.
+- **Mail not configured** → 503 `errors:mailNotConfigured`; the new link rolls back.
+
 ## organization-switch-and-capability-discovery-flow
 
 ### Trigger
@@ -348,6 +363,7 @@ sequenceDiagram
 - **Nothing is written.** The state is computed on every read from `tenancy.organizations` and `billing.subscriptions` (`resolvePlanAccess` in `subscription-entitlement.util.ts`) — no column, no job, so paying lifts read-only on the very next request.
 - **The entitlement** (routes-final BL2): the state plus the plan whose features apply and its typed features — the one plan read every decision uses. **Free never ends:** no subscription, the Free plan, an unpaid row that never earned its plan (INCOMPLETE, PAUSED) or an expired checkout → `active` on Free. ACTIVE / TRIALING on a paid plan → `active` on it (`trial_ends_at` while TRIALING).
 - **The grace:** a dunning paid subscription (PAST_DUE / UNPAID) — `grace` until `current_period_end + BILLING_DUNNING_GRACE_DAYS`, then `read_only` on Free's features; a cancelled paid plan — `active` until its `current_period_end`, then `read_only` with no grace ("plan ended"). `grace_ends_at` is the moment read-only began.
+- **Where the rows change (the Stripe webhook, routes-final § 8.D BL22):** an unpaid trial end and a scheduled move to Free end the Stripe row and insert a local `ACTIVE` Free row in the same commit (`active` on Free); a paid schedule's flip moves `plan_id` and clears the schedule; a cancelled paid plan ends with no Free row (`read_only` from its period end). Each change of the entitlement is announced once after the commit as `subscription.plan_state_changed`.
 - **Only the guarded product writes close.** Reads stay open, and so do billing, auth, user, tenancy and upload — a read-only organization can still pay, sign in, manage its team and export its data. Nobody is suspended and no data is deleted. PERSONAL organizations are always `active`.
 - The write guard runs before the route's permission gate and the idempotency claim, so a refused write holds no idempotency key.
 
@@ -479,7 +495,7 @@ No Meta call runs inside the database context: read, close the unit of work, cal
 
 ### Trigger
 
-Two background paths keep a connected Instagram account usable and tell the team when it is not. **The daily account check** (IA8, D9): the `instagram-account-daily-check` sweep at 04:00 UTC (`scheduler.ts`) — profile and subscription only since feat-instagram-dm-sending R3 took the token renewal out (WC-35; the connection's token never ends; the connection's own token check replaces this job at R51). **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the daily check, the post and story pickers (routes 5–6), and the senders and follow check of the automations and the Instagram webhook on a token error. Built by ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA8, IA9).
+Two background paths keep a connected Instagram account usable and tell the team when it is not. **The daily account check** (IA8, D9): the `instagram-account-daily-check` sweep at 04:00 UTC (`scheduler.ts`) — profile and subscription only since feat-instagram-dm-sending R3 took the token renewal out (WC-35; the connection's token never ends; the connection's own token check replaces this job at R51). **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the daily check, and the senders and follow check of the automations and the Instagram webhook on a token error. Built by ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA8, IA9). Since feat-instagram-dm-sending R8 the post and story pickers (routes 13–14) answer Meta's 190 by breaking the account's connection (MC11) — every `connected` account of it, each with its notice.
 
 ### Sequence
 
@@ -530,7 +546,7 @@ No Instagram call runs inside a database context: every step reads, closes its u
 
 ### Trigger
 
-The owner of a connected Instagram account removes the app in Instagram's settings, or asks Meta to delete their data. Meta posts a form with one field, `signed_request`, to the Instagram app's **Deauthorize callback URL** — `POST /api/v1/app/social/instagram/deauthorize` (route 7) — or its **Data deletion request URL** — `POST /api/v1/app/social/instagram/data-deletion` (route 8). Both PUBLIC: no sign-in, no idempotency key (K3). Built by ROUTE row R6 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA18–IA20).
+The person who connected a business removes the app, or asks Meta to delete their data. Meta posts a form with one field, `signed_request`, to the Meta app's **Deauthorize callback URL** — `POST /api/v1/app/social/channel-connections/meta/deauthorize` (route 16) — or its **Data deletion request URL** — `POST /api/v1/app/social/channel-connections/meta/data-deletion` (route 17). Both PUBLIC: no sign-in, no idempotency key (K3). Built by the launch's ROUTE row R6 (`iterations/launch-2026-11-20-ujai/`, IA18–IA20); moved to the channel connection with the account-then-business match by feat-instagram-dm-sending ROUTE row R9 (`iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/routes-final.md` § 1 MC14–MC16, P46, P56).
 
 ### Sequence
 
@@ -539,46 +555,48 @@ sequenceDiagram
   participant Meta
   participant Ingress as Meta callback ingress plugin
   participant Controller as Meta callback controller
-  participant Service as InstagramAccountMetaCallbackService
-  participant Resolver as app.resolve_organization_public_ids_for_instagram_app_user
+  participant Service as ChannelConnectionMetaCallbackService
+  participant Resolvers as app.resolve_organization_public_ids_for_provider_account / _business
   participant Erasure as InstagramAccountErasureService
   participant Account as InstagramAccountService (+ token service)
   participant Media as InstagramMediaService
   participant DB as Postgres (each organization's VERIFIED scope)
 
-  Meta->>Ingress: POST …/deauthorize or …/data-deletion (form: signed_request)
+  Meta->>Ingress: POST …/meta/deauthorize or …/meta/data-deletion (form: signed_request)
   Ingress->>Ingress: form body only (else 415); app secret set (else 503); HMAC-SHA256 of the payload, constant time; algorithm HMAC-SHA256; user_id digits (else 400)
   Ingress->>Controller: request.metaSignedRequest
-  Controller->>Service: the signed user_id (the app-scoped id, IQ3) and issued_at
+  Controller->>Service: the provider, the signed user_id and issued_at
   Service->>Service: data deletion: the confirmation code = HMAC(app secret, user_id, issued_at), 21 [a-z0-9]
-  Service->>Resolver: which organizations hold a row of this app-scoped id (any status)?
-  Resolver-->>Service: organization public ids only
+  Service->>Resolvers: which organizations hold a channel account of this provider account id (any status)? none → which hold a connection of this business id?
+  Resolvers-->>Service: organization public ids only
   loop each organization, one transaction in its PRINCIPAL_SCOPE.VERIFIED scope
-    Service->>Erasure: eraseForMeta (the app-scoped id, issued_at)
-    Erasure->>Account: disconnectForMeta — lock the accounts, leave out one connected after issued_at (D53), revoke (unless revoked), erase the token; data deletion: erase the profile (once)
+    Service->>Erasure: eraseForMeta (account match: that account id; business match: the organization's connections of that business)
+    Erasure->>Account: disconnectForMeta — lock the accounts reached, leave out one connected after issued_at (D53), revoke (unless revoked), the connection and its token with its last account; data deletion: erase the profile (once)
     Erasure->>Media: data deletion: delete the accounts' stored posts
-    Erasure->>DB: COMMIT (this organization's changes together)
+    Service->>DB: business match: a connection of that business left with no account revoked with its token
+    Service->>DB: COMMIT (this organization's changes together)
   end
-  Service-->>Controller: the organizations changed (and route 8's answer)
+  Service->>Service: no organization matched → error-level log and the team-alert port (the team email, R53)
+  Service-->>Controller: the match kind, the organizations changed (and route 17's answer)
   Controller->>DB: one audit entry per organization changed (anonymous actor, source meta) — after commit, best-effort
-  Controller-->>Meta: 200 { data: null, meta } — or, route 8, { url, confirmation_code } outside the envelope
+  Controller-->>Meta: 200 { data: null, meta } — or, route 17, { url, confirmation_code } outside the envelope
 ```
 
-No Instagram call: the app is already removed, so the disconnect skips the unsubscribe route 4 makes.
+No Meta call: the app is already removed, so the disconnect skips the unsubscribe route 8 makes.
 
 ### Side effects
 
-- `app.channel_accounts` / `app.instagram_accounts` — every account of that Instagram id (Meta signs the Instagram user id under Unified Login, P111) connected before Meta signed the request (`issued_at`; a request without it means every row, D53), in every organization: the channel account `revoked` with `disconnected_at`, the extension's `webhook_subscribed_at` emptied (accounts already revoked stay as they are). Data deletion also erases the extension's profile — `username`, `biography`, `website`, `profile_picture_url`, `account_type` emptied, counts 0, `profile_erased_at` stamped — revoked rows of the same person too.
-- `app.channel_connections` / `app.channel_connection_tokens` — the connection revoked and its token deleted once no other not-revoked account uses it (CA8).
-- `app.instagram_media` — data deletion: the account's stored posts deleted (IQ4); automations, runs and comment logs keep naming a post by its Instagram media id.
-- Settings, contacts and webhook events stay (D22: a contact's own request is route 10). No automation run is cancelled and automations stay `live` (IQ1, D24).
-- Audit `app.instagram_account.deauthorize` / `app.instagram_account.data_deletion` (WARNING, anonymous actor, `metadata.source = 'meta'`, the accounts' public ids; on a data deletion the confirmation code — the request's only record, IQ2 — and the erased post count), one per organization changed.
-- Route 8's link opens the frontend's `/instagram/data-deletion?code=…` page (meepzo-fe), which says the data is deleted and shows the code — no status route, no request table (IQ2).
+- `app.channel_accounts` / `app.instagram_accounts` — an account match: every account of that provider account id (Meta's signed id tried as the Instagram user id first, P56), in every organization, any status; a business match: every not-revoked account of that business's connections. Only those connected before Meta signed the request (`issued_at`; a request without it means every row, D53): the channel account `revoked` with `disconnected_at`, the extension's `webhook_subscribed_at` emptied (accounts already revoked stay as they are). Data deletion also erases the extension's profile — `username`, `biography`, `website`, `profile_picture_url`, `account_type` emptied, counts 0, `profile_erased_at` stamped — on an account match revoked rows of the same account too.
+- `app.channel_connections` / `app.channel_connection_tokens` — the connection revoked and its token deleted once no other not-revoked account uses it (CA8); on a business match also a connection of that business left with no account (a login never picked).
+- `app.instagram_media` — data deletion: the accounts' stored posts deleted (IQ4); automations, runs and comment logs keep naming a post by its Instagram media id.
+- Settings, contacts and webhook events stay (D22: a contact's own request is route 10). No automation run is cancelled and automations stay `live` (IQ1, D24). The lanes of a reached account stop with sub-domain 6 (R18), as route 8's do.
+- Audit `app.channel_connection.deauthorize` / `app.channel_connection.data_deletion` (WARNING, anonymous actor, `metadata.source = 'meta'`, `match`, the accounts' and the revoked connections' public ids; on a data deletion the confirmation code — the request's only record, IQ2 — and the erased post count), one per organization changed.
+- Route 17's link opens the frontend's `/instagram/data-deletion?code=…` page (meepzo-fe), which says the data is deleted and shows the code — no status route, no request table (IQ2).
 
 ### Failure modes
 
-- **A missing, doubled, malformed or wrongly signed `signed_request`, another algorithm, or no `user_id`** → `400 instagram_signed_request_invalid`; nothing changes. **A body over 16 KB** → `413`; **one that is not form-encoded** → `415`. **No `META_APP_SECRET`** → `503 instagram_not_configured`. **Over the webhook rate limit** → `429`.
-- **A person we never stored, or whose organization was deleted** (its delete erased the account, D54) → still `200` (route 8 with its code), so Meta does not retry; no audit entry.
+- **A missing, doubled, malformed or wrongly signed `signed_request`, another algorithm, or no `user_id`** → `400 instagram_signed_request_invalid`; nothing changes. **A body over 16 KB** → `413`; **one that is not form-encoded** → `415`. **No `META_APP_SECRET`** → `503 instagram_not_configured`. **Over the webhook rate limit** → `429`. **A provider other than `meta`** → `400`.
+- **An id that matches neither an account nor a business, or whose organization was deleted** (its delete erased the account, D54) → still `200` (route 17 with its code), so Meta does not retry; no audit entry. An unmatched id is logged at error level (`app.channel_connection.meta_callback.unmatched`) and handed to the team-alert port, whose email the team handles by hand (MC16 — wired at R53).
 - **Meta repeats a request** → nothing is left to do: `200` again, the same confirmation code, no new audit entry. **The account was connected again in between** → that connection is newer than the request and is left alone (D53); the same `200`, no new audit entry. A reconnect that races the request waits for its row lock and connects on top.
 - **A database failure in one organization** → the request fails and Meta retries it; the organizations already done find nothing left to do the second time.
 
@@ -586,7 +604,7 @@ No Instagram call: the app is already removed, so the disconnect skips the unsub
 
 ### Trigger
 
-How Instagram, contact, automation and webhook-event data leaves (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 2 CT7–CT9, § 3.B AU25–AU26, § 4.B WH18–WH19; proved end to end by ROUTE row R18, `src/domains/app/__tests__/e2e/instagram-retention-erasure.e2e.test.ts`). Four triggers: **the timers** (`scheduler.ts`, UTC); **a contact delete** — `DELETE /api/v1/app/contacts/{contact_id}` (route 10), the team honouring the person's own request (D22); **Meta's data deletion** (route 8, [instagram-meta-callback-flow](#instagram-meta-callback-flow)) — the account owner's data, never a contact's; **an organization delete** — `DELETE /api/v1/tenancy/organization`, which erases its Instagram account at once (D54), then its purge after `TOMBSTONE_RETENTION_DAYS`.
+How Instagram, contact, automation and webhook-event data leaves (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 2 CT7–CT9, § 3.B AU25–AU26, § 4.B WH18–WH19; proved end to end by ROUTE row R18, `src/domains/app/__tests__/e2e/instagram-retention-erasure.e2e.test.ts`). Four triggers: **the timers** (`scheduler.ts`, UTC); **a contact delete** — `DELETE /api/v1/app/contacts/{contact_id}` (route 10), the team honouring the person's own request (D22); **Meta's data deletion** (route 17, [instagram-meta-callback-flow](#instagram-meta-callback-flow)) — the account owner's data, never a contact's; **an organization delete** — `DELETE /api/v1/tenancy/organization`, which erases its Instagram account at once (D54), then its purge after `TOMBSTONE_RETENTION_DAYS`.
 
 ### Sequence
 
@@ -656,7 +674,7 @@ A contact erase and a running automation meet on the contact's row: both lock it
 
 ### Trigger
 
-Meta calls the Instagram webhook's two public routes (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 4.A, built by ROUTE row R13): **the subscription check** — `GET /api/v1/app/social/instagram/webhook` when the webhook is saved in the Meta App Dashboard — and **every delivery** — `POST` on the same path with comments, DMs, story replies and button clicks of a connected account. Processing the stored events (dispatch per kind, order per account, retries, the stuck-event pick-up) is the [instagram-webhook-processing-flow](#instagram-webhook-processing-flow) below (ROUTE row R14).
+Meta calls the Instagram webhook's two public routes at the Instagram object's own callback path (`iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/routes-final.md` § 5.A, routes 60–61, built by ROUTE row R17 on the launch's R13; P53): **the subscription check** — `GET /api/v1/app/social/channel-connections/meta/webhooks/instagram` when the Instagram object's webhook is saved in the Meta App Dashboard — and **every delivery** — `POST` on the same path with the six subscribed fields (comments, Live comments, messages, postbacks, referrals, reactions) of a connected account. The receiver **saves only**; processing the saved events (dispatch per kind, order per account, retries, the stuck-event pick-up) is the [instagram-webhook-processing-flow](#instagram-webhook-processing-flow) below (launch ROUTE row R14; intake per kind at R38).
 
 ### Sequence
 
@@ -671,39 +689,40 @@ sequenceDiagram
   participant Events as InstagramWebhookEventService
   participant DB as Postgres (the organization's VERIFIED scope)
 
-  Meta->>Receiver: GET …/webhook ?hub.mode=subscribe&hub.verify_token&hub.challenge
+  Meta->>Receiver: GET …/webhooks/instagram ?hub.mode=subscribe&hub.verify_token&hub.challenge
   Receiver-->>Meta: 200 text/plain challenge (token compared in constant time; 400 / 503 otherwise)
-  Meta->>Plugin: POST …/webhook + X-Hub-Signature-256 — no header: 400 before the body is read
+  Meta->>Plugin: POST …/webhooks/instagram + X-Hub-Signature-256 — no header: counted (429 past 1,200/min per IP), 400 before the body is read
   Plugin->>Parser: the raw JSON body is read (up to 5 MB), its bytes kept, nothing parsed
   Parser->>Plugin: raw bytes
-  Plugin->>Plugin: HMAC-SHA256 of the raw bytes with META_APP_SECRET (400 / 503 otherwise), then parse them
-  Plugin->>Receiver: signed delivery — object instagram? (else 200 OK, nothing stored)
+  Plugin->>Plugin: HMAC-SHA256 of the raw bytes with the Meta app secret (wrong: counted, 400 / 429; unset: 503), then parse them — a valid one is never counted
+  Plugin->>Receiver: signed delivery — object instagram? (else 200 OK, nothing saved)
   loop each entry[] (the account's webhook user id), its text cleaned of NUL and lone surrogates
     Receiver->>Resolver: which organization holds this account, not revoked?
     alt nobody (never connected, or revoked)
-      Receiver->>Receiver: log instagram.webhook.unknown_account + metric; nothing stored
+      Receiver->>Receiver: log instagram.webhook.unknown_account + metric; nothing saved
     else an organization
-      Receiver->>Account: account state in its VERIFIED scope (status, automation switch, both ids)
-      Receiver->>Receiver: classify every item — kind, key (per account), born received or skipped
-      Receiver->>Events: INSERT … ON CONFLICT DO NOTHING (a repeat delivery inserts nothing); COMMIT
-      Receiver->>Receiver: after commit — add the account's processing job, then the received rows turn queued
+      Receiver->>DB: SET LOCAL statement_timeout = 3 s (the unit's first statement)
+      Receiver->>Account: account state in its VERIFIED scope (status, automation switch, both ids, cha_ id)
+      Receiver->>Receiver: classify every item — read receipts dropped; our own echoes dropped (own-message lookup, R19)
+      Receiver->>Events: recordReceivedEvents — 8-day replay guard, keys ON CONFLICT DO NOTHING, then only the new keys' events; COMMIT
+      Receiver->>Receiver: after commit — add the channel account's processing job, then the received rows turn queued
     end
   end
-  Receiver-->>Meta: 200 text/plain OK — only once every entry is stored (one that failed: 500 / 503, after the others)
+  Receiver-->>Meta: 200 text/plain OK — only once every entry is saved (over 3 s or Postgres down: 503; other failure: 500 — after the others)
 ```
 
 ### Side effects
 
-- `app.instagram_webhook_events` — one row per Instagram account and event key, born `received` (then `queued` once the account's processing job is added; a failed add is logged and left to the stuck-event pick-up), or `skipped` and final with its reason: the kind's own (`echo` — the account's own DMs and comments too, `read_receipt`, `reaction`, `edit`, `unsupported`), `automation_disabled` when the switch is off, `account_disconnected` when the account is `expired` or `error`.
+- `app.instagram_webhook_event_keys` — one row per channel account, event key and Meta day; `app.instagram_webhook_events` — one row per new key, born `received` (then `queued` once the channel account's processing job is added; a failed add is logged and left to the stuck-event pick-up), or `skipped` and final with its reason: the kind's own (`own_comment` — the account's own comment or Live comment, `edit`, `unsupported`) or `automation_disabled` when the switch is off. An `error` account's events are saved `received`. Read receipts, our own echoes and events over 8 days old are never saved; nothing is kept in Redis (P32).
 - Log lines (`instagram.webhook.*`) with the request id, Instagram and public ids and counts — never the payload, message or comment text; the `instagram_webhook_unknown_account_entries_total` metric. No audit entry, no `*_by_user_id` (WH6).
 
 ### Failure modes
 
 - **A wrong or missing signature** → `400 invalid_webhook_signature`, nothing parsed or stored (a missing one before the body is read); **the app secret or verify token unset** → `503 instagram_webhook_not_configured`.
-- **An entry that cannot be stored** → the delivery's other entries (other organizations') are stored all the same, then `500` / `503`, never `200`: Meta delivers again and the part already stored dedupes on its key (D53).
+- **An entry that cannot be saved** → the delivery's other entries (other organizations') are saved all the same, then `500` / `503`, never `200`: Meta delivers again and the part already saved dedupes on its key (D53). A unit over its 3 s (a statement or lock wait cancelled) or Postgres down is a `503` (WH2).
 - **Text Postgres refuses** (NUL, lone surrogates) → cleaned once, after the signature — the stored payloads and their event keys — so one person's comment never fails a delivery (D53).
 - **A signed body that is not JSON, or about another object, or an account no team holds** → `200 OK`, nothing stored, one log line — Meta does not retry what can never be stored.
-- **A flood of unsigned requests** → `INSTAGRAM_WEBHOOK_RATE_LIMIT` (1,200 a minute per IP) answers `429`; one without the signature header is refused before its body is read, a wrongly signed one costs reading its body (5 MB at most) and one HMAC — its JSON is never parsed (D53) — and neither reaches the database.
+- **A flood of unsigned requests** → the per-IP cap of unsigned traffic (`INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS`, 1,200 a minute) answers `429`; one without the signature header is refused before its body is read, a wrongly signed one costs reading its body (5 MB at most) and one HMAC — its JSON is never parsed (D53) — and neither reaches the database. A validly signed burst from Meta is never counted (S9), and under load the overload guard sheds the UI first (`overloadShedLast`, S10).
 
 ## instagram-webhook-processing-flow
 
@@ -723,7 +742,7 @@ sequenceDiagram
   participant Instagram as meta-graph.client
   participant Engine as AutomationRunService (+ linkNextPostAutomations)
 
-  Queue->>Worker: process-instagram-webhook-events {organizationPublicId, instagramAccountPublicId}
+  Queue->>Worker: process-instagram-webhook-events {organizationPublicId, channelAccountPublicId}
   Worker->>Account: the account's key (job scope, PRINCIPAL_SCOPE.JOB)
   loop up to 25 events, oldest stored first
     Worker->>Events: claim the head — one more attempt, a 5-minute lease (a head at 5 attempts → failed, the runs it left running failed in the same unit)

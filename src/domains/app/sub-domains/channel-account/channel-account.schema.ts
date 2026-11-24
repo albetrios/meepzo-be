@@ -93,6 +93,8 @@ export const channel_accounts = appSchema
       uniqueIndex('idx_channel_accounts_provider_account_live')
         .on(table.channel, table.provider_account_id)
         .where(sql`${table.connection_status} <> 'revoked'`),
+      // Meta's callbacks matched by account across organizations, any status (MC15, P56).
+      index('idx_channel_accounts_provider_account').on(table.provider_account_id),
       // Route 6: the organization's not-revoked accounts of a channel, oldest connected first.
       index('idx_channel_accounts_organization_channel')
         .on(table.organization_id, table.channel, table.connected_at)

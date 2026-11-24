@@ -92,7 +92,7 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
 
 const JOB_DATA = {
   organizationPublicId: 'org_acmeshop0000000000001',
-  instagramAccountPublicId: 'iga_acmeshop0000000000001',
+  channelAccountPublicId: 'cha_acmeshop0000000000001',
   requestId: 'delivery-1',
   traceparent: '00-trace-span-01',
 };

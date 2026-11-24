@@ -25,6 +25,7 @@ const daysAfter = (base: Date, days: number): Date => new Date(base.getTime() + 
 const FREE_PLAN: PlanAccessPlan = {
   public_id: 'pln_free',
   name: 'Free',
+  is_active: true,
   price_monthly: '0.00',
   price_yearly: '0.00',
   features: FREE_PLAN_FEATURES,
@@ -32,6 +33,7 @@ const FREE_PLAN: PlanAccessPlan = {
 const CREATOR_PLAN: PlanAccessPlan = {
   public_id: 'pln_creator',
   name: 'Creator',
+  is_active: true,
   price_monthly: '29.00',
   price_yearly: '276.00',
   features: CREATOR_PLAN_FEATURES,
@@ -40,6 +42,7 @@ const CREATOR_PLAN: PlanAccessPlan = {
 const GROWTH_PLAN: PlanAccessPlan = {
   public_id: 'pln_growth',
   name: 'Growth',
+  is_active: false,
   price_monthly: '30.00',
   price_yearly: '300.00',
   features: FREE_PLAN_FEATURES,
@@ -101,6 +104,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
     graceEndsAt: null,
     trialEndsAt,
     ...entitlement,
+    isPlanChoiceRequired: false,
   });
 
   it('Free never ends: a TEAM organization with no subscription is active on Free, however old', () => {
@@ -162,6 +166,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
         graceEndsAt: daysAfter(daysAgo(4), LAPSE_GRACE_DAYS),
         trialEndsAt: null,
         ...ON_CREATOR,
+        isPlanChoiceRequired: false,
       });
     }
   });
@@ -175,6 +180,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       graceEndsAt: daysAfter(daysAgo(30), LAPSE_GRACE_DAYS),
       trialEndsAt: null,
       ...ON_FREE,
+      isPlanChoiceRequired: false,
     });
   });
 
@@ -192,6 +198,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       graceEndsAt: daysAgo(1),
       trialEndsAt: null,
       ...ON_FREE,
+      isPlanChoiceRequired: false,
     });
   });
 
@@ -204,13 +211,30 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
     }
   });
 
-  it("a switched-off old plan reads its own row — Free's features (P80)", () => {
+  it("a switched-off old plan reads its own row — Free's features — and requires a choice (P80, BL24)", () => {
     const subject = organizationSubject({
       subscription: subscription({ status: 'ACTIVE', periodEndDaysAgo: -10, plan: GROWTH_PLAN }),
     });
-    expect(decide(subject)).toEqual(
-      activeOn({ plan: { publicId: 'pln_growth', name: 'Growth' }, features: FREE_PLAN_FEATURES }),
-    );
+    expect(decide(subject)).toEqual({
+      ...activeOn({
+        plan: { publicId: 'pln_growth', name: 'Growth' },
+        features: FREE_PLAN_FEATURES,
+      }),
+      isPlanChoiceRequired: true,
+    });
+  });
+
+  it('no choice is required on an active plan, a terminal old row or a PERSONAL organization (BL24)', () => {
+    const ended = organizationSubject({
+      subscription: subscription({ status: 'CANCELED', periodEndDaysAgo: 5, plan: GROWTH_PLAN }),
+    });
+    expect(decide(ended).isPlanChoiceRequired).toBe(false);
+    const personal = organizationSubject({
+      type: 'PERSONAL',
+      subscription: subscription({ status: 'ACTIVE', periodEndDaysAgo: -10, plan: GROWTH_PLAN }),
+    });
+    expect(decide(personal).isPlanChoiceRequired).toBe(false);
+    expect(decide(organizationSubject()).isPlanChoiceRequired).toBe(false);
   });
 
   it('a missing plan row reads as Free; no Free plan in the catalog leaves plan and features null', () => {
@@ -224,6 +248,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       plan: null,
       features: null,
+      isPlanChoiceRequired: false,
     });
   });
 
@@ -245,6 +270,7 @@ describe('resolvePlanAccess — the plan entitlement (D3, BL2, BL3)', () => {
       trialEndsAt: null,
       plan: null,
       features: null,
+      isPlanChoiceRequired: false,
     });
   });
 });

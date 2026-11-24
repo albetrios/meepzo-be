@@ -39,7 +39,7 @@ import {
  */
 
 const ORGANIZATION_PUBLIC_ID = 'org_acmeshop0000000000001';
-const ACCOUNT_PUBLIC_ID = 'iga_acmeshop0000000000001';
+const ACCOUNT_PUBLIC_ID = 'cha_acmeshop0000000000001';
 
 beforeEach(() => {
   addMock.mockReset();
@@ -52,7 +52,7 @@ describe('instagram-webhook queue', () => {
       id: `instagram-webhook-events-${ACCOUNT_PUBLIC_ID}`,
       keepLastIfActive: true,
     });
-    expect(instagramWebhookAccountProcessingDeduplication('iga_other000000000000001').id).not.toBe(
+    expect(instagramWebhookAccountProcessingDeduplication('cha_other000000000000001').id).not.toBe(
       instagramWebhookAccountProcessingDeduplication(ACCOUNT_PUBLIC_ID).id,
     );
   });
@@ -60,12 +60,12 @@ describe('instagram-webhook queue', () => {
   it('adds the account job with the organization, a unique job id and the deduplication', async () => {
     await enqueueInstagramWebhookAccountProcessing({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      channelAccountPublicId: ACCOUNT_PUBLIC_ID,
       requestId: 'request-1',
     });
     await enqueueInstagramWebhookAccountProcessing({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      channelAccountPublicId: ACCOUNT_PUBLIC_ID,
       requestId: 'request-2',
     });
 
@@ -78,7 +78,7 @@ describe('instagram-webhook queue', () => {
     expect(jobName).toBe(INSTAGRAM_WEBHOOK_PROCESS_JOB_NAME);
     expect(jobData).toEqual({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      channelAccountPublicId: ACCOUNT_PUBLIC_ID,
       requestId: 'request-1',
     });
     expect(options.jobId).toMatch(new RegExp(`^instagram-webhook-events-${ACCOUNT_PUBLIC_ID}-`));
@@ -95,7 +95,7 @@ describe('instagram-webhook queue', () => {
   it('retries a job 5 times with exponential waits from 5 s and jitter (WH14)', async () => {
     await enqueueInstagramWebhookAccountProcessing({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      channelAccountPublicId: ACCOUNT_PUBLIC_ID,
       requestId: 'request-1',
     });
 
@@ -118,7 +118,7 @@ describe('instagram-webhook queue', () => {
     await expect(
       enqueueInstagramWebhookAccountProcessing({
         organizationPublicId: '',
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+        channelAccountPublicId: ACCOUNT_PUBLIC_ID,
         requestId: 'request-1',
       }),
     ).rejects.toThrow();
@@ -130,7 +130,7 @@ describe('instagram-webhook queue', () => {
     await expect(
       enqueueInstagramWebhookAccountProcessing({
         organizationPublicId: ORGANIZATION_PUBLIC_ID,
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+        channelAccountPublicId: ACCOUNT_PUBLIC_ID,
         requestId: 'request-1',
       }),
     ).rejects.toThrow('redis unavailable');

@@ -12,7 +12,8 @@ export type ForceRlsTableRef = {
  * or disabled tables), so the list can no longer silently drift from migration truth (audit #16).
  *
  * @remarks
- * - Includes partitioned parents (`audit.logs`, `notify.notifications`): PostgreSQL records
+ * - Includes partitioned parents (`audit.logs`, `notify.notifications`, `app.instagram_webhook_events`,
+ *   `app.instagram_webhook_event_keys`): PostgreSQL records
  *   `relforcerowsecurity` on the parent (`relkind = 'p'`), and the policy cascades to partitions.
  * - Keep alphabetical within each schema for reviewability.
  */
@@ -31,7 +32,14 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'instagram_account_settings' },
   { schemaName: 'app', tableName: 'instagram_accounts' },
   { schemaName: 'app', tableName: 'instagram_media' },
+  { schemaName: 'app', tableName: 'instagram_send_day_counts' },
+  { schemaName: 'app', tableName: 'instagram_send_lanes' },
+  { schemaName: 'app', tableName: 'instagram_send_minute_counts' },
+  { schemaName: 'app', tableName: 'instagram_send_stops' },
+  { schemaName: 'app', tableName: 'instagram_webhook_event_keys' },
   { schemaName: 'app', tableName: 'instagram_webhook_events' },
+  { schemaName: 'app', tableName: 'message_month_counts' },
+  { schemaName: 'app', tableName: 'sending_states' },
   { schemaName: 'audit', tableName: 'dead_letter_jobs' },
   { schemaName: 'audit', tableName: 'logs' },
   { schemaName: 'audit', tableName: 'outbox' },
@@ -52,6 +60,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'billing', tableName: 'stripe_subscription_tombstones' },
   { schemaName: 'billing', tableName: 'stripe_webhook_events' },
   { schemaName: 'billing', tableName: 'subscriptions' },
+  { schemaName: 'billing', tableName: 'trial_accounts' },
   { schemaName: 'notify', tableName: 'notifications' },
   { schemaName: 'notify', tableName: 'webhook_delivery_attempts' },
   { schemaName: 'notify', tableName: 'webhooks' },

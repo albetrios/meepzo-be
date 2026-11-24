@@ -72,6 +72,8 @@ function grantedPermissionCodes(route: (typeof organizationPermissionRoutes)[num
 function placeholderForParamName(paramName: string): string {
   // `{provider}` is a non-entity param whose schema takes `meta` only (feat-instagram-dm-sending MC1).
   if (paramName === 'provider') return 'meta';
+  // `{payment_method_id}` is Stripe's card id, a non-entity param (feat-instagram-dm-sending P78).
+  if (paramName === 'payment_method_id') return 'pm_placeholder';
   const entity = PARAM_NAME_TO_ENTITY[paramName as keyof typeof PARAM_NAME_TO_ENTITY];
   return entity ? publicIdPlaceholderFor(entity) : 'placeholder';
 }
@@ -95,6 +97,10 @@ function materializeOrganizationScopedPath(
   // An automation's DELETE takes the same reason query (launch AU12, AQ6).
   if (route.method === 'DELETE' && route.path.includes('/app/automations/')) {
     return `${path}?reason=mistake`;
+  }
+  // The ad picker's ads read needs one ad account (feat-instagram-dm-sending route 15, P57).
+  if (route.method === 'GET' && route.path.endsWith('/:channel_connection_id/ads')) {
+    return `${path}?ad_account_id=1234567890123`;
   }
   // The contact list and the tag list name their channel account (feat-instagram-dm-sending CT2).
   if (route.method === 'GET' && /\/app\/(contacts|contact-tags)$/.test(route.path)) {

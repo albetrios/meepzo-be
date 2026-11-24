@@ -1,6 +1,7 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { InstagramAccountProfile } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import type {
+  ChannelConnectionAdAccess,
   ChannelConnectionChannel,
   ChannelConnectionStatus,
 } from './channel-connection.constants.js';
@@ -87,6 +88,47 @@ export interface ChannelAccountPickResultOutput {
   plan_room: ChannelAccountPlanRoomOutput;
 }
 
+/** One ad account of route 41's answer — the Meta ad account object (1.6). */
+export interface MetaAdAccountOutput {
+  /** Meta's ad account id, digits, without the `act_` prefix. */
+  ad_account_id: string;
+  name: string | null;
+  /** Meta's `account_status` number (1 active, 2 disabled, …), or `null`. */
+  account_status: number | null;
+}
+
+/** One ad of route 15's answer — the Meta ad object (1.6). */
+export interface MetaAdOutput {
+  ad_id: string;
+  name: string | null;
+  /** Meta's `effective_status` (`ACTIVE`, `PAUSED`, …). */
+  status: string | null;
+  ad_account_id: string;
+  /** The Instagram post the ad runs, or `null` for an ad that is not an Instagram post. */
+  instagram_media_id: string | null;
+  /** The organization's channel account the ad runs as (matched by its Instagram id), or `null`. */
+  channel_account_id: string | null;
+  thumbnail_url: string | null;
+  /** Meta's `created_time`, as sent. */
+  created_at: string | null;
+}
+
+/** Route 41's result: the ad accounts and whether the connection may read ads (MC13). */
+export interface ChannelConnectionAdAccountList {
+  adAccess: ChannelConnectionAdAccess;
+  items: MetaAdAccountOutput[];
+}
+
+/** Route 15's result: one page of one ad account's ads, Meta's cursor and the ad access (MC13). */
+export interface ChannelConnectionAdPage {
+  adAccess: ChannelConnectionAdAccess;
+  items: MetaAdOutput[];
+  /** The page size asked for (`meta.pagination.per_page`). */
+  limit: number;
+  /** Meta's `after` cursor of the next page, or `null` on the last page. */
+  nextCursor: string | null;
+}
+
 /** A channel account as the connection's account port names it. */
 export interface ChannelConnectionAccount {
   /** The account's internal id (its organization is the caller's). */
@@ -164,6 +206,14 @@ export interface ChannelConnectionAccountPort {
   revokeAccountsOfConnection(
     options: ChannelConnectionAccountScope & { channelConnectionId: number },
   ): Promise<ChannelConnectionAccount[]>;
+  /**
+   * MC11: every `connected` account of the connection → `error` in the caller's unit (the one guarded
+   * change per account); each account that changed now gets one reconnect notice after the commit
+   * (WC-46). Returns the accounts it changed.
+   */
+  markAccountsOfConnectionBroken(
+    options: ChannelConnectionAccountScope & { channelConnectionId: number; requestId: string },
+  ): Promise<ChannelConnectionAccount[]>;
   /** How many not-revoked accounts still use the connection. */
   countLiveAccountsOfConnection(
     options: ChannelConnectionAccountScope & { channelConnectionId: number },
@@ -189,8 +239,8 @@ export interface ChannelConnectionAccountPort {
 
 /**
  * The lane steps of a pick, a reconnect and "Disconnect business" (routes-final § 1 MC6–MC8, CA5) —
- * the port of sub-domain 6's lane service, built with the lanes at ROUTE row R18. Until then the app
- * container passes none and the steps are skipped (no lane table exists).
+ * the port of sub-domain 6's lane service (`InstagramSendLaneService`, ROUTE row R18), which the app
+ * container passes as the connection service's eighth constructor argument.
  */
 export interface ChannelConnectionLanePort {
   /** A new account's four `ready` lanes (MC7), in the caller's unit. */

@@ -6,6 +6,7 @@ import {
   boolean,
   integer,
   timestamp,
+  jsonb,
   index,
   uniqueIndex,
   check,
@@ -49,6 +50,15 @@ export const subscriptions = billingSchema
       trial_end: timestamp('trial_end', { withTimezone: true }),
       cancel_at_period_end: boolean('cancel_at_period_end').notNull().default(false),
       canceled_at: timestamp('canceled_at', { withTimezone: true }),
+      // feat-instagram-dm-sending BL5 / BLQ1 (P77): a move down waits for the period end — the plan it
+      // moves to and when (mirrors of the Stripe subscription schedule), and the owner's pick of the
+      // channel accounts kept active after it (`cha_…` public ids, BL6).
+      scheduled_plan_id: bigint('scheduled_plan_id', { mode: 'number' }).references(
+        () => plans.id,
+        { onDelete: 'restrict' },
+      ),
+      scheduled_change_at: timestamp('scheduled_change_at', { withTimezone: true }),
+      downgrade_keep: jsonb('downgrade_keep').$type<string[]>(),
       last_stripe_event_created_at: timestamp('last_stripe_event_created_at', {
         withTimezone: true,
       }),
@@ -83,6 +93,20 @@ export const subscriptions = billingSchema
         .where(sql`${table.status} NOT IN ('CANCELED', 'INCOMPLETE_EXPIRED')`),
       index('idx_subscriptions_org_status').on(table.organization_id, table.status),
       index('idx_subscriptions_plan').on(table.plan_id),
+      // feat-instagram-dm-sending § 8.B.3: "the organization had a trial" (BL7), the plan-state
+      // check's trial notices and grace sweep (WC-59), and the scheduled plan's foreign key.
+      index('idx_subscriptions_org_trialled')
+        .on(table.organization_id)
+        .where(sql`${table.trial_end} IS NOT NULL`),
+      index('idx_subscriptions_trialing_trial_end')
+        .on(table.trial_end)
+        .where(sql`${table.status} = 'TRIALING'`),
+      index('idx_subscriptions_dunning_period_end')
+        .on(table.current_period_end)
+        .where(sql`${table.status} IN ('PAST_DUE', 'UNPAID')`),
+      index('idx_subscriptions_scheduled_plan')
+        .on(table.scheduled_plan_id)
+        .where(sql`${table.scheduled_plan_id} IS NOT NULL`),
       // audit-#10: UNIQUE so two local rows can never point at one Stripe
       // subscription id (the resolver previously masked dups with LIMIT 1).
       uniqueIndex('idx_subscriptions_provider_subscription_id_unique')
@@ -97,6 +121,14 @@ export const subscriptions = billingSchema
       check('chk_subs_seats', sql`${table.seats} IS NULL OR ${table.seats} >= 0`),
       check('chk_subs_period', sql`${table.current_period_end} > ${table.current_period_start}`),
       check('chk_subs_updated', sql`${table.updated_at} >= ${table.created_at}`),
+      check(
+        'chk_subs_scheduled_change',
+        sql`(${table.scheduled_plan_id} IS NULL) = (${table.scheduled_change_at} IS NULL)`,
+      ),
+      check(
+        'chk_subs_downgrade_keep',
+        sql`${table.downgrade_keep} IS NULL OR (${table.scheduled_plan_id} IS NOT NULL AND jsonb_typeof(${table.downgrade_keep}) = 'array' AND jsonb_array_length(${table.downgrade_keep}) <= 10)`,
+      ),
       // audit #41: the USING arm keeps the retention-cleanup bypass so the
       // global retention worker can SELECT/DELETE organization rows it must purge, but
       // the explicit WITH CHECK omits it. Without an explicit WITH CHECK,

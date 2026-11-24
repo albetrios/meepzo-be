@@ -69,6 +69,8 @@ const stripeMocks = vi.hoisted(() => ({
   updateStripeSubscription: vi.fn().mockResolvedValue({ id: 'sub_stripe' }),
   cancelStripeSubscription: vi.fn().mockResolvedValue({ id: 'sub_stripe' }),
   resumeStripeSubscription: vi.fn().mockResolvedValue({ id: 'sub_stripe' }),
+  scheduleStripeSubscriptionPriceChange: vi.fn().mockResolvedValue({ id: 'sub_sched' }),
+  releaseStripeSubscriptionSchedule: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock('@/infrastructure/payment/stripe.client.js', () => stripeMocks);
@@ -89,11 +91,13 @@ const plan = {
   stripe_price_monthly_id: null,
   stripe_price_yearly_id: null,
 };
+/** The plan a change-plan moves away from — cheaper, so moving to {@link plan} is a move up (BL15). */
+const previousPlan = { ...plan, id: 1, price_monthly: '5.00', price_yearly: '50.00' };
 const subscriptionRow = {
   id: 3,
   public_id: 'sub_public',
   organization_id: 1,
-  plan_id: 2,
+  plan_id: 1,
   billing_cycle: 'MONTHLY',
   status: 'ACTIVE',
   current_period_start: new Date('2026-05-01'),
@@ -116,7 +120,7 @@ describe('SubscriptionService', () => {
   const planService = {
     requirePlanRecordByPublicId: vi.fn().mockResolvedValue(plan),
     requireActivePlanByPublicId: vi.fn().mockResolvedValue(plan),
-    requirePlanRecordByInternalId: vi.fn().mockResolvedValue(plan),
+    requirePlanRecordByInternalId: vi.fn().mockResolvedValue(previousPlan),
   } as unknown as PlanService;
 
   const repository = {
@@ -127,6 +131,8 @@ describe('SubscriptionService', () => {
     update: vi.fn().mockResolvedValue({ ...subscriptionRow, cancel_at_period_end: true }),
     syncFromStripeProviderSubscription: vi.fn(),
     markCanceledByProviderSubscriptionId: vi.fn(),
+    // The entitlement read around a change (BL8): no organization row → active with no plan.
+    findPlanAccessSubject: vi.fn().mockResolvedValue(null),
   } as unknown as SubscriptionRepository;
 
   const paymentProvider = new StripePaymentProvider(organizationService);
@@ -706,7 +712,7 @@ describe('SubscriptionService', () => {
       stripe_price_monthly_id: 'price_new',
     } as never);
     vi.mocked(planService.requirePlanRecordByInternalId).mockResolvedValue({
-      ...plan,
+      ...previousPlan,
       stripe_price_monthly_id: 'price_old',
     } as never);
     vi.mocked(repository.update).mockResolvedValueOnce(null);
@@ -885,7 +891,7 @@ describe('SubscriptionService', () => {
       stripe_price_yearly_id: 'price_new_yearly',
     } as never);
     vi.mocked(planService.requirePlanRecordByInternalId).mockResolvedValue({
-      ...plan,
+      ...previousPlan,
       stripe_price_yearly_id: 'price_old_yearly',
     } as never);
     vi.mocked(repository.update).mockRejectedValueOnce(new Error('database unavailable'));
@@ -917,7 +923,7 @@ describe('SubscriptionService', () => {
       stripe_price_monthly_id: 'price_new',
     } as never);
     vi.mocked(planService.requirePlanRecordByInternalId).mockResolvedValue({
-      ...plan,
+      ...previousPlan,
       stripe_price_monthly_id: null,
       stripe_price_yearly_id: null,
     } as never);

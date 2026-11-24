@@ -17,6 +17,7 @@ import {
   injectUnauthenticated,
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import {
   createInstagramTeam,
   type InstagramTeamFixture,
@@ -31,8 +32,9 @@ import {
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 
 /**
- * Route 18, `GET /app/social/instagram/webhook-events` (routes-final § 4.B, ROUTE R12) over HTTP:
- * newest first, every filter, keyset pages with the cursor bound to the filters, the masked payload
+ * Route 62 (launch route 18), `GET /app/social/instagram/webhook-events` (launch § 4.B, ROUTE R12;
+ * feat-instagram-dm-sending § 5.B, ROUTE R16 — WH23, AC-16.24) over HTTP: newest first, every filter
+ * (the channel account too), keyset pages with the cursor bound to the filters, the masked payload
  * (WH17), the gate (`instagram-webhook-event:read` — Owner and Admin, never Editor, and never the
  * outgoing webhooks' `webhook:read`, D4), team-only (`404 team_organization_required`, K1) and
  * another organization's events never listed. The database, auth and permissions are real.
@@ -68,7 +70,7 @@ function hoursBefore(hoursAgo: number): Date {
   return new Date(REFERENCE.getTime() - hoursAgo * 60 * 60 * 1000);
 }
 
-describe('GET /app/social/instagram/webhook-events (route 18)', () => {
+describe('GET /app/social/instagram/webhook-events (route 62)', () => {
   let app: FastifyInstance;
   let team: InstagramTeamFixture;
   let account: TestInstagramAccount;
@@ -114,7 +116,7 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
   }
 
   describe('the list', () => {
-    it("lists the organization's events newest first, with exactly the 4.B.6 fields", async () => {
+    it("lists the organization's events newest first, with exactly the 5.B.6 fields", async () => {
       const events = await seedFiveEvents();
 
       const response = await list();
@@ -125,6 +127,7 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
       expect(Object.keys(body.data[0]!).sort()).toEqual(
         [
           'id',
+          'channel_account_id',
           'instagram_user_id',
           'contact_instagram_user_id',
           'event_kind',
@@ -133,6 +136,7 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
           'skip_reason',
           'error_message',
           'attempt_count',
+          'next_attempt_at',
           'payload',
           'occurred_at',
           'received_at',
@@ -140,6 +144,7 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
         ].sort(),
       );
       expect(body.data[0]).toMatchObject({
+        channel_account_id: account.channelAccountPublicId,
         instagram_user_id: account.instagramUserId,
         contact_instagram_user_id: TEST_CONTACT_INSTAGRAM_USER_ID,
         status: 'received',
@@ -149,7 +154,11 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
       expect(body.data.at(-1)).toMatchObject({
         status: 'failed',
         error_message: 'instagram_api:2/0',
+        next_attempt_at: null,
       });
+      // A done event's body is cleared (WH22); a waiting or failed one keeps it, masked.
+      expect(body.data.find((event) => event.status === 'processed')?.payload).toBeNull();
+      expect(body.data.find((event) => event.status === 'failed')?.payload).not.toBeNull();
       expect(body.meta.pagination).toEqual({ per_page: 25, next: null, has_more: false });
     });
 
@@ -234,7 +243,7 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
       expect(bodyOf(response).data.map((event) => event.id)).toEqual([
         events.find((event) => event.status === 'skipped')?.publicId,
       ]);
-      expect(bodyOf(response).data[0]).toMatchObject({ skip_reason: 'echo' });
+      expect(bodyOf(response).data[0]).toMatchObject({ skip_reason: 'own_comment' });
     });
 
     it('filters by one event kind', async () => {
@@ -244,6 +253,75 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
 
       expect(response.statusCode).toBe(200);
       expect(bodyOf(response).data.map((event) => event.event_kind)).toEqual(['echo']);
+    });
+
+    it("filters by one channel account (WH23); another organization's account finds nothing", async () => {
+      await seedFiveEvents();
+      const secondAccount = await insertChannelAccount({
+        organizationId: team.organization.id,
+        providerAccountId: '17841499999999991',
+        displayName: '@second_shop',
+      });
+      const secondEvent = await insertTestInstagramWebhookEvent({
+        organizationId: team.organization.id,
+        account: {
+          id: 0,
+          instagramUserId: '17841499999999991',
+          channelAccountId: secondAccount.id,
+        },
+        receivedAt: hoursBefore(0.5),
+      });
+      const otherTeam = await createInstagramTeam();
+      const otherAccount = await insertTestInstagramAccount(otherTeam.organization.id);
+
+      const second = await list(`?channel_account_id=${secondAccount.public_id}`);
+      const first = await list(`?channel_account_id=${account.channelAccountPublicId}`);
+      const foreign = await list(`?channel_account_id=${otherAccount.channelAccountPublicId}`);
+
+      expect(second.statusCode).toBe(200);
+      expect(bodyOf(second).data.map((event) => event.id)).toEqual([secondEvent.publicId]);
+      expect(bodyOf(second).data[0]).toMatchObject({ channel_account_id: secondAccount.public_id });
+      expect(bodyOf(first).data).toHaveLength(5);
+      expect(foreign.statusCode).toBe(200);
+      expect(bodyOf(foreign).data).toEqual([]);
+    });
+
+    it('answers 400 on channel_account_id when it is not a cha_ id', async () => {
+      const response = await list(
+        `?channel_account_id=${account.channelAccountPublicId.replace('cha_', 'iga_')}`,
+      );
+
+      expect(response.statusCode).toBe(400);
+      // The route's schema rejects the query, so the field carries its `querystring.` location.
+      expect(errorOf(response).errors?.map((error) => error.field)).toEqual([
+        'querystring.channel_account_id',
+      ]);
+    });
+
+    it('shows the new kinds and reasons (AC-16.24): a Live comment, a flood skip', async () => {
+      const live = await insertTestInstagramWebhookEvent({
+        organizationId: team.organization.id,
+        account,
+        eventKind: 'live_comment',
+        eventKey: 'live_comment:18000000000000042',
+        status: 'processed',
+      });
+      await insertTestInstagramWebhookEvent({
+        organizationId: team.organization.id,
+        account,
+        eventKind: 'message',
+        eventKey: 'message:mid-flood',
+        status: 'skipped',
+        skipReason: 'flood',
+      });
+
+      const byKind = await list('?event_kind=live_comment');
+      const all = bodyOf(await list());
+
+      expect(byKind.statusCode).toBe(200);
+      expect(bodyOf(byKind).data.map((event) => event.id)).toEqual([live.publicId]);
+      expect(all.data.map((event) => event.skip_reason)).toContain('flood');
+      expect((await list('?event_kind=read')).statusCode).toBe(400);
     });
 
     it('filters by received time — received_from inclusive, received_to exclusive', async () => {
@@ -399,11 +477,13 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
       });
     }
 
-    it('refuses an Editor with 403 missing_permission (D4, AC-6.4)', async () => {
-      const response = await list('', team.editorToken);
+    it('refuses an Editor and a Viewer with 403 missing_permission (D4, AC-6.4, AC-16.24)', async () => {
+      for (const token of [team.editorToken, team.viewerToken]) {
+        const response = await list('', token);
 
-      expect(response.statusCode).toBe(403);
-      expect(errorOf(response).reason).toBe('missing_permission');
+        expect(response.statusCode).toBe(403);
+        expect(errorOf(response).reason).toBe('missing_permission');
+      }
     });
 
     it('webhook:read — the outgoing webhooks — does not open it; instagram-webhook-event:read alone does (D4, AC-1.8)', async () => {

@@ -12,9 +12,6 @@ import {
   listChannelAccountsQueryDto,
 } from './channel-account.dto.js';
 
-/** The OpenAPI tag of every channel account route (CA1). */
-const CHANNEL_ACCOUNT_TAG = 'Channel account';
-
 /**
  * Returns the Fastify plugin that registers the channel account routes (routes-final § 1B.7),
  * mounted under `/api/v1/app` at `/social/channel-accounts/…`: list (6), one (7), disconnect (8),
@@ -40,7 +37,7 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
           summary: 'List channel accounts',
           description:
             "Returns the organization's connected accounts that are not revoked — the account menu — oldest connected first, at most the plan's limit: each with its channel, display name, picture, status, connection, whether it is paused, suspended or in the plan, the automation switch and whether anything stops its sending. Filter with channel (comma-separated: instagram; default every channel). No paging. Reads the database only. 400 channel for an unknown channel. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
-          tags: [CHANNEL_ACCOUNT_TAG],
+          tags: ['Channel account'],
           querystring: listChannelAccountsQueryDto,
         },
       },
@@ -55,7 +52,7 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
           summary: 'Get a channel account',
           description:
             "Returns one account — connected or in error (a reconnect is needed) — with its connection, its pause, suspend and plan stop, the automation switch, the new-account limit's end, and its Instagram part with the settings. Never a token. Reads the database only. 404 channel_account_not_found when it is not this organization's or is revoked. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
-          tags: [CHANNEL_ACCOUNT_TAG],
+          tags: ['Channel account'],
           params: channelAccountIdParamsDto,
         },
       },
@@ -71,7 +68,7 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
           summary: 'Disconnect a channel account',
           description:
             "Disconnects one account: unsubscribes it from its webhook events (best effort), then marks it revoked and stops its sending in one commit. The connection's token is erased only with the connection's last account. Automations stay live, contacts and history stay, and the plan frees one place. 404 channel_account_not_found when it is not this organization's or already revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
-          tags: [CHANNEL_ACCOUNT_TAG],
+          tags: ['Channel account'],
           params: channelAccountIdParamsDto,
         },
       },
@@ -87,7 +84,7 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
           summary: 'Pause a channel account',
           description:
             "Pauses the account's sending: comments and taps are still saved, nothing is sent. An already paused account answers the same, so no X-Idempotency-Key. An account in error may be paused. Answers the account. 404 channel_account_not_found when it is not this organization's or is revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
-          tags: [CHANNEL_ACCOUNT_TAG],
+          tags: ['Channel account'],
           params: channelAccountIdParamsDto,
           body: emptyChannelAccountBodyDto,
         },
@@ -104,7 +101,7 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
           summary: 'Resume a channel account',
           description:
             "Clears only the owner's pause — a team suspend, a plan stop and the sending error stops stay. A repeat answers the same, so no X-Idempotency-Key. Answers the account. 404 channel_account_not_found when it is not this organization's or is revoked. Team organizations only. Requires CHANNEL_ACCOUNT_MANAGE permission.",
-          tags: [CHANNEL_ACCOUNT_TAG],
+          tags: ['Channel account'],
           params: channelAccountIdParamsDto,
           body: emptyChannelAccountBodyDto,
         },
@@ -121,7 +118,7 @@ export function channelAccountRoutes(service: ChannelAccountService): FastifyPlu
           summary: 'Choose an active channel account',
           description:
             "Makes an account that is not in the plan active again. Under the organization's lock it counts the active accounts; at the plan's channel_accounts_max the body must name stop_channel_account_id — another active account of this organization — which leaves the plan in the same commit. 409 channel_account_already_active when the account is already in the plan; 409 plan_account_limit at the limit with no account named; 400 stop_channel_account_id when the named account is malformed, the same, not active or not this organization's. 404 channel_account_not_found when it is not this organization's or is revoked. Answers the account. Team organizations only. Requires X-Idempotency-Key and CHANNEL_ACCOUNT_MANAGE permission.",
-          tags: [CHANNEL_ACCOUNT_TAG],
+          tags: ['Channel account'],
           params: channelAccountIdParamsDto,
           body: activateChannelAccountDto,
         },

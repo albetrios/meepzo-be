@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { INSTAGRAM_WEBHOOK_CHALLENGE_MAX_LENGTH } from '@/shared/constants/instagram.constants.js';
 
 /**
- * Query of `GET /app/social/instagram/webhook` (route 16, Meta's subscription check — 4.A.8):
+ * Query of `GET /app/social/channel-connections/meta/webhooks/instagram` (route 60, Meta's subscription check — 5.A.8):
  * `hub.mode`, `hub.verify_token` and `hub.challenge` (1–256 characters, no spaces), each required.
  *
  * @remarks
@@ -44,7 +44,7 @@ export const InstagramWebhookEntryDto = z.looseObject({
 export type InstagramWebhookEntry = z.infer<typeof InstagramWebhookEntryDto>;
 
 /**
- * Body of `POST /app/social/instagram/webhook` (route 17) as Meta sends it (schema-routes §5.6):
+ * Body of `POST /app/social/channel-connections/meta/webhooks/instagram` (route 61) as Meta sends it (schema-routes §5.6):
  * `object` and `entry[]`. Parsed only after `X-Hub-Signature-256` passed (WH8) — never as the
  * route's `schema.body`, which Fastify would run before the signature check.
  *

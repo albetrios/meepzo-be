@@ -1,4 +1,5 @@
 import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -30,6 +31,7 @@ import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
+import { instagram_webhook_event_keys } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event-key.schema.js';
 import {
   type InstagramWebhookAccountJobResult,
   type InstagramWebhookProcessingInstagramClient,
@@ -70,7 +72,9 @@ import {
 } from '@/tests/helpers/test-http-inject.helper.js';
 
 /** Meta's delivery route (route 17). */
-const INSTAGRAM_WEBHOOK_PATH = testApiPath('/app/social/instagram/webhook');
+const INSTAGRAM_WEBHOOK_PATH = testApiPath(
+  '/app/social/channel-connections/meta/webhooks/instagram',
+);
 
 /** An Instagram user who comments, clicks and answers. */
 export interface TestInstagramPerson {
@@ -81,6 +85,8 @@ export interface TestInstagramPerson {
 /** The account the team connected through route 1. */
 export interface TestConnectedAccount {
   id: number;
+  /** `app.channel_accounts.id` — the key of the stored posts (P47, R8). */
+  channelAccountId: number;
   publicId: string;
   /** The webhook's `entry.id`. */
   instagramUserId: string;
@@ -339,7 +345,11 @@ export class InstagramCommentFlow {
     const profile = buildInstagramProfile();
     await connectInstagramAccount({ app: this.app, token: this.team.ownerToken, profile });
     const [account] = await getOperatorDatabase()
-      .select({ id: instagram_accounts.id, public_id: channel_accounts.public_id })
+      .select({
+        id: instagram_accounts.id,
+        channelAccountId: channel_accounts.id,
+        public_id: channel_accounts.public_id,
+      })
       .from(instagram_accounts)
       .innerJoin(
         channel_accounts,
@@ -357,6 +367,7 @@ export class InstagramCommentFlow {
     if (account === undefined) throw new Error('the connect stored no account');
     this.connectedAccount = {
       id: account.id,
+      channelAccountId: account.channelAccountId,
       publicId: account.public_id,
       instagramUserId: profile.user_id,
       instagramAppUserId: profile.id,
@@ -570,7 +581,7 @@ export class InstagramCommentFlow {
     return processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: this.team.organization.public_id,
-        instagramAccountPublicId: this.account.publicId,
+        channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(this.account.id),
       },
       services: this.services,
       jobId: `job-${randomUUID()}`,
@@ -593,7 +604,10 @@ export class InstagramCommentFlow {
     return event;
   }
 
-  /** Removes one stored event, as the 30-day clean-up does. */
+  /**
+   * Removes one stored event and its key, as the clean-up does — since R16 the key goes with its
+   * day part, at the same 8 days as the event.
+   */
   async removeEvent(eventKey: string): Promise<void> {
     await getOperatorDatabase()
       .delete(instagram_webhook_events)
@@ -601,6 +615,14 @@ export class InstagramCommentFlow {
         and(
           eq(instagram_webhook_events.organization_id, this.team.organization.id),
           eq(instagram_webhook_events.event_key, eventKey),
+        ),
+      );
+    await getOperatorDatabase()
+      .delete(instagram_webhook_event_keys)
+      .where(
+        and(
+          eq(instagram_webhook_event_keys.organization_id, this.team.organization.id),
+          eq(instagram_webhook_event_keys.event_key, eventKey),
         ),
       );
   }
@@ -705,7 +727,7 @@ export class InstagramCommentFlow {
       .where(
         and(
           eq(instagram_media.organization_id, this.team.organization.id),
-          eq(instagram_media.instagram_account_id, this.account.id),
+          eq(instagram_media.channel_account_id, this.account.channelAccountId),
         ),
       )
       .orderBy(asc(instagram_media.id));

@@ -16,7 +16,9 @@ import type { ZodTypeAny } from 'zod';
 import {
   AppleFormCallbackDto,
   EmailSendCodeDto,
+  EmailConfirmDto,
   EmailLoginDto,
+  RequestEmailConfirmationDto,
   MfaVerifyDto,
   CreateAuthMethodDto,
   MfaEnrollDto,
@@ -90,6 +92,7 @@ import { putMemberRolePermissionsDto } from '@/domains/tenancy/sub-domains/membe
 import {
   CreateSubscriptionDto,
   ChangePlanDto,
+  emptyPaymentMethodBodyDto,
 } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
 
 // ─── Upload ────────────────────────────────────────────────────────────
@@ -108,7 +111,7 @@ import {
 } from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
 // ─── App: Instagram account ────────────────────────────────────────────
 import { UpdateInstagramAccountSettingsDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.dto.js';
-import { MetaSignedRequestDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.dto.js';
+import { MetaSignedRequestDto } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback.dto.js';
 
 // ─── App: automations ──────────────────────────────────────────────────
 import {
@@ -124,6 +127,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Auth ──
   'POST /api/v1/auth/email/send-code': EmailSendCodeDto,
   'POST /api/v1/auth/email/login': EmailLoginDto,
+  'POST /api/v1/auth/email/confirm': EmailConfirmDto,
   // Apple's form post (route 124) — application/x-www-form-urlencoded, not JSON.
   'POST /api/v1/auth/oauth/apple/callback': AppleFormCallbackDto,
   'POST /api/v1/auth/me/mfa/verify': MfaVerifyDto,
@@ -144,6 +148,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'PATCH /api/v1/users/me/settings': UpdateUserSettingsDto,
   'PUT /api/v1/users/me/notification-preferences': PutNotificationPreferencesDto,
   'POST /api/v1/users/me/bug-reports': CreateUserBugReportDto,
+  'POST /api/v1/users/me/email-confirmation': RequestEmailConfirmationDto,
 
   // ── Admin: Users ──
   'PATCH /api/v1/users/{user_id}': AdminUpdateUserDto,
@@ -185,6 +190,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Billing: Subscriptions ──
   'POST /api/v1/billing/subscriptions': CreateSubscriptionDto,
   'POST /api/v1/billing/subscriptions/{subscription_id}/change-plan': ChangePlanDto,
+  'POST /api/v1/billing/payment-methods/{payment_method_id}/default': emptyPaymentMethodBodyDto,
 
   // ── Webhooks ──
   'POST /api/v1/notify/webhooks': CreateWebhookDto,
@@ -211,8 +217,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings':
     UpdateInstagramAccountSettingsDto,
   // Meta's callbacks (routes 7–8): form-encoded, not JSON — see FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.
-  'POST /api/v1/app/social/instagram/deauthorize': MetaSignedRequestDto,
-  'POST /api/v1/app/social/instagram/data-deletion': MetaSignedRequestDto,
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize': MetaSignedRequestDto,
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion': MetaSignedRequestDto,
 
   // ── App: automations ──
   'POST /api/v1/app/automations': createAutomationDto,

@@ -116,7 +116,8 @@
     "contactTagInBothLists": "Una etiqueta no puede añadirse y quitarse a la vez",
     "contactIdsRepeated": "Cada contacto puede indicarse una sola vez",
     "contactBulkSelection": "Envía contact_ids o filter, no ambos",
-    "contactBulkTag": "Envía una etiqueta para las acciones de etiqueta y ninguna para las de pausa"
+    "contactBulkTag": "Envía una etiqueta para las acciones de etiqueta y ninguna para las de pausa",
+    "invalidPaymentMethodId": "Debe ser un id de tarjeta de Stripe: pm_ y de 1 a 250 letras o dígitos"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -295,7 +296,9 @@
     "Contact": "el contacto",
     "Automation": "Automatización",
     "Channel connection": "Conexión de canal",
-    "Channel account": "Cuenta de canal"
+    "Channel account": "Cuenta de canal",
+    "Ad account": "Cuenta publicitaria",
+    "Payment method": "Método de pago"
   },
   "emailCodeWrong": "Ese código no es correcto. Revisa el último correo que enviamos e inténtalo de nuevo.",
   "emailCodeExpired": "Ese código ha caducado. Pide un código nuevo.",
@@ -307,5 +310,13 @@
   "mfaLocked": "Demasiados códigos incorrectos. Espera unos minutos y vuelve a intentarlo o usa un código de recuperación.",
   "contactTagLimit": "Un contacto puede tener como máximo {{max}} etiquetas.",
   "contactBulkTooMany": "Esta acción alcanza más de {{max}} contactos. Acota el filtro.",
-  "contactBulkActionUnavailable": "Las acciones en bloque sobre contactos aún no están disponibles. Inténtalo más tarde."
+  "contactBulkActionUnavailable": "Las acciones en bloque sobre contactos aún no están disponibles. Inténtalo más tarde.",
+  "trialAlreadyUsed": "Este espacio de trabajo, o una de sus cuentas de Instagram, ya tuvo una prueba gratuita.",
+  "planHasNoTrial": "Solo un plan de pago tiene prueba gratuita.",
+  "trialUsedByAccount": "Una de estas cuentas de Instagram ya tuvo una prueba gratuita, así que no puede unirse a esta.",
+  "keepChannelAccountsInvalid": "Elige solo cuentas conectadas de este espacio de trabajo, como máximo las que permite el nuevo plan, y solo al pasar a un plan menor.",
+  "defaultCardInUse": "Es tu única tarjeta y tienes un plan de pago activo. Añade otra tarjeta antes de quitar esta.",
+  "emailAlreadyConfirmed": "Tu correo ya está confirmado",
+  "emailConfirmationResendTooSoon": "Acabamos de enviar un enlace de confirmación. Espera un momento antes de pedir otro.",
+  "emailConfirmTokenInvalid": "Este enlace de confirmación ya no es válido. Pide uno nuevo."
 }

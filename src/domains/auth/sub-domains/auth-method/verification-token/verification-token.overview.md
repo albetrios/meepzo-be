@@ -6,7 +6,7 @@ Parent: [auth-method](../auth-method.overview.md)
 
 ## Purpose
 
-Internal persistence module for one-shot, type-scoped verification tokens in `auth.verification_tokens` (email verification codes, email-change links, …). Not an API resource — no controller, routes, or serializer; auth-method services consume it directly.
+Internal persistence module for one-shot, type-scoped verification tokens in `auth.verification_tokens` (`VERIFICATION_TOKEN_TYPE`: the email sign-in codes and the confirm-email links). Not an API resource — no controller, routes, or serializer; auth-method services consume it directly.
 
 ## Layout
 

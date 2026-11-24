@@ -184,6 +184,7 @@ describe('health.middleware', () => {
       circuit_breakers: [{ name: 'resend', state: 'OPEN' }],
       queue_depths: [{ queue: 'mail', waiting: 3, delayed: 0, provider_pause_ms: 240_000 }],
       degraded: true,
+      sending: null,
     });
     application = Fastify();
     await application.register(healthMiddleware);
@@ -211,6 +212,7 @@ describe('health.middleware', () => {
       circuit_breakers: [{ name: 'resend', state: 'OPEN' }],
       queue_depths: [],
       degraded: true,
+      sending: null,
     });
     application = Fastify();
     await application.register(healthMiddleware);
@@ -233,6 +235,7 @@ describe('health.middleware', () => {
       circuit_breakers: [],
       queue_depths: [{ queue: 'webhook-delivery', waiting: 250, delayed: 0, provider_pause_ms: 0 }],
       degraded: false,
+      sending: null,
     });
     application = Fastify();
     await application.register(healthMiddleware);

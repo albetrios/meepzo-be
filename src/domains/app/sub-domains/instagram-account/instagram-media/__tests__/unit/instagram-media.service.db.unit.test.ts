@@ -12,10 +12,8 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { InstagramMediaGraphItem } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import {
-  InstagramAccountRepository,
-  type InstagramAccountKey,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import { InstagramMediaRepository } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
@@ -43,18 +41,21 @@ const CAROUSEL_POST: InstagramMediaGraphItem = {
 };
 
 /**
- * `InstagramMediaService.upsertFromInstagram` and `deleteForAccount` (routes-final § 1.C.3, IA17,
- * IA20) against the real table: the Instagram object mapped onto the stored row, a refresh, the
- * account's posts erased — and a scope of another organization never writing this one's posts.
+ * `InstagramMediaService.upsertFromInstagram`, the watch, the Live end and `deleteForAccount`
+ * (routes-final § 2.C.3, IA17, D40, IA20) against the real table: the Instagram object mapped onto
+ * the stored row under its channel account (P47), a refresh, the missed-comment watch and a Live's
+ * end, the account's posts erased — and a scope of another organization never writing this one's
+ * posts.
  */
 describe('InstagramMediaService stored posts (database)', () => {
   const service = new InstagramMediaService(
     new InstagramMediaRepository(),
     {} as InstagramAccountService,
+    { markConnectionBroken: async () => false },
   );
   let scope: OrganizationPrincipalDatabaseScope;
   let otherScope: OrganizationPrincipalDatabaseScope;
-  let instagramAccount: InstagramAccountKey;
+  let channelAccount: ChannelAccountKey;
   let otherOrganizationId: number;
 
   beforeEach(async () => {
@@ -69,36 +70,36 @@ describe('InstagramMediaService stored posts (database)', () => {
     scope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organization.public_id });
     otherScope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: otherOrganization.public_id });
     const channelConnection = await insertChannelConnection({ organizationId: organization.id });
-    const channelAccount = await insertChannelAccount({
+    const channelAccountRow = await insertChannelAccount({
       organizationId: organization.id,
       providerAccountId: '17841400000000001',
       channelConnectionId: channelConnection.id,
     });
-    const account = await withAppDatabaseContext({
+    await withAppDatabaseContext({
       scope,
       callback: () =>
         new InstagramAccountRepository().upsertAtPick(
           buildInstagramPickValues({
             organizationId: organization.id,
-            channelAccountId: channelAccount.id,
+            channelAccountId: channelAccountRow.id,
             instagramUserId: '17841400000000001',
             username: 'acme_shop',
           }),
         ),
     });
-    instagramAccount = { organizationId: organization.id, instagramAccountId: account.id };
+    channelAccount = { organizationId: organization.id, channelAccountId: channelAccountRow.id };
   });
 
   it('stores a post from the Instagram object: types lowered, timestamp, counts, the object as graph_data', async () => {
     const stored = await service.upsertFromInstagram({
       scope,
-      instagramAccount,
+      channelAccount,
       mediaItem: CAROUSEL_POST,
     });
 
     expect(stored).toMatchObject({
-      organization_id: instagramAccount.organizationId,
-      instagram_account_id: instagramAccount.instagramAccountId,
+      organization_id: channelAccount.organizationId,
+      channel_account_id: channelAccount.channelAccountId,
       instagram_media_id: '18030000000000004',
       shortcode: null,
       media_type: 'carousel_album',
@@ -118,13 +119,13 @@ describe('InstagramMediaService stored posts (database)', () => {
   it('refreshes the same post, with missing counts as 0 and Instagram’s comment switch when it says one', async () => {
     const first = await service.upsertFromInstagram({
       scope,
-      instagramAccount,
+      channelAccount,
       mediaItem: CAROUSEL_POST,
     });
 
     const refreshed = await service.upsertFromInstagram({
       scope,
-      instagramAccount,
+      channelAccount,
       mediaItem: {
         id: CAROUSEL_POST.id,
         media_type: 'CAROUSEL_ALBUM',
@@ -143,15 +144,15 @@ describe('InstagramMediaService stored posts (database)', () => {
   });
 
   it("never writes another organization's posts from its own scope", async () => {
-    await service.upsertFromInstagram({ scope, instagramAccount, mediaItem: CAROUSEL_POST });
+    await service.upsertFromInstagram({ scope, channelAccount, mediaItem: CAROUSEL_POST });
 
     // The other organization's scope with this account's key: the composite key refuses it.
     await expect(
       service.upsertFromInstagram({
         scope: otherScope,
-        instagramAccount: {
+        channelAccount: {
           organizationId: otherOrganizationId,
-          instagramAccountId: instagramAccount.instagramAccountId,
+          channelAccountId: channelAccount.channelAccountId,
         },
         mediaItem: CAROUSEL_POST,
       }),
@@ -160,9 +161,9 @@ describe('InstagramMediaService stored posts (database)', () => {
     await expect(
       service.deleteForAccount({
         scope: otherScope,
-        instagramAccount: {
+        channelAccount: {
           organizationId: otherOrganizationId,
-          instagramAccountId: instagramAccount.instagramAccountId,
+          channelAccountId: channelAccount.channelAccountId,
         },
       }),
     ).resolves.toBe(0);
@@ -173,14 +174,92 @@ describe('InstagramMediaService stored posts (database)', () => {
   });
 
   it("erases the account's stored posts (Meta's data deletion, IA20)", async () => {
-    await service.upsertFromInstagram({ scope, instagramAccount, mediaItem: CAROUSEL_POST });
+    await service.upsertFromInstagram({ scope, channelAccount, mediaItem: CAROUSEL_POST });
     await service.upsertFromInstagram({
       scope,
-      instagramAccount,
+      channelAccount,
       mediaItem: { ...CAROUSEL_POST, id: '18030000000000009' },
     });
 
-    await expect(service.deleteForAccount({ scope, instagramAccount })).resolves.toBe(2);
-    await expect(service.deleteForAccount({ scope, instagramAccount })).resolves.toBe(0);
+    await expect(service.deleteForAccount({ scope, channelAccount })).resolves.toBe(2);
+    await expect(service.deleteForAccount({ scope, channelAccount })).resolves.toBe(0);
+  });
+
+  it('stores a Live with the `live` product type, and records its end once (D40)', async () => {
+    await service.upsertFromInstagram({
+      scope,
+      channelAccount,
+      mediaItem: { ...CAROUSEL_POST, id: '18030000000000010', media_product_type: 'LIVE' },
+    });
+    const target = { scope, channelAccount, instagramMediaId: '18030000000000010' };
+
+    const ended = await service.recordLiveEnded({
+      ...target,
+      endedAt: new Date('2026-11-24T10:00:00.000Z'),
+    });
+    const again = await service.recordLiveEnded({
+      ...target,
+      endedAt: new Date('2026-11-24T11:00:00.000Z'),
+    });
+
+    expect(ended).toMatchObject({ media_product_type: 'live' });
+    expect(ended?.live_ended_at?.toISOString()).toBe('2026-11-24T10:00:00.000Z');
+    expect(again?.live_ended_at?.toISOString()).toBe('2026-11-24T10:00:00.000Z');
+    await expect(
+      service.recordLiveEnded({
+        ...target,
+        instagramMediaId: '18030000000000099',
+        endedAt: new Date(),
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('writes the missed-comment watch: start, a check, a newer comment only, then stop (D40)', async () => {
+    await service.upsertFromInstagram({ scope, channelAccount, mediaItem: CAROUSEL_POST });
+    const target = { scope, channelAccount, instagramMediaId: CAROUSEL_POST.id };
+    const nextCheckAt = new Date('2026-11-24T10:10:00.000Z');
+
+    const watched = await service.updateCommentWatch({
+      ...target,
+      watch: { commentsNextCheckAt: nextCheckAt },
+    });
+    expect(watched).toMatchObject({ comments_checked_at: null, last_comment_at: null });
+    expect(watched?.comments_next_check_at?.toISOString()).toBe(nextCheckAt.toISOString());
+
+    const checked = await service.updateCommentWatch({
+      ...target,
+      watch: {
+        commentsCheckedAt: new Date('2026-11-24T10:10:05.000Z'),
+        lastCommentAt: new Date('2026-11-24T10:09:00.000Z'),
+      },
+    });
+    expect(checked?.comments_checked_at?.toISOString()).toBe('2026-11-24T10:10:05.000Z');
+    expect(checked?.comments_next_check_at?.toISOString()).toBe(nextCheckAt.toISOString());
+
+    // An older comment never moves the newest one back.
+    const older = await service.updateCommentWatch({
+      ...target,
+      watch: { lastCommentAt: new Date('2026-11-24T09:00:00.000Z') },
+    });
+    expect(older?.last_comment_at?.toISOString()).toBe('2026-11-24T10:09:00.000Z');
+
+    const stopped = await service.updateCommentWatch({
+      ...target,
+      watch: { commentsNextCheckAt: null },
+    });
+    expect(stopped?.comments_next_check_at).toBeNull();
+
+    // Another organization's scope never reaches this post.
+    await expect(
+      service.updateCommentWatch({
+        scope: otherScope,
+        channelAccount: {
+          organizationId: otherOrganizationId,
+          channelAccountId: channelAccount.channelAccountId,
+        },
+        instagramMediaId: CAROUSEL_POST.id,
+        watch: { commentsNextCheckAt: nextCheckAt },
+      }),
+    ).resolves.toBeNull();
   });
 });

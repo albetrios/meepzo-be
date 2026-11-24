@@ -8,6 +8,8 @@ import {
   createStripeSubscription,
   getStripeCustomer,
   listRecentStripeEvents,
+  releaseStripeSubscriptionSchedule,
+  scheduleStripeSubscriptionPriceChange,
   resumeStripeSubscription,
   retrieveStripeSubscriptionSnapshot,
   updateStripeSubscription,
@@ -131,6 +133,125 @@ describe('Stripe outbound SDK contract (`stripe.client`)', () => {
     StripeSubscriptionApiResponseContractSchema.parse(createdStripeSubscriptionOutbound);
     expect(createdStripeSubscriptionOutbound.id).toBe(subscriptionCreateFixtureResponse.id);
     expect(createdStripeSubscriptionOutbound.status).toBe(subscriptionCreateFixtureResponse.status);
+  });
+
+  test('createStripeSubscription with the no-card trial sends trial_period_days and the trial settings (BL7)', async () => {
+    nock(stripeOutboundApiHostname)
+      .post('/v1/subscriptions', (encodedOutboundBodyUnknown) => {
+        assertStripeEncodedFormContainsExpectedFields({
+          stripeOutboundRequestBody: encodedOutboundBodyUnknown,
+          expectedStripeFields: {
+            customer: subscriptionCreateRequestSubset.customer,
+            'items[0][price]': subscriptionCreateRequestSubset['items[0][price]'],
+            trial_period_days: '7',
+            'trial_settings[end_behavior][missing_payment_method]': 'cancel',
+            'payment_settings[save_default_payment_method]': 'on_subscription',
+          },
+        });
+        return true;
+      })
+      .matchHeader('authorization', /^Bearer /)
+      .reply(200, { ...subscriptionCreateFixtureResponse, status: 'trialing' });
+
+    const trialing = await createStripeSubscription({
+      customerId: subscriptionCreateRequestSubset.customer,
+      priceId: subscriptionCreateRequestSubset['items[0][price]'],
+      trialPeriodDays: 7,
+    });
+
+    StripeSubscriptionApiResponseContractSchema.parse(trialing);
+    expect(trialing.status).toBe('trialing');
+  });
+
+  test('scheduleStripeSubscriptionPriceChange creates a schedule from the subscription and sets the next phase (BL5, P77)', async () => {
+    const subscriptionIdentifier = subscriptionRetrieveFixtureResponse.id;
+    const currentPhase = {
+      start_date: 1_780_000_000,
+      end_date: 1_782_592_000,
+      trial_end: null,
+      items: [{ price: 'price_fixture_contract_plan_a', quantity: 1 }],
+    };
+    const schedule = {
+      id: 'sub_sched_fixture_contract',
+      object: 'subscription_schedule',
+      end_behavior: 'release',
+      subscription: subscriptionIdentifier,
+      phases: [currentPhase],
+    };
+
+    nock(stripeOutboundApiHostname)
+      .get((path) => path.startsWith(`/v1/subscriptions/${subscriptionIdentifier}`))
+      .matchHeader('authorization', /^Bearer /)
+      .reply(200, subscriptionRetrieveFixtureResponse);
+    nock(stripeOutboundApiHostname)
+      .post('/v1/subscription_schedules', (body) => {
+        assertStripeEncodedFormContainsExpectedFields({
+          stripeOutboundRequestBody: body,
+          expectedStripeFields: { from_subscription: subscriptionIdentifier },
+        });
+        return true;
+      })
+      .matchHeader('idempotency-key', 'idem-contract-move-down:schedule-create')
+      .reply(200, schedule);
+    nock(stripeOutboundApiHostname)
+      .post(`/v1/subscription_schedules/${schedule.id}`, (body) => {
+        assertStripeEncodedFormContainsExpectedFields({
+          stripeOutboundRequestBody: body,
+          expectedStripeFields: {
+            end_behavior: 'release',
+            'phases[0][items][0][price]': 'price_fixture_contract_plan_a',
+            'phases[0][start_date]': String(currentPhase.start_date),
+            'phases[0][end_date]': String(currentPhase.end_date),
+            'phases[1][items][0][price]': 'price_fixture_contract_plan_b',
+            'phases[1][proration_behavior]': 'none',
+          },
+        });
+        return true;
+      })
+      .matchHeader('idempotency-key', 'idem-contract-move-down:schedule-update')
+      .reply(200, {
+        ...schedule,
+        phases: [
+          currentPhase,
+          { ...currentPhase, start_date: currentPhase.end_date, end_date: 1_785_270_400 },
+        ],
+      });
+
+    const updated = await scheduleStripeSubscriptionPriceChange({
+      subscriptionId: subscriptionIdentifier,
+      priceId: 'price_fixture_contract_plan_b',
+      idempotencyKey: 'idem-contract-move-down',
+    });
+    expect(updated.id).toBe(schedule.id);
+    expect(updated.phases).toHaveLength(2);
+  });
+
+  test('releaseStripeSubscriptionSchedule releases the subscription’s schedule, and calls nothing without one', async () => {
+    const subscriptionIdentifier = subscriptionRetrieveFixtureResponse.id;
+    nock(stripeOutboundApiHostname)
+      .get((path) => path.startsWith(`/v1/subscriptions/${subscriptionIdentifier}`))
+      .reply(200, {
+        ...subscriptionRetrieveFixtureResponse,
+        schedule: 'sub_sched_fixture_contract',
+      });
+    nock(stripeOutboundApiHostname)
+      .post('/v1/subscription_schedules/sub_sched_fixture_contract/release')
+      .reply(200, {
+        id: 'sub_sched_fixture_contract',
+        object: 'subscription_schedule',
+        status: 'released',
+        phases: [],
+      });
+    await expect(
+      releaseStripeSubscriptionSchedule({ subscriptionId: subscriptionIdentifier }),
+    ).resolves.toBe(true);
+
+    nock(stripeOutboundApiHostname)
+      .get((path) => path.startsWith(`/v1/subscriptions/${subscriptionIdentifier}`))
+      .reply(200, subscriptionRetrieveFixtureResponse);
+    await expect(
+      releaseStripeSubscriptionSchedule({ subscriptionId: subscriptionIdentifier }),
+    ).resolves.toBe(false);
   });
 
   test('updateStripeSubscription issues retrieve followed by predictable price swap fields', async () => {

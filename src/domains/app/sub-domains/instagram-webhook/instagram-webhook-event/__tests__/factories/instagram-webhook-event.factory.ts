@@ -11,15 +11,23 @@ import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 
-/** `GET /app/social/instagram/webhook-events` (route 18). */
+/** `GET /app/social/instagram/webhook-events` (route 62). */
 export const INSTAGRAM_WEBHOOK_EVENTS_PATH = testApiPath('/app/social/instagram/webhook-events');
 
 /** The other side of every test event — a commenter or sender. */
 export const TEST_CONTACT_INSTAGRAM_USER_ID = '17841400000000777';
 
-/** A connected Instagram account inserted for tests: its internal id and webhook user id. */
+/**
+ * A connected Instagram account inserted for tests: its internal id, its channel account (the key
+ * the events are saved under since R16) and its webhook user id.
+ */
 export interface TestInstagramAccount {
+  /** `app.instagram_accounts.id`. */
   id: number;
+  /** `app.channel_accounts.id`. */
+  channelAccountId: number;
+  /** `cha_…`. */
+  channelAccountPublicId: string;
   instagramUserId: string;
 }
 
@@ -41,13 +49,23 @@ export async function insertTestInstagramAccount(
       (organization_id, channel_account_id, instagram_user_id, username)
     VALUES (${organizationId}, ${channelAccount.id}, ${instagramUserId}, 'acme_shop')
     RETURNING id`;
-  return { id: Number(account?.id), instagramUserId };
+  return {
+    id: Number(account?.id),
+    channelAccountId: channelAccount.id,
+    channelAccountPublicId: channelAccount.public_id,
+    instagramUserId,
+  };
 }
 
 /** What a test event may set; everything else takes a received comment's values. */
 export interface TestInstagramWebhookEventValues {
   organizationId: number;
-  account: TestInstagramAccount;
+  /**
+   * The event's account: its channel account when given, else the one its Instagram account row
+   * (`id`) extends.
+   */
+  account: Pick<TestInstagramAccount, 'id' | 'instagramUserId'> &
+    Partial<Pick<TestInstagramAccount, 'channelAccountId'>>;
   eventKind?: string;
   eventKey?: string;
   status?: string;
@@ -57,12 +75,15 @@ export interface TestInstagramWebhookEventValues {
   payload?: Record<string, unknown>;
   /** The received time (`created_at`); defaults to now. */
   receivedAt?: Date;
+  /** A failed event's next try. */
+  nextAttemptAt?: Date | null;
   contactInstagramUserId?: string | null;
 }
 
 /**
  * Inserts one event as the operator (bypassing RLS), with `processed_at` set when the status is
- * final — the table's CHECKs pair them. Returns its internal and public ids.
+ * final and the body only while it waits or failed — the table's CHECKs pair them (WH22). Writes no
+ * event key (the store function's job). Returns its internal and public ids.
  */
 export async function insertTestInstagramWebhookEvent(
   values: TestInstagramWebhookEventValues,
@@ -70,6 +91,7 @@ export async function insertTestInstagramWebhookEvent(
   const status = values.status ?? 'received';
   const receivedAt = values.receivedAt ?? new Date();
   const isFinal = status !== 'received' && status !== 'queued';
+  const keepsBody = !isFinal || status === 'failed';
   const publicId = generatePublicId('instagramWebhookEvent');
   const eventKey =
     values.eventKey ?? `comment:${generatePublicId('instagramWebhookEvent').slice(4)}`;
@@ -83,22 +105,26 @@ export async function insertTestInstagramWebhookEvent(
   };
   const [row] = await operatorQuery<Array<{ id: string }>>`
     INSERT INTO app.instagram_webhook_events
-      (public_id, organization_id, instagram_account_id, instagram_user_id,
+      (public_id, organization_id, channel_account_id, instagram_user_id,
        contact_instagram_user_id, event_kind, event_key, status, skip_reason, error_message,
-       attempt_count, payload, processed_at, created_at, updated_at)
-    VALUES (${publicId}, ${values.organizationId}, ${values.account.id},
+       attempt_count, next_attempt_at, payload, processed_at, created_at, updated_at)
+    VALUES (${publicId}, ${values.organizationId},
+            COALESCE(${values.account.channelAccountId ?? null}::bigint,
+                     (SELECT channel_account_id FROM app.instagram_accounts
+                       WHERE id = ${values.account.id})),
             ${values.account.instagramUserId},
             ${values.contactInstagramUserId === undefined ? TEST_CONTACT_INSTAGRAM_USER_ID : values.contactInstagramUserId},
             ${values.eventKind ?? 'comment'}, ${eventKey}, ${status},
-            ${values.skipReason ?? (status === 'skipped' ? 'echo' : null)},
+            ${values.skipReason ?? (status === 'skipped' ? 'own_comment' : null)},
             ${values.errorMessage ?? (status === 'failed' ? 'instagram_api:2/0' : null)},
-            ${values.attemptCount ?? 0}, ${JSON.stringify(payload)}::jsonb,
+            ${values.attemptCount ?? 0}, ${values.nextAttemptAt ?? null},
+            ${keepsBody ? JSON.stringify(payload) : null}::jsonb,
             ${isFinal ? receivedAt : null}, ${receivedAt}, ${receivedAt})
     RETURNING id`;
   return { id: Number(row?.id), publicId };
 }
 
-/** The status, attempt count, lease and error of one event — read as the operator. */
+/** The status, attempt count, lease, error and body of one event — read as the operator. */
 export async function readTestInstagramWebhookEvent(eventId: number): Promise<{
   status: string;
   attempt_count: number;
@@ -106,6 +132,7 @@ export async function readTestInstagramWebhookEvent(eventId: number): Promise<{
   error_message: string | null;
   skip_reason: string | null;
   processed_at: Date | null;
+  payload: Record<string, unknown> | null;
 } | null> {
   const [row] = await operatorQuery<
     Array<{
@@ -115,9 +142,11 @@ export async function readTestInstagramWebhookEvent(eventId: number): Promise<{
       error_message: string | null;
       skip_reason: string | null;
       processed_at: Date | null;
+      payload: Record<string, unknown> | null;
     }>
   >`
-    SELECT status, attempt_count, last_attempted_at, error_message, skip_reason, processed_at
+    SELECT status, attempt_count, last_attempted_at, error_message, skip_reason, processed_at,
+           payload
     FROM app.instagram_webhook_events WHERE id = ${eventId}`;
   return row ?? null;
 }
@@ -143,4 +172,29 @@ export async function createPersonalOrganizationWithWebhookEventRead(): Promise<
     organizationPublicId: organization.public_id,
   });
   return { organization, token };
+}
+
+/** `app.channel_accounts.id` an Instagram account row extends — read as the operator. */
+export async function readChannelAccountIdOfInstagramAccount(
+  instagramAccountId: number,
+): Promise<number> {
+  const [row] = await operatorQuery<Array<{ channel_account_id: string }>>`
+    SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${instagramAccountId}`;
+  if (row === undefined) throw new Error('instagram account fixture has no channel account');
+  return Number(row.channel_account_id);
+}
+
+/**
+ * `app.channel_accounts.public_id` (`cha_…`) an Instagram account row extends — what the webhook's
+ * processing job names the account by (feat-instagram-dm-sending R17, WHC4); read as the operator.
+ */
+export async function readChannelAccountPublicIdOfInstagramAccount(
+  instagramAccountId: number,
+): Promise<string> {
+  const [row] = await operatorQuery<Array<{ public_id: string }>>`
+    SELECT channel_accounts.public_id FROM app.instagram_accounts
+    JOIN app.channel_accounts ON channel_accounts.id = instagram_accounts.channel_account_id
+    WHERE instagram_accounts.id = ${instagramAccountId}`;
+  if (row === undefined) throw new Error('instagram account fixture has no channel account');
+  return row.public_id;
 }

@@ -9,7 +9,7 @@ import {
   FAST_HOUR_LIMIT_MAX,
   OPENING_HOUR_LIMIT_MAX,
   PERSON_HOUR_LIMIT_RANGE,
-} from './instagram-account-settings.constants.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 
 /**
  * One owner limit of a `PATCH`: a whole number within `range`, `null` to clear it back to the

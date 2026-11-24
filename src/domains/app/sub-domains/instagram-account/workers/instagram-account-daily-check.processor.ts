@@ -8,12 +8,12 @@ import {
   readInstagramAccountProfile,
   subscribeInstagramWebhookFields,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
-import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import {
-  INSTAGRAM_ACCOUNT_REFRESH_ERROR_MAX_LENGTH,
-  type InstagramAccountBrokenConnectionStatus,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
+  MetaGraphApiError,
+  describeMetaGraphError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import type { InstagramAccountBrokenConnectionStatus } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 import {
   type InstagramAccountKey,
   type InstagramAccountRow,
@@ -70,32 +70,6 @@ export function classifyInstagramDailyCheckFailure(
   }
   if (error.errorClass === 'refused') return { action: 'continue' };
   return { action: 'wait' };
-}
-
-/**
- * A failed Meta call as the check logs it (IA8): Meta's class, code, subcode and HTTP status —
- * never its text, which can quote the token (Meta answers "Malformed access token …" with it) — cut
- * to 500 characters.
- *
- * @remarks
- * - **Algorithm:** an `MetaGraphApiError` → `<class> (code …, subcode …, HTTP …)`; anything else →
- *   its error name (an open circuit, a failure on our side), never its message.
- * - **Failure modes:** none — pure.
- * - **Side effects:** none.
- * - **Notes:** the client builds its errors without the request URL or the token, so nothing here
- *   can carry one. Exported for the unit test.
- */
-export function describeInstagramRefreshError(error: unknown): string {
-  if (!(error instanceof MetaGraphApiError)) {
-    return `failed: ${error instanceof Error ? error.name : typeof error}`;
-  }
-  const details = [
-    error.instagramErrorCode === null ? null : `code ${error.instagramErrorCode}`,
-    error.instagramErrorSubcode === null ? null : `subcode ${error.instagramErrorSubcode}`,
-    error.status === undefined ? null : `HTTP ${error.status}`,
-  ].filter((part) => part !== null);
-  const suffix = details.length > 0 ? ` (${details.join(', ')})` : '';
-  return `${error.errorClass}${suffix}`.slice(0, INSTAGRAM_ACCOUNT_REFRESH_ERROR_MAX_LENGTH);
 }
 
 /**
@@ -208,7 +182,7 @@ async function handleStepFailure({
     {
       organizationPublicId: target.organizationPublicId,
       instagramAccountPublicId: target.account.public_id,
-      failure: describeInstagramRefreshError(error),
+      failure: describeMetaGraphError(error),
     },
     `app.instagram_account.daily_check.${step}_refused`,
   );

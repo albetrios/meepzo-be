@@ -71,9 +71,10 @@ sibling folder (`channel-connection-<provider>/`).
 - Meta Graph API `v27.0` (`graph.facebook.com`), Meta's login dialog (`www.facebook.com/dialog/oauth`); until R3 the
   Instagram Login hosts above.
 - Settings (MC3): `META_APP_ID`, `META_APP_SECRET` (at least 32 characters when set), `META_CONFIG_ID`,
-  `META_REDIRECT_URI`. `isInstagramConfigured()` is false while any is unset; `assertInstagramConfigured()` and
+  `META_REDIRECT_URI`. `isMetaConfigured()` is false while any is unset; `assertInstagramConfigured()` and
   `readMetaAppSettings()` answer 503 `instagram_not_configured`; `readMetaAppSecret()` needs the secret alone (Meta's
-  callbacks, `appsecret_proof`). `META_WEBHOOK_VERIFY_TOKEN` is the webhook's (sub-domain 5).
+  callbacks, `appsecret_proof`). `readMetaWebhookSettings()` (`meta-signature.ts`, beside the signature check) hands the webhook (sub-domain 5, WHC3) the app secret and
+  `META_WEBHOOK_VERIFY_TOKEN`, each `null` while unset.
 - `SECRETS_ENCRYPTION_KEY` (and its keyring) through `field-secret-encryption.util.ts`.
 
 ## Failure modes

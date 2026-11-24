@@ -314,10 +314,10 @@ export class InstagramAccountRepository {
   }
 
   /**
-   * Every account of the organization with this public id that carries this Instagram user id, any
-   * status, oldest first, locked until the unit ends — Meta's deauthorize and data-deletion
-   * callbacks (IA19, IA20), which know the organization only by the public id the resolver returned
-   * (IA6). Under Unified Login the id Meta signs is the Instagram user id (P111).
+   * Every account of the organization with this public id whose channel account carries this
+   * provider account id (for Meta: the Instagram user id), any status, oldest first, locked until the
+   * unit ends — Meta's deauthorize and data-deletion callbacks matched by account (routes-final § 1
+   * MC15, P56), which know the organization only by the public id the resolver returned.
    *
    * @remarks
    * Runs in that organization's own scope. A soft-deleted organization's rows are not seen there (its
@@ -326,25 +326,72 @@ export class InstagramAccountRepository {
    * UPDATE`) is taken on the extension rows at the read, so a pick in between waits (D53). Normally
    * one row: an organization holds one row per Instagram account.
    */
-  async lockByInstagramUserInOrganization({
+  async lockByProviderAccountInOrganization({
     organizationPublicId,
-    instagramUserId,
+    providerAccountId,
   }: {
     organizationPublicId: string;
-    instagramUserId: string;
+    providerAccountId: string;
   }): Promise<InstagramAccountRow[]> {
-    // A subquery, not a join: the lock must take the account rows only, never the organization's.
+    // Subqueries, not joins: the lock must take the extension rows only.
     const organizationId = this.db()
       .select({ id: organizations.id })
       .from(organizations)
       .where(eq(organizations.public_id, organizationPublicId));
+    const channelAccountIds = this.db()
+      .select({ id: channel_accounts.id })
+      .from(channel_accounts)
+      .where(
+        and(
+          inArray(channel_accounts.organization_id, organizationId),
+          eq(channel_accounts.channel, 'instagram'),
+          eq(channel_accounts.provider_account_id, providerAccountId),
+        ),
+      );
     const locked = await this.db()
       .select({ id: instagram_accounts.id })
       .from(instagram_accounts)
       .where(
         and(
           inArray(instagram_accounts.organization_id, organizationId),
-          eq(instagram_accounts.instagram_user_id, instagramUserId),
+          inArray(instagram_accounts.channel_account_id, channelAccountIds),
+        ),
+      )
+      .orderBy(asc(instagram_accounts.id))
+      .for('no key update');
+    return this.readLockedRows(locked);
+  }
+
+  /**
+   * Every not-revoked account of these connections of the organization, oldest first, locked until
+   * the unit ends — Meta's callbacks matched by business (routes-final § 1 MC15, P56: a business
+   * match reaches every not-revoked channel account of that connection).
+   */
+  async lockLiveByConnections({
+    organizationId,
+    channelConnectionIds,
+  }: {
+    organizationId: number;
+    channelConnectionIds: readonly number[];
+  }): Promise<InstagramAccountRow[]> {
+    if (channelConnectionIds.length === 0) return [];
+    const channelAccountIds = this.db()
+      .select({ id: channel_accounts.id })
+      .from(channel_accounts)
+      .where(
+        and(
+          eq(channel_accounts.organization_id, organizationId),
+          inArray(channel_accounts.channel_connection_id, [...channelConnectionIds]),
+          ne(channel_accounts.connection_status, 'revoked'),
+        ),
+      );
+    const locked = await this.db()
+      .select({ id: instagram_accounts.id })
+      .from(instagram_accounts)
+      .where(
+        and(
+          eq(instagram_accounts.organization_id, organizationId),
+          inArray(instagram_accounts.channel_account_id, channelAccountIds),
         ),
       )
       .orderBy(asc(instagram_accounts.id))
@@ -534,23 +581,6 @@ export class InstagramAccountRepository {
       organization_public_id: string | null;
     }>;
     return rows[0]?.organization_public_id ?? null;
-  }
-
-  /**
-   * The public ids of every organization holding an Instagram row of this id, any status (IA6 —
-   * `app.resolve_organization_public_ids_for_instagram_app_user`, which matches the Instagram user
-   * id since ROUTE row R6); empty when none.
-   */
-  async resolveOrganizationPublicIdsForInstagramAppUser(
-    instagramAppUserId: string,
-  ): Promise<string[]> {
-    const result = await getContextFreeDatabase().execute(
-      sql`SELECT organization_public_id FROM app.resolve_organization_public_ids_for_instagram_app_user(${instagramAppUserId}) AS organization_public_id`,
-    );
-    const rows = ((result as { rows?: unknown[] }).rows ?? result) as Array<{
-      organization_public_id: string;
-    }>;
-    return rows.map((row) => row.organization_public_id);
   }
 }
 

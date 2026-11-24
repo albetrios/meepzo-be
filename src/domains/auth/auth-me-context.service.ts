@@ -47,10 +47,22 @@ export class AuthMeContextService {
     // Launch ROUTE #4 / #156: the caller's membership and roles (D5, N10); absent in the worker
     // process and minimal harnesses.
     private readonly membershipService?: Pick<MembershipService, 'getCallerMembershipContext'>,
-    // Owner decision D3: the active organization's plan access (grace, then read-only). Absent in
-    // the worker process and minimal harnesses, where every organization reads `active`.
-    private readonly planAccessService?: Pick<SubscriptionService, 'getPlanAccess'>,
+    // Owner decision D3: the active organization's plan access (grace, then read-only) and — through
+    // billing's accounts port — its not-revoked channel account count (feat-instagram-dm-sending
+    // BL16). Absent in the worker process and minimal harnesses, where every organization reads
+    // `active` with no accounts.
+    private readonly planAccessService?: Pick<
+      SubscriptionService,
+      'getPlanAccess' | 'countConnectedChannelAccounts'
+    >,
   ) {}
+
+  /** The organization's not-revoked channel accounts (BL16) — `0` when no plan access service is wired. */
+  private async countChannelAccounts(organizationPublicId: string): Promise<number> {
+    return this.planAccessService
+      ? this.planAccessService.countConnectedChannelAccounts({ organizationPublicId })
+      : 0;
+  }
 
   /** The organization's plan access — `active` when no plan access service is wired. */
   private async resolvePlanAccess(organizationPublicId: string): Promise<PlanAccess> {
@@ -95,6 +107,9 @@ export class AuthMeContextService {
           planAccess: activeOrganizationPublicId
             ? await this.resolvePlanAccess(activeOrganizationPublicId)
             : null,
+          channelAccountsCount: activeOrganizationPublicId
+            ? await this.countChannelAccounts(activeOrganizationPublicId)
+            : null,
         }),
       }),
       activeOrganizationPublicId
@@ -107,13 +122,14 @@ export class AuthMeContextService {
         ? this.membershipService.getCallerMembershipContext(scope)
         : Promise.resolve<CallerMembershipContext | null>(null),
     ]);
-    const { user, activeOrganization, planAccess } = userScoped;
+    const { user, activeOrganization, planAccess, channelAccountsCount } = userScoped;
     const myRoles = membership?.roles ?? [];
 
     return {
       user,
       activeOrganization,
       planAccess: activeOrganization ? planAccess : null,
+      channelAccountsCount: activeOrganization ? channelAccountsCount : null,
       membershipId: membership?.membership_id ?? null,
       myPermissions,
       myRoleIds: myRoles.map((role) => role.id),
@@ -153,20 +169,28 @@ export class AuthMeContextService {
     const { userPublicId, organizationPublicId, globalRole } = options;
     // Independent of each other — all read from `options` only — so they go out together
     // rather than one after the other. This runs inline on every organization switch.
-    const [activeOrganization, myPermissions, planAccess] = await Promise.all([
-      this.organizationService.getByPublicId({
-        public_id: organizationPublicId,
-        user_public_id: userPublicId,
-      }),
-      this.authorizationService.resolveUserOrganizationPermissions({
-        userPublicId,
-        organizationPublicId,
-      }),
-      this.resolvePlanAccess(organizationPublicId),
-    ]);
+    const [activeOrganization, myPermissions, planAccess, channelAccountsCount] = await Promise.all(
+      [
+        this.organizationService.getByPublicId({
+          public_id: organizationPublicId,
+          user_public_id: userPublicId,
+        }),
+        this.authorizationService.resolveUserOrganizationPermissions({
+          userPublicId,
+          organizationPublicId,
+        }),
+        this.resolvePlanAccess(organizationPublicId),
+        this.countChannelAccounts(organizationPublicId),
+      ],
+    );
     return {
-      // The same `plan_access` `GET /auth/me/context` carries, so a switch repaints it too.
-      active_organization: { ...activeOrganization, plan_access: serializePlanAccess(planAccess) },
+      // The same `plan_access` and account count `GET /auth/me/context` carries, so a switch
+      // repaints them too.
+      active_organization: {
+        ...activeOrganization,
+        plan_access: serializePlanAccess(planAccess),
+        channel_accounts_count: channelAccountsCount,
+      },
       my_permissions: myPermissions,
       global_role: globalRole ?? null,
     };

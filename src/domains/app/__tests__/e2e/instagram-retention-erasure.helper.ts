@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import pino from 'pino';
@@ -50,8 +51,10 @@ import {
   injectRoute,
 } from '@/tests/helpers/test-http-inject.helper.js';
 
-/** `POST /app/social/instagram/webhook` (route 17). */
-const INSTAGRAM_WEBHOOK_PATH = testApiPath('/app/social/instagram/webhook');
+/** `POST /app/social/channel-connections/meta/webhooks/instagram` (route 17). */
+const INSTAGRAM_WEBHOOK_PATH = testApiPath(
+  '/app/social/channel-connections/meta/webhooks/instagram',
+);
 
 /** `days` whole days before `from`. */
 export function daysBefore({ from, days }: { from: Date; days: number }): Date {
@@ -299,7 +302,7 @@ export async function deliverInstagramEvents({
  * Runs the account's real processing job over the app's own services (routes-final WH12–WH14) — the
  * events stored and not yet processed, with the real Instagram client (mocked at the network).
  */
-export function processInstagramEvents({
+export async function processInstagramEvents({
   app,
   team,
 }: {
@@ -309,7 +312,7 @@ export function processInstagramEvents({
   return processInstagramWebhookAccountJob({
     jobData: {
       organizationPublicId: team.organization.public_id,
-      instagramAccountPublicId: team.account.public_id,
+      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(team.account.id),
     },
     services: app.appDomain,
     jobId: 'job-retention-erasure',
@@ -595,7 +598,7 @@ export async function seedAgedOrganization(now: Date): Promise<AgedOrganization>
     .insert(instagram_media)
     .values({
       organization_id: organizationId,
-      instagram_account_id: account.id,
+      channel_account_id: account.channel_account_id,
       instagram_media_id: nextInstagramObjectId(),
       published_at: at(1095),
       ...written(1095),
@@ -708,15 +711,23 @@ export async function seedAgedOrganization(now: Date): Promise<AgedOrganization>
   };
 }
 
-/** The tables of the `app` schema that hold an organization's rows — read from the catalog. */
-async function listAppTenantTables(): Promise<string[]> {
-  const rows = await operatorQuery<Array<{ table_name: string }>>`
-    SELECT c.table_name FROM information_schema.columns c
-    JOIN information_schema.tables t USING (table_schema, table_name)
-    WHERE c.table_schema = 'app' AND c.column_name = 'organization_id'
-      AND t.table_type = 'BASE TABLE'
-    ORDER BY c.table_name`;
-  return rows.map((row) => row.table_name);
+/**
+ * The tables of the `app` schema that hold an organization's rows — read from the catalog. A
+ * partitioned table counts once, through its parent (its day parts are skipped, R16).
+ */
+async function listAppTenantTables(): Promise<Array<{ tableName: string; hasId: boolean }>> {
+  const rows = await operatorQuery<Array<{ table_name: string; has_id: boolean }>>`
+    SELECT c.table_name,
+           EXISTS (SELECT 1 FROM information_schema.columns id_column
+                    WHERE id_column.table_schema = 'app' AND id_column.table_name = c.table_name
+                      AND id_column.column_name = 'id') AS has_id
+      FROM information_schema.columns c
+      JOIN information_schema.tables t USING (table_schema, table_name)
+      JOIN pg_class class ON class.oid = format('app.%I', c.table_name)::regclass
+     WHERE c.table_schema = 'app' AND c.column_name = 'organization_id'
+       AND t.table_type = 'BASE TABLE' AND NOT class.relispartition
+     ORDER BY c.table_name`;
+  return rows.map((row) => ({ tableName: row.table_name, hasId: row.has_id }));
 }
 
 /**
@@ -727,12 +738,13 @@ export async function readAppRowsOfOrganization(
   organizationId: number,
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const rowsOfTable: Record<string, Record<string, unknown>[]> = {};
-  for (const table of await listAppTenantTables()) {
+  for (const { tableName, hasId } of await listAppTenantTables()) {
     const rows = await operatorQuery.unsafe<Array<{ row: Record<string, unknown> }>>(
-      `SELECT to_jsonb(t) AS row FROM app.${table} t WHERE t.organization_id = $1 ORDER BY t.id`,
+      `SELECT to_jsonb(t) AS row FROM app.${tableName} t WHERE t.organization_id = $1
+        ORDER BY ${hasId ? 't.id' : 'to_jsonb(t)::text'}`,
       [organizationId],
     );
-    rowsOfTable[table] = rows.map(({ row }) => row);
+    rowsOfTable[tableName] = rows.map(({ row }) => row);
   }
   return rowsOfTable;
 }
@@ -751,6 +763,30 @@ export async function countAppRowsOfOrganization(
 interface CapturableLogger {
   level: string;
   [symbol: symbol]: unknown;
+}
+
+/**
+ * One row in each of the sending sub-domain's per-organization tables (feat-instagram-dm-sending
+ * § 6.A, R18) for every channel account of the organization: a stop, a minute count, a day count,
+ * and the organization's month count — so the organization delete is seen erasing them too.
+ */
+export async function writeSendingHistory(organizationId: number): Promise<void> {
+  await operatorQuery`
+    INSERT INTO app.instagram_send_stops (organization_id, channel_account_id, lane, reason)
+    SELECT organization_id, id, 'all', 'login_expired' FROM app.channel_accounts
+    WHERE organization_id = ${organizationId}`;
+  await operatorQuery`
+    INSERT INTO app.instagram_send_minute_counts
+      (organization_id, channel_account_id, count_group, minute_start, count)
+    SELECT organization_id, id, 'open', date_trunc('minute', now()), 1 FROM app.channel_accounts
+    WHERE organization_id = ${organizationId}`;
+  await operatorQuery`
+    INSERT INTO app.instagram_send_day_counts (organization_id, channel_account_id, day_date, sent_count)
+    SELECT organization_id, id, current_date, 1 FROM app.channel_accounts
+    WHERE organization_id = ${organizationId}`;
+  await operatorQuery`
+    INSERT INTO app.message_month_counts (organization_id, month_start, slot, count)
+    VALUES (${organizationId}, date_trunc('month', now())::date, 0, 1)`;
 }
 
 /**

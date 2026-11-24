@@ -14,11 +14,12 @@ What it owns today: the routes plugin (`app.routes.ts`, mounted by `src/routes.t
 (`seed/index.ts`, registered in `SEED_MODULES`), the permission codes (`app.permissions.ts`), the schema
 `app` (`appSchema` in `src/infrastructure/database/pg-schemas.ts`, created by
 `migrations/20261121050908_app_schema.sql`), the channel connection (feat-instagram-dm-sending routes
-1–5, 40 and 42 — start, callback, reconnect, pick, list, one, disconnect business; the tables
+1–5, 40 and 42 — start, callback, reconnect, pick, list, one, disconnect business — and Meta's PUBLIC
+deauthorize and data-deletion callbacks, routes 16–17, since ROUTE row R9; the tables
 `app.channel_connections`, `app.channel_connection_tokens` and `app.channel_connection_usages`), the channel
 account (routes 6–11 — list, one, disconnect, pause, resume, choose active accounts — the capability list and the
-one feature check; the table `app.channel_accounts`, ROUTE row R5) and the Instagram account (its settings, pickers,
-Meta's PUBLIC deauthorize and data-deletion callbacks included; the
+one feature check; the table `app.channel_accounts`, ROUTE row R5) and the Instagram account (its settings, pickers
+and the per-organization erase Meta's callbacks and the organization delete share; the
 launch's connect route 1 retired with Instagram Login, RC-6; the tables `app.instagram_accounts` and
 `app.instagram_account_settings` — the channel and Instagram tables created by
 `migrations/20261121064529_app_instagram_account.sql` — and
@@ -26,7 +27,7 @@ launch's connect route 1 retired with Instagram Login, RC-6; the tables `app.ins
 (launch routes 9 and 10, now routes 18–23 of the DM-sending iteration; the tables `app.contacts`, `app.contact_activities` and `app.contact_tag_counts`, in `migrations/20261121094503_app_contacts.sql`), the
 automations (routes 11–15 and the 15-minute "next post" expiry; the table `app.automations`, created by
 `migrations/20261121150135_app_automations.sql`) and the Instagram webhook — Meta's subscription check
-and delivery receiver (routes 16–17) and its stored events (route 18 and the 30-day clean-up; the table
+and delivery receiver (routes 60–61 since feat-instagram-dm-sending R17) and its stored events (route 62 and the 30-day clean-up; the table
 `app.instagram_webhook_events`, created by `migrations/20261121094626_app_instagram_webhook_events.sql`).
 The other sub-domains fill it in one ROUTE row at a time (`iterations/launch-2026-11-20-ujai/KICKOFF.md`).
 
@@ -90,12 +91,13 @@ In build order (`iterations/launch-2026-11-20-ujai/plans/routes-final.md`):
 
 | Sub-domain | Purpose |
 | --- | --- |
-| [channel-connection](src/domains/app/sub-domains/channel-connection/channel-connection.overview.md) | One provider login of an organization for one business (Meta Unified Login): the Meta adapter (`channel-connection-meta/` — the one Meta client, the login calls, the usage headers, the signature checks), the one-use login state, and Meta's usage kept per connection with its Redis copy (DM-sending iteration, ROUTE row R2; the tables and routes land in R3). |
+| [channel-connection](src/domains/app/sub-domains/channel-connection/channel-connection.overview.md) | One provider login of an organization for one business (Meta Unified Login): the Meta adapter (`channel-connection-meta/` — the one Meta client, the login calls, the usage headers, the signature checks), the one-use login state, and Meta's usage kept per connection with its Redis copy (DM-sending iteration, ROUTE row R2; the tables and routes land in R3); Meta's PUBLIC deauthorize and data-deletion callbacks (routes 16–17, matched by account then business — ROUTE row R9). |
 | [channel-account](src/domains/app/sub-domains/channel-account/channel-account.overview.md) | One connected inbox of an organization, whatever its channel (`app.channel_accounts`, `cha_`): its status, pause, suspend, plan stop and automation switch; routes 6–11; the capability list and the one feature check (CA11); the channel connection's account port (DM-sending iteration, ROUTE row R5). |
-| [instagram-account](src/domains/app/sub-domains/instagram-account/instagram-account.overview.md) | The organization's one connected Instagram account and its encrypted token (connect, read, disconnect), the daily account check and the reconnect notice (two workers); nested `instagram-account-settings` (the automation switch and public reply safety, changed by route 3) and `instagram-media` (the post and story pickers, read live — routes 5–6 — and the stored posts `app.instagram_media`) and `instagram-account-meta-callback` (Meta's PUBLIC deauthorize and data-deletion callbacks — routes 7–8). |
+| [instagram-account](src/domains/app/sub-domains/instagram-account/instagram-account.overview.md) | The organization's one connected Instagram account and its encrypted token (connect, read, disconnect), the daily account check and the reconnect notice (two workers); nested `instagram-account-settings` (the automation switch and public reply safety, changed by route 3) and `instagram-media` (the post and story pickers, read live — routes 5–6 — and the stored posts `app.instagram_media`); Meta's callbacks' per-organization erase. |
 | [contact](src/domains/app/sub-domains/contact/contact.overview.md) | The people who interacted with each channel account (routes 18–23: list per account, open, the team's note / tags / pause, the bulk action, the tag list with counts, erase), written only through the contact service; activity times in `contact_activities` (S5), tag counts in `contact_tag_counts` (S7); the erase anonymises in place and the erase and pause run the registered steps. |
 | [automation](src/domains/app/sub-domains/automation/automation.overview.md) | Comment, DM and story-reply automations of each Instagram account (list, create, read, edit, delete — routes 11–15), "next post" linking for event processing, the 15-minute expiry worker and the daily deleted-automation purge; nested `automation-run` (runs, run events, comment logs and the run engine whose entry points event processing calls — no routes; the hourly 7-day wait cancel and the daily run and comment-log retention workers). |
-| [instagram-webhook](src/domains/app/sub-domains/instagram-webhook/instagram-webhook.overview.md) | Meta's Instagram webhook: the receiver at the folder root — the subscription check (route 16, verify token) and the delivery (route 17, `X-Hub-Signature-256`, each event stored once before the answer) — and nested `instagram-webhook-event` — the stored events, their list (route 18, masked payload) and the 30-day clean-up — and event processing (one account's events at a time, in order, through contacts and the run engine; the every-minute stuck-event pick-up). |
+| [instagram-webhook](src/domains/app/sub-domains/instagram-webhook/instagram-webhook.overview.md) | Meta's Instagram webhook: the receiver at the folder root — the subscription check (route 60, verify token) and the delivery (route 61, `X-Hub-Signature-256` with the Meta app secret, at Meta's per-object path `/social/channel-connections/meta/webhooks/instagram`, each event saved once before the answer, save-only — ROUTE row R17) — and nested `instagram-webhook-event` — the day-split events and their key table, their list (route 62, masked payload) and the clean-up — and event processing (one account's events at a time, in order, through contacts and the run engine; the every-minute stuck-event pick-up). |
+| [instagram-sending](src/domains/app/sub-domains/instagram-sending/instagram-sending.overview.md) | The paced sender (DM-sending iteration § 6). ROUTE row R18 built its folder root: four lanes per account and their stops (`app.instagram_send_lanes`, `app.instagram_send_stops`), gate 2's minute counts, the organization's month count in 16 slots (`app.message_month_counts`, shared) and an account's day counts, the tenantless global sending row (`app.sending_states`, maintenance scope `SENDING_STATE` — the environment id, the settings versions, Meta's app-level usage), routes 63–64 (sending status, DM meter), the sending settings file, and the lane steps of the connection, the channel account and route 12. Messages, attempts, queues and workers come with later rows. |
 
 ## Patterns used
 
@@ -108,8 +110,9 @@ This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERN
 - [`idempotency`](src/PATTERNS.md#idempotency) — signed-in writes that create (route 1, connect; route
   12, create an automation) require `X-Idempotency-Key`.
 - [`audit-emission`](src/PATTERNS.md#audit-emission) — `app.<resource>.<verb>` audit actions
-  (`app.channel_account.disconnect`, `.pause`, `.resume`, `.activate`, `app.instagram_account.connect`,
-  `app.instagram_account.deauthorize`, `app.instagram_account.data_deletion` — anonymous actor,
+  (`app.channel_connection.connect`, `.disconnect`, `app.channel_account.connect`, `.disconnect`,
+  `.pause`, `.resume`, `.activate`,
+  `app.channel_connection.deauthorize`, `app.channel_connection.data_deletion` — anonymous actor,
   `metadata.source = 'meta'` — `app.instagram_account_settings.update`, `app.contact.delete`,
   `app.automation.create`, `app.automation.update`, `app.automation.delete`).
 
@@ -124,8 +127,8 @@ This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERN
   through the mail outbox) and the Instagram client. The worker process builds this domain's
   container too (`createDomainContainers` → `appDomain`).
 - [`instagram-meta-callback-flow`](src/FLOWS.md#instagram-meta-callback-flow) — Meta's deauthorize
-  and data-deletion callbacks across `app` (the account, its token, its stored posts, in every
-  organization the resolver names) and `audit` (an anonymous entry per organization changed).
+  and data-deletion callbacks across `app` (the accounts, their connection's token, their stored posts, in
+  every organization the account or business resolver names) and `audit` (an anonymous entry per organization changed).
 - [`instagram-comment-automation-flow`](src/FLOWS.md#instagram-comment-automation-flow) — a comment
   runs its automation across the sub-domains (webhook event → contact → run engine → Instagram
   client), proven end to end by `__tests__/e2e/instagram-comment-flow.e2e.test.ts`; on a dead token

@@ -45,6 +45,7 @@ function accountChange(
 ): InstagramAccountDisconnectChange {
   return {
     instagramAccount: { organizationId: 1, instagramAccountId: 10 },
+    channelAccount: { organizationId: 1, channelAccountId: 20 },
     instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     wasRevoked: false,
     wasTokenErased: false,
@@ -91,6 +92,7 @@ describe('InstagramAccountErasureService (no database)', () => {
           accountChange({ wasRevoked: true, wasTokenErased: true, wasProfileErased: true }),
           accountChange({
             instagramAccount: { organizationId: 1, instagramAccountId: 11 },
+            channelAccount: { organizationId: 1, channelAccountId: 21 },
             instagramAccountPublicId: 'iga_bbbbbbbbbbbbbbbbbbbbb',
           }),
         ];
@@ -131,7 +133,7 @@ describe('InstagramAccountErasureService (no database)', () => {
     });
   });
 
-  describe('eraseForMeta (IA19, IA20)', () => {
+  describe('eraseForMeta (MC15, MC16)', () => {
     it('a deauthorize keeps the profile and the posts', async () => {
       disconnectForMeta.mockResolvedValue([
         accountChange({ wasRevoked: true, wasTokenErased: true }),
@@ -139,14 +141,14 @@ describe('InstagramAccountErasureService (no database)', () => {
 
       const erasure = await service.eraseForMeta({
         scope,
-        instagramAppUserId: '8724000000000001',
+        match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
         issuedAt: 1_763_740_000,
         shouldEraseData: false,
       });
 
       expect(disconnectForMeta).toHaveBeenCalledWith({
         scope,
-        instagramAppUserId: '8724000000000001',
+        match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
         issuedAt: 1_763_740_000,
         shouldEraseProfile: false,
       });
@@ -164,7 +166,7 @@ describe('InstagramAccountErasureService (no database)', () => {
 
       const erasure = await service.eraseForMeta({
         scope,
-        instagramAppUserId: '8724000000000001',
+        match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
         issuedAt: null,
         shouldEraseData: true,
       });
@@ -173,7 +175,7 @@ describe('InstagramAccountErasureService (no database)', () => {
         expect.objectContaining({ shouldEraseProfile: true, issuedAt: null }),
       );
       expect(deleteForAccount.mock.calls).toEqual([
-        [{ scope, instagramAccount: account.instagramAccount }],
+        [{ scope, channelAccount: account.channelAccount }],
       ]);
       expect(erasure).toEqual({
         instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa'],
@@ -187,7 +189,7 @@ describe('InstagramAccountErasureService (no database)', () => {
       await expect(
         service.eraseForMeta({
           scope,
-          instagramAppUserId: '8724000000000001',
+          match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
           issuedAt: 1_763_740_000,
           shouldEraseData: true,
         }),

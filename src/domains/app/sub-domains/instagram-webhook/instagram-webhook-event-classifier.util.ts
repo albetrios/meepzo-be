@@ -18,12 +18,12 @@ type MetaObject = Record<string, unknown>;
 const META_MILLISECOND_TIME_THRESHOLD = 100_000_000_000;
 
 /**
- * The two Instagram ids of the account a delivery entry is for (WH9): the webhook user id (the
- * entry's `id`) and the app-scoped id used in send URLs. Activity by either is the account's own.
+ * The Instagram id of the account a delivery entry is for (WH9): the Instagram user id — the entry's
+ * `id` and, under Unified Login, the id send URLs take too (2.A IA8), so activity by it is the
+ * account's own.
  */
 export interface InstagramWebhookAccountIds {
   instagramUserId: string;
-  instagramAppUserId: string;
 }
 
 /** Where an item sat in its entry: a `changes[]` item or a `messaging[]` item. */
@@ -36,14 +36,15 @@ export interface InstagramWebhookEntryItem {
 }
 
 /**
- * What the classifier makes of one item (4.A.10): its kind, its key (unique per account), the
- * kind's own skip reason, the person on the other side, Meta's time and the item as received.
+ * What the classifier makes of one item (feat-instagram-dm-sending routes-final § 5.A.10): its
+ * kind, its key (unique per account), the kind's own skip reason, the person on the other side,
+ * Meta's time and the item as received.
  */
 export interface ClassifiedInstagramWebhookEvent {
   eventKind: InstagramWebhookEventKind;
   /** At most 512 characters; unique per Instagram account, never across accounts. */
   eventKey: string;
-  /** `echo` · `read_receipt` · `reaction` · `edit` · `unsupported`, or `null` for an event to handle. */
+  /** `own_comment` · `edit` · `unsupported`, or `null` for an event to handle. */
   kindSkipReason: InstagramWebhookEventSkipReason | null;
   /** The sender (an echo: the recipient), digits only; `null` when the item names nobody else. */
   contactInstagramUserId: string | null;
@@ -54,6 +55,11 @@ export interface ClassifiedInstagramWebhookEvent {
    * (D53); for a `messages` change, the whole change item.
    */
   payload: MetaObject;
+  /**
+   * An `echo`'s `mid` — only on an echo: the receiver drops it when the own-message lookup knows
+   * it as one of our sent messages (WH9 step 3, WHQ1).
+   */
+  echoMessageId?: string;
 }
 
 /** `value` as a JSON object, or `null` (an array, a scalar, nothing). */
@@ -104,7 +110,7 @@ export function readInstagramWebhookTime(value: unknown): Date | null {
 
 /**
  * An event key from its prefix and parts, `<prefix>:<part>:…` — at most 512 characters; a longer
- * one becomes `<prefix>:sha256:<64 hex>` of its parts (4.A.10).
+ * one becomes `<prefix>:sha256:<64 hex>` of its parts (5.A.10).
  */
 export function buildInstagramWebhookEventKey({
   prefix,
@@ -146,7 +152,7 @@ export function listInstagramWebhookEntryItems({
   return { items, droppedItemCount };
 }
 
-/** Whether an Instagram id is either of the account's own (WH9). */
+/** Whether an Instagram id is the account's own (WH9). */
 function isAccountItself({
   instagramId,
   accountIds,
@@ -154,10 +160,7 @@ function isAccountItself({
   instagramId: string | null;
   accountIds: InstagramWebhookAccountIds;
 }): boolean {
-  return (
-    instagramId !== null &&
-    (instagramId === accountIds.instagramUserId || instagramId === accountIds.instagramAppUserId)
-  );
+  return instagramId !== null && instagramId === accountIds.instagramUserId;
 }
 
 /** The `id` of a nested `{ id }` object (`sender`, `recipient`, `from`) as an Instagram id. */
@@ -172,7 +175,7 @@ interface ItemClassification {
   entryTime: unknown;
 }
 
-/** What one `messaging[]` rule of 4.A.10 decides: the kind, the key's prefix and parts, the reason. */
+/** What one `messaging[]` rule of 5.A.10 decides: the kind, the key's prefix and parts, the reason. */
 interface MessagingRule {
   eventKind: InstagramWebhookEventKind;
   prefix: string;
@@ -180,9 +183,52 @@ interface MessagingRule {
   kindSkipReason: InstagramWebhookEventSkipReason | null;
   /** Only an echo names someone else than the sender (its recipient). */
   contactIsRecipient?: boolean;
+  /** An echo's `mid` (see {@link ClassifiedInstagramWebhookEvent.echoMessageId}). */
+  echoMessageId?: string;
 }
 
-/** The 4.A.10 rule a message item (`message` with its `mid`) falls under, or `null` without one. */
+/** The `type` of each of a message's attachments (`story_mention`, `share`, `ig_post`, `image`, …). */
+function readAttachmentTypes(message: MetaObject): string[] {
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  return attachments
+    .map((attachment) => asMetaObject(attachment)?.type)
+    .filter((type): type is string => typeof type === 'string');
+}
+
+/** A message attachment type that shares a post (5.A.10, Meta test). */
+const SHARED_POST_ATTACHMENT_TYPES: ReadonlySet<string> = new Set(['share', 'ig_post']);
+
+/** The payload prefix of a starter-question tap (5.A.10 `ice_breaker`, WH8). */
+const STARTER_QUESTION_PAYLOAD_PREFIX = 'starter:';
+
+/**
+ * The 5.A.10 rule of a link or ad referral — `referral:<sender>:<time>:<SHA-256 of ref and
+ * source>` — for a `messaging_referral` item or a message carrying a `referral`; `null` without one
+ * or without a sender.
+ */
+function referralRule({
+  referral,
+  item,
+  senderId,
+}: {
+  referral: MetaObject | null;
+  item: MetaObject;
+  senderId: string | null;
+}): MessagingRule | null {
+  if (referral === null || senderId === null) return null;
+  return {
+    eventKind: 'referral',
+    prefix: 'referral',
+    parts: [
+      senderId,
+      readIdentifier(item.timestamp) ?? '',
+      sha256Hex({ ref: referral.ref ?? null, source: referral.source ?? null }),
+    ],
+    kindSkipReason: null,
+  };
+}
+
+/** The 5.A.10 rule a message item (`message` with its `mid`) falls under, or `null` without one. */
 function messageRule({
   item,
   senderId,
@@ -195,14 +241,20 @@ function messageRule({
   const message = asMetaObject(item.message);
   const messageId = readIdentifier(message?.mid);
   if (message === null || messageId === null) return null;
-  // The account's own DM — an echo, or a message whose sender is the account (WH9, WQ4).
-  if (message.is_echo === true || isAccountItself({ instagramId: senderId, accountIds })) {
+  // The account's own DM — an echo (`is_echo`, `is_self`, or sent by the account): saved
+  // `received` for the owner's quiet time (WH10) unless the receiver finds it is ours (WH9 step 3).
+  if (
+    message.is_echo === true ||
+    message.is_self === true ||
+    isAccountItself({ instagramId: senderId, accountIds })
+  ) {
     return {
       eventKind: 'echo',
       prefix: 'echo',
       parts: [messageId],
-      kindSkipReason: 'echo',
+      kindSkipReason: null,
       contactIsRecipient: true,
+      echoMessageId: messageId,
     };
   }
   if (message.is_deleted === true) {
@@ -213,18 +265,27 @@ function messageRule({
       kindSkipReason: 'unsupported',
     };
   }
+  const referral = referralRule({
+    referral: asMetaObject(message.referral) ?? asMetaObject(item.referral),
+    item,
+    senderId,
+  });
+  if (referral !== null) return referral;
   const storyId = readIdentifier(asMetaObject(asMetaObject(message.reply_to)?.story)?.id);
-  return {
-    eventKind: storyId === null ? 'message' : 'story_reply',
-    prefix: 'message',
-    parts: [messageId],
-    kindSkipReason: null,
-  };
+  const attachmentTypes = readAttachmentTypes(message);
+  let eventKind: InstagramWebhookEventKind = 'message';
+  if (storyId !== null) eventKind = 'story_reply';
+  else if (attachmentTypes.includes('story_mention')) eventKind = 'story_mention';
+  else if (attachmentTypes.some((type) => SHARED_POST_ATTACHMENT_TYPES.has(type))) {
+    eventKind = 'shared_post';
+  }
+  return { eventKind, prefix: 'message', parts: [messageId], kindSkipReason: null };
 }
 
 /**
- * The 4.A.10 rule of a button click: `postback:<mid>`, or without `mid` (a gap of the drop) keyed
- * by sender, time and its payload's hash; `null` when it is no postback, or names nobody.
+ * The 5.A.10 rule of a button click: `postback:<mid>`, or without `mid` (a gap of the drop) keyed
+ * by sender, time and its payload's hash; a payload starting `starter:` is a starter-question tap
+ * (`ice_breaker`, WH8); `null` when it is no postback, or names nobody.
  */
 function postbackRule({
   item,
@@ -235,31 +296,34 @@ function postbackRule({
 }): MessagingRule | null {
   const postback = asMetaObject(item.postback);
   if (postback === null) return null;
+  const eventKind: InstagramWebhookEventKind =
+    typeof postback.payload === 'string' &&
+    postback.payload.startsWith(STARTER_QUESTION_PAYLOAD_PREFIX)
+      ? 'ice_breaker'
+      : 'postback';
   const postbackId = readIdentifier(postback.mid);
   if (postbackId !== null) {
-    return { eventKind: 'postback', prefix: 'postback', parts: [postbackId], kindSkipReason: null };
+    return { eventKind, prefix: 'postback', parts: [postbackId], kindSkipReason: null };
   }
   if (senderId === null) return null;
   return {
-    eventKind: 'postback',
+    eventKind,
     prefix: 'postback',
     parts: [senderId, readIdentifier(item.timestamp) ?? '', sha256Hex(postback.payload)],
     kindSkipReason: null,
   };
 }
 
-/** The 4.A.10 rule of a read receipt, a reaction or an edit — each skipped with its reason. */
-function skippedActivityRule(item: MetaObject): MessagingRule | null {
-  // A read receipt keys on the message it read — `read:<mid>`, never `message:<mid>`.
-  const readMessageId = readIdentifier(asMetaObject(item.read)?.mid);
-  if (readMessageId !== null) {
-    return {
-      eventKind: 'read',
-      prefix: 'read',
-      parts: [readMessageId],
-      kindSkipReason: 'read_receipt',
-    };
-  }
+/** Whether a `messaging[]` item is a read receipt — never saved (WH8, WH9 step 3). */
+function isReadReceipt(item: MetaObject): boolean {
+  return asMetaObject(item.read) !== null;
+}
+
+/**
+ * The rule of a reaction (`received` — it refreshes her window only, 5.A.10) or an edit (skipped
+ * `edit`); `null` for anything else.
+ */
+function reactionOrEditRule(item: MetaObject): MessagingRule | null {
   const reaction = asMetaObject(item.reaction);
   const reactionMessageId = readIdentifier(reaction?.mid);
   if (reaction !== null && reactionMessageId !== null) {
@@ -271,7 +335,7 @@ function skippedActivityRule(item: MetaObject): MessagingRule | null {
         readIdentifier(reaction.action) ?? '',
         readIdentifier(item.timestamp) ?? '',
       ],
-      kindSkipReason: 'reaction',
+      kindSkipReason: null,
     };
   }
   const messageEdit = asMetaObject(item.message_edit);
@@ -289,7 +353,7 @@ function skippedActivityRule(item: MetaObject): MessagingRule | null {
 
 /**
  * A `messaging[]` item — or the `value` of a `messages` change (D18), whose `payload` is then the
- * whole change item (4.A.10's `messaging[]` rows).
+ * whole change item (5.A.10's `messaging[]` rows).
  */
 function classifyMessagingItem({
   item,
@@ -299,12 +363,14 @@ function classifyMessagingItem({
 }: ItemClassification & {
   item: MetaObject;
   payload: MetaObject;
-}): ClassifiedInstagramWebhookEvent {
+}): ClassifiedInstagramWebhookEvent | null {
+  if (isReadReceipt(item)) return null;
   const senderId = readNestedUserId({ object: item, key: 'sender' });
   const rule: MessagingRule = messageRule({ item, senderId, accountIds }) ??
     postbackRule({ item, senderId }) ??
-    skippedActivityRule(item) ?? {
-      // Anything else — a referral, an opt-in, an item missing the id its kind keys on.
+    referralRule({ referral: asMetaObject(item.referral), item, senderId }) ??
+    reactionOrEditRule(item) ?? {
+      // Anything else — an opt-in, a story repost, an item missing the id its kind keys on.
       eventKind: 'unknown',
       prefix: 'messaging',
       parts: [sha256Hex(item)],
@@ -324,15 +390,25 @@ function classifyMessagingItem({
     contactInstagramUserId,
     occurredAt: readInstagramWebhookTime(item.timestamp) ?? readInstagramWebhookTime(entryTime),
     payload,
+    ...(rule.echoMessageId === undefined ? {} : { echoMessageId: rule.echoMessageId }),
   };
 }
 
-/** A `changes[]` item: a comment, a `messages` change (a DM, D18), or any other field. */
+/** The two comment fields of 5.A.10 and the kind each is saved as. */
+const COMMENT_CHANGE_KINDS: Readonly<Record<string, InstagramWebhookEventKind>> = {
+  comments: 'comment',
+  live_comments: 'live_comment',
+};
+
+/**
+ * A `changes[]` item: a comment or a Live comment, a `messages` change (a DM, D18), or any other
+ * field.
+ */
 function classifyChangeItem({
   item,
   accountIds,
   entryTime,
-}: ItemClassification & { item: MetaObject }): ClassifiedInstagramWebhookEvent {
+}: ItemClassification & { item: MetaObject }): ClassifiedInstagramWebhookEvent | null {
   const field = typeof item.field === 'string' ? item.field : '';
   const value = asMetaObject(item.value);
   if (field === 'messages' && value !== null) {
@@ -340,15 +416,18 @@ function classifyChangeItem({
   }
   const occurredAt =
     readInstagramWebhookTime(value?.timestamp) ?? readInstagramWebhookTime(entryTime);
-  const commentId = field === 'comments' ? readIdentifier(value?.id) : null;
-  if (value !== null && commentId !== null) {
+  const commentKind = Object.hasOwn(COMMENT_CHANGE_KINDS, field)
+    ? COMMENT_CHANGE_KINDS[field]
+    : undefined;
+  const commentId = commentKind === undefined ? null : readIdentifier(value?.id);
+  if (value !== null && commentKind !== undefined && commentId !== null) {
     const fromId = readNestedUserId({ object: value, key: 'from' });
-    // The account's own comment — its public reply comes back as a `comments` change (WH9).
+    // The account's own comment — its public reply comes back as a comment change (WH8, P24).
     const isOwnComment = isAccountItself({ instagramId: fromId, accountIds });
     return {
-      eventKind: 'comment',
-      eventKey: buildInstagramWebhookEventKey({ prefix: 'comment', parts: [commentId] }),
-      kindSkipReason: isOwnComment ? 'echo' : null,
+      eventKind: commentKind,
+      eventKey: buildInstagramWebhookEventKey({ prefix: commentKind, parts: [commentId] }),
+      kindSkipReason: isOwnComment ? 'own_comment' : null,
       contactInstagramUserId: isOwnComment ? null : fromId,
       occurredAt,
       payload: item,
@@ -368,34 +447,40 @@ function classifyChangeItem({
 }
 
 /**
- * Gives one delivery item its kind, key, skip reason, contact and time (routes-final § 4.A.10,
- * WH9) — the one pure classifier the receiver stores events by.
+ * Gives one delivery item its kind, key, skip reason, contact and time (feat-instagram-dm-sending
+ * routes-final § 5.A.10, WH8, WHC5) — the one pure classifier the receiver saves events by; `null`
+ * for a read receipt, which is never saved.
  *
  * @remarks
- * - **Algorithm:** a `changes[]` item — `comments` → `comment:<value.id>` (skipped `echo` when
- *   `from.id` is the account itself), `messages` → read as a `messaging[]` item (D18), any other
- *   field → `change:<field>:<SHA-256 of value>`, skipped `unsupported`. A `messaging[]` item — a
- *   message (`is_echo`, or sent by the account → `echo:<mid>` skipped `echo`; `is_deleted` →
- *   `deleted:<mid>` skipped `unsupported`; `reply_to.story.id` → `story_reply`; else `message`,
- *   both `message:<mid>`), a postback (`postback:<mid>`, or without `mid`
- *   `postback:<sender>:<timestamp>:<SHA-256 of payload>`), `read:<read.mid>` skipped
- *   `read_receipt`, `reaction:<mid>:<action>:<timestamp>` skipped `reaction`,
- *   `edit:<mid>:<num_edit>` skipped `edit`, anything else `messaging:<SHA-256 of item>` skipped
- *   `unsupported`. Keys longer than 512 characters become `<prefix>:sha256:<hash of parts>`.
- * - **Failure modes:** none — every object item gets a kind; an item missing the id its kind keys
- *   on falls to `unknown` / `unsupported`.
+ * - **Algorithm:** a `changes[]` item — `comments` → `comment:<value.id>`, `live_comments` →
+ *   `live_comment:<value.id>` (either skipped `own_comment` when `from.id` is the account itself,
+ *   P24), `messages` → read as a `messaging[]` item (D18), any other field →
+ *   `change:<field>:<SHA-256 of value>`, skipped `unsupported`. A `messaging[]` item — a read
+ *   receipt → `null`; a message (`is_echo`, `is_self` or sent by the account → `echo:<mid>`
+ *   `received`, carrying `echoMessageId` for the own-message drop; `is_deleted` → `deleted:<mid>`
+ *   skipped `unsupported`; a `referral` → `referral`; `reply_to.story.id` → `story_reply`; a
+ *   `story_mention` attachment → `story_mention`; a `share` / `ig_post` attachment → `shared_post`;
+ *   else `message` — all but the referral keyed `message:<mid>`), a postback (`ice_breaker` when its
+ *   payload starts `starter:`, else `postback`; `postback:<mid>`, or without `mid`
+ *   `postback:<sender>:<timestamp>:<SHA-256 of payload>`), a `messaging_referral` →
+ *   `referral:<sender>:<timestamp>:<SHA-256 of ref and source>`, a reaction →
+ *   `reaction:<mid>:<action>:<timestamp>` `received`, `edit:<mid>:<num_edit>` skipped `edit`,
+ *   anything else (a story repost, an opt-in) `messaging:<SHA-256 of item>` skipped `unsupported`.
+ *   Keys longer than 512 characters become `<prefix>:sha256:<hash of parts>`.
+ * - **Failure modes:** none — every object item but a read receipt gets a kind; an item missing the
+ *   id its kind keys on falls to `unknown` / `unsupported`.
  * - **Side effects:** none; pure. It never reads or logs message text — only ids, flags and hashes.
- * - **Notes:** keys are unique per account, never across accounts (the store's key includes the
- *   account) — so a read receipt never collides with the message it read, and two connected
- *   accounts messaging each other store an echo on one and a message on the other. The
- *   switch-off and broken-account skip reasons are the receiver's (WH10), not the classifier's.
+ * - **Notes:** keys are unique per account, never across accounts (the key table's key includes the
+ *   account) — so two connected accounts messaging each other save an echo on one and a message on
+ *   the other. Whether an echo is one of our own sent messages, and the switch-off skip reason, are
+ *   the receiver's (WH9, WH3), not the classifier's.
  */
 export function classifyInstagramWebhookItem({
   source,
   item,
   accountIds,
   entryTime,
-}: InstagramWebhookEntryItem & ItemClassification): ClassifiedInstagramWebhookEvent {
+}: InstagramWebhookEntryItem & ItemClassification): ClassifiedInstagramWebhookEvent | null {
   return source === 'changes'
     ? classifyChangeItem({ item, accountIds, entryTime })
     : classifyMessagingItem({ item, payload: item, accountIds, entryTime });

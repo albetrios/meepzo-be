@@ -3,7 +3,7 @@ import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.uti
 import {
   DAY_LIMIT_MAX_FACTOR,
   OPENING_HOUR_LIMIT_DEFAULT,
-} from './instagram-account-settings.constants.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import {
   UpdateInstagramAccountSettingsDto,
   type UpdateInstagramAccountSettingsInput,

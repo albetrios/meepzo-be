@@ -38,4 +38,11 @@ export const UserSerializer = {
       updated_at: row.updated_at.toISOString(),
     };
   },
+  /** `POST /users/me/email-confirmation` (route 133, UN6): when a new link may be asked, and when this one ends. */
+  emailConfirmationSent(result: { resend_after_seconds: number; expires_at: Date }) {
+    return {
+      resend_after_seconds: result.resend_after_seconds,
+      expires_at: result.expires_at.toISOString(),
+    };
+  },
 };

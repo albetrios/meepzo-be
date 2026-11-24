@@ -48,7 +48,7 @@ type TestOrganization = { id: number; public_id: string };
 
 describe('app tables: updated_at when the row was created after this transaction began', () => {
   let organization: TestOrganization;
-  let account: { id: number; public_id: string };
+  let account: { id: number; public_id: string; channel_account_id: number };
 
   beforeEach(async () => {
     await cleanupDatabase();
@@ -435,9 +435,9 @@ describe('app tables: updated_at when the row was created after this transaction
       const row = await changeAfterInsert({
         insert: async () => {
           await operatorQuery`
-            INSERT INTO app.instagram_media (organization_id, instagram_account_id, instagram_media_id, published_at)
-            VALUES (${organization.id}, ${account.id}, ${'18030000000000001'}, now())`;
-          return { organizationId: organization.id, instagramAccountId: account.id };
+            INSERT INTO app.instagram_media (organization_id, channel_account_id, instagram_media_id, published_at)
+            VALUES (${organization.id}, ${account.channel_account_id}, ${'18030000000000001'}, now())`;
+          return { organizationId: organization.id, channelAccountId: account.channel_account_id };
         },
         change: (key) =>
           mediaRepository.upsertForAccount({

@@ -39,6 +39,14 @@ declare module 'fastify' {
      * it is, such as the Instagram webhook's `text/plain` answers.
      */
     raw_response?: boolean;
+    /**
+     * The route keeps its own slice above the overload guard's thresholds — the guard sheds it only
+     * at `OVERLOAD_SHED_LAST_FACTOR` times each one, so under load the UI sheds first and this
+     * route is still served (`overload-guard.middleware.ts`). Today Meta's Instagram webhook
+     * delivery only (feat-instagram-dm-sending S10, P97): Meta disables a subscription that keeps
+     * failing.
+     */
+    overloadShedLast?: boolean;
   }
 
   interface FastifyRequest {
@@ -55,7 +63,7 @@ declare module 'fastify' {
     /** Set by stripe webhook ingress plugin after signature verification. */
     stripeWebhookEvent?: Stripe.Event;
     /**
-     * Set by the Meta callback ingress plugin (`instagram-account-meta-callback-ingress.plugin.ts`)
+     * Set by the Meta callback ingress plugin (`channel-connection-meta-callback-ingress.plugin.ts`)
      * once Meta's `signed_request` verified — routes 7–8 (IA18).
      */
     metaSignedRequest?: MetaSignedRequestPayload;
@@ -73,6 +81,12 @@ declare module 'fastify' {
      * harnesses that do not register the rate-limit middleware.
      */
     failedAuthenticationRateLimit?: FailedAuthenticationRateLimit;
+    /**
+     * The per-address limiter of unsigned Instagram webhook deliveries (feat-instagram-dm-sending
+     * S9), decorated by the rate-limit middleware; the webhook's ingress plugin counts each refused
+     * signature against it. Absent in harnesses without that middleware.
+     */
+    instagramWebhookUnsignedRateLimit?: FailedAuthenticationRateLimit;
     /** Wired by domain `register*Container` functions via `domainContainersPlugin`. */
     userDomain: UserContainer;
     tenancyDomain: TenancyContainer;

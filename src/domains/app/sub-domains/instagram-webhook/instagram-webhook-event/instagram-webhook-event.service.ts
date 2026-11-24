@@ -4,7 +4,9 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { assertTeamOrganizationForRead } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
+import { INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS } from '@/shared/constants/instagram.constants.js';
 import type { InstagramWebhookEventSkipReason } from './instagram-webhook-event.constants.js';
+import { InstagramWebhookEventKeyRepository } from './instagram-webhook-event-key.repository.js';
 import type {
   InstagramWebhookEventAccountKey,
   InstagramWebhookEventClaimKey,
@@ -30,7 +32,52 @@ import type {
  */
 export interface InstagramWebhookEventAccountTarget {
   scope: OrganizationPrincipalDatabaseScope;
-  instagramAccount: InstagramWebhookEventAccountKey;
+  /** The organization and the channel account the events belong to (§ 5.B.3). */
+  channelAccount: InstagramWebhookEventAccountKey;
+}
+
+/** Milliseconds in one day. */
+const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
+
+/**
+ * The UTC day (`YYYY-MM-DD`) an event's key is filed under (WH20): the day of Meta's own time for
+ * the item, else — Meta named no time — the day it was received.
+ *
+ * @remarks
+ * Algorithm: the ISO date of the time, in UTC. Failure modes: none — pure. Side effects: none.
+ * Notes: computed once in the store function for all three paths (webhook, missed comments, past
+ * comments), so a comment read twice files under one day (WHC12).
+ */
+export function instagramWebhookEventDay({
+  occurredAt,
+  receivedAt,
+}: {
+  occurredAt: Date | null;
+  receivedAt: Date;
+}): string {
+  return (occurredAt ?? receivedAt).toISOString().slice(0, 10);
+}
+
+/**
+ * The replay guard (WH9 step 5): whether Meta's time for the event is more than
+ * {@link INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS} days before `now` — its key's day part may already be
+ * gone, so it is never saved. An event without a Meta time is never a replay.
+ *
+ * @remarks
+ * Algorithm: one comparison in milliseconds. Failure modes: none — pure. Side effects: none.
+ * Notes: exactly 8 days old is still kept; older is dropped (AC-16.4).
+ */
+export function isInstagramWebhookEventReplay({
+  occurredAt,
+  now,
+}: {
+  occurredAt: Date | null;
+  now: Date;
+}): boolean {
+  if (occurredAt === null) return false;
+  return (
+    now.getTime() - occurredAt.getTime() > INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS * DAY_MILLISECONDS
+  );
 }
 
 /**
@@ -46,8 +93,8 @@ export interface InstagramWebhookEventClaimTarget {
 }
 
 /**
- * The Instagram webhook events service (routes-final § 4.B): route 18's list, and the one write
- * path for `app.instagram_webhook_events` — the receiver (4.A, routes 16–17) stores events and
+ * The Instagram webhook events service (routes-final § 4.B): route 62's list, and the one write
+ * path for `app.instagram_webhook_events` — the receiver (5.A, routes 60–61) stores events and
  * marks them `queued`, event processing claims and marks them; neither holds the table's SQL (WH1).
  *
  * @remarks
@@ -55,11 +102,11 @@ export interface InstagramWebhookEventClaimTarget {
  * - Every method runs in `withAppDatabaseContext` with the caller's organization scope, so a call
  *   inside an open unit of work joins it (the receiver reads the account's state and stores the
  *   entry's events in one unit, WH10).
- * - Route 18 is a team-only read (K1): a personal organization answers
+ * - Route 62 is a team-only read (K1): a personal organization answers
  *   `404 team_organization_required` (`assertTeamOrganizationForRead`) behind the permission gate.
  *
  * Failure modes:
- * - Route 18: `400` on `after` for a cursor minted elsewhere or under other filters (from the
+ * - Route 62: `400` on `after` for a cursor minted elsewhere or under other filters (from the
  *   repository); `404 team_organization_required`.
  * - The write methods return `null` / `false` / `0` when the rows are not in the state they need.
  *
@@ -76,17 +123,18 @@ export class InstagramWebhookEventService {
   constructor(
     private readonly eventRepository: InstagramWebhookEventRepository,
     private readonly organizationService: OrganizationService,
+    private readonly eventKeyRepository: InstagramWebhookEventKeyRepository = new InstagramWebhookEventKeyRepository(),
   ) {}
 
   /**
-   * Route 18 (WH17): the organization's events newest first, filtered and paged, each with its
+   * Route 62 (WH17): the organization's events newest first, filtered and paged, each with its
    * payload masked.
    *
    * @remarks
    * Algorithm: in the caller's organization scope — the team check (`404
    * team_organization_required` for a personal organization), then the repository's keyset page
    * (organization filter plus RLS), then the serializer (masking). Failure modes: as the class lists
-   * for route 18. Side effects: none — route 18 never changes an event.
+   * for route 62. Side effects: none — route 62 never changes an event.
    */
   async listEvents({
     scope,
@@ -115,26 +163,80 @@ export class InstagramWebhookEventService {
   }
 
   /**
-   * Stores one delivery entry's events for the account (WH10) — born `received`, or `skipped` with
-   * their reason — and returns the rows this call inserted (a repeat delivery inserts none).
+   * The store function (WH9 steps 5–6, WH20): saves one account's events — born `received`, or
+   * `skipped` with their reason and no body — and returns the rows this call inserted. A repeat (a
+   * key already seen on its Meta day) and a replay (Meta's time over 8 days old) save nothing. The
+   * one write path of the webhook, the missed-comment check and a past-comments read.
    *
    * @remarks
-   * Algorithm: one `INSERT … ON CONFLICT DO NOTHING`. Failure modes: a database error propagates —
-   * the receiver then answers `500` / `503` so Meta delivers again (WH10). Side effects: inserts
-   * rows.
+   * Algorithm: in one unit of the caller's organization scope — drop the replays
+   * ({@link isInstagramWebhookEventReplay}); file each key under its Meta day
+   * ({@link instagramWebhookEventDay}, computed here once for every path); insert the keys into
+   * `app.instagram_webhook_event_keys` `ON CONFLICT DO NOTHING`; insert, in one statement, the events
+   * of only the keys that statement returned. Failure modes: a database error propagates and the
+   * unit rolls back whole — the receiver then answers `500` / `503` so Meta delivers again (WH2).
+   * Side effects: inserts key rows and event rows.
    */
   async recordReceivedEvents({
     scope,
-    instagramAccount,
+    channelAccount,
     requestId,
     events,
+    now = new Date(),
   }: InstagramWebhookEventAccountTarget & {
     requestId: string | null;
     events: readonly NewInstagramWebhookEvent[];
+    /** The received time the replay guard and a time-less event's day read; defaults to now. */
+    now?: Date;
   }): Promise<InstagramWebhookEventRow[]> {
+    const fresh = events.filter(
+      (event) => !isInstagramWebhookEventReplay({ occurredAt: event.occurredAt, now }),
+    );
+    if (fresh.length === 0) return [];
     return withAppDatabaseContext({
       scope,
-      callback: () => this.eventRepository.insertEvents({ ...instagramAccount, requestId, events }),
+      callback: async () => {
+        const newKeys = await this.eventKeyRepository.insertNewKeys({
+          ...channelAccount,
+          keys: fresh.map((event) => ({
+            eventKey: event.eventKey,
+            eventDay: instagramWebhookEventDay({ occurredAt: event.occurredAt, receivedAt: now }),
+          })),
+        });
+        const newKeySet = new Set(newKeys.map((key) => `${key.eventDay}|${key.eventKey}`));
+        const newEvents = fresh.filter((event) =>
+          newKeySet.has(
+            `${instagramWebhookEventDay({ occurredAt: event.occurredAt, receivedAt: now })}|${event.eventKey}`,
+          ),
+        );
+        return this.eventRepository.insertEvents({
+          ...channelAccount,
+          requestId,
+          events: newEvents,
+        });
+      },
+    });
+  }
+
+  /**
+   * Caps each later statement of the caller's open unit of work at `milliseconds` (WH2, WHC2) — the
+   * receiver's store unit, so a slow Postgres fails it inside Meta's 5-second budget.
+   *
+   * @remarks
+   * Algorithm: one transaction-local `statement_timeout`, through the repository, inside the
+   * caller's scope (it joins the caller's unit; outside one it would last one statement). Failure
+   * modes: none of its own. Side effects: the setting, until the unit ends.
+   */
+  async limitStoreStatementTime({
+    scope,
+    milliseconds,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    milliseconds: number;
+  }): Promise<void> {
+    await withAppDatabaseContext({
+      scope,
+      callback: () => this.eventRepository.limitStatementTime(milliseconds),
     });
   }
 
@@ -148,12 +250,12 @@ export class InstagramWebhookEventService {
    */
   async markEventsQueued({
     scope,
-    instagramAccount,
+    channelAccount,
     eventIds,
   }: InstagramWebhookEventAccountTarget & { eventIds: readonly number[] }): Promise<number> {
     return withAppDatabaseContext({
       scope,
-      callback: () => this.eventRepository.markQueued({ ...instagramAccount, eventIds }),
+      callback: () => this.eventRepository.markQueued({ ...channelAccount, eventIds }),
     });
   }
 
@@ -167,7 +269,7 @@ export class InstagramWebhookEventService {
    */
   async claimNextEvent({
     scope,
-    instagramAccount,
+    channelAccount,
     maxProcessingAttempts,
     claimLeaseMinutes,
   }: InstagramWebhookEventAccountTarget & {
@@ -178,7 +280,7 @@ export class InstagramWebhookEventService {
       scope,
       callback: () =>
         this.eventRepository.claimOldestWaitingEvent({
-          ...instagramAccount,
+          ...channelAccount,
           maxProcessingAttempts,
           claimLeaseMinutes,
         }),

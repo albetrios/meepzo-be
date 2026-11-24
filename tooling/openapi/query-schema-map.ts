@@ -13,7 +13,11 @@ import {
   listContactTagsQueryDto,
   listContactsQueryDto,
 } from '@/domains/app/sub-domains/contact/contact.dto.js';
-import { listChannelConnectionsQueryDto } from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
+import {
+  listChannelConnectionAdAccountsQueryDto,
+  listChannelConnectionAdsQueryDto,
+  listChannelConnectionsQueryDto,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
 import { listChannelAccountsQueryDto } from '@/domains/app/sub-domains/channel-account/channel-account.dto.js';
 import {
   deleteAutomationQueryDto,
@@ -58,13 +62,21 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'DELETE /api/v1/tenancy/organization/roles/{role_id}': deleteMemberRoleQueryDto,
   'GET /api/v1/notify/webhooks': listWebhooksQueryDto,
   // The post and story pickers (launch R5): Instagram's own paging — limit 1–50, after.
-  'GET /api/v1/app/social/instagram/media': ListInstagramMediaQueryDto,
-  'GET /api/v1/app/social/instagram/stories': ListInstagramMediaQueryDto,
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/media':
+    ListInstagramMediaQueryDto,
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/stories':
+    ListInstagramMediaQueryDto,
   'GET /api/v1/app/social/instagram/webhook-events': ListInstagramWebhookEventsQueryDto,
-  'GET /api/v1/app/social/instagram/webhook': InstagramWebhookSubscriptionQueryDto,
+  'GET /api/v1/app/social/channel-connections/meta/webhooks/instagram':
+    InstagramWebhookSubscriptionQueryDto,
   // App: channel connections (feat-instagram-dm-sending routes-final § 1.8, route 4).
   'GET /api/v1/app/social/channel-connections': listChannelConnectionsQueryDto,
   'GET /api/v1/app/social/channel-accounts': listChannelAccountsQueryDto,
+  // The ad picker (routes 41 and 15, § 1.8): none; one ad account, Meta's limit 1–50 and after.
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ad-accounts':
+    listChannelConnectionAdAccountsQueryDto,
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ads':
+    listChannelConnectionAdsQueryDto,
   // App: the Instagram account's route 2 takes no query (strict).
   // App: contacts (DM-sending routes-final § 3.A.8, routes 18 and 22).
   'GET /api/v1/app/contacts': listContactsQueryDto,

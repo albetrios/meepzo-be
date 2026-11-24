@@ -65,6 +65,11 @@ export const AuthSerializer = {
   mfaRequired(data: { mfa_required: true; mfa_session_token: string }) {
     return data;
   },
+  /** `POST /auth/email/confirm` (route 134): the email is confirmed — the one field the app reads. */
+  emailConfirmed() {
+    return { is_email_verified: true as const };
+  },
+
   verificationCodeSent(data: {
     message: string;
     resend_after_seconds: number;

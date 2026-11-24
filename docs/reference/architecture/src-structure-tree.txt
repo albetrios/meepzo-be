@@ -145,6 +145,7 @@ src/
     │   │   │   │   └── index.ts
     │   │   │   ├── channel-account-capabilities.constants.ts
     │   │   │   ├── channel-account-error.util.ts
+    │   │   │   ├── channel-account-plan-stop.service.ts
     │   │   │   ├── channel-account.constants.ts
     │   │   │   ├── channel-account.controller.ts
     │   │   │   ├── channel-account.dto.ts
@@ -159,10 +160,17 @@ src/
     │   │   ├── channel-connection/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
+    │   │   │   │   │   ├── channel-connection-meta-callback.factory.ts
     │   │   │   │   │   └── channel-connection.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── channel-connection-ad-picker.integration.test.ts
+    │   │   │   │   │   ├── channel-connection-meta-callback.integration.test.ts
     │   │   │   │   │   └── channel-connection.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-connection-error.util.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-meta-callback-ingress.plugin.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-meta-callback.serializer.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-meta-callback.service.unit.test.ts
     │   │   │   │   │   ├── channel-connection-state.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token-isolation.policy.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token.service.db.unit.test.ts
@@ -188,6 +196,15 @@ src/
     │   │   │   │   ├── channel-connection.bulk.seed.ts
     │   │   │   │   └── index.ts
     │   │   │   ├── channel-connection-error.util.ts
+    │   │   │   ├── channel-connection-meta-callback-confirmation-code.util.ts
+    │   │   │   ├── channel-connection-meta-callback-ingress.plugin.ts
+    │   │   │   ├── channel-connection-meta-callback.constants.ts
+    │   │   │   ├── channel-connection-meta-callback.controller.ts
+    │   │   │   ├── channel-connection-meta-callback.dto.ts
+    │   │   │   ├── channel-connection-meta-callback.routes.ts
+    │   │   │   ├── channel-connection-meta-callback.serializer.ts
+    │   │   │   ├── channel-connection-meta-callback.service.ts
+    │   │   │   ├── channel-connection-meta-callback.types.ts
     │   │   │   ├── channel-connection-state.ts
     │   │   │   ├── channel-connection-token.repository.ts
     │   │   │   ├── channel-connection-token.schema.ts
@@ -258,26 +275,6 @@ src/
     │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-account.service.unit.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
-    │   │   │   ├── instagram-account-meta-callback/
-    │   │   │   │   ├── __tests__/
-    │   │   │   │   │   ├── factories/
-    │   │   │   │   │   │   └── instagram-account-meta-callback.factory.ts
-    │   │   │   │   │   ├── integration/
-    │   │   │   │   │   │   └── instagram-account-meta-callback.integration.test.ts
-    │   │   │   │   │   └── unit/
-    │   │   │   │   │   │   ├── instagram-account-meta-callback-ingress.plugin.unit.test.ts
-    │   │   │   │   │   │   ├── instagram-account-meta-callback.serializer.unit.test.ts
-    │   │   │   │   │   │   └── instagram-account-meta-callback.service.unit.test.ts
-    │   │   │   │   ├── instagram-account-meta-callback-confirmation-code.util.ts
-    │   │   │   │   ├── instagram-account-meta-callback-ingress.plugin.ts
-    │   │   │   │   ├── instagram-account-meta-callback.constants.ts
-    │   │   │   │   ├── instagram-account-meta-callback.controller.ts
-    │   │   │   │   ├── instagram-account-meta-callback.dto.ts
-    │   │   │   │   ├── instagram-account-meta-callback.overview.md
-    │   │   │   │   ├── instagram-account-meta-callback.routes.ts
-    │   │   │   │   ├── instagram-account-meta-callback.serializer.ts
-    │   │   │   │   ├── instagram-account-meta-callback.service.ts
-    │   │   │   │   └── instagram-account-meta-callback.types.ts
     │   │   │   ├── instagram-account-settings/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── factories/
@@ -295,7 +292,6 @@ src/
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── index.ts
     │   │   │   │   │   └── instagram-account-settings.bulk.seed.ts
-    │   │   │   │   ├── instagram-account-settings.constants.ts
     │   │   │   │   ├── instagram-account-settings.controller.ts
     │   │   │   │   ├── instagram-account-settings.dto.ts
     │   │   │   │   ├── instagram-account-settings.overview.md
@@ -357,6 +353,46 @@ src/
     │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
     │   │   │   └── instagram-account.types.ts
+    │   │   ├── instagram-sending/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── instagram-sending.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── instagram-sending.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
+    │   │   │   │   │   ├── sending-state.decide.unit.test.ts
+    │   │   │   │   │   └── sending-state.service.db.unit.test.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── index.ts
+    │   │   │   │   └── instagram-sending.bulk.seed.ts
+    │   │   │   ├── instagram-send-day-count.repository.ts
+    │   │   │   ├── instagram-send-day-count.schema.ts
+    │   │   │   ├── instagram-send-lane.repository.ts
+    │   │   │   ├── instagram-send-lane.schema.ts
+    │   │   │   ├── instagram-send-lane.service.ts
+    │   │   │   ├── instagram-send-lane.util.ts
+    │   │   │   ├── instagram-send-minute-count.repository.ts
+    │   │   │   ├── instagram-send-minute-count.schema.ts
+    │   │   │   ├── instagram-send-stop.repository.ts
+    │   │   │   ├── instagram-send-stop.schema.ts
+    │   │   │   ├── instagram-sending.constants.ts
+    │   │   │   ├── instagram-sending.controller.ts
+    │   │   │   ├── instagram-sending.dto.ts
+    │   │   │   ├── instagram-sending.overview.md
+    │   │   │   ├── instagram-sending.routes.ts
+    │   │   │   ├── instagram-sending.serializer.ts
+    │   │   │   ├── instagram-sending.service.ts
+    │   │   │   ├── instagram-sending.types.ts
+    │   │   │   ├── message-month-count.cache.ts
+    │   │   │   ├── message-month-count.repository.ts
+    │   │   │   ├── message-month-count.schema.ts
+    │   │   │   ├── message-month-count.service.ts
+    │   │   │   ├── sending-state.repository.ts
+    │   │   │   ├── sending-state.schema.ts
+    │   │   │   └── sending-state.service.ts
     │   │   └── instagram-webhook/
     │   │   │   ├── __tests__/
     │   │   │       ├── integration/
@@ -388,6 +424,7 @@ src/
     │   │   │       │   │   ├── instagram-webhook-event-retention.processor.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-retention.processor.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-seed.db.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event-store.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.controller.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.repository.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.serializer.unit.test.ts
@@ -401,6 +438,8 @@ src/
     │   │   │       │   ├── instagram-webhook-event-retention.constants.ts
     │   │   │       │   ├── instagram-webhook-event-retention.processor.ts
     │   │   │       │   └── instagram-webhook-event-retention.worker.ts
+    │   │   │       ├── instagram-webhook-event-key.repository.ts
+    │   │   │       ├── instagram-webhook-event-key.schema.ts
     │   │   │       ├── instagram-webhook-event-payload-masking.util.ts
     │   │   │       ├── instagram-webhook-event.constants.ts
     │   │   │       ├── instagram-webhook-event.controller.ts
@@ -539,6 +578,7 @@ src/
     │   │   └── index.ts
     │   ├── handlers/
     │   │   ├── auth-auth-method.handlers.ts
+    │   │   ├── auth-email-confirmation.handlers.ts
     │   │   ├── auth-email-login.handlers.ts
     │   │   ├── auth-me-context.handlers.ts
     │   │   ├── auth-mfa.handlers.ts
@@ -558,7 +598,8 @@ src/
     │   │   ├── auth-method/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
-    │   │   │   │   │   └── auth-method.integration.test.ts
+    │   │   │   │   │   ├── auth-method.integration.test.ts
+    │   │   │   │   │   └── email-confirmation.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
     │   │   │   │   │       └── auth-method.event-handlers.unit.test.ts
@@ -567,6 +608,7 @@ src/
     │   │   │   │   │   ├── auth-method.service.last-method-guard.unit.test.ts
     │   │   │   │   │   ├── auth-method.service.unit.test.ts
     │   │   │   │   │   ├── auth-method.validator.unit.test.ts
+    │   │   │   │   │   ├── email-confirmation.service.unit.test.ts
     │   │   │   │   │   ├── email-login.service.unit.test.ts
     │   │   │   │   │   ├── email-login.verify-atomicity.db.unit.test.ts
     │   │   │   │   │   └── verification-code.unit.test.ts
@@ -618,6 +660,7 @@ src/
     │   │   │   ├── auth-method.schema.ts
     │   │   │   ├── auth-method.service.ts
     │   │   │   ├── auth-method.types.ts
+    │   │   │   ├── email-confirmation.service.ts
     │   │   │   ├── email-login.service.ts
     │   │   │   └── verification-code.ts
     │   │   ├── auth-mfa/
@@ -793,6 +836,7 @@ src/
     │   │   │   │   │   ├── stripe-webhook-correlation.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-out-of-order-cancellation.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-payload-shrink.integration.test.ts
+    │   │   │   │   │   ├── stripe-webhook-plan-state.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-reclaim.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-replay.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-worker-claim-race.integration.test.ts
@@ -813,6 +857,7 @@ src/
     │   │   │   │   │   ├── stripe-webhook-event.repository.ledger-immutability.db.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook-ingress.plugin.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook-organization.util.unit.test.ts
+    │   │   │   │   │   ├── stripe-webhook-plan-state.util.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.controller.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.job.schema.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.processor-race.unit.test.ts
@@ -838,6 +883,7 @@ src/
     │   │   │   ├── stripe-webhook-event.repository.ts
     │   │   │   ├── stripe-webhook-ingress.plugin.ts
     │   │   │   ├── stripe-webhook-organization.util.ts
+    │   │   │   ├── stripe-webhook-plan-state.util.ts
     │   │   │   ├── stripe-webhook.controller.ts
     │   │   │   ├── stripe-webhook.overview.md
     │   │   │   ├── stripe-webhook.routes.ts
@@ -850,9 +896,11 @@ src/
     │   │   │       ├── integration/
     │   │   │       │   ├── subscription-happy.integration.test.ts
     │   │   │       │   ├── subscription-lifecycle.integration.test.ts
+    │   │   │       │   ├── subscription-payment-method.integration.test.ts
     │   │   │       │   ├── subscription-refusals.integration.test.ts
     │   │   │       │   ├── subscription-seat-ceiling.integration.test.ts
     │   │   │       │   ├── subscription-seat-entitlement.integration.test.ts
+    │   │   │       │   ├── subscription-trial-move-down.integration.test.ts
     │   │   │       │   └── subscription.integration.test.ts
     │   │   │       └── unit/
     │   │   │       │   ├── billing-account.serializer.unit.test.ts
@@ -860,11 +908,13 @@ src/
     │   │   │       │   ├── stripe-payment-provider.email.unit.test.ts
     │   │   │       │   ├── subscription-entitlement.util.unit.test.ts
     │   │   │       │   ├── subscription-period.util.unit.test.ts
+    │   │   │       │   ├── subscription-plan-change.util.unit.test.ts
     │   │   │       │   ├── subscription-routes-rate-limit.policy.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.job.schema.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.processor.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.queue.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.worker.unit.test.ts
+    │   │   │       │   ├── subscription-trial.service.unit.test.ts
     │   │   │       │   ├── subscription.controller.auth-matrix.unit.test.ts
     │   │   │       │   ├── subscription.controller.unit.test.ts
     │   │   │       │   ├── subscription.repository.db.unit.test.ts
@@ -899,6 +949,8 @@ src/
     │   │   │   ├── stripe-payment-provider.ts
     │   │   │   ├── subscription-entitlement.util.ts
     │   │   │   ├── subscription-period.util.ts
+    │   │   │   ├── subscription-plan-change.util.ts
+    │   │   │   ├── subscription-trial.service.ts
     │   │   │   ├── subscription.constants.ts
     │   │   │   ├── subscription.controller.ts
     │   │   │   ├── subscription.dto.ts
@@ -909,7 +961,9 @@ src/
     │   │   │   ├── subscription.serializer.ts
     │   │   │   ├── subscription.service.ts
     │   │   │   ├── subscription.types.ts
-    │   │   │   └── subscription.validator.ts
+    │   │   │   ├── subscription.validator.ts
+    │   │   │   ├── trial-account.repository.ts
+    │   │   │   └── trial-account.schema.ts
     │   ├── billing.container.ts
     │   ├── billing.overview.md
     │   ├── billing.permissions.ts
@@ -1764,10 +1818,12 @@ src/
     │   │   ├── __tests__/
     │   │   │   └── unit/
     │   │   │   │   ├── base.template.unit.test.ts
+    │   │   │   │   ├── email-confirm-link.template.unit.test.ts
     │   │   │   │   ├── escape-html.util.unit.test.ts
     │   │   │   │   ├── invitation.template.unit.test.ts
     │   │   │   │   └── verification-code.template.unit.test.ts
     │   │   ├── base.template.ts
+    │   │   ├── email-confirm-link.template.ts
     │   │   ├── escape-html.util.ts
     │   │   ├── invitation.template.ts
     │   │   └── verification-code.template.ts
@@ -1986,6 +2042,7 @@ src/
     │   ├── process-tree.util.ts
     │   ├── route-coverage-audit.ts
     │   ├── secrets-key-rotate.ts
+    │   ├── sending-state.ts
     │   ├── settle-check.config.ts
     │   ├── settle-check.evaluate.ts
     │   ├── settle-check.ts
@@ -2314,7 +2371,10 @@ src/
     │   │   │   ├── customer.create.request.fields.json
     │   │   │   ├── customer.create.response.json
     │   │   │   ├── customer.retrieve.default-pm.response.json
+    │   │   │   ├── customer.update.default-pm.response.json
     │   │   │   ├── invoices.list.response.json
+    │   │   │   ├── payment-method.detach.response.json
+    │   │   │   ├── payment-method.retrieve.response.json
     │   │   │   ├── payment-methods.list.response.json
     │   │   │   ├── setup-intent.create.response.json
     │   │   │   ├── subscription.cancel.response.json
@@ -2696,6 +2756,7 @@ src/
     │   │   ├── contact-rls.security.test.ts
     │   │   ├── force-rls-policies-restrict.security.test.ts
     │   │   ├── instagram-account-resolvers.security.test.ts
+    │   │   ├── instagram-sending-rls.security.test.ts
     │   │   ├── instagram-webhook-events-rls.security.test.ts
     │   │   ├── meepzo-be-app-role-privileges.security.test.ts
     │   │   ├── membership-name-sort.security.test.ts

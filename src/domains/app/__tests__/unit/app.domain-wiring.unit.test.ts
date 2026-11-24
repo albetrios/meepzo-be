@@ -11,7 +11,7 @@ import { InstagramAccountErasureService } from '@/domains/app/sub-domains/instag
 import { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
-import { InstagramAccountMetaCallbackService } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.service.js';
+import { ChannelConnectionMetaCallbackService } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback.service.js';
 import { InstagramWebhookEventService } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import { InstagramWebhookService } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
@@ -34,28 +34,36 @@ const APP_PREFIX = `${buildPublicApiPrefix(PUBLIC_API_VERSION_SEGMENT_V1)}/app`;
 describe('app domain wiring', () => {
   const organizationService = {} as OrganizationService;
   const planAccessService = { getPlanAccess: vi.fn() };
+  const trialPort = { assertAccountsMayTrial: vi.fn(), recordTrialAccounts: vi.fn() };
 
   it('registerAppContainer decorates appDomain with the Instagram account, contact, automation, run engine and webhook services', async () => {
     const application = Fastify();
     application.decorate('tenancyDomain', { organizationService } as never);
-    application.decorate('billingDomain', { subscriptionService: planAccessService } as never);
+    application.decorate('billingDomain', {
+      subscriptionService: planAccessService,
+      subscriptionTrialService: trialPort,
+    } as never);
     registerAppContainer(application);
 
     expect(Object.keys(application.appDomain).sort()).toEqual([
       'automationRunService',
       'automationService',
       'channelAccountService',
+      'channelConnectionMetaCallbackService',
       'channelConnectionService',
       'channelConnectionTokenService',
       'channelConnectionUsageService',
       'contactService',
       'instagramAccountErasureService',
-      'instagramAccountMetaCallbackService',
       'instagramAccountService',
       'instagramAccountSettingsService',
       'instagramMediaService',
+      'instagramSendLaneService',
+      'instagramSendingService',
       'instagramWebhookEventService',
       'instagramWebhookService',
+      'messageMonthCountService',
+      'sendingStateService',
     ]);
     expect(application.appDomain.instagramAccountService).toBeInstanceOf(InstagramAccountService);
     expect(application.appDomain.contactService).toBeInstanceOf(ContactService);
@@ -66,7 +74,7 @@ describe('app domain wiring', () => {
     );
     expect(application.appDomain.instagramWebhookService).toBeInstanceOf(InstagramWebhookService);
     expect(
-      createAppContainer({ organizationService, planAccessService })
+      createAppContainer({ organizationService, planAccessService, trialPort })
         .instagramAccountSettingsService,
     ).toBeInstanceOf(InstagramAccountSettingsService);
     expect(application.appDomain.instagramMediaService).toBeInstanceOf(InstagramMediaService);
@@ -74,8 +82,8 @@ describe('app domain wiring', () => {
     expect(application.appDomain.instagramAccountErasureService).toBeInstanceOf(
       InstagramAccountErasureService,
     );
-    expect(application.appDomain.instagramAccountMetaCallbackService).toBeInstanceOf(
-      InstagramAccountMetaCallbackService,
+    expect(application.appDomain.channelConnectionMetaCallbackService).toBeInstanceOf(
+      ChannelConnectionMetaCallbackService,
     );
     await application.close();
   });
@@ -87,7 +95,7 @@ describe('app domain wiring', () => {
     application.decorate('authenticate', async () => undefined);
     application.decorate(
       'appDomain',
-      createAppContainer({ organizationService, planAccessService }),
+      createAppContainer({ organizationService, planAccessService, trialPort }),
     );
     // The automation writes' read-only guard reads billing's subscription service (AQ8).
     application.decorate('billingDomain', {
@@ -115,10 +123,14 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/social/channel-accounts/:channel_account_id`,
       `GET ${APP_PREFIX}/social/channel-connections`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
-      `GET ${APP_PREFIX}/social/instagram/media`,
-      `GET ${APP_PREFIX}/social/instagram/stories`,
-      `GET ${APP_PREFIX}/social/instagram/webhook`,
+      `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ad-accounts`,
+      `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ads`,
+      `GET ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
+      `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/media`,
+      `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/sending-status`,
+      `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/stories`,
       `GET ${APP_PREFIX}/social/instagram/webhook-events`,
+      `GET ${APP_PREFIX}/usage`,
       `PATCH ${APP_PREFIX}/automations/:automation_id`,
       `PATCH ${APP_PREFIX}/contacts/:contact_id`,
       `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
@@ -130,10 +142,10 @@ describe('app domain wiring', () => {
       `POST ${APP_PREFIX}/social/channel-connections/:channel_connection_id/accounts`,
       `POST ${APP_PREFIX}/social/channel-connections/:channel_connection_id/reconnect`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/callback`,
+      `POST ${APP_PREFIX}/social/channel-connections/:provider/data-deletion`,
+      `POST ${APP_PREFIX}/social/channel-connections/:provider/deauthorize`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/start`,
-      `POST ${APP_PREFIX}/social/instagram/data-deletion`,
-      `POST ${APP_PREFIX}/social/instagram/deauthorize`,
-      `POST ${APP_PREFIX}/social/instagram/webhook`,
+      `POST ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
     ]);
     // Runs have no route (D13).
     const response = await application.inject({
@@ -149,13 +161,13 @@ describe('app domain wiring', () => {
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
     // Without organizations the channel connection, channel account, Instagram account, settings, stored-posts,
-    // contact, automation, automation-run and webhook event seeders warn and write nothing.
+    // sending, contact, automation, automation-run and webhook event seeders warn and write nothing.
     const warn = vi.fn();
     const context = {
       registry: createSeedRegistry(),
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(9);
+    expect(warn).toHaveBeenCalledTimes(10);
   });
 });

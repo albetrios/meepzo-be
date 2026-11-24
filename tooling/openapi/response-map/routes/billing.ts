@@ -78,6 +78,33 @@ export const billingRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
 
+  // ── Cards (routes-final § 8.C — routes 104–106) ──
+  'GET /api/v1/billing/payment-methods': {
+    statusCode: 200,
+    schema: wrapSuccess({ type: 'array', items: schemas.paymentMethodSchema }, [
+      schemas.paymentMethodExample,
+    ]),
+    example: null,
+  },
+  'DELETE /api/v1/billing/payment-methods/{payment_method_id}': {
+    statusCode: 204,
+    schema: null,
+    example: null,
+  },
+  'POST /api/v1/billing/payment-methods/{payment_method_id}/default': {
+    statusCode: 200,
+    schema: wrapSuccess({ type: 'array', items: schemas.paymentMethodSchema }, [
+      schemas.paymentMethodExample,
+      {
+        ...schemas.paymentMethodExample,
+        id: 'pm_1QExampleCardE5f6G7h8',
+        last4: '1881',
+        is_default: false,
+      },
+    ]),
+    example: null,
+  },
+
   // ── Stripe webhook (protocol-owned 200) ──
   'POST /api/v1/billing/webhook': {
     statusCode: 200,

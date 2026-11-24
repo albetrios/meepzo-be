@@ -78,7 +78,10 @@ export function createDomainContainers(
   const appDomain = createAppContainer({
     organizationService: tenancyDomain.organizationService,
     planAccessService: billingDomain.subscriptionService,
+    trialPort: billingDomain.subscriptionTrialService,
   });
+  // Billing's accounts port (feat-instagram-dm-sending § 8.10) is the app's — late-wired, as the API.
+  billingDomain.subscriptionService.wireChannelAccounts(appDomain.channelAccountService);
 
   const userDataExportRepository = new UserDataExportRepository();
   const userDataExportService = new UserDataExportService(

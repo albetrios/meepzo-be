@@ -54,7 +54,7 @@ const WEBHOOK_SIGNATURE_HEADERS: Readonly<Record<string, object>> = {
     schema: { type: 'string' },
     example: 't=1718200000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd',
   },
-  'POST /api/v1/app/social/instagram/webhook': {
+  'POST /api/v1/app/social/channel-connections/meta/webhooks/instagram': {
     name: 'X-Hub-Signature-256',
     in: 'header',
     required: true,
@@ -71,8 +71,8 @@ const WEBHOOK_SIGNATURE_HEADERS: Readonly<Record<string, object>> = {
  * repeat (K3).
  */
 const META_SIGNED_REQUEST_ROUTE_KEYS = new Set([
-  'POST /api/v1/app/social/instagram/deauthorize',
-  'POST /api/v1/app/social/instagram/data-deletion',
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize',
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion',
 ]);
 
 /** Builds the documented request-header parameters for one operation. */

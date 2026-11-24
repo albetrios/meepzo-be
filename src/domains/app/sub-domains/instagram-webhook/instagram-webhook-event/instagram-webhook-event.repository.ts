@@ -17,6 +17,7 @@ import {
   type RequestScopedPostgresDatabase,
   assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
+  setLocalDatabaseConfig,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import {
   type BatchDeleteResult,
@@ -40,7 +41,6 @@ import {
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
-import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { instagram_webhook_events } from './instagram-webhook-event.schema.js';
 import {
@@ -53,15 +53,21 @@ import type { InstagramWebhookEventListFilters } from './instagram-webhook-event
 /** One `app.instagram_webhook_events` row as Drizzle reads it. */
 export type InstagramWebhookEventRow = typeof instagram_webhook_events.$inferSelect;
 
-/** A list row: the event plus its microsecond cursor timestamp. */
-export type InstagramWebhookEventListRow = InstagramWebhookEventRow & { cursor_created_at: string };
+/**
+ * A list row: the event, its channel account's public id (route 62's `channel_account_id`) and its
+ * microsecond cursor timestamp.
+ */
+export type InstagramWebhookEventListRow = InstagramWebhookEventRow & {
+  channel_account_public_id: string;
+  cursor_created_at: string;
+};
 
-/** The account every event write is scoped by: its organization and its internal id. */
+/** The account every event write is scoped by: its organization and its channel account. */
 export interface InstagramWebhookEventAccountKey {
   /** `tenancy.organizations.id` of the owning organization. */
   organizationId: number;
-  /** `app.instagram_accounts.id` the events were delivered for. */
-  instagramAccountId: number;
+  /** `app.channel_accounts.id` the events were saved for (feat-instagram-dm-sending § 5.B.3). */
+  channelAccountId: number;
 }
 
 /**
@@ -74,11 +80,11 @@ export interface NewInstagramWebhookEvent {
   /** The sender (an echo: the recipient), or `null` when the item names nobody else. */
   contactInstagramUserId: string | null;
   eventKind: InstagramWebhookEventKind;
-  /** WH9's key, at most 512 characters, unique per account. */
+  /** WH9's key, at most 512 characters; its repeat guard is the key table (WH20). */
   eventKey: string;
   /** Set to store the event `skipped` with this reason; `null` stores it `received`. */
   skipReason: InstagramWebhookEventSkipReason | null;
-  /** The event item as received (a JSON object). */
+  /** The event item as received (a JSON object) — stored only for a `received` row (WH22). */
   payload: Record<string, unknown>;
   /** Meta's own time: the item's `timestamp`, else the entry's `time`; `null` when neither. */
   occurredAt: Date | null;
@@ -105,14 +111,14 @@ export type InstagramWebhookEventClaimResult =
   | { outcome: 'exhausted'; event: InstagramWebhookEventRow };
 
 /**
- * One Instagram account the stuck-event pick-up hands back to processing (WH15): the two public ids
- * its processing job carries — never an internal id (queue rule § 3.1).
+ * One channel account the stuck-event pick-up hands back to processing (WH17): the two public ids
+ * its processing job carries — never an internal id (queue rule § 3.1, WHC4).
  */
 export interface InstagramWebhookStuckAccount {
   /** The account's organization — the job's `organizationPublicId` (K8). */
   organizationPublicId: string;
-  /** `cha_…`. */
-  instagramAccountPublicId: string;
+  /** `cha_…` — the job's `channelAccountPublicId`. */
+  channelAccountPublicId: string;
 }
 
 /** The `error_message` of an event whose attempts ran out (WH12, WH14). */
@@ -121,7 +127,7 @@ export const INSTAGRAM_WEBHOOK_EVENT_ATTEMPTS_EXHAUSTED_ERROR = 'processing_atte
 /** The longest `error_message` the column holds. */
 const ERROR_MESSAGE_MAX_LENGTH = 2000;
 
-/** The sort the list's cursor fingerprint names (route 18 has one order). */
+/** The sort the list's cursor fingerprint names (route 62 has one order). */
 const LIST_SORT = 'received_at';
 
 /**
@@ -137,7 +143,7 @@ function rowsOf<T>(result: unknown): T[] {
   return Array.isArray(result) ? (result as T[]) : ((result as { rows?: T[] }).rows ?? []);
 }
 
-/** Route 18's filters as SQL, the organization first (RLS plus the repository's own filter). */
+/** Route 62's filters as SQL, the organization first (RLS plus the repository's own filter). */
 function buildListConditions({
   organizationId,
   filters,
@@ -146,6 +152,17 @@ function buildListConditions({
   filters: InstagramWebhookEventListFilters;
 }): SQL[] {
   const conditions: SQL[] = [eq(instagram_webhook_events.organization_id, organizationId)];
+  if (filters.channelAccountPublicId !== undefined) {
+    // An id of another organization (or none) resolves to NULL, so the page is empty (5.B.9).
+    conditions.push(
+      eq(
+        instagram_webhook_events.channel_account_id,
+        sql`(SELECT ${channel_accounts.id} FROM ${channel_accounts}
+          WHERE ${channel_accounts.organization_id} = ${organizationId}
+            AND ${channel_accounts.public_id} = ${filters.channelAccountPublicId})`,
+      ),
+    );
+  }
   if (filters.status !== undefined) {
     conditions.push(eq(instagram_webhook_events.status, filters.status));
   }
@@ -162,7 +179,7 @@ function buildListConditions({
 }
 
 /**
- * The SHA-256 of route 18's filter set, bound into every cursor it mints (sec-U12) — `limit` and
+ * The SHA-256 of route 62's filter set, bound into every cursor it mints (sec-U12) — `limit` and
  * `include_total` stay out, so a continuation may change the page size.
  */
 function computeListFingerprint(filters: InstagramWebhookEventListFilters): string {
@@ -171,6 +188,7 @@ function computeListFingerprint(filters: InstagramWebhookEventListFilters): stri
     sort: LIST_SORT,
     order: 'desc',
     filters: {
+      channel_account_id: filters.channelAccountPublicId ?? null,
       status: filters.status ?? null,
       event_kind: filters.eventKind ?? null,
       received_from: filters.receivedFrom ?? null,
@@ -180,7 +198,7 @@ function computeListFingerprint(filters: InstagramWebhookEventListFilters): stri
 }
 
 /**
- * The `400` of a cursor route 18 cannot continue (4.B.9): not minted here, or minted under other
+ * The `400` of a cursor route 62 cannot continue (5.B.9): not minted here, or minted under other
  * filters. Named on `after`.
  */
 function invalidCursorError() {
@@ -194,7 +212,7 @@ function invalidCursorError() {
 function claimCondition(claim: InstagramWebhookEventClaimKey): SQL | undefined {
   return and(
     eq(instagram_webhook_events.organization_id, claim.organizationId),
-    eq(instagram_webhook_events.instagram_account_id, claim.instagramAccountId),
+    eq(instagram_webhook_events.channel_account_id, claim.channelAccountId),
     eq(instagram_webhook_events.id, claim.eventId),
     inArray(instagram_webhook_events.status, [...INSTAGRAM_WEBHOOK_EVENT_WAITING_STATUSES]),
     eq(instagram_webhook_events.attempt_count, claim.claimedAttemptCount),
@@ -202,26 +220,27 @@ function claimCondition(claim: InstagramWebhookEventClaimKey): SQL | undefined {
 }
 
 /**
- * Drizzle access to `app.instagram_webhook_events` (routes-final § 4.B.3, 4.B.10, WHC12): the
- * store of a delivery's events (`ON CONFLICT DO NOTHING`), the `queued` mark, the claim of an
- * account's oldest waiting event (a `MATERIALIZED` CTE), the guarded final marks and the claim
- * release, route 18's keyset list, the stuck-event pick-up's read (WH15) and the 30-day clean-up.
+ * Drizzle access to `app.instagram_webhook_events` (feat-instagram-dm-sending routes-final § 5.B.3,
+ * 5.B.10, WHC11): the insert of a delivery's new events, the `queued` mark, the claim of an account's
+ * oldest waiting event (a `MATERIALIZED` CTE), the guarded final marks (which clear the body, WH22)
+ * and the claim release, route 62's keyset list, the stuck-event pick-up's read and the launch's
+ * clean-up (retired by the part drops at ROUTE R49).
  *
  * @remarks
- * - **Algorithm:** every row statement names `organization_id` (and the account and the row id
- *   where it has them), so tenant isolation does not rest on RLS alone. The store keys on the unique
- *   `(organization_id, instagram_account_id, event_key)` index, so a repeat delivery inserts
- *   nothing. The claim reads the account's head (oldest `received` / `queued`, by `created_at`,
+ * - **Algorithm:** every row statement names `organization_id` (and the channel account and the row
+ *   id where it has them), so tenant isolation does not rest on RLS alone. The table is split by day
+ *   (WH19): the repeat guard is `app.instagram_webhook_event_keys` — the store function inserts only
+ *   the events whose key it just claimed there (WH9 step 6). The claim reads the account's head (oldest `received` / `queued`, by `created_at`,
  *   `id`) in a `MATERIALIZED` CTE and updates it only while no other run holds its lease — never
  *   skipping ahead, so one account's events run strictly in order (WQ3). The attempt count the
  *   claim sets is its token: every later mark of that claim requires it.
  * - **Failure modes:** a cursor not minted here, or minted under other filters, is a `400` on
  *   `after`; guarded writes return `false` / `null` when the row is not in the state they require.
  * - **Side effects:** writes `app.instagram_webhook_events` only. Rows are created only by the
- *   receiver, changed only by processing and deleted only by the clean-up (4.B.10) — a contact
- *   erase leaves them (WH18), and route 18 never changes one.
+ *   store function, changed only by intake and go with their day part (5.B.10) — a contact erase
+ *   leaves them (WH24), and route 62 never changes one.
  * - **Notes:** HTTP paths run inside the caller's `withAppDatabaseContext` (the receiver's
- *   `VERIFIED` scope, route 18's request scope); workers bind a handle through
+ *   `VERIFIED` scope, route 62's request scope); workers bind a handle through
  *   {@link createWorkerInstagramWebhookEventRepository} (processing, under the job's organization
  *   scope its worker mints) or {@link createRetentionInstagramWebhookEventRepository} (the
  *   clean-up's retention context). The repository never mints a scope itself.
@@ -234,14 +253,27 @@ export class InstagramWebhookEventRepository {
   }
 
   /**
-   * Stores a delivery entry's events for one account in one `INSERT … ON CONFLICT DO NOTHING`
-   * (WH10): a row without a skip reason is born `received`, one with a skip reason `skipped` and
-   * final (`processed_at` set). Returns only the rows this statement inserted — a repeat delivery
-   * returns none of its already-stored events.
+   * Caps every later statement of the surrounding unit of work at `milliseconds` —
+   * `set_config('statement_timeout', …, true)`, the transaction-local `SET LOCAL` (WH2, WHC2): the
+   * webhook's store unit, so a slow Postgres answers inside Meta's 5-second budget.
+   */
+  async limitStatementTime(milliseconds: number): Promise<void> {
+    await setLocalDatabaseConfig({
+      databaseHandle: this.db(),
+      key: 'statement_timeout',
+      value: String(milliseconds),
+    });
+  }
+
+  /**
+   * Stores one account's new events in one `INSERT` (WH9 step 6): a row without a skip reason is
+   * born `received` with its body, one with a skip reason `skipped`, final (`processed_at` set) and
+   * without a body (WH22). The caller passes only the events whose key it just claimed in
+   * `app.instagram_webhook_event_keys`, so a repeat never reaches here.
    */
   async insertEvents({
     organizationId,
-    instagramAccountId,
+    channelAccountId,
     requestId,
     events,
   }: InstagramWebhookEventAccountKey & {
@@ -258,26 +290,19 @@ export class InstagramWebhookEventRepository {
             events.map((event) => ({
               public_id: generatePublicId('instagramWebhookEvent'),
               organization_id: organizationId,
-              instagram_account_id: instagramAccountId,
+              channel_account_id: channelAccountId,
               instagram_user_id: event.instagramUserId,
               contact_instagram_user_id: event.contactInstagramUserId,
               event_kind: event.eventKind,
               event_key: event.eventKey,
               status: event.skipReason === null ? 'received' : 'skipped',
               skip_reason: event.skipReason,
-              payload: event.payload,
+              payload: event.skipReason === null ? event.payload : null,
               occurred_at: event.occurredAt,
               processed_at: event.skipReason === null ? null : databaseNowTimestamp,
               request_id: requestId,
             })),
           )
-          .onConflictDoNothing({
-            target: [
-              instagram_webhook_events.organization_id,
-              instagram_webhook_events.instagram_account_id,
-              instagram_webhook_events.event_key,
-            ],
-          })
           .returning(),
     });
   }
@@ -288,7 +313,7 @@ export class InstagramWebhookEventRepository {
    */
   async markQueued({
     organizationId,
-    instagramAccountId,
+    channelAccountId,
     eventIds,
   }: InstagramWebhookEventAccountKey & { eventIds: readonly number[] }): Promise<number> {
     if (eventIds.length === 0) return 0;
@@ -298,7 +323,7 @@ export class InstagramWebhookEventRepository {
       .where(
         and(
           eq(instagram_webhook_events.organization_id, organizationId),
-          eq(instagram_webhook_events.instagram_account_id, instagramAccountId),
+          eq(instagram_webhook_events.channel_account_id, channelAccountId),
           inArray(instagram_webhook_events.id, [...eventIds]),
           eq(instagram_webhook_events.status, 'received'),
         ),
@@ -324,7 +349,7 @@ export class InstagramWebhookEventRepository {
    */
   async claimOldestWaitingEvent({
     organizationId,
-    instagramAccountId,
+    channelAccountId,
     maxProcessingAttempts,
     claimLeaseMinutes,
   }: InstagramWebhookEventAccountKey & {
@@ -335,10 +360,10 @@ export class InstagramWebhookEventRepository {
   }): Promise<InstagramWebhookEventClaimResult | null> {
     const result = await this.db().execute(sql`
       WITH head AS MATERIALIZED (
-        SELECT id
+        SELECT id, created_at
           FROM app.instagram_webhook_events
          WHERE organization_id = ${organizationId}
-           AND instagram_account_id = ${instagramAccountId}
+           AND channel_account_id = ${channelAccountId}
            AND status IN ('received', 'queued')
          ORDER BY created_at ASC, id ASC
          LIMIT 1
@@ -358,6 +383,7 @@ export class InstagramWebhookEventRepository {
              updated_at = greatest(head_event.created_at, now())
         FROM head
        WHERE head_event.id = head.id
+         AND head_event.created_at = head.created_at
          AND head_event.organization_id = ${organizationId}
          AND head_event.status IN ('received', 'queued')
          AND (head_event.last_attempted_at IS NULL
@@ -385,12 +411,16 @@ export class InstagramWebhookEventRepository {
       : { outcome: 'claimed', event };
   }
 
-  /** Marks a claimed event `processed` (WH12 step 4). `false` when the claim no longer holds. */
+  /**
+   * Marks a claimed event `processed` (WH12 step 4) and clears its body in the same statement
+   * (WH22). `false` when the claim no longer holds.
+   */
   async markProcessed(claim: InstagramWebhookEventClaimKey): Promise<boolean> {
     const rows = await this.db()
       .update(instagram_webhook_events)
       .set({
         status: 'processed',
+        payload: null,
         processed_at: databaseNowTimestamp,
         updated_at: eventUpdatedAtTimestamp,
       })
@@ -401,8 +431,8 @@ export class InstagramWebhookEventRepository {
 
   /**
    * Marks a claimed event `skipped` with its reason — the account's switch went off, or it is no
-   * longer `connected`, while the event waited (WH12 step 2). `false` when the claim no longer
-   * holds.
+   * longer `connected`, while the event waited (WH12 step 2) — and clears its body (WH22). `false`
+   * when the claim no longer holds.
    */
   async markSkipped({
     skipReason,
@@ -415,6 +445,7 @@ export class InstagramWebhookEventRepository {
       .set({
         status: 'skipped',
         skip_reason: skipReason,
+        payload: null,
         processed_at: databaseNowTimestamp,
         updated_at: eventUpdatedAtTimestamp,
       })
@@ -474,8 +505,8 @@ export class InstagramWebhookEventRepository {
   }
 
   /**
-   * The stuck-event pick-up's read across organizations (WH15, WC-2): the Instagram accounts — of
-   * live organizations — that have an event still `received` or `queued` more than
+   * The stuck-event pick-up's read across organizations (WH17, WC-12): the channel accounts — of
+   * live organizations, read from `app.channel_accounts` (no Instagram account join, R17) — that have an event still `received` or `queued` more than
    * `stuckAfterMinutes` after it arrived and not claimed in as long, oldest waiting first, at most
    * `limit` accounts. Runs only on a retention handle
    * ({@link createRetentionInstagramWebhookEventRepository}): the sweep arm is in the policies'
@@ -498,22 +529,14 @@ export class InstagramWebhookEventRepository {
     return this.db()
       .select({
         organizationPublicId: organizations.public_id,
-        // The account's one id is its channel account's (`cha_…`, P47) since ROUTE row R6.
-        instagramAccountPublicId: channel_accounts.public_id,
+        channelAccountPublicId: channel_accounts.public_id,
       })
       .from(instagram_webhook_events)
       .innerJoin(
-        instagram_accounts,
-        and(
-          eq(instagram_accounts.organization_id, instagram_webhook_events.organization_id),
-          eq(instagram_accounts.id, instagram_webhook_events.instagram_account_id),
-        ),
-      )
-      .innerJoin(
         channel_accounts,
         and(
-          eq(channel_accounts.organization_id, instagram_accounts.organization_id),
-          eq(channel_accounts.id, instagram_accounts.channel_account_id),
+          eq(channel_accounts.organization_id, instagram_webhook_events.organization_id),
+          eq(channel_accounts.id, instagram_webhook_events.channel_account_id),
         ),
       )
       .innerJoin(organizations, eq(organizations.id, instagram_webhook_events.organization_id))
@@ -534,13 +557,15 @@ export class InstagramWebhookEventRepository {
   }
 
   /**
-   * Route 18's page (WH17): the organization's events newest first by received time, then id,
-   * filtered by status, kind and received window; `limit + 1` rows through `finishKeysetPage`, the
-   * cursor bound to the filters; a capped count when asked.
+   * Route 62's page (WH23): the organization's events newest first by received time, then id,
+   * filtered by channel account, status, kind and received window; `limit + 1` rows through
+   * `finishKeysetPage`, the cursor bound to the filters; a capped count when asked. Each row carries
+   * its channel account's public id.
    *
    * @remarks
    * Failure modes: an `after` this server did not mint, or minted under other filters, throws a
-   * `400` on `after` (4.B.9) — never a silent restart.
+   * `400` on `after` (5.B.9) — never a silent restart. A `channel_account_id` of another
+   * organization finds nothing (an empty page, not a `404`).
    */
   async listByOrganization({
     organizationId,
@@ -574,9 +599,17 @@ export class InstagramWebhookEventRepository {
     const rowsPromise = this.db()
       .select({
         ...getTableColumns(instagram_webhook_events),
+        channel_account_public_id: channel_accounts.public_id,
         cursor_created_at: cursorTimestampSelection(instagram_webhook_events.created_at),
       })
       .from(instagram_webhook_events)
+      .innerJoin(
+        channel_accounts,
+        and(
+          eq(channel_accounts.organization_id, instagram_webhook_events.organization_id),
+          eq(channel_accounts.id, instagram_webhook_events.channel_account_id),
+        ),
+      )
       .where(and(...pageConditions))
       .orderBy(desc(instagram_webhook_events.created_at), desc(instagram_webhook_events.id))
       .limit(filters.limit + 1);

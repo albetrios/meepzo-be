@@ -18,6 +18,7 @@ const NO_BODY_ROUTE_PATH_ALLOWLIST = [
   '/me/webauthn/register/options',
   '/me/sessions',
   '/me/data-export',
+  '/me/email-confirmation',
   '/me/onboarding/complete',
   '/suspend',
   '/unsuspend',

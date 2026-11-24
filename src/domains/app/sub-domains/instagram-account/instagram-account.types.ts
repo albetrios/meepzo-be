@@ -3,6 +3,8 @@ import type { InstagramAccountSettingsOutput } from '@/domains/app/sub-domains/i
 import type { InstagramAccountSettingsRow } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import type { InstagramAccountConnectionStatus } from './instagram-account.constants.js';
 import type { InstagramAccountKey, InstagramAccountRow } from './instagram-account.repository.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import type { ChannelConnectionKey } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 
 /**
  * The statuses a not-revoked account can carry (`connected` · `error`) — a revoked account is never
@@ -58,23 +60,60 @@ export interface InstagramAccountAccess {
 }
 
 /**
+ * The named account a picker reads (routes 13–14, IA15): the Instagram row, its keys, its
+ * connection's status and the connection's encrypted token — read in one unit of work, used after
+ * it closes.
+ *
+ * @remarks
+ * The token stays ciphertext: only the Meta client decrypts it, right before its call.
+ */
+export interface InstagramAccountReadAccess {
+  /** The not-revoked account — `connected` or `error` (the channel account's status). */
+  account: InstagramAccountRow;
+  /** The channel account's organization and internal id (P47). */
+  channelAccount: ChannelAccountKey;
+  /** Its connection's organization and internal id — the key of the break on 190 (MC11). */
+  channelConnection: ChannelConnectionKey;
+  /** The connection's status — `connected` · `error` · `revoked`. */
+  connectionStatus: string;
+  /** The connection's encrypted token; `null` when it has none. */
+  encryptedAccessToken: string | null;
+}
+
+/**
  * What Meta signed, in one organization the resolver named (IA19, IA20) — the part of
  * {@link InstagramAccountMetaDisconnectInput} and {@link InstagramAccountMetaErasureInput} they share.
  */
 export interface InstagramAccountMetaRequest {
   /** That organization's verified scope, minted by the Meta callback service (ledgered there). */
   scope: OrganizationPrincipalDatabaseScope;
-  /**
-   * The id Meta signed (`user_id`, IQ3) — under Unified Login the Instagram user id (P111); the
-   * field keeps its name until ROUTE row R9 moves the callbacks (MC15).
-   */
-  instagramAppUserId: string;
+  /** Which accounts of that organization Meta's signed id reaches (MC15, P56). */
+  match: InstagramAccountMetaMatch;
   /**
    * When Meta signed the request (`issued_at`, Unix seconds), or `null` when it sent none: an account
    * connected after it is left alone (D53).
    */
   issuedAt: number | null;
 }
+
+/**
+ * Which accounts of one organization a Meta callback reaches (routes-final § 1 MC15, P56): the
+ * account whose `provider_account_id` is the signed id (any status), or — when no account anywhere
+ * carries that id — every not-revoked account of the organization's connections of that business.
+ */
+export type InstagramAccountMetaMatch =
+  | {
+      /** The signed id is an account's `provider_account_id` (for Meta: the Instagram user id). */
+      kind: 'provider_account';
+      /** The signed id. */
+      providerAccountId: string;
+    }
+  | {
+      /** The signed id is a connection's `client_business_id`. */
+      kind: 'provider_business';
+      /** `app.channel_connections.id` of the organization's connections of that business. */
+      channelConnectionIds: readonly number[];
+    };
 
 /**
  * Input of {@link InstagramAccountService.disconnectForMeta} — Meta's deauthorize (IA19) or data
@@ -117,8 +156,10 @@ export interface InstagramAccountErasure {
  * is erased too) its profile was already erased: a repeat changed nothing.
  */
 export interface InstagramAccountDisconnectChange {
-  /** Its organization and internal id — the key the stored posts' erase takes. */
+  /** Its organization and internal id. */
   instagramAccount: InstagramAccountKey;
+  /** The channel account's organization and internal id — the key the stored posts' erase takes (P47). */
+  channelAccount: ChannelAccountKey;
   /** `cha_…`, for the audit entry. */
   instagramAccountPublicId: string;
   /** The account moved to `revoked` now (it was `connected` or `error`). */

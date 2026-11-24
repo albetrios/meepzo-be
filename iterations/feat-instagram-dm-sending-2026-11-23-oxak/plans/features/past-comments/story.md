@@ -41,3 +41,5 @@ Route review: [routes-final.md](../../routes-final.md) § 4.C — routes 38–39
 - notifications.kinds-v8
 - access.editor-viewer-roles
 - quality.idempotency
+- background.past-comments
+- data.automation-backfill

@@ -55,3 +55,5 @@ Route review: [routes-final.md](../../routes-final.md) § 7 — routes 70–82 (
 - billing.plan-downgrade
 - access.editor-viewer-roles
 - quality.idempotency
+- data.broadcast-segment
+- data.broadcast-states

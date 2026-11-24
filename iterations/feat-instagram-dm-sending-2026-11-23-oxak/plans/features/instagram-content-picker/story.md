@@ -10,7 +10,7 @@ Route review: [routes-final.md](../../routes-final.md) § 2.C — routes 13–14
 
 ## Rules
 
-- Posts, reels and ad posts are read live with the connection's token, with caption and kind; a missing picture falls back to the thumbnail or the link (operations.instagram-content-picker)
+- Posts, reels and ad posts are read live with the connection's token, with caption and kind; a missing picture falls back to the thumbnail or the link (operations.instagram-media-pickers)
 - Live stories are read for "one story"; a story way to start whose Meta test has not passed is built but refused at go-live (operations.automation-trigger-types, operations.feature-check; P36)
 - A post is stored the first time a comment arrives on it, not by listing (data.instagram-media)
 - Reads go through the connection's Meta usage check (background.meta-usage-per-connection; P51)
@@ -27,7 +27,7 @@ Route review: [routes-final.md](../../routes-final.md) § 2.C — routes 13–14
 
 ## Work items
 
-- operations.instagram-content-picker
+- operations.instagram-media-pickers
 - operations.automation-trigger-types
 - data.instagram-media
 - background.meta-usage-per-connection

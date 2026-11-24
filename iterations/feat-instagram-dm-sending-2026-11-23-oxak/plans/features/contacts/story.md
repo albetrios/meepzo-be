@@ -16,7 +16,7 @@ Route review: [routes-final.md](../../routes-final.md) § 3 — routes 18–23, 
 ## Rules
 
 - Contacts are shared by every channel and listed per account: the account is a required filter (data.shared-product-tables, operations.shared-product-routes; P48, P65)
-- Search needs at least 3 characters and also matches the phone she gave; sorts and filters include tags, opted out, paused and how she came in (operations.contact-search; D46, P97)
+- Search needs at least 3 characters and also matches the phone she gave; sorts and filters include tags, opted out, paused and how she came in (operations.contact-list; D46, P97)
 - The private note holds up to 2,000 characters and sends nothing (operations.contact-note; D46)
 - A tag added or removed writes one tag event in the same commit as the tag change, so a tag automation can start from it (operations.contact-tag-events; D45)
 - Bulk actions take ids (1–500) or the list's filters, and run in the background in pieces of 500 (operations.contact-bulk-actions; P66)
@@ -49,7 +49,7 @@ Route review: [routes-final.md](../../routes-final.md) § 3 — routes 18–23, 
 
 - data.shared-product-tables
 - operations.shared-product-routes
-- operations.contact-search
+- operations.contact-list
 - operations.contact-note
 - operations.contact-tags
 - operations.contact-tag-events
@@ -61,3 +61,6 @@ Route review: [routes-final.md](../../routes-final.md) § 3 — routes 18–23, 
 - quality.retention
 - quality.message-privacy
 - quality.audit
+- data.contact
+- data.contact-tag-event
+- operations.contact-detail

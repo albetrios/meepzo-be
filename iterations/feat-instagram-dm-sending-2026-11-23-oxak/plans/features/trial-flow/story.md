@@ -30,3 +30,5 @@ Route review: [routes-final.md](../../routes-final.md) § 8.B (trial), § 8.D (S
 - billing.paid-trial
 - billing.plan-downgrade
 - background.plan-state-check
+- data.trial-account
+- notifications.trial-and-plan-choice

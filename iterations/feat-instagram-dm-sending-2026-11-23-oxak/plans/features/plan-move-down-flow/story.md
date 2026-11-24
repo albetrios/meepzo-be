@@ -42,3 +42,5 @@ Route review: [routes-final.md](../../routes-final.md) § 8.B (change plan), § 
 - operations.segment
 - notifications.owner-emails
 - background.plan-change
+- integrations.stripe-subscription-schedule
+- quality.read-only-plan

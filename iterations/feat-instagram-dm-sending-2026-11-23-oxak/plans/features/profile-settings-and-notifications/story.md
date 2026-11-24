@@ -14,10 +14,10 @@ Route review: [routes-final.md](../../routes-final.md) § 11 — routes 130–13
 
 ## Rules
 
-- Onboarding saves an Instagram handle (letters, digits, `.` and `_`, at most 30, saved lowercase without `@`) and a goal (`capture_leads`, `drive_sales`, `grow_community`), both optional (operations.user-onboarding; plan §45.2)
-- Settings add reduce motion; a personal organization cannot be the one that opens at sign-in (operations.user-onboarding; plan §47.6)
-- The organization chooser hides the personal organization and answers role, members, accounts and live automations per organization, searchable by name (operations.user-onboarding; plan §45.4)
-- The confirm link holds a one-time token good for 24 hours; a resend within 60 seconds is refused with its wait (access.email-confirmation; plan §47.7)
+- Onboarding saves an Instagram handle (letters, digits, `.` and `_`, at most 30, saved lowercase without `@`) and a goal (`capture_leads`, `drive_sales`, `grow_community`), both optional (operations.user-profile-onboarding; plan §45.2)
+- Settings add reduce motion; a personal organization cannot be the one that opens at sign-in (operations.user-profile-onboarding; plan §47.6)
+- The organization chooser hides the personal organization and answers role, members, accounts and live automations per organization, searchable by name (operations.organization-chooser; plan §45.4)
+- The confirm link holds a one-time token good for 24 hours; a resend within 60 seconds is refused with its wait (operations.email-confirmation; plan §47.7)
 - Notification preferences speak 7 kinds × channels, stored one row per type of the kind; billing and security email cannot be turned off; defaults follow D54 (notifications.kinds-v8; D54, P87)
 - Before each send the person's choice is read: in-app on → a notification row; email on → a mail outbox row with the caller's dedupe key; push saved but not sent yet; the organization's own mute still wins (notifications.kinds-v8; P88)
 - The weekly summary goes on Monday 09:00–09:59 in the organization's time zone, per account, only when something happened, once per person per week (background.weekly-summary; plan §47.4)
@@ -38,10 +38,15 @@ Route review: [routes-final.md](../../routes-final.md) § 11 — routes 130–13
 
 ## Work items
 
-- operations.user-onboarding
-- access.email-confirmation
+- operations.user-profile-onboarding
+- operations.email-confirmation
 - notifications.kinds-v8
 - notifications.owner-email-defaults
 - background.weekly-summary
 - background.contact-details-notice
 - data.merged-domains-forward-only
+- data.platform-columns
+- notifications.check-before-send
+- notifications.contact-details-left
+- notifications.weekly-summary
+- operations.organization-chooser

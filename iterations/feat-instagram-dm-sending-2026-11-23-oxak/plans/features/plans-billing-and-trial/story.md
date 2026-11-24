@@ -57,3 +57,6 @@ Route review: [routes-final.md](../../routes-final.md) § 8 — routes 100–108
 - data.merged-domains-forward-only
 - access.editor-viewer-roles
 - quality.idempotency
+- background.seat-sync
+- data.plan-subscription
+- quality.no-plan-limits

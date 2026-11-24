@@ -35,3 +35,4 @@ Route review: [routes-final.md](../../routes-final.md) § 1 (routes 16–17, MC1
 - quality.message-privacy
 - quality.retention
 - quality.audit
+- data.erasure

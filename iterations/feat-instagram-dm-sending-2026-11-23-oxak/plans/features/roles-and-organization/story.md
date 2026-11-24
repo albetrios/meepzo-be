@@ -18,7 +18,7 @@ Route review: [routes-final.md](../../routes-final.md) § 9 — routes 110–118
 - Custom roles are off: creating, editing, deleting, restoring a role and replacing its codes are refused; the read routes stay (access.editor-viewer-roles; plan §45.5)
 - Members are unlimited and all four roles exist on every plan (access.editor-viewer-roles; D55)
 - Invites take 1–20 emails and exactly one role, answer one result per email (`invited`, `already_member`, `already_invited`, `invalid_email`), and one idempotency key covers the whole call (access.editor-viewer-roles; P82)
-- The invitation preview is public, takes the link's token, answers its state (`valid`, `accepted`, `expired`, `revoked`) and never shows the invitee's email to a signed-out caller; a wrong token or id answers not found; 30 a minute per IP (access.invitation-preview)
+- The invitation preview is public, takes the link's token, answers its state (`valid`, `accepted`, `expired`, `revoked`) and never shows the invitee's email to a signed-out caller; a wrong token or id answers not found; 30 a minute per IP (operations.member-invitations)
 - The members list counts members per role (access.editor-viewer-roles)
 - An organization is created with its name only; the slug is made once from it and is read-only after; the tile colour is picked from the name and may be changed among five tones including `lavender` (tenancy.organization-logo-color; P81)
 - An organization paused by the team (`SUSPENDED`) stops all sending on every account (billing.plan-states; plan §45.7)
@@ -43,7 +43,13 @@ Route review: [routes-final.md](../../routes-final.md) § 9 — routes 110–118
 - access.editor-viewer-roles
 - access.contact-update-code
 - access.channel-account-codes
-- access.invitation-preview
+- operations.member-invitations
 - tenancy.organization-logo-color
 - billing.plan-states
 - data.merged-domains-forward-only
+- access.row-security
+- data.organization-naming
+- data.organization-ownership
+- data.reference-data
+- notifications.team-changes
+- operations.organization-slug-read-only

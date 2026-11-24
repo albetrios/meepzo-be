@@ -35,6 +35,7 @@ Route review: [routes-final.md](../../routes-final.md) § 6 — routes 63–64 (
 - After Redis is lost, counts are rebuilt from Postgres and tickets re-added with a small spread; nothing is sent twice (background.send-count-rebuild; plan §31.5)
 - The server clock is checked against Postgres every minute; over 2 seconds apart, the server stops sending (background.clock-check)
 - The "will go / may expire" estimate is worked out every 10 minutes per account (operations.instagram-pending-estimate, background.waiting-estimate; D10)
+- Backpressure on a slow Postgres, the poison-ticket rule and the other operations items listed in KICKOFF.md's open items are after-launch work, not built here (operations.after-launch)
 
 ## Acceptance criteria
 
@@ -104,3 +105,31 @@ Route review: [routes-final.md](../../routes-final.md) § 6 — routes 63–64 (
 - quality.rolling-deploy
 - quality.sending-settings
 - quality.sending-health
+- access.global-sending-tables
+- background.account-stops
+- background.fast-messages
+- background.helper-one-run-per-duty
+- background.helper-never-sends
+- background.helper-cross-organization-reads
+- background.helper-per-server-duties
+- background.helper-open-run-key-repair
+- background.instagram-owned-work
+- background.message-sends
+- background.never-send-twice
+- background.never-waits
+- background.opening-turn
+- background.reply-turn
+- background.scale-defaults
+- background.times
+- data.instagram-sending
+- data.lane-states
+- data.message-states
+- data.sending-state
+- data.kickoff-defaults
+- integrations.instagram-messaging
+- integrations.send-pause
+- operations.automation-window-table
+- quality.capacity
+- quality.database-links
+- quality.scale-defaults
+- quality.gates

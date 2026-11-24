@@ -49,3 +49,7 @@ Route review: [routes-final.md](../../routes-final.md) § 10 — routes 120–12
 - access.session-place
 - data.merged-domains-forward-only
 - quality.audit
+- data.trusted-device
+- integrations.apple-sign-in
+- integrations.session-place-data
+- quality.method-status-exception

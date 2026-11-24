@@ -4,7 +4,8 @@ Answers: the rules every piece of background work follows — timing, order, ret
 of background work itself — what each piece does, when it runs, what it touches, what happens on failure and
 who is told — is [worker-changes.md](../worker-changes.md) (WC-1–WC-67); each rule below links the rows it
 governs instead of repeating them. The ids in that file's Requirement column (`background.chat-event-intake`,
-`background.slow-lane-send`, …) name its rows; the rules here are what those rows obey.
+`background.slow-lane-send`, …) name its rows and are each defined below under **The background work, one
+requirement per row**; the rules here are what those rows obey.
 
 How to read the sources: `D<n>` is the plan's locked decision (plan:L210–L284), `P<n>` a row of
 [decisions.md](../decisions.md); `§ n` and the ids MC…, WH…, SN…, AU…, K… are in
@@ -258,6 +259,222 @@ function only the maintenance login may run, never the migration login.
 
 **Sources:** P33, P96, P97 (S17) · routes-final § 5 WH19 · [WC-55](../worker-changes.md#background-work)
 
+## The background work, one requirement per row
+
+Each piece of background work in [worker-changes.md](../worker-changes.md) has its own requirement here, under the
+id in that file's Requirement column; what it does, when it runs, what it touches and who is told stay in that row.
+
+### `background.chat-event-intake` — CHANGED
+
+The background work WC-1 in [worker-changes.md](../worker-changes.md#background-work): intake of chat events. Before → after below.
+
+### `background.comment-intake` — CHANGED
+
+The background work WC-2 in [worker-changes.md](../worker-changes.md#background-work): intake of comments and ad comments. Before → after below.
+
+### `background.live-comment-intake` — NEW
+
+The background work WC-3 in [worker-changes.md](../worker-changes.md#background-work): intake of Live comments.
+
+### `background.tag-event-intake` — NEW
+
+The background work WC-4 in [worker-changes.md](../worker-changes.md#background-work): intake of tag events.
+
+### `background.slow-lane-send` — NEW
+
+The background work WC-5 in [worker-changes.md](../worker-changes.md#background-work): slow-lane turn: send the next opening DM of an account's slow lane.
+
+### `background.reply-lane-send` — NEW
+
+The background work WC-6 in [worker-changes.md](../worker-changes.md#background-work): reply-lane turn: post the next public reply or hide of an account.
+
+### `background.fast-message-send` — NEW
+
+The background work WC-7 in [worker-changes.md](../worker-changes.md#background-work): fast messages: send each message after the opening.
+
+### `background.broadcast-lane-send` — NEW
+
+The background work WC-8 in [worker-changes.md](../worker-changes.md#background-work): broadcast-lane turn: send the next broadcast message of an account (PRO).
+
+### `background.stuck-event-pickup` — CHANGED
+
+The background work WC-12 in [worker-changes.md](../worker-changes.md#background-work): pick up stuck events. Before → after below.
+
+### `background.lost-turn-repair` — NEW
+
+The background work WC-13 in [worker-changes.md](../worker-changes.md#background-work): put back lost send turns.
+
+### `background.stuck-send-settle` — NEW
+
+The background work WC-14 in [worker-changes.md](../worker-changes.md#background-work): settle stuck sends.
+
+### `background.message-expiry` — NEW
+
+The background work WC-15 in [worker-changes.md](../worker-changes.md#background-work): expire waiting messages past their 7 days.
+
+### `background.live-check` — NEW
+
+The background work WC-16 in [worker-changes.md](../worker-changes.md#background-work): check whether a Live is still on.
+
+### `background.window-closed-skip` — NEW
+
+The background work WC-17 in [worker-changes.md](../worker-changes.md#background-work): skip messages whose chat window closed.
+
+### `background.reply-backlog-trim` — NEW
+
+The background work WC-18 in [worker-changes.md](../worker-changes.md#background-work): trim too many waiting public replies.
+
+### `background.paused-automation-cancel` — NEW
+
+The background work WC-19 in [worker-changes.md](../worker-changes.md#background-work): cancel the waiting messages of an automation paused with Cancel.
+
+### `background.send-count-upkeep` — NEW
+
+The background work WC-20 in [worker-changes.md](../worker-changes.md#background-work): keep the send counts right.
+
+### `background.send-count-rebuild` — NEW
+
+The background work WC-21 in [worker-changes.md](../worker-changes.md#background-work): rebuild after Redis was lost.
+
+### `background.outage-check` — NEW
+
+The background work WC-22 in [worker-changes.md](../worker-changes.md#background-work): check for an Instagram outage and the app limit.
+
+### `background.clock-check` — NEW
+
+The background work WC-23 in [worker-changes.md](../worker-changes.md#background-work): check the server clock against Postgres.
+
+### `background.waiting-estimate` — NEW
+
+The background work WC-24 in [worker-changes.md](../worker-changes.md#background-work): work out the "will go / may expire" estimate.
+
+### `background.webhook-subscription-check` — NEW
+
+The background work WC-25 in [worker-changes.md](../worker-changes.md#background-work): check each connected account's webhook subscription.
+
+### `background.tag-event-pickup` — NEW
+
+The background work WC-27 in [worker-changes.md](../worker-changes.md#background-work): start tag events that were not started.
+
+### `background.scheduled-broadcast-start` — NEW
+
+The background work WC-28 in [worker-changes.md](../worker-changes.md#background-work): start broadcasts at their set time.
+
+### `background.broadcast-end` — NEW
+
+The background work WC-29 in [worker-changes.md](../worker-changes.md#background-work): end broadcasts.
+
+### `background.starter-question-sync` — NEW
+
+The background work WC-31 in [worker-changes.md](../worker-changes.md#background-work): sync an account's starter questions.
+
+### `background.bulk-tag` — NEW
+
+The background work WC-36 in [worker-changes.md](../worker-changes.md#background-work): change many contacts at once.
+
+### `background.month-wake` — NEW
+
+The background work WC-37 in [worker-changes.md](../worker-changes.md#background-work): wake an organization at the new month or after an upgrade.
+
+### `background.plan-change` — NEW
+
+The background work WC-38 in [worker-changes.md](../worker-changes.md#background-work): apply a plan change at the end of the billing period.
+
+### `background.segment-count` — NEW
+
+The background work WC-39 in [worker-changes.md](../worker-changes.md#background-work): count a segment's audience.
+
+### `background.broadcast-audience` — NEW
+
+The background work WC-40 in [worker-changes.md](../worker-changes.md#background-work): build a broadcast's audience.
+
+### `background.past-comments` — NEW
+
+The background work WC-41 in [worker-changes.md](../worker-changes.md#background-work): read an automation's past comments.
+
+### `background.retry-failed` — NEW
+
+The background work WC-42 in [worker-changes.md](../worker-changes.md#background-work): retry the owner's failed messages.
+
+### `background.next-post-linking` — CHANGED
+
+The background work WC-43 in [worker-changes.md](../worker-changes.md#background-work): link a "my next post" automation to the first post after go-live. Before → after below.
+
+### `background.waiting-run-cancel` — CHANGED
+
+The background work WC-45 in [worker-changes.md](../worker-changes.md#background-work): cancel a run that has waited 7 days. Before → after below.
+
+### `background.reconnect-notice` — CHANGED
+
+The background work WC-46 in [worker-changes.md](../worker-changes.md#background-work): tell the organization that an account must be reconnected. Before → after below.
+
+### `background.deleted-automation-purge` — CHANGED
+
+The background work WC-47 in [worker-changes.md](../worker-changes.md#background-work): remove a deleted automation for good. Before → after below.
+
+### `background.webhook-event-retention` — CHANGED
+
+The background work WC-48 in [worker-changes.md](../worker-changes.md#background-work): delete webhook events and their event keys older than 8 days. Before → after below.
+
+### `background.send-attempt-retention` — NEW
+
+The background work WC-49 in [worker-changes.md](../worker-changes.md#background-work): delete send attempts older than 8 days.
+
+### `background.message-retention` — NEW
+
+The background work WC-50 in [worker-changes.md](../worker-changes.md#background-work): delete messages older than 30 days.
+
+### `background.run-retention` — CHANGED
+
+The background work WC-51 in [worker-changes.md](../worker-changes.md#background-work): delete ended runs and their history 90 days after they ended. Before → after below.
+
+### `background.comment-log-retention` — CHANGED
+
+The background work WC-52 in [worker-changes.md](../worker-changes.md#background-work): delete comment logs older than 90 days. Before → after below.
+
+### `background.broadcast-recipient-retention` — NEW
+
+The background work WC-53 in [worker-changes.md](../worker-changes.md#background-work): delete broadcast recipients and stop history older than 90 days.
+
+### `background.small-table-retention` — NEW
+
+The background work WC-54 in [worker-changes.md](../worker-changes.md#background-work): delete tag events older than 8 days and month counts older than 13 months.
+
+### `background.month-limit-notice` — NEW
+
+The background work WC-56 in [worker-changes.md](../worker-changes.md#background-work): tell the organization at 80 % and 100 % of its DMs this month.
+
+### `background.owner-problem-email` — NEW
+
+The background work WC-57 in [worker-changes.md](../worker-changes.md#background-work): email the owners about account problems.
+
+### `background.weekly-summary` — NEW
+
+The background work WC-58 in [worker-changes.md](../worker-changes.md#background-work): send the weekly summary.
+
+### `background.plan-state-check` — NEW
+
+The background work WC-59 in [worker-changes.md](../worker-changes.md#background-work): check plan states.
+
+### `background.broadcast-segment-purge` — NEW
+
+The background work WC-62 in [worker-changes.md](../worker-changes.md#background-work): purge deleted broadcasts and segments for good.
+
+### `background.contact-details-notice` — NEW
+
+The background work WC-63 in [worker-changes.md](../worker-changes.md#background-work): send the grouped "new contact details" note.
+
+### `background.session-cleanup` — CHANGED
+
+The background work WC-64 in [worker-changes.md](../worker-changes.md#background-work): delete old sessions — and now trusted devices. Before → after below.
+
+### `background.seat-sync` — CHANGED
+
+The background work WC-65 in [worker-changes.md](../worker-changes.md#background-work): seat sync switched off. Before → after below.
+
+### `background.open-run-key-repair` — NEW
+
+The background work WC-67 in [worker-changes.md](../worker-changes.md#background-work): remove open-run keys whose run has ended.
 ## Removed
 
 ### `background.message-sends` — REMOVED
@@ -294,3 +511,15 @@ The launch's 15-minute expiry of "next post" windows goes: "my next post" never 
 | `background.message-sends` | sends inline from event processing | removed — the four lanes send (WC-5–WC-8) | D3 |
 | `background.daily-account-check` | daily token renewal and profile refresh per account | removed — the connection's token check (WC-34) | D24 |
 | `background.next-post-expiry` | a 15-minute timer expired ended "next post" windows | removed — "my next post" never expires | P12 |
+| `background.chat-event-intake` | one in-order job per account for every kind, paused by an Instagram outage; it also sent | its own first-priority pass, 25 events at a time, never paused; decides and saves only | P47, P48, P50 |
+| `background.comment-intake` | in the account's one in-order run with every other kind; sent inline | its own pass behind chat events; once per person per post; replaces her open run and swaps its key in one commit; never sends | P35, P48, P100 |
+| `background.stuck-event-pickup` | every minute, an event stuck 5 minutes; 5 tries then `failed` for good | stuck after 1 minute; a `failed` event tried again hourly while under 7 days | plan:L6063, L5112 |
+| `background.next-post-linking` | when a comment arrives on a post inside the window | every 15 minutes, reads posts since go-live and links the first; no window | P12 |
+| `background.waiting-run-cancel` | hourly, a run waiting over 7 days for a button, follow, email or phone; no open-run key | also a run waiting for any message of hers, its waiting messages cancelled with it; its open-run key deleted in the same commit; reads two month parts | P96, P99, P100 |
+| `background.reconnect-notice` | an account becomes `expired` or `error` | an account or its channel connection becomes `error`; every account of a broken connection is told | P41 |
+| `background.deleted-automation-purge` | the automation once its runs and logs are gone, once a day at 03:40 UTC | + counters, reply state, past-comment reads, file links; hourly within a time budget | P92 |
+| `background.webhook-event-retention` | 30 days, batch deletes once a day at 03:00 UTC | 8 days, the event and event-key parts dropped, every hour | D15, P33, P92, P96 |
+| `background.run-retention` | 180 days after the run ended, batch deletes once a day at 03:20 UTC | 90 days or a little more, month parts by the run's start dropped, every hour | D16, P92, P96 |
+| `background.comment-log-retention` | 180 days, batch deletes once a day at 03:30 UTC | 90 days, month parts dropped, every hour | D16, P92, P96 |
+| `background.session-cleanup` | expired and revoked sessions, once a day at 04:00 UTC | + trusted devices expired or revoked over 30 days ago; hourly within a time budget | AT17, D56, P92 |
+| `background.seat-sync` | the member count pushed to Stripe on each member change; an hourly reconcile | off — unlimited members, quantity stays 1; lapsed grace ends through WC-59 | D55, BL9 |

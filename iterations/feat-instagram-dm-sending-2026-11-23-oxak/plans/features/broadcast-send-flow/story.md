@@ -44,3 +44,4 @@ Route review: [routes-final.md](../../routes-final.md) § 7 (7.A–7.C), § 6 (b
 - background.chat-event-intake
 - billing.plan-message-month-limit
 - notifications.kinds-v8
+- notifications.done-notes

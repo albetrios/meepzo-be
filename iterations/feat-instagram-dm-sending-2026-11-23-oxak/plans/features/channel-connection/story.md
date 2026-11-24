@@ -69,3 +69,11 @@ Route review: [routes-final.md](../../routes-final.md) § 1 — routes 1–5, 15
 - quality.token-secrecy
 - quality.idempotency
 - quality.audit
+- background.daily-account-check
+- data.app-migrations-in-place
+- data.channel-connection
+- data.connection-states
+- data.instagram-account-token
+- integrations.instagram-login
+- integrations.meta-graph-client
+- operations.channel-connection-list

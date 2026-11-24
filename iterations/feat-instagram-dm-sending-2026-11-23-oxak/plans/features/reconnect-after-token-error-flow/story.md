@@ -35,3 +35,4 @@ Route review: [routes-final.md](../../routes-final.md) § 1 (reconnect, route 40
 - background.account-setup
 - operations.instagram-message-expiry
 - notifications.owner-emails
+- notifications.reconnect-required

@@ -50,3 +50,6 @@ Route review: [routes-final.md](../../routes-final.md) — the tables without ro
 - background.session-cleanup
 - background.waiting-run-cancel
 - operations.automation-list-counters
+- background.retention-hourly-budget
+- background.retention-drop-parts
+- background.retention-oldest-row-gauge

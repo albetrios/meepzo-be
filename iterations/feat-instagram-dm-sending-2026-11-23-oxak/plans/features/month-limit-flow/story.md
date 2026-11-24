@@ -39,3 +39,5 @@ Route review: [routes-final.md](../../routes-final.md) ยง 6 (the month count), ย
 - background.send-gates
 - background.month-wake
 - background.month-limit-notice
+- data.message-month-count
+- notifications.month-limit

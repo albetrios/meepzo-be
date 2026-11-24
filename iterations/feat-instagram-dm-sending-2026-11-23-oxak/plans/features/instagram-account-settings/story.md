@@ -47,3 +47,4 @@ Route review: [routes-final.md](../../routes-final.md) § 2.B — route 12
 - quality.sending-settings
 - access.channel-account-codes
 - quality.audit
+- data.instagram-account-settings

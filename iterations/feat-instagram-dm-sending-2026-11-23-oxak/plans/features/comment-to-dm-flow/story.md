@@ -53,3 +53,7 @@ Route review: [routes-final.md](../../routes-final.md) § 5 (intake), § 4.B (ru
 - background.reply-lane-send
 - background.fast-message-send
 - background.waiting-run-cancel
+- data.automation-comment-log
+- operations.automation-ad-comment
+- operations.automation-comment-replies
+- quality.reply-safety

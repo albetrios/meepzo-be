@@ -34,3 +34,4 @@ Route review: [routes-final.md](../../routes-final.md) § 12 — routes 140, 150
 - operations.automation-message-attachments
 - background.attachment-upload
 - access.editor-viewer-roles
+- files.message-file-reference

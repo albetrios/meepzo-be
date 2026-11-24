@@ -9,9 +9,10 @@
  * `ON CONFLICT DO NOTHING` on the per-account key, so a re-run writes nothing new. Received times
  * sit within the last day — well inside the 30-day clean-up (WH19). No reference data.
  */
-import { and, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
 import type {
   InstagramWebhookEventKind,
@@ -293,10 +294,17 @@ export async function seedInstagramWebhookEventsBulk(context: SeedContext): Prom
       instagramUserId: instagram_accounts.instagram_user_id,
     })
     .from(instagram_accounts)
+    .innerJoin(
+      channel_accounts,
+      and(
+        eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+        eq(channel_accounts.id, instagram_accounts.channel_account_id),
+      ),
+    )
     .where(
       and(
         inArray(instagram_accounts.organization_id, organizationIds),
-        ne(instagram_accounts.connection_status, 'revoked'),
+        ne(channel_accounts.connection_status, 'revoked'),
       ),
     );
   if (accounts.length === 0) {

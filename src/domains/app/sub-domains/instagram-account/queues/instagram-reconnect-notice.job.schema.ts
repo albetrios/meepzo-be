@@ -5,7 +5,7 @@ import { dlqReplayJobFieldsSchema } from '@/infrastructure/queue/dlq/dlq-replay-
 /**
  * Redis payload of one reconnect notice (IA9, IAC9): the organization whose scope the worker
  * opens (`organizationPublicId`, K8), the broken account, and the break itself — the status it
- * moved to and when (`connection_status_changed_at`, ISO 8601), which names this break among the
+ * moved to and when (the channel account's `updated_at` at the break, ISO 8601 — R6), which names this break among the
  * account's breaks. Public ids only; the worker re-reads the account and finds the recipients.
  * Merges the trace-context fields and the dead-letter replay metadata.
  */

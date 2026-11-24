@@ -1,4 +1,8 @@
-import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import {
+  insertChannelAccount,
+  organizationChannelAccountPath,
+} from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,15 +57,12 @@ interface AccountErasureRow {
   public_id: string;
   connection_status: string;
   username: string | null;
-  name: string | null;
   biography: string | null;
   website: string | null;
   profile_picture_url: string | null;
   followers_count: number;
   follows_count: number;
   media_count: number;
-  scopes: string[];
-  token_expires_at: Date | null;
   webhook_subscribed_at: Date | null;
   disconnected_at: Date | null;
   profile_erased_at: Date | null;
@@ -70,10 +71,13 @@ interface AccountErasureRow {
 
 async function readAccounts(organizationId: number): Promise<AccountErasureRow[]> {
   return operatorQuery`
-    SELECT public_id, connection_status, username, name, biography, website, profile_picture_url,
-           followers_count, follows_count, media_count, scopes, token_expires_at,
-           webhook_subscribed_at, disconnected_at, profile_erased_at, updated_at
-    FROM app.instagram_accounts WHERE organization_id = ${organizationId} ORDER BY id`;
+    SELECT c.public_id, c.connection_status, i.username, i.biography, i.website,
+           i.profile_picture_url, i.followers_count, i.follows_count, i.media_count,
+           i.webhook_subscribed_at, c.disconnected_at, i.profile_erased_at, i.updated_at
+    FROM app.instagram_accounts AS i
+    INNER JOIN app.channel_accounts AS c
+      ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+    WHERE i.organization_id = ${organizationId} ORDER BY i.id`;
 }
 
 async function countStoredPosts(organizationId: number): Promise<number> {
@@ -180,15 +184,12 @@ describe('Instagram account — the organization is deleted', () => {
     expect(row).toMatchObject({
       connection_status: 'revoked',
       username: null,
-      name: null,
       biography: null,
       website: null,
       profile_picture_url: null,
       followers_count: 0,
       follows_count: 0,
       media_count: 0,
-      scopes: [],
-      token_expires_at: null,
       webhook_subscribed_at: null,
     });
     expect(row?.disconnected_at).not.toBeNull();
@@ -198,7 +199,7 @@ describe('Instagram account — the organization is deleted', () => {
   it('unsubscribes and erases the account, its token and posts, and names them on the delete’s audit entry', async () => {
     const profile = buildInstagramProfile();
     const account = await connectWithPosts({ profile });
-    const unsubscribe = mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    const unsubscribe = mockInstagramUnsubscribe({ instagramUserId: profile.id });
 
     const response = await deleteTeam();
 
@@ -223,10 +224,52 @@ describe('Instagram account — the organization is deleted', () => {
     });
   });
 
+  it('unsubscribes and erases every live account, and revokes a connection left with none (IAC5)', async () => {
+    const first = buildInstagramProfile();
+    const second = buildInstagramProfile();
+    await connectWithPosts({ profile: first });
+    // A second live account on its own connection (Free's limit is one account, so it is seeded).
+    const secondConnection = await insertChannelConnection({
+      organizationId: team.organization.id,
+      plainToken: 'EAAG-second-connection-token',
+    });
+    const secondChannelAccount = await insertChannelAccount({
+      organizationId: team.organization.id,
+      providerAccountId: second.user_id,
+      channelConnectionId: secondConnection.id,
+    });
+    await operatorQuery`
+      INSERT INTO app.instagram_accounts (organization_id, channel_account_id, instagram_user_id, username)
+      VALUES (${team.organization.id}, ${secondChannelAccount.id}, ${second.user_id}, ${second.username})`;
+    // A login whose business has no account picked still holds a token.
+    const idle = await insertChannelConnection({
+      organizationId: team.organization.id,
+      plainToken: 'EAAG-idle-connection-token',
+    });
+    const unsubscribes = [first, second].map((profile) =>
+      mockInstagramUnsubscribe({ instagramUserId: profile.id }),
+    );
+
+    expect((await deleteTeam()).statusCode).toBe(204);
+
+    for (const unsubscribe of unsubscribes) expect(unsubscribe.isDone()).toBe(true);
+    const rows = await readAccounts(team.organization.id);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toMatchObject({ connection_status: 'revoked', username: null });
+      expect(row?.profile_erased_at).not.toBeNull();
+    }
+    expect(await countStoredPosts(team.organization.id)).toBe(0);
+    expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual([]);
+    const [idleRow] = await operatorQuery<Array<{ status: string }>>`
+      SELECT status FROM app.channel_connections WHERE id = ${idle.id}`;
+    expect(idleRow?.status).toBe('revoked');
+  });
+
   it('frees the Instagram account: another team connects it at once, as its own new account', async () => {
     const profile = buildInstagramProfile();
     await connectWithPosts({ profile });
-    mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    mockInstagramUnsubscribe({ instagramUserId: profile.id });
     await deleteTeam();
     const otherTeam = await createInstagramTeam();
 
@@ -240,7 +283,7 @@ describe('Instagram account — the organization is deleted', () => {
   it('erases an account disconnected before the delete too', async () => {
     const formerProfile = buildInstagramProfile();
     await connectWithPosts({ profile: formerProfile });
-    mockInstagramUnsubscribe({ instagramAppUserId: formerProfile.id });
+    mockInstagramUnsubscribe({ instagramUserId: formerProfile.id });
     expect(
       (
         await injectAuthenticated(app, {
@@ -252,7 +295,7 @@ describe('Instagram account — the organization is deleted', () => {
     ).toBe(204);
     const profile = buildInstagramProfile();
     await connectWithPosts({ profile, postCount: 1 });
-    mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    mockInstagramUnsubscribe({ instagramUserId: profile.id });
 
     expect((await deleteTeam()).statusCode).toBe(204);
 
@@ -280,7 +323,7 @@ describe('Instagram account — the organization is deleted', () => {
       automationId: automation.id,
       contactId: contact.id,
     });
-    mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    mockInstagramUnsubscribe({ instagramUserId: profile.id });
 
     expect((await deleteTeam()).statusCode).toBe(204);
 
@@ -299,7 +342,7 @@ describe('Instagram account — the organization is deleted', () => {
     const profile = buildInstagramProfile();
     await connectWithPosts({ profile });
     const unsubscribe = mockInstagramUnsubscribe({
-      instagramAppUserId: profile.id,
+      instagramUserId: profile.id,
       outcome: 'failure',
     });
 
@@ -315,7 +358,7 @@ describe('Instagram account — the organization is deleted', () => {
   it('is safe to run again: a delete that stopped after the erase finishes, changing nothing twice', async () => {
     const profile = buildInstagramProfile();
     await connectWithPosts({ profile });
-    mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    mockInstagramUnsubscribe({ instagramUserId: profile.id });
     vi.spyOn(OrganizationRepository.prototype, 'softDelete').mockRejectedValueOnce(
       new Error('the soft delete failed'),
     );
@@ -349,7 +392,7 @@ describe('Instagram account — the organization is deleted', () => {
   it('Meta’s data deletion afterwards answers as ever and changes nothing', async () => {
     const profile = buildInstagramProfile();
     await connectWithPosts({ profile });
-    mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    mockInstagramUnsubscribe({ instagramUserId: profile.id });
     await deleteTeam();
     const [before] = await readAccounts(team.organization.id);
 

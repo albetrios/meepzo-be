@@ -42,8 +42,6 @@ export const PUBLIC_ID_PREFIXES = {
    * feat-instagram-dm-sending CA1; prefix chosen at kickoff, P22).
    */
   channelAccount: 'cha',
-  /** The organization's connected Instagram account (`app.instagram_accounts`, IA1). */
-  instagramAccount: 'iga',
   /** One Instagram user who interacted with one of the organization's Instagram accounts (`app.contacts`, CT1). */
   contact: 'con',
   /** One stored event of a Meta webhook delivery (`app.instagram_webhook_events`, WH1). */

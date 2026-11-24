@@ -10,6 +10,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import type { SeedContext } from '@/scripts/seed/seed-contract.js';
@@ -56,10 +57,17 @@ export async function seedInstagramMediaBulk(context: SeedContext): Promise<void
       instagramAccountId: instagram_accounts.id,
     })
     .from(instagram_accounts)
+    .innerJoin(
+      channel_accounts,
+      and(
+        eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+        eq(channel_accounts.id, instagram_accounts.channel_account_id),
+      ),
+    )
     .where(
       and(
         inArray(instagram_accounts.organization_id, organizationIds),
-        eq(instagram_accounts.connection_status, 'connected'),
+        eq(channel_accounts.connection_status, 'connected'),
       ),
     );
   if (accounts.length === 0) {

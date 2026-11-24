@@ -54,9 +54,9 @@ function accountState(
 ): InstagramWebhookAccountState {
   return {
     instagramAccount: { organizationId: 7, instagramAccountId: 11 },
-    instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+    channelAccountId: 13,
+    instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     instagramUserId: INSTAGRAM_USER_ID,
-    instagramAppUserId: '9000000000000001',
     connectionStatus: 'connected',
     isAutomationEnabled: true,
     ...overrides,
@@ -316,11 +316,10 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
 
   it.each([
     ['the automation switch off', { isAutomationEnabled: false }, 'automation_disabled'],
-    ['an expired account', { connectionStatus: 'expired' as const }, 'account_disconnected'],
     ['an error account', { connectionStatus: 'error' as const }, 'account_disconnected'],
     [
-      'the switch off on an expired account (the switch first)',
-      { isAutomationEnabled: false, connectionStatus: 'expired' as const },
+      'the switch off on an error account (the switch first)',
+      { isAutomationEnabled: false, connectionStatus: 'error' as const },
       'automation_disabled',
     ],
   ])(
@@ -565,7 +564,7 @@ describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => 
 
     expect(enqueue).toHaveBeenCalledWith({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+      instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
       requestId: REQUEST_ID,
     });
     expect(eventService.markEventsQueued).toHaveBeenCalledWith({
@@ -597,7 +596,7 @@ describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => 
     expect(logger.warn).toHaveBeenCalledWith(
       {
         requestId: REQUEST_ID,
-        instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+        instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
         errorName: 'Error',
       },
       'instagram.webhook.processing_enqueue_failed',

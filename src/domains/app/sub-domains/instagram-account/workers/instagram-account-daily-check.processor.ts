@@ -270,7 +270,7 @@ async function subscribeWhenNotSubscribed({
   try {
     await subscribeInstagramWebhookFields({
       encryptedAccessToken,
-      instagramAppUserId: target.account.instagram_app_user_id,
+      instagramUserId: target.account.instagram_user_id,
       requestId: target.requestId,
     });
   } catch (error) {

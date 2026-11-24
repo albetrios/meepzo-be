@@ -321,7 +321,7 @@ describe('Instagram media routes (post and story pickers)', () => {
 
     it('answers 404 instagram_not_connected once the only account is disconnected', async () => {
       const profile = await connectAccount();
-      mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+      mockInstagramUnsubscribe({ instagramUserId: profile.id });
       const disconnected = await injectAuthenticated(app, {
         method: 'DELETE',
         url: await organizationChannelAccountPath(team.organization.id),
@@ -335,7 +335,7 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(errorOf(response).reason).toBe('instagram_not_connected');
     });
 
-    it('answers 404 instagram_reconnect_required for an expired account, without calling Instagram', async () => {
+    it('answers 404 instagram_reconnect_required for a broken account, without calling Instagram', async () => {
       await connectAccount();
       const [row] = await readInstagramAccountRows(team.organization.id);
       await app.appDomain.instagramAccountService.markConnectionBroken({
@@ -354,7 +354,7 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(nock.pendingMocks()).toEqual([]);
     });
 
-    it('marks the account expired when Instagram refuses its token (190/463), then answers 404 instagram_reconnect_required', async () => {
+    it('marks the account error when Instagram refuses its token (190/463), then answers 404 instagram_reconnect_required', async () => {
       const profile = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'media' }))
@@ -366,7 +366,8 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(response.statusCode).toBe(404);
       expect(errorOf(response).reason).toBe('instagram_reconnect_required');
       const [row] = await readInstagramAccountRows(team.organization.id);
-      expect(row?.connection_status).toBe('expired');
+      // Subcode 463 lands as `error`: the channel account has no `expired` (CA4, R6).
+      expect(row?.connection_status).toBe('error');
 
       // The account page now shows the reconnect card (IA13).
       const account = await injectAuthenticated(app, {
@@ -562,7 +563,8 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(response.statusCode).toBe(404);
       expect(errorOf(response).reason).toBe('instagram_reconnect_required');
       const [row] = await readInstagramAccountRows(team.organization.id);
-      expect(row?.connection_status).toBe('expired');
+      // Subcode 463 lands as `error`: the channel account has no `expired` (CA4, R6).
+      expect(row?.connection_status).toBe('error');
     });
 
     it('answers 503 instagram_unavailable with Retry-After when Instagram throttles', async () => {

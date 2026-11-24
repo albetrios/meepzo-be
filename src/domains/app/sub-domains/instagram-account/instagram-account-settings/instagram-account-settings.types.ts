@@ -55,6 +55,6 @@ export interface InstagramAccountSettingsUpdateInput {
 export interface InstagramAccountSettingsUpdateResult {
   /** The settings as saved (1.B.6). */
   settings: InstagramAccountSettingsOutput;
-  /** `iga_…` of the account whose settings changed. */
+  /** `cha_…` of the account whose settings changed. */
   instagramAccountPublicId: string;
 }

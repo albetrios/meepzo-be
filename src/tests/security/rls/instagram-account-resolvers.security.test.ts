@@ -48,11 +48,11 @@ const INSTAGRAM_USER = {
   revokedInAConnectedInB: '17841400000000033',
   unknown: '17841400000000099',
 } as const;
-const INSTAGRAM_APP_USER = {
-  onlyInA: '90000000000000011',
-  revokedInAConnectedInB: '90000000000000033',
-  unknown: '90000000000000099',
-} as const;
+/**
+ * The id Meta signs on its callbacks: under Unified Login the Instagram user id (P111) — since ROUTE
+ * row R6 the callbacks' resolver matches `instagram_user_id` (the app-scoped column is gone).
+ */
+const INSTAGRAM_APP_USER = INSTAGRAM_USER;
 
 /** One channel connection per organization, with a placeholder token (MC9). */
 async function insertConnection(organizationId: number): Promise<{ id: number }> {
@@ -77,7 +77,6 @@ async function insertAccount(options: {
   organizationId: number;
   channelConnectionId: number;
   instagramUserId: string;
-  instagramAppUserId: string;
   isRevoked: boolean;
 }): Promise<{ id: number }> {
   const [channelAccount] = await database
@@ -95,14 +94,10 @@ async function insertAccount(options: {
   const [account] = await database
     .insert(instagram_accounts)
     .values({
-      public_id: generatePublicId('instagramAccount'),
       organization_id: options.organizationId,
       channel_account_id: channelAccount!.id,
       instagram_user_id: options.instagramUserId,
-      instagram_app_user_id: options.instagramAppUserId,
       username: `account_${options.instagramUserId.slice(-2)}`,
-      connection_status: options.isRevoked ? 'revoked' : 'connected',
-      disconnected_at: options.isRevoked ? new Date() : null,
     })
     .returning({ id: instagram_accounts.id });
   return account!;
@@ -128,14 +123,12 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
       organizationId: organizationA.id,
       channelConnectionId: connectionInA.id,
       instagramUserId: INSTAGRAM_USER.onlyInA,
-      instagramAppUserId: INSTAGRAM_APP_USER.onlyInA,
       isRevoked: false,
     });
     await insertAccount({
       organizationId: organizationA.id,
       channelConnectionId: connectionInA.id,
       instagramUserId: INSTAGRAM_USER.revokedInAConnectedInB,
-      instagramAppUserId: INSTAGRAM_APP_USER.revokedInAConnectedInB,
       isRevoked: true,
     });
     // B: that Instagram account, connected.
@@ -143,7 +136,6 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
       organizationId: organizationB.id,
       channelConnectionId: connectionInB.id,
       instagramUserId: INSTAGRAM_USER.revokedInAConnectedInB,
-      instagramAppUserId: INSTAGRAM_APP_USER.revokedInAConnectedInB,
       isRevoked: false,
     });
   });

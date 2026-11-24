@@ -82,7 +82,7 @@ export function instagramWebhookAccountProcessingDeduplication(
  *
  * @remarks
  * - **Algorithm:** validates the payload (`organizationPublicId` for the job scope, K8), then
- *   `queue.add` with a unique `jobId` (`instagram-webhook-events-<iga_…>-<uuid>`) and the account's
+ *   `queue.add` with a unique `jobId` (`instagram-webhook-events-<cha_…>-<uuid>`) and the account's
  *   deduplication ({@link instagramWebhookAccountProcessingDeduplication}).
  * - **Failure modes:** propagates BullMQ / Redis errors — the receiver logs them and leaves the
  *   events `received` for the stuck-event pick-up; it never fails Meta's answer.

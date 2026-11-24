@@ -115,4 +115,44 @@ export class ChannelConnectionTokenService {
       },
     });
   }
+
+  /**
+   * The team delete's step of sub-domain 1 (IAC5, D54): every not-revoked connection of the
+   * organization revoked and its token deleted — those with no account left too. Returns how many
+   * connections were live before.
+   *
+   * @remarks
+   * Algorithm: the organization's not-revoked connections, then {@link revokeConnection} on each, in
+   * the caller's unit (the erasure's transaction). Failure modes: none of its own — an organization
+   * without connections answers `0`. Side effects: writes the connection and token rows. Notes: must
+   * run before the organization is soft-deleted (its own scope hides a deleted organization's rows);
+   * safe to repeat.
+   */
+  async revokeOrganizationConnections({
+    scope,
+    organizationId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    /** `tenancy.organizations.id` of the scope's organization. */
+    organizationId: number;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const connections = await this.connectionRepository.listByOrganizationId({
+          organizationId,
+          includeRevoked: false,
+        });
+        let revokedCount = 0;
+        for (const connection of connections) {
+          const wasLive = await this.revokeConnection({
+            scope,
+            channelConnection: { organizationId, channelConnectionId: connection.id },
+          });
+          if (wasLive) revokedCount += 1;
+        }
+        return revokedCount;
+      },
+    });
+  }
 }

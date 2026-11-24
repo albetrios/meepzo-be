@@ -126,7 +126,7 @@ const ACCOUNT_ID = 3;
 const OTHER_ACCOUNT_ID = 4;
 const CONTACT_ID = 41;
 const EMAIL_FIRST_ID = 16;
-const ACCOUNT_PUBLIC_ID = generatePublicId('instagramAccount');
+const ACCOUNT_PUBLIC_ID = generatePublicId('channelAccount');
 const ORGANIZATION_PUBLIC_ID = generatePublicId('organization');
 const CONTACT_INSTAGRAM_ID = '17841455500000001';
 const POST = '17900000000000001';
@@ -568,7 +568,7 @@ function setup() {
   const access: InstagramAutomationAccountAccess = {
     instagramAccount,
     instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-    instagramAppUserId: '8724000000000001',
+    instagramUserId: '8724000000000001',
     username: 'acme.shop',
     connectionStatus: 'connected',
     encryptedAccessToken: 'v1:ciphertext',

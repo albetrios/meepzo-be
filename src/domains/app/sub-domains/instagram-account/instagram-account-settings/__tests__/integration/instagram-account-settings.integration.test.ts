@@ -379,7 +379,7 @@ describe('Instagram account settings route (change)', () => {
 
     it('answers 404 instagram_not_connected once the account is disconnected (revoked)', async () => {
       const { profile } = await connectAccount();
-      mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+      mockInstagramUnsubscribe({ instagramUserId: profile.id });
       const disconnected = await injectAuthenticated(app, {
         method: 'DELETE',
         url: await organizationChannelAccountPath(team.organization.id),

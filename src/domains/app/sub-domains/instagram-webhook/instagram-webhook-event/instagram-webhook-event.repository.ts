@@ -41,6 +41,7 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { instagram_webhook_events } from './instagram-webhook-event.schema.js';
 import {
   INSTAGRAM_WEBHOOK_EVENT_WAITING_STATUSES,
@@ -110,7 +111,7 @@ export type InstagramWebhookEventClaimResult =
 export interface InstagramWebhookStuckAccount {
   /** The account's organization — the job's `organizationPublicId` (K8). */
   organizationPublicId: string;
-  /** `iga_…`. */
+  /** `cha_…`. */
   instagramAccountPublicId: string;
 }
 
@@ -497,7 +498,8 @@ export class InstagramWebhookEventRepository {
     return this.db()
       .select({
         organizationPublicId: organizations.public_id,
-        instagramAccountPublicId: instagram_accounts.public_id,
+        // The account's one id is its channel account's (`cha_…`, P47) since ROUTE row R6.
+        instagramAccountPublicId: channel_accounts.public_id,
       })
       .from(instagram_webhook_events)
       .innerJoin(
@@ -505,6 +507,13 @@ export class InstagramWebhookEventRepository {
         and(
           eq(instagram_accounts.organization_id, instagram_webhook_events.organization_id),
           eq(instagram_accounts.id, instagram_webhook_events.instagram_account_id),
+        ),
+      )
+      .innerJoin(
+        channel_accounts,
+        and(
+          eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+          eq(channel_accounts.id, instagram_accounts.channel_account_id),
         ),
       )
       .innerJoin(organizations, eq(organizations.id, instagram_webhook_events.organization_id))
@@ -519,7 +528,7 @@ export class InstagramWebhookEventRepository {
           isNull(organizations.deleted_at),
         ),
       )
-      .groupBy(organizations.public_id, instagram_accounts.public_id)
+      .groupBy(organizations.public_id, channel_accounts.public_id)
       .orderBy(sql`min(${instagram_webhook_events.created_at})`)
       .limit(limit);
   }

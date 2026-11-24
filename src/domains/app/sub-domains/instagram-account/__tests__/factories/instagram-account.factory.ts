@@ -29,6 +29,7 @@ import {
   readChannelConnectionTokenCiphertexts,
 } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { channelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import type { InstagramAccountPickValues } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 /** `PATCH /app/social/instagram/account/settings` (route 3). */
 export const INSTAGRAM_ACCOUNT_SETTINGS_PATH = testApiPath(
   '/app/social/instagram/account/settings',
@@ -118,7 +119,7 @@ export async function connectInstagramAccount({
 }): Promise<{
   account: TestConnectedInstagramAccount;
   channelConnectionPublicId: string;
-  /** The Instagram row's own `iga_` id (the launch suites' audit and callback ids until R6). */
+  /** The account's one id (`cha_…`, P47) — the channel account's, since R6 the Instagram row's too. */
   instagramAccountPublicId: string;
 }> {
   const { channelConnectionPublicId, pick } = await connectInstagramAccountsThroughRoutes({
@@ -137,26 +138,23 @@ export async function connectInstagramAccount({
     token,
   });
   if (read.statusCode !== 200) throw new Error(`account read answered ${read.statusCode}`);
-  const [row] = await operatorQuery<Array<{ public_id: string }>>`
-    SELECT public_id FROM app.instagram_accounts WHERE instagram_user_id = ${profile.user_id}
-    ORDER BY id DESC LIMIT 1`;
   return {
     account: (read.json() as { data: TestConnectedInstagramAccount }).data,
     channelConnectionPublicId,
-    instagramAccountPublicId: row?.public_id ?? '',
+    instagramAccountPublicId: picked.id,
   };
 }
 
-/** Mocks the disconnect's `DELETE subscribed_apps` for an account's app-scoped id. */
+/** Mocks the disconnect's `DELETE subscribed_apps` for an account's Instagram user id. */
 export function mockInstagramUnsubscribe({
-  instagramAppUserId,
+  instagramUserId,
   outcome = 'success',
 }: {
-  instagramAppUserId: string;
+  instagramUserId: string;
   outcome?: 'success' | 'failure';
 }): nock.Scope {
   const scope = nock(META_GRAPH_BASE_URL)
-    .delete(`/${META_GRAPH_VERSION}/${instagramAppUserId}/subscribed_apps`)
+    .delete(`/${META_GRAPH_VERSION}/${instagramUserId}/subscribed_apps`)
     .query(true);
   return outcome === 'success'
     ? scope.reply(200, { success: true })
@@ -286,7 +284,10 @@ export async function endPaidPlanWithoutPaying(organizationId: number): Promise<
     WHERE id = ${subscription.id}`;
 }
 
-/** The account rows of an organization, read as the operator (any status). */
+/**
+ * The account rows of an organization, read as the operator (any status): the Instagram extension
+ * with its channel account's public id, status and `disconnected_at` (R6 — the extension holds none).
+ */
 export async function readInstagramAccountRows(organizationId: number): Promise<
   Array<{
     id: string;
@@ -295,14 +296,17 @@ export async function readInstagramAccountRows(organizationId: number): Promise<
     connection_status: string;
     username: string | null;
     disconnected_at: Date | null;
-    token_expires_at: Date | null;
     webhook_subscribed_at: Date | null;
+    profile_erased_at: Date | null;
   }>
 > {
   return operatorQuery`
-    SELECT id, public_id, instagram_user_id, connection_status, username, disconnected_at,
-           token_expires_at, webhook_subscribed_at
-    FROM app.instagram_accounts WHERE organization_id = ${organizationId} ORDER BY id`;
+    SELECT i.id, c.public_id, i.instagram_user_id, c.connection_status, i.username,
+           c.disconnected_at, i.webhook_subscribed_at, i.profile_erased_at
+    FROM app.instagram_accounts AS i
+    INNER JOIN app.channel_accounts AS c
+      ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+    WHERE i.organization_id = ${organizationId} ORDER BY i.id`;
 }
 
 /**
@@ -332,4 +336,35 @@ export async function readStagedAuditRows({
   return operatorQuery`
     SELECT severity, resource_type, metadata FROM audit.outbox
     WHERE organization_public_id = ${organizationPublicId} AND action = ${action}`;
+}
+
+/**
+ * The extension values a pick writes (R6, 2.A IA8) with test defaults — for the repository and
+ * service tests that seed an Instagram row behind an `insertChannelAccount` fixture.
+ */
+export function buildInstagramPickValues({
+  organizationId,
+  channelAccountId,
+  instagramUserId,
+  ...overrides
+}: {
+  organizationId: number;
+  channelAccountId: number;
+  instagramUserId: string;
+} & Partial<InstagramAccountPickValues>): InstagramAccountPickValues {
+  return {
+    organizationId,
+    channelAccountId,
+    instagramUserId,
+    username: `acme_shop_${instagramUserId.slice(-4)}`,
+    biography: null,
+    website: null,
+    profilePictureUrl: null,
+    accountType: null,
+    isPrivate: false,
+    followersCount: 0,
+    followsCount: 0,
+    mediaCount: 0,
+    ...overrides,
+  };
 }

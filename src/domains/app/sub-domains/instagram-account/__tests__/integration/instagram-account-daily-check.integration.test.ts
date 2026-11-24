@@ -1,4 +1,5 @@
 import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { buildInstagramPickValues } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { Queue } from 'bullmq';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -117,29 +118,19 @@ describe('Instagram account daily check (IA8)', () => {
     return withAppDatabaseContext({
       scope: scopeOf(organization.public_id),
       callback: async () => {
-        const { account } = await accountRepository.upsertConnected({
-          channelAccountId: (
-            await insertChannelAccount({
-              organizationId: organization.id,
-              providerAccountId: profile.user_id,
-              channelConnectionId: connection.id,
-            })
-          ).id,
+        const channelAccount = await insertChannelAccount({
           organizationId: organization.id,
+          providerAccountId: profile.user_id,
           channelConnectionId: connection.id,
-          instagramUserId: profile.user_id,
-          instagramAppUserId: profile.id,
-          username: profile.username,
-          name: profile.name,
-          biography: null,
-          website: null,
-          profilePictureUrl: null,
-          followersCount: 10,
-          followsCount: 5,
-          mediaCount: 1,
-          scopes: [],
-          connectedByUserId: null,
         });
+        const account = await accountRepository.upsertAtPick(
+          buildInstagramPickValues({
+            organizationId: organization.id,
+            channelAccountId: channelAccount.id,
+            instagramUserId: profile.user_id,
+            username: profile.username,
+          }),
+        );
         const key = { organizationId: organization.id, instagramAccountId: account.id };
         if (isWebhookSubscribed) await accountRepository.recordWebhookSubscribed(key);
         return { key, publicId: account.public_id, profile };
@@ -151,17 +142,19 @@ describe('Instagram account daily check (IA8)', () => {
     const [account] = await operatorQuery<
       Array<{
         connection_status: string;
-        connection_status_changed_at: Date;
-        token_expires_at: Date | null;
-        name: string | null;
+        break_at: Date;
+        biography: string | null;
         followers_count: number;
         profile_synced_at: Date | null;
         webhook_subscribed_at: Date | null;
       }>
     >`
-      SELECT connection_status, connection_status_changed_at, token_expires_at, name,
-             followers_count, profile_synced_at, webhook_subscribed_at
-      FROM app.instagram_accounts WHERE id = ${instagramAccountId}`;
+      SELECT c.connection_status, c.updated_at AS break_at, i.biography, i.followers_count,
+             i.profile_synced_at, i.webhook_subscribed_at
+      FROM app.instagram_accounts AS i
+      INNER JOIN app.channel_accounts AS c
+        ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+      WHERE i.id = ${instagramAccountId}`;
     return { account };
   }
 
@@ -189,7 +182,8 @@ describe('Instagram account daily check (IA8)', () => {
     return noticeQueue.getJob(
       buildInstagramReconnectNoticeJobId({
         instagramAccountPublicId: target.publicId,
-        connectionStatusChangedAt: account.connection_status_changed_at,
+        // The break's time is the channel account's `updated_at` at the break (R6).
+        connectionStatusChangedAt: account.break_at,
       }),
     );
   }
@@ -198,7 +192,7 @@ describe('Instagram account daily check (IA8)', () => {
     const target = await seedConnectedAccount();
     const profileRead = mockProfile({
       ...target.profile,
-      name: 'Acme Shop Renamed',
+      biography: 'Handmade things, renamed.',
       followers_count: 2048,
     });
 
@@ -211,8 +205,7 @@ describe('Instagram account daily check (IA8)', () => {
     expect(profileRead.isDone()).toBe(true);
     const { account } = await readState(target.key.instagramAccountId);
     expect(account?.connection_status).toBe('connected');
-    expect(account?.token_expires_at).toBeNull();
-    expect(account?.name).toBe('Acme Shop Renamed');
+    expect(account?.biography).toBe('Handmade things, renamed.');
     expect(account?.followers_count).toBe(2048);
     expect(account?.profile_synced_at).not.toBeNull();
   });
@@ -282,7 +275,7 @@ describe('Instagram account daily check (IA8)', () => {
     const afterSecond = await readState(target.key.instagramAccountId);
 
     expect(afterSecond.account?.connection_status).toBe('connected');
-    expect(afterSecond.account?.name).toBe(afterFirst.account?.name);
+    expect(afterSecond.account?.biography).toBe(afterFirst.account?.biography);
   });
 
   it('skips an account that is no longer connected', async () => {

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { InstagramAccountExtensionService } from '@/domains/app/sub-domains/instagram-account/instagram-account-extension.service.js';
+import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
@@ -43,6 +45,8 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     const accountRepository = new InstagramAccountRepository();
     service = new InstagramAccountService(
       accountRepository,
+      new InstagramAccountExtensionService(accountRepository),
+      new ChannelAccountRepository(),
       new ChannelConnectionTokenService(
         new ChannelConnectionTokenRepository(),
         new ChannelConnectionRepository(),
@@ -61,7 +65,10 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     await operatorQuery`
       UPDATE app.channel_connection_tokens SET encrypted_access_token = ${ciphertext}
       WHERE channel_connection_id = (
-        SELECT channel_connection_id FROM app.instagram_accounts WHERE id = ${account.id})`;
+        SELECT c.channel_connection_id FROM app.instagram_accounts AS i
+        INNER JOIN app.channel_accounts AS c
+          ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+        WHERE i.id = ${account.id})`;
   }
 
   async function insertSettings(account: { id: number }, isAutomationEnabled: boolean) {
@@ -86,6 +93,7 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
 
     await expect(find(account.public_id)).resolves.toEqual({
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
+      channelAccountId: expect.any(Number),
       instagramAccountPublicId: account.public_id,
       connectionStatus: 'connected',
       isAutomationEnabled: false,

@@ -594,11 +594,9 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     const [account] = await database
       .insert(instagram_accounts)
       .values({
-        public_id: generatePublicId('instagramAccount'),
         organization_id: organization.id,
         channel_account_id: channelAccount!.id,
         instagram_user_id: instagramUserId,
-        instagram_app_user_id: `9${instagramUserId}`,
         username: `rls_${side.toLowerCase()}`,
       })
       .returning();

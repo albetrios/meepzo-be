@@ -132,7 +132,7 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
     const access: InstagramAutomationAccountAccess = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
       instagramAccountPublicId: account.public_id,
-      instagramAppUserId: '17841400000000999',
+      instagramUserId: '17841400000000999',
       username: 'acme.shop',
       connectionStatus: 'connected',
       encryptedAccessToken: 'v1:fake-ciphertext',
@@ -875,7 +875,7 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
       accountService.findAutomationAccountAccess.mockResolvedValueOnce({
         instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
         instagramAccountPublicId: account.public_id,
-        instagramAppUserId: '1',
+        instagramUserId: '1',
         username: 'acme.shop',
         connectionStatus: 'error',
         encryptedAccessToken: 'v1:fake',

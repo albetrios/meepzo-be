@@ -11,9 +11,12 @@ The Instagram part of the team organization's connected accounts. Since ROUTE ro
 (`../channel-account/`, `app.channel_accounts`, 1:1 through `channel_account_id`): the account's routes
 (read, disconnect — the launch's `GET` / `DELETE /api/v1/app/social/instagram/account`) moved there as
 routes 7 and 8, and the connection the account came through is the channel account's (P111, P116); the
-token is that connection's (`app.channel_connection_tokens`). Until ROUTE row R6 reshapes this table into
-the 1:1 extension (2.A), it keeps a mirrored copy of the status, public id and connection columns, which
-its revoke and guarded break write together with the channel account's (P116). The later sub-domains read the
+token is that connection's (`app.channel_connection_tokens`). ROUTE row R6 reshaped this table into the
+1:1 extension (routes-final § 2.A, IA8): the Instagram user id, the profile, the account type, the private
+flag, the webhook stamp and the starter-question time — no public id, status or connection columns of its
+own (the account's one id is the channel account's `cha_…`, P47). Every read joins the channel account
+for them; the status moves only on `app.channel_accounts`. The extension is written only through
+`InstagramAccountExtensionService` (2.A.10). The later sub-domains read the
 account through this sub-domain's services: its status and settings on every webhook event, the
 guarded status change on a token error, and the two resolvers that find an organization before
 one is known.
@@ -30,14 +33,17 @@ data-deletion callbacks, routes 7–8, R6).
 
 ## Layout
 
-- `instagram-account.schema.ts` — `app.instagram_accounts`: one row per organization and Instagram
-  account, so a reconnect reuses it (revoked included) and its settings come back
-- `instagram-account.repository.ts` — the live account, the connect upsert, the guarded status
-  change, revoke, the profile erase (once), the locked accounts of one app-scoped id (Meta's
-  callbacks) and of the whole organization (its delete), the webhook-subscription stamp, the daily check's sweep page, expiry copy and profile refresh, the
-  two SECURITY DEFINER resolvers; worker and retention factories
-- `instagram-account.constants.ts` — the four connection statuses, the live-row unique index a pick
-  race maps to 409, the audit resource type (shared with route 3), the frontend's Instagram page
+- `instagram-account.schema.ts` — `app.instagram_accounts`: the 1:1 extension of a channel account,
+  one row per organization and Instagram account, so a pick brings a revoked one back with its settings
+- `instagram-account.repository.ts` — the live accounts (joined to the channel account), the pick's
+  upsert, the webhook stamp and its clearing, the profile erase (once), the locked accounts of one
+  Instagram id (Meta's callbacks) and of the whole organization (its delete), the daily check's sweep
+  page and profile refresh, the two SECURITY DEFINER resolvers; worker and retention factories
+- `instagram-account-extension.service.ts` — the extension's one writer (2.A.10): create at the pick,
+  the webhook stamp, the revoke's stamp clear, the profile erase
+- `instagram-account.serializer.ts` — the `instagram` object of the channel account (2.A.6)
+- `instagram-account.constants.ts` — the status type (the channel account's) and the broken statuses a
+  Meta error classifies, the audit resource type (shared with route 3), the frontend's Instagram page
 - `queues/` — `instagram-account-daily-check` (one check per account per UTC day, and the sweep's
   job name) and `instagram-reconnect-notice` (one notice per account and break), each with its job
   schema (`organizationPublicId` in every payload, K8)
@@ -99,8 +105,8 @@ data-deletion callbacks, routes 7–8, R6).
 - **The token table has no cross-organization arm.** Its RLS policy is the organization arm only,
   in `USING` and `WITH CHECK` — no retention sweep arm — so no maintenance process can read a token.
   The account and its settings carry the sweep arm in `USING` only.
-- **No expiry to copy.** `app.instagram_accounts.token_expires_at` stays empty — the connection's
-  system-user token never ends (D24); route 2's `access_expires_at` is `null` until R6 drops it.
+- **No expiry to copy.** The connection's system-user token never ends (D24); `token_expires_at`,
+  `scopes` and the app-scoped id left the extension at R6 (IA8).
 - **The token goes with the connection's last account** (route 4, Meta's deauthorize and data
   deletion, routes 7–8, and the organization's delete, D54): a disconnect revokes the account and,
   when no other not-revoked account uses its connection, revokes the connection and deletes its
@@ -108,8 +114,9 @@ data-deletion callbacks, routes 7–8, R6).
   revoked row) and the stored posts, revoked rows of the same person included — but never a
   connection made after Meta signed its request (D53).
 - **A deleted organization holds no Instagram data.** Its delete, as the last step before the soft
-  delete, unsubscribes the live account (best effort) and revokes and erases every account it ever
-  held — token, profile, stored posts — in its own scope, so the Instagram account connects
+  delete, unsubscribes every live account (best effort) and revokes and erases every account it ever
+  held — token, profile, stored posts — and revokes every connection still live with its token (one
+  left with no account too, IAC5), in its own scope, so the Instagram account connects
   elsewhere at once and Meta's later requests find nothing (D54). After the soft delete row-level
   security hides the rows from that scope, so the erase must come first; a failed one stops the
   delete, and the offboarding reconcile worker runs it again.
@@ -118,9 +125,9 @@ data-deletion callbacks, routes 7–8, R6).
   transaction (`rls-context-network-isolation.global.test.ts`).
 - **Lookups before the organization is known go through two resolvers** that return only
   organization public ids — `app.resolve_organization_public_id_for_instagram_user` (the
-  not-revoked account of an Instagram user id; the pick's "connected elsewhere") and
-  `app.resolve_organization_public_ids_for_instagram_app_user` (every row of an app-scoped id, any
-  status) — then work in that organization's `PRINCIPAL_SCOPE.VERIFIED` scope (IA6;
+  not-revoked channel account of an Instagram user id; webhook routing) and
+  `app.resolve_organization_public_ids_for_instagram_app_user` (every row of the Instagram id Meta
+  signs, any status — the Instagram user id under Unified Login since R6; R9 replaces it) — then work in that organization's `PRINCIPAL_SCOPE.VERIFIED` scope (IA6;
   `src/tests/security/rls/instagram-account-resolvers.security.test.ts`).
 - **Team-only.** Disconnect answers `422` on a personal organization; the read answers
   `404 team_organization_required`. Before either, the permission gate answers `403`: a personal
@@ -128,31 +135,29 @@ data-deletion callbacks, routes 7–8, R6).
 
 ## Lifecycle
 
+The status below is the channel account's (`app.channel_accounts.connection_status`, CA4 — no
+`expired` since R6; Meta's subcode 463 lands as `error`); the extension follows it.
+
 ```mermaid
 stateDiagram-v2
     [*] --> connected: a channel connection's pick — new row, default settings
-    connected --> expired: markConnectionBroken (Instagram subcode 463)
-    connected --> error: markConnectionBroken (any other token refusal)
-    expired --> connected: reconnect (the callback, MC6) or a pick (same row)
+    connected --> error: markConnectionBroken (any token refusal)
     error --> connected: reconnect (the callback, MC6) or a pick (same row)
-    connected --> revoked: disconnect (route 4) — the connection's token with its last account
-    expired --> revoked: disconnect (route 4) — the connection's token with its last account
-    error --> revoked: disconnect (route 4) — the connection's token with its last account
-    connected --> revoked: Meta deauthorize / data deletion (routes 7–8) — the connection's token with its last account
-    expired --> revoked: Meta deauthorize / data deletion (routes 7–8) — the connection's token with its last account
-    error --> revoked: Meta deauthorize / data deletion (routes 7–8) — the connection's token with its last account
-    connected --> revoked: organization deleted (D54) — token, profile and stored posts erased
-    expired --> revoked: organization deleted (D54) — token, profile and stored posts erased
-    error --> revoked: organization deleted (D54) — token, profile and stored posts erased
+    connected --> revoked: disconnect (route 8) — the connection's token with its last account
+    error --> revoked: disconnect (route 8) — the connection's token with its last account
+    connected --> revoked: Meta deauthorize / data deletion — the connection's token with its last account
+    error --> revoked: Meta deauthorize / data deletion — the connection's token with its last account
+    connected --> revoked: organization deleted (D54, IAC5) — token, profile and stored posts erased
+    error --> revoked: organization deleted (D54, IAC5) — token, profile and stored posts erased
     revoked --> revoked: Meta data deletion, organization deleted — profile erased (once), stored posts deleted
     revoked --> connected: pick the same account in the same organization (row and settings kept)
     revoked --> [*]: organization purged (cascade)
 ```
 
 The guarded change (`markConnectionBroken`, IA9) is the only way out of `connected` other than a
-disconnect: it updates only a row still `connected`, so of two racing callers exactly one wins and
-stamps `connection_status_changed_at`. The winner — and only the winner — enqueues the break's
-reconnect notice once its unit of work commits (job id = the account and that time); a rolled-back
+disconnect: it moves only a channel account still `connected`, so of two racing callers exactly one
+wins. The winner — and only the winner — enqueues the break's reconnect notice once its unit of work
+commits (job id = the account and the channel account's `updated_at` at the break); a rolled-back
 break enqueues nothing. A reconnect sets `connected` again, so a later break is a new one and is
 told again.
 

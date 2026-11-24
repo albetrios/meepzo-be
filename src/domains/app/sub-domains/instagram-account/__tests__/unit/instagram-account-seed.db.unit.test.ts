@@ -94,11 +94,8 @@ describe('Instagram account bulk seed (database)', () => {
     const account = accounts[0]!;
     expect(account).toMatchObject({
       channel_account_id: expect.any(Number),
-      connection_status: 'connected',
-      connected_by_user_id: organization.ownerUserId,
-      disconnected_at: null,
-      token_expires_at: null,
-      scopes: [...META_REQUIRED_PERMISSIONS],
+      account_type: 'business',
+      profile_erased_at: null,
     });
     expect(account.instagram_user_id).toMatch(/^9[0-9]{15}$/);
     expect(account.webhook_subscribed_at).not.toBeNull();

@@ -527,7 +527,7 @@ erDiagram
   The Instagram user id now comes from the connection's assigned-accounts list and is used for API
   paths and webhook routing. The daily check's profile refresh stays, inside the connection's token
   check (A17, [P17](decisions.md), P47).
-- **Table:** `app.instagram_accounts` (live)
+- **Table:** `app.instagram_accounts` (live) — **Built R6** ([AS-BUILT](../AS-BUILT.md), [P120](decisions.md), [P121](decisions.md)): `channel_account_id` (unique, composite FK RESTRICT), `instagram_user_id`, `username`, `biography`, `website`, `profile_picture_url`, `account_type` (null · `business` · `creator`), `is_private` (default false), `followers_count`, `follows_count`, `media_count`, `webhook_subscribed_at`, `starter_questions_set_at`, `profile_synced_at`, `profile_erased_at`; `public_id`, `connection_status`, `connection_status_changed_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`, `name`, `instagram_app_user_id`, `scopes`, `token_expires_at` dropped.
 - **Sources:** plan:L2922–L2944; plan:L4590–L4604 (connect, plan limit); current schema
   `src/domains/app/sub-domains/instagram-account/instagram-account.schema.ts`.
 - **Added:**

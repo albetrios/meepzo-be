@@ -1,4 +1,5 @@
 import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { buildInstagramPickValues } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
@@ -58,26 +59,17 @@ describe('InstagramAccountSettingsService (database)', () => {
       providerAccountId: '17841400000000001',
       channelConnectionId: channelConnection.id,
     });
-    const { account } = await withAppDatabaseContext({
+    const account = await withAppDatabaseContext({
       scope,
       callback: () =>
-        accountRepository.upsertConnected({
-          channelAccountId: channelAccount.id,
-          organizationId: organization.id,
-          instagramUserId: '17841400000000001',
-          instagramAppUserId: '917841400000000001',
-          username: 'acme_shop',
-          name: null,
-          biography: null,
-          website: null,
-          profilePictureUrl: null,
-          followersCount: 0,
-          followsCount: 0,
-          mediaCount: 0,
-          scopes: [],
-          channelConnectionId: channelConnection.id,
-          connectedByUserId: null,
-        }),
+        accountRepository.upsertAtPick(
+          buildInstagramPickValues({
+            organizationId: organization.id,
+            channelAccountId: channelAccount.id,
+            instagramUserId: '17841400000000001',
+            username: 'acme_shop',
+          }),
+        ),
     });
     instagramAccount = { organizationId: organization.id, instagramAccountId: account.id };
   });

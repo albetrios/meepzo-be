@@ -10,7 +10,7 @@ The common part of every connected inbox, whatever its channel — an Instagram 
 Page later (routes-final § 1B of `iterations/feat-instagram-dm-sending-2026-11-23-oxak/`, CA1–CA11). ROUTE row R5 built
 the table `app.channel_accounts` (public id prefix `cha`, P22), routes 6–11, the capability list and the one feature
 check, and the channel connection's account port over it. The Instagram-only part (user id, profile, settings, posts)
-is `app.instagram_accounts`, a 1:1 extension through its `channel_account_id` (sub-domain 2, reshaped at R6).
+is `app.instagram_accounts`, a 1:1 extension through its `channel_account_id` (sub-domain 2, reshaped at R6 — its `instagram` object, 2.A.6, is serialized there).
 
 ## Routes (under `/api/v1/app`)
 
@@ -51,9 +51,9 @@ organization's or a revoked account is `404 channel_account_not_found`. Routes 7
 
 ## Rules
 
-- **The status of record is here** (CA4); until R6 drops them, `app.instagram_accounts` keeps a mirrored copy of the
-  status, public id and connection columns, written in the same statement pair by the Instagram repository's revoke and
-  break and by this service's pick and reconnect (P116).
+- **The status of record is here** (CA4): since ROUTE row R6 `app.instagram_accounts` holds no status, public id or
+  connection column; the Instagram extension is written only through `InstagramAccountExtensionService` (2.A.10) — this
+  service never writes its table, and the guarded break and the revokes move `app.channel_accounts` alone.
 - **No Meta call inside a database context** (1B.10): route 8 reads, closes, unsubscribes (best effort), then writes;
   the connection's token goes only with its last not-revoked account (CA8).
 - **Route 11 counts under the organization lock** (CA9): at the plan's `channel_accounts_max` the named

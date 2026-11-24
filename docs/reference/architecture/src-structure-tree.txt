@@ -253,6 +253,7 @@ src/
     │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account-webhook-processing.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account.repository.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-account.service.unit.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
     │   │   │   ├── instagram-account-meta-callback/
@@ -343,10 +344,12 @@ src/
     │   │   │   │   └── instagram-reconnect-notice.worker.ts
     │   │   │   ├── instagram-account-erasure.service.ts
     │   │   │   ├── instagram-account-error.util.ts
+    │   │   │   ├── instagram-account-extension.service.ts
     │   │   │   ├── instagram-account.constants.ts
     │   │   │   ├── instagram-account.overview.md
     │   │   │   ├── instagram-account.repository.ts
     │   │   │   ├── instagram-account.schema.ts
+    │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
     │   │   │   └── instagram-account.types.ts
     │   │   └── instagram-webhook/

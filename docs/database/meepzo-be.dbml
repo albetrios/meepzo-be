@@ -360,28 +360,21 @@ Note app.instagram_account_settings {
 }
 
 Table app.instagram_accounts {
+  account_type varchar(20)
   biography text
   channel_account_id bigint [not null]
-  connected_at timestamptz [not null]
-  connected_by_user_id bigint
-  connection_status varchar(20) [not null]
-  connection_status_changed_at timestamptz [not null]
   created_at timestamptz [not null]
-  disconnected_at timestamptz
   followers_count int [not null]
   follows_count int [not null]
   id bigint [pk, increment]
-  instagram_app_user_id varchar(64) [not null]
   instagram_user_id varchar(64) [not null]
+  is_private boolean [not null]
   media_count int [not null]
-  name varchar(255)
   organization_id bigint [not null]
   profile_erased_at timestamptz
   profile_picture_url text
   profile_synced_at timestamptz
-  public_id varchar(28) [not null]
-  scopes text [not null]
-  token_expires_at timestamptz
+  starter_questions_set_at timestamptz
   updated_at timestamptz [not null]
   username varchar(64)
   webhook_subscribed_at timestamptz

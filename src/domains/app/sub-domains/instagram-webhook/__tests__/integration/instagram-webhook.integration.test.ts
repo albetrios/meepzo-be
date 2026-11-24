@@ -162,11 +162,10 @@ describe('Instagram webhook — routes 16–17', () => {
 
   async function setConnectionStatus(status: 'expired' | 'error' | 'revoked'): Promise<void> {
     await operatorQuery`
-      UPDATE app.instagram_accounts
-      SET connection_status = ${status},
-          connection_status_changed_at = now(),
+      UPDATE app.channel_accounts
+      SET connection_status = ${status === 'expired' ? 'error' : status},
           disconnected_at = ${status === 'revoked' ? new Date() : null}
-      WHERE id = ${account.id}`;
+      WHERE id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id})`;
   }
 
   describe('GET /app/social/instagram/webhook — the subscription check (route 16, WH7)', () => {
@@ -469,7 +468,7 @@ describe('Instagram webhook — routes 16–17', () => {
       ).toEqual([
         expect.objectContaining({
           organizationPublicId: team.organization.public_id,
-          instagramAccountPublicId: expect.stringMatching(/^iga_/),
+          instagramAccountPublicId: expect.stringMatching(/^cha_/),
           requestId: expect.any(String),
         }),
       ]);

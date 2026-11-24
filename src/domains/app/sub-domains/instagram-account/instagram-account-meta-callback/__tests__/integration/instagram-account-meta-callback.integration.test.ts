@@ -54,14 +54,12 @@ interface AccountProfileRow {
   public_id: string;
   connection_status: string;
   username: string | null;
-  name: string | null;
   biography: string | null;
   website: string | null;
   profile_picture_url: string | null;
   followers_count: number;
   follows_count: number;
   media_count: number;
-  scopes: string[];
   disconnected_at: Date | null;
   profile_erased_at: Date | null;
   updated_at: Date;
@@ -69,10 +67,13 @@ interface AccountProfileRow {
 
 async function readAccountProfiles(organizationId: number): Promise<AccountProfileRow[]> {
   return operatorQuery`
-    SELECT id, public_id, connection_status, username, name, biography, website,
-           profile_picture_url, followers_count, follows_count, media_count, scopes,
-           disconnected_at, profile_erased_at, updated_at
-    FROM app.instagram_accounts WHERE organization_id = ${organizationId} ORDER BY id`;
+    SELECT i.id, c.public_id, c.connection_status, i.username, i.biography, i.website,
+           i.profile_picture_url, i.followers_count, i.follows_count, i.media_count,
+           c.disconnected_at, i.profile_erased_at, i.updated_at
+    FROM app.instagram_accounts AS i
+    INNER JOIN app.channel_accounts AS c
+      ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+    WHERE i.organization_id = ${organizationId} ORDER BY i.id`;
 }
 
 async function countStoredPosts(organizationId: number): Promise<number> {
@@ -145,7 +146,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     profile: TestInstagramProfile;
     fixture: InstagramTeamFixture;
   }): Promise<void> {
-    mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    mockInstagramUnsubscribe({ instagramUserId: profile.id });
     const response = await injectAuthenticated(app, {
       method: 'DELETE',
       url: await organizationChannelAccountPath(fixture.organization.id),
@@ -209,7 +210,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
   /** Makes the team's account one connected two hours ago. */
   async function backdateConnection(): Promise<void> {
     await operatorQuery`
-      UPDATE app.instagram_accounts SET connected_at = now() - interval '2 hours'
+      UPDATE app.channel_accounts SET connected_at = now() - interval '2 hours'
       WHERE organization_id = ${team.organization.id}`;
   }
 
@@ -275,15 +276,15 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     it('revokes the account in every organization holding that app-scoped id, each with its own audit entry', async () => {
       const otherTeam = await createInstagramTeam();
       const firstProfile = buildInstagramProfile();
-      // The same person's app-scoped id in a second organization (a distinct Instagram user id, so
-      // both rows can be live at once): the resolver names both organizations (IA6). Under Unified
-      // Login the pick writes the Instagram user id as the app-scoped id (P111), so the second row's
-      // is set by hand — the resolver itself is replaced at ROUTE row R9 (MC15).
+      // The same Instagram id in a second organization's extension (its channel account keeps a
+      // distinct provider id, so both rows can be live at once): the resolver names both
+      // organizations (IA6). Since R6 Meta's signed id is matched on `instagram_user_id` (P111),
+      // so the second row's is set by hand — the resolver itself is replaced at ROUTE row R9 (MC15).
       const secondProfile = buildInstagramProfile();
       await connectAccount({ profile: firstProfile });
       await connectAccount({ profile: secondProfile, fixture: otherTeam });
       await operatorQuery`
-        UPDATE app.instagram_accounts SET instagram_app_user_id = ${firstProfile.id}
+        UPDATE app.instagram_accounts SET instagram_user_id = ${firstProfile.id}
         WHERE organization_id = ${otherTeam.organization.id}`;
 
       const response = await postCallback({
@@ -534,14 +535,12 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
         public_id: accountPublicId,
         connection_status: 'revoked',
         username: null,
-        name: null,
         biography: null,
         website: null,
         profile_picture_url: null,
         followers_count: 0,
         follows_count: 0,
         media_count: 0,
-        scopes: [],
       });
       expect(row?.profile_erased_at).not.toBeNull();
       expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual([]);

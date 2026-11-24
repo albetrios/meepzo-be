@@ -268,6 +268,40 @@ describe('Channel account routes', () => {
       expect(data.instagram?.settings).toMatchObject({ is_automation_enabled: true });
     });
 
+    it('shows the Instagram extension of 2.A.6 and flags a private account (AC-2.1, AC-2.12)', async () => {
+      const account = nextAccount();
+      const { ids } = await connect([account]);
+      await operatorQuery`
+        UPDATE app.instagram_accounts SET is_private = true, account_type = 'creator'
+        WHERE instagram_user_id = ${account.id}`;
+
+      const data = dataOf<ChannelAccountAnswer>(await read(ids[0] ?? '', team.viewerToken));
+
+      expect(data.instagram).toMatchObject({
+        instagram_user_id: account.id,
+        username: account.username,
+        account_type: 'creator',
+        is_private: true,
+        followers_count: expect.any(Number),
+        starter_questions_set_at: null,
+        is_webhook_subscribed: true,
+      });
+      expect(Object.keys(data.instagram ?? {}).sort()).toEqual(
+        [
+          'account_type',
+          'followers_count',
+          'instagram_user_id',
+          'is_private',
+          'is_webhook_subscribed',
+          'profile_picture_url',
+          'profile_synced_at',
+          'settings',
+          'starter_questions_set_at',
+          'username',
+        ].sort(),
+      );
+    });
+
     it("answers 404 channel_account_not_found for another organization's account and a malformed id 400", async () => {
       const otherTeam = await createInstagramTeam();
       const { ids } = await connect([nextAccount()], otherTeam);
@@ -288,14 +322,14 @@ describe('Channel account routes', () => {
       const second = nextAccount();
       const { ids } = await connect([first, second]);
 
-      mockInstagramUnsubscribe({ instagramAppUserId: first.id });
+      mockInstagramUnsubscribe({ instagramUserId: first.id });
       expect((await disconnect(ids[0] ?? '')).statusCode).toBe(204);
       expect(
         await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
       ).toHaveLength(1);
       expect((await readChannelConnectionRows(team.organization.id))[0]?.status).toBe('connected');
 
-      mockInstagramUnsubscribe({ instagramAppUserId: second.id });
+      mockInstagramUnsubscribe({ instagramUserId: second.id });
       expect((await disconnect(ids[1] ?? '')).statusCode).toBe(204);
       expect(
         await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
@@ -330,7 +364,7 @@ describe('Channel account routes', () => {
       await operatorQuery`
         UPDATE app.instagram_account_settings SET public_reply_chance_percent = 40
         WHERE organization_id = ${team.organization.id}`;
-      mockInstagramUnsubscribe({ instagramAppUserId: account.id });
+      mockInstagramUnsubscribe({ instagramUserId: account.id });
       expect((await disconnect(ids[0] ?? '')).statusCode).toBe(204);
       const repeat = await disconnect(ids[0] ?? '');
       expect(repeat.statusCode).toBe(404);
@@ -347,7 +381,7 @@ describe('Channel account routes', () => {
     it('still disconnects when the unsubscribe fails', async () => {
       const account = nextAccount();
       const { ids } = await connect([account]);
-      mockInstagramUnsubscribe({ instagramAppUserId: account.id, outcome: 'failure' });
+      mockInstagramUnsubscribe({ instagramUserId: account.id, outcome: 'failure' });
       expect((await disconnect(ids[0] ?? '')).statusCode).toBe(204);
       expect((await readChannelAccountRows(team.organization.id))[0]?.connection_status).toBe(
         'revoked',

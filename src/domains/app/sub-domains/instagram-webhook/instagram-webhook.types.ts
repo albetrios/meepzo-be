@@ -40,7 +40,7 @@ export interface InstagramWebhookDeliveryResult {
 export interface InstagramWebhookAccountProcessingRequest {
   /** The account's organization — the processing job's `organizationPublicId` (K8). */
   organizationPublicId: string;
-  /** `iga_…` — processing works through this account's waiting events, oldest first (WH5). */
+  /** `cha_…` — processing works through this account's waiting events, oldest first (WH5). */
   instagramAccountPublicId: string;
   /** The delivery's request id, for log correlation. */
   requestId: string;

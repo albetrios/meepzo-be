@@ -122,8 +122,11 @@ export const channelAccountSchema = {
       properties: {
         instagram_user_id: { type: 'string' },
         username: { type: 'string', nullable: true },
-        profile_picture_url: { type: 'string', nullable: true },
+        account_type: { type: 'string', enum: ['business', 'creator'], nullable: true },
+        is_private: { type: 'boolean' },
         followers_count: { type: 'integer' },
+        profile_picture_url: { type: 'string', nullable: true },
+        starter_questions_set_at: { type: 'string', format: 'date-time', nullable: true },
         is_webhook_subscribed: { type: 'boolean' },
         profile_synced_at: { type: 'string', format: 'date-time', nullable: true },
         settings: instagramAccountSettingsSchema,
@@ -153,8 +156,11 @@ export const channelAccountExample = {
   instagram: {
     instagram_user_id: '17841400000000001',
     username: 'handmade.shop',
-    profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
+    account_type: 'business',
+    is_private: false,
     followers_count: 1204,
+    profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
+    starter_questions_set_at: null,
     is_webhook_subscribed: true,
     profile_synced_at: '2026-11-21T09:00:00.000Z',
     settings: instagramAccountSettingsExample,
@@ -473,7 +479,7 @@ export const contactSchema = {
 
 export const contactExample = {
   id: 'con_p3k8w2m9x4r7n1v5a1b2c',
-  instagram_account_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
+  instagram_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
   instagram_user_id: '17841455500000001',
   username: 'jordan.lee',
   full_name: 'Jordan Lee',
@@ -620,7 +626,7 @@ export const automationSchema = {
 
 export const automationExample = {
   id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
-  instagram_account_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
+  instagram_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
   name: 'Comment SHOP for the link',
   status: 'live',
   trigger_type: 'comment',

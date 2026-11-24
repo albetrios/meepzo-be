@@ -11,7 +11,7 @@ import type { ContactRow } from './contact.repository.js';
 export interface ContactOutput {
   /** `con_…`. */
   id: string;
-  /** `iga_…` — the account the contact came from (CT13). */
+  /** `cha_…` — the account the contact came from (CT13). */
   instagram_account_id: string;
   instagram_user_id: string;
   username: string | null;
@@ -52,7 +52,7 @@ export interface ContactListQuery {
   firstSeenFrom: Date | undefined;
   /** Exclusive upper bound on `first_seen_at`. */
   firstSeenTo: Date | undefined;
-  /** `iga_…` — one account's contacts (CT13); an unknown one gives an empty page. */
+  /** `cha_…` — one account's contacts (CT13); an unknown one gives an empty page. */
   instagramAccountPublicId: string | undefined;
   /** `aut_…` — the contacts that had a run of this automation (CT5); an unknown one gives an empty page. */
   automationPublicId: string | undefined;

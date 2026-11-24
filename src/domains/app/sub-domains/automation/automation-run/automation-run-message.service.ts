@@ -345,7 +345,7 @@ export class AutomationRunMessageService {
     try {
       await this.instagramClient.sendInstagramMessage({
         encryptedAccessToken,
-        instagramAppUserId: access.instagramAppUserId,
+        instagramUserId: access.instagramUserId,
         recipient,
         message,
         requestId,

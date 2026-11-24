@@ -1,4 +1,5 @@
 import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { buildInstagramPickValues } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { Queue } from 'bullmq';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -105,29 +106,19 @@ describe('Instagram reconnect notice (IA9)', () => {
     return withAppDatabaseContext({
       scope: scope(),
       callback: async () => {
-        const { account } = await new InstagramAccountRepository().upsertConnected({
-          channelAccountId: (
-            await insertChannelAccount({
-              organizationId: team.organization.id,
-              providerAccountId: profile.user_id,
-              channelConnectionId: connection.id,
-            })
-          ).id,
+        const channelAccount = await insertChannelAccount({
           organizationId: team.organization.id,
+          providerAccountId: profile.user_id,
           channelConnectionId: connection.id,
-          instagramUserId: profile.user_id,
-          instagramAppUserId: profile.id,
-          username: profile.username,
-          name: profile.name,
-          biography: null,
-          website: null,
-          profilePictureUrl: null,
-          followersCount: 0,
-          followsCount: 0,
-          mediaCount: 0,
-          scopes: [],
-          connectedByUserId: null,
         });
+        const account = await new InstagramAccountRepository().upsertAtPick(
+          buildInstagramPickValues({
+            organizationId: team.organization.id,
+            channelAccountId: channelAccount.id,
+            instagramUserId: profile.user_id,
+            username: profile.username,
+          }),
+        );
         const key = { organizationId: team.organization.id, instagramAccountId: account.id };
         return { key, profile };
       },
@@ -189,7 +180,6 @@ describe('Instagram reconnect notice (IA9)', () => {
       organizationPublicId: team.organization.public_id,
       instagramAccountPublicId: winner?.public_id,
       connectionStatus: 'error',
-      connectionStatusChangedAt: winner?.connection_status_changed_at.toISOString(),
     });
   });
 
@@ -208,7 +198,10 @@ describe('Instagram reconnect notice (IA9)', () => {
 
     expect(await noticeJobs()).toHaveLength(0);
     const [row] = await operatorQuery<Array<{ connection_status: string }>>`
-      SELECT connection_status FROM app.instagram_accounts WHERE id = ${key.instagramAccountId}`;
+      SELECT c.connection_status FROM app.instagram_accounts AS i
+      INNER JOIN app.channel_accounts AS c
+        ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+      WHERE i.id = ${key.instagramAccountId}`;
     expect(row?.connection_status).toBe('connected');
   });
 
@@ -344,7 +337,10 @@ describe('Instagram reconnect notice (IA9)', () => {
     // Reconnecting the same Instagram account makes it connected again (AC-11.10) ...
     await connectAccount(profile);
     const [reconnected] = await operatorQuery<Array<{ connection_status: string }>>`
-      SELECT connection_status FROM app.instagram_accounts WHERE id = ${key.instagramAccountId}`;
+      SELECT c.connection_status FROM app.instagram_accounts AS i
+      INNER JOIN app.channel_accounts AS c
+        ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+      WHERE i.id = ${key.instagramAccountId}`;
     expect(reconnected?.connection_status).toBe('connected');
     // ... so the next break is a new one, with its own job and its own notices.
     await breakConnection(key, 'expired');

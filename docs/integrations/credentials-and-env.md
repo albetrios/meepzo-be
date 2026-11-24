@@ -410,7 +410,7 @@ exchange must grant all three; one left unticked on Instagram's consent screen a
 
 **The webhook fields.** Every connect subscribes the account to `comments`, `messages` and
 `messaging_postbacks` (`INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS` in the Instagram client, through
-`POST /{instagram_app_user_id}/subscribed_apps`); a failed subscription is retried by the next
+`POST /{instagram_user_id}/subscribed_apps`); a failed subscription is retried by the next
 connect (and by the daily account check once it lands). The app itself must be subscribed to the
 same three fields (step 5), or no event arrives.
 

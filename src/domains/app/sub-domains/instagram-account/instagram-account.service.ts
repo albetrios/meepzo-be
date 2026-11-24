@@ -14,10 +14,12 @@ import { assertTeamOrganizationForRead } from '@/domains/tenancy/sub-domains/org
 import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
+import type { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type {
   InstagramAccountBrokenConnectionStatus,
   InstagramAccountConnectionStatus,
 } from './instagram-account.constants.js';
+import type { InstagramAccountExtensionService } from './instagram-account-extension.service.js';
 import type {
   InstagramAccountKey,
   InstagramAccountRepository,
@@ -91,8 +93,11 @@ function describeInstagramFailure(error: unknown): Record<string, unknown> {
  * - `404 instagram_not_connected` (read, disconnect) — 1.A.9.
  *
  * Side effects:
- * - Writes the account; reads and — with the connection's last account — revokes the connection's
- *   token (through {@link ChannelConnectionTokenService}, CA8); calls Instagram (`subscribed_apps`).
+ * - Moves the channel account's status (the guarded break and the revoke, through
+ *   `ChannelAccountRepository`, CA4, CA8) and writes the Instagram extension through
+ *   {@link InstagramAccountExtensionService} (2.A.10); with the connection's last account, revokes the
+ *   connection and its token (through {@link ChannelConnectionTokenService}, CA8); calls Instagram
+ *   (`subscribed_apps`).
  *   The audit entries are the controller's, after commit (D36).
  *
  * Notes:
@@ -105,13 +110,15 @@ function describeInstagramFailure(error: unknown): Record<string, unknown> {
 export class InstagramAccountService {
   constructor(
     private readonly accountRepository: InstagramAccountRepository,
+    private readonly extensionService: InstagramAccountExtensionService,
+    private readonly channelAccountRepository: ChannelAccountRepository,
     private readonly connectionTokenService: ChannelConnectionTokenService,
     private readonly settingsService: InstagramAccountSettingsService,
     private readonly organizationService: OrganizationService,
   ) {}
 
   /**
-   * The organization's not-revoked account — `connected`, `expired` or `error`, the account route 2
+   * The organization's not-revoked account — `connected` or `error`, the account route 2
    * reads (IA13) — or `null` when it has none: the account an automation is created on (routes-final
    * § 3.A AU27).
    *
@@ -145,7 +152,7 @@ export class InstagramAccountService {
    * (`404 team_organization_required` on a personal organization, IA3), the live account, its
    * encrypted token (through {@link ChannelConnectionTokenService}). Failure modes:
    * `404 instagram_not_connected` when the organization has none (or only revoked rows). Side
-   * effects: none — reads only, never Instagram. Notes: an `expired` or `error` account is returned
+   * effects: none — reads only, never Instagram. Notes: an `error` account is returned
    * as it is; the caller decides (`404 instagram_reconnect_required` without a call). The token
    * stays ciphertext (IA5).
    */
@@ -221,9 +228,9 @@ export class InstagramAccountService {
         const settings = await this.settingsService.findSettings({ scope, instagramAccount });
         return {
           instagramAccount,
+          channelAccountId: account.channel_account_id,
           instagramAccountPublicId: account.public_id,
           instagramUserId: account.instagram_user_id,
-          instagramAppUserId: account.instagram_app_user_id,
           connectionStatus: account.connection_status as InstagramAccountVisibleConnectionStatus,
           isAutomationEnabled: settings?.is_automation_enabled ?? true,
         };
@@ -241,7 +248,7 @@ export class InstagramAccountService {
    * Algorithm: one unit of work in the caller's organization scope (the job's, relayed by the
    * engine): the organization, its live account (it must carry this public id), the token
    * (through {@link ChannelConnectionTokenService}) and the settings row. Failure modes: none of its
-   * own. Side effects: none — reads only, never Instagram. Notes: an `expired` or `error` account
+   * own. Side effects: none — reads only, never Instagram. Notes: an `error` account
    * is returned with its status — the engine sends nothing for it; the token stays ciphertext
    * (IA5).
    */
@@ -250,7 +257,7 @@ export class InstagramAccountService {
     instagramAccountPublicId,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    /** `iga_…` — the event's account. */
+    /** `cha_…` — the event's account. */
     instagramAccountPublicId: string;
   }): Promise<InstagramAutomationAccountAccess | null> {
     return withAppDatabaseContext({
@@ -271,7 +278,7 @@ export class InstagramAccountService {
         return {
           instagramAccount,
           instagramAccountPublicId: account.public_id,
-          instagramAppUserId: account.instagram_app_user_id,
+          instagramUserId: account.instagram_user_id,
           username: account.username,
           connectionStatus: account.connection_status as InstagramAccountVisibleConnectionStatus,
           encryptedAccessToken: token?.encryptedAccessToken ?? null,
@@ -302,7 +309,7 @@ export class InstagramAccountService {
     instagramAccountPublicId,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    /** `iga_…` — the processing job's account. */
+    /** `cha_…` — the processing job's account. */
     instagramAccountPublicId: string;
   }): Promise<InstagramWebhookProcessingAccount | null> {
     return withAppDatabaseContext({
@@ -328,6 +335,7 @@ export class InstagramAccountService {
             : null;
         return {
           instagramAccount,
+          channelAccountId: account.channel_account_id,
           instagramAccountPublicId: account.public_id,
           connectionStatus: account.connection_status as InstagramAccountConnectionStatus,
           isAutomationEnabled: settings?.is_automation_enabled ?? true,
@@ -369,7 +377,7 @@ export class InstagramAccountService {
    * connected (or connected again) after `issuedAt` — Meta retries a request it got no answer for,
    * and a new connection was never part of it (D53) — and {@link disconnectAccounts} the rest.
    * Failure modes: none of its own — an organization with no such account answers an empty list.
-   * Side effects: writes `app.instagram_accounts` and, with a connection's last account, revokes the connection and deletes its token
+   * Side effects: revokes the channel accounts, clears their extensions' webhook stamp and, with a connection's last account, revokes the connection and deletes its token
    * (through {@link ChannelConnectionTokenService}); settings stay. No Instagram call. Notes: a
    * disconnect cancels no automation run (IQ1, D24); safe to repeat — an account already changed
    * answers every flag `false`, one connected since is not in the answer. The row lock makes a
@@ -384,9 +392,9 @@ export class InstagramAccountService {
     return withAppDatabaseContext({
       scope,
       callback: async () => {
-        const accounts = await this.accountRepository.lockByInstagramAppUserInOrganization({
+        const accounts = await this.accountRepository.lockByInstagramUserInOrganization({
           organizationPublicId: scope.organizationPublicId,
-          instagramAppUserId,
+          instagramUserId: instagramAppUserId,
         });
         return this.disconnectAccounts({
           scope,
@@ -400,50 +408,62 @@ export class InstagramAccountService {
   }
 
   /**
-   * The organization delete's unsubscribe (D54): best effort, stops Instagram sending the live
-   * account's events.
+   * The organization delete's unsubscribe (D54, IAC5): best effort, stops Instagram sending the
+   * events of every not-revoked account of the organization.
    *
    * @remarks
-   * Algorithm: one read in the organization's scope — its live account and encrypted token — then,
-   * that unit closed and only when there is a token, `DELETE subscribed_apps`. Failure modes: none —
-   * an organization gone, without a live account or without a token calls nothing; a failed call is
-   * logged (`app.instagram_account.webhook_unsubscription_failed`) and never blocks the delete. Side
-   * effects: at most one Instagram call. Notes: safe to repeat — after the erase there is no token.
+   * Algorithm: one read in the organization's scope — its not-revoked accounts, each with its
+   * connection's encrypted token — then, that unit closed, `DELETE subscribed_apps` for each account
+   * that has a token. Failure modes: none — an organization gone, without live accounts or without
+   * tokens calls nothing; a failed call is logged (`app.instagram_account.webhook_unsubscription_failed`)
+   * and never blocks the delete. Side effects: at most one Instagram call per account. Notes: safe to
+   * repeat — after the erase there is no token.
    */
   async unsubscribeForOrganizationOffboarding({
     scope,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
   }): Promise<void> {
-    const access = await withAppDatabaseContext({
+    const accesses = await withAppDatabaseContext({
       scope,
       callback: async () => {
         const organization = await this.organizationService.findOrganizationByPublicId(
           scope.organizationPublicId,
         );
-        return organization === null
-          ? null
-          : this.findLiveAccess({ scope, organizationId: organization.id });
+        if (organization === null) return [];
+        const accounts = await this.accountRepository.listLiveByOrganizationId(organization.id);
+        const found: InstagramAccountAccess[] = [];
+        for (const account of accounts) {
+          const token = await this.findAccountToken({ scope, account });
+          found.push({
+            account,
+            instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
+            encryptedAccessToken: token?.encryptedAccessToken ?? null,
+          });
+        }
+        return found;
       },
     });
-    if (access === null) return;
-    await this.unsubscribeWebhookFieldsBestEffort({ scope, access, requestId: undefined });
+    for (const access of accesses) {
+      await this.unsubscribeWebhookFieldsBestEffort({ scope, access, requestId: undefined });
+    }
   }
 
   /**
-   * The organization delete's disconnect (D54): every account the organization ever held — the live
-   * one and the revoked ones — revoked, its token erased and its profile erased, as Meta's data
-   * deletion does ({@link disconnectAccounts}).
+   * The organization delete's disconnect (D54, IAC5): every account the organization ever held —
+   * the live ones and the revoked ones — revoked, each connection's token erased and each profile
+   * erased, as Meta's data deletion does ({@link disconnectAccounts}); then every connection still
+   * live (one with no account left) revoked with its token, through sub-domain 1.
    *
    * @remarks
    * Algorithm: one unit of work in the organization's scope (joining the caller's, so the erasure
    * service can erase the stored posts in the same transaction): lock the organization's accounts,
-   * then disconnect each. Failure modes: none of its own — an organization gone or without accounts
-   * answers an empty list. Side effects: writes `app.instagram_accounts`, revokes its connections
-   * and deletes their tokens; settings, automations, runs and contacts stay until the
-   * organization's purge. No Instagram call. Notes: it must run before the organization is
-   * soft-deleted — row-level security hides a deleted organization's rows from its own scope; safe
-   * to repeat.
+   * disconnect each, then `ChannelConnectionTokenService.revokeOrganizationConnections`. Failure
+   * modes: none of its own — an organization gone or without accounts answers an empty list. Side
+   * effects: revokes the channel accounts and their connections, deletes the tokens, erases the
+   * extensions' profiles; settings, automations, runs and contacts stay until the organization's
+   * purge. No Instagram call. Notes: it must run before the organization is soft-deleted — row-level
+   * security hides a deleted organization's rows from its own scope; safe to repeat.
    */
   async disconnectForOrganizationOffboarding({
     scope,
@@ -458,26 +478,37 @@ export class InstagramAccountService {
         );
         if (organization === null) return [];
         const accounts = await this.accountRepository.lockByOrganizationId(organization.id);
-        return this.disconnectAccounts({ scope, accounts, shouldEraseProfile: true });
+        const changes = await this.disconnectAccounts({
+          scope,
+          accounts,
+          shouldEraseProfile: true,
+        });
+        // A connection left with no account (a login without a pick) holds a token too (IAC5).
+        await this.connectionTokenService.revokeOrganizationConnections({
+          scope,
+          organizationId: organization.id,
+        });
+        return changes;
       },
     });
   }
 
   /**
-   * The one guarded way an account leaves `connected` (IA9): `connected` → `expired` | `error`,
-   * stamping `connection_status_changed_at` — for routes 5–6, the daily check and sub-domains 3–4
-   * on an Instagram token error. The call that wins enqueues the break's reconnect notice after the
-   * commit.
+   * The one guarded way an account leaves `connected` (CA4, IA9): its channel account `connected` →
+   * `error` — for the pickers, the daily check and sub-domains 3–4 on an Instagram token error. The
+   * call that wins enqueues the break's reconnect notice after the commit.
    *
    * @remarks
-   * Algorithm: one guarded update in the caller's organization scope (joining the caller's open
-   * unit of work for the same organization); when it changed the row, the reconnect-notice job of
-   * this break (job id = the account and `connection_status_changed_at`, IAC9) is enqueued once
-   * that unit commits (`runEnqueueAfterCommit` — over HTTP from the request's after-commit flush,
-   * in a worker right after the commit), never if it rolls back. Failure modes: none of its own —
-   * returns `null` when the account was not `connected` any more (another caller won the race, or
-   * it was revoked), so only the winner enqueues a notice; a failed enqueue is logged and the break
-   * stands. Side effects: the status change; one `instagram-reconnect-notice` job per break.
+   * Algorithm: one unit in the caller's organization scope (joining the caller's open unit for the
+   * same organization): the Instagram row, then the guarded break of its channel account
+   * (`ChannelAccountRepository.markBroken`); when it changed the row, the reconnect-notice job of
+   * this break (job id = the account and the break's time — the channel account's `updated_at` at the
+   * break, IAC9) is enqueued once that unit commits (`runEnqueueAfterCommit`), never if it rolls
+   * back. Failure modes: none of its own — returns `null` when the account was not `connected` any
+   * more (another caller won the race, or it was revoked), so only the winner enqueues a notice; a
+   * failed enqueue is logged and the break stands. Side effects: the status change; one
+   * `instagram-reconnect-notice` job per break. Notes: `expired` (Meta's subcode 463) lands as
+   * `error` too — the channel account has no `expired` (CA4).
    */
   async markConnectionBroken({
     scope,
@@ -494,22 +525,23 @@ export class InstagramAccountService {
     return withAppDatabaseContext({
       scope,
       callback: async () => {
-        const broken = await this.accountRepository.markConnectionBroken({
-          ...instagramAccount,
-          connectionStatus,
+        const account = await this.accountRepository.findById(instagramAccount);
+        if (account === null) return null;
+        const broken = await this.channelAccountRepository.markBroken({
+          organizationId: account.organization_id,
+          channelAccountId: account.channel_account_id,
         });
-        if (broken !== null) {
-          const connectionBreak: InstagramConnectionBreak = {
-            organizationPublicId: scope.organizationPublicId,
-            instagramAccountPublicId: broken.public_id,
-            connectionStatus,
-            connectionStatusChangedAt: broken.connection_status_changed_at,
-          };
-          await runEnqueueAfterCommit(() =>
-            enqueueInstagramReconnectNoticeBestEffort({ connectionBreak, requestId }),
-          );
-        }
-        return broken;
+        if (broken === null) return null;
+        const connectionBreak: InstagramConnectionBreak = {
+          organizationPublicId: scope.organizationPublicId,
+          instagramAccountPublicId: broken.public_id,
+          connectionStatus,
+          connectionStatusChangedAt: broken.updated_at,
+        };
+        await runEnqueueAfterCommit(() =>
+          enqueueInstagramReconnectNoticeBestEffort({ connectionBreak, requestId }),
+        );
+        return this.accountRepository.findById(instagramAccount);
       },
     });
   }
@@ -534,9 +566,17 @@ export class InstagramAccountService {
         organizationId: account.organization_id,
         instagramAccountId: account.id,
       };
-      const revoked = await this.accountRepository.revoke(key);
+      const revoked = await this.channelAccountRepository.revoke({
+        organizationId: account.organization_id,
+        channelAccountId: account.channel_account_id,
+      });
+      if (revoked !== null) {
+        await this.extensionService.clearOnRevoke({ scope, instagramAccount: key });
+      }
       const wasTokenErased = await this.releaseConnectionWhenUnused({ scope, account });
-      const erased = shouldEraseProfile ? await this.accountRepository.eraseProfile(key) : null;
+      const erased = shouldEraseProfile
+        ? await this.extensionService.eraseProfile({ scope, instagramAccount: key })
+        : null;
       changes.push({
         instagramAccount: key,
         instagramAccountPublicId: account.public_id,
@@ -591,7 +631,7 @@ export class InstagramAccountService {
     try {
       await unsubscribeInstagramWebhookFields({
         encryptedAccessToken: access.encryptedAccessToken,
-        instagramAppUserId: access.account.instagram_app_user_id,
+        instagramUserId: access.account.instagram_user_id,
         requestId,
       });
     } catch (error) {
@@ -643,7 +683,7 @@ export class InstagramAccountService {
       organizationId: account.organization_id,
       channelConnectionId: account.channel_connection_id,
     };
-    const liveCount = await this.accountRepository.countLiveByConnection(channelConnection);
+    const liveCount = await this.channelAccountRepository.countLiveByConnection(channelConnection);
     if (liveCount > 0) return false;
     return this.connectionTokenService.revokeConnection({ scope, channelConnection });
   }
@@ -668,18 +708,14 @@ export class InstagramAccountService {
     try {
       await subscribeInstagramWebhookFields({
         encryptedAccessToken,
-        instagramAppUserId: account.instagram_app_user_id,
+        instagramUserId: account.instagram_user_id,
         requestId,
       });
-      const key: InstagramAccountKey = {
-        organizationId: account.organization_id,
-        instagramAccountId: account.id,
-      };
-      const stamped = await withAppDatabaseContext({
+      const stamped = await this.extensionService.recordWebhookSubscribed({
         scope,
-        callback: async () => {
-          const recorded = await this.accountRepository.recordWebhookSubscribed(key);
-          return recorded ? this.accountRepository.findById(key) : null;
+        instagramAccount: {
+          organizationId: account.organization_id,
+          instagramAccountId: account.id,
         },
       });
       return stamped ?? account;

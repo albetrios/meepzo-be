@@ -339,7 +339,7 @@ export class InstagramMessageFlow {
 
   /** Disconnects the account (route 4). */
   async disconnect(): Promise<void> {
-    mockInstagramUnsubscribe({ instagramAppUserId: this.account.instagramAppUserId });
+    mockInstagramUnsubscribe({ instagramUserId: this.account.instagramAppUserId });
     const response = await this.asOwner({
       method: 'DELETE',
       url: await organizationChannelAccountPath(this.team.organization.id),

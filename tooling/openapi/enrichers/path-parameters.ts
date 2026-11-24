@@ -27,7 +27,6 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   auditLog: 'audit log entry',
   channelConnection: 'channel connection',
   channelAccount: 'channel account',
-  instagramAccount: 'Instagram account',
   contact: 'contact',
   instagramWebhookEvent: 'Instagram webhook event',
   automation: 'automation',

@@ -210,7 +210,7 @@ export const updateAutomationDto = z
  * @remarks
  * - `sort` and `order` stay optional (a defaulted param serializes as `required` in OpenAPI); the
  *   service picks the default order — newest / most first, `name` A→Z (AU13).
- * - `instagram_account_id` must be a well-formed `iga_…` id; an unknown one gives an empty page
+ * - `instagram_account_id` must be a well-formed `cha_…` id (the account's one id since R6); an unknown one gives an empty page
  *   (AU27).
  * - Strict: an unknown parameter is a `400`.
  */
@@ -222,7 +222,7 @@ export const listAutomationsQueryDto = listSearchSortSchema(AUTOMATION_SORT_FIEL
     next_post_status: z.enum(AUTOMATION_NEXT_POST_STATUSES).optional(),
     instagram_account_id: z
       .string()
-      .regex(publicIdPatternFor('instagramAccount'), 'errors:validation.invalidPublicId')
+      .regex(publicIdPatternFor('channelAccount'), 'errors:validation.invalidPublicId')
       .optional(),
   })
   .strict();

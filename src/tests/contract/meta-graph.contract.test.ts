@@ -468,7 +468,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         });
       const listOptions = {
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         limit: 2,
       };
 
@@ -491,7 +491,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
 
       const storiesPage = await listInstagramStories({
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         limit: 25,
       });
 
@@ -557,7 +557,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .reply(200, subscribedAppsSuccessFixture);
       const subscriptionOptions = {
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
       };
 
       expect(INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS).toEqual([
@@ -596,7 +596,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .reply(200, messagesSuccessFixture);
       const sender = {
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
       };
 
       const expectedSentMessage = {
@@ -699,7 +699,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .reply(400, graphErrorApplicationThrottledFixture);
       const listOptions = {
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         limit: 25,
       };
 
@@ -722,7 +722,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       const send = () =>
         sendInstagramMessage({
           encryptedAccessToken: encryptedAccountAccessToken,
-          instagramAppUserId: APP_USER_ID,
+          instagramUserId: APP_USER_ID,
           recipient: { id: messagesSuccessFixture.recipient_id },
           message: { text: 'Hello!' },
         });
@@ -756,7 +756,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
 
       const rejection = await sendInstagramMessage({
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         recipient: { id: '7311000000000099' },
         message: { text: 'Hello!' },
       }).catch((error: unknown) => error);
@@ -780,7 +780,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
 
       const rejection = await sendInstagramMessage({
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         recipient: { id: messagesSuccessFixture.recipient_id },
         message: { text: 'Thanks for your message!' },
       }).catch((error: unknown) => error);
@@ -805,7 +805,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
 
       const rejection = await sendInstagramMessage({
         encryptedAccessToken: encryptedAccountAccessToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         recipient: { id: messagesSuccessFixture.recipient_id },
         message: {
           text: 'Please share your phone number to continue!',

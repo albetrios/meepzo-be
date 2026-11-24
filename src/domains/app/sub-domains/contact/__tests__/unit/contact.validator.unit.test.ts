@@ -13,7 +13,7 @@ import {
  * phone and tag rules the worker operations apply before they write.
  */
 
-const ACCOUNT_ID = 'iga_k7x9m2pqr4w8n1v3a1b2c';
+const ACCOUNT_ID = 'cha_k7x9m2pqr4w8n1v3a1b2c';
 
 /** The `errors[].field` values a refused query names. */
 function refusedFields(query: Record<string, unknown>): string[] {
@@ -92,7 +92,7 @@ describe('validateListContactsQuery (route 9)', () => {
     [{ first_seen_from: '2026-11-01' }, 'first_seen_from'],
     [{ first_seen_to: '2026-11-01T00:00:00' }, 'first_seen_to'],
     [{ instagram_account_id: 'con_k7x9m2pqr4w8n1v3a1b2c' }, 'instagram_account_id'],
-    [{ instagram_account_id: 'iga_short' }, 'instagram_account_id'],
+    [{ instagram_account_id: 'cha_short' }, 'instagram_account_id'],
     [{ automation_id: 'con_k7x9m2pqr4w8n1v3a1b2c' }, 'automation_id'],
     [{ automation_id: 'aut_short' }, 'automation_id'],
   ])('refuses %j naming %s', (query, field) => {

@@ -44,7 +44,7 @@ const contactTagsFilterSchema = z
  * - `sort` and `order` stay optional (a defaulted param serializes as `required` in OpenAPI); the
  *   service picks the default order — newest first for the two times, A→Z for `username`.
  * - `first_seen_from` must come before `first_seen_to` (`to` is exclusive).
- * - `instagram_account_id` must be a well-formed `iga_…` id; an unknown one gives an empty page.
+ * - `instagram_account_id` must be a well-formed `cha_…` id (the account's one id since R6); an unknown one gives an empty page.
  * - `automation_id` (CT5, landed with sub-domain 3) must be a well-formed `aut_…` id: the contacts
  *   that had a run of that automation — a deleted one's too; an unknown one gives an empty page.
  * - Strict: an unknown parameter is a `400`.
@@ -59,7 +59,7 @@ export const listContactsQueryDto = listSearchSortSchema(CONTACT_SORT_FIELDS)
     first_seen_to: instantSchema.optional(),
     instagram_account_id: z
       .string()
-      .regex(publicIdPatternFor('instagramAccount'), 'errors:validation.invalidPublicId')
+      .regex(publicIdPatternFor('channelAccount'), 'errors:validation.invalidPublicId')
       .optional(),
     automation_id: z
       .string()

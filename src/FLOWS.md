@@ -440,7 +440,8 @@ No Meta call runs inside the database context: read, close the unit of work, cal
 - Redis `app:channel-connect-state:<state>` — 10 minutes, spent by the callback.
 - `app.channel_connections` — one row per organization, provider and business (a revoked one reused): `connected`, `config_id`, `scopes`, `connected_by_user_id`, `connected_at`, `last_checked_at`; `disconnected_at` cleared.
 - `app.channel_connection_tokens` — the business's system-user token, stored only as `encryptFieldSecret` ciphertext; never ends (`expires_at` empty); the plain token exists only inside the Meta client (MC9).
-- `app.instagram_accounts` — on the callback, every not-revoked account of the organization the business still assigns attached to this connection and `connected`; on the pick, a new row per picked account (or the organization's revoked row back) with the connection's scopes and `channel_connection_id`, `instagram_app_user_id` = the Instagram user id (P111).
+- `app.channel_accounts` — on the callback, every not-revoked account of the organization the business still assigns attached to this connection and `connected`; on the pick, a new row per picked account (or the organization's revoked row back) with `channel_connection_id`, `provider_account_id` = the Instagram user id and `display_name` `@username`.
+- `app.instagram_accounts` — on the pick, the 1:1 Instagram extension of each picked channel account (or the organization's earlier row back): the Instagram user id, the profile, `account_type`, `is_private`, `profile_synced_at`; `profile_erased_at` cleared (ROUTE row R6, 2.A IA8).
 - `app.instagram_account_settings` — the default row for a new account; a returning account keeps the team's settings.
 - `app.channel_connection_usages` — Meta's usage of the pick's calls, per asset and type (MC19).
 - Audit `app.channel_connection.connect` (WARNING, `provider`, `is_reconnect`, `reconnected_account_count`) and one `app.channel_account.connect` (WARNING) per picked account, after commit, best-effort (D36).
@@ -483,7 +484,7 @@ sequenceDiagram
   Check->>DB: profile, profile_synced_at
   Check->>Instagram: subscribed_apps (only while webhook_subscribed_at is empty)
   Check->>DB: stamp webhook_subscribed_at
-  Account->>DB: connected → expired | error (WHERE connected), stamp connection_status_changed_at; COMMIT
+  Account->>DB: channel account connected → error (WHERE connected); COMMIT
   Account->>Notice: after commit — one job per account and break (job id = account + break time)
   Notice->>DB: organization scope — is the account still at that break?
   Notice->>Tenancy: active holders of instagram-account:manage; the organization's language
@@ -495,7 +496,8 @@ No Instagram call runs inside a database context: every step reads, closes its u
 
 ### Side effects
 
-- `app.instagram_accounts` — the profile and `profile_synced_at`, `webhook_subscribed_at`; on a break `connection_status` `expired` / `error` and `connection_status_changed_at`.
+- `app.instagram_accounts` — the profile and `profile_synced_at`, `webhook_subscribed_at`.
+- `app.channel_accounts` — on a break `connection_status` `error` (Meta's subcode 463 too, CA4); the notice's once key is the account and the row's `updated_at` at the break.
 - `notify.notifications` — one `instagram.reconnect_required` notification per active `instagram-account:manage` holder, in the organization's language, linking to the frontend's Instagram page (`FRONTEND_URL` + `/instagram`), each also emailed through the mail outbox by the notification worker.
 
 ### Failure modes
@@ -548,7 +550,7 @@ No Instagram call: the app is already removed, so the disconnect skips the unsub
 
 ### Side effects
 
-- `app.instagram_accounts` — every row of that app-scoped id connected before Meta signed the request (`issued_at`; a request without it means every row, D53), in every organization: `revoked`, `disconnected_at`, `token_expires_at` and `webhook_subscribed_at` emptied (rows already revoked stay as they are). Data deletion also erases the profile — `username`, `name`, `biography`, `website`, `profile_picture_url` emptied, counts 0, `scopes` empty, `profile_erased_at` stamped — revoked rows of the same person too.
+- `app.channel_accounts` / `app.instagram_accounts` — every account of that Instagram id (Meta signs the Instagram user id under Unified Login, P111) connected before Meta signed the request (`issued_at`; a request without it means every row, D53), in every organization: the channel account `revoked` with `disconnected_at`, the extension's `webhook_subscribed_at` emptied (accounts already revoked stay as they are). Data deletion also erases the extension's profile — `username`, `biography`, `website`, `profile_picture_url`, `account_type` emptied, counts 0, `profile_erased_at` stamped — revoked rows of the same person too.
 - `app.channel_connections` / `app.channel_connection_tokens` — the connection revoked and its token deleted once no other not-revoked account uses it (CA8).
 - `app.instagram_media` — data deletion: the account's stored posts deleted (IQ4); automations, runs and comment logs keep naming a post by its Instagram media id.
 - Settings, contacts and webhook events stay (D22: a contact's own request is route 10). No automation run is cancelled and automations stay `live` (IQ1, D24).
@@ -620,7 +622,7 @@ A contact erase and a running automation meet on the contact's row: both lock it
 - **Timers** — rows removed or runs cancelled as above, across organizations under the retention sweep arm (deletes) or each organization's own scope (changes); contacts, stored posts and the account have no timer (D8). Log lines carry counts and public ids only.
 - **Contact delete** — the contact row stays without personal data (its runs point at it); runs and comment logs stay without the person's text, username, Instagram id, email and phone; the Instagram ids of posts, stories and comments stay (reply safety's duplicate rule). Audit `app.contact.delete` (the contact's public id only), after commit. The person's webhook events stay, their payload masked in route 18, until the 30-day clean-up (CQ1); one still waiting is processed like any new interaction and starts a fresh contact (CT9).
 - **Meta's data deletion** — the account's token, profile and stored posts; contacts, runs, logs, events and settings stay, and no run is cancelled (D22, D24).
-- **Organization delete** — its Instagram accounts revoked and erased (token, profile, stored posts) just before it is hidden (D54), so the Instagram account connects elsewhere at once; the accounts are named on the `tenancy.organization.delete` audit entry. Automations, runs, logs, contacts, settings and events stay hidden until the purge removes every `app` row with the organization (`ON DELETE CASCADE`), whatever the `RESTRICT` links between them.
+- **Organization delete** — every Instagram account it ever held unsubscribed (best effort), revoked and erased (token, profile, stored posts) and every connection still live revoked with its token, just before it is hidden (D54, IAC5), so each Instagram account connects elsewhere at once; the accounts are named on the `tenancy.organization.delete` audit entry. Automations, runs, logs, contacts, settings and events stay hidden until the purge removes every `app` row with the organization (`ON DELETE CASCADE`), whatever the `RESTRICT` links between them.
 - No log line carries a contact's email, phone, name, username or picture, or a message's text — request logs name the route or the path, never the query; a database failure is reduced to its code; and the personal keys are redacted (`sensitive-redaction.util.ts`).
 
 ### Failure modes

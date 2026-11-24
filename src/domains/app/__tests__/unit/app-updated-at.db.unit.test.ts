@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildInstagramPickValues } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
+import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import {
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
@@ -308,14 +310,6 @@ describe('app tables: updated_at when the row was created after this transaction
       return { organizationId: organization.id, instagramAccountId: inserted.id };
     };
 
-    async function readChannelConnectionId(instagramAccountId: number): Promise<number> {
-      const rows = await operatorQuery<Array<{ channel_connection_id: string }>>`
-        SELECT c.channel_connection_id FROM app.instagram_accounts AS a
-        INNER JOIN app.channel_accounts AS c ON c.id = a.channel_account_id
-        WHERE a.id = ${instagramAccountId}`;
-      return Number(rows[0]?.channel_connection_id);
-    }
-
     async function readChannelAccountId(instagramAccountId: number): Promise<number> {
       const rows = await operatorQuery<Array<{ channel_account_id: string }>>`
         SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${instagramAccountId}`;
@@ -328,50 +322,33 @@ describe('app tables: updated_at when the row was created after this transaction
       return rows[0]?.instagram_user_id as string;
     }
 
-    it('reconnects one', async () => {
-      const { account: reconnected, isNewConnection } = await changeAfterInsert({
+    it('picks one again', async () => {
+      const reconnected = await changeAfterInsert({
         insert: insertNew,
         change: async (key) =>
-          accountRepository.upsertConnected({
-            channelAccountId: await readChannelAccountId(key.instagramAccountId),
-            organizationId: organization.id,
-            channelConnectionId: await readChannelConnectionId(key.instagramAccountId),
-            instagramUserId: await readInstagramUserId(key.instagramAccountId),
-            instagramAppUserId: '91784140000000001',
-            username: 'acme.shop',
-            name: 'Acme Shop',
-            biography: null,
-            website: null,
-            profilePictureUrl: null,
-            followersCount: 1,
-            followsCount: 1,
-            mediaCount: 1,
-            scopes: [],
-            connectedByUserId: null,
-          }),
+          accountRepository.upsertAtPick(
+            buildInstagramPickValues({
+              organizationId: organization.id,
+              channelAccountId: await readChannelAccountId(key.instagramAccountId),
+              instagramUserId: await readInstagramUserId(key.instagramAccountId),
+              username: 'acme.shop',
+            }),
+          ),
       });
-      expect(isNewConnection).toBe(false);
       expectNotBeforeCreation(reconnected);
     });
 
-    it('marks one broken', async () => {
-      const row = await changeAfterInsert({
+    it('erases the profile of a revoked one', async () => {
+      const erased = await changeAfterInsert({
         insert: insertNew,
-        change: (key) =>
-          accountRepository.markConnectionBroken({ ...key, connectionStatus: 'error' }),
+        change: async (key) => {
+          await new ChannelAccountRepository().revoke({
+            organizationId: organization.id,
+            channelAccountId: await readChannelAccountId(key.instagramAccountId),
+          });
+          return accountRepository.eraseProfile(key);
+        },
       });
-      expectNotBeforeCreation(row);
-    });
-
-    it('disconnects one and erases its profile', async () => {
-      const { revoked, erased } = await changeAfterInsert({
-        insert: insertNew,
-        change: async (key) => ({
-          revoked: await accountRepository.revoke(key),
-          erased: await accountRepository.eraseProfile(key),
-        }),
-      });
-      expectNotBeforeCreation(revoked);
       expectNotBeforeCreation(erased);
     });
 
@@ -385,7 +362,6 @@ describe('app tables: updated_at when the row was created after this transaction
             instagramUserId: await readInstagramUserId(key.instagramAccountId),
             profile: {
               username: 'acme.shop',
-              name: 'Acme Shop',
               biography: null,
               website: null,
               profilePictureUrl: null,
@@ -401,7 +377,11 @@ describe('app tables: updated_at when the row was created after this transaction
 
     /** The account's channel connection token row, written by another connection. */
     const insertToken = async (encryptedAccessToken: string) => {
-      const channelConnectionId = await readChannelConnectionId(account.id);
+      const [row] = await operatorQuery<Array<{ channel_connection_id: string }>>`
+        SELECT c.channel_connection_id FROM app.instagram_accounts AS a
+        INNER JOIN app.channel_accounts AS c ON c.id = a.channel_account_id
+        WHERE a.id = ${account.id}`;
+      const channelConnectionId = Number(row?.channel_connection_id);
       await operatorQuery`
         UPDATE app.channel_connection_tokens SET encrypted_access_token = ${encryptedAccessToken}
         WHERE channel_connection_id = ${channelConnectionId}`;

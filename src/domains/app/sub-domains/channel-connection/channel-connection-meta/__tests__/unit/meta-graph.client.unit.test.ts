@@ -270,13 +270,13 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
 
     const firstPage = await listInstagramMedia({
       encryptedAccessToken: encryptedAccountToken,
-      instagramAppUserId: APP_USER_ID,
+      instagramUserId: APP_USER_ID,
       limit: 25,
       after: 'cursor-one',
     });
     const lastPage = await listInstagramMedia({
       encryptedAccessToken: encryptedAccountToken,
-      instagramAppUserId: APP_USER_ID,
+      instagramUserId: APP_USER_ID,
       limit: 25,
       after: 'cursor-two',
     });
@@ -304,7 +304,7 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
     await expect(
       listInstagramStories({
         encryptedAccessToken: encryptedAccountToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         limit: 10,
       }),
     ).resolves.toEqual({
@@ -322,7 +322,7 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
     await expect(
       listInstagramStories({
         encryptedAccessToken: encryptedAccountToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         limit: 10,
       }),
     ).rejects.toMatchObject({ errorClass: 'outage' });
@@ -384,7 +384,7 @@ describe('webhook subscription', () => {
       .reply(200, { success: true });
     const options = {
       encryptedAccessToken: encryptedAccountToken,
-      instagramAppUserId: APP_USER_ID,
+      instagramUserId: APP_USER_ID,
     };
 
     await expect(subscribeInstagramWebhookFields(options)).resolves.toBeUndefined();
@@ -400,7 +400,7 @@ describe('webhook subscription', () => {
     await expect(
       subscribeInstagramWebhookFields({
         encryptedAccessToken: encryptedAccountToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
       }),
     ).rejects.toMatchObject({ errorClass: 'outage' });
   });
@@ -420,7 +420,7 @@ describe('sends', () => {
     await expect(
       sendInstagramMessage({
         encryptedAccessToken: encryptedAccountToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         recipient: { comment_id: '17850000000000001' },
         message: { text: 'Check your DMs!' },
       }),
@@ -436,7 +436,7 @@ describe('sends', () => {
     await expect(
       sendInstagramMessage({
         encryptedAccessToken: encryptedAccountToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         recipient: { id: '5550001' },
         message: {
           text: 'Please share your email to continue!',
@@ -711,7 +711,7 @@ describe("Meta's usage on every answer (MC19)", () => {
     await expect(
       sendInstagramMessage({
         encryptedAccessToken: encryptedAccountToken,
-        instagramAppUserId: APP_USER_ID,
+        instagramUserId: APP_USER_ID,
         recipient: { id: '5550001' },
         message: { text: 'hi' },
         recordUsage,

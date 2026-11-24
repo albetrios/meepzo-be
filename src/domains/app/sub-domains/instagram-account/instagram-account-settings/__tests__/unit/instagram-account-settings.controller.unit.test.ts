@@ -19,7 +19,7 @@ import { attachPrincipalScope } from '@/tests/helpers/principal-scope.helper.js'
 const ORGANIZATION_PUBLIC_ID = generatePublicId('organization');
 const USER_PUBLIC_ID = generatePublicId('user');
 const API_KEY_PUBLIC_ID = generatePublicId('organizationApiKey');
-const ACCOUNT_PUBLIC_ID = generatePublicId('instagramAccount');
+const ACCOUNT_PUBLIC_ID = generatePublicId('channelAccount');
 const READ_AT = '2026-11-21T09:00:00.000Z';
 
 const savedSettings = {

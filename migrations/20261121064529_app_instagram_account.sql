@@ -5,7 +5,8 @@
 --
 -- launch-2026-11-20-ujai, ROUTE R3 (routes-final.md § 1.3, 1.A.3, 1.B.3 — IA5, IA6, IA11, IAC5,
 -- IAC6), changed in place by feat-instagram-dm-sending-2026-11-23-oxak ROUTE R3 (P29; routes-final
--- § 1.3 MC1, MC9, MC18, MC19 / S13, P107, P111) and ROUTE R5 (§ 1B.3 CAC1, CAQ1 — P116): the provider login an organization connects its
+-- § 1.3 MC1, MC9, MC18, MC19 / S13, P107, P111), ROUTE R5 (§ 1B.3 CAC1, CAQ1 — P116) and ROUTE R6
+-- (§ 2.A.3 IA8, IAC6 — P120): the provider login an organization connects its
 -- accounts through, its encrypted token and Meta's usage per connection; the organization's
 -- connected Instagram professional accounts and their automation settings, in the `app` schema R1
 -- created (20261121050908_app_schema.sql).
@@ -27,9 +28,10 @@
 --                                   across all organizations (CAQ1, P60). No soft delete: `revoked`
 --                                   stands in.
 --   app.instagram_accounts          the Instagram part of a channel account, 1:1 through
---                                   `channel_account_id` (2.A.3); one row per organization and
---                                   Instagram account. Its own status columns mirror the channel
---                                   account's until ROUTE row R6 drops them (P116).
+--                                   `channel_account_id` (ROUTE row R6, routes-final § 2.A.3, IA8):
+--                                   the Instagram user id, profile, account type, private flag,
+--                                   webhook stamp and starter-question time. No public id, status or
+--                                   connection columns of its own — those are the channel account's.
 --   app.instagram_account_settings  the automation switch and public reply safety, one per account.
 --
 -- The launch's app.instagram_account_tokens (the Instagram Login token, renewed daily) is gone: the
@@ -209,63 +211,41 @@ CREATE INDEX IF NOT EXISTS idx_channel_accounts_plan_stop ON app.channel_account
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS app.instagram_accounts (
   id BIGSERIAL PRIMARY KEY,
-  public_id VARCHAR(28) NOT NULL,
   organization_id BIGINT NOT NULL,
   channel_account_id BIGINT NOT NULL,
   instagram_user_id VARCHAR(64) NOT NULL,
-  instagram_app_user_id VARCHAR(64) NOT NULL,
   username VARCHAR(64),
-  name VARCHAR(255),
   biography TEXT,
   website TEXT,
   profile_picture_url TEXT,
+  account_type VARCHAR(20),
+  is_private BOOLEAN NOT NULL DEFAULT FALSE,
   followers_count INTEGER NOT NULL DEFAULT 0,
   follows_count INTEGER NOT NULL DEFAULT 0,
   media_count INTEGER NOT NULL DEFAULT 0,
-  scopes TEXT[] NOT NULL DEFAULT '{}',
-  connection_status VARCHAR(20) NOT NULL DEFAULT 'connected',
-  connection_status_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  token_expires_at TIMESTAMPTZ,
   webhook_subscribed_at TIMESTAMPTZ,
-  connected_by_user_id BIGINT,
-  connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  disconnected_at TIMESTAMPTZ,
+  starter_questions_set_at TIMESTAMPTZ,
   profile_synced_at TIMESTAMPTZ,
   profile_erased_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT instagram_accounts_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
-  CONSTRAINT instagram_accounts_connected_by_user_id_users_id_fk FOREIGN KEY (connected_by_user_id) REFERENCES auth.users (id) ON DELETE SET NULL,
   CONSTRAINT instagram_accounts_channel_account_fk FOREIGN KEY (organization_id, channel_account_id) REFERENCES app.channel_accounts (organization_id, id) ON DELETE RESTRICT,
-  CONSTRAINT chk_instagram_accounts_connection_status CHECK (connection_status IN ('connected', 'expired', 'error', 'revoked')),
   CONSTRAINT chk_instagram_accounts_instagram_user_id CHECK (instagram_user_id ~ '^[0-9]{1,64}$'),
-  CONSTRAINT chk_instagram_accounts_instagram_app_user_id CHECK (instagram_app_user_id ~ '^[0-9]{1,64}$'),
+  CONSTRAINT chk_instagram_accounts_account_type CHECK (account_type IS NULL OR account_type IN ('business', 'creator')),
   CONSTRAINT chk_instagram_accounts_counts CHECK (followers_count >= 0 AND follows_count >= 0 AND media_count >= 0),
-  CONSTRAINT chk_instagram_accounts_scopes CHECK (cardinality(scopes) <= 20),
-  CONSTRAINT chk_instagram_accounts_username_unless_revoked CHECK (username IS NOT NULL OR connection_status = 'revoked'),
-  CONSTRAINT chk_instagram_accounts_disconnected CHECK ((connection_status = 'revoked') = (disconnected_at IS NOT NULL)),
-  CONSTRAINT chk_instagram_accounts_profile_erased CHECK (profile_erased_at IS NULL OR connection_status = 'revoked'),
+  CONSTRAINT chk_instagram_accounts_username_unless_erased CHECK (username IS NOT NULL OR profile_erased_at IS NOT NULL),
   CONSTRAINT chk_instagram_accounts_updated CHECK (updated_at >= created_at)
 );
---> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_public_id ON app.instagram_accounts USING btree (public_id);
 --> statement-breakpoint
 -- The children's composite key (organization_id, instagram_account_id) -> (organization_id, id).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_organization_id_id ON app.instagram_accounts USING btree (organization_id, id);
 --> statement-breakpoint
--- One row per Instagram account per organization: a reconnect reuses it, revoked included (IA11).
+-- One row per Instagram account per organization: a pick brings a revoked one back with its settings.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_organization_instagram_user ON app.instagram_accounts USING btree (organization_id, instagram_user_id);
 --> statement-breakpoint
 -- The 1:1 extension of the channel account and its composite key's index (2.A.3).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_channel_account ON app.instagram_accounts USING btree (organization_id, channel_account_id);
---> statement-breakpoint
--- One organization at a time per Instagram account — decides a race between two organizations.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_instagram_user_live ON app.instagram_accounts USING btree (instagram_user_id) WHERE connection_status <> 'revoked';
---> statement-breakpoint
--- The Meta callbacks' resolver: every row of an app-scoped id, any status (IA6).
-CREATE INDEX IF NOT EXISTS idx_instagram_accounts_instagram_app_user_id ON app.instagram_accounts USING btree (instagram_app_user_id);
---> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_instagram_accounts_connected_by_user_id ON app.instagram_accounts USING btree (connected_by_user_id) WHERE connected_by_user_id IS NOT NULL;
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS app.instagram_account_settings (
   id BIGSERIAL PRIMARY KEY,
@@ -471,9 +451,9 @@ CREATE POLICY instagram_account_settings_tenant_isolation ON app.instagram_accou
     )
   );
 --> statement-breakpoint
--- IA6 (1): the organization whose NOT-revoked account has this Instagram user id (the webhook
--- entry.id) — the pick's "connected elsewhere" check (MC7); webhook routing (sub-domain 4).
--- At most one row matches (idx_instagram_accounts_instagram_user_live); NULL when none.
+-- IA6 (1): the organization whose NOT-revoked channel account has this Instagram user id (the
+-- webhook entry.id) — webhook routing (sub-domain 5). Since ROUTE row R6 the status is the channel
+-- account's (2.A.3): at most one row matches (idx_channel_accounts_provider_account_live); NULL when none.
 CREATE OR REPLACE FUNCTION app.resolve_organization_public_id_for_instagram_user (
   instagram_user_id_param TEXT
 ) RETURNS TEXT
@@ -483,15 +463,18 @@ SECURITY DEFINER
 SET search_path = app, tenancy, public
 AS $$
   SELECT o.public_id
-  FROM app.instagram_accounts AS a
-  INNER JOIN tenancy.organizations AS o ON o.id = a.organization_id
-  WHERE a.instagram_user_id = instagram_user_id_param
-    AND a.connection_status <> 'revoked'
+  FROM app.channel_accounts AS c
+  INNER JOIN tenancy.organizations AS o ON o.id = c.organization_id
+  WHERE c.channel = 'instagram'
+    AND c.provider_account_id = instagram_user_id_param
+    AND c.connection_status <> 'revoked'
   LIMIT 1;
 $$;
 --> statement-breakpoint
--- IA6 (2): every organization holding a row of this app-scoped id (`/me` id), any status — Meta's
--- deauthorize and data-deletion callbacks (1.D, IQ3). Public ids only, one per organization.
+-- IA6 (2): every organization holding an Instagram row of this id, any status — Meta's deauthorize
+-- and data-deletion callbacks (1.D, IQ3). Under Unified Login the id Meta signs is the Instagram
+-- user id (P111), so since ROUTE row R6 it matches `instagram_user_id` (the app-scoped column is
+-- gone, IA8); ROUTE row R9 replaces this resolver (MC15). Public ids only, one per organization.
 CREATE OR REPLACE FUNCTION app.resolve_organization_public_ids_for_instagram_app_user (
   instagram_app_user_id_param TEXT
 ) RETURNS SETOF TEXT
@@ -503,7 +486,7 @@ AS $$
   SELECT DISTINCT o.public_id::text
   FROM app.instagram_accounts AS a
   INNER JOIN tenancy.organizations AS o ON o.id = a.organization_id
-  WHERE a.instagram_app_user_id = instagram_app_user_id_param;
+  WHERE a.instagram_user_id = instagram_app_user_id_param;
 $$;
 --> statement-breakpoint
 REVOKE EXECUTE ON FUNCTION app.resolve_organization_public_id_for_instagram_user (TEXT) FROM PUBLIC;

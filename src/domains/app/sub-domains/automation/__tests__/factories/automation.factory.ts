@@ -1,6 +1,7 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -84,13 +85,23 @@ export async function revokeInstagramAccount({
   organizationId: number;
   instagramAccountId: number;
 }): Promise<void> {
-  await getOperatorDatabase()
-    .update(instagram_accounts)
-    .set({ connection_status: 'revoked', disconnected_at: new Date() })
+  // The status is the channel account's since R6 (2.A.3).
+  const channelAccountIdOf = getOperatorDatabase()
+    .select({ id: instagram_accounts.channel_account_id })
+    .from(instagram_accounts)
     .where(
       and(
         eq(instagram_accounts.organization_id, organizationId),
         eq(instagram_accounts.id, instagramAccountId),
+      ),
+    );
+  await getOperatorDatabase()
+    .update(channel_accounts)
+    .set({ connection_status: 'revoked', disconnected_at: new Date() })
+    .where(
+      and(
+        eq(channel_accounts.organization_id, organizationId),
+        inArray(channel_accounts.id, channelAccountIdOf),
       ),
     );
 }

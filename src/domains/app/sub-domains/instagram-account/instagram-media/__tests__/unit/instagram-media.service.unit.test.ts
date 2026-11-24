@@ -61,7 +61,7 @@ function accountAccess({
     account: {
       id: instagramAccount.instagramAccountId,
       organization_id: instagramAccount.organizationId,
-      instagram_app_user_id: APP_USER_ID,
+      instagram_user_id: APP_USER_ID,
       connection_status: connectionStatus,
     } as InstagramAccountRow,
     instagramAccount,

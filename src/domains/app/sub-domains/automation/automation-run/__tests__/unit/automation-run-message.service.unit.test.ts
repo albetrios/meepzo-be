@@ -48,7 +48,7 @@ function instagramError({
 const access: InstagramAutomationAccountAccess = {
   instagramAccount: { organizationId: 7, instagramAccountId: 3 },
   instagramAccountPublicId: 'iga_k7x9m2pqr4w8n1v3a1b2c',
-  instagramAppUserId: '17841400000000999',
+  instagramUserId: '17841400000000999',
   username: 'acme.shop',
   connectionStatus: 'connected',
   encryptedAccessToken: 'v1:encrypted',
@@ -205,7 +205,7 @@ describe('AutomationRunMessageService', () => {
     expect(pauses).toEqual([500]);
     expect(client.sendInstagramMessage).toHaveBeenCalledWith({
       encryptedAccessToken: 'v1:encrypted',
-      instagramAppUserId: '17841400000000999',
+      instagramUserId: '17841400000000999',
       recipient: { id: '17841400000000001' },
       message: { text: 'Here you go' },
       requestId: 'job-1',

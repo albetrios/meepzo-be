@@ -58,7 +58,7 @@ export interface AutomationRunEvent {
 export interface AutomationRunTriggerInput {
   /** The job's organization scope, minted by sub-domain 4's worker and relayed here. */
   scope: OrganizationPrincipalDatabaseScope;
-  /** `iga_…` — every match is limited to this account's automations (AU27). */
+  /** `cha_…` — every match is limited to this account's automations (AU27). */
   instagramAccountPublicId: string;
   /** The contact of the event (sub-domain 2's row). */
   contact: ContactRow;

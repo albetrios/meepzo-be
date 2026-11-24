@@ -486,6 +486,11 @@ export async function writeHistory({
     WHERE id = ${contact.id}
     ON CONFLICT (organization_id, channel_account_id, tag)
     DO UPDATE SET contact_count = app.contact_tag_counts.contact_count + 1`;
+  // The tag change's event, written in the same commit (3.B, ROUTE R11).
+  await operatorQuery`
+    INSERT INTO app.contact_tag_events (organization_id, channel_account_id, contact_id, tag, kind, source)
+    SELECT organization_id, channel_account_id, id, ${`Tag of ${name}`}, 'added', 'owner'
+    FROM app.contacts WHERE id = ${contact.id}`;
   const owner = { organizationId: team.organization.id, contactId: contact.id };
   const runningRun = await insertAutomationRun({
     ...owner,

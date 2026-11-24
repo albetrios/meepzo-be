@@ -103,6 +103,22 @@ const CONVERSIONS: readonly Conversion[] = [
     'restrict',
     'contact_tag_counts_channel_account_fk',
   ),
+  // feat-instagram-dm-sending R11 (CT16): a tag event names its contact (CASCADE) and, as a copy of
+  // the contact's, its account (RESTRICT).
+  link(
+    'app.contact_tag_events',
+    'contact_id',
+    'app.contacts',
+    'cascade',
+    'contact_tag_events_contact_fk',
+  ),
+  link(
+    'app.contact_tag_events',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'contact_tag_events_channel_account_fk',
+  ),
   // launch R12 (WH16): an Instagram webhook event names its account through the composite key.
   link(
     'app.instagram_webhook_events',
@@ -278,6 +294,12 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
     `INSERT INTO app.contact_tag_counts (organization_id, channel_account_id, tag, contact_count)
      VALUES ($1, $2, 'vip', 1)`,
     [organization.id, Number(channelAccount?.id)],
+  );
+  // One tag event of the contact (R11, CT16).
+  await operatorQuery.unsafe(
+    `INSERT INTO app.contact_tag_events (organization_id, channel_account_id, contact_id, tag, kind, source)
+     VALUES ($1, $2, $3, 'vip', 'added', 'owner')`,
+    [organization.id, Number(channelAccount?.id), Number(contact?.id)],
   );
   const [run] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(

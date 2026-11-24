@@ -32,7 +32,9 @@ import { InstagramWebhookService } from './sub-domains/instagram-webhook/instagr
 import { enqueueInstagramWebhookAccountProcessing } from './sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { ContactRepository } from './sub-domains/contact/contact.repository.js';
 import { ContactService } from './sub-domains/contact/contact.service.js';
-import type { ContactErasureStep } from './sub-domains/contact/contact.types.js';
+import type { ContactErasureStep, ContactPauseStep } from './sub-domains/contact/contact.types.js';
+import { ContactTagEventRepository } from './sub-domains/contact/contact-tag-event/contact-tag-event.repository.js';
+import { ContactTagEventService } from './sub-domains/contact/contact-tag-event/contact-tag-event.service.js';
 import { AutomationRepository } from './sub-domains/automation/automation.repository.js';
 import { AutomationService } from './sub-domains/automation/automation.service.js';
 import type { AutomationOpenRunCancelStep } from './sub-domains/automation/automation.types.js';
@@ -78,11 +80,51 @@ export type AppContainer = {
   instagramAccountErasureService: InstagramAccountErasureService;
   instagramAccountMetaCallbackService: InstagramAccountMetaCallbackService;
   contactService: ContactService;
+  /** The contact tag events (3.B): the tag-event recorder and the erase step; intake reads at R38. */
+  contactTagEventService: ContactTagEventService;
   instagramWebhookEventService: InstagramWebhookEventService;
   instagramWebhookService: InstagramWebhookService;
   automationService: AutomationService;
   automationRunService: AutomationRunService;
 };
+
+/**
+ * The contact sub-domain's services (routes-final § 3): the contact service and its tag events
+ * (3.B, ROUTE row R11), with the erase and pause steps of § 3.10 — 3.B's tag-event delete first,
+ * the run engine's erase pushed by the caller, 6's at its row; the bulk queue (R46) and intake's
+ * queue (R38) join later. The automation filters resolve through the automation service, so
+ * contacts never import it.
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only, no side effects.
+ * `cancelContactOpenRuns` is a closure because the run engine is built after the contact service.
+ */
+function createContactServices({
+  organizationService,
+  automationService,
+  cancelContactOpenRuns,
+}: {
+  organizationService: OrganizationService;
+  automationService: AutomationService;
+  cancelContactOpenRuns: ContactPauseStep;
+}): {
+  contactService: ContactService;
+  contactTagEventService: ContactTagEventService;
+  contactErasureSteps: ContactErasureStep[];
+} {
+  const contactTagEventService = new ContactTagEventService(new ContactTagEventRepository());
+  const contactErasureSteps: ContactErasureStep[] = [
+    (input) => contactTagEventService.deleteContactTagEvents(input),
+  ];
+  const contactService = new ContactService(
+    new ContactRepository(),
+    organizationService,
+    contactErasureSteps,
+    (input) => automationService.findAutomationIdForFilter(input),
+    { pauseSteps: [cancelContactOpenRuns], tagEventRecorder: contactTagEventService },
+  );
+  return { contactService, contactTagEventService, contactErasureSteps };
+}
 
 /**
  * The Instagram account sub-domain's services (routes-final § 2): the extension's one writer
@@ -216,17 +258,11 @@ export function createAppContainer({
     organizationService,
     automationOpenRunCancelSteps,
   );
-  // The contact's erase and pause steps (§ 3.10) run in the route's transaction — the run engine's
-  // below, 3.B's and 6's at their rows, as the tag-event port (R11) and the bulk queue (R46). The
-  // automation filters resolve through the automation service, so contacts never import it.
-  const contactErasureSteps: ContactErasureStep[] = [];
-  const contactService = new ContactService(
-    new ContactRepository(),
+  const { contactService, contactTagEventService, contactErasureSteps } = createContactServices({
     organizationService,
-    contactErasureSteps,
-    (input) => automationService.findAutomationIdForFilter(input),
-    { pauseSteps: [(input) => automationRunService.cancelContactOpenRuns(input)] },
-  );
+    automationService,
+    cancelContactOpenRuns: (input) => automationRunService.cancelContactOpenRuns(input),
+  });
   const instagramWebhookEventService = new InstagramWebhookEventService(
     new InstagramWebhookEventRepository(),
     organizationService,
@@ -261,6 +297,7 @@ export function createAppContainer({
     instagramAccountErasureService,
     instagramAccountMetaCallbackService,
     contactService,
+    contactTagEventService,
     instagramWebhookEventService,
     instagramWebhookService,
     automationService,

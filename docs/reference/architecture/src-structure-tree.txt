@@ -215,11 +215,26 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── contact.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── contact-channel-neutral.policy.unit.test.ts
     │   │   │   │   │   ├── contact.repository.db.unit.test.ts
     │   │   │   │   │   ├── contact.serializer.unit.test.ts
     │   │   │   │   │   ├── contact.service.db.unit.test.ts
     │   │   │   │   │   ├── contact.service.unit.test.ts
     │   │   │   │   │   └── contact.validator.unit.test.ts
+    │   │   │   ├── contact-tag-event/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── contact-tag-event.service.db.unit.test.ts
+    │   │   │   │   │   │   └── contact-tag-event.service.unit.test.ts
+    │   │   │   │   ├── seed/
+    │   │   │   │   │   ├── contact-tag-event.bulk.seed.ts
+    │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── contact-tag-event.constants.ts
+    │   │   │   │   ├── contact-tag-event.overview.md
+    │   │   │   │   ├── contact-tag-event.repository.ts
+    │   │   │   │   ├── contact-tag-event.schema.ts
+    │   │   │   │   ├── contact-tag-event.service.ts
+    │   │   │   │   └── contact-tag-event.types.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── contact.bulk.seed.ts
     │   │   │   │   ├── contact.faker.ts

@@ -45,9 +45,9 @@ process.env.MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED = 'false';
 // pin it OFF with a plain assignment: the suite tests the production answer (every recipient goes
 // to Resend), and the mail processor's unit test switches it on per test.
 process.env.MAIL_RESERVED_DOMAIN_SKIP_ENABLED = 'false';
-// Read-only mode for unpaid organizations is off by default, and most suites
-// build organizations with no subscription — pin it OFF with a plain assignment so a machine that switched
-// it on in `.env.local` does not turn their writes into 403s. The suites that cover it switch it on.
+// Read-only mode is ON by default (BL4) — the harness pins it OFF with a plain assignment so the suites
+// that do not test billing (and build organizations with lapsed or odd subscriptions) are not turned
+// into 403s. The suites that cover it switch it on.
 process.env.BILLING_READ_ONLY_ENFORCED = 'false';
 // Category-B security flags now default to their HARDENED value everywhere; the harness sets the
 // relaxed values explicitly (previously implied by the non-production runtime) so e2e behaves as

@@ -187,7 +187,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 
 | # | Work item | Kind | Depends on | Skill/driver | Acceptance | Assignee | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| R1 | 8.A Plans: the Flowdm plan rows and the switched-off rows, one switch per feature, the plan read; routes 100–101 — `routes-final.md` § 8.A (BLC6) and § 8 BLC1 (plans part), BLC2 | sub-domain | — | `/be-build-requirement` | AC-11.1, AC-11.2, AC-11.14 | Rimeet Mavani | open |
+| R1 | 8.A Plans: the Flowdm plan rows and the switched-off rows, one switch per feature, the plan read; routes 100–101 — `routes-final.md` § 8.A (BLC6) and § 8 BLC1 (plans part), BLC2 | sub-domain | — | `/be-build-requirement` | AC-11.1, AC-11.2, AC-11.14 | Rimeet Mavani | done |
 | R2 | 1 The Meta client moved into the connection, Meta's usage per connection, the one-use login state — § 1 MCC2, MCC3, MCC12 | sub-domain | R1 | `/be-build-requirement` | AC-1.18, AC-1.19 | Rimeet Mavani | open |
 | R3 | 1 Channel connection: the connection and token tables, routes 1–5, 40, 42 (start, callback, pick, list, disconnect, reconnect), the two `channel-account:*` codes of § 9 TNC8 first — § 1 MCC1, MCC4, MCC5, MCC7, MCC10, MCC11 | sub-domain | R1, R2 | staged-build prompt | AC-1.1–AC-1.10, AC-1.15–AC-1.17 | Rimeet Mavani | open |
 | R4 | 1 The ad picker: routes 15, 41 — § 1 MCC8 | sub-domain | R3 | `/be-build-requirement` | AC-1.13 | Rimeet Mavani | open |

@@ -17,7 +17,7 @@ import {
 import {
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
-  endTrialWithoutPaying,
+  endPaidPlanWithoutPaying,
   readStagedAuditRows,
   type InstagramTeamFixture,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
@@ -1086,7 +1086,7 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
 
     it('refuses the three writes with 403 organization_read_only; the reads stay open', async () => {
       const automation = await automationOfTeam();
-      await endTrialWithoutPaying(team.organization.id);
+      await endPaidPlanWithoutPaying(team.organization.id);
       env.BILLING_READ_ONLY_ENFORCED = true;
 
       for (const response of [

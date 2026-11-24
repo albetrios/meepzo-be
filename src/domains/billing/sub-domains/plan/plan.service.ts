@@ -67,7 +67,7 @@ export class PlanService {
   }
 
   /**
-   * The public catalog read, served from a one-minute in-process memo.
+   * The public catalog read — the active plans, cheapest first (route 100) — served from a one-minute in-process memo.
    *
    * @remarks
    * - **Algorithm:** {@link memoizePlanCatalog} answers from memory, or runs the query once and
@@ -103,7 +103,7 @@ export class PlanService {
  *
  * @remarks
  * The one definition of "paid plan": annual billing ({@link supportsPlanBillingCycle}) and an organization's
- * paid entitlement (`holdsPaidEntitlement` in the subscription sub-domain) both read it. Catalog
+ * plan entitlement (`resolvePlanAccess` in the subscription sub-domain) both read it. Catalog
  * prices are never negative (`chk_plans_price_m` / `chk_plans_price_y`).
  */
 export function isPaidPlan(input: {
@@ -129,6 +129,17 @@ export function supportsPlanBillingCycle(input: {
   return input.billingCycle === 'monthly' || isPaidPlan({ plan: input.plan });
 }
 
+/**
+ * The yearly price shown per month (routes-final BL13): `price_yearly` ÷ 12, two decimals.
+ *
+ * @remarks
+ * Computed in integer cents so a placeholder like $276 reads `23.00`, never a float artefact.
+ */
+export function yearlyPricePerMonth({ priceYearly }: { priceYearly: string }): string {
+  const yearlyCents = Math.round(Number(priceYearly) * 100);
+  return (Math.round(yearlyCents / 12) / 100).toFixed(2);
+}
+
 function toOutput(row: {
   public_id: string;
   name: string;
@@ -137,28 +148,25 @@ function toOutput(row: {
   price_yearly: string;
   currency: string;
   is_active: boolean;
-  // REQ-4: `features` is the typed jsonb map (NOT NULL, default `{}`) and `included_seats`
-  // drives the structured `limits.seats` (null = unlimited).
+  // BL12 (P83): the typed features, parsed by the repository on every read.
   features: PlanFeatures;
-  included_seats: number | null;
   created_at: Date;
   updated_at: Date;
 }): PlanOutput {
+  const offersYearly = supportsPlanBillingCycle({ plan: row, billingCycle: 'yearly' });
   return {
     id: row.public_id,
     name: row.name,
     description: row.description,
     price_monthly: String(row.price_monthly),
-    price_yearly: supportsPlanBillingCycle({ plan: row, billingCycle: 'yearly' })
-      ? String(row.price_yearly)
+    price_yearly: offersYearly ? String(row.price_yearly) : null,
+    price_yearly_per_month: offersYearly
+      ? yearlyPricePerMonth({ priceYearly: String(row.price_yearly) })
       : null,
-    billing_cycles: supportsPlanBillingCycle({ plan: row, billingCycle: 'yearly' })
-      ? ['monthly', 'yearly']
-      : ['monthly'],
+    billing_cycles: offersYearly ? ['monthly', 'yearly'] : ['monthly'],
     currency: row.currency,
     is_active: row.is_active,
     features: row.features,
-    limits: { seats: row.included_seats ?? null },
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   };

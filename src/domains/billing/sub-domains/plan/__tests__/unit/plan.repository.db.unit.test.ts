@@ -5,6 +5,8 @@ import { PlanRepository } from '@/domains/billing/sub-domains/plan/plan.reposito
 import { database } from '@/infrastructure/database/connection.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import { eq } from 'drizzle-orm';
+import { FREE_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 
 describe('PlanRepository (database)', () => {
   const repository = new PlanRepository();
@@ -101,5 +103,45 @@ describe('PlanRepository (database)', () => {
     await createTestPlan({ name: 'Higher Tier', priceMonthly: '20.00', includedSeats: 25 });
 
     expect(await repository.findFreePlanSeatCeiling()).toBeNull();
+  });
+
+  it('findAllActive answers the active plans cheapest first (route 100)', async () => {
+    await createTestPlan({ name: 'Dear', priceMonthly: '79.00', priceYearly: '756.00' });
+    await createTestPlan({ name: 'Zero', priceMonthly: '0.00', priceYearly: '0.00' });
+    await createTestPlan({ name: 'Middle', priceMonthly: '29.00', priceYearly: '276.00' });
+
+    const activePlans = await repository.findAllActive();
+    expect(activePlans.map((row) => row.name)).toEqual(['Zero', 'Middle', 'Dear']);
+    expect(activePlans[0]?.features).toEqual(FREE_PLAN_FEATURES);
+  });
+
+  // AC-11.2 (write half): `chk_plans_features` refuses a row whose features miss a key, carry an
+  // unknown one, or hold a wrong JSON type — the database refuses a bad row even past the seed's parse.
+  it('chk_plans_features refuses a missing, unknown or wrongly typed feature key', async () => {
+    const { has_priority_support: _dropped, ...missingKey } = FREE_PLAN_FEATURES;
+    const badFeatures: unknown[] = [
+      {},
+      missingKey,
+      { ...FREE_PLAN_FEATURES, is_pro_enabled: true },
+      { ...FREE_PLAN_FEATURES, message_month_limit: '1000' },
+      {
+        ...FREE_PLAN_FEATURES,
+        feature_switches: { ...FREE_PLAN_FEATURES.feature_switches, mark_seen: 'yes' },
+      },
+      [],
+    ];
+    for (const features of badFeatures) {
+      await expect(
+        database.insert(plans).values({
+          public_id: generatePublicId('plan'),
+          name: `Bad ${generatePublicId('plan')}`,
+          price_monthly: '1.00',
+          price_yearly: '1.00',
+          features: features as typeof FREE_PLAN_FEATURES,
+        }),
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ constraint: 'chk_plans_features' }),
+      });
+    }
   });
 });

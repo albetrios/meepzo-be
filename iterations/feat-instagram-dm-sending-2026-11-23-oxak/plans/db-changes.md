@@ -1760,6 +1760,12 @@ upload table does not change ([P34](decisions.md)).
 - **Open:** none — the feature keys are `message_month_limit` and `channel_accounts_max` (BLQ3, full
   names P6, the channel split P47, P79); the switches one per feature (P83); the old rows Free's
   (P80); routes-final § 8, 8.A.
+- **Built (R1, [AS-BUILT](../AS-BUILT.md)):** `billing.plans` by migration
+  `20261124060244_billing_flowdm_plans.sql` — `features` = `{ message_month_limit, channel_accounts_max,
+  has_priority_support, feature_switches }`, the switches the eleven keys of `PLAN_FEATURE_KEYS`
+  ([P103](decisions.md)); `chk_plans_features`; the `features` default dropped; `included_seats` null on
+  every row; Free, Creator, Studio active; every other row off with Free's features ([P105](decisions.md)).
+  No new column, no new table, no new public-id prefix (plans keep `pln_`).
 
 ```mermaid
 erDiagram

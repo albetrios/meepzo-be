@@ -35,7 +35,7 @@ const baseData = (overrides: Partial<AuthMeContextData> = {}): AuthMeContextData
     updated_at: '2026-01-01T00:00:00.000Z',
   },
   activeOrganization: organization('org_active', 'TEAM'),
-  planAccess: { state: 'active', graceEndsAt: null },
+  planAccess: { state: 'active', graceEndsAt: null, trialEndsAt: null, plan: null, features: null },
   membershipId: 'mem_active',
   myPermissions: ['organization:read', 'membership:manage'],
   myRoleIds: ['rol_admin'],
@@ -75,13 +75,19 @@ describe('serializeAuthMeContext', () => {
     expect(serializeAuthMeContext(baseData()).active_organization?.plan_access).toEqual({
       state: 'active',
       grace_ends_at: null,
+      trial_ends_at: null,
     });
     const graceEndsAt = new Date('2026-10-31T09:30:00.000Z');
     for (const state of ['grace', 'read_only'] as const) {
-      const output = serializeAuthMeContext(baseData({ planAccess: { state, graceEndsAt } }));
+      const output = serializeAuthMeContext(
+        baseData({
+          planAccess: { state, graceEndsAt, trialEndsAt: null, plan: null, features: null },
+        }),
+      );
       expect(output.active_organization?.plan_access).toEqual({
         state,
         grace_ends_at: '2026-10-31T09:30:00.000Z',
+        trial_ends_at: null,
       });
       expect(output.active_organization?.id).toBe('org_active');
     }
@@ -92,6 +98,7 @@ describe('serializeAuthMeContext', () => {
     expect(output.active_organization?.plan_access).toEqual({
       state: 'active',
       grace_ends_at: null,
+      trial_ends_at: null,
     });
   });
 

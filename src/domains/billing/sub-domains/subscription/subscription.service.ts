@@ -17,7 +17,7 @@ import {
 } from '@/infrastructure/cache/redis-lock.util.js';
 import { addMonths } from './subscription-period.util.js';
 import { INACTIVE_SUBSCRIPTION_STATUSES } from './subscription.repository.js';
-import { ACTIVE_PLAN_ACCESS, PLAN_ACCESS_STATE } from './subscription.constants.js';
+import { PLAN_ACCESS_STATE } from './subscription.constants.js';
 import {
   UNPAID_ENTITLEMENT_STATUSES,
   requiresFreeSeatCeiling,
@@ -384,37 +384,41 @@ export class SubscriptionService {
   }
 
   /**
-   * An organization's plan access (owner decision D3, 2026-10-17): `active`, `grace` (unpaid, its grace
-   * still running) or `read_only` (unpaid, its grace over).
+   * An organization's plan entitlement (owner decision D3; routes-final BL2) — the one plan read every
+   * decision uses: `state` (`active`, `grace` or `read_only`), `graceEndsAt`, `trialEndsAt`, the plan
+   * the organization's features come from and its typed `features` (BL12).
    *
    * @remarks
-   * - **Algorithm:** with `BILLING_READ_ONLY_ENFORCED` off, `active` at once — no query. On, one
-   *   indexed read of the organization and its current subscription
-   *   ({@link SubscriptionRepository.findPlanAccessSubject}) decided by `resolvePlanAccess`: a paid
-   *   entitlement keeps it `active`; otherwise the grace runs 14 days from a lapsed paid
-   *   subscription's `current_period_end` (`BILLING_DUNNING_GRACE_DAYS`) or, for an organization that never
-   *   paid, from its `created_at` (`NEW_ORGANIZATION_TRIAL_DAYS`). PERSONAL organizations are always
-   *   `active`.
-   * - **Failure modes:** a query failure propagates; an organization that does not exist reads
-   *   `active` (the route's own checks answer for it).
-   * - **Side effects:** none — read-only.
+   * - **Algorithm:** one indexed read of the organization, its current subscription with its plan,
+   *   and the catalog's Free plan ({@link SubscriptionRepository.findPlanAccessSubject}), decided by
+   *   `resolvePlanAccess` (BL3: Free never ends; a lapsed paid plan has its dunning grace, then
+   *   `read_only`; a cancelled paid plan is `read_only` from its period end). With
+   *   `BILLING_READ_ONLY_ENFORCED` off the state is always `active`; the plan and features are read
+   *   either way. PERSONAL organizations are always `active` on Free.
+   * - **Failure modes:** a query failure propagates; a malformed plan row's features throw (BL12); an
+   *   organization that does not exist reads `active` with no plan (the route's own checks answer).
+   * - **Side effects:** none — read-only, Postgres only (no cache, BL2).
    * - **Notes:** `organizationPublicId` is one the caller has already proved — the signed `org`
    *   claim (the app write guard, `GET /auth/me/context`) or a switch's verified target — read under
    *   that organization's context, which a surrounding context for the same organization lends its
    *   transaction (me/context adds none). Read by `GET /auth/me/context` and the organization
-   *   switches (`active_organization.plan_access`) and by {@link assertOrganizationWritable}.
+   *   switches (`active_organization.plan_access`), by {@link assertOrganizationWritable}, and — from
+   *   later iteration rows — by the account limit, the one feature check and the month limit.
    */
   async getPlanAccess({
     organizationPublicId,
   }: {
     organizationPublicId: string;
   }): Promise<PlanAccess> {
-    if (!env.BILLING_READ_ONLY_ENFORCED) return ACTIVE_PLAN_ACCESS;
     const subject = await withAppDatabaseContext({
       scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
       callback: () => this.repository.findPlanAccessSubject(organizationPublicId),
     });
-    return resolvePlanAccess({ subject, now: new Date(Date.now()) });
+    return resolvePlanAccess({
+      subject,
+      now: new Date(Date.now()),
+      isReadOnlyEnforced: env.BILLING_READ_ONLY_ENFORCED,
+    });
   }
 
   /**

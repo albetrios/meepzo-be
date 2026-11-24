@@ -242,7 +242,7 @@ describe('AuthMeContextService.getActiveOrganizationContext', () => {
       // No plan access service in this harness: the organization reads `active` (owner decision D3).
       active_organization: {
         ...activeOrganization,
-        plan_access: { state: 'active', grace_ends_at: null },
+        plan_access: { state: 'active', grace_ends_at: null, trial_ends_at: null },
       },
       my_permissions: ['organization:read', 'membership:manage'],
       global_role: null,
@@ -323,6 +323,7 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
     expect(data.active_organization.plan_access).toEqual({
       state: 'read_only',
       grace_ends_at: '2026-10-31T09:30:00.000Z',
+      trial_ends_at: null,
     });
   });
 });

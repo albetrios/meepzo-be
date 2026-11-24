@@ -297,19 +297,20 @@ const SERVER_VARS = {
 } satisfies Record<string, EnvVarSpec>;
 
 /**
- * Billing behaviour switches. `BILLING_READ_ONLY_ENFORCED` turns on read-only mode for unpaid organizations
- * (owner decision D3, 2026-10-17): a TEAM organization without a paid entitlement keeps writing
- * through its grace, then reports `plan_access` `read_only`.
- * Category-A: the static default `false` is the production-safe value until organizations can pay in
- * ₹ — on, an organization would be locked with no way out — so no refine pins it.
+ * Billing behaviour switches. `BILLING_READ_ONLY_ENFORCED` turns on read-only mode (owner decision D3,
+ * 2026-10-17; routes-final BL3, BL4): an organization whose PAID plan lapsed keeps writing through
+ * its dunning grace, then reports `plan_access` `read_only`; a cancelled paid plan reads `read_only`
+ * from its period end. Free never ends, so an organization that never paid is always `active`.
+ * Category-A: the static default `true` is the production-safe value — only a lapsed or cancelled
+ * paid plan reaches `read_only`, and the owner can always choose a plan — so no refine pins it.
  */
 const BILLING_POLICY_VARS = {
   BILLING_READ_ONLY_ENFORCED: envVar({
-    schema: booleanString('false'),
+    schema: booleanString('true'),
     meta: {
       allowed: 'true | false (or 1 | 0)',
       description:
-        'Read-only mode for unpaid organizations: a TEAM organization without a paid plan reports plan_access read_only once its grace ends (14 days after creation, or BILLING_DUNNING_GRACE_DAYS after a lapsed subscription period). Off, every organization reports plan_access active.',
+        'Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. Off, every organization reports plan_access active.',
     },
   }),
 } satisfies Record<string, EnvVarSpec>;

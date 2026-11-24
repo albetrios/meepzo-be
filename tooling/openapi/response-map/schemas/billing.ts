@@ -8,9 +8,29 @@ export const planSchema = {
     description: { type: 'string', nullable: true },
     price_monthly: { type: 'string' },
     price_yearly: { type: 'string', nullable: true },
+    price_yearly_per_month: {
+      type: 'string',
+      nullable: true,
+      description: '`price_yearly` ÷ 12, two decimals; null without a yearly price.',
+    },
     billing_cycles: { type: 'array', items: { type: 'string', enum: ['monthly', 'yearly'] } },
     currency: { type: 'string' },
     is_active: { type: 'boolean' },
+    features: {
+      type: 'object',
+      description:
+        'The typed plan features: the two limits, priority support and one on / off switch per feature key.',
+      properties: {
+        message_month_limit: { type: 'integer', minimum: 0 },
+        channel_accounts_max: { type: 'integer', minimum: 1, maximum: 100 },
+        has_priority_support: { type: 'boolean' },
+        feature_switches: {
+          type: 'object',
+          additionalProperties: { type: 'boolean' },
+          description: 'One boolean per feature key (`PLAN_FEATURE_KEYS`).',
+        },
+      },
+    },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
   },
@@ -18,13 +38,32 @@ export const planSchema = {
 
 export const planExample = {
   id: 'pln_j5h8t3rwy6m1k9n2a1b2c',
-  name: 'Pro',
-  description: 'For growing teams that need more power and flexibility',
+  name: 'Creator',
+  description: null,
   price_monthly: '29.00',
-  price_yearly: '290.00',
+  price_yearly: '276.00',
+  price_yearly_per_month: '23.00',
   billing_cycles: ['monthly', 'yearly'],
   currency: 'USD',
   is_active: true,
+  features: {
+    message_month_limit: 10000,
+    channel_accounts_max: 3,
+    has_priority_support: false,
+    feature_switches: {
+      email_ask: true,
+      phone_ask: true,
+      reply_like_person: true,
+      multiple_public_reply_lines: true,
+      message_versions: true,
+      broadcasts: true,
+      segments: true,
+      past_comments: true,
+      extra_delay: true,
+      starter_questions: true,
+      mark_seen: true,
+    },
+  },
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-01T00:00:00.000Z',
 };
@@ -76,7 +115,7 @@ export const subscriptionExample = {
 export const planAccessSchema = {
   type: 'object',
   description:
-    "The organization's plan access. `active`: a paid plan (always for a personal organization, and for every organization while read-only mode is off). `grace`: no paid plan, writes allowed until `grace_ends_at`. `read_only`: no paid plan since `grace_ends_at`.",
+    "The organization's plan access. `active`: a live plan — Free never ends (always for a personal organization, and for every organization while read-only mode is off). `grace`: a lapsed paid plan, writes allowed until `grace_ends_at`. `read_only`: a lapsed or cancelled paid plan since `grace_ends_at`.",
   properties: {
     state: {
       type: 'string',
@@ -91,13 +130,20 @@ export const planAccessSchema = {
       description:
         'When the grace ends (`grace`) or ended, i.e. when read-only began (`read_only`); null when `active`.',
     },
+    trial_ends_at: {
+      type: 'string',
+      format: 'date-time',
+      nullable: true,
+      description: 'When the 7-day trial ends while it runs; null otherwise.',
+    },
   },
-  required: ['state', 'grace_ends_at'],
+  required: ['state', 'grace_ends_at', 'trial_ends_at'],
 };
 
 export const planAccessExample = {
   state: 'grace',
   grace_ends_at: '2026-10-31T09:30:00.000Z',
+  trial_ends_at: null,
 };
 
 export const webhookReceivedSchema = {

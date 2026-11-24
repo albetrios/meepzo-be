@@ -2,6 +2,7 @@ import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/memb
 import { and, asc, desc, eq, inArray, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { memberships } from '@/domains/tenancy/sub-domains/membership/membership.schema.js';
+import { alias } from 'drizzle-orm/pg-core';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import { databaseNowTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
@@ -15,13 +16,40 @@ import { capListWithWarning } from '@/shared/utils/infrastructure/list-cap.util.
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
+import { planFeaturesSchema } from '@/domains/billing/sub-domains/plan/plan.types.js';
 import type {
+  PlanAccessPlan,
   PlanAccessSubject,
   SubscriptionPublicState,
   SubscriptionCreateData,
   SubscriptionUpdateData,
   StripeSubscriptionOrderingState,
 } from './subscription.types.js';
+
+/** A joined plan's columns as one {@link PlanAccessPlan}, its features parsed; `null` when no row joined. */
+function toPlanAccessPlan(columns: {
+  public_id: string | null;
+  name: string | null;
+  price_monthly: string | null;
+  price_yearly: string | null;
+  features: unknown;
+}): PlanAccessPlan | null {
+  if (
+    columns.public_id === null ||
+    columns.name === null ||
+    columns.price_monthly === null ||
+    columns.price_yearly === null
+  ) {
+    return null;
+  }
+  return {
+    public_id: columns.public_id,
+    name: columns.name,
+    price_monthly: columns.price_monthly,
+    price_yearly: columns.price_yearly,
+    features: planFeaturesSchema.parse(columns.features),
+  };
+}
 
 /**
  * Subscription statuses that release the per-organization subscription slot.
@@ -236,31 +264,51 @@ export class SubscriptionRepository {
   }
 
   /**
-   * What an organization's plan access is decided from (owner decision D3): the organization's type and
-   * `created_at`, and its current subscription — the live (non-terminal) row when it has one, else
-   * its most recent — with that subscription plan's prices.
+   * What an organization's plan entitlement is decided from (owner decision D3, routes-final BL2): the
+   * organization's type, its current subscription — the live (non-terminal) row when it has one, else
+   * its most recent — with that subscription's plan, and the catalog's Free plan.
    *
    * @remarks
    * - **Algorithm:** one query: the organization row LEFT JOIN its subscriptions (served by
-   *   `idx_subscriptions_org_status`) LEFT JOIN the plan, ordered live-first then newest, `LIMIT 1`.
-   *   An organization has one live row at most (`idx_subscriptions_org`) and a short history.
+   *   `idx_subscriptions_org_status`) LEFT JOIN the subscription's plan LEFT JOIN the Free plan (the
+   *   active plan priced zero on both cycles, lowest id — a scalar subquery over the small catalog),
+   *   ordered live-first then newest, `LIMIT 1`. An organization has one live row at most
+   *   (`idx_subscriptions_org`) and a short history. Both plans' features are parsed with
+   *   `planFeaturesSchema` (BL12) — a malformed row throws.
    * - **Failure modes:** returns `null` when the organization is not visible in the current context
-   *   (RLS) or does not exist; `subscription` is `null` when it never had one.
+   *   (RLS) or does not exist; `subscription` is `null` when it never had one; `freePlan` is `null`
+   *   when the catalog has no Free plan.
    * - **Side effects:** none — read-only, under the caller's organization context.
    */
   async findPlanAccessSubject(organization_public_id: string): Promise<PlanAccessSubject | null> {
+    const freePlan = alias(plans, 'free_plan');
     const rows = await this.db()
       .select({
         organization_type: organizations.type,
-        organization_created_at: organizations.created_at,
         subscription_status: subscriptions.status,
         subscription_current_period_end: subscriptions.current_period_end,
+        subscription_trial_end: subscriptions.trial_end,
+        plan_public_id: plans.public_id,
+        plan_name: plans.name,
         plan_price_monthly: plans.price_monthly,
         plan_price_yearly: plans.price_yearly,
+        plan_features: plans.features,
+        free_plan_public_id: freePlan.public_id,
+        free_plan_name: freePlan.name,
+        free_plan_price_monthly: freePlan.price_monthly,
+        free_plan_price_yearly: freePlan.price_yearly,
+        free_plan_features: freePlan.features,
       })
       .from(organizations)
       .leftJoin(subscriptions, eq(subscriptions.organization_id, organizations.id))
       .leftJoin(plans, eq(plans.id, subscriptions.plan_id))
+      .leftJoin(
+        freePlan,
+        eq(
+          freePlan.id,
+          sql`(SELECT ${plans.id} FROM ${plans} WHERE ${plans.is_active} AND ${plans.price_monthly} = 0 AND ${plans.price_yearly} = 0 ORDER BY ${plans.id} LIMIT 1)`,
+        ),
+      )
       .where(eq(organizations.public_id, organization_public_id))
       .orderBy(
         // false (live) sorts before true (terminal); an organization without rows has one NULL row.
@@ -272,18 +320,29 @@ export class SubscriptionRepository {
     const row = rows[0];
     if (!row) return null;
     return {
-      organization: { type: row.organization_type, created_at: row.organization_created_at },
+      organization: { type: row.organization_type },
       subscription:
         row.subscription_status === null || row.subscription_current_period_end === null
           ? null
           : {
               status: row.subscription_status,
               current_period_end: row.subscription_current_period_end,
-              plan:
-                row.plan_price_monthly === null || row.plan_price_yearly === null
-                  ? null
-                  : { price_monthly: row.plan_price_monthly, price_yearly: row.plan_price_yearly },
+              trial_end: row.subscription_trial_end,
+              plan: toPlanAccessPlan({
+                public_id: row.plan_public_id,
+                name: row.plan_name,
+                price_monthly: row.plan_price_monthly,
+                price_yearly: row.plan_price_yearly,
+                features: row.plan_features,
+              }),
             },
+      freePlan: toPlanAccessPlan({
+        public_id: row.free_plan_public_id,
+        name: row.free_plan_name,
+        price_monthly: row.free_plan_price_monthly,
+        price_yearly: row.free_plan_price_yearly,
+        features: row.free_plan_features,
+      }),
     };
   }
 

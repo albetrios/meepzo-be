@@ -27,7 +27,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `AUTH_SESSION_IDLE_TIMEOUT_SECONDS` | — | `1800` |  | — |
 | `AUTH_SESSION_RETENTION_DAYS` | — | `30` |  | — |
 | `BILLING_DUNNING_GRACE_DAYS` | — | `14` |  | — |
-| `BILLING_READ_ONLY_ENFORCED` | true \| false (or 1 \| 0) | `false` | ✓ | Read-only mode for unpaid organizations: a TEAM organization without a paid plan reports plan_access read_only once its grace ends (14 days after creation, or BILLING_DUNNING_GRACE_DAYS after a lapsed subscription period). Off, every organization reports plan_access active. |
+| `BILLING_READ_ONLY_ENFORCED` | true \| false (or 1 \| 0) | `true` | ✓ | Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. Off, every organization reports plan_access active. |
 | `BLOCK_DISPOSABLE_EMAIL` | — | `true` |  | — |
 | `CAPTCHA_BYPASS_ALLOWED` | — | `false` |  | — |
 | `CAPTCHA_BYPASS_HEADER` | — | — *(optional)* |  | — |

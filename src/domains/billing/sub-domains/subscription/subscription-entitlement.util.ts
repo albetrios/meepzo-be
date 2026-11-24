@@ -1,11 +1,10 @@
 import { env } from '@/shared/config/env.config.js';
-import { NEW_ORGANIZATION_TRIAL_DAYS } from '@/shared/constants/billing.constants.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { isPaidPlan } from '@/domains/billing/sub-domains/plan/plan.service.js';
 import { isPersonalOrganization } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
 import { INACTIVE_SUBSCRIPTION_STATUSES } from './subscription.repository.js';
 import { ACTIVE_PLAN_ACCESS, PLAN_ACCESS_STATE } from './subscription.constants.js';
-import type { PlanAccess, PlanAccessSubject } from './subscription.types.js';
+import type { PlanAccess, PlanAccessPlan, PlanAccessSubject } from './subscription.types.js';
 
 /**
  * Dunning subscription statuses — a payment has failed but the subscription has not yet been
@@ -80,63 +79,89 @@ export function requiresFreeSeatCeiling({
   );
 }
 
-/**
- * Whether a subscription currently grants a paid plan: ACTIVE or TRIALING on a plan priced above
- * zero, or a dunning subscription (PAST_DUE / UNPAID) still inside its grace.
- *
- * @remarks
- * Built on {@link requiresFreeSeatCeiling} — the same entitlement the seat ceiling enforces — plus
- * {@link isPaidPlan}, since an ACTIVE row on the Free plan is a subscription but no payment. A
- * terminal row (CANCELED, INCOMPLETE_EXPIRED) grants nothing.
- */
-export function holdsPaidEntitlement({
-  subscription,
-  now,
-}: {
-  subscription: NonNullable<PlanAccessSubject['subscription']>;
-  now: Date;
-}): boolean {
-  if (TERMINAL_STATUSES.has(subscription.status)) return false;
-  if (requiresFreeSeatCeiling({ seatState: subscription, now })) return false;
-  if (DUNNING_STATUSES.has(subscription.status)) return true;
-  return subscription.plan !== null && isPaidPlan({ plan: subscription.plan });
+function planEntitlement(plan: PlanAccessPlan | null): Pick<PlanAccess, 'plan' | 'features'> {
+  return plan
+    ? { plan: { publicId: plan.public_id, name: plan.name }, features: plan.features }
+    : { plan: null, features: null };
 }
 
 /**
- * Decides an organization's plan access (owner decision D3, 2026-10-17) from its organization and current
- * subscription.
+ * Decides an organization's plan entitlement (owner decision D3; routes-final BL2, BL3) from its
+ * organization, its current subscription and the catalog's Free plan.
  *
  * @remarks
- * - **Algorithm:** a PERSONAL organization, an organization not found, or one with a paid entitlement
- *   ({@link holdsPaidEntitlement}) is `active`. Any other TEAM organization is unpaid and gets a
- *   grace: a lapsed paid subscription (cancelled, expired, paused, never paid, or dunning past its
- *   period) until {@link entitlementGraceEndsAt}; an organization that never paid — no subscription, or one
- *   on the Free plan — until `created_at + NEW_ORGANIZATION_TRIAL_DAYS`, a new organization's trial. Up to
- *   that instant it is `grace`; after it, `read_only`, `graceEndsAt` then being when read-only began.
- * - **Failure modes:** none — pure.
- * - **Notes:** whether read-only is enforced at all (`BILLING_READ_ONLY_ENFORCED`) is the caller's
- *   decision, read before any query (`SubscriptionService.getPlanAccess`).
+ * - **Algorithm (BL3):** **Free never ends** — no subscription, a PERSONAL organization, a row on the
+ *   Free plan (the local Free row of a move down or an unpaid trial end), an unpaid row that never
+ *   earned its plan (`INCOMPLETE`, `PAUSED`) or a terminal row that was not a cancelled paid plan
+ *   (`INCOMPLETE_EXPIRED`) → `active` on Free. `ACTIVE` / `TRIALING` → `active` on its plan
+ *   (`trialEndsAt` = `trial_end` while `TRIALING`). `PAST_DUE` / `UNPAID` → `grace` on its plan until
+ *   {@link entitlementGraceEndsAt} (`current_period_end + BILLING_DUNNING_GRACE_DAYS`), then
+ *   `read_only` on Free. A **cancelled paid plan** ends at its period end with no grace: `active` on
+ *   its plan until `current_period_end`, then `read_only` on Free ("plan ended"). A switched-off old
+ *   plan row carries Free's features itself (P80), so it needs no case here. A missing plan row
+ *   reads as Free.
+ * - **`isReadOnlyEnforced` false** (`BILLING_READ_ONLY_ENFORCED` off): the state is always `active`
+ *   with no grace date; the plan and features are decided as above.
+ * - **Failure modes:** none — pure. `plan` and `features` are `null` only when the catalog has no
+ *   Free plan and the subscription grants none.
  */
 export function resolvePlanAccess({
   subject,
   now,
+  isReadOnlyEnforced,
 }: {
   subject: PlanAccessSubject | null;
   now: Date;
+  isReadOnlyEnforced: boolean;
 }): PlanAccess {
-  if (!subject || isPersonalOrganization(subject.organization)) return ACTIVE_PLAN_ACCESS;
+  if (!subject) return ACTIVE_PLAN_ACCESS;
+  const onFree = planEntitlement(subject.freePlan);
+  const active = ({
+    entitlement,
+    trialEndsAt = null,
+  }: {
+    entitlement: Pick<PlanAccess, 'plan' | 'features'>;
+    trialEndsAt?: Date | null;
+  }): PlanAccess => ({
+    state: PLAN_ACCESS_STATE.ACTIVE,
+    graceEndsAt: null,
+    trialEndsAt,
+    ...entitlement,
+  });
   const { subscription } = subject;
-  if (subscription && holdsPaidEntitlement({ subscription, now })) return ACTIVE_PLAN_ACCESS;
-  const graceEndsAt =
-    subscription?.plan && isPaidPlan({ plan: subscription.plan })
-      ? entitlementGraceEndsAt({ currentPeriodEnd: subscription.current_period_end })
-      : new Date(
-          new Date(subject.organization.created_at).getTime() +
-            NEW_ORGANIZATION_TRIAL_DAYS * MILLISECONDS_PER_DAY,
-        );
-  return {
-    state:
-      now.getTime() > graceEndsAt.getTime() ? PLAN_ACCESS_STATE.READ_ONLY : PLAN_ACCESS_STATE.GRACE,
-    graceEndsAt,
-  };
+  if (isPersonalOrganization(subject.organization) || !subscription)
+    return active({ entitlement: onFree });
+
+  const subscriptionPlan = subscription.plan;
+  if (!(subscriptionPlan && isPaidPlan({ plan: subscriptionPlan })))
+    return active({ entitlement: onFree });
+  const onPlan = planEntitlement(subscriptionPlan);
+  const ended = (graceEndsAt: Date): PlanAccess =>
+    isReadOnlyEnforced
+      ? { state: PLAN_ACCESS_STATE.READ_ONLY, graceEndsAt, trialEndsAt: null, ...onFree }
+      : active({ entitlement: onFree });
+
+  if (subscription.status === 'CANCELED') {
+    const periodEnd = new Date(subscription.current_period_end);
+    return now.getTime() < periodEnd.getTime() ? active({ entitlement: onPlan }) : ended(periodEnd);
+  }
+  if (
+    TERMINAL_STATUSES.has(subscription.status) ||
+    UNPAID_ENTITLEMENT_STATUSES.has(subscription.status)
+  ) {
+    return active({ entitlement: onFree });
+  }
+  if (DUNNING_STATUSES.has(subscription.status)) {
+    const graceEndsAt = entitlementGraceEndsAt({
+      currentPeriodEnd: subscription.current_period_end,
+    });
+    if (now.getTime() > graceEndsAt.getTime()) return ended(graceEndsAt);
+    return isReadOnlyEnforced
+      ? { state: PLAN_ACCESS_STATE.GRACE, graceEndsAt, trialEndsAt: null, ...onPlan }
+      : active({ entitlement: onPlan });
+  }
+  return active({
+    entitlement: onPlan,
+    trialEndsAt: subscription.status === 'TRIALING' ? (subscription.trial_end ?? null) : null,
+  });
 }

@@ -1,0 +1,371 @@
+# Acceptance — feat-instagram-dm-sending-2026-11-23-oxak
+
+Filled at Close: Result is `pass` or `fail`, Evidence is a test name or a command. Each `AC-<feature>.<n>` Item is an acceptance
+criterion of its feature's `features/<feature>/story.md` (features numbered 1–27 in the order below), cited by Source; the
+`BRIEF-<n>` Items are the brief's acceptance lines and the decision Items are the plan decisions that must be proven on their own —
+each names the criteria that prove it. Riya's examples (plan §16, plan:L2737–L2791) are cited as the sources of the criteria they seed.
+
+Features: 1 `channel-connection` · 2 `channel-accounts` · 3 `instagram-account-settings` · 4 `instagram-content-picker` · 5 `contacts` · 6 `automations` · 7 `automation-runs-and-messages` · 8 `past-comments` · 9 `broadcasts-and-segments` · 10 `organization-usage-and-notices` · 11 `plans-billing-and-trial` · 12 `roles-and-organization` · 13 `sign-in-and-security` · 14 `profile-settings-and-notifications` · 15 `message-files` · 16 `instagram-webhook-intake` · 17 `instagram-sending-engine` · 18 `retention-and-partitions` · 19 `comment-to-dm-flow` · 20 `message-start-flow` · 21 `broadcast-send-flow` · 22 `month-limit-flow` · 23 `plan-move-down-flow` · 24 `trial-flow` · 25 `reconnect-after-token-error-flow` · 26 `data-deletion-and-contact-erase-flow` · 27 `outage-recovery-flow`
+
+## Feature acceptance criteria
+
+| Item | Source | Result | Evidence |
+| --- | --- | --- | --- |
+| AC-1.1 — Starting a connect answers a Meta login address with a one-use state; a callback with a missing, used, expired, or another person's or organization's state is refused with `meta_connect_state_invalid` and nothing is saved | intake-files/Instagram-DM-Sending-Plan-v8.md:4571 |  |  |
+| AC-1.2 — A callback whose token lacks one of the required permissions is refused and nothing is saved | intake-files/Instagram-DM-Sending-Plan-v8.md:4574 |  |  |
+| AC-1.3 — A good callback stores one connection for the business portfolio with its granted permissions and an encrypted token, and answers the assigned accounts, each marked free, already connected here, or connected in another organization, with the plan's room | intake-files/Instagram-DM-Sending-Plan-v8.md:4578 |  |  |
+| AC-1.4 — Picking more accounts than the plan's room is refused with `plan_account_limit` and nothing is saved; two picks at the same moment in one organization never both pass | intake-files/Instagram-DM-Sending-Plan-v8.md:4597 |  |  |
+| AC-1.5 — An account live in another organization is refused for that account only, with `instagram_account_connected_elsewhere`; the other picks connect | plans/decisions.md P60 |  |  |
+| AC-1.6 — An account no longer assigned to the portfolio at pick time is refused `not_assigned` | plans/decisions.md P55 |  |  |
+| AC-1.7 — A newly picked account has default settings and four ready lanes in the same commit; after the commit its six webhook fields are subscribed, and a failed subscription still leaves it connected and shown as not subscribed | intake-files/Instagram-DM-Sending-Plan-v8.md:4600 |  |  |
+| AC-1.8 — Reconnecting a portfolio puts the connection back to connected with the new token, clears the login stops of its accounts and wakes their lanes; another Instagram account never takes an old account row | intake-files/Instagram-DM-Sending-Plan-v8.md:4677 |  |  |
+| AC-1.9 — An account that moved to another portfolio of the same organization is moved to the new connection at the callback, keeping its automations, contacts and history | plans/decisions.md P54 |  |  |
+| AC-1.10 — Disconnecting a business revokes each of its accounts, stops their lanes and erases the token; their automations, contacts and history stay | intake-files/Instagram-DM-Sending-Plan-v8.md:2623 |  |  |
+| AC-1.11 — A validly signed deauthorize revokes the matched accounts (the Instagram account id first, else every account of the business id) and erases the token where no account still uses it; an unmatched id still gets its confirmation code and the team an email; a badly signed one is refused | plans/decisions.md P56 |  |  |
+| AC-1.12 — A data-deletion request erases the matched accounts' data and answers a stable confirmation code; repeating it is harmless and answers the same code | intake-files/Instagram-DM-Sending-Plan-v8.md:4695 |  |  |
+| AC-1.13 — The ad picker lists the connection's ad accounts, then the ads of one ad account at a time, read live and never stored; a list without an ad account is refused | plans/decisions.md P57 |  |  |
+| AC-1.14 — The daily token check marks a connection whose token Meta refuses as `error`, every account of it `error`, stops all their lanes and gives each account one reconnect notice; Meta down or "too fast" changes nothing | intake-files/Instagram-DM-Sending-Plan-v8.md:4654 |  |  |
+| AC-1.15 — An Editor or a Viewer can list and read connections and is refused start, callback, pick, reconnect and disconnect with `missing_permission` | plans/decisions.md P59 |  |  |
+| AC-1.16 — Callback and pick without an idempotency key are refused; repeated with the same key they answer the first result and change nothing twice | plans/decisions.md P89 |  |  |
+| AC-1.17 — No Instagram Login route, table, job, scope or host remains in the code | intake-files/BRIEF.md:69 |  |  |
+| AC-1.18 — The token never appears in an answer, a log line, a job payload or an email | intake-files/Instagram-DM-Sending-Plan-v8.md:4658 |  |  |
+| AC-1.19 — A connection read at 95 % of Meta's usage makes the next call of every channel on that connection wait the time Meta gave; at 80 % calls slow | plans/decisions.md P51 |  |  |
+| AC-2.1 — The account list shows each account of the organization with its channel, display name, Instagram username, picture and followers, status, paused or suspended, and any plan stop; reading another organization's account answers not found | intake-files/Instagram-DM-Sending-Plan-v8.md:2527 |  |  |
+| AC-2.2 — A paused account sends nothing on any of its four lanes while its comments and taps are still saved; resume wakes every lane that has waiting messages | intake-files/Instagram-DM-Sending-Plan-v8.md:2599 |  |  |
+| AC-2.3 — Resume clears only the owner's pause: an error stop and a team suspend stay | intake-files/Instagram-DM-Sending-Plan-v8.md:2600 |  |  |
+| AC-2.4 — Disconnecting one account sets it `revoked`, stops its lanes, removes its starter questions and webhook subscription (best effort) and keeps its automations, contacts and history; the token stays while another account of the connection is connected and is erased with the last one | intake-files/Instagram-DM-Sending-Plan-v8.md:2623 |  |  |
+| AC-2.5 — A revoked account is connected again only by a new connect and pick, and gets its earlier settings back | intake-files/Instagram-DM-Sending-Plan-v8.md:4672 |  |  |
+| AC-2.6 — Choosing a plan-stopped account as active clears its `plan_downgrade` stop and sets that stop on the named active account in the same step; a choice that would exceed the plan's account limit is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:2631 |  |  |
+| AC-2.7 — A team-suspended account stays stopped after the owner presses resume | intake-files/Instagram-DM-Sending-Plan-v8.md:2657 |  |  |
+| AC-2.8 — The feature check refuses with `channel_lacks_feature`, `permission_not_granted` (answer: reconnect to allow it), `plan_lacks_feature` or `feature_not_offered` as its reason says, with the statuses of P61 | plans/decisions.md P61 |  |  |
+| AC-2.9 — While the plan is read-only, pause, resume and disconnect still succeed | plans/decisions.md P10 |  |  |
+| AC-2.10 — An Editor or a Viewer can list and read accounts and is refused pause, resume, disconnect and choose-active with `missing_permission` | plans/decisions.md P59 |  |  |
+| AC-2.11 — Pause, resume, disconnect and choose-active each write one audit entry with the account and the old and new value | intake-files/Instagram-DM-Sending-Plan-v8.md:2660 |  |  |
+| AC-2.12 — A private account is flagged on its read so the editor can warn that comment automations cannot work | intake-files/Instagram-DM-Sending-Plan-v8.md:4642 |  |  |
+| AC-3.1 — A new account's settings read replies under comments ON, once per person per post ON, mark as seen OFF, delay before each message off, and empty limits that act as the settings file's values | intake-files/Instagram-DM-Sending-Plan-v8.md:2679 |  |  |
+| AC-3.2 — An opening-DM limit above 700 an hour is refused; with no owner value a new account sends at most 150 opening DMs an hour for its first 7 days | intake-files/Instagram-DM-Sending-Plan-v8.md:216 |  |  |
+| AC-3.3 — A per-person limit outside 5–100 an hour is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:1960 |  |  |
+| AC-3.4 — On Free, switching the delay before each message on is refused with `plan_lacks_feature`; on Creator or Studio a minimum above the maximum, or a value outside 1–20 seconds, is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:278 |  |  |
+| AC-3.5 — Switching mark as seen on while its Meta test has not passed is refused with `feature_not_offered` | plans/decisions.md P36 |  |  |
+| AC-3.6 — With replies under comments OFF, a reply under another comment starts nothing and is logged `ignored` · `thread_reply_off` | intake-files/Instagram-DM-Sending-Plan-v8.md:275 |  |  |
+| AC-3.7 — With once per person per post OFF, a second keyword comment of the same person on the same post starts a new run once her earlier run has ended | intake-files/Instagram-DM-Sending-Plan-v8.md:276 |  |  |
+| AC-3.8 — A changed limit or setting applies to events that arrive after it; messages already waiting keep their planned time; the slow and reply lanes get a new turn | intake-files/Instagram-DM-Sending-Plan-v8.md:2684 |  |  |
+| AC-3.9 — The account settings carry no public-reply fields; sending one is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:225 |  |  |
+| AC-3.10 — An Editor or a Viewer can read the settings and is refused a change with `missing_permission` | intake-files/Instagram-DM-Sending-Plan-v8.md:7871 |  |  |
+| AC-3.11 — Each change writes one audit entry with the changed fields' old and new values | intake-files/Instagram-DM-Sending-Plan-v8.md:2660 |  |  |
+| AC-4.1 — The post list answers the account's posts and reels, newest first, each with its caption and kind (post, reel, ad post), read live from Instagram; a missing picture falls back to the thumbnail or the link | plans/routes-final.md route 13 |  |  |
+| AC-4.2 — The story list answers the account's live stories for "one story" | plans/routes-final.md route 14 |  |  |
+| AC-4.3 — Listing stores nothing; a post row appears only when a comment arrives on it | intake-files/Instagram-DM-Sending-Plan-v8.md:2946 |  |  |
+| AC-4.4 — Listing another organization's or a revoked account is refused (not found or not connected) | intake-files/Instagram-DM-Sending-Plan-v8.md:2595 |  |  |
+| AC-4.5 — Instagram down or the connection over Meta's usage answers a temporary refusal with a retry time and stores nothing | plans/decisions.md P51 |  |  |
+| AC-4.6 — A Viewer can list posts and stories; a story automation whose Meta test has not passed is refused at go-live with `feature_not_offered` | plans/decisions.md P36 |  |  |
+| AC-5.1 — The contact list without an account is refused; with one it shows only that account's contacts with tags, opted out, paused, how she came in, first message, last comment and comment count | plans/decisions.md P65 |  |  |
+| AC-5.2 — A search under 3 characters is refused; a search matches name, username, email or phone; filters and sorts work across pages | plans/decisions.md P97 |  |  |
+| AC-5.3 — A contact read answers her profile, the email and phone she gave, tags, note, opted out, paused (by whom, when) and the automation she came in through; another organization's contact answers not found | intake-files/Instagram-DM-Sending-Plan-v8.md:257 |  |  |
+| AC-5.4 — A note over 2,000 characters is refused; a saved note sends nothing | intake-files/Instagram-DM-Sending-Plan-v8.md:2626 |  |  |
+| AC-5.5 — Adding or removing a tag on one contact writes exactly one tag event in the same commit, and a live tag automation of that tag can start from it | intake-files/Instagram-DM-Sending-Plan-v8.md:256 |  |  |
+| AC-5.6 — A bulk action with more than 500 ids, or with neither ids nor a filter, is refused; a good one answers at once and changes the contacts in pieces of 500 in the background | plans/decisions.md P66 |  |  |
+| AC-5.7 — The tag list without an account is refused; with one it answers each tag with its count; a tag change shows in the list within 60 seconds | plans/decisions.md P64 |  |  |
+| AC-5.8 — Pausing automations for a person skips her waiting messages (`contact_excluded`), cancels her open runs (`contact_excluded`), and a later comment of hers is saved but sends no DM, public reply or hide | intake-files/Instagram-DM-Sending-Plan-v8.md:2789 |  |  |
+| AC-5.9 — Switching the pause off sends nothing by itself; her next own matching action starts normally | intake-files/Instagram-DM-Sending-Plan-v8.md:2616 |  |  |
+| AC-5.10 — There is no way for the owner to clear a person's opted out; only her own new matching action does | intake-files/Instagram-DM-Sending-Plan-v8.md:260 |  |  |
+| AC-5.11 — A Viewer reads contacts and is refused note, tags, pause and bulk with `missing_permission`; an Editor may do those and is refused delete | intake-files/Instagram-DM-Sending-Plan-v8.md:7869 |  |  |
+| AC-5.12 — Deleting a contact wipes her personal data, keeps the row, cancels her open runs and her waiting messages | intake-files/Instagram-DM-Sending-Plan-v8.md:2628 |  |  |
+| AC-5.13 — No contact is removed by age by any clean-up | intake-files/Instagram-DM-Sending-Plan-v8.md:262 |  |  |
+| AC-5.14 — Note, tag, pause and delete each leave one audit entry; no log line holds her email or phone | intake-files/Instagram-DM-Sending-Plan-v8.md:7257 |  |  |
+| AC-6.1 — Creating with a name and a way to start saves a `draft` on the selected account and sends nothing; without a way to start it is refused | plans/decisions.md P70 |  |  |
+| AC-6.2 — The list without an account is refused; with one it shows that account's automations with status, and "1.3k runs · 51% tapped" for live and paused ones, "0 runs · edited …" for drafts | intake-files/Instagram-DM-Sending-Plan-v8.md:2517 |  |  |
+| AC-6.3 — Go-live of an incomplete automation answers `automation_not_ready` with every problem and its step (name, way to start, words, starter questions, link name, catch-all, hello, comment kinds without hello, follow, email and phone, messages, public reply, tags) and changes nothing | intake-files/Instagram-DM-Sending-Plan-v8.md:690 |  |  |
+| AC-6.4 — Go-live is refused when the hello has later steps but no "sends your next step" button | plans/decisions.md P2 |  |  |
+| AC-6.5 — A shared keyword with another live automation, and a private account on a comment kind, only warn; go-live still succeeds | intake-files/Instagram-DM-Sending-Plan-v8.md:709 |  |  |
+| AC-6.6 — A save of a live or paused automation with a content problem is refused and saves nothing; a save that turns a PRO part on, on a plan without it, is refused with `plan_lacks_feature`; PRO parts already on stay saved | plans/decisions.md P69 |  |  |
+| AC-6.7 — On Free, a draft with an email step saves; its go-live answers `plan_lacks_feature` naming "Ask for their email" | intake-files/Instagram-DM-Sending-Plan-v8.md:8067 |  |  |
+| AC-6.8 — Go-live is refused while the plan has ended (`organization_read_only`), while the month limit is reached, and while the account is not connected | intake-files/Instagram-DM-Sending-Plan-v8.md:2647 |  |  |
+| AC-6.9 — Go-live of a story repost, ad-comment or Live-comment automation, or one using quick replies or cards, whose Meta test has not passed is refused with `feature_not_offered` | plans/decisions.md P36 |  |  |
+| AC-6.10 — A second live "first message" or "no other automation answered" automation on the same account is refused at go-live, naming the one that already answers | intake-files/Instagram-DM-Sending-Plan-v8.md:701 |  |  |
+| AC-6.11 — Starter questions: a fifth live question on the account is refused at go-live; going live, pausing, deleting or changing such an automation updates the account's ice breakers at Instagram | intake-files/Instagram-DM-Sending-Plan-v8.md:253 |  |  |
+| AC-6.12 — A link automation's `ref_code` longer than 64, with other signs, or used by another automation of the account is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:254 |  |  |
+| AC-6.13 — "Reply like a person" ON with fewer than 3 lines is refused at go-live; on Free it cannot be switched on; on Creator and Studio a new automation starts with it ON | intake-files/Instagram-DM-Sending-Plan-v8.md:263 |  |  |
+| AC-6.14 — A message list with 0 or 11 messages, a wait over 23 hours, a text over 1,000 bytes, or a file not uploaded and checked is refused at go-live | intake-files/Instagram-DM-Sending-Plan-v8.md:240 |  |  |
+| AC-6.15 — Pause + keep leaves `paused` with its waiting DMs going on and open chats finishing; pause + cancel leaves `paused` and every waiting message of it ends `cancelled` | intake-files/Instagram-DM-Sending-Plan-v8.md:674 |  |  |
+| AC-6.16 — Going live again from `paused` runs the full check; a paused automation's waiting DMs under 7 days go on | intake-files/Instagram-DM-Sending-Plan-v8.md:2602 |  |  |
+| AC-6.17 — Duplicate makes a draft "<name> (copy)" on the same account with counters at 0 and, for a link automation, a new link code | intake-files/Instagram-DM-Sending-Plan-v8.md:2607 |  |  |
+| AC-6.18 — Delete without a reason succeeds; `other` without a note is refused; afterwards the automation is gone from list and read, its open runs and waiting messages are `cancelled` · `automation_deleted`, and its contacts stay | plans/decisions.md P11 |  |  |
+| AC-6.19 — An edit to a live automation reaches waiting messages when they go; a waiting message whose step was removed ends `cancelled` · `cancelled_by_owner`; a missing version number falls back to version 1 | intake-files/Instagram-DM-Sending-Plan-v8.md:681 |  |  |
+| AC-6.20 — The keyword test answers whether a text starts this automation, which word matched (exact or close spelling) and which automation of the account would answer first; it sends and stores nothing | intake-files/Instagram-DM-Sending-Plan-v8.md:250 |  |  |
+| AC-6.21 — A keyword of 5 or more letters matches a word with one wrong letter ("guide" matches "guida"), also inside a multi-word keyword whose words come together and in order; shorter words must match exactly | intake-files/Instagram-DM-Sending-Plan-v8.md:271 |  |  |
+| AC-6.22 — Runs and "% tapped" count a hello tap or a typed answer once per run, per hello version, in the same commit as the event, and stay after old runs are deleted | intake-files/Instagram-DM-Sending-Plan-v8.md:272 |  |  |
+| AC-6.23 — A "next post" automation stays waiting for the next post with no expiry | plans/decisions.md P12 |  |  |
+| AC-6.24 — While the plan is read-only, pause and delete succeed and go-live is refused | plans/decisions.md P10 |  |  |
+| AC-6.25 — A Viewer reads automations and is refused create, edit, go-live, pause, duplicate and delete with `missing_permission`; an Editor may do all of them | intake-files/Instagram-DM-Sending-Plan-v8.md:7866 |  |  |
+| AC-6.26 — Create and duplicate without an idempotency key are refused; go-live, pause and the keyword test take none | plans/decisions.md P89 |  |  |
+| AC-6.27 — Create, edit, go-live, pause, duplicate and delete each leave one audit entry | intake-files/Instagram-DM-Sending-Plan-v8.md:2595 |  |  |
+| AC-7.1 — "What happened" on a contact lists our messages of about the last 30 days with status and reason, her saved email, phone and taps, and her runs with their history; none of her own free text appears | intake-files/Instagram-DM-Sending-Plan-v8.md:2627 |  |  |
+| AC-7.2 — The retry summary of an automation answers the failed messages of about the last 30 days, how many can go again and how many cannot with their reasons (too old, chat closed, final for her, text still refused, broadcast), and changes nothing | intake-files/Instagram-DM-Sending-Plan-v8.md:6036 |  |  |
+| AC-7.3 — Retrying puts exactly the allowed failed messages back to `waiting`, marks each retried, wakes their lanes, and they then go through the normal limits and count in the month when sent | intake-files/Instagram-DM-Sending-Plan-v8.md:2791 |  |  |
+| AC-7.4 — A message already retried once, an `unknown`, `skipped`, `expired` or `cancelled` message, and a broadcast message are never put back by a retry | intake-files/Instagram-DM-Sending-Plan-v8.md:6029 |  |  |
+| AC-7.5 — An opening private reply whose comment is older than 7 days minus 30 minutes, or a DM whose window is closed, stays `failed` on retry | intake-files/Instagram-DM-Sending-Plan-v8.md:6031 |  |  |
+| AC-7.6 — A message whose last error is final for the person (she blocked us, not found, no consent, another app), or whose person is opted out or paused, stays `failed` on retry | intake-files/Instagram-DM-Sending-Plan-v8.md:6033 |  |  |
+| AC-7.7 — While the automation is stopped for a refused text, its failed messages are not retried until the text is fixed | intake-files/Instagram-DM-Sending-Plan-v8.md:6034 |  |  |
+| AC-7.8 — A retried message that fails again stays `failed` and is never retried again | intake-files/Instagram-DM-Sending-Plan-v8.md:6040 |  |  |
+| AC-7.9 — The contact's retry summary and retry do the same for that one person | intake-files/Instagram-DM-Sending-Plan-v8.md:2702 |  |  |
+| AC-7.10 — A Viewer is refused both retries with `missing_permission`; an Editor may retry; each retry leaves one audit entry | intake-files/Instagram-DM-Sending-Plan-v8.md:7889 |  |  |
+| AC-7.11 — A retry without an idempotency key is refused; repeated with the same key it starts nothing twice | plans/decisions.md P89 |  |  |
+| AC-7.12 — The sending status of an account answers the waiting count per lane, every stop with its reason and end time, paused or suspended, the new-account limit's end, the "will go / may expire" estimate and today's sent, not sure, skipped and expired counts | intake-files/Instagram-DM-Sending-Plan-v8.md:2532 |  |  |
+| AC-7.13 — A message whose send result is `unknown` is never sent again by any job; her next message or tap may send that step once more, as the same row | intake-files/BRIEF.md:72 |  |  |
+| AC-8.1 — Starting a read on a live comment automation with N from 1 to 7 answers the read `queued`; N outside 1–7, a draft or paused automation, or a Live-comment automation is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:280 |  |  |
+| AC-8.2 — On Free the start is refused with `plan_lacks_feature` | intake-files/Instagram-DM-Sending-Plan-v8.md:8054 |  |  |
+| AC-8.3 — A second start while a read of the same automation is queued or reading is refused ("Past comments are already being read") | intake-files/Instagram-DM-Sending-Plan-v8.md:2698 |  |  |
+| AC-8.4 — The read's status shows found, matched and queued so far, then `done` with its numbers, or `failed` with its reason | intake-files/Instagram-DM-Sending-Plan-v8.md:2697 |  |  |
+| AC-8.5 — A comment already answered by this automation, or whose once key is used, gets no second DM; a comment older than 7 days minus 30 minutes is never sent | intake-files/Instagram-DM-Sending-Plan-v8.md:1400 |  |  |
+| AC-8.6 — Past comments go at the lowest priority behind fresh comments, and an urgent one (little time left) goes early in the old line | intake-files/Instagram-DM-Sending-Plan-v8.md:2787 |  |  |
+| AC-8.7 — A move down to a plan without past comments ends an unfinished read `failed` · `plan_feature_off`; the opening DMs it already queued still go | intake-files/Instagram-DM-Sending-Plan-v8.md:8015 |  |  |
+| AC-8.8 — The member who started it, and Owner and Admin, get one "past comments done" notification in-app with the numbers, no email by default | intake-files/Instagram-DM-Sending-Plan-v8.md:8159 |  |  |
+| AC-8.9 — A Viewer is refused the start with `missing_permission`; a start without an idempotency key is refused | plans/decisions.md P89 |  |  |
+| AC-9.1 — On Free, every segment and broadcast action is refused with `plan_lacks_feature` | plans/decisions.md P76 |  |  |
+| AC-9.2 — A segment with more than 20 conditions or more than 2 levels is refused; a good one is saved on its account | intake-files/Instagram-DM-Sending-Plan-v8.md:279 |  |  |
+| AC-9.3 — The audience count answers how many match and how many can get it now (chat open), leaving out opted-out, paused and deleted contacts; a count too heavy to answer at once says it is counted in the background | intake-files/Instagram-DM-Sending-Plan-v8.md:2689 |  |  |
+| AC-9.4 — A broadcast with 0 or 4 messages is refused; a draft can be edited, a sent one cannot | intake-files/Instagram-DM-Sending-Plan-v8.md:2689 |  |  |
+| AC-9.5 — Send now builds the audience from the broadcast's own copy of the conditions and sends only to people whose chat is open, checked again just before each message; a person whose chat closed meanwhile is `skipped` | intake-files/Instagram-DM-Sending-Plan-v8.md:279 |  |  |
+| AC-9.6 — A scheduled broadcast starts at its time; a "when her chat opens" broadcast sends to each person of the audience when her chat next opens within its 1–7 days, then ends `done` | intake-files/Instagram-DM-Sending-Plan-v8.md:1705 |  |  |
+| AC-9.7 — Cancelling a scheduled, sending or waiting broadcast makes it `cancelled`, its waiting recipients `skipped` and their waiting messages `cancelled` · `broadcast_cancelled`; sent ones stay sent | intake-files/Instagram-DM-Sending-Plan-v8.md:2690 |  |  |
+| AC-9.8 — Deleting a scheduled, sending or waiting broadcast is refused with `broadcast_active`; deleting a draft, done or cancelled one hides it; editing a segment never changes a broadcast's copy | plans/decisions.md P9 |  |  |
+| AC-9.9 — The list shows each broadcast's name, mode, status and sent, skipped, replies and taps | intake-files/Instagram-DM-Sending-Plan-v8.md:2688 |  |  |
+| AC-9.10 — Broadcast messages go in the account's broadcast lane behind its other lanes, within its broadcast hour limit; each counts one DM in the month | intake-files/Instagram-DM-Sending-Plan-v8.md:215 |  |  |
+| AC-9.11 — A move down to a plan without broadcasts ends scheduled and waiting broadcasts `cancelled` · `plan_feature_off`; drafts and segments stay saved | intake-files/Instagram-DM-Sending-Plan-v8.md:2692 |  |  |
+| AC-9.12 — A Viewer lists and reads broadcasts and segments and is refused every change with `missing_permission` | intake-files/Instagram-DM-Sending-Plan-v8.md:2691 |  |  |
+| AC-9.13 — Deleted broadcasts and segments are gone for good 90 days after their delete | plans/decisions.md P75 |  |  |
+| AC-10.1 — The usage read answers used, limit and the reset day of the organization's month, counted across every account | plans/decisions.md P14 |  |  |
+| AC-10.2 — The context answers the month state `nearly` from 80 % and `reached` at 100 %, the plan state with its grace and trial end, whether a plan choice is required, and the connected-account count | intake-files/Instagram-DM-Sending-Plan-v8.md:8037 |  |  |
+| AC-10.3 — Crossing 80 % sends one notice and one email per organization that month; crossing again the same month sends none | intake-files/Instagram-DM-Sending-Plan-v8.md:2027 |  |  |
+| AC-10.4 — Reaching 100 % sends one "DM limit reached" notice and email per organization that month | intake-files/Instagram-DM-Sending-Plan-v8.md:2028 |  |  |
+| AC-10.5 — Two servers crossing the same line at once send one email, not two | intake-files/Instagram-DM-Sending-Plan-v8.md:2666 |  |  |
+| AC-10.6 — Owner problem emails (blocked, connection stopped, message access off, refused text, a stop over 1 hour, missed comments found) go at most once per kind per account per 6 hours | intake-files/Instagram-DM-Sending-Plan-v8.md:2667 |  |  |
+| AC-10.7 — An account becoming `error` (alone or with its connection) produces one reconnect notice and email per account and break, never one per failed message | intake-files/Instagram-DM-Sending-Plan-v8.md:4657 |  |  |
+| AC-10.8 — A Viewer sees the meter and the notices | intake-files/Instagram-DM-Sending-Plan-v8.md:8038 |  |  |
+| AC-10.9 — The month resets at 00:00 on the 1st in the organization's time zone | intake-files/Instagram-DM-Sending-Plan-v8.md:2029 |  |  |
+| AC-11.1 — The plan list answers Free, Creator and Studio with their prices, `message_month_limit`, `channel_accounts_max`, `has_priority_support` and one switch per feature key, and no PRO bundle | plans/decisions.md P83 |  |  |
+| AC-11.2 — A plan row with a missing or unknown feature key is refused when written and when read | intake-files/Instagram-DM-Sending-Plan-v8.md:7945 |  |  |
+| AC-11.3 — An organization on a switched-off Starter, Growth or Pro row is held to Free's features and limits, its context says a plan choice is required, it is moved down to Free once (accounts above Free's one stopped, the oldest-connected kept), gets one notice and one email, and its Stripe subscription is untouched | plans/decisions.md P80 |  |  |
+| AC-11.4 — Starting a trial of Creator or Studio without a card gives that plan's features and limits at once, with its end date 7 days ahead in the context | intake-files/Instagram-DM-Sending-Plan-v8.md:8105 |  |  |
+| AC-11.5 — A second trial in the same organization is refused with `trial_already_used`; connecting during a trial an Instagram account that had a trial elsewhere is refused with `trial_used_by_account` | intake-files/Instagram-DM-Sending-Plan-v8.md:8104 |  |  |
+| AC-11.6 — Moving up applies the new limits at once and clears every `plan_downgrade` stop, and the `plan_limit` stop when the month count is under the new limit | intake-files/Instagram-DM-Sending-Plan-v8.md:8006 |  |  |
+| AC-11.7 — Moving down first answers the accounts that do not fit and the PRO parts that will be off, takes the accounts to keep, and changes nothing until the period end | intake-files/Instagram-DM-Sending-Plan-v8.md:8019 |  |  |
+| AC-11.8 — A failed payment keeps sending until the period end + 14 days, then the plan ends and every lane of every account stops with `plan_ended`, also when no Stripe event arrives | intake-files/Instagram-DM-Sending-Plan-v8.md:7983 |  |  |
+| AC-11.9 — A cancelled paid plan stops every lane with `plan_ended` at its period end, without a grace | intake-files/Instagram-DM-Sending-Plan-v8.md:7980 |  |  |
+| AC-11.10 — While the plan has ended, waiting messages stay waiting and still expire by the 7-day rule; picking a plan clears `plan_ended` and the lanes wake | intake-files/Instagram-DM-Sending-Plan-v8.md:7985 |  |  |
+| AC-11.11 — Removing the only card while a paid plan is on is refused with `default_card_in_use`; another organization's card id is refused; setting a default card sets it on the customer and the subscription | plans/decisions.md P78 |  |  |
+| AC-11.12 — No seat count is sent to Stripe and members are not limited by plan | intake-files/Instagram-DM-Sending-Plan-v8.md:7948 |  |  |
+| AC-11.13 — An Editor or a Viewer is refused every billing change with `missing_permission` | intake-files/Instagram-DM-Sending-Plan-v8.md:7873 |  |  |
+| AC-11.14 — Billing's table and column changes come as new billing migrations; no merged migration is edited | intake-files/BRIEF.md:77 |  |  |
+| AC-12.1 — A new team organization has exactly the four locked roles Owner, Admin, Editor, Viewer with the codes of the plan's table; existing organizations get Editor (from Member) and Viewer by migration | intake-files/Instagram-DM-Sending-Plan-v8.md:7880 |  |  |
+| AC-12.2 — An Editor may create, edit, go live, pause and delete automations, tag and note contacts and upload message files, and is refused contact delete, account connect and billing | intake-files/Instagram-DM-Sending-Plan-v8.md:7866 |  |  |
+| AC-12.3 — A Viewer reads automations, contacts, accounts, broadcasts and the meter, and every change is refused with `missing_permission` | intake-files/Instagram-DM-Sending-Plan-v8.md:7865 |  |  |
+| AC-12.4 — Creating, editing, deleting, restoring a role or replacing its codes is refused while custom roles are off; listing roles still answers | intake-files/Instagram-DM-Sending-Plan-v8.md:7883 |  |  |
+| AC-12.5 — Inviting 3 emails with one role answers one line per email; more than 20 emails or more or fewer than one role is refused | plans/decisions.md P82 |  |  |
+| AC-12.6 — The invitation preview answers `valid` with whether the signed-in email matches, `accepted`, `expired` or `revoked` (also for a declined one); a wrong token answers not found; a signed-out caller never sees the invitee's email; the 31st call a minute from one IP is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:7833 |  |  |
+| AC-12.7 — The members list answers the count per role | intake-files/Instagram-DM-Sending-Plan-v8.md:7895 |  |  |
+| AC-12.8 — Creating an organization with only a name makes a unique slug from it and a tile colour; an update that sends the slug is refused with `slug_read_only` | intake-files/Instagram-DM-Sending-Plan-v8.md:7904 |  |  |
+| AC-12.9 — The tile colour accepts the five tones, `lavender` among them, and the organization read answers it | plans/decisions.md P81 |  |  |
+| AC-12.10 — A team-paused organization sends nothing on any account and its context says so | intake-files/Instagram-DM-Sending-Plan-v8.md:7907 |  |  |
+| AC-12.11 — The new code, the roles and the colour arrive as new tenancy migrations | intake-files/BRIEF.md:77 |  |  |
+| AC-13.1 — The password sign-in, forgot, reset and change routes no longer exist, and no code path checks a password | plans/decisions.md P84 |  |  |
+| AC-13.2 — A sent code is 6 digits; the answer gives when a new code may be asked and when it expires, the same for a known and an unknown email; a resend within 60 seconds is refused with its wait | intake-files/Instagram-DM-Sending-Plan-v8.md:7648 |  |  |
+| AC-13.3 — A wrong code answers `code_wrong` with the tries left; an expired newest code `code_expired`; 5 wrong tries `code_used_up`; 20 wrong tries a day `code_day_limit` with its wait | intake-files/Instagram-DM-Sending-Plan-v8.md:7650 |  |  |
+| AC-13.4 — Removing the email-code way is refused with `email_code_always_on` | intake-files/Instagram-DM-Sending-Plan-v8.md:7777 |  |  |
+| AC-13.5 — The Apple form callback over 16 KiB is refused; a good one keeps the name with the state and sends the browser on to the app page without signing anyone in; it is the one named exception to the method-status policy | plans/decisions.md P85 |  |  |
+| AC-13.6 — The sign-in providers list answers Google and Apple only | intake-files/Instagram-DM-Sending-Plan-v8.md:7778 |  |  |
+| AC-13.7 — Linking Google or Apple while signed in needs a recent step-up and links even with another email; one already linked to someone else is refused with `provider_account_in_use` | intake-files/Instagram-DM-Sending-Plan-v8.md:7776 |  |  |
+| AC-13.8 — After a right 2FA code with "trust this device", the next sign-in on that browser within 30 days skips the code; in an organization that requires 2FA the code is still asked | intake-files/Instagram-DM-Sending-Plan-v8.md:267 |  |  |
+| AC-13.9 — An 11th trusted device ends the oldest; turning 2FA off, removing the last factor, or "sign out everywhere else" ends trusted devices (except this browser for the last) | intake-files/Instagram-DM-Sending-Plan-v8.md:7745 |  |  |
+| AC-13.10 — A wrong 2FA code answers the tries left; the 11th in 15 minutes is locked with its wait | intake-files/Instagram-DM-Sending-Plan-v8.md:7717 |  |  |
+| AC-13.11 — A person without 2FA can remove a passkey, remove Google or Apple and end a session after an email-code step-up | intake-files/Instagram-DM-Sending-Plan-v8.md:7765 |  |  |
+| AC-13.12 — The sessions list shows each session's city and country; with no place file the place is empty and nothing fails | plans/decisions.md P86 |  |  |
+| AC-13.13 — Sign-in, step-up, trusting a device and removing a way each leave one audit entry | intake-files/Instagram-DM-Sending-Plan-v8.md:7632 |  |  |
+| AC-14.1 — The profile saves and answers an Instagram handle (lowercased, `@` removed) and a goal; a handle with other signs or over 30 characters, or another goal, is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:7819 |  |  |
+| AC-14.2 — Settings save and answer reduce motion; choosing a personal organization as the default is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:8204 |  |  |
+| AC-14.3 — The organization list hides the personal organization and answers each one's role, members, accounts and live automations, filtered by a name search | intake-files/Instagram-DM-Sending-Plan-v8.md:7853 |  |  |
+| AC-14.4 — Asking for a confirm link emails one; asking again within 60 seconds is refused with its wait; the link's token confirms the email once and an unknown, spent or older-than-24-hours token is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:8209 |  |  |
+| AC-14.5 — The preferences read answers the 7 kinds × channels with their defaults (email off for new contact details and for "broadcast or past comments done") | intake-files/Instagram-DM-Sending-Plan-v8.md:8137 |  |  |
+| AC-14.6 — Turning billing or security email off is refused | plans/decisions.md P87 |  |  |
+| AC-14.7 — With in-app off and email on, a notification sends an email with the caller's dedupe key and writes no in-app row; with both off nothing is sent | plans/decisions.md P88 |  |  |
+| AC-14.8 — The weekly summary reaches each member who has it on once on Monday morning in the organization's time zone, with each account's runs, DMs sent, % tapped, new contacts, details collected and top automation; a week with nothing sends nothing; a restart never sends it twice | intake-files/Instagram-DM-Sending-Plan-v8.md:8188 |  |  |
+| AC-14.9 — Three people leaving details within one hour on one account produce one in-app note "3 new contacts left details" and no email by default | intake-files/Instagram-DM-Sending-Plan-v8.md:8161 |  |  |
+| AC-15.1 — A message-file upload of a png or jpeg up to 8 MB, a voice note up to 25 MB or a PDF up to 25 MB is accepted; a bigger file or another type is refused | plans/routes-final.md route 140 |  |  |
+| AC-15.2 — Confirming a file whose bytes do not match its declared type (audio included) is refused and the file cannot be used in a message | plans/routes-final.md route 150 |  |  |
+| AC-15.3 — Go-live of an automation whose message file is not uploaded or not confirmed is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:706 |  |  |
+| AC-15.4 — A file used by several messages of one account is uploaded to Instagram once and reused | intake-files/Instagram-DM-Sending-Plan-v8.md:5512 |  |  |
+| AC-15.5 — A Viewer is refused the upload with `missing_permission`; an Editor may upload | intake-files/Instagram-DM-Sending-Plan-v8.md:7866 |  |  |
+| AC-15.6 — No scan runs and the AS-BUILT records the D58 deviation | plans/decisions.md P34 |  |  |
+| AC-16.1 — A delivery with a bad or missing signature is refused before anything is read or saved | intake-files/Instagram-DM-Sending-Plan-v8.md:4755 |  |  |
+| AC-16.2 — Meta's subscription check answers the challenge only with the right verify token | plans/routes-final.md route 60 |  |  |
+| AC-16.3 — Read receipts and our own "sent" notices are not saved; an echo of our own message is matched to it by id, also when it arrives before its send was saved (within 10 minutes) | plans/decisions.md P62 |  |  |
+| AC-16.4 — Events of an unknown or revoked account, and events older than 8 days, are not saved; the same event delivered twice is saved once | intake-files/Instagram-DM-Sending-Plan-v8.md:4761 |  |  |
+| AC-16.5 — With Postgres down or the save over its time limit, the webhook answers a failure and keeps nothing in Redis; Meta's next delivery is saved normally | plans/decisions.md P32 |  |  |
+| AC-16.6 — A validly signed burst from Meta is never refused by the per-IP limit | plans/decisions.md P97 |  |  |
+| AC-16.7 — Intake of an event sends nothing; its decision, runs and waiting messages are written in one commit; an event taken once is never decided twice | plans/worker-changes.md WC-1 |  |  |
+| AC-16.8 — Two intake jobs of one account racing on one contact (her DM and her comment) never deadlock | plans/decisions.md P47 |  |  |
+| AC-16.9 — An Instagram outage does not pause intake: events keep being decided and messages keep waiting | plans/decisions.md P47 |  |  |
+| AC-16.10 — "GUIDE" as her first DM with keyword GUIDE and a first-message automation live starts GUIDE; "hi" starts the first-message one; a week later "hi" starts "no other automation answered" once that day | intake-files/Instagram-DM-Sending-Plan-v8.md:566 |  |  |
+| AC-16.11 — A tap or any text while her run waits moves that run (level 1) before any other automation is considered | intake-files/Instagram-DM-Sending-Plan-v8.md:570 |  |  |
+| AC-16.12 — A starter-question tap or a link ref naming a live automation starts it (level 2) even when a keyword also matches; a paused automation's starter tap is treated as text | intake-files/Instagram-DM-Sending-Plan-v8.md:554 |  |  |
+| AC-16.13 — A comment matching a post-linked and an "any post" automation starts only the oldest post-linked one; every other match is logged `ignored` · `comment_already_answered`; the account's own comment is skipped `own_comment` | intake-files/Instagram-DM-Sending-Plan-v8.md:577 |  |  |
+| AC-16.14 — "Any post" LINK answers her comment on post 1 and on post 2, and her second comment on post 1 gets nothing | intake-files/Instagram-DM-Sending-Plan-v8.md:2763 |  |  |
+| AC-16.15 — With "once" ON, a second comment on the same post is ignored `once_per_post`; a comment on another post (or any comment in "every time") cancels her open run of that automation with its waiting messages (`replaced`) and starts the new run in the same commit | plans/decisions.md P35 |  |  |
+| AC-16.16 — Any other way to start while her run of that automation is open is ignored `run_in_progress` | intake-files/Instagram-DM-Sending-Plan-v8.md:1944 |  |  |
+| AC-16.17 — More than 20 of her message events in a minute are skipped `flood` | plans/decisions.md P63 |  |  |
+| AC-16.18 — A Live comment's private reply waits in the fast lane only while the Live is on; when the Live ends its waiting replies become `expired` · `live_ended` | intake-files/Instagram-DM-Sending-Plan-v8.md:2769 |  |  |
+| AC-16.19 — A tag event starts a tag automation only when her window is open; closed, no run starts (`window_closed`); a chain of tag starts stops at the third | intake-files/Instagram-DM-Sending-Plan-v8.md:2781 |  |  |
+| AC-16.20 — An event stuck over 1 minute is picked up again; a failed one is retried every hour until its comment is 7 days old | plans/worker-changes.md WC-12 |  |  |
+| AC-16.21 — A watched post's comments that never arrived by webhook are found within 30 minutes and answered like any comment; after an outage the full pass reads at most 7 days and 25 posts per account, at the lowest priority, and pauses at 60 % Meta usage | plans/decisions.md P93 |  |  |
+| AC-16.22 — An account whose subscription lost a field is subscribed again within 10 minutes and its missed comments are looked for | plans/worker-changes.md WC-25 |  |  |
+| AC-16.23 — "My next post" links to the first post published after go-live, once, with no expiry | plans/decisions.md P12 |  |  |
+| AC-16.24 — The event list filters by account and shows the new kinds and reasons; a Viewer or Editor is refused it with `missing_permission` | plans/decisions.md P59 |  |  |
+| AC-17.1 — With an opening limit of 600 an hour, opening DMs of one account go one per 6-second box at a random second, never two in one box and at least 1.5 seconds apart | intake-files/Instagram-DM-Sending-Plan-v8.md:217 |  |  |
+| AC-17.2 — 2,000 comments on one post at 10:00 are all saved and their opening DMs go one per box; 200 taps in one second are answered within about 12 seconds, at most 20 at once | intake-files/Instagram-DM-Sending-Plan-v8.md:2745 |  |  |
+| AC-17.3 — Her comment with her window closed gets the opening DM as a private reply in the slow lane; with her window open it goes as a normal DM in the fast lane within 2 seconds, outside the 600 an hour, counting 1 DM in the month | intake-files/Instagram-DM-Sending-Plan-v8.md:2743 |  |  |
+| AC-17.4 — A second opening private reply to the same person within 24 hours waits until the 24 hours pass | intake-files/Instagram-DM-Sending-Plan-v8.md:219 |  |  |
+| AC-17.5 — A tap gets the next step after a random 500–2,000 ms; a message list's waits are kept; a message whose window closed is `skipped` · `window_closed` and no later message of that run is made | intake-files/Instagram-DM-Sending-Plan-v8.md:2765 |  |  |
+| AC-17.6 — The nudge goes once, 60 minutes after the hello, with the same version, only when she wrote first; her tap before it cancels the nudge | intake-files/Instagram-DM-Sending-Plan-v8.md:2767 |  |  |
+| AC-17.7 — "Reply like a person" OFF posts the public reply right after the DM; ON posts it by its chance, hour box and 20-second gap, never with the automation's last line; the hide follows the reply and a failed hide changes nothing else | intake-files/Instagram-DM-Sending-Plan-v8.md:2777 |  |  |
+| AC-17.8 — Gate 2 adds the minute count in the same commit that sets `sending`; with Redis empty the Postgres counts still hold every limit | intake-files/BRIEF.md:71 |  |  |
+| AC-17.9 — A send whose result is unclear is saved `unknown` and is never sent again by any job; her next message or tap sends that step once more as the same row | intake-files/BRIEF.md:72 |  |  |
+| AC-17.10 — A block on account A's slow lane stops A's DM lanes and its replies and hides; other accounts, also A's sister account in the same organization, keep sending; a test the next day ends the stop and A sends at half speed for 24 hours | intake-files/Instagram-DM-Sending-Plan-v8.md:2759 |  |  |
+| AC-17.11 — "Too fast" on one lane gives that lane half speed for 1 hour; code 4 with a subcode stops only that account's lane; code 4 without a subcode from 2 accounts within 5 minutes stops every account as the app limit | intake-files/Instagram-DM-Sending-Plan-v8.md:230 |  |  |
+| AC-17.12 — A token error on a send stops every account of that connection at once and gives each account one reconnect notice | intake-files/Instagram-DM-Sending-Plan-v8.md:4656 |  |  |
+| AC-17.13 — An opening DM still waiting 7 days minus 30 minutes after its comment becomes `expired` and is never sent | intake-files/Instagram-DM-Sending-Plan-v8.md:2757 |  |  |
+| AC-17.14 — The follow check is tried twice; both failing, she is treated as following and the next step goes | intake-files/Instagram-DM-Sending-Plan-v8.md:2751 |  |  |
+| AC-17.15 — Two automations on one post share one unanswered opening message; her one tap moves both; email is asked once; both message lists go one message at a time | intake-files/Instagram-DM-Sending-Plan-v8.md:2761 |  |  |
+| AC-17.16 — With the connection at 95 % of Meta's usage the account's calls wait the time Meta gave (or 15 minutes); at 80 % the boxes double | plans/decisions.md P51 |  |  |
+| AC-17.17 — Every DM kind counts one in the month; public replies, hides, follow checks and "Seen" do not; a picture with a text counts two | intake-files/Instagram-DM-Sending-Plan-v8.md:1997 |  |  |
+| AC-17.18 — At most one open run exists per automation and person at any time, also under two intake jobs at once; a key whose run ended is removed by the repair within a minute | plans/decisions.md P100 |  |  |
+| AC-17.19 — A lane whose ticket was lost gets a new turn within about a minute; a send whose lease ran out is settled as `unknown` and not resent | plans/worker-changes.md WC-13 |  |  |
+| AC-17.20 — With more send work than database slots, the workers wait for a slot up to 2 seconds and then put the ticket back; the connection count never exceeds the budget | plans/decisions.md P91 |  |  |
+| AC-17.21 — With `SENDING_ENABLED` off, or an environment id that differs from the database's, no worker or repair sends anything while webhooks are still saved | intake-files/BRIEF.md:76 |  |  |
+| AC-17.22 — A server older than the release's minimum compatible settings version takes no tickets; an older compatible one does; a stopping server finishes its sends within 30 seconds | plans/decisions.md P95 |  |  |
+| AC-17.23 — A server whose clock is over 2 seconds from Postgres's sends nothing until it is back in line | plans/worker-changes.md WC-23 |  |  |
+| AC-17.24 — An account's estimate of "will go / may expire" is refreshed every 10 minutes and answered by its sending status | intake-files/Instagram-DM-Sending-Plan-v8.md:221 |  |  |
+| AC-17.25 — The engine's numbers live in one constants file; a value that varies by environment is an env flag whose default is production-safe (`SENDING_ENABLED` off by default, on in the template) | plans/decisions.md P74 |  |  |
+| AC-18.1 — Webhook events and their keys older than 8 days, and send attempts older than 8 days, are gone within the next hourly clean-up | intake-files/BRIEF.md:75 |  |  |
+| AC-18.2 — Messages older than 30 days are gone; "What happened" shows about the last 30 days | intake-files/Instagram-DM-Sending-Plan-v8.md:261 |  |  |
+| AC-18.3 — Runs, their history and comment logs are kept at least 90 days after the run ended and dropped soon after; no run is dropped sooner | plans/decisions.md P96 |  |  |
+| AC-18.4 — Contacts are never removed by age | intake-files/Instagram-DM-Sending-Plan-v8.md:262 |  |  |
+| AC-18.5 — Each split table always has its coming parts made at least 14 days ahead; a row that lands in the default part raises an alert | plans/decisions.md P97 |  |  |
+| AC-18.6 — Dropping a part that is busy gives up quickly and succeeds on a later hour, without blocking sends or intake | plans/worker-changes.md WC-55 |  |  |
+| AC-18.7 — Each clean-up stops after its time budget and its per-table cap; the "oldest row past its keep time" gauge alerts when a table is over a day behind | plans/decisions.md P92 |  |  |
+| AC-18.8 — Automation counters stay the same after the runs they counted are deleted | intake-files/Instagram-DM-Sending-Plan-v8.md:247 |  |  |
+| AC-18.9 — A deleted automation disappears for good after its runs and logs are gone; deleted broadcasts and segments 90 days after their delete | plans/decisions.md P75 |  |  |
+| AC-18.10 — Partition upkeep and the clean-ups run under a maintenance scope; none uses the migration login | plans/decisions.md P33 |  |  |
+| AC-18.11 — A run that has waited 7 days for her answer is cancelled `wait_expired`, and she can start again | plans/worker-changes.md WC-45 |  |  |
+| AC-19.1 — Riya comments "GUIDE" with her window closed: her opening DM goes as a private reply at a random second of the slow lane's box, and with "Reply like a person" ON the public reply "@riya Check your inbox" goes later under her comment | intake-files/Instagram-DM-Sending-Plan-v8.md:2741 |  |  |
+| AC-19.2 — Riya, who wrote yesterday, comments "GUIDE": the opening message goes as a normal DM in the fast lane within about a second, outside the opening-DM limit, and counts 1 DM in the month | intake-files/Instagram-DM-Sending-Plan-v8.md:2743 |  |  |
+| AC-19.3 — Riya taps "Send me the guide": the email question goes 0.5–2 seconds later; her email answer is followed by message 1 within 0.5–2 seconds | intake-files/Instagram-DM-Sending-Plan-v8.md:2747 |  |  |
+| AC-19.4 — Riya writes "yes send" instead of tapping: the run moves on as if she tapped and the automation counts a typed answer in "% tapped" | intake-files/Instagram-DM-Sending-Plan-v8.md:2749 |  |  |
+| AC-19.5 — Wrong email three times gets three "ask again" wordings, then no more asks while the run waits; a correct email two days later is saved and message 1 goes | intake-files/Instagram-DM-Sending-Plan-v8.md:2753 |  |  |
+| AC-19.6 — Riya's comment on a second post (with "once" ON) while her run of that automation is open cancels her open run (`replaced`) with its waiting messages and starts a new one in the same commit; a second comment on the same post is ignored `once_per_post` | plans/decisions.md P35 |  |  |
+| AC-19.7 — With "every time" mode, Riya's second comment on post P the next day starts a new run once her earlier run ended; with her window open its hello goes as a normal DM | intake-files/Instagram-DM-Sending-Plan-v8.md:2783 |  |  |
+| AC-19.8 — The hide goes after the public reply; if the hide fails, her DM and reply stay as they are | intake-files/Instagram-DM-Sending-Plan-v8.md:2779 |  |  |
+| AC-19.9 — "Reply like a person" OFF and ON on two automations of one account: the OFF reply goes right after its DM and does not count for the ON automation's gap and box | intake-files/Instagram-DM-Sending-Plan-v8.md:2777 |  |  |
+| AC-19.10 — After the last message the tag step adds its tags (or the automation's name when it has none) and the run is `completed`; the automation's runs counter went up when the run started | intake-files/Instagram-DM-Sending-Plan-v8.md:1245 |  |  |
+| AC-19.11 — Riya writes "STOP!": her waiting messages become `skipped`, her open runs `cancelled`, a story reply later sends nothing, and a keyword comment a week later starts her again | intake-files/Instagram-DM-Sending-Plan-v8.md:2755 |  |  |
+| AC-19.12 — A run still waiting for her 7 days after it started is cancelled `wait_expired` and she may start that automation again | plans/worker-changes.md WC-45 |  |  |
+| AC-19.13 — On a private account no comment automation starts, and the owner sees the private-account banner | intake-files/Instagram-DM-Sending-Plan-v8.md:1262 |  |  |
+| AC-20.1 — Riya replies to story S1 with story-reply automation ST1 (story S1) and a DM keyword PRICE with "also start from" story reply live: ST1 answers | intake-files/Instagram-DM-Sending-Plan-v8.md:571 |  |  |
+| AC-20.2 — Riya taps starter question "Prices?" with starter automation PRICES and DM keyword PRICE live: PRICES answers | intake-files/Instagram-DM-Sending-Plan-v8.md:569 |  |  |
+| AC-20.3 — Riya sends "PRICE" twice on Monday: the first runs, the second sends nothing and the search ends there; on Tuesday it runs again | intake-files/Instagram-DM-Sending-Plan-v8.md:511 |  |  |
+| AC-20.4 — Riya replies to a story; the hello goes in the fast lane with version B; with no tap, the nudge goes 60 minutes later with version B; a tap 20 minutes later moves the run and counts for version B; a tap before the nudge cancels it | intake-files/Instagram-DM-Sending-Plan-v8.md:2767 |  |  |
+| AC-20.5 — Riya scans a QR code with ref "counter": automation COUNTER starts and its hello goes within about a second; scanning again the same day sends nothing; the next day it runs again | intake-files/Instagram-DM-Sending-Plan-v8.md:2771 |  |  |
+| AC-20.6 — Riya taps "Send message" on ad 1203 with its ready text: the ad's automation answers even though the text holds another automation's DM keyword; a second tap on the same ad that week sends nothing | intake-files/Instagram-DM-Sending-Plan-v8.md:2773 |  |  |
+| AC-20.7 — A reaction, an edited message, a read receipt or our own echo never starts an automation | intake-files/Instagram-DM-Sending-Plan-v8.md:553 |  |  |
+| AC-20.8 — After the owner typed to Riya by hand, "no other automation answered" sends nothing to her for 6 hours; other people are not affected | intake-files/Instagram-DM-Sending-Plan-v8.md:556 |  |  |
+| AC-20.9 — The owner tags 1,200 contacts "vip": 1,200 tag events are saved in pieces of 500; only the people whose window is open get the VIP hello; the others start nothing (`window_closed`) | intake-files/Instagram-DM-Sending-Plan-v8.md:2781 |  |  |
+| AC-20.10 — A starter question of a paused automation is treated as plain text at the keyword level | intake-files/Instagram-DM-Sending-Plan-v8.md:554 |  |  |
+| AC-20.11 — A way to start whose Meta test has not passed (story repost, ad comments, Live comments) never starts a run because it cannot go live | intake-files/BRIEF.md:70 |  |  |
+| AC-21.1 — "Send now" to a segment of 1,240 with 310 open chats creates 310 waiting recipients, sends one at a random second of each box, and ends `done` when all 310 are sent or skipped | intake-files/Instagram-DM-Sending-Plan-v8.md:1737 |  |  |
+| AC-21.2 — A recipient whose chat closed, who opted out or who got another broadcast in the last 24 hours by the time of her send is `skipped` with its reason | intake-files/Instagram-DM-Sending-Plan-v8.md:1746 |  |  |
+| AC-21.3 — A broadcast scheduled for Friday 18:00 starts at that time | intake-files/Instagram-DM-Sending-Plan-v8.md:1758 |  |  |
+| AC-21.4 — Riya (tag "vip") replies to a story on day 2 of a 3-day "when her chat opens" broadcast: her automation runs first; when her run is `completed`, she gets the broadcast in the next box of the broadcast lane, counting 1 DM | intake-files/Instagram-DM-Sending-Plan-v8.md:2785 |  |  |
+| AC-21.5 — A person already holding a recipient row of the broadcast never gets it twice; several waiting broadcasts send her only the oldest that day | intake-files/Instagram-DM-Sending-Plan-v8.md:5142 |  |  |
+| AC-21.6 — A "when her chat opens" broadcast ends `done` at its end time; recipients made before then still go | intake-files/Instagram-DM-Sending-Plan-v8.md:5144 |  |  |
+| AC-21.7 — "Too fast" on the broadcast lane stops only that lane for double the time; answers and DMs still go | intake-files/Instagram-DM-Sending-Plan-v8.md:2561 |  |  |
+| AC-21.8 — At the end the member who sent it, the Owner and the Admin get one in-app "Broadcast done" note with sent, skipped and replies, and no email by default | intake-files/Instagram-DM-Sending-Plan-v8.md:8158 |  |  |
+| AC-21.9 — The month limit reached mid-broadcast stops the broadcast lane with the others; its waiting recipients wait | plans/decisions.md P3 |  |  |
+| AC-22.1 — A Free organization at 820 of 1,000 DMs gets one "820 of 1,000 DMs used this month" notice and email | intake-files/Instagram-DM-Sending-Plan-v8.md:2775 |  |  |
+| AC-22.2 — At the 1,000th DM the slow, fast and broadcast lanes of every account of the organization stop with `plan_limit`; public replies and hides of DMs already sent still go | intake-files/BRIEF.md:73 |  |  |
+| AC-22.3 — A tap at 15:10 after the limit waits; 40 opening DMs wait; none is sent until the stop ends | intake-files/Instagram-DM-Sending-Plan-v8.md:2775 |  |  |
+| AC-22.4 — Two accounts sending at the same moment never push the count more than the DMs on their way over the limit | intake-files/Instagram-DM-Sending-Plan-v8.md:2025 |  |  |
+| AC-22.5 — Go-live is refused while the limit is reached | intake-files/Instagram-DM-Sending-Plan-v8.md:2030 |  |  |
+| AC-22.6 — At 00:00 on the 1st in the organization's time zone the count is 0, the stops end, and the waiting DMs under 7 days go; answers whose window closed meanwhile are `skipped` | intake-files/Instagram-DM-Sending-Plan-v8.md:2040 |  |  |
+| AC-22.7 — An upgrade whose limit is above the count ends the stop at once and wakes the lanes | intake-files/Instagram-DM-Sending-Plan-v8.md:2029 |  |  |
+| AC-22.8 — A waiting DM whose 7 days end while the limit is reached becomes `expired` · `plan_limit` | intake-files/Instagram-DM-Sending-Plan-v8.md:273 |  |  |
+| AC-22.9 — With Redis saying "full" but Postgres under the limit, sending continues; Postgres decides | intake-files/Instagram-DM-Sending-Plan-v8.md:2026 |  |  |
+| AC-23.1 — A Studio organization with 6 accounts moving to Creator on 10 December keeps A, B and C; nothing changes until 31 December, when the other 3 accounts stop with `plan_downgrade` | intake-files/Instagram-DM-Sending-Plan-v8.md:8027 |  |  |
+| AC-23.2 — Before the period end the owner may change which accounts are kept; with no choice the oldest-connected stay | intake-files/Instagram-DM-Sending-Plan-v8.md:8110 |  |  |
+| AC-23.3 — After a Creator → Free move, automation GUIDE keeps running: Riya's run skips the email step, replies go right after each DM using the first line only, and only hello version A is used | intake-files/Instagram-DM-Sending-Plan-v8.md:8029 |  |  |
+| AC-23.4 — A run waiting for her email when the move takes effect moves on to its next step | intake-files/Instagram-DM-Sending-Plan-v8.md:8009 |  |  |
+| AC-23.5 — Scheduled and "when her chat opens" broadcasts end `cancelled` · `plan_feature_off`; drafts and segments stay | intake-files/Instagram-DM-Sending-Plan-v8.md:8014 |  |  |
+| AC-23.6 — An unfinished past-comments read ends `failed` · `plan_feature_off`; the opening DMs it already queued still go | intake-files/Instagram-DM-Sending-Plan-v8.md:8015 |  |  |
+| AC-23.7 — No automation, step, line, version or segment is deleted; the editor still saves the rest of an automation whose PRO step is on, and turning a PRO step on is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:8018 |  |  |
+| AC-23.8 — The owner gets one notice and one email "Moved to Free: email and phone steps are off in 3 automations" | intake-files/Instagram-DM-Sending-Plan-v8.md:2557 |  |  |
+| AC-23.9 — A month count already over the new limit starts the `plan_limit` stop at once | intake-files/Instagram-DM-Sending-Plan-v8.md:8024 |  |  |
+| AC-23.10 — Moving up again clears every `plan_downgrade` stop and the PRO parts work again without any edit | intake-files/Instagram-DM-Sending-Plan-v8.md:2629 |  |  |
+| AC-23.11 — Moving down, PRO gating and draft / live / paused behave as D28, D35 and D57 say | intake-files/BRIEF.md:74 |  |  |
+| AC-24.1 — The owner starts a Creator trial on 1 December and connects accounts A and B; both send, and an email step goes live | intake-files/Instagram-DM-Sending-Plan-v8.md:8113 |  |  |
+| AC-24.2 — On 5 and 7 December the owner gets the "trial ends" notice and email | intake-files/Instagram-DM-Sending-Plan-v8.md:8107 |  |  |
+| AC-24.3 — With no card at the end, the organization is on Free: one account kept (the picked one, else the oldest-connected), the other stopped with `plan_downgrade`, PRO parts off by the plan, nothing deleted | intake-files/Instagram-DM-Sending-Plan-v8.md:8109 |  |  |
+| AC-24.4 — With a card added, the plan goes on paid at the end with no gap in sending | intake-files/Instagram-DM-Sending-Plan-v8.md:8097 |  |  |
+| AC-24.5 — A second trial in the same organization, or connecting during a trial an account that had a trial elsewhere, is refused | intake-files/Instagram-DM-Sending-Plan-v8.md:8104 |  |  |
+| AC-24.6 — Changing from a Creator trial to a Studio trial keeps the same end date | intake-files/Instagram-DM-Sending-Plan-v8.md:8106 |  |  |
+| AC-25.1 — The app removed from the business portfolio: the next send gets the token error, the connection and all its accounts become `error`, all their lanes stop, and other connections' accounts keep sending | intake-files/Instagram-DM-Sending-Plan-v8.md:4666 |  |  |
+| AC-25.2 — Each affected account gets one "Your Meta connection stopped working … Press Reconnect" banner, notice and email, not one per failed message | intake-files/Instagram-DM-Sending-Plan-v8.md:2538 |  |  |
+| AC-25.3 — An account moved to another portfolio becomes `error` alone; its sister accounts on the old connection keep sending | intake-files/Instagram-DM-Sending-Plan-v8.md:4667 |  |  |
+| AC-25.4 — While in `error`, waiting messages stay waiting; one whose 7 days end becomes `expired` | intake-files/Instagram-DM-Sending-Plan-v8.md:7296 |  |  |
+| AC-25.5 — Reconnect with the same portfolio puts the connection and its accounts back to `connected`, ends their login stops, subscribes the webhooks again and the waiting DMs go, spread over 5 minutes | intake-files/Instagram-DM-Sending-Plan-v8.md:4680 |  |  |
+| AC-25.6 — Reconnecting from the portfolio an account moved to moves that account to the new connection and it sends again | plans/decisions.md P54 |  |  |
+| AC-25.7 — A revoked account is not brought back by a reconnect | intake-files/Instagram-DM-Sending-Plan-v8.md:4672 |  |  |
+| AC-26.1 — Deleting a contact clears her name, username, profile, email, phone and note, keeps the row, cancels her open runs and waiting messages, and removes her tag events | plans/routes-final.md § 3.A CT11 |  |  |
+| AC-26.2 — Her copies in comment logs and runs are erased in the same step | intake-files/Instagram-DM-Sending-Plan-v8.md:7304 |  |  |
+| AC-26.3 — After the erase the contact answers `contact_not_found` and appears in no list, segment count or broadcast | intake-files/Instagram-DM-Sending-Plan-v8.md:2628 |  |  |
+| AC-26.4 — Meta's data deletion for an Instagram account erases its token, profile and stored posts in every organization that holds it, and answers a confirmation code; repeating it answers the same code | plans/decisions.md P56 |  |  |
+| AC-26.5 — An unmatched id in Meta's callback still answers a confirmation code and the team gets an email | intake-files/Instagram-DM-Sending-Plan-v8.md:4703 |  |  |
+| AC-26.6 — A disconnect without a deletion keeps the account's automations, contacts and history | intake-files/Instagram-DM-Sending-Plan-v8.md:7297 |  |  |
+| AC-26.7 — The erase writes one audit entry that holds no email, phone or name | intake-files/Instagram-DM-Sending-Plan-v8.md:7328 |  |  |
+| AC-27.1 — With Postgres down, a webhook delivery answers a failure and nothing is written to Redis; Meta's redelivery after Postgres is back is saved once | plans/decisions.md P32 |  |  |
+| AC-27.2 — Comments that Meta never redelivered are found by the full missed-comment pass after the outage (7 days, 25 posts per account, lowest priority) and answered once | plans/decisions.md P93 |  |  |
+| AC-27.3 — A Postgres restart before the `sending` commit sends nothing and the same message goes after the retry; one after Meta answered settles the message `sent` (when its Instagram id is known) or `unknown`, never sent twice | intake-files/Instagram-DM-Sending-Plan-v8.md:6005 |  |  |
+| AC-27.4 — An `unknown` message is never sent again by a repair, a retry or a restart | intake-files/BRIEF.md:72 |  |  |
+| AC-27.5 — Redis dies at 11:00 and comes back empty at 11:03: by 11:05 every due lane has its ticket again, the hour counts are rebuilt from Postgres, and account A sends only what is left of its hour limit | intake-files/Instagram-DM-Sending-Plan-v8.md:5801 |  |  |
+| AC-27.6 — While Redis or Postgres has been down over 1 minute, the sending status shows the "Your DMs are safe" banner | intake-files/Instagram-DM-Sending-Plan-v8.md:2548 |  |  |
+| AC-27.7 — Three bad results in a row on one account stop only that account for 5 minutes, growing to 40; a test after the stop first reads the profile, then sends one DM | intake-files/Instagram-DM-Sending-Plan-v8.md:5964 |  |  |
+| AC-27.8 — 30 % of 50 calls failing in 30 seconds stops every account; after a good test lanes are released over 5 minutes at half speed | intake-files/Instagram-DM-Sending-Plan-v8.md:5967 |  |  |
+| AC-27.9 — During an Instagram outage webhooks are still saved and intake still decides; when it ends the waiting messages go without being sent twice | plans/decisions.md P47 |  |  |
+| AC-27.10 — A database restored to 13:00 sends nothing until the team switches sending on; messages of the lost time are `unknown` (DMs) or `skipped` (replies, hides) and none is sent again by itself | intake-files/Instagram-DM-Sending-Plan-v8.md:7066 |  |  |
+| AC-27.11 — A copy of production whose environment id differs from the server's never sends, whatever `SENDING_ENABLED` says | intake-files/BRIEF.md:76 |  |  |
+
+## Brief acceptance lines
+
+| Item | Source | Result | Evidence |
+| --- | --- | --- | --- |
+| BRIEF-1 — Every decision D1–D73 holds in the built code or has an `AS-BUILT.md` deviation the user accepted (P34's file scan is one) | intake-files/BRIEF.md:68 |  |  |
+| BRIEF-2 — A workspace connects through Unified Login and picks accounts up to its plan limit; no Instagram Login code, table, worker, scope or host remains (AC-1.3, AC-1.4, AC-1.17) | intake-files/BRIEF.md:69 |  |  |
+| BRIEF-3 — Each of the 15 ways to start, its match order and its once key behave as §4 and §9 say; Meta-gated ones only once their §43 test passes (AC-6.9, AC-16.10–AC-16.16, AC-20.1–AC-20.11) | intake-files/BRIEF.md:70 |  |  |
+| BRIEF-4 — Opening DMs, public replies, fast messages and broadcasts keep their per-account limits, timing and lanes, and an error stops only the affected account's lane (AC-17.1–AC-17.11, AC-21.7) | intake-files/BRIEF.md:71 |  |  |
+| BRIEF-5 — An `unknown` send result is never resent automatically (AC-7.13, AC-17.9, AC-27.4) | intake-files/BRIEF.md:72 |  |  |
+| BRIEF-6 — The monthly DM count stops only new DMs at 100 % and notifies at 80 % and 100 % (AC-10.3, AC-10.4, AC-22.1–AC-22.9) | intake-files/BRIEF.md:73 |  |  |
+| BRIEF-7 — Draft / live / paused, the go-live check and PRO gating by plan, including moving down a plan, behave as D28, D35 and D57 say (AC-6.1–AC-6.8, AC-23.1–AC-23.11) | intake-files/BRIEF.md:74 |  |  |
+| BRIEF-8 — Retention: webhook events 8 days, messages 30 days, runs / run events / comment logs 90 days, send attempts 8 days, contacts until deleted (AC-18.1–AC-18.4) | intake-files/BRIEF.md:75 |  |  |
+| BRIEF-9 — A restored or copied database can never send (AC-17.21, AC-27.10, AC-27.11) | intake-files/BRIEF.md:76 |  |  |
+| BRIEF-10 — Part F's changes ship as new migrations in the merged domains only (AC-11.14, AC-12.11) | intake-files/BRIEF.md:77 |  |  |
+
+## Decisions that must be proven
+
+| Item | Source | Result | Evidence |
+| --- | --- | --- | --- |
+| D17 — An `unknown` result, for every message kind, is never sent again by itself; only her next message or tap sends that step once more, as the same row, and her run waits for `any` (AC-7.13, AC-17.9, AC-27.3, AC-27.4) | intake-files/Instagram-DM-Sending-Plan-v8.md:228 |  |  |
+| D20 — A Neon restore or copy can never send: the environment id check and `SENDING_ENABLED` outside the database; restored rows of the lost time become `unknown` or `skipped` (AC-17.21, AC-27.10, AC-27.11) | intake-files/Instagram-DM-Sending-Plan-v8.md:231 |  |  |
+| D62 — At the month limit only new DMs stop (`plan_limit` on slow, fast and broadcast); the reply lane goes on; a DM whose 7 days end behind the limit is `expired` · `plan_limit` (AC-22.2, AC-22.3, AC-22.8, AC-21.9) | intake-files/Instagram-DM-Sending-Plan-v8.md:273 |  |  |
+| D57 — A move down starts at the period end and never stops an automation: only the switches the new plan lacks are off, accounts not kept get `plan_downgrade`, nothing is deleted (AC-23.1–AC-23.10, AC-24.3) | intake-files/Instagram-DM-Sending-Plan-v8.md:268 |  |  |
+| P35 — A comment that may start a new run (another post, or "every time") replaces her open run of that automation (`replaced`) in the same commit; a second comment on the same post with "once" ON is `once_per_post`; any other start while her run is open is `run_in_progress` (AC-16.15, AC-16.16, AC-19.6) | plans/decisions.md P35 |  |  |
+| P100 — At most one open run per automation and person, held by the open-run key written with the run and deleted in the commit that ends it (also on `replaced` and `wait_expired`); the repair removes keys of ended runs (AC-17.18, AC-18.11) | plans/decisions.md P100 |  |  |
+| P91 — The in-process database limiter keeps the send, intake and task workers inside the connection budget: a 2-second wait, then the ticket goes back; the send workers run as their own service (AC-17.20) | plans/decisions.md P91 |  |  |
+| P96 — Runs and run history split by the run's start month, comment logs by month, event keys by Meta's event day, beside events, attempts and messages; expiry drops a part, never before every row in it is past its keep time (AC-18.3, AC-18.5, AC-18.6) | plans/decisions.md P96 |  |  |

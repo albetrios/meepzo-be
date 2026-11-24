@@ -9,6 +9,7 @@ import type { MembershipRepository } from '@/domains/tenancy/sub-domains/members
 import type { MemberRolePermissionRepository } from './member-role-permission.repository.js';
 import { invalidateOrganizationPermissions } from '@/domains/tenancy/sub-domains/permission/permission-cache.service.js';
 import { validatePutMemberRolePermissions } from './member-role-permission.validator.js';
+import { assertCustomRolesEnabled } from '@/domains/tenancy/sub-domains/member-roles/member-role-capability.js';
 import type { AuthorizationService } from '@/domains/tenancy/sub-domains/permission/authorization.service.js';
 import type { PermissionRepository } from '@/domains/tenancy/sub-domains/permission/permission.repository.js';
 import { assertCallerCanGrantPermissionCodes } from '@/domains/tenancy/sub-domains/permission/assert-grantable-permissions.util.js';
@@ -24,7 +25,7 @@ import { assertCallerCanGrantPermissionCodes } from '@/domains/tenancy/sub-domai
  * - **Failure modes:** `NotFoundError` when the organization or role does not
  *   exist (or has been soft-deleted); Zod `ValidationError` from
  *   {@link validatePutMemberRolePermissions} for malformed input; `ForbiddenError` on a locked
- *   role (`role_locked` — Owner, Admin, Member) and on the role the owner holds as their main one
+ *   role (`role_locked` — Owner, Admin, Editor, Viewer) and on the role the owner holds as their main one
  *   (`owner_role_fixed`).
  * - **Side effects:** {@link put} replaces the role's entire permission set
  *   (DELETE then INSERT) in a single repository call, then calls
@@ -86,6 +87,8 @@ export class MemberRolePermissionService {
     body: unknown;
     created_by_user_public_id: string | undefined;
   }) {
+    // TN3: refused while custom roles are off — after the route's permission gate, before any read.
+    assertCustomRolesEnabled();
     const organization_public_id = scope.organizationPublicId;
     const parsed = validatePutMemberRolePermissions(body);
     const result = await withAppDatabaseContext({
@@ -99,7 +102,7 @@ export class MemberRolePermissionService {
           organization.id,
         );
         if (!role) throw new NotFoundError('Role');
-        // Launch RC-6 (D40, D81 (4)): a locked role's access is fixed — Owner, Admin and Member (launch
+        // Launch RC-6 (D40, D81 (4)): a locked role's access is fixed — Owner, Admin, Editor and Viewer (launch
         // D3) are locked.
         if (role.is_locked) {
           throw new ForbiddenError('errors:roleLocked').withReason('role_locked');

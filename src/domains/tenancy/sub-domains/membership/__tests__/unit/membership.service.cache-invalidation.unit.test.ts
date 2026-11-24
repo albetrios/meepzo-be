@@ -1,4 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// The platform's custom roles are switched off in this product (feat-instagram-dm-sending TN3); this
+// suite tests the role and membership rules underneath with the switch on
+// (`custom-roles-off.unit.test.ts` covers it off).
+vi.mock(
+  '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    TENANCY_CUSTOM_ROLES_ENABLED: true,
+  }),
+);
 
 import { MembershipService } from '@/domains/tenancy/sub-domains/membership/membership.service.js';
 import {

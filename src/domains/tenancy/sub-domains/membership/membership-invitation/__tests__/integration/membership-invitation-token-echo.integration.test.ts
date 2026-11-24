@@ -1,5 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+// The platform's custom roles are switched off in this product (feat-instagram-dm-sending TN3); this
+// suite tests the role and membership rules underneath with the switch on
+// (`custom-roles-off.integration.test.ts` covers it off).
+vi.mock(
+  '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    TENANCY_CUSTOM_ROLES_ENABLED: true,
+  }),
+);
+
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { env } from '@/shared/config/env.config.js';

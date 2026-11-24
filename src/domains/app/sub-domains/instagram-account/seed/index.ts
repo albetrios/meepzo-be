@@ -2,8 +2,8 @@
  * Instagram account sub-domain seed contribution — a connected account with its encrypted token
  * for every demo team organization, then the nested settings and stored-posts contributions, so the
  * default settings and the posts seed strictly after the accounts they belong to. Composed up into
- * the app domain's seed module. No reference data: the nine app permission codes and the Member
- * role are tenancy's.
+ * the app domain's seed module. No reference data: the app permission codes and the Editor and
+ * Viewer roles are tenancy's.
  */
 import { instagramAccountSettingsSeedContribution } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/seed/index.js';
 import { instagramMediaSeedContribution } from '@/domains/app/sub-domains/instagram-account/instagram-media/seed/index.js';

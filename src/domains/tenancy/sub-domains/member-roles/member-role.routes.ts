@@ -24,6 +24,8 @@ export interface MemberRoleRoutesDeps {
 /**
  * Fastify plugin that registers the active organization's roles (launch §2.D): list, get, create,
  * change, delete with why, restore (T12), plus the nested `:role_id/permissions` read and replace.
+ * The five writes answer `403 custom_roles_off` while custom roles are off (feat-instagram-dm-sending
+ * TN3, `TENANCY_CUSTOM_ROLES_ENABLED`).
  * One code set gates them (T8): `role:read|create|update|delete`, resolved against the signed JWT
  * `org` claim; every `POST` takes `X-Idempotency-Key` (T13).
  */
@@ -78,7 +80,7 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Create role',
           description:
-            'Creates a custom role — optionally with permission_codes and the codes of copy_from_role_id. You can only hand out codes you hold. Requires role:create.',
+            'Creates a custom role — optionally with permission_codes and the codes of copy_from_role_id. You can only hand out codes you hold. Requires role:create. While custom roles are off (this product) it answers 403 `custom_roles_off` after the permission check.',
           tags: ['Role'],
           body: createMemberRoleDto,
         },
@@ -95,7 +97,7 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Update role',
           description:
-            'Renames or recolours a role, or changes its description; a system role keeps its name. expected_updated_at refuses a stale save. Requires role:update.',
+            'Renames or recolours a role, or changes its description; a system role keeps its name. expected_updated_at refuses a stale save. Requires role:update. While custom roles are off (this product) it answers 403 `custom_roles_off` after the permission check.',
           tags: ['Role'],
           params: roleIdParamsDto,
           body: updateMemberRoleDto,
@@ -113,7 +115,7 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Delete role',
           description:
-            'Deletes a custom role, with why: reason (mistake, duplicate, not_needed, other) and a note, required for other. System roles cannot be deleted; a role someone holds is a 409. Undo with POST …/restore until it is purged. Requires role:delete.',
+            'Deletes a custom role, with why: reason (mistake, duplicate, not_needed, other) and a note, required for other. System roles cannot be deleted; a role someone holds is a 409. Undo with POST …/restore until it is purged. Requires role:delete. While custom roles are off (this product) it answers 403 `custom_roles_off` after the permission check.',
           tags: ['Role'],
           params: roleIdParamsDto,
           querystring: deleteMemberRoleQueryDto,
@@ -131,7 +133,7 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Restore role',
           description:
-            'Undoes a role delete until it is purged. A live role is a 409, as is a name another role took meanwhile. Requires role:delete.',
+            'Undoes a role delete until it is purged. A live role is a 409, as is a name another role took meanwhile. Requires role:delete. While custom roles are off (this product) it answers 403 `custom_roles_off` after the permission check.',
           tags: ['Role'],
           params: roleIdParamsDto,
         },
@@ -164,7 +166,7 @@ export function memberRoleRoutes(deps: MemberRoleRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'Replace role permissions',
           description:
-            "Replaces a role's codes with the given set (each code once) and returns them. You can only hand out — or take away — codes you hold (a 403). A role with `is_locked` (Owner, Admin and Member, as an organization is provisioned) is a 403 `role_locked`; the role the organization's owner holds as their main role is a 403 `owner_role_fixed`, whatever its `is_locked` says. Requires role:update.",
+            "Replaces a role's codes with the given set (each code once) and returns them. You can only hand out — or take away — codes you hold (a 403). A role with `is_locked` (Owner, Admin, Editor and Viewer, as an organization is provisioned) is a 403 `role_locked`; the role the organization's owner holds as their main role is a 403 `owner_role_fixed`, whatever its `is_locked` says. Requires role:update. While custom roles are off (this product) it answers 403 `custom_roles_off` after the permission check.",
           tags: ['Permission'],
           params: roleIdParamsDto,
           body: putMemberRolePermissionsDto,

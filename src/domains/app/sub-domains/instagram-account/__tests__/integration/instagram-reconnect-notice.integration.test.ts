@@ -233,7 +233,7 @@ describe('Instagram reconnect notice (IA9)', () => {
     const [job] = await noticeJobs();
     if (job === undefined) throw new Error('no notice job was enqueued');
 
-    // Owner, Admin and the custom holder — not the Member, not the suspended holder.
+    // Owner, Admin and the custom holder — not the Editor, not the suspended holder.
     await expect(runNotice(job.data)).resolves.toEqual({ outcome: 'sent', recipientCount: 3 });
 
     const notices = await readNotices();
@@ -241,7 +241,7 @@ describe('Instagram reconnect notice (IA9)', () => {
     expect(recipients).toHaveLength(3);
     expect(recipients).toContain(team.owner.id);
     expect(recipients).toContain(customHolder.id);
-    expect(recipients).not.toContain(team.member.id);
+    expect(recipients).not.toContain(team.editor.id);
     expect(recipients).not.toContain(suspendedHolder.id);
     for (const notice of notices) {
       expect(notice.type).toBe('instagram.reconnect_required');

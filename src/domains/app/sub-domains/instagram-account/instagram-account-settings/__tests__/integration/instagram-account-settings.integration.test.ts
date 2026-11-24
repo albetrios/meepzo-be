@@ -68,7 +68,7 @@ async function readSettings(organizationId: number): Promise<
 /**
  * Route 3 — `PATCH /app/social/instagram/account/settings` (routes-final § 1.B, ROUTE R4) over
  * HTTP: the change and its answer, every 400 of 1.B.9, `404 instagram_not_connected`,
- * `409 record_changed`, team-only (`422`), the gate (Owner and Admin 200, Member 403), an
+ * `409 record_changed`, team-only (`422`), the gate (Owner and Admin 200, Editor 403), an
  * `expired` account, another organization never touched, and the audit entry. Instagram is mocked
  * with nock for the connect only — route 3 never calls it.
  */
@@ -189,7 +189,7 @@ describe('Instagram account settings route (change)', () => {
 
       const read = await injectAuthenticated(app, {
         url: INSTAGRAM_ACCOUNT_PATH,
-        token: team.memberToken,
+        token: team.editorToken,
       });
       expect(read.statusCode).toBe(200);
       const account = (read.json() as { data: { id: string; settings: SettingsAnswer } }).data;
@@ -423,11 +423,11 @@ describe('Instagram account settings route (change)', () => {
       expect(errorOf(response).code).toBe('unprocessable_entity');
     });
 
-    it('refuses a Member with 403 missing_permission and changes nothing (1.B.4)', async () => {
+    it('refuses an Editor with 403 missing_permission and changes nothing (1.B.4)', async () => {
       await connectAccount();
 
       const response = await patchSettings({
-        token: team.memberToken,
+        token: team.editorToken,
         payload: { is_automation_enabled: false },
       });
 

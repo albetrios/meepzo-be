@@ -1,4 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// The platform's custom roles are switched off in this product (feat-instagram-dm-sending TN3); this
+// suite tests the role and membership rules underneath with the switch on
+// (`custom-roles-off.unit.test.ts` covers it off).
+vi.mock(
+  '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    TENANCY_CUSTOM_ROLES_ENABLED: true,
+  }),
+);
+
 import { ConflictError, ForbiddenError, NotFoundError } from '@/shared/errors/index.js';
 
 vi.mock('@/domains/tenancy/sub-domains/permission/permission-cache.service.js', () => ({
@@ -44,7 +55,7 @@ const stubPermissionRepository = {} as unknown as PermissionRepository;
  * holding the role.
  *
  * Two guards:
- *   1. `is_system` guard — system roles (Admin, Member seeds) cannot be deleted.
+ *   1. `is_system` guard — system roles (Admin, Editor, Viewer seeds) cannot be deleted.
  *   2. Active-membership guard — a role currently assigned to active members cannot be
  *      deleted (clients must reassign first); soft-deleting a role otherwise silently strips
  *      every member's permission set (the permission-resolution join filters

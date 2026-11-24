@@ -127,7 +127,7 @@ function graphError(code: number, errorSubcode?: number) {
 
 /**
  * Routes 5–6 — the post and story pickers (routes-final § 1.C, ROUTE R5) over HTTP: every success
- * and every error of 1.C.9 and 1.5, Instagram's paging passed through, team-only (K1), the Member
+ * and every error of 1.C.9 and 1.5, Instagram's paging passed through, team-only (K1), the Editor
  * role, another organization's account never used, the guarded status change on a refused token
  * (IA9), and that browsing stores nothing (AC-3.7). Instagram is mocked with nock; the database,
  * auth and permissions are real.
@@ -284,14 +284,14 @@ describe('Instagram media routes (post and story pickers)', () => {
       });
     });
 
-    it('lets a Member browse (instagram-account:read)', async () => {
+    it('lets an Editor browse (instagram-account:read)', async () => {
       const profile = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'media' }))
         .query(true)
         .reply(200, MEDIA_LAST_PAGE);
 
-      const response = await get({ url: INSTAGRAM_MEDIA_PATH, token: team.memberToken });
+      const response = await get({ url: INSTAGRAM_MEDIA_PATH, token: team.editorToken });
 
       expect(response.statusCode).toBe(200);
     });
@@ -534,14 +534,14 @@ describe('Instagram media routes (post and story pickers)', () => {
       expect(await storedMediaCount()).toBe(0);
     });
 
-    it('lets a Member browse stories', async () => {
+    it('lets an Editor browse stories', async () => {
       const profile = await connectAccount();
       graph()
         .get(edgePath({ profile, edge: 'stories' }))
         .query(true)
         .reply(200, STORIES_PAGE);
 
-      const response = await get({ url: INSTAGRAM_STORIES_PATH, token: team.memberToken });
+      const response = await get({ url: INSTAGRAM_STORIES_PATH, token: team.editorToken });
 
       expect(response.statusCode).toBe(200);
     });

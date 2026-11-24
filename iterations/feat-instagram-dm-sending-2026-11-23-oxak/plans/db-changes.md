@@ -1849,6 +1849,14 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   — and a new locked **Viewer** role joins every team organization with five codes:
   `organization:read`, `channel-account:read`, `instagram-account:read`, `automation:read`,
   `contact:read` (plan:L7861–L7889; TN1, TN2, P59, routes-final § 9).
+  **Built R28** ([AS-BUILT](../AS-BUILT.md), [P203](decisions.md)): `20261124072815_tenancy_permission_contact_update.sql`
+  (the `tenancy.permissions` row `contact:update`, category `contacts`; granted to the system Owner, Admin and
+  Member/Editor of every live team) and `20261124072816_tenancy_roles_editor_viewer.sql` (a clashing custom
+  `Editor` / `Viewer` moved to "<name> (custom)"; `tenancy.roles` Member → Editor in place, description "Makes and runs
+  automations and keeps contacts tidy."; Editor + `automation:delete`, `contact:update`, `upload:manage`; a locked
+  `Viewer` row, tone `sky`, with `organization:read`, `instagram-account:read`, `automation:read`, `contact:read`).
+  Viewer's `channel-account:read` and Editor's come with R3's `channel-account:*` codes (TN12), granted through
+  `APP_PERMISSION_DEFAULT_TEAM_GRANTS` and the default-role reconcile.
 - The shared chip tone `lav` → `lavender` everywhere — the roles' and memberships' `tone` rows and
   checks and the organization's `logo_color` — so one tone list serves them ([P81](decisions.md), TNQ1;
   a tenancy migration; meepzo-fe follows).

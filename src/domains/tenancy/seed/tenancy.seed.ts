@@ -65,7 +65,7 @@ export interface SeedRolePayload {
 /**
  * Inserts a tenancy role under the given organization with a generated public
  * id and returns the created row. `is_system` distinguishes immutable seeded
- * roles (Admin, Member) from user-created roles.
+ * roles (Admin, Editor, Viewer) from user-created roles.
  * Idempotent: re-running updates `is_system` on (organization_id, name) conflict.
  */
 export async function seedRole(payload: SeedRolePayload) {
@@ -85,6 +85,31 @@ export async function seedRole(payload: SeedRolePayload) {
     })
     .returning();
   return row ?? null;
+}
+
+/**
+ * The id of an organization's live system role of this name (Admin, Editor, Viewer — the default
+ * team roles provisioning or `reconcileTeamOrganizationDefaultRoles` gives a team), or null.
+ */
+export async function findSeededSystemRoleId({
+  organization_id,
+  name,
+}: {
+  organization_id: number;
+  name: string;
+}): Promise<number | null> {
+  const [row] = await getRequestDatabase()
+    .select({ id: roles.id })
+    .from(roles)
+    .where(
+      and(
+        eq(roles.organization_id, organization_id),
+        eq(roles.name, name),
+        eq(roles.is_system, true),
+        isNull(roles.deleted_at),
+      ),
+    );
+  return row?.id ?? null;
 }
 
 /** Input for {@link seedMembership}; `status` defaults to `'active'`, `invited_by_user_id` is optional. */

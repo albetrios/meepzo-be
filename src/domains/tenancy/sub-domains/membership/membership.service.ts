@@ -72,6 +72,7 @@ import type { MembershipInvitationOutput } from './membership-invitation/members
 import { invalidatePermissions } from '@/domains/tenancy/sub-domains/permission/permission-cache.service.js';
 import type { OrganizationApiKeyRepository } from '@/domains/tenancy/sub-domains/organization/organization-api-key/organization-api-key.repository.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { assertMembershipRolesAllowed } from '@/domains/tenancy/sub-domains/member-roles/member-role-capability.js';
 import { MembershipAdditionalRolesRepository } from './membership-additional-roles/membership-additional-roles.repository.js';
 import {
   MEMBERSHIP_DELETE_REASON,
@@ -963,7 +964,8 @@ export class MembershipService {
    *
    * @remarks
    * - **Failure modes:** `UnprocessableEntityError` for a PERSONAL organization; `ValidationError` on
-   *   `role_ids`; `ForbiddenError` (`cannotGrantPermissionNotHeld`); `ConflictError`
+   *   `role_ids`; `ForbiddenError` (`custom_roles_off` — more than one role, or a custom one, while
+   *   custom roles are off; `cannotGrantPermissionNotHeld`); `ConflictError`
    *   (`seat_limit_reached`).
    */
   private async assertMemberAddAllowed(options: {
@@ -987,6 +989,8 @@ export class MembershipService {
       organizationId: organization.id,
       rolePublicIds: options.rolePublicIds,
     });
+    // TN3: one system role while custom roles are off (403 custom_roles_off).
+    assertMembershipRolesAllowed({ roles });
     const [role, ...additionalRoles] = roles;
     if (!role) throw new ValidationError('errors:invalidInput');
     // Privilege-escalation guard: the caller must already hold every permission the assigned roles
@@ -1220,6 +1224,8 @@ export class MembershipService {
                 rolePublicIds: parsed.role_ids,
               });
         if (roles !== undefined) {
+          // TN3: one system role while custom roles are off (403 custom_roles_off).
+          assertMembershipRolesAllowed({ roles });
           assertOwnerKeepsMainRole({
             membership,
             ownerUserId: organization.owner_user_id,

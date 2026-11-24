@@ -1,4 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// The platform's custom roles are switched off in this product (feat-instagram-dm-sending TN3); this
+// suite tests the role and membership rules underneath with the switch on
+// (`custom-roles-off.unit.test.ts` covers it off).
+vi.mock(
+  '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    TENANCY_CUSTOM_ROLES_ENABLED: true,
+  }),
+);
+
 import { ForbiddenError } from '@/shared/errors/index.js';
 
 vi.mock('@/domains/tenancy/sub-domains/permission/permission-cache.service.js', () => ({
@@ -37,7 +48,7 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 
 /**
- * Launch D3 / AC-1.4: every default team role — Admin and the new Member — is refused an edit of its
+ * Launch D3 / AC-1.4: every default team role — Admin, Editor and Viewer — is refused an edit of its
  * codes (403 `role_locked`), a rename and a delete (403 `system_role_fixed`), exactly as Admin
  * always was. The guards read the row's `is_locked` / `is_system` flags, never its name, so the
  * role is built here the way provisioning and the reconcile write it.
@@ -113,10 +124,11 @@ describe('default team roles are locked (launch D3)', () => {
     vi.mocked(organizationRepository.findByPublicId).mockResolvedValue(organization as never);
   });
 
-  it('lists Admin and Member as the default roles, both locked', () => {
+  it('lists Admin, Editor and Viewer as the default roles, all locked (TN1)', () => {
     expect(DEFAULT_TEAM_ROLES.map((role) => [role.name, role.isLocked])).toEqual([
       ['Admin', true],
-      ['Member', true],
+      ['Editor', true],
+      ['Viewer', true],
     ]);
   });
 

@@ -310,7 +310,8 @@ Legend:
   App:
     automation:create             automation:delete             automation:read
     automation:update             contact:delete                contact:read
-    instagram-account:manage      instagram-account:read        instagram-webhook-event:read
+    contact:update                instagram-account:manage      instagram-account:read
+    instagram-webhook-event:read
 
   Global Roles:
     super_admin                   user

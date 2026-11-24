@@ -1038,8 +1038,10 @@ src/
     │   │   ├── member-roles/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── custom-roles-off.integration.test.ts
     │   │   │   │   │   └── member-roles.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── custom-roles-off.unit.test.ts
     │   │   │   │   │   ├── default-team-role-locks.unit.test.ts
     │   │   │   │   │   ├── member-role-tombstone-retention.processor.boundary.unit.test.ts
     │   │   │   │   │   ├── member-role-tombstone-retention.worker.unit.test.ts
@@ -1079,6 +1081,7 @@ src/
     │   │   │   │   ├── member-role-tombstone-retention.constants.ts
     │   │   │   │   ├── member-role-tombstone-retention.processor.ts
     │   │   │   │   └── member-role-tombstone-retention.worker.ts
+    │   │   │   ├── member-role-capability.ts
     │   │   │   ├── member-role.constants.ts
     │   │   │   ├── member-role.controller.ts
     │   │   │   ├── member-role.dto.ts

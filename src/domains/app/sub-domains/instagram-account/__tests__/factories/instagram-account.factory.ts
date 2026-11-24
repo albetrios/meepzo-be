@@ -1,6 +1,9 @@
 import nock from 'nock';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
-import { MEMBER_ROLE_NAME } from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
+import {
+  EDITOR_ROLE_NAME,
+  VIEWER_ROLE_NAME,
+} from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
 import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import {
   createMembership,
@@ -150,14 +153,16 @@ export function mockInstagramUnsubscribe({
     : scope.reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });
 }
 
-/** A team organization with its Owner, an Admin and a Member, each with a token. */
+/** A team organization with its Owner, an Admin, an Editor and a Viewer, each with a token. */
 export interface InstagramTeamFixture {
   organization: { id: number; public_id: string };
   owner: { id: number; public_id: string };
   ownerToken: string;
   adminToken: string;
-  memberToken: string;
-  member: { id: number; public_id: string };
+  editorToken: string;
+  editor: { id: number; public_id: string };
+  viewerToken: string;
+  viewer: { id: number; public_id: string };
 }
 
 /** The id of one of an organization's default roles, by name. */
@@ -177,8 +182,9 @@ async function findDefaultRoleId({
 }
 
 /**
- * Provisions a TEAM organization the real way (Owner, Admin and the locked Member role with their
- * codes, IA2) and adds an Admin and a Member — the permissions the routes check are the real ones.
+ * Provisions a TEAM organization the real way (Owner and the locked Admin, Editor and Viewer roles
+ * with their codes, IA2, feat-instagram-dm-sending TN1) and adds an Admin, an Editor and a Viewer —
+ * the permissions the routes check are the real ones.
  * Needs the permission catalog seeded (`seedAllPermissions`).
  */
 export async function createInstagramTeam(): Promise<InstagramTeamFixture> {
@@ -195,11 +201,17 @@ export async function createInstagramTeam(): Promise<InstagramTeamFixture> {
     organizationId: organization.id,
     roleId: await findDefaultRoleId({ organizationId: organization.id, name: 'Admin' }),
   });
-  const member = await createTestUser();
+  const editor = await createTestUser();
   await createMembership({
-    userId: member.id,
+    userId: editor.id,
     organizationId: organization.id,
-    roleId: await findDefaultRoleId({ organizationId: organization.id, name: MEMBER_ROLE_NAME }),
+    roleId: await findDefaultRoleId({ organizationId: organization.id, name: EDITOR_ROLE_NAME }),
+  });
+  const viewer = await createTestUser();
+  await createMembership({
+    userId: viewer.id,
+    organizationId: organization.id,
+    roleId: await findDefaultRoleId({ organizationId: organization.id, name: VIEWER_ROLE_NAME }),
   });
   const tokenFor = (userPublicId: string) =>
     generateTestToken({ userId: userPublicId, organizationPublicId: organization.public_id });
@@ -208,8 +220,10 @@ export async function createInstagramTeam(): Promise<InstagramTeamFixture> {
     owner,
     ownerToken: await tokenFor(owner.public_id),
     adminToken: await tokenFor(admin.public_id),
-    memberToken: await tokenFor(member.public_id),
-    member,
+    editorToken: await tokenFor(editor.public_id),
+    editor,
+    viewerToken: await tokenFor(viewer.public_id),
+    viewer,
   };
 }
 

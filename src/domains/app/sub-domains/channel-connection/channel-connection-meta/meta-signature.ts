@@ -1,3 +1,4 @@
+import { getEnv } from '@/shared/config/env.config.js';
 import { isHmacSha256SignatureValid } from '@/shared/utils/security/webhook-signature.util.js';
 
 /** `X-Hub-Signature-256`: `sha256=` and the 64 hex characters of an HMAC-SHA256 (WH8). */
@@ -108,4 +109,21 @@ export function parseMetaSignedRequest({
       ? payload.issued_at
       : null;
   return { userId, issuedAt };
+}
+
+/**
+ * The two settings Meta's webhook routes prove a call with (feat-instagram-dm-sending § 5 WH4,
+ * WHC3): the Meta app secret (`META_APP_SECRET`, the `X-Hub-Signature-256` key) and the Meta
+ * webhook verify token (`META_WEBHOOK_VERIFY_TOKEN`, the subscription check) — each `null` while
+ * unset, for the webhook to answer its own `503 instagram_webhook_not_configured`.
+ */
+export function readMetaWebhookSettings(): {
+  appSecret: string | null;
+  verifyToken: string | null;
+} {
+  const environment = getEnv();
+  return {
+    appSecret: environment.META_APP_SECRET || null,
+    verifyToken: environment.META_WEBHOOK_VERIFY_TOKEN || null,
+  };
 }

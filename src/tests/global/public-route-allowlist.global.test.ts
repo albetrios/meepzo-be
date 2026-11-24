@@ -26,6 +26,7 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   'GET /api/v1/auth/oauth/:provider',
   'GET /api/v1/auth/oauth/:provider/callback',
   'GET /api/v1/auth/oauth/providers',
+  'POST /api/v1/auth/email/confirm',
   'POST /api/v1/auth/email/login',
   'POST /api/v1/auth/email/send-code',
   'POST /api/v1/auth/mfa/login',
@@ -48,8 +49,8 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   // App — Meta's Instagram webhook (routes-final § 4.A): the subscription check is proved by the
   // verify token (constant time), the delivery by `X-Hub-Signature-256` over the raw body
   // (instagramWebhookIngressPlugin, before anything is parsed); see instagram-webhook.routes.ts.
-  'GET /api/v1/app/social/instagram/webhook',
-  'POST /api/v1/app/social/instagram/webhook',
+  'GET /api/v1/app/social/channel-connections/meta/webhooks/instagram',
+  'POST /api/v1/app/social/channel-connections/meta/webhooks/instagram',
   // Tenancy — the invitation page (feat-instagram-dm-sending route 118, TN11): answers only for the
   // emailed token (SHA-256 matched in a SECURITY DEFINER resolver; a wrong token or id is one 404),
   // 30 a minute per IP; an optional bearer only tells whether the signed-in email is the invited one.

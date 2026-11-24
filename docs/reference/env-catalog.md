@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**20 / 251** variables migrated to an explicit `{ allowed, description }` entry.
+**22 / 253** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -123,7 +123,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `META_APP_SECRET` | string of at least 32 characters (the Meta app secret; a GitHub Secret), or unset | — *(optional)* | ✓ | The Meta app's one secret: the client_secret of the code exchange, the key of every call's appsecret_proof, and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503. |
 | `META_CONFIG_ID` | non-empty string (the Facebook Login for Business configuration ID), or unset | — *(optional)* | ✓ | The Unified Login configuration id (config_id of the login address): which permissions and assets the login asks for. Not secret. Unset, the Instagram routes answer 503 instagram_not_configured. |
 | `META_REDIRECT_URI` | absolute URL | — *(optional)* | ✓ | The frontend's return page of the Meta login. It must equal one of the Meta app's valid OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured. |
-| `META_WEBHOOK_VERIFY_TOKEN` | string of at least 32 characters (a GitHub Secret), or unset | — *(optional)* | ✓ | The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots. |
+| `META_WEBHOOK_VERIFY_TOKEN` | string of at least 32 characters (a GitHub Secret), or unset | — *(optional)* | ✓ | The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/channel-connections/meta/webhooks/instagram). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots. |
 | `METRICS_AUTH_REQUIRED` | — | `true` |  | — |
 | `METRICS_ENABLED` | — | `true` |  | — |
 | `METRICS_SCRAPE_TOKEN` | — | — *(optional)* |  | — |
@@ -202,6 +202,8 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `SECRETS_ENCRYPTION_CURRENT_VERSION` | — | `v1` |  | — |
 | `SECRETS_ENCRYPTION_KEY` | — | — *(required)* |  | — |
 | `SECRETS_ENCRYPTION_KEYS` | — | — *(optional)* |  | — |
+| `SENDING_ENABLED` | true \| false (or 1 \| 0) | `false` | ✓ | Whether this deployment may send Instagram messages: off, no send worker, Meta-calling task or repair duty runs (webhooks are still saved). Also needs SENDING_ENVIRONMENT_ID to match the database. |
+| `SENDING_ENVIRONMENT_ID` | string, 1–64 characters (e.g. production, development, local) | — *(optional)* | ✓ | This deployment's sending environment id: must equal the database's app.sending_states.environment_id, which prepareDatabase writes when the row is missing — so a restored or copied database never sends from another server. Required in production while SENDING_ENABLED is on. |
 | `SENTRY_DEBUG` | — | `false` |  | — |
 | `SENTRY_DSN` | — | — *(optional)* |  | — |
 | `SENTRY_ENVIRONMENT` | — | — *(optional)* |  | — |

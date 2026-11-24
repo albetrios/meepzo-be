@@ -37,12 +37,14 @@ organization's or a revoked account is `404 channel_account_not_found`. Routes 7
   move, pause / resume, the plan stop, the account-limit lock it shares with the pick (MC7).
 - `channel-account.service.ts` — routes 6–11; `markAccountBroken` and `markAccountsOfConnectionBroken` (CA4, MC11);
   `canChannelAccountUseFeature` / `listChannelAccountFeatureProblems` (CA11); and `ChannelConnectionAccountPort`
-  (the connection's pick, reconnect, revoke and webhook steps). The lane steps of routes 8–11 go through
-  `ChannelAccountLanePort` (sub-domain 6, R18) and the stop an activated account takes through
-  `ChannelAccountPlanStopPort` (R18, R24) — neither wired yet.
+  (the connection's pick, reconnect, revoke and webhook steps). The lane steps of routes 8–11 and of the break go
+  through `ChannelAccountLanePort` (sub-domain 6's `InstagramSendLaneService`, R18) and the stop an activated account
+  takes through `ChannelAccountPlanStopPort` (`plan_limit` from sub-domain 6's month count, R18; `plan_ended`, R24);
+  `countActiveAccounts` and `findLiveInstagramAccount` serve sub-domain 6's routes 64 and 63.
 - `channel-account-capabilities.constants.ts` — `CHANNEL_CAPABILITIES` (per channel: ways to start, steps, message
   kinds, features), `CHANNEL_FEATURES` (each feature's permission, plan switch and Meta test — the plan switches are
-  exactly billing's `PLAN_FEATURE_KEYS`, a unit test pins it), `APP_UNTESTED_META_FEATURES`.
+  exactly billing's `PLAN_FEATURE_KEYS`, a unit test pins it). `APP_UNTESTED_META_FEATURES` lives in sub-domain 6's
+  sending settings file (`../instagram-sending/instagram-sending.constants.ts`, P4).
 - `channel-account.{controller,routes,dto,validator,serializer,constants,types}.ts`, `channel-account-error.util.ts` —
   the route layer, the audit entries (`app.channel_account.disconnect` / `.pause` / `.resume` / `.activate`, with the
   old and new value) and the reasons (`channel_account_not_found`, `channel_account_already_active`, the feature

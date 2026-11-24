@@ -5,7 +5,7 @@
  * it through one of those commands or {@link prepareDatabase} directly. Its steps, always in this
  * order:
  *
- *   create → migrate → logins → seed → worker databases
+ *   create → migrate → logins → seed → sending state → worker databases
  *
  * Usage:
  *   pnpm db:migrate [--reset]     # seed none
@@ -23,6 +23,9 @@ import { isLocalDatabaseUrl } from '@/infrastructure/database/utils/connection-u
 /** The migration runner {@link prepareDatabase} starts as a child process, from the sources. */
 const MIGRATION_RUNNER = 'src/infrastructure/database/migration/migrate.ts';
 
+/** The sending-state command {@link prepareDatabase} starts as a child process, from the sources. */
+const SENDING_STATE_COMMAND = 'src/scripts/ops/sending-state.ts';
+
 /**
  * The migration runner of this build: the compiled `migrate.js` beside this file when it runs
  * from `dist/` (an image has no tsx and no sources), else the TypeScript source through tsx.
@@ -33,6 +36,18 @@ function migrationCommand(): { readonly command: string; readonly args: readonly
     return { command: process.execPath, args: [fileURLToPath(compiled)] };
   }
   return { command: 'pnpm', args: ['exec', 'tsx', MIGRATION_RUNNER] };
+}
+
+/**
+ * The sending-state command of this build (feat-instagram-dm-sending SN7): the compiled
+ * `sending-state.js` beside this file when it runs from `dist/`, else the source through tsx.
+ */
+function sendingStateCommand(): { readonly command: string; readonly args: readonly string[] } {
+  if (fileURLToPath(import.meta.url).endsWith('.js')) {
+    const compiled = new URL('./sending-state.js', import.meta.url);
+    return { command: process.execPath, args: [fileURLToPath(compiled)] };
+  }
+  return { command: 'pnpm', args: ['exec', 'tsx', SENDING_STATE_COMMAND] };
 }
 
 /**
@@ -158,6 +173,31 @@ async function enableLogins(): Promise<string> {
 }
 
 /**
+ * Step 5 — the global sending row (feat-instagram-dm-sending SN7, D20, P95): created with this
+ * server's `SENDING_ENVIRONMENT_ID` only when missing (a restored copy keeps its own id, so it never
+ * sends from another server), and this build's settings versions written. Skipped when
+ * `SENDING_ENVIRONMENT_ID` is not set. A child process, so its pools close with it.
+ */
+function prepareSendingState(
+  options: Pick<PrepareDatabaseOptions, 'migrationEnvironment' | 'migrationOutput'>,
+): string {
+  const environment = options.migrationEnvironment ?? process.env;
+  if (!environment.SENDING_ENVIRONMENT_ID) return 'skipped — SENDING_ENVIRONMENT_ID is not set';
+  const { command, args } = sendingStateCommand();
+  const result = spawnSync(command, [...args], {
+    stdio: 'pipe',
+    encoding: 'utf8',
+    env: { ...process.env, ...environment },
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `sending state failed (exit ${result.status ?? 'signal'})\n${result.stdout ?? ''}${result.stderr ?? ''}`,
+    );
+  }
+  return (result.stdout ?? '').trim().split('\n').at(-1) ?? 'done';
+}
+
+/**
  * Step 4 — seeds up to `level`, in this process, then reconciles every TEAM organization's default
  * roles against the catalog it just seeded.
  *
@@ -226,11 +266,12 @@ export async function cloneForWorkers(options: { url: string; count: number }): 
 
 /**
  * Sets up the database `DATABASE_MIGRATION_URL` (else `DATABASE_URL`) names: create → migrate →
- * logins → seed → worker databases.
+ * logins → seed → sending state → worker databases.
  *
  * @remarks
  * - **Algorithm:** each step runs when its options and the database ask for it — create on a local
- *   server, logins when `enableLocalLogins`, seed unless `none`, clones when `workerDatabases` > 0.
+ *   server, logins when `enableLocalLogins`, seed unless `none`, the sending row when
+ *   `SENDING_ENVIRONMENT_ID` is set, clones when `workerDatabases` > 0.
  *   Re-running is safe: an existing database is kept, applied migrations are skipped, logins keep
  *   their passwords and the seeds upsert.
  * - **Failure modes:** throws on the first failing step, naming it.
@@ -258,6 +299,7 @@ export async function prepareDatabase(options: PrepareDatabaseOptions): Promise<
   if (options.enableLocalLogins) await step({ name: 'logins', work: enableLogins });
   const level = options.seed;
   if (level !== 'none') await step({ name: `seed ${level}`, work: () => seed(level) });
+  await step({ name: 'sending state', work: async () => prepareSendingState(options) });
   const count = options.workerDatabases ?? 0;
   if (count > 0) {
     await step({ name: 'worker databases', work: () => cloneForWorkers({ url, count }) });

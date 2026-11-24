@@ -35,6 +35,36 @@ export type AuthMethodType = (typeof AUTH_METHOD_TYPE)[keyof typeof AUTH_METHOD_
 export const AUTH_METHOD_TYPES = Object.values(AUTH_METHOD_TYPE) as AuthMethodType[];
 
 /**
+ * Canonical `auth.verification_tokens.token_type` values — one list for both flows that mint
+ * tokens (feat-instagram-dm-sending UNC5): the six-digit sign-in code and the confirm-email link.
+ *
+ * @remarks
+ * - **Notes:** the column is a `varchar(30)` without a CHECK; this constant is the allowed list,
+ *   and `VerificationTokenType` is derived from it. `PASSWORD_RESET` left with the password routes
+ *   (P84).
+ */
+export const VERIFICATION_TOKEN_TYPE = {
+  EMAIL_CODE: 'EMAIL_CODE',
+  EMAIL_CONFIRM: 'EMAIL_CONFIRM',
+} as const;
+
+/** Hours a confirm-email link stays usable (feat-instagram-dm-sending UN6). */
+export const EMAIL_CONFIRM_LINK_HOURS = 24;
+
+/**
+ * The stable `error.reason` values of the confirm-email routes (routes-final § 11.B.9).
+ *
+ * @remarks
+ * - **Notes:** `email_confirmation_resend_too_soon` carries `retry_after_seconds`
+ *   (`AppError.withFields`). Listed in `docs/reference/api/response-codes.md`.
+ */
+export const EMAIL_CONFIRMATION_FAILURE_REASON = {
+  EMAIL_ALREADY_CONFIRMED: 'email_already_confirmed',
+  EMAIL_CONFIRMATION_RESEND_TOO_SOON: 'email_confirmation_resend_too_soon',
+  EMAIL_CONFIRM_TOKEN_INVALID: 'email_confirm_token_invalid',
+} as const;
+
+/**
  * Stored-only `method_type` values: kept by the CHECK constraint for historic, revoked rows, never
  * created, accepted or returned by the API (`PASSWORD` — passwords are off, P84).
  */

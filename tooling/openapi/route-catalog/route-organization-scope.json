@@ -28,7 +28,6 @@
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": "team",
   "GET /api/v1/app/social/instagram/accounts/:channel_account_id/media": "team",
   "GET /api/v1/app/social/instagram/accounts/:channel_account_id/stories": "team",
-  "GET /api/v1/app/social/instagram/webhook": "both",
   "GET /api/v1/app/social/instagram/webhook-events": "team",
   "GET /api/v1/audit/logs": "both",
   "GET /api/v1/auth/me/auth-methods": "both",
@@ -103,7 +102,6 @@
   "POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts": "team",
   "POST /api/v1/app/social/channel-connections/:provider/data-deletion": "both",
   "POST /api/v1/app/social/channel-connections/:provider/deauthorize": "both",
-  "POST /api/v1/app/social/instagram/webhook": "both",
   "POST /api/v1/app/automations": "team",
   "POST /api/v1/auth/email/login": "both",
   "POST /api/v1/auth/email/send-code": "both",
@@ -165,5 +163,11 @@
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": "team",
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": "team",
   "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": "team",
-  "POST /api/v1/billing/payment-methods/:payment_method_id/default": "team"
+  "POST /api/v1/billing/payment-methods/:payment_method_id/default": "team",
+  "GET /api/v1/app/social/channel-connections/meta/webhooks/instagram": "both",
+  "GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status": "team",
+  "GET /api/v1/app/usage": "team",
+  "POST /api/v1/app/social/channel-connections/meta/webhooks/instagram": "both",
+  "POST /api/v1/auth/email/confirm": "both",
+  "POST /api/v1/users/me/email-confirmation": "both"
 }

@@ -290,7 +290,6 @@ src/
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── index.ts
     │   │   │   │   │   └── instagram-account-settings.bulk.seed.ts
-    │   │   │   │   ├── instagram-account-settings.constants.ts
     │   │   │   │   ├── instagram-account-settings.controller.ts
     │   │   │   │   ├── instagram-account-settings.dto.ts
     │   │   │   │   ├── instagram-account-settings.overview.md
@@ -352,6 +351,46 @@ src/
     │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
     │   │   │   └── instagram-account.types.ts
+    │   │   ├── instagram-sending/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── instagram-sending.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── instagram-sending.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
+    │   │   │   │   │   ├── sending-state.decide.unit.test.ts
+    │   │   │   │   │   └── sending-state.service.db.unit.test.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── index.ts
+    │   │   │   │   └── instagram-sending.bulk.seed.ts
+    │   │   │   ├── instagram-send-day-count.repository.ts
+    │   │   │   ├── instagram-send-day-count.schema.ts
+    │   │   │   ├── instagram-send-lane.repository.ts
+    │   │   │   ├── instagram-send-lane.schema.ts
+    │   │   │   ├── instagram-send-lane.service.ts
+    │   │   │   ├── instagram-send-lane.util.ts
+    │   │   │   ├── instagram-send-minute-count.repository.ts
+    │   │   │   ├── instagram-send-minute-count.schema.ts
+    │   │   │   ├── instagram-send-stop.repository.ts
+    │   │   │   ├── instagram-send-stop.schema.ts
+    │   │   │   ├── instagram-sending.constants.ts
+    │   │   │   ├── instagram-sending.controller.ts
+    │   │   │   ├── instagram-sending.dto.ts
+    │   │   │   ├── instagram-sending.overview.md
+    │   │   │   ├── instagram-sending.routes.ts
+    │   │   │   ├── instagram-sending.serializer.ts
+    │   │   │   ├── instagram-sending.service.ts
+    │   │   │   ├── instagram-sending.types.ts
+    │   │   │   ├── message-month-count.cache.ts
+    │   │   │   ├── message-month-count.repository.ts
+    │   │   │   ├── message-month-count.schema.ts
+    │   │   │   ├── message-month-count.service.ts
+    │   │   │   ├── sending-state.repository.ts
+    │   │   │   ├── sending-state.schema.ts
+    │   │   │   └── sending-state.service.ts
     │   │   └── instagram-webhook/
     │   │   │   ├── __tests__/
     │   │   │       ├── integration/
@@ -383,6 +422,7 @@ src/
     │   │   │       │   │   ├── instagram-webhook-event-retention.processor.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-retention.processor.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-seed.db.unit.test.ts
+    │   │   │       │   │   ├── instagram-webhook-event-store.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.controller.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.repository.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.serializer.unit.test.ts
@@ -396,6 +436,8 @@ src/
     │   │   │       │   ├── instagram-webhook-event-retention.constants.ts
     │   │   │       │   ├── instagram-webhook-event-retention.processor.ts
     │   │   │       │   └── instagram-webhook-event-retention.worker.ts
+    │   │   │       ├── instagram-webhook-event-key.repository.ts
+    │   │   │       ├── instagram-webhook-event-key.schema.ts
     │   │   │       ├── instagram-webhook-event-payload-masking.util.ts
     │   │   │       ├── instagram-webhook-event.constants.ts
     │   │   │       ├── instagram-webhook-event.controller.ts
@@ -534,6 +576,7 @@ src/
     │   │   └── index.ts
     │   ├── handlers/
     │   │   ├── auth-auth-method.handlers.ts
+    │   │   ├── auth-email-confirmation.handlers.ts
     │   │   ├── auth-email-login.handlers.ts
     │   │   ├── auth-me-context.handlers.ts
     │   │   ├── auth-mfa.handlers.ts
@@ -553,7 +596,8 @@ src/
     │   │   ├── auth-method/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
-    │   │   │   │   │   └── auth-method.integration.test.ts
+    │   │   │   │   │   ├── auth-method.integration.test.ts
+    │   │   │   │   │   └── email-confirmation.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
     │   │   │   │   │       └── auth-method.event-handlers.unit.test.ts
@@ -562,6 +606,7 @@ src/
     │   │   │   │   │   ├── auth-method.service.last-method-guard.unit.test.ts
     │   │   │   │   │   ├── auth-method.service.unit.test.ts
     │   │   │   │   │   ├── auth-method.validator.unit.test.ts
+    │   │   │   │   │   ├── email-confirmation.service.unit.test.ts
     │   │   │   │   │   ├── email-login.service.unit.test.ts
     │   │   │   │   │   ├── email-login.verify-atomicity.db.unit.test.ts
     │   │   │   │   │   └── verification-code.unit.test.ts
@@ -613,6 +658,7 @@ src/
     │   │   │   ├── auth-method.schema.ts
     │   │   │   ├── auth-method.service.ts
     │   │   │   ├── auth-method.types.ts
+    │   │   │   ├── email-confirmation.service.ts
     │   │   │   ├── email-login.service.ts
     │   │   │   └── verification-code.ts
     │   │   ├── auth-mfa/
@@ -1770,10 +1816,12 @@ src/
     │   │   ├── __tests__/
     │   │   │   └── unit/
     │   │   │   │   ├── base.template.unit.test.ts
+    │   │   │   │   ├── email-confirm-link.template.unit.test.ts
     │   │   │   │   ├── escape-html.util.unit.test.ts
     │   │   │   │   ├── invitation.template.unit.test.ts
     │   │   │   │   └── verification-code.template.unit.test.ts
     │   │   ├── base.template.ts
+    │   │   ├── email-confirm-link.template.ts
     │   │   ├── escape-html.util.ts
     │   │   ├── invitation.template.ts
     │   │   └── verification-code.template.ts
@@ -1992,6 +2040,7 @@ src/
     │   ├── process-tree.util.ts
     │   ├── route-coverage-audit.ts
     │   ├── secrets-key-rotate.ts
+    │   ├── sending-state.ts
     │   ├── settle-check.config.ts
     │   ├── settle-check.evaluate.ts
     │   ├── settle-check.ts
@@ -2705,6 +2754,7 @@ src/
     │   │   ├── contact-rls.security.test.ts
     │   │   ├── force-rls-policies-restrict.security.test.ts
     │   │   ├── instagram-account-resolvers.security.test.ts
+    │   │   ├── instagram-sending-rls.security.test.ts
     │   │   ├── instagram-webhook-events-rls.security.test.ts
     │   │   ├── meepzo-be-app-role-privileges.security.test.ts
     │   │   ├── membership-name-sort.security.test.ts

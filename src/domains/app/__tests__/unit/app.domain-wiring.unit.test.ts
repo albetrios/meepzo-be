@@ -58,8 +58,12 @@ describe('app domain wiring', () => {
       'instagramAccountService',
       'instagramAccountSettingsService',
       'instagramMediaService',
+      'instagramSendLaneService',
+      'instagramSendingService',
       'instagramWebhookEventService',
       'instagramWebhookService',
+      'messageMonthCountService',
+      'sendingStateService',
     ]);
     expect(application.appDomain.instagramAccountService).toBeInstanceOf(InstagramAccountService);
     expect(application.appDomain.contactService).toBeInstanceOf(ContactService);
@@ -119,10 +123,12 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ad-accounts`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ads`,
+      `GET ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
       `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/media`,
+      `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/sending-status`,
       `GET ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/stories`,
-      `GET ${APP_PREFIX}/social/instagram/webhook`,
       `GET ${APP_PREFIX}/social/instagram/webhook-events`,
+      `GET ${APP_PREFIX}/usage`,
       `PATCH ${APP_PREFIX}/automations/:automation_id`,
       `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
       `POST ${APP_PREFIX}/automations`,
@@ -135,7 +141,7 @@ describe('app domain wiring', () => {
       `POST ${APP_PREFIX}/social/channel-connections/:provider/data-deletion`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/deauthorize`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/start`,
-      `POST ${APP_PREFIX}/social/instagram/webhook`,
+      `POST ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
     ]);
     // Runs have no route (D13).
     const response = await application.inject({
@@ -151,13 +157,13 @@ describe('app domain wiring', () => {
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
     // Without organizations the channel connection, channel account, Instagram account, settings, stored-posts,
-    // contact, automation, automation-run and webhook event seeders warn and write nothing.
+    // sending, contact, automation, automation-run and webhook event seeders warn and write nothing.
     const warn = vi.fn();
     const context = {
       registry: createSeedRegistry(),
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(9);
+    expect(warn).toHaveBeenCalledTimes(10);
   });
 });

@@ -5,7 +5,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-api-contract-guard/SKILL.md",
-      "computedHash": "a707c31dac881354a9906c777264e6d202d1e1b4e5b50e20b6cd59c28730816d"
+      "computedHash": "25d6d312daa5f82ff85ee5aaa5c9714cc89a9da1aaa0fdf7864d9d5a7a4df060"
     },
     "be-auto-implement": {
       "source": "local",
@@ -161,7 +161,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-path-to-production/SKILL.md",
-      "computedHash": "45573eab9143fffc57e2939ab31bb55514060af1d12f9bfaf574c17065bbfbce"
+      "computedHash": "51c7fa5ab03155f601eafe9f64176a378484f76653e430bce71dd9bbae6d1da0"
     },
     "be-pr-babysit": {
       "source": "local",

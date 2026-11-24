@@ -40,6 +40,8 @@ import { automations } from '@/domains/app/sub-domains/automation/automation.sch
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
+import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.schema.js';
+import { instagram_send_stops } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -643,13 +645,14 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
         published_at: new Date(),
       })
       .returning();
-    // One received comment event of the account (launch R12).
+    // One received comment event of the channel account (launch R12; keyed by the channel account
+    // since feat-instagram-dm-sending R16).
     const [webhookEvent] = await database
       .insert(instagram_webhook_events)
       .values({
         public_id: generatePublicId('instagramWebhookEvent'),
         organization_id: organization.id,
-        instagram_account_id: account!.id,
+        channel_account_id: channelAccount!.id,
         instagram_user_id: instagramUserId,
         contact_instagram_user_id: '17841400000000099',
         event_kind: 'comment',
@@ -697,6 +700,43 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_webhook_events' }),
     instagramWebhookEventIds,
+  );
+
+  // The sending sub-domain (feat-instagram-dm-sending R18): one lane and one stop of each
+  // organization's channel account.
+  const sendLaneIds = { organizationA: 0, organizationB: 0 };
+  const sendStopIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [lane] = await database
+      .insert(instagram_send_lanes)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        lane: 'slow',
+      })
+      .returning();
+    const [stop] = await database
+      .insert(instagram_send_stops)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        lane: 'fast',
+        reason: 'too_fast',
+      })
+      .returning();
+    sendLaneIds[side] = lane!.id;
+    sendStopIds[side] = stop!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_send_lanes' }),
+    sendLaneIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_send_stops' }),
+    sendStopIds,
   );
 
   // The contact sub-domain (launch R8): one live contact of each organization's account.

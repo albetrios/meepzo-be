@@ -11,6 +11,8 @@ import type {
   MfaEnrollConfirmInput,
   MfaLoginVerifyInput,
   OauthCallbackQueryInput,
+  EmailConfirmInput,
+  RequestEmailConfirmationInput,
 } from './auth.dto.js';
 import {
   EmailSendCodeDto,
@@ -22,11 +24,23 @@ import {
   MfaEnrollConfirmDto,
   MfaLoginVerifyDto,
   OauthCallbackQueryDto,
+  EmailConfirmDto,
+  RequestEmailConfirmationDto,
 } from './auth.dto.js';
 
 /** Validates the `POST /api/v1/auth/email/send-code` request body against {@link EmailSendCodeDto}. */
 export function validateEmailSendCode(body: unknown): EmailSendCodeInput {
   return parseWithSchema({ schema: EmailSendCodeDto, data: body });
+}
+
+/** Validates the `POST /api/v1/auth/email/confirm` request body against {@link EmailConfirmDto}. */
+export function validateEmailConfirm(body: unknown): EmailConfirmInput {
+  return parseWithSchema({ schema: EmailConfirmDto, data: body });
+}
+
+/** Validates the `POST /api/v1/users/me/email-confirmation` body against {@link RequestEmailConfirmationDto}; a request without a body is an empty one. */
+export function validateRequestEmailConfirmation(body: unknown): RequestEmailConfirmationInput {
+  return parseWithSchema({ schema: RequestEmailConfirmationDto, data: body ?? {} });
 }
 
 /** Validates the `POST /api/v1/auth/email/login` request body against {@link EmailLoginDto}. */

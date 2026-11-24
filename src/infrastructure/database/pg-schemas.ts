@@ -32,7 +32,8 @@ export type MaintenanceBypassGuc =
   | 'app.session_retention_cleanup'
   | 'app.global_admin'
   | 'app.system_audit_insert'
-  | 'app.audit_outbox_drain';
+  | 'app.audit_outbox_drain'
+  | 'app.sending_state_access';
 
 /**
  * An RLS bypass arm for a `pgPolicy` predicate: open only while `guc` is `'true'` AND the

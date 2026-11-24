@@ -61,6 +61,15 @@ const TENANT_CRUD_EXCLUDED_POLICY_SHAPES = new Set([
   'auth.users',
   'auth.verification_tokens',
   'auth.webauthn_credentials',
+  // No `id` column and insert-only (a day-split key table, R16): its isolation is proven in
+  // `instagram-webhook-events-rls.security.test.ts`.
+  'app.instagram_webhook_event_keys',
+  // No `id` column — keyed counter rows (feat-instagram-dm-sending § 6.A.3, R18) — and the one
+  // tenantless sending row (P16): their isolation is proven in `instagram-sending-rls.security.test.ts`.
+  'app.instagram_send_day_counts',
+  'app.instagram_send_minute_counts',
+  'app.message_month_counts',
+  'app.sending_states',
   'billing.plans',
   'billing.stripe_subscription_tombstones',
   'billing.stripe_webhook_events',

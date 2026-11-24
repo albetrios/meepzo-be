@@ -99,7 +99,7 @@ Every organization-scoped list endpoint uses the **shared** helpers in `src/shar
 - `X-Captcha-Token` — public auth forms only (email verification-code send + login, mfa/login, webauthn authenticate options).
 - `X-CSRF-Token` — POST /auth/refresh only (double-submit of the csrf_token cookie). Keeps the X- form (frontend-framework default).
 - `Stripe-Signature` — sent BY Stripe to the webhook routes; the app never sends it.
-- `X-Hub-Signature-256` — sent BY Meta to the Instagram webhook delivery (`POST /app/social/instagram/webhook`): `sha256=` + the hex HMAC-SHA256 of the raw body with the Instagram app secret; missing or wrong → `400 invalid_webhook_signature`. The app never sends it. Meta's subscription check (`GET` on the same path) is proved by `hub.verify_token` instead.
+- `X-Hub-Signature-256` — sent BY Meta to the Instagram webhook delivery (`POST /app/social/channel-connections/meta/webhooks/instagram`): `sha256=` + the hex HMAC-SHA256 of the raw body with the Instagram app secret; missing or wrong → `400 invalid_webhook_signature`. The app never sends it. Meta's subscription check (`GET` on the same path) is proved by `hub.verify_token` instead.
 
 ## Headers kept in X- form (ecosystem standards)
 

@@ -35,7 +35,10 @@ import type {
   AutomationRunHandlingResult,
   AutomationRunTriggerInput,
 } from '@/domains/app/sub-domains/automation/automation-run/automation-run.types.js';
-import type { InstagramWebhookEventSkipReason } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
+import type {
+  InstagramWebhookEventKind,
+  InstagramWebhookEventSkipReason,
+} from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
 import {
   INSTAGRAM_WEBHOOK_EVENT_ATTEMPTS_EXHAUSTED_ERROR,
   type InstagramWebhookEventClaimKey,
@@ -142,7 +145,7 @@ export interface InstagramWebhookAccountJobResult {
 type HandledEvent =
   | {
       kind: 'processed';
-      outcome: AutomationRunHandlingOutcome | 'button_not_ours';
+      outcome: AutomationRunHandlingOutcome | 'button_not_ours' | 'not_taken_in_yet';
       runPublicIds: string[];
     }
   | { kind: 'skipped'; skipReason: InstagramWebhookEventSkipReason }
@@ -155,6 +158,9 @@ type EventOutcome = 'processed' | 'skipped' | 'failed' | 'claim_lost';
 interface ClaimedEventContext {
   scope: OrganizationPrincipalDatabaseScope;
   organizationPublicId: string;
+  /** `cha_…` — the job's account (WHC4). */
+  channelAccountPublicId: string;
+  /** `cha_…` (P47, R6) — the run engine's account until intake moves to the inbound seam (ROUTE row R38). */
   instagramAccountPublicId: string;
   services: InstagramWebhookProcessingServices;
   instagramClient: InstagramWebhookProcessingInstagramClient;
@@ -171,7 +177,7 @@ function eventLogFields(context: ClaimedEventContext): Record<string, unknown> {
   return {
     jobId: context.requestId,
     organizationPublicId: context.organizationPublicId,
-    instagramAccountPublicId: context.instagramAccountPublicId,
+    channelAccountPublicId: context.channelAccountPublicId,
     instagramWebhookEventPublicId: context.event.public_id,
     eventKind: context.event.event_kind,
     eventKey: context.event.event_key,
@@ -487,6 +493,17 @@ async function runEngine({
 }
 
 /**
+ * The kinds the receiver saves `received` since its classifier's rev (feat-instagram-dm-sending
+ * WHC5, ROUTE row R17) that this launch processor has no way to start yet — a Live comment, a
+ * starter-question tap, a link or ad referral, a reaction, the owner's hand-typed echo. It marks
+ * them `processed` with nothing done (`not_taken_in_yet`) until intake per kind takes them in
+ * (WH11–WH14, ROUTE row R38), so they never fail or hold back the account's other events.
+ */
+const KINDS_TAKEN_IN_FROM_INTAKE_PER_KIND: ReadonlySet<string> = new Set<InstagramWebhookEventKind>(
+  ['live_comment', 'ice_breaker', 'referral', 'reaction', 'echo'],
+);
+
+/**
  * WH13 for one event: read its dispatch, record the contact first, then the kind's operation in
  * the run engine — called outside any database context with the job's scope, the event's account
  * and the last-attempt flag (AU5, AU19, AU27).
@@ -499,6 +516,9 @@ async function handleEvent({
   account: InstagramWebhookProcessingAccount;
 }): Promise<HandledEvent> {
   const { event } = context;
+  if (KINDS_TAKEN_IN_FROM_INTAKE_PER_KIND.has(event.event_kind)) {
+    return { kind: 'processed', outcome: 'not_taken_in_yet', runPublicIds: [] };
+  }
   const dispatch = readInstagramWebhookEventDispatch({
     eventKind: event.event_kind,
     payload: event.payload,
@@ -598,17 +618,20 @@ function claimNextEvent({
   scope,
   services,
   instagramAccount,
+  channelAccountId,
 }: {
   scope: OrganizationPrincipalDatabaseScope;
   services: InstagramWebhookProcessingServices;
   instagramAccount: InstagramWebhookProcessingAccount['instagramAccount'];
+  /** `app.channel_accounts.id` the events are claimed under (R16). */
+  channelAccountId: number;
 }): Promise<{ claimed: InstagramWebhookEventClaimResult | null; failedRunPublicIds: string[] }> {
   return withAppDatabaseContext({
     scope,
     callback: async () => {
       const claimed = await services.instagramWebhookEventService.claimNextEvent({
         scope,
-        instagramAccount,
+        channelAccount: { organizationId: instagramAccount.organizationId, channelAccountId },
         maxProcessingAttempts: INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS,
         claimLeaseMinutes: INSTAGRAM_WEBHOOK_EVENT_STUCK_AFTER_MINUTES,
       });
@@ -693,7 +716,7 @@ async function processClaimedEvent(context: ClaimedEventContext): Promise<EventO
   try {
     const account = await services.instagramAccountService.findWebhookProcessingAccount({
       scope,
-      instagramAccountPublicId: context.instagramAccountPublicId,
+      instagramAccountPublicId: context.channelAccountPublicId,
     });
     const skipReason = processingSkipReason(account);
     if (account === null || skipReason !== null) {
@@ -769,17 +792,14 @@ export async function processInstagramWebhookAccountJob({
   instagramClient = INSTAGRAM_CLIENT,
   enqueueFollowUp = enqueueInstagramWebhookAccountProcessing,
 }: {
-  jobData: Pick<
-    InstagramWebhookAccountJobData,
-    'organizationPublicId' | 'instagramAccountPublicId'
-  >;
+  jobData: Pick<InstagramWebhookAccountJobData, 'organizationPublicId' | 'channelAccountPublicId'>;
   services: InstagramWebhookProcessingServices;
   /** The job's id — the request id of Instagram calls and log lines. */
   jobId: string;
   instagramClient?: InstagramWebhookProcessingInstagramClient | undefined;
   enqueueFollowUp?: InstagramWebhookAccountProcessingEnqueue | undefined;
 }): Promise<InstagramWebhookAccountJobResult> {
-  const { organizationPublicId, instagramAccountPublicId } = jobData;
+  const { organizationPublicId, channelAccountPublicId } = jobData;
   const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId });
   const result: InstagramWebhookAccountJobResult = {
     outcome: 'drained',
@@ -787,11 +807,11 @@ export async function processInstagramWebhookAccountJob({
     skippedEventCount: 0,
     failedEventCount: 0,
   };
-  const logFields = { jobId, organizationPublicId, instagramAccountPublicId };
+  const logFields = { jobId, organizationPublicId, channelAccountPublicId };
 
   const account = await services.instagramAccountService.findWebhookProcessingAccount({
     scope,
-    instagramAccountPublicId,
+    instagramAccountPublicId: channelAccountPublicId,
   });
   if (account === null) {
     logger.warn(logFields, 'app.instagram_webhook.account_not_found');
@@ -803,6 +823,7 @@ export async function processInstagramWebhookAccountJob({
       scope,
       services,
       instagramAccount: account.instagramAccount,
+      channelAccountId: account.channelAccountId,
     });
     if (claimed === null) {
       logger.info({ ...logFields, ...result }, 'app.instagram_webhook.account_job_completed');
@@ -827,12 +848,14 @@ export async function processInstagramWebhookAccountJob({
     const outcome = await processClaimedEvent({
       scope,
       organizationPublicId,
-      instagramAccountPublicId,
+      channelAccountPublicId,
+      instagramAccountPublicId: account.instagramAccountPublicId,
       services,
       instagramClient,
       event,
       claim: {
-        ...account.instagramAccount,
+        organizationId: account.instagramAccount.organizationId,
+        channelAccountId: account.channelAccountId,
         eventId: event.id,
         claimedAttemptCount: event.attempt_count,
       },
@@ -847,7 +870,7 @@ export async function processInstagramWebhookAccountJob({
   // WH12: the batch is done — yield the slot, and let one follow-up job go on with the account.
   result.outcome = 'yielded';
   try {
-    await enqueueFollowUp({ organizationPublicId, instagramAccountPublicId, requestId: jobId });
+    await enqueueFollowUp({ organizationPublicId, channelAccountPublicId, requestId: jobId });
   } catch (error) {
     logger.warn(
       { ...logFields, failure: describeInstagramWebhookProcessingError(error) },

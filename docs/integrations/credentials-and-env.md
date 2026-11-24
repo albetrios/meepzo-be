@@ -372,7 +372,7 @@ Instagram Login connect reads the same `META_*` settings.)
    Until the app has Advanced Access to them, only Instagram accounts with a role on the app
    (an Instagram tester accepted under **App roles**) can connect.
 5. **Instagram** → **API setup with Instagram login** → **Configure webhooks**: **Callback URL**
-   `https://<api host>/api/v1/app/social/instagram/webhook` and **Verify token** the value of
+   `https://<api host>/api/v1/app/social/channel-connections/meta/webhooks/instagram` and **Verify token** the value of
    `META_WEBHOOK_VERIFY_TOKEN` → **Verify and save** (Meta calls `GET …/webhook` with
    `hub.mode=subscribe`, the token and a challenge; the API echoes the challenge). Then subscribe the
    app to the three webhook fields (below). Meta signs each delivery (`POST …/webhook`) with

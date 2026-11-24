@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { cursorPaginationSchema } from '@/shared/utils/http/pagination.util.js';
+import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
 import {
   INSTAGRAM_WEBHOOK_EVENT_KINDS,
   INSTAGRAM_WEBHOOK_EVENT_STATUSES,
@@ -29,9 +30,9 @@ function receivedFromBeforeTo({
 }
 
 /**
- * Query of `GET /app/social/instagram/webhook-events` (route 18, routes-final § 4.B.8): the shared
- * cursor page (`limit` 1–100, default 25; `after`), one `status` and one `event_kind` from their
- * lists, a received window — `received_from` inclusive, `received_to` exclusive, ISO 8601 with an
+ * Query of `GET /app/social/instagram/webhook-events` (route 62, feat-instagram-dm-sending
+ * routes-final § 5.B.8): the shared cursor page (`limit` 1–100, default 25; `after`), one
+ * `channel_account_id` (`cha_…`), one `status` and one `event_kind` from their lists, a received window — `received_from` inclusive, `received_to` exclusive, ISO 8601 with an
  * offset, `from` before `to` — and the `include_total` opt-in.
  *
  * @remarks
@@ -40,6 +41,10 @@ function receivedFromBeforeTo({
  */
 export const ListInstagramWebhookEventsQueryDto = cursorPaginationSchema
   .extend({
+    channel_account_id: z
+      .string()
+      .regex(publicIdPatternFor('channelAccount'), 'errors:validation.invalidPublicId')
+      .optional(),
     status: z.enum(INSTAGRAM_WEBHOOK_EVENT_STATUSES).optional(),
     event_kind: z.enum(INSTAGRAM_WEBHOOK_EVENT_KINDS).optional(),
     received_from: receivedTimeSchema.optional(),

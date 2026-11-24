@@ -1,9 +1,11 @@
 import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { VERIFICATION_TOKEN_TYPE } from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
 import { verification_tokens } from './verification-token.schema.js';
 
-/** Enum of token categories that share the unified {@link verification_tokens} table. */
-export type VerificationTokenType = 'EMAIL_CODE' | 'EMAIL_CHANGE';
+/** Enum of token categories that share the unified {@link verification_tokens} table ({@link VERIFICATION_TOKEN_TYPE}). */
+export type VerificationTokenType =
+  (typeof VERIFICATION_TOKEN_TYPE)[keyof typeof VERIFICATION_TOKEN_TYPE];
 
 /**
  * Drizzle repository for the shared `verification_tokens` table.
@@ -68,7 +70,7 @@ export class VerificationTokenRepository {
    * sec-r5-L2: the `token_type` predicate is pinned into the atomic `UPDATE … WHERE` itself
    * rather than checked after consumption. Token hashes are globally unique, so cross-type
    * collision is practically impossible — but scoping the write by category means a token of
-   * the wrong flow (e.g. an `EMAIL_CHANGE` token replayed against the email-code login path)
+   * the wrong flow (e.g. an `EMAIL_CONFIRM` token replayed against the email-code login path)
    * is never matched, locked, or burned in the first place, instead of relying on the caller's
    * surrounding transaction to roll the consume back. The match is fail-closed against the
    * caller's declared type.
@@ -123,13 +125,15 @@ export class VerificationTokenRepository {
   /**
    * The user's newest token of a type (by `created_at`), used or not — `null` when none was ever
    * issued. The email-code sign-in reads it after a failed consume to tell `code_expired` (the newest
-   * code is unused and past `expires_at`) from `code_wrong` (AT8).
+   * code is unused and past `expires_at`) from `code_wrong` (AT8); the confirm-email request reads
+   * its `created_at` for the 60 s resend wait (UN6).
    */
   async findNewestForUser(userId: number, tokenType: VerificationTokenType) {
     const rows = await getRequestDatabase()
       .select({
         expires_at: verification_tokens.expires_at,
         used_at: verification_tokens.used_at,
+        created_at: verification_tokens.created_at,
       })
       .from(verification_tokens)
       .where(

@@ -1210,7 +1210,13 @@ move to a table of their own.
   stores none (WH22); read receipts, our own "sent" notices and tag events are never saved. Each
   event's intake group (messages, Live, comments) is worked out from its kind and stored (WH11). Kept 8
   days (D15; launch 30) — split by day (P33), one of the seven split tables (P96).
-- **Table:** `app.instagram_webhook_events` (live)
+- **Table:** `app.instagram_webhook_events` (live) — **Built R16** ([AS-BUILT](../AS-BUILT.md)): partitioned
+  by `created_at` (UTC day parts via `app.fn_create_daily_partitions`, 8 back to 14 ahead, plus
+  `instagram_webhook_events_default`), primary key `(id, created_at)`, unique `(public_id, created_at)`,
+  `channel_account_id` → `app.channel_accounts` (`instagram_webhook_events_channel_account_fk`),
+  `intake_group` generated, `next_attempt_at`, `payload` nullable with `chk_instagram_webhook_events_body`
+  and `chk_instagram_webhook_events_next_attempt`; indexes of 5.B.3 (`..._organization_account_created_at`,
+  `..._pending` by group, `..._next_attempt_at`, `..._flood`).
 - **Sources:** plan:L3207–L3225, plan:L3926–L3941; D15, D64; current schema
   `src/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.ts`.
 - **Added:** `next_attempt_at`; `intake_group`; five event kinds; `own_comment`, `flood`.
@@ -1246,7 +1252,13 @@ erDiagram
   table): the key carries that day; a redelivery carries the same time, so the dedupe rule holds, and the
   missed-comment and past-comment reads write the same day the webhook would. Expiry drops a day part. No
   public id.
-- **Table:** `app.instagram_webhook_event_keys` (P38; Instagram's, [P45](decisions.md))
+- **Table:** `app.instagram_webhook_event_keys` (P38; Instagram's, [P45](decisions.md)) — **Built R16**
+  ([AS-BUILT](../AS-BUILT.md)): `organization_id`, `channel_account_id`, `event_key`, `event_day` (date),
+  `received_at`; primary key `instagram_webhook_event_keys_pkey` `(organization_id, channel_account_id,
+  event_key, event_day)`; partitioned by `event_day` (day parts + `instagram_webhook_event_keys_default`);
+  FORCE RLS with the sweep arm in `USING`; the app roles hold `SELECT, INSERT` only. **R17**: no schema change —
+  the receiver writes both tables through the store function (`recordReceivedEvents`) in a unit capped at 3 s;
+  `instagram_accounts` is no longer read by the stuck-event pick-up (it reads `channel_accounts.public_id`).
 - **Sources:** plan:L3453–L3461; D15.
 - **Added:** new — the launch kept this key on the events, which now go after 8 days in whole days.
 - **Replaced:** the event's own key uniqueness.
@@ -1428,6 +1440,7 @@ counts, the stop history, the two global rows and the Meta file ids. Intake neve
   claim and the fast lane's sends on their way. The owner's pause, the team's suspend and the **plan
   stop** are the account's, on `channel_account` ([P42](decisions.md)), read by every lane — so the
   error stop here and the plan stop there still hold at once (SN12). No public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md), [P305](decisions.md), [P307](decisions.md)): `app.instagram_send_lanes` as designed (`lane`, `state`, `next_run_at`, `lease_until`, `box_start`, `last_sent_at`, `half_speed_until`, `wait_reason`, `turn_number`, `working_turn`, `pick_count`, `day_date`, `day_count`, `stop_reason` (nine groups — no `app_limit`), `stop_until`, `stop_count`, `stop_error_code`, `stop_error_subcode`, `stop_cleared_at`, `testing_lane`, `testing_until`, `sending_count`) **plus** S29's `estimate_waiting_count`, `estimate_will_go_count`, `estimate_may_expire_count`, `estimate_done_at`, `estimated_at` (slow row only) and `created_at`; fillfactor 80; migration `20261124143012_app_instagram_sending.sql`.
 - **Table:** `app.instagram_send_lanes` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3385–L3419, plan:L3943–L3970; D3, D4, D5, D11, D19, D34, D35, D57, D62;
   routes-final § 6, 6.A.3.
@@ -1587,6 +1600,7 @@ erDiagram
 - **Holds:** messages sent per account, count group (`open` · `reply` · `fast` · `broadcast`) and
   minute — gate 2, raised in the same commit that marks a message `sending` (D18). Kept 2 hours. No
   public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md)): as designed (`count_group`, `minute_start`, `count`; primary key organization, account, group, minute); fillfactor 80.
 - **Table:** `app.instagram_send_minute_counts` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3421–L3451; D18.
 - **Added:** new.
@@ -1615,6 +1629,7 @@ erDiagram
   slots by channel account so accounts never wait on each other (D34). Every message into her chat
   counts, broadcast ones too (D68). Feeds the month meter (A14, [P14](decisions.md)) and the `plan_limit` stop of the
   slow, fast and broadcast lanes (A3, [P3](decisions.md)). Kept 13 months. No public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md)): as designed (`month_start` — CHECK the 1st, `slot` 0–15 = channel account id mod 16, `count`, `updated_at`); fillfactor 80; Redis copy `app:message_month_count:<organization>` (10 s, [P305](decisions.md)).
 - **Table:** `app.message_month_counts` (common, [P43](decisions.md): the plan limit spans channels;
   plan name `app.dm_month_counts`, `app.direct_message_month_counts` under A6)
 - **Sources:** plan:L3642–L3682; D34, D62, D68.
@@ -1641,6 +1656,7 @@ erDiagram
   (`time` · `test` · `owner` · `team`). A plan stop is recorded here with lane `all`, though it now
   sits on `channel_account` ([P42](decisions.md)). Kept 90 days — a plain table, emptied hourly within a
   time budget ([P92](decisions.md)). No public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md)): as designed (`lane` incl. `all`, `reason` — the nine groups and the three plan stops, `error_code`, `error_subcode`, `started_at`, `stop_until`, `ended_at`, `ended_by`).
 - **Table:** `app.instagram_send_stops` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3482–L3494; D19, D34, D35, D57.
 - **Added:** new.
@@ -1677,6 +1693,7 @@ erDiagram
   keeps sending ([P95](decisions.md), S16) — the stop for all accounts and its count, and the one test for
   all accounts after it. No organization — a
   documented exemption, maintenance login only (A16).
+- **Built R18** ([AS-BUILT](../AS-BUILT.md), [P306](decisions.md)): as designed **plus** S13's `app_usage_percent`, `app_usage_read_at`; policy `sending_states_maintenance_access` on `app.sending_state_access` (`MAINTENANCE_SCOPE.SENDING_STATE`), granted to `meepzo_be_maintenance` only. **New with it (S8):** `app.instagram_send_day_counts` — `organization_id`, `channel_account_id`, `day_date` (organization time zone), `sent_count`, `unknown_count`, `skipped_count`, `skipped_window_closed_count`, `expired_count`, `updated_at`; primary key organization, account, day; FORCE RLS with the sweep arm; fillfactor 80.
 - **Table:** `app.sending_states` (common, [P43](decisions.md): the global send switch; the plan names
   it in the singular, `app.sending_state`)
 - **Sources:** plan:L3496–L3505, plan:L6980–L6994; D20, D21; [P95](decisions.md).
@@ -1916,6 +1933,9 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   `user` JSON waits in Redis next to the state (`oauth:provider-user:<state>`, the state's life, one read).
 - `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
   goes with the password routes (UN6, UN7, P84; routes-final § 11).
+  **Built R35** ([AS-BUILT](../AS-BUILT.md), [P302](decisions.md)): no migration — `auth.verification_tokens.token_type`
+  takes `EMAIL_CONFIRM` (`VERIFICATION_TOKEN_TYPE` in `auth-method.constants.ts`; the column keeps no CHECK); the row
+  holds the SHA-256 of a 32-byte link token, `expires_at` = now + 24 h; `auth.users.is_email_verified` is the field set.
 - Notification preferences keep their stored form — one row per type — and the routes speak kinds:
   saving a kind writes one row per type of that kind ([P87](decisions.md), UNQ1); no new table or column.
 - An email whose in-app notice is off still has its once rule: the caller's `dedupe_key` names the mail

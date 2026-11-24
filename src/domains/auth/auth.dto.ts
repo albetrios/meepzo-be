@@ -41,6 +41,20 @@ export const EmailLoginDto = z
 /** Inferred input type of {@link EmailLoginDto}. */
 export type EmailLoginInput = z.infer<typeof EmailLoginDto>;
 
+/** Zod schema for the `POST /api/v1/auth/email/confirm` request body: the confirm link's token (feat-instagram-dm-sending UN7). */
+export const EmailConfirmDto = z
+  .object({
+    token: z.string().min(1).max(512),
+  })
+  .strict();
+/** Inferred input type of {@link EmailConfirmDto}. */
+export type EmailConfirmInput = z.infer<typeof EmailConfirmDto>;
+
+/** Zod schema for the `POST /api/v1/users/me/email-confirmation` request body — none: the signed-in person is the subject (UN6). */
+export const RequestEmailConfirmationDto = z.object({}).strict();
+/** Inferred input type of {@link RequestEmailConfirmationDto}. */
+export type RequestEmailConfirmationInput = z.infer<typeof RequestEmailConfirmationDto>;
+
 /** Zod schema for the `POST /api/v1/auth/me/mfa/verify` request body (6-digit TOTP code). */
 export const MfaVerifyDto = z
   .object({

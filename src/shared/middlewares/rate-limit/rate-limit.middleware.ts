@@ -9,6 +9,7 @@ import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { createRedisFallbackRateLimitStore } from '@/shared/middlewares/rate-limit/rate-limit-fallback-store.js';
 import { shouldEmitRateLimitTelemetry } from '@/shared/middlewares/rate-limit/rate-limit-telemetry-throttle.js';
 import { FAILED_AUTHENTICATION_RATE_LIMIT_OPTIONS } from '@/shared/middlewares/rate-limit/failed-authentication-rate-limit.js';
+import { INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { rateLimitIpKey } from '@/shared/utils/http/rate-limit-ip-key.util.js';
 
 /**
@@ -156,6 +157,12 @@ const rateLimitMiddleware: FastifyPluginAsync = async (app) => {
   app.decorate(
     'failedAuthenticationRateLimit',
     app.createRateLimit(FAILED_AUTHENTICATION_RATE_LIMIT_OPTIONS),
+  );
+  // The per-address cap of unsigned Instagram webhook deliveries (S9): the webhook's ingress plugin
+  // counts only refused signatures against it — a validly signed delivery is never counted.
+  app.decorate(
+    'instagramWebhookUnsignedRateLimit',
+    app.createRateLimit(INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS),
   );
 };
 

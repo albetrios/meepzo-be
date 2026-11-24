@@ -13,6 +13,7 @@ import { AuthSessionRepository } from './sub-domains/auth-session/auth-session.r
 import { AuthService } from './auth.service.js';
 import { AuthMethodService } from './sub-domains/auth-method/auth-method.service.js';
 import { EmailLoginService } from './sub-domains/auth-method/email-login.service.js';
+import { EmailConfirmationService } from './sub-domains/auth-method/email-confirmation.service.js';
 import { OAuthService } from './sub-domains/auth-method/oauth/oauth.service.js';
 import { MfaService } from './sub-domains/auth-mfa/auth-mfa.service.js';
 import { WebauthnService } from './sub-domains/auth-webauthn/webauthn.service.js';
@@ -28,6 +29,8 @@ export type AuthContainer = {
   authService: AuthService;
   authMethodService: AuthMethodService;
   emailLoginService: EmailLoginService;
+  /** Confirm your email (feat-instagram-dm-sending § 11.B): route 133 in the user routes, route 134 here. */
+  emailConfirmationService: EmailConfirmationService;
   oauthService: OAuthService;
   mfaService: MfaService;
   webauthnService: WebauthnService;
@@ -35,7 +38,7 @@ export type AuthContainer = {
   authMeContextService: AuthMeContextService;
 };
 
-/** Builds the auth-domain {@link AuthContainer}: instantiates auth-method, email verification-code, OAuth, MFA, WebAuthn, and session services with their repositories and Redis. */
+/** Builds the auth-domain {@link AuthContainer}: instantiates auth-method, email verification-code, confirm-email, OAuth, MFA, WebAuthn, and session services with their repositories and Redis. */
 export function createAuthContainer({
   userService,
   organizationSettingsService,
@@ -87,6 +90,10 @@ export function createAuthContainer({
     authMethodService,
     redisConnection,
   );
+  const emailConfirmationService = new EmailConfirmationService(
+    userService,
+    verificationTokenRepository,
+  );
   const webauthnCredentialRepository = new WebauthnCredentialRepository();
   const webauthnService = new WebauthnService(
     userService,
@@ -118,6 +125,7 @@ export function createAuthContainer({
     authService,
     authMethodService,
     emailLoginService,
+    emailConfirmationService,
     oauthService,
     mfaService,
     webauthnService,

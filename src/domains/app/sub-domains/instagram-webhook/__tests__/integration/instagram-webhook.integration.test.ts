@@ -11,7 +11,7 @@ import { getEnv, resetEnvCacheForTests } from '@/shared/config/env.config.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { operatorQuery } from '@/tests/helpers/operator-database.js';
+import { operatorQuery, withOperatorTransaction } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { type InjectHttpResult, injectRoute } from '@/tests/helpers/test-http-inject.helper.js';
 import { buildStripeWebhookTestSignatureHeader } from '@/tests/contract/helpers/stripe-signature.js';
@@ -26,13 +26,19 @@ import {
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 
 /**
- * Routes 16–17, Meta's Instagram webhook (routes-final § 4.A, ROUTE R13) over HTTP with the real
- * database: the subscription check (WH7), the signature first (WH8), each event stored once before
+ * The delivery's Meta times: an hour ago, so the store function's 8-day replay guard (WH9 step 5,
+ * feat-instagram-dm-sending R16) keeps them.
+ */
+const ENTRY_TIME_SECONDS = Math.floor(Date.now() / 1000) - 3600;
+const ITEM_TIME_MILLISECONDS = ENTRY_TIME_SECONDS * 1000 + 1234;
+/**
+ * Routes 60–61, Meta's Instagram webhook (feat-instagram-dm-sending routes-final § 5.A, ROUTE R17;
+ * launch ROUTE R13) over HTTP with the real database: the subscription check (WH7), the signature first (WH8), each event stored once before
  * `OK` (WH9, WH10), the account no team holds (WH4), the skip reasons, the body rules — and the
  * Stripe receiver still verifying through the shared raw-body registry (WH2).
  */
 
-const WEBHOOK_PATH = testApiPath('/app/social/instagram/webhook');
+const WEBHOOK_PATH = testApiPath('/app/social/channel-connections/meta/webhooks/instagram');
 
 interface StoredEvent {
   event_kind: string;
@@ -80,7 +86,7 @@ describe('Instagram webhook — routes 16–17', () => {
   /** A reader of the event-processing queue the receiver adds to (WH5) — never a worker. */
   let processingQueue: Queue<{
     organizationPublicId: string;
-    instagramAccountPublicId: string;
+    channelAccountPublicId: string;
     requestId?: string;
   }>;
 
@@ -147,7 +153,7 @@ describe('Instagram webhook — routes 16–17', () => {
   } = {}): string {
     return JSON.stringify({
       object: 'instagram',
-      entry: [{ id: instagramUserId, time: 1_763_726_400, changes, messaging }],
+      entry: [{ id: instagramUserId, time: ENTRY_TIME_SECONDS, changes, messaging }],
     });
   }
 
@@ -166,7 +172,7 @@ describe('Instagram webhook — routes 16–17', () => {
       WHERE id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id})`;
   }
 
-  describe('GET /app/social/instagram/webhook — the subscription check (route 16, WH7)', () => {
+  describe('GET /app/social/channel-connections/meta/webhooks/instagram — the subscription check (route 16, WH7)', () => {
     function check(query: Record<string, string>): Promise<InjectHttpResult> {
       return injectRoute(app, { method: 'GET', url: WEBHOOK_PATH, query });
     }
@@ -246,7 +252,7 @@ describe('Instagram webhook — routes 16–17', () => {
     });
   });
 
-  describe('POST /app/social/instagram/webhook — the signature first (route 17, WH8)', () => {
+  describe('POST /app/social/channel-connections/meta/webhooks/instagram — the signature first (route 17, WH8)', () => {
     it('answers 400 invalid_webhook_signature and stores nothing for a wrong signature', async () => {
       const rawBody = deliveryBody();
       const response = await deliver({
@@ -417,14 +423,14 @@ describe('Instagram webhook — routes 16–17', () => {
     });
   });
 
-  describe('POST /app/social/instagram/webhook — stored once, then OK (WH9, WH10)', () => {
+  describe('POST /app/social/channel-connections/meta/webhooks/instagram — stored once, then OK (WH9, WH10)', () => {
     it("stores one row per event, adds the account's processing job, turns the rows queued and answers OK", async () => {
       const rawBody = deliveryBody({
         messaging: [
           {
             sender: { id: TEST_CONTACT_INSTAGRAM_USER_ID },
             recipient: { id: account.instagramUserId },
-            timestamp: 1_763_726_401_234,
+            timestamp: ITEM_TIME_MILLISECONDS,
             message: { mid: 'm_dm_1', text: 'hello' },
           },
         ],
@@ -466,7 +472,7 @@ describe('Instagram webhook — routes 16–17', () => {
       ).toEqual([
         expect.objectContaining({
           organizationPublicId: team.organization.public_id,
-          instagramAccountPublicId: expect.stringMatching(/^cha_/),
+          channelAccountPublicId: account.channelAccountPublicId,
           requestId: expect.any(String),
         }),
       ]);
@@ -476,7 +482,9 @@ describe('Instagram webhook — routes 16–17', () => {
         expect(event.request_id).toEqual(expect.any(String));
         expect(event.processed_at).toBeNull();
       }
-      expect(events[1]?.occurred_at?.toISOString()).toBe(new Date(1_763_726_401_234).toISOString());
+      expect(events[1]?.occurred_at?.toISOString()).toBe(
+        new Date(ITEM_TIME_MILLISECONDS).toISOString(),
+      );
     });
 
     it('a repeat delivery stores nothing new and still answers OK', async () => {
@@ -514,7 +522,7 @@ describe('Instagram webhook — routes 16–17', () => {
       ]);
     });
 
-    it('stores every kind-skipped event skipped with its reason, final at once (WH9)', async () => {
+    it('saves each kind as 5.A.10 says: own comment and edit skipped, a hand-typed echo and a reaction received, a read receipt never (WH8, WHC5)', async () => {
       const rawBody = deliveryBody({
         changes: [
           {
@@ -532,7 +540,7 @@ describe('Instagram webhook — routes 16–17', () => {
           { sender: { id: TEST_CONTACT_INSTAGRAM_USER_ID }, read: { mid: 'm_echo' } },
           {
             sender: { id: TEST_CONTACT_INSTAGRAM_USER_ID },
-            timestamp: 1_763_726_401_234,
+            timestamp: ITEM_TIME_MILLISECONDS,
             reaction: { mid: 'm_echo', action: 'react' },
           },
           {
@@ -548,15 +556,104 @@ describe('Instagram webhook — routes 16–17', () => {
       expect(
         events.map(({ event_kind, skip_reason, status }) => ({ event_kind, skip_reason, status })),
       ).toEqual([
-        { event_kind: 'comment', skip_reason: 'echo', status: 'skipped' },
+        { event_kind: 'comment', skip_reason: 'own_comment', status: 'skipped' },
         { event_kind: 'unknown', skip_reason: 'unsupported', status: 'skipped' },
-        { event_kind: 'echo', skip_reason: 'echo', status: 'skipped' },
-        { event_kind: 'read', skip_reason: 'read_receipt', status: 'skipped' },
-        { event_kind: 'reaction', skip_reason: 'reaction', status: 'skipped' },
+        // Not one of our sent messages (the own-message lookup, R19) — the owner's quiet time.
+        { event_kind: 'echo', skip_reason: null, status: 'queued' },
+        { event_kind: 'reaction', skip_reason: null, status: 'queued' },
         { event_kind: 'edit', skip_reason: 'edit', status: 'skipped' },
       ]);
-      for (const event of events) expect(event.processed_at).not.toBeNull();
+      expect(events.some((event) => event.event_key.startsWith('read:'))).toBe(false);
     });
+
+    it('saves the new kinds received: a Live comment, a story mention, a shared post, a starter tap, a referral (WH8)', async () => {
+      const contact = { id: TEST_CONTACT_INSTAGRAM_USER_ID };
+      const rawBody = deliveryBody({
+        changes: [
+          {
+            field: 'live_comments',
+            value: { id: '18000000000000077', from: contact, media: { id: '1790000000001' } },
+          },
+        ],
+        messaging: [
+          {
+            sender: contact,
+            timestamp: ITEM_TIME_MILLISECONDS,
+            message: { mid: 'm_mention', attachments: [{ type: 'story_mention', payload: {} }] },
+          },
+          {
+            sender: contact,
+            timestamp: ITEM_TIME_MILLISECONDS,
+            message: { mid: 'm_share', attachments: [{ type: 'share', payload: {} }] },
+          },
+          {
+            sender: contact,
+            timestamp: ITEM_TIME_MILLISECONDS,
+            postback: { mid: 'm_starter', payload: 'starter:prices' },
+          },
+          {
+            sender: contact,
+            timestamp: ITEM_TIME_MILLISECONDS,
+            referral: { ref: 'summer', source: 'SHORTLINK' },
+          },
+        ],
+      });
+
+      await deliver({ rawBody });
+
+      expect(
+        (await storedEvents(team.organization.id)).map(({ event_kind, status }) => [
+          event_kind,
+          status,
+        ]),
+      ).toEqual([
+        ['live_comment', 'queued'],
+        ['story_mention', 'queued'],
+        ['shared_post', 'queued'],
+        ['ice_breaker', 'queued'],
+        ['referral', 'queued'],
+      ]);
+    });
+
+    it('an event whose Meta time is over 8 days old saves nothing — the replay guard (WH9 step 5)', async () => {
+      const nineDaysAgoSeconds = Math.floor(Date.now() / 1000) - 9 * 24 * 3600;
+      const rawBody = JSON.stringify({
+        object: 'instagram',
+        entry: [
+          {
+            id: account.instagramUserId,
+            time: nineDaysAgoSeconds,
+            changes: [
+              {
+                field: 'comments',
+                value: { id: '18000000000000099', from: { id: TEST_CONTACT_INSTAGRAM_USER_ID } },
+              },
+            ],
+          },
+        ],
+      });
+
+      const response = await deliver({ rawBody });
+
+      expect(response.statusCode).toBe(200);
+      expect(await countAllEvents()).toBe(0);
+    });
+
+    it('a save over its 3 s answers 503, keeps nothing, and Meta’s next delivery saves once (WH2, AC-16.5)', async () => {
+      const rawBody = deliveryBody();
+
+      const slow = await withOperatorTransaction(async (transaction) => {
+        // Every insert into the key table waits behind this lock until the unit's time runs out.
+        await transaction`LOCK TABLE app.instagram_webhook_event_keys IN SHARE MODE`;
+        return deliver({ rawBody });
+      });
+
+      expect(slow.statusCode).toBe(503);
+      expect(await countAllEvents()).toBe(0);
+      const repeat = await deliver({ rawBody });
+      expect(repeat.statusCode).toBe(200);
+      expect(await storedEvents(team.organization.id)).toHaveLength(1);
+    }, 20_000);
 
     it('with the automation switch off, events to handle are born skipped automation_disabled', async () => {
       await setAutomationEnabled(false);
@@ -568,18 +665,15 @@ describe('Instagram webhook — routes 16–17', () => {
       ]);
     });
 
-    it.each(['expired', 'error'] as const)(
-      'with an %s account, events to handle are born skipped account_disconnected',
-      async (status) => {
-        await setConnectionStatus(status);
+    it('an error account’s comment is saved received — it waits in its stopped lanes (WH3)', async () => {
+      await setConnectionStatus('error');
 
-        await deliver({ rawBody: deliveryBody() });
+      await deliver({ rawBody: deliveryBody() });
 
-        expect(await storedEvents(team.organization.id)).toMatchObject([
-          { status: 'skipped', skip_reason: 'account_disconnected' },
-        ]);
-      },
-    );
+      expect(await storedEvents(team.organization.id)).toMatchObject([
+        { event_kind: 'comment', status: 'queued', skip_reason: null },
+      ]);
+    });
 
     it('an account no team holds: OK, nothing stored (WH4)', async () => {
       const response = await deliver({
@@ -637,7 +731,7 @@ describe('Instagram webhook — routes 16–17', () => {
       }) {
         return {
           id: instagramUserId,
-          time: 1_763_726_400,
+          time: ENTRY_TIME_SECONDS,
           changes: [
             {
               field: 'comments',

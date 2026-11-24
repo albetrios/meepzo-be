@@ -117,3 +117,26 @@ export const META_USAGE_WAIT_PERCENT = 95;
  * Rationale: `src/POLICIES.md`.
  */
 export const META_USAGE_DEFAULT_WAIT_MINUTES = 15;
+
+/**
+ * Days an Instagram webhook event, its key and their day parts are kept — and the replay guard: an
+ * event whose Meta time is older than this is never saved (feat-instagram-dm-sending § 5.B, WH9
+ * step 5, WH19, WH20, WH24; P33, D15).
+ *
+ * @remarks
+ * One number for the three (WHC6, WHC15): a key part older than this may already be dropped, so an
+ * older event could no longer be recognised as a repeat. Rationale: `src/POLICIES.md`.
+ */
+export const INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS = 8;
+
+/**
+ * The webhook store unit's `statement_timeout`, in milliseconds (feat-instagram-dm-sending § 5,
+ * WH2, WHC2; plan `WEBHOOK_SAVE_TIMEOUT_MS`): a statement of the unit that runs longer is
+ * cancelled, nothing is stored and Meta is answered `503` — inside its 5-second budget — so it
+ * delivers again (P32: no Redis buffer).
+ *
+ * @remarks
+ * Below the HTTP connection's own statement timeout (`DATABASE_HTTP_STATEMENT_TIMEOUT_MS`, 5 s).
+ * Rationale: `src/POLICIES.md`.
+ */
+export const INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS = 3_000;

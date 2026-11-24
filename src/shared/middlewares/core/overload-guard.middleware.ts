@@ -15,6 +15,18 @@ const OVERLOAD_SAMPLE_INTERVAL_MS = 500;
 const OVERLOAD_RETRY_AFTER_SECONDS = 1;
 
 /**
+ * How many times each shed threshold a route marked `config.overloadShedLast` is allowed before it
+ * is shed (feat-instagram-dm-sending S10, P97): its own slice of the pool's queue and of the
+ * event-loop delay above the UI's, so under load every other route sheds first.
+ *
+ * @remarks
+ * Two — the webhook still sheds when the process is twice as saturated as the point where the UI
+ * stopped being served, so the slice is bounded and never starves the process. Rationale:
+ * `src/POLICIES.md`.
+ */
+export const OVERLOAD_SHED_LAST_FACTOR = 2;
+
+/**
  * Paths never shed: liveness/readiness must answer so the orchestrator does not kill or de-route a
  * process that is merely busy, and `/metrics` must stay scrapable during overload.
  */
@@ -31,11 +43,15 @@ const OVERLOAD_ALLOWLISTED_PATHS = new Set(['/livez', '/readyz', '/metrics']);
  * a distinct mode the event-loop signal cannot see, since waiting on a pooled connection leaves the
  * loop idle) OR the oldest unit of work still waiting for a connection has waited
  * `connectionWaitShedMs` (a slow database: the queue is short but does not drain).
- * `dbCheckoutShedThreshold <= 0` / `connectionWaitShedMs <= 0` disable those conditions. Extracted as
+ * `dbCheckoutShedThreshold <= 0` / `connectionWaitShedMs <= 0` disable those conditions. A route
+ * marked `config.overloadShedLast` (`isShedLast`) is held to {@link OVERLOAD_SHED_LAST_FACTOR} times
+ * each threshold, so the UI sheds first (S10). Extracted as
  * a pure function so the decision is unit-testable without driving the real event loop or fake timers.
  */
 export function shouldShedRequest(options: {
   path: string;
+  /** The route is marked `config.overloadShedLast` — each threshold × {@link OVERLOAD_SHED_LAST_FACTOR}. */
+  isShedLast?: boolean;
   recentEventLoopDelayMs: number;
   thresholdMs: number;
   activeDbCheckouts: number;
@@ -51,18 +67,19 @@ function resolveShedReason(options: Parameters<typeof shouldShedRequest>[0]) {
   if (OVERLOAD_ALLOWLISTED_PATHS.has(options.path)) {
     return null;
   }
-  if (options.recentEventLoopDelayMs >= options.thresholdMs) {
+  const factor = options.isShedLast === true ? OVERLOAD_SHED_LAST_FACTOR : 1;
+  if (options.recentEventLoopDelayMs >= options.thresholdMs * factor) {
     return 'event_loop_overload';
   }
   if (
     options.dbCheckoutShedThreshold > 0 &&
-    options.activeDbCheckouts >= options.dbCheckoutShedThreshold
+    options.activeDbCheckouts >= options.dbCheckoutShedThreshold * factor
   ) {
     return 'database_pool_overload';
   }
   if (
     options.connectionWaitShedMs > 0 &&
-    options.oldestConnectionWaitMs >= options.connectionWaitShedMs
+    options.oldestConnectionWaitMs >= options.connectionWaitShedMs * factor
   ) {
     return 'database_pool_wait_overload';
   }
@@ -83,7 +100,9 @@ function resolveShedReason(options: Parameters<typeof shouldShedRequest>[0]) {
  *   the pool's size form first, so a burst the pool drains in milliseconds is served, not shed.
  *   (3) A slow database: the oldest unit of work still waiting for a connection has waited
  *   `env.OVERLOAD_DB_ACQUIRE_WAIT_SHED_MS` — new requests get a fast 503 instead of queuing behind
- *   it until `DATABASE_POOL_ACQUIRE_TIMEOUT_MS` fails them slowly. All throw
+ *   it until `DATABASE_POOL_ACQUIRE_TIMEOUT_MS` fails them slowly. A route marked
+ *   `config.overloadShedLast` (Meta's Instagram webhook delivery, S10) is shed only at
+ *   {@link OVERLOAD_SHED_LAST_FACTOR} times each threshold, so the UI sheds first. All throw
  *   {@link ServiceUnavailableError} with `Retry-After`.
  * - **Why:** without a valve, a backlog grows an unbounded queue and tail latency runs to multiple
  *   seconds. Shedding bounds the tail — requests the box cannot serve promptly get a fast, cheap
@@ -133,6 +152,7 @@ const overloadGuardMiddleware: FastifyPluginAsync = async (application) => {
   application.addHook('onRequest', async (request) => {
     const shedReason = resolveShedReason({
       path: request.url.split('?', 1)[0] ?? '',
+      isShedLast: request.routeOptions.config?.overloadShedLast === true,
       recentEventLoopDelayMs,
       thresholdMs: shedThresholdMs,
       activeDbCheckouts: getActiveOrganizationRlsCheckoutCount(),

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PLAN_FEATURE_KEYS } from '@/domains/billing/sub-domains/plan/plan.constants.js';
 import { CHANNEL_ACCOUNT_CHANNELS } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
+import { APP_UNTESTED_META_FEATURES } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import {
-  APP_UNTESTED_META_FEATURES,
   CHANNEL_CAPABILITIES,
   CHANNEL_FEATURE_KEYS,
   CHANNEL_FEATURES,

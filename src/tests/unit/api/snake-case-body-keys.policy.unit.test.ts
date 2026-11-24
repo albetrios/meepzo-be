@@ -32,6 +32,21 @@ const EXEMPT_KEYS_BY_FILE: Record<string, ReadonlySet<string>> = {
   'src/domains/auth/sub-domains/auth-session/auth-session.serializer.ts': new Set([
     'currentSessionPublicId',
   ]),
+  // Routes 63–64's serializer inputs (feat-instagram-dm-sending § 6.A, R18): the options of
+  // `serializeLane` / `serializeInstagramSendingStatus` / `serializeAppUsage` and their type
+  // literals — read to build the snake_case body, never emitted as response keys.
+  'src/domains/app/sub-domains/instagram-sending/instagram-sending.serializer.ts': new Set([
+    'waitingCount',
+    'openStops',
+    'planStopReason',
+    'waitingByLane',
+    'windowClosedByAutomation',
+    'lastBroadcast',
+    'lastBackfill',
+    'lastRetry',
+    'sendingState',
+    'planAccess',
+  ]),
   // The options key of the shared end-after-start refinement (`addEndAfterStartIssue`); its value
   // names the snake_case body field the issue is reported on — never a body key itself.
   'src/domains/tenancy/sub-domains/membership/membership.dto.ts': new Set(['endField']),

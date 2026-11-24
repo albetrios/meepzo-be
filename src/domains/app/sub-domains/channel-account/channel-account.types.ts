@@ -71,29 +71,51 @@ export interface ChannelAccountPortScope {
 }
 
 /**
- * The lane steps of routes 8–11 (routes-final § 1B CA5, CA7–CA9) — the port of sub-domain 6's lane
- * service, built with `app.instagram_send_lanes` at ROUTE row R18. Until then the app container
- * passes none: no lane table exists, so there is nothing to stop, wake or read.
+ * The lane steps of routes 8–11 and of the account's break (routes-final § 1B CA4, CA5, CA7–CA9) —
+ * the port of sub-domain 6's lane service over `app.instagram_send_lanes`
+ * (`InstagramSendLaneService`, ROUTE row R18), which the app container passes as the channel account
+ * service's ninth constructor argument.
  */
 export interface ChannelAccountLanePort {
-  /** A disconnected or plan-stopped account's lanes stopped with no turn, in the caller's unit. */
-  stopLanes(options: ChannelAccountPortScope & { channelAccountId: number }): Promise<void>;
   /**
-   * After commit: each lane with waiting messages gets one turn again (route 10's resume, route 11's
-   * activated account); fast tickets come back in pieces (SN).
+   * A disconnected or plan-stopped account's lanes stopped with no turn, in the caller's unit; with
+   * `planStopReason`, the plan stop the account just took is recorded in the stop history (lane
+   * `all`, SN13).
+   */
+  stopLanes(
+    options: ChannelAccountPortScope & {
+      channelAccountId: number;
+      planStopReason?: ChannelAccountPlanStopReason | undefined;
+    },
+  ): Promise<void>;
+  /**
+   * After commit: each lane with no error stop gets one turn again (route 10's resume, route 11's
+   * activated account, route 12's limit change); a plan stop the account no longer holds is ended in
+   * the history.
    */
   wakeLanes(options: ChannelAccountPortScope & { channelAccountId: number }): Promise<void>;
   /** The stop holding most of the account's lanes, or `null`, in the caller's unit (1B.6). */
   readActiveStop(
     options: ChannelAccountPortScope & { channelAccountId: number },
   ): Promise<ChannelAccountActiveStopOutput | null>;
+  /**
+   * The break's stop (CA4, SN5), in the caller's unit: every lane of the account stopped until the
+   * owner reconnects — `login_expired` for a token the provider refused, `account_not_shared` for an
+   * account missing from the connection's assigned list. A reconnect ends it (MC6).
+   */
+  startBrokenAccountStop(
+    options: ChannelAccountPortScope & {
+      channelAccountId: number;
+      reason: 'login_expired' | 'account_not_shared';
+    },
+  ): Promise<void>;
 }
 
 /**
  * Which organization-wide plan stop an activated account takes instead of `plan_downgrade` (CA9):
  * `plan_ended` while the organization's plan ended (sub-domain 8, ROUTE row R24), `plan_limit` while
- * it is at its month limit (sub-domain 6's month count, ROUTE row R18), else `null`. Until those rows
- * the app container passes none and the activated account has no plan stop.
+ * it is at its month limit (sub-domain 6's month count — `MessageMonthCountService`, ROUTE row R18),
+ * else `null` — `ChannelAccountPlanStopService` answers both, `plan_ended` first.
  */
 export interface ChannelAccountPlanStopPort {
   /** The organization's plan stop now, in the caller's unit. */

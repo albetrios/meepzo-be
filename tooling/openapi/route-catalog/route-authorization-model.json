@@ -45,6 +45,12 @@
   "GET /api/v1/app/social/channel-accounts/:channel_account_id": {
     "model": "organization"
   },
+  "GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status": {
+    "model": "organization"
+  },
+  "GET /api/v1/app/usage": {
+    "model": "organization"
+  },
   "DELETE /api/v1/app/social/channel-accounts/:channel_account_id": {
     "model": "organization",
     "verifyNoMutation": true

@@ -16,6 +16,16 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → larger token replay window; review with security if pushing past 30 minutes.
 - **Last reviewed**: 2026-05-28
 
+## EMAIL_CONFIRM_LINK_HOURS
+
+- **Value**: 24 hours
+- **Source**: [src/domains/auth/sub-domains/auth-method/auth-method.constants.ts](src/domains/auth/sub-domains/auth-method/auth-method.constants.ts) (domain-local constant, not under `shared/constants/`)
+- **Rationale**: The confirm-your-email link (`POST /users/me/email-confirmation`, feat-instagram-dm-sending UN6) is clicked from an inbox, often later than a sign-in code is typed; the token is 32 random bytes stored as its SHA-256, one live per person, one use. A new link may be asked 60 seconds after the last (`VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS`, reused).
+- **Consequences of change**:
+  - Decreasing → more "link no longer valid" answers (`400 email_confirm_token_invalid`) for people who open the email the next day.
+  - Increasing → a longer window for a forwarded or leaked email to confirm an address it does not own.
+- **Last reviewed**: 2026-11-24
+
 ## ACCESS_TOKEN_EXPIRY_SECONDS
 
 - **Value**: 900 seconds (15 minutes)
@@ -154,6 +164,16 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → not allowed past 60 s (be-read-cache-guard); a missed tombstone would hold an old pace longer.
 - **Last reviewed**: 2026-11-24
 
+## MESSAGE_MONTH_COUNT_CACHE_TTL_SECONDS
+
+- **Value**: 10 seconds
+- **Source**: [src/shared/constants/ttl.constants.ts](src/shared/constants/ttl.constants.ts)
+- **Rationale**: The Redis copy of an organization's month count of sent messages (`app:message_month_count:<organization>`, routes-final § 6 SN11, P5), read by route 64's DM meter. Postgres holds the count in 16 slots (`app.message_month_counts`); each add tombstones the copy after its commit, and the send's claim always reads the slots, never the copy. Its own literal, not an alias of another cache's TTL.
+- **Consequences of change**:
+  - Decreasing → more slot sums on a meter every screen shows.
+  - Increasing → a meter a little further behind on a quiet organization; not allowed past 60 s (be-read-cache-guard).
+- **Last reviewed**: 2026-11-24
+
 ## API_KEY_LAST_USED_THROTTLE_TTL_SECONDS
 
 - **Value**: 60 seconds
@@ -264,11 +284,41 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → one busy account can hold a slot (of `WORKER_CONCURRENCY_INSTAGRAM`) for longer while other accounts' events wait.
 - **Last reviewed**: 2026-11-22
 
+## INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS
+
+- **Value**: 8 days
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: One number for three rules (feat-instagram-dm-sending WH9 step 5, WH19, WH20, WH24; P33, D15): how long a saved Instagram webhook event and its event key are kept (their day parts are dropped after it — the shared upkeep), and the replay guard — an event whose Meta time is older is never saved, because its key's day part may already be gone and a repeat could no longer be recognised. Meta redelivers for at most a few days, and the event list is only a debugging view.
+- **Consequences of change**:
+  - Decreasing → a late Meta redelivery is refused as a replay sooner; the debugging list covers fewer days.
+  - Increasing → more day parts kept (storage), and the event body of a failed event lives longer.
+- **Last reviewed**: 2026-11-24
+
+## INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS
+
+- **Value**: 3,000 ms
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: The Instagram webhook's store unit (route 61) caps each of its statements at this `statement_timeout` (feat-instagram-dm-sending WH2, WHC2; plan `WEBHOOK_SAVE_TIMEOUT_MS`). Meta waits about 5 seconds for an answer; a slow Postgres must fail the delivery with a `503` inside that budget — nothing saved, nothing kept in Redis (P32) — so Meta delivers it again, instead of timing out while the unit may still commit.
+- **Consequences of change**:
+  - Decreasing → more deliveries refused under a briefly slow database (Meta retries them).
+  - Increasing → past ~4 s Meta's own timeout fires first and its retry races the still-running unit (the key table keeps it a no-op, but the answer is lost).
+- **Last reviewed**: 2026-11-24
+
+## OVERLOAD_SHED_LAST_FACTOR
+
+- **Value**: 2 (times each overload threshold)
+- **Source**: [src/shared/middlewares/core/overload-guard.middleware.ts](src/shared/middlewares/core/overload-guard.middleware.ts)
+- **Rationale**: A route marked `config.overloadShedLast` — today Meta's Instagram webhook delivery only (feat-instagram-dm-sending S10, P97) — is shed by the overload guard only at twice its event-loop, pool-queue and connection-wait thresholds, so under load the UI sheds first and Meta's deliveries keep their slice: Meta slows, then disables, a subscription that keeps failing.
+- **Consequences of change**:
+  - Decreasing toward 1 → the webhook sheds with the UI again.
+  - Increasing → the webhook keeps being served deeper into an overload, with less headroom for the process itself.
+- **Last reviewed**: 2026-11-24
+
 ## INSTAGRAM_WEBHOOK_CHALLENGE_MAX_LENGTH
 
 - **Value**: 256 characters
 - **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
-- **Rationale**: The longest `hub.challenge` the Instagram webhook's subscription check (route 16) echoes back. The route is public and answers the text Meta sent, so the text is bounded; Meta's challenges are short numbers.
+- **Rationale**: The longest `hub.challenge` the Instagram webhook's subscription check (route 16) echoes back (route 60; route 16 in the launch). The route is public and answers the text Meta sent, so the text is bounded; Meta's challenges are short numbers.
 - **Consequences of change**:
   - Decreasing → a longer challenge Meta may send one day is refused (`400 invalid_field`) and the subscription check fails.
   - Increasing → the public route echoes longer caller-chosen text.

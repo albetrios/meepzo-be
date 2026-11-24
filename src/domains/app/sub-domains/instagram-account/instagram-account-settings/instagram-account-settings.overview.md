@@ -18,9 +18,10 @@ gate `instagram-account:manage`, team-only) changes it; event processing and the
 
 - `instagram-account-settings.schema.ts` — the table, its composite key to the channel account, its
   checks and RLS policy
-- `instagram-account-settings.constants.ts` — the settings-file values an empty limit falls back to
-  (D5, D11, D68), the API ranges, `STOP_WORDS` (D49) — sub-domain 6's settings file takes them over
-  at ROUTE row R18
+- the settings-file values an empty limit falls back to (D5, D11, D68), the API ranges and
+  `STOP_WORDS` (D49) live in sub-domain 6's settings file,
+  `../../instagram-sending/instagram-sending.constants.ts` (ROUTE row R18, P4), so route 12's
+  `effective_limits` and the lanes read one source
 - `instagram-account-settings.repository.ts` — insert the empty row if absent, read one account's
   row (plain, or locked `FOR UPDATE` for route 12), write route 12's change; a worker factory for
   event processing
@@ -59,8 +60,8 @@ gate `instagram-account:manage`, team-only) changes it; event processing and the
   `409 permission_not_granted`. Clearing or keeping either is never checked (P10).
 - **A stale save is refused**: an `expected_updated_at` older than the saved row answers
   `409 record_changed` (`assertRecordNotChangedSince`, D43). The row is read `FOR UPDATE`.
-- **After commit, a changed limit gives the lanes a new turn** through the lane port (sub-domain 6,
-  R18 — none until then); the switches and stop words count for new events only.
+- **After commit, a changed limit gives the lanes a new turn** through the lane port (sub-domain 6's lane
+  service, wired at R18); the switches and stop words count for new events only.
 - **Works on an `error` account**; a revoked, another organization's or a non-Instagram account
   answers `404 channel_account_not_found`. Team-only: a personal organization answers `422`.
 - **Audit**: `app.instagram_account_settings.update` (INFO, resource type `instagram_account`, the

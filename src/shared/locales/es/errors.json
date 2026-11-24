@@ -306,5 +306,8 @@
   "keepChannelAccountsInvalid": "Elige solo cuentas conectadas de este espacio de trabajo, como máximo las que permite el nuevo plan, y solo al pasar a un plan menor.",
   "defaultCardInUse": "Es tu única tarjeta y tienes un plan de pago activo. Añade otra tarjeta antes de quitar esta.",
   "mfaCodeWrong": "Ese código no es correcto. Revisa tu app de autenticación e inténtalo de nuevo.",
-  "mfaLocked": "Demasiados códigos incorrectos. Espera unos minutos y vuelve a intentarlo o usa un código de recuperación."
+  "mfaLocked": "Demasiados códigos incorrectos. Espera unos minutos y vuelve a intentarlo o usa un código de recuperación.",
+  "emailAlreadyConfirmed": "Tu correo ya está confirmado",
+  "emailConfirmationResendTooSoon": "Acabamos de enviar un enlace de confirmación. Espera un momento antes de pedir otro.",
+  "emailConfirmTokenInvalid": "Este enlace de confirmación ya no es válido. Pide uno nuevo."
 }

@@ -75,35 +75,43 @@ describe('rate-limit-presets', () => {
     expect(INVITATION_PREVIEW_RATE_LIMIT.config.rateLimit.timeWindow).toBe(60_000);
   });
 
-  it('INSTAGRAM_WEBHOOK_RATE_LIMIT caps Meta deliveries at 1,200 req/min per IP (WH11)', async () => {
-    mockEnv.RATE_LIMIT_RELAXED_CAPS = false;
-    const { INSTAGRAM_WEBHOOK_RATE_LIMIT, WEBHOOK_RATE_LIMIT } = await import(
+  it('INSTAGRAM_WEBHOOK_RATE_LIMIT opts the delivery route out of every per-IP cap (S9, P97)', async () => {
+    const { INSTAGRAM_WEBHOOK_RATE_LIMIT } = await import(
       '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
     );
-    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.max).toBe(1200);
-    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.timeWindow).toBe(60_000);
-    // Far above the Stripe receiver's 60 — a viral post's comments must never be throttled.
-    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.max).toBeGreaterThan(
+    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit).toBe(false);
+  });
+
+  it('the unsigned-delivery limiter caps at 1,200 req/min per IP (WH4, S9)', async () => {
+    mockEnv.RATE_LIMIT_RELAXED_CAPS = false;
+    const { INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS, WEBHOOK_RATE_LIMIT } = await import(
+      '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
+    );
+    expect(INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS.max).toBe(1200);
+    expect(INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS.timeWindow).toBe(60_000);
+    expect(INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS.max).toBeGreaterThan(
       WEBHOOK_RATE_LIMIT.config.rateLimit.max,
     );
   });
 
-  it('INSTAGRAM_WEBHOOK_RATE_LIMIT lifts the cap to 5,000 when RATE_LIMIT_RELAXED_CAPS', async () => {
+  it('the unsigned-delivery limiter lifts the cap to 5,000 when RATE_LIMIT_RELAXED_CAPS', async () => {
     mockEnv.RATE_LIMIT_RELAXED_CAPS = true;
-    const { INSTAGRAM_WEBHOOK_RATE_LIMIT } = await import(
+    const { INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS } = await import(
       '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
     );
-    expect(INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.max).toBe(5000);
+    expect(INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS.max).toBe(5000);
   });
 
-  it('INSTAGRAM_WEBHOOK_RATE_LIMIT buckets per caller IP (IPv6 masked to its /64)', async () => {
-    const { INSTAGRAM_WEBHOOK_RATE_LIMIT } = await import(
+  it('the unsigned-delivery limiter buckets per caller IP (IPv6 masked to its /64), apart from other limits', async () => {
+    const { INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS } = await import(
       '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
     );
-    const keyGenerator = INSTAGRAM_WEBHOOK_RATE_LIMIT.config.rateLimit.keyGenerator;
-    expect(keyGenerator({ ip: '203.0.113.7' } as never)).toBe('ip:203.0.113.7');
-    expect(keyGenerator({ ip: '2001:db8:1:2:aaaa:bbbb:cccc:dddd' } as never)).toBe(
-      'ip:2001:db8:1:2::',
+    const keyGenerator = INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS.keyGenerator;
+    expect(keyGenerator?.({ ip: '203.0.113.7' } as never)).toBe(
+      'instagram-webhook-unsigned:203.0.113.7',
+    );
+    expect(keyGenerator?.({ ip: '2001:db8:1:2:aaaa:bbbb:cccc:dddd' } as never)).toBe(
+      'instagram-webhook-unsigned:2001:db8:1:2::',
     );
   });
 
@@ -262,9 +270,15 @@ describe('rate-limit-presets', () => {
     const presets = await import('@/shared/middlewares/rate-limit/rate-limit-presets.constants.js');
     // The per-email options feed a standalone `app.createRateLimit(...)` limiter, which never calls
     // `onExceeded`; it reports each refusal itself (`refuseRateLimitedRequest`).
-    const STANDALONE_LIMITER_OPTIONS = new Set(['STRICT_PUBLIC_PER_EMAIL_RATE_LIMIT_OPTIONS']);
+    // So do the unsigned Instagram webhook delivery options (S9), and the delivery route's own
+    // preset opts out of every route limiter (`rateLimit: false`) — there is nothing to observe.
+    const STANDALONE_LIMITER_OPTIONS = new Set([
+      'STRICT_PUBLIC_PER_EMAIL_RATE_LIMIT_OPTIONS',
+      'INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS',
+    ]);
+    const OPTED_OUT_PRESETS = new Set(['INSTAGRAM_WEBHOOK_RATE_LIMIT']);
     const limiterOptions = Object.entries(presets)
-      .filter(([name]) => !STANDALONE_LIMITER_OPTIONS.has(name))
+      .filter(([name]) => !(STANDALONE_LIMITER_OPTIONS.has(name) || OPTED_OUT_PRESETS.has(name)))
       .map(([name, preset]) => {
         const candidate = preset as {
           config?: { rateLimit?: RateLimitOptions };

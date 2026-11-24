@@ -26,6 +26,43 @@ import {
 
 const OPERATIONAL_METRICS_CACHE_TTL_MILLISECONDS = MILLISECONDS_PER_MINUTE;
 
+/**
+ * Whether this deployment may send Instagram messages, for the verbose readiness body
+ * (feat-instagram-dm-sending § 6 SNC9): the switch, the reason when not, and the settings versions.
+ */
+export type HealthSendingSnapshot = {
+  may_send: boolean;
+  reason: string | null;
+  settings_version: string | null;
+  minimum_compatible_settings_version: string | null;
+  server_settings_version: string;
+};
+
+/** The registered sending check — the app domain's, set when its container is built. */
+let sendingHealthProbe: (() => Promise<HealthSendingSnapshot>) | null = null;
+
+/**
+ * Registers the sending check the readiness body reports (SNC9). The app container registers the
+ * global sending row's check (`SendingStateService.checkSending`); a later call replaces it.
+ *
+ * @remarks
+ * Shared code cannot import a domain, so the domain hands its check in. Informational only — it
+ * never fails `/readyz` (the API does not send; the send workers refuse tickets themselves).
+ */
+export function registerHealthSendingProbe(probe: () => Promise<HealthSendingSnapshot>): void {
+  sendingHealthProbe = probe;
+}
+
+/** The sending check's answer, or `null` with none registered or when it fails. */
+async function readHealthSendingSnapshot(): Promise<HealthSendingSnapshot | null> {
+  if (sendingHealthProbe === null) return null;
+  try {
+    return await sendingHealthProbe();
+  } catch {
+    return null;
+  }
+}
+
 /** Operational health snapshot returned by {@link getCachedHealthOperationalMetrics} and surfaced on `/readyz`. */
 export type HealthOperationalMetrics = {
   migration_version: string | null;
@@ -40,6 +77,8 @@ export type HealthOperationalMetrics = {
   queue_depths: QueueDepth[];
   /** True when any external circuit breaker is OPEN. Informational — does not by itself fail `/readyz`. */
   degraded: boolean;
+  /** Whether this deployment may send Instagram messages (SNC9); `null` when not known. Informational. */
+  sending: HealthSendingSnapshot | null;
 };
 
 let cachedOperationalMetrics: {
@@ -63,6 +102,7 @@ export async function getCachedHealthOperationalMetrics(): Promise<HealthOperati
     worker_queues,
     circuit_breakers,
     queue_depths,
+    sending,
   ] = await Promise.all([
     getLatestMigrationVersion(),
     countPendingMailOutbox(),
@@ -70,6 +110,7 @@ export async function getCachedHealthOperationalMetrics(): Promise<HealthOperati
     readWorkerQueueHeartbeats(WORKER_QUEUE_NAMES),
     snapshotManagedCircuitBreakers(),
     getQueueDepths(WORKER_THROUGHPUT_QUEUE_NAMES),
+    readHealthSendingSnapshot(),
   ]);
 
   const value: HealthOperationalMetrics = {
@@ -82,6 +123,7 @@ export async function getCachedHealthOperationalMetrics(): Promise<HealthOperati
     circuit_breakers,
     queue_depths,
     degraded: circuit_breakers.some((breaker) => breaker.state === 'OPEN'),
+    sending,
   };
   cachedOperationalMetrics = {
     value,

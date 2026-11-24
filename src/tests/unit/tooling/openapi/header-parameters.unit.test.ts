@@ -83,7 +83,7 @@ describe('OpenAPI X-Idempotency-Key header parameter', () => {
 describe('OpenAPI webhook signature header parameters', () => {
   it.each([
     ['POST /api/v1/billing/webhook', 'Stripe-Signature'],
-    ['POST /api/v1/app/social/instagram/webhook', 'X-Hub-Signature-256'],
+    ['POST /api/v1/app/social/channel-connections/meta/webhooks/instagram', 'X-Hub-Signature-256'],
   ])('%s documents its provider signature header and no X-Idempotency-Key', (routeKey, name) => {
     const headers = buildHeaderParameters('POST', routeKey) as HeaderParameter[];
     expect(headers.find((header) => header.name === name)?.required).toBe(true);

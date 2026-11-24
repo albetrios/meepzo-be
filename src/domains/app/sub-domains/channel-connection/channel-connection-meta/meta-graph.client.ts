@@ -69,9 +69,10 @@ export interface MetaAppSettings {
 
 /**
  * Whether the four Meta app settings are set (`META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`,
- * `META_REDIRECT_URI`) — unset, the Instagram routes answer 503 `instagram_not_configured` (MC3).
+ * `META_REDIRECT_URI`) — unset, the Instagram routes answer 503 `instagram_not_configured` (MC3),
+ * and the Meta workers (the Instagram webhook's processing, the account check) stay off (WHC3).
  */
-export function isInstagramConfigured(): boolean {
+export function isMetaConfigured(): boolean {
   const environment = getEnv();
   return Boolean(
     environment.META_APP_ID &&

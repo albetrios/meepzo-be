@@ -19,35 +19,44 @@ import {
 import { NotFoundError } from '@/shared/errors/index.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { InstagramWebhookEventRepository } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
-import { InstagramWebhookEventService } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
+import type { InstagramWebhookEventKeyRepository } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event-key.repository.js';
+import {
+  InstagramWebhookEventService,
+  instagramWebhookEventDay,
+  isInstagramWebhookEventReplay,
+} from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 
 /**
- * The Instagram webhook events service without a database (routes-final § 4.B): route 18 checks
- * the team first and serializes (masks) the page; every write runs in the caller's scope and hands
- * the repository exactly what it was given.
+ * The Instagram webhook events service without a database (feat-instagram-dm-sending § 5.B): route
+ * 62 checks the team first and serializes (masks) the page; the store function drops replays, files
+ * each key under its Meta day and inserts only the events whose key was new (WH9, WH20); every other
+ * write runs in the caller's scope and hands the repository exactly what it was given.
  */
 
 const scope = PRINCIPAL_SCOPE.JOB({
   organizationPublicId: 'org_a1b2c3d4e5f6g7h8i9j0k',
 }) as OrganizationPrincipalDatabaseScope;
-const instagramAccount = { organizationId: 7, instagramAccountId: 9 };
-const claim = { ...instagramAccount, eventId: 42, claimedAttemptCount: 1 };
+const channelAccount = { organizationId: 7, channelAccountId: 9 };
+const claim = { ...channelAccount, eventId: 42, claimedAttemptCount: 1 };
 
 function eventRow() {
   return {
     id: 42,
     public_id: 'iwe_k3m9p2q7r5t1v8w4x6y0z',
     organization_id: 7,
-    instagram_account_id: 9,
+    channel_account_id: 9,
+    channel_account_public_id: 'cha_a1b2c3d4e5f6g7h8i9j0k',
     instagram_user_id: '17841400000000001',
     contact_instagram_user_id: '17841400000000777',
     event_kind: 'comment',
+    intake_group: 'comments',
     event_key: 'comment:18000000000000001',
     status: 'received',
     skip_reason: null,
     error_message: null,
     attempt_count: 0,
     last_attempted_at: null,
+    next_attempt_at: null,
     payload: { field: 'comments', value: { text: 'email me at rimeet@gmail.com' } },
     occurred_at: null,
     processed_at: null,
@@ -69,10 +78,12 @@ describe('InstagramWebhookEventService', () => {
     markFailed: vi.fn(),
     releaseClaim: vi.fn(),
   };
+  const keyRepository = { insertNewKeys: vi.fn() };
   const organizationService = { requireOrganizationByPublicId: vi.fn() };
   const service = new InstagramWebhookEventService(
     repository as unknown as InstagramWebhookEventRepository,
     organizationService as unknown as OrganizationService,
+    keyRepository as unknown as InstagramWebhookEventKeyRepository,
   );
   const filters = { limit: 25, includeTotal: false };
 
@@ -123,38 +134,94 @@ describe('InstagramWebhookEventService', () => {
   });
 
   describe('the write path (4.A calls it)', () => {
-    it('stores the events in the scope and returns the inserted rows', async () => {
+    const now = new Date('2026-11-24T12:00:00.000Z');
+    function newEvent(eventKey: string, occurredAt: Date | null) {
+      return {
+        instagramUserId: '17841400000000001',
+        contactInstagramUserId: null,
+        eventKind: 'comment' as const,
+        eventKey,
+        skipReason: null,
+        payload: {},
+        occurredAt,
+      };
+    }
+
+    it('claims the keys on their Meta day, then stores only the events whose key was new', async () => {
       const inserted = [eventRow()];
       repository.insertEvents.mockResolvedValue(inserted);
-      const events = [
-        {
-          instagramUserId: '17841400000000001',
-          contactInstagramUserId: null,
-          eventKind: 'comment' as const,
-          eventKey: 'comment:1',
-          skipReason: null,
-          payload: {},
-          occurredAt: null,
-        },
-      ];
+      const fresh = newEvent('comment:1', new Date('2026-11-23T23:59:00.000Z'));
+      const repeat = newEvent('comment:2', new Date('2026-11-24T00:01:00.000Z'));
+      const timeless = newEvent('comment:3', null);
+      keyRepository.insertNewKeys.mockResolvedValue([
+        { eventKey: 'comment:1', eventDay: '2026-11-23' },
+        { eventKey: 'comment:3', eventDay: '2026-11-24' },
+      ]);
 
       await expect(
-        service.recordReceivedEvents({ scope, instagramAccount, requestId: 'req-1', events }),
+        service.recordReceivedEvents({
+          scope,
+          channelAccount,
+          requestId: 'req-1',
+          events: [fresh, repeat, timeless],
+          now,
+        }),
       ).resolves.toBe(inserted);
-      expect(repository.insertEvents).toHaveBeenCalledWith({
-        ...instagramAccount,
-        requestId: 'req-1',
-        events,
+      expect(keyRepository.insertNewKeys).toHaveBeenCalledWith({
+        ...channelAccount,
+        keys: [
+          { eventKey: 'comment:1', eventDay: '2026-11-23' },
+          { eventKey: 'comment:2', eventDay: '2026-11-24' },
+          { eventKey: 'comment:3', eventDay: '2026-11-24' },
+        ],
       });
+      expect(repository.insertEvents).toHaveBeenCalledWith({
+        ...channelAccount,
+        requestId: 'req-1',
+        events: [fresh, timeless],
+      });
+    });
+
+    it('drops an event whose Meta time is over 8 days old before any write (WH9 step 5)', async () => {
+      const replay = newEvent('comment:old', new Date('2026-11-15T11:59:00.000Z'));
+
+      await expect(
+        service.recordReceivedEvents({
+          scope,
+          channelAccount,
+          requestId: null,
+          events: [replay],
+          now,
+        }),
+      ).resolves.toEqual([]);
+      expect(keyRepository.insertNewKeys).not.toHaveBeenCalled();
+      expect(repository.insertEvents).not.toHaveBeenCalled();
+    });
+
+    it('files a key under the UTC day of Meta’s time, else the received day', () => {
+      expect(
+        instagramWebhookEventDay({
+          occurredAt: new Date('2026-11-23T23:30:00.000-05:00'),
+          receivedAt: now,
+        }),
+      ).toBe('2026-11-24');
+      expect(instagramWebhookEventDay({ occurredAt: null, receivedAt: now })).toBe('2026-11-24');
+      expect(
+        isInstagramWebhookEventReplay({ occurredAt: new Date('2026-11-16T12:00:00.000Z'), now }),
+      ).toBe(false);
+      expect(
+        isInstagramWebhookEventReplay({ occurredAt: new Date('2026-11-16T11:59:59.000Z'), now }),
+      ).toBe(true);
+      expect(isInstagramWebhookEventReplay({ occurredAt: null, now })).toBe(false);
     });
 
     it('marks the stored rows queued', async () => {
       repository.markQueued.mockResolvedValue(2);
 
       await expect(
-        service.markEventsQueued({ scope, instagramAccount, eventIds: [1, 2] }),
+        service.markEventsQueued({ scope, channelAccount, eventIds: [1, 2] }),
       ).resolves.toBe(2);
-      expect(repository.markQueued).toHaveBeenCalledWith({ ...instagramAccount, eventIds: [1, 2] });
+      expect(repository.markQueued).toHaveBeenCalledWith({ ...channelAccount, eventIds: [1, 2] });
     });
 
     it('claims with the caller’s attempt cap and lease', async () => {
@@ -163,13 +230,13 @@ describe('InstagramWebhookEventService', () => {
       await expect(
         service.claimNextEvent({
           scope,
-          instagramAccount,
+          channelAccount,
           maxProcessingAttempts: 5,
           claimLeaseMinutes: 5,
         }),
       ).resolves.toBeNull();
       expect(repository.claimOldestWaitingEvent).toHaveBeenCalledWith({
-        ...instagramAccount,
+        ...channelAccount,
         maxProcessingAttempts: 5,
         claimLeaseMinutes: 5,
       });

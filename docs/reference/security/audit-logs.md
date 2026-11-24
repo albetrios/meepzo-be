@@ -132,6 +132,7 @@ No Instagram account row ever holds the Instagram token or the authorization cod
 | `user.settings.update` | `user_settings` | User settings changed |
 | `user.settings.analytics_consent.update` | `user_settings` | The person gave an analytics answer while signed in (a receipt — the browser's cookie decides what runs); `metadata` holds the decision, its policy version and when — the proof of consent (launch D85, change-cookie-consent CC2) |
 | `user.self.delete` | `user` | Account deleted by its owner (`WARNING`) |
+| `user.email.confirm` | `user` | The person confirmed their email with the emailed link (`POST /auth/email/confirm`, feat-instagram-dm-sending UN7); the actor is the person the token belonged to |
 | `user.data_export.request` | `user_data_export` | Personal-data export requested |
 | `user.data_export.url_minted` | `user_data_export` | Export download link issued |
 | `user.admin.update` | `user` | A super admin changed a user |

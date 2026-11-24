@@ -50,6 +50,11 @@ process.env.MAIL_RESERVED_DOMAIN_SKIP_ENABLED = 'false';
 // that do not test billing (and build organizations with lapsed or odd subscriptions) are not turned
 // into 403s. The suites that cover it switch it on.
 process.env.BILLING_READ_ONLY_ENFORCED = 'false';
+// Sending (feat-instagram-dm-sending SN7) ships ON in `.env.example` (P74), so pin it OFF with a
+// plain assignment: no suite sends, and the suites that cover the switch set it per test. The
+// environment id is the harness's own.
+process.env.SENDING_ENABLED = 'false';
+process.env.SENDING_ENVIRONMENT_ID = 'test';
 // Category-B security flags now default to their HARDENED value everywhere; the harness sets the
 // relaxed values explicitly (previously implied by the non-production runtime) so e2e behaves as
 // before: captcha bypass, Referer-fallback origin check, empty webhook allowlist, and unauthenticated

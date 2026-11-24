@@ -274,6 +274,9 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
           FROM pg_proc p
           JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'app'
+           -- The day-part maker (feat-instagram-dm-sending R16) is no resolver: a plain invoker
+           -- function, held by role-taxonomy.db.unit.test.ts and the events' RLS suite.
+           AND p.proname <> 'fn_create_daily_partitions'
          ORDER BY p.proname
       `),
     );

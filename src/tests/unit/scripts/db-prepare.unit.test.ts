@@ -32,8 +32,8 @@ vi.mock('pg', () => {
 });
 
 vi.mock('node:child_process', () => ({
-  spawnSync: vi.fn(() => {
-    calls.push('migrate');
+  spawnSync: vi.fn((_command: string, args: readonly string[] = []) => {
+    calls.push(args.some((arg) => arg.includes('sending-state')) ? 'sending state' : 'migrate');
     return { status: 0, stdout: '', stderr: '' };
   }),
 }));
@@ -80,7 +80,7 @@ vi.mock('@/scripts/seed/full.js', () => ({
 
 const { prepareDatabase } = await import('@/scripts/ops/db-prepare.js');
 
-const SAVED_KEYS = ['DATABASE_URL', 'DATABASE_MIGRATION_URL'] as const;
+const SAVED_KEYS = ['DATABASE_URL', 'DATABASE_MIGRATION_URL', 'SENDING_ENVIRONMENT_ID'] as const;
 
 /**
  * Locks in the one way a database is set up (`src/scripts/ops/db-prepare.ts`): create → migrate →
@@ -95,6 +95,9 @@ describe('prepareDatabase', () => {
     existingDatabases = new Set();
     for (const key of SAVED_KEYS) saved.set(key, process.env[key]);
     delete process.env.DATABASE_URL;
+    // The sending-state step runs only with an environment id; the harness sets one, so each test
+    // that wants the step sets it again.
+    delete process.env.SENDING_ENVIRONMENT_ID;
     process.env.DATABASE_MIGRATION_URL = 'postgresql://owner:owner@localhost:5432/app_database';
   });
 
@@ -123,6 +126,16 @@ describe('prepareDatabase', () => {
       'CREATE DATABASE "app_database_worker_1" TEMPLATE "app_database"',
       'DROP DATABASE IF EXISTS "app_database_worker_2" WITH (FORCE)',
       'CREATE DATABASE "app_database_worker_2" TEMPLATE "app_database"',
+    ]);
+  });
+
+  it('writes the sending state after the seed, only with SENDING_ENVIRONMENT_ID (SN7)', async () => {
+    existingDatabases.add('app_database');
+    process.env.SENDING_ENVIRONMENT_ID = 'test';
+    await prepareDatabase({ seed: 'none', enableLocalLogins: false, workerDatabases: 0 });
+    expect(calls.filter((call) => call === 'migrate' || call === 'sending state')).toEqual([
+      'migrate',
+      'sending state',
     ]);
   });
 

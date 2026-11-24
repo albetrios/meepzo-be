@@ -316,6 +316,36 @@ const BILLING_POLICY_VARS = {
 } satisfies Record<string, EnvVarSpec>;
 
 /**
+ * The sending switch and the environment id (feat-instagram-dm-sending routes-final § 6 SN7, D20, P4,
+ * P74). `SENDING_ENABLED` is the one flag for "this deployment may send": off, the send workers, the
+ * tasks that call Meta and the repair duties are not registered and nothing is sent (the webhook
+ * still saves). Category-A: the static default `false` is the production-safe value; the
+ * development value ships active in `.env.example` (P74). `SENDING_ENVIRONMENT_ID` must equal
+ * `app.sending_states.environment_id` — a restored or copied database (which carries production's
+ * id) never sends from another server; `prepareDatabase` writes it into a database that has no
+ * row yet. A production refine requires it, and `REDIS_BULLMQ_URL` (S18, P97), while sending is on.
+ * Runtime code reads `env.SENDING_ENABLED` alone, never combined with another flag.
+ */
+const SENDING_VARS = {
+  SENDING_ENABLED: envVar({
+    schema: booleanString('false'),
+    meta: {
+      allowed: 'true | false (or 1 | 0)',
+      description:
+        'Whether this deployment may send Instagram messages: off, no send worker, Meta-calling task or repair duty runs (webhooks are still saved). Also needs SENDING_ENVIRONMENT_ID to match the database.',
+    },
+  }),
+  SENDING_ENVIRONMENT_ID: envVar({
+    schema: z.string().min(1).max(64).optional(),
+    meta: {
+      allowed: 'string, 1–64 characters (e.g. production, development, local)',
+      description:
+        "This deployment's sending environment id: must equal the database's app.sending_states.environment_id, which prepareDatabase writes when the row is missing — so a restored or copied database never sends from another server. Required in production while SENDING_ENABLED is on.",
+    },
+  }),
+} satisfies Record<string, EnvVarSpec>;
+
+/**
  * The Meta app's settings (Unified Login, routes-final § 1 MC3, D24; full names and one app secret,
  * D20). Only the Meta adapter (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/`)
  * and Meta's signature checks read them. The four app settings are optional everywhere, production
@@ -371,7 +401,7 @@ const META_VARS = {
     meta: {
       allowed: 'string of at least 32 characters (a GitHub Secret), or unset',
       description:
-        "The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots.",
+        "The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/channel-connections/meta/webhooks/instagram). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots.",
     },
   }),
 } satisfies Record<string, EnvVarSpec>;
@@ -821,6 +851,9 @@ const envSchemaBase = z.object({
 
   // Meta — declared in the META_VARS registry above (allowed values + description).
   ...toSchemaShape(META_VARS),
+
+  // Instagram sending — the SENDING_VARS registry (the switch and the environment id).
+  ...toSchemaShape(SENDING_VARS),
 
   // Stripe
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
@@ -2157,6 +2190,29 @@ export const envSchema = envSchemaBase
   // payments and cancellations never reach a subscription. Both keys are required (non-empty) in
   // production — one refine per key, so the error names the missing one. Outside production both
   // stay optional: a developer's machine, CI and the load-test rig run without a payment provider.
+  // feat-instagram-dm-sending SN7, S18: production may send only with its own environment id (the
+  // database's row must match it) and its own BullMQ Redis (sized for the send queues' delayed
+  // jobs). Outside production both stay optional: a developer's machine sends on REDIS_URL.
+  .refine(
+    (data) =>
+      data.NODE_ENV !== 'production' ||
+      !data.SENDING_ENABLED ||
+      Boolean(data.SENDING_ENVIRONMENT_ID),
+    {
+      message:
+        "SENDING_ENVIRONMENT_ID must be set in production while SENDING_ENABLED is on — it must equal the database's app.sending_states.environment_id, so a restored copy never sends.",
+      path: ['SENDING_ENVIRONMENT_ID'],
+    },
+  )
+  .refine(
+    (data) =>
+      data.NODE_ENV !== 'production' || !data.SENDING_ENABLED || Boolean(data.REDIS_BULLMQ_URL),
+    {
+      message:
+        'REDIS_BULLMQ_URL must be set in production while SENDING_ENABLED is on — the send queues need their own BullMQ Redis (S18).',
+      path: ['REDIS_BULLMQ_URL'],
+    },
+  )
   .refine((data) => data.NODE_ENV !== 'production' || Boolean(data.STRIPE_SECRET_KEY), {
     message:
       'STRIPE_SECRET_KEY must be set in production (the live `sk_live_` key) — without it subscriptions are recorded locally and never charged.',
@@ -2235,6 +2291,7 @@ export const ENV_VAR_REGISTRY: Readonly<Record<string, EnvVarSpec>> = {
   ...SERVER_VARS,
   ...BILLING_POLICY_VARS,
   ...META_VARS,
+  ...SENDING_VARS,
 };
 
 /** Ordered list of env var names from the schema (for .env.example sync and scripts). */
@@ -2336,6 +2393,15 @@ export const envSchemaConditionallyRequiredKeys: ReadonlyArray<{
   {
     key: 'STRIPE_WEBHOOK_SECRET',
     condition: 'NODE_ENV=production (Stripe events update subscription state through it)',
+  },
+  {
+    key: 'SENDING_ENVIRONMENT_ID',
+    condition: 'NODE_ENV=production and SENDING_ENABLED=true (a restored database never sends)',
+  },
+  {
+    key: 'REDIS_BULLMQ_URL',
+    condition:
+      'NODE_ENV=production and SENDING_ENABLED=true (the send queues need their own Redis)',
   },
   {
     key: 'FRONTEND_URL',

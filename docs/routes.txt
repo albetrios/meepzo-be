@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 167
+  Total routes: 171
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 30
+  Routes: 32
 ================================================================================
 
   — Sub Domains —
@@ -41,12 +41,14 @@ Legend:
   POST   /api/v1/app/social/channel-connections/:provider/data-deletion  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/:provider/deauthorize  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
+  GET    /api/v1/app/social/channel-connections/meta/webhooks/instagram  200  -    both  PUBLIC
+  POST   /api/v1/app/social/channel-connections/meta/webhooks/instagram  200  -    both  PUBLIC
   GET    /api/v1/app/social/instagram/accounts/:channel_account_id/media  200  -    team  PERM: instagram-account:read
+  GET    /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status  200  -    team  PERM: instagram-account:read
   PATCH  /api/v1/app/social/instagram/accounts/:channel_account_id/settings  200  -    team  PERM: instagram-account:manage
   GET    /api/v1/app/social/instagram/accounts/:channel_account_id/stories  200  -    team  PERM: instagram-account:read
-  GET    /api/v1/app/social/instagram/webhook                     200  -    both  PUBLIC
-  POST   /api/v1/app/social/instagram/webhook                     200  -    both  PUBLIC
   GET    /api/v1/app/social/instagram/webhook-events              200  -    team  PERM: instagram-webhook-event:read
+  GET    /api/v1/app/usage                                        200  -    team  PERM: organization:read
 
 ================================================================================
   DOMAIN: AUDIT (/api/v1/audit)
@@ -57,9 +59,10 @@ Legend:
 
 ================================================================================
   DOMAIN: AUTH (/api/v1/auth)
-  Routes: 30
+  Routes: 31
 ================================================================================
 
+  POST   /api/v1/auth/email/confirm                               200  -    both  PUBLIC
   POST   /api/v1/auth/email/login                                 200  -    both  PUBLIC
   POST   /api/v1/auth/email/send-code                             200  -    both  PUBLIC
   POST   /api/v1/auth/logout                                      200  -    both  TOKEN: access-token
@@ -205,7 +208,7 @@ Legend:
 
 ================================================================================
   DOMAIN: USER (/api/v1/users)
-  Routes: 22
+  Routes: 23
 ================================================================================
 
   GET    /api/v1/users                                            200  -    both  ROLE: super_admin
@@ -222,6 +225,7 @@ Legend:
   POST   /api/v1/users/me/bug-reports                             200  -    both  AUTH
   POST   /api/v1/users/me/data-export                             200  -    both  AUTH
   GET    /api/v1/users/me/data-export/:data_export_id             200  -    both  AUTH
+  POST   /api/v1/users/me/email-confirmation                      200  -    both  AUTH
   GET    /api/v1/users/me/membership-invitations                  200  -    both  AUTH
   GET    /api/v1/users/me/notification-preferences                200  -    both  AUTH
   PUT    /api/v1/users/me/notification-preferences                200  -    both  AUTH
@@ -258,13 +262,13 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 167
-  Public          : 19
-  Authenticated   : 53
+  Total routes    : 171
+  Public          : 20
+  Authenticated   : 54
   Role-guarded    : 9
-  Perm-guarded    : 81
+  Perm-guarded    : 83
   Token-guarded   : 5
-  Team-only (O)   : 38
+  Team-only (O)   : 40
 
 ================================================================================
   IDEMPOTENCY-REQUIRED WRITES (23) — X-Idempotency-Key required

@@ -1,7 +1,12 @@
 import { createHmac } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppError, ServiceUnavailableError, ValidationError } from '@/shared/errors/index.js';
+import {
+  AppError,
+  RateLimitedError,
+  ServiceUnavailableError,
+  ValidationError,
+} from '@/shared/errors/index.js';
 
 const mockEnvironment = vi.hoisted(() => ({
   META_APP_SECRET: 'unit-test-instagram-app-secret' as string | undefined,
@@ -23,15 +28,18 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
  * signature passed (D53), a refusal logged without the header, body or secret.
  */
 
-type PreHandler = (request: FastifyRequest) => Promise<void>;
+type PreHandler = (request: FastifyRequest, reply?: unknown) => Promise<void>;
 type PreParsing = (request: FastifyRequest, reply: unknown, payload: unknown) => Promise<unknown>;
 
-async function loadHooks(): Promise<{ preHandler: PreHandler; preParsing: PreParsing }> {
+async function loadHooks(
+  instagramWebhookUnsignedRateLimit?: unknown,
+): Promise<{ preHandler: PreHandler; preParsing: PreParsing }> {
   const { instagramWebhookIngressPlugin } = await import(
     '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-ingress.plugin.js'
   );
   const hooks = new Map<string, unknown>();
   const application = {
+    instagramWebhookUnsignedRateLimit,
     addHook: (name: string, hook: unknown): void => {
       expect(hooks.has(name)).toBe(false);
       hooks.set(name, hook);
@@ -50,6 +58,8 @@ async function loadPreHandler(): Promise<PreHandler> {
 }
 
 const RAW_BODY = Buffer.from('{"object":"instagram","entry":[]}');
+/** A body stream the preParsing hook hands on untouched. */
+const PAYLOAD_STREAM = { pipe: () => undefined };
 
 function signatureOf(body: Buffer, secret = 'unit-test-instagram-app-secret'): string {
   return `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
@@ -231,5 +241,74 @@ describe('instagramWebhookIngressPlugin', () => {
     expect(logged).not.toContain(signature);
     expect(logged).not.toContain('instagram","entry');
     expect(logged).not.toContain('unit-test-instagram-app-secret');
+  });
+
+  describe('the per-IP cap counts unsigned traffic only (S9, P97, AC-16.6)', () => {
+    /** A limiter that allows `allowed` requests, then reports the bucket exceeded. */
+    function fakeLimiter(allowed: number) {
+      let counted = 0;
+      return vi.fn(async () => {
+        counted += 1;
+        return counted <= allowed
+          ? {
+              isAllowed: false,
+              isExceeded: false,
+              key: 'k',
+              max: allowed,
+              ttlInSeconds: 60,
+              remaining: allowed - counted,
+              ttl: 60_000,
+            }
+          : {
+              isAllowed: false,
+              isExceeded: true,
+              key: 'k',
+              max: allowed,
+              ttlInSeconds: 60,
+              remaining: 0,
+              ttl: 60_000,
+            };
+      });
+    }
+    const reply = { header: vi.fn(), hasHeader: vi.fn(() => false) };
+
+    it('never counts a validly signed delivery — a burst from Meta is never refused', async () => {
+      const limiter = fakeLimiter(0);
+      const { preHandler } = await loadHooks(limiter);
+
+      for (let index = 0; index < 5; index += 1) {
+        await expect(
+          preHandler(requestWith({ signature: signatureOf(RAW_BODY) }), reply),
+        ).resolves.toBeUndefined();
+      }
+      expect(limiter).not.toHaveBeenCalled();
+    });
+
+    it('counts a request without the header before its body is read: 400, then 429 over the cap', async () => {
+      const limiter = fakeLimiter(1);
+      const { preParsing } = await loadHooks(limiter);
+
+      await expect(
+        preParsing(requestWith({ withoutRawBody: true }), reply, PAYLOAD_STREAM),
+      ).rejects.toBeInstanceOf(ValidationError);
+      await expect(
+        preParsing(requestWith({ withoutRawBody: true }), reply, PAYLOAD_STREAM),
+      ).rejects.toBeInstanceOf(RateLimitedError);
+      expect(limiter).toHaveBeenCalledTimes(2);
+    });
+
+    it('counts a wrongly signed delivery: 400, then 429 over the cap', async () => {
+      const limiter = fakeLimiter(1);
+      const { preHandler } = await loadHooks(limiter);
+      const signature = signatureOf(RAW_BODY, 'another-secret');
+
+      await expect(preHandler(requestWith({ signature }), reply)).rejects.toBeInstanceOf(
+        ValidationError,
+      );
+      await expect(preHandler(requestWith({ signature }), reply)).rejects.toBeInstanceOf(
+        RateLimitedError,
+      );
+      expect(limiter).toHaveBeenCalledTimes(2);
+    });
   });
 });

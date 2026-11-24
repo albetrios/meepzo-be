@@ -141,6 +141,18 @@ Actions → **Rollback deploy** (`rollback-deploy.yml`, target `production`), or
 tag with `release-deploy.yml -f tag=vPREVIOUS`. A migration is not rolled back by either: write a
 forward fix.
 
+**Sending's settings version (P95).** Each release writes its settings version to
+`app.sending_states` and raises the minimum compatible version only when it is incompatible with
+older servers (`SENDING_MINIMUM_COMPATIBLE_SETTINGS_VERSION` in
+`src/domains/app/sub-domains/instagram-sending/instagram-sending.constants.ts`). A server older than
+the stored minimum takes no sending tickets; an older but compatible one keeps sending. So a rollback
+to a release **at or above** the stored minimum needs nothing more. Rolling back **past** an
+incompatible release: first lower the minimum on the target environment — `pnpm ops:sending-state
+--minimum <the rolled-back-to release's SENDING_SETTINGS_VERSION>` with that environment's database
+logins — then roll back. Railway replaces a service's replicas one by one during a deploy, so for a
+short time an old and a new replica run side by side: an old replica keeps sending while it is
+compatible, and stops taking tickets within a minute when a new release raised the minimum.
+
 ## Dependencies
 
 - **be-production-hardening-guard** — the checklist at the core of step 1.

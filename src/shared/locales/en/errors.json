@@ -306,5 +306,8 @@
   "keepChannelAccountsInvalid": "Choose only this workspace's connected accounts, at most as many as the new plan allows, and only when moving to a smaller plan.",
   "defaultCardInUse": "This is your only card and a paid plan is on. Add another card before removing this one.",
   "mfaCodeWrong": "That code is not right. Check your authenticator app and try again.",
-  "mfaLocked": "Too many wrong codes. Wait a few minutes, then try again or use a recovery code."
+  "mfaLocked": "Too many wrong codes. Wait a few minutes, then try again or use a recovery code.",
+  "emailAlreadyConfirmed": "Your email is already confirmed",
+  "emailConfirmationResendTooSoon": "A confirm link was just sent. Wait a moment before asking for a new one.",
+  "emailConfirmTokenInvalid": "This confirm link is not valid any more. Ask for a new one."
 }

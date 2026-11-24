@@ -21,6 +21,7 @@ async function getOperationalMetricsForReadiness() {
       circuit_breakers: [],
       queue_depths: [],
       degraded: false,
+      sending: null,
     };
   }
 }

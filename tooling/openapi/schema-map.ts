@@ -12,7 +12,9 @@ import type { ZodTypeAny } from 'zod';
 import {
   AppleFormCallbackDto,
   EmailSendCodeDto,
+  EmailConfirmDto,
   EmailLoginDto,
+  RequestEmailConfirmationDto,
   MfaVerifyDto,
   CreateAuthMethodDto,
   MfaEnrollDto,
@@ -121,6 +123,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Auth ──
   'POST /api/v1/auth/email/send-code': EmailSendCodeDto,
   'POST /api/v1/auth/email/login': EmailLoginDto,
+  'POST /api/v1/auth/email/confirm': EmailConfirmDto,
   // Apple's form post (route 124) — application/x-www-form-urlencoded, not JSON.
   'POST /api/v1/auth/oauth/apple/callback': AppleFormCallbackDto,
   'POST /api/v1/auth/me/mfa/verify': MfaVerifyDto,
@@ -141,6 +144,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'PATCH /api/v1/users/me/settings': UpdateUserSettingsDto,
   'PUT /api/v1/users/me/notification-preferences': PutNotificationPreferencesDto,
   'POST /api/v1/users/me/bug-reports': CreateUserBugReportDto,
+  'POST /api/v1/users/me/email-confirmation': RequestEmailConfirmationDto,
 
   // ── Admin: Users ──
   'PATCH /api/v1/users/{user_id}': AdminUpdateUserDto,

@@ -1,0 +1,68 @@
+`src/domains/app/sub-domains/instagram-sending/`
+
+# Instagram sending
+
+Parent: [App](../../app.overview.md)
+
+## Purpose
+
+The paced sender of Instagram messages (routes-final § 6 of `iterations/feat-instagram-dm-sending-2026-11-23-oxak/`,
+SN1–SN24). Intake saves `waiting` messages; this sub-domain sends them through four lanes per account (slow, reply,
+fast, broadcast), two gates and the month count in the claim's commit, one shared result save, the Instagram error
+groups and stops, and repair duties that never send. ROUTE row R18 built the **folder root** (§ 6.A): the lane, stop,
+minute, month and day count tables, the global sending row, routes 63–64, the sending switch and environment id, the
+month meter's Redis copy and the lane steps of the connection, the channel account and route 12. The messages and
+attempts (6.B, R19), the attachments (6.C), the queues and workers (R37), the send core (R42), the repair duties (R47)
+and the watches (R48) come with their rows. No table here has a public id; route 63 takes the account's `cha_` id.
+
+## Routes (under `/api/v1/app`)
+
+| # | Method | Path | Gate | Idem |
+| --- | --- | --- | --- | --- |
+| 63 | GET | `/social/instagram/accounts/{channel_account_id}/sending-status` | `instagram-account:read` | — |
+| 64 | GET | `/usage` | `organization:read` | — |
+
+Team organizations only: a personal one reads `404 team_organization_required`. Route 63 answers `404
+instagram_not_connected` for another organization's, a revoked or a non-Instagram account.
+
+## Layout
+
+- `instagram-sending.constants.ts` — the **sending settings file** (P4): the settings-file limits an empty owner value
+  falls back to (route 12 and the lanes read one source), `STOP_WORDS`, the untested Meta features, ways to start and
+  message kinds (P36), the lanes, wait reasons and stop groups with their strength, the count groups, the plan stops'
+  held lanes (`plan_limit` lets the reply lane go on, D62), `SENDING_SETTINGS_VERSION` and
+  `SENDING_MINIMUM_COMPATIBLE_SETTINGS_VERSION` (P95).
+- `instagram-send-lane.schema.ts` / `.repository.ts` / `.service.ts` / `.util.ts` — `app.instagram_send_lanes`: four
+  rows per account made at the pick; the turn, lease, box, the slow lane's day count and test claim and stored
+  estimate (S29), the fast lane's `sending_count`, and the lane's **error stop** only. Guarded updates: a stronger stop
+  wins; a turn is claimed only while the lane is not `working` and the ticket's turn is the lane's (never two turns);
+  a release only by its own turn. `InstagramSendLaneService` is the lane port of the connection (create, end login
+  stops, stop), the channel account (stop, wake, active stop, the break's stop) and route 12 (wake).
+- `instagram-send-stop.schema.ts` / `.repository.ts` — `app.instagram_send_stops`: every stop that starts (lane or
+  `all`; a stop group or a plan stop), its end and by what. 90 days (WC-53).
+- `instagram-send-minute-count.schema.ts` / `.repository.ts` — gate 2's minute counts per account and group.
+- `message-month-count.schema.ts` / `.repository.ts` / `.service.ts` / `.cache.ts` — `app.message_month_counts`
+  (shared, P43): per organization, month of its time zone and 16 slots. The service is the channel account's plan-stop
+  port (`plan_limit`), the month add (tombstones the copy after commit) and route 64's read through the 10-second
+  Redis copy `app:message_month_count:<organization>`.
+- `instagram-send-day-count.schema.ts` / `.repository.ts` — one account's results of its organization's day (S8):
+  route 63's "today" line.
+- `sending-state.schema.ts` / `.repository.ts` / `.service.ts` — `app.sending_states`, the one tenantless row (P16):
+  the environment id, the settings versions, the all-accounts stop and Meta's app-level usage (S13). Readable and
+  writable only under `MAINTENANCE_SCOPE.SENDING_STATE`. `checkSending` / `mayTakeTickets` answer whether this server
+  may send; `prepareDatabase` creates the row through `pnpm ops:sending-state`.
+- `instagram-sending.{service,controller,routes,serializer,types}.ts` — routes 63–64. Route 63's later parts (waiting
+  counts, chat-closed lines, last broadcast / past comments / retry) come through `InstagramSendingStatusSources`.
+- `seed/` — four lanes per seeded account, an ended stop, this minute's and this month's counts.
+
+## Rules
+
+- **Postgres decides** (P32): every count and stop is a row; Redis holds only the meter's 10-second copy. Route 63 has
+  no copy (P306): its writers are too many to tombstone, and the day-count row makes it a few indexed rows.
+- **The pause, the suspend and the plan stop are the channel account's** (P99): the lanes carry no copy; a turn reads
+  them. A plan stop on the account and an error stop on a lane both hold, and both must end.
+- **Sending is off unless switched on and matched** (SN7, D20): `SENDING_ENABLED` (default `false`) and
+  `SENDING_ENVIRONMENT_ID` equal to the row's `environment_id`; a server older than the row's minimum compatible
+  settings version takes no tickets, an older but compatible one does (P95).
+- **A lane step joins its caller's unit of work** (the pick, the disconnect, the swap commit with it); a wake runs after
+  commit.

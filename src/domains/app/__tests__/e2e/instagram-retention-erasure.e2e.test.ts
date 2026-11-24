@@ -94,6 +94,7 @@ import {
   say,
   seedAgedOrganization,
   writeHistory,
+  writeSendingHistory,
 } from './instagram-retention-erasure.helper.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -991,6 +992,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         });
         const automations = await historyAutomations({ team });
         await writeHistory({ app, team, person, automations });
+        await writeSendingHistory(team.organization.id);
         teams.push(team);
       }
       const [team, otherTeam] = teams as [ConnectedInstagramTeam, ConnectedInstagramTeam];

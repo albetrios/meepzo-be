@@ -66,12 +66,42 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'app.instagram_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The stored posts (launch R5): organization-scoped, plus the retention sweep arm (1.3).
   'app.instagram_media': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // The Instagram webhook event keys (R16, WH20): organization-scoped (the store function), plus
+  // the upkeep's oldest-part check (the sweep arm in USING only).
+  'app.instagram_webhook_event_keys': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // The Instagram webhook events: organization-scoped (route 18, the receiver's verified scope,
   // processing), plus the stuck-event pick-up's and the 30-day clean-up's sweep (WH3, WH19).
   'app.instagram_webhook_events': [
     'app.current_organization_public_id',
     'app.global_retention_cleanup',
   ],
+  // The sending engine's tenant tables (feat-instagram-dm-sending § 6.A.3, R18): organization-scoped,
+  // plus the repair duties' and clean-ups' cross-organization reads (the sweep arm in USING only).
+  'app.instagram_send_day_counts': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.instagram_send_lanes': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.instagram_send_minute_counts': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.instagram_send_stops': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.message_month_counts': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  // The one tenantless sending row (P16): the maintenance arm only, in USING and WITH CHECK.
+  'app.sending_states': ['app.sending_state_access'],
   'audit.logs': [
     'app.current_organization_public_id',
     'app.current_user_public_id',
@@ -198,6 +228,10 @@ const REVIEWED_WRITE_BYPASS_ARMS = new Map<string, string>([
   [
     'auth.auth_methods auth_methods_self_or_admin_access: app.global_admin',
     'platform admin user management',
+  ],
+  [
+    'app.sending_states sending_states_maintenance_access: app.sending_state_access',
+    'the one tenantless sending row (P16): the environment id, settings versions and app usage',
   ],
   [
     'audit.outbox audit_outbox_drain_update: app.audit_outbox_drain',

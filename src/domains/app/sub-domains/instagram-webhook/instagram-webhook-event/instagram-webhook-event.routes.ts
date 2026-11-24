@@ -7,8 +7,8 @@ import { createInstagramWebhookEventController } from './instagram-webhook-event
 import { ListInstagramWebhookEventsQueryDto } from './instagram-webhook-event.dto.js';
 
 /**
- * Returns the Fastify plugin that registers route 18, the received-events list
- * (routes-final § 4.B): `GET /social/instagram/webhook-events`, mounted under `/api/v1/app` by the
+ * Returns the Fastify plugin that registers route 62, the received-events list
+ * (feat-instagram-dm-sending routes-final § 5.B): `GET /social/instagram/webhook-events`, mounted under `/api/v1/app` by the
  * parent's `instagram-webhook.routes.ts`.
  *
  * @remarks
@@ -31,7 +31,7 @@ export function instagramWebhookEventRoutes(
         schema: {
           summary: 'List received Instagram webhook events',
           description:
-            "Lists the Instagram events Meta delivered for the organization's account and what happened to each — received, queued, processed, skipped (with the reason) or failed (with the error) — newest first: the debugging view. Filter by status, event_kind and received time (received_from inclusive, received_to exclusive, ISO 8601 with an offset); keyset pages (limit 1–100, default 25; a next-page cursor is valid only with the same filters); include_total=true adds a capped count. Each payload keeps its shape with personal data masked: message and comment text cut to 40 characters, emails and phone numbers masked, media and attachment links replaced by [link]; ids, kinds and usernames stay. Events are kept 30 days. Reads the database only and changes nothing. Team organizations only. Requires INSTAGRAM_WEBHOOK_EVENT_READ permission.",
+            "Lists the Instagram events saved for the organization's channel accounts and what intake did with each — received, queued, processed, skipped (with the reason) or failed (with the error and next_attempt_at) — newest first: the debugging view. Filter by channel_account_id (a cha_ id; another organization's finds nothing), status, event_kind and received time (received_from inclusive, received_to exclusive, ISO 8601 with an offset); keyset pages (limit 1–100, default 25; a next-page cursor is valid only with the same filters); include_total=true adds a capped count. A waiting or failed event's payload keeps its shape with personal data masked: message and comment text cut to 40 characters, emails and phone numbers masked, media and attachment links replaced by [link]; ids, kinds and usernames stay. A done event's payload is null — the body is cleared when intake finishes. Events are kept 8 days. Reads the database only and changes nothing. Team organizations only. Requires INSTAGRAM_WEBHOOK_EVENT_READ permission.",
           tags: ['Instagram Webhook'],
           querystring: ListInstagramWebhookEventsQueryDto,
         },

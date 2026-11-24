@@ -24,8 +24,8 @@ import type { FastifyInstance } from 'fastify';
 const META_PROVIDER_ROUTE_KEYS: ReadonlySet<string> = new Set([
   'POST /api/v1/app/social/channel-connections/:provider/deauthorize',
   'POST /api/v1/app/social/channel-connections/:provider/data-deletion',
-  'GET /api/v1/app/social/instagram/webhook',
-  'POST /api/v1/app/social/instagram/webhook',
+  'GET /api/v1/app/social/channel-connections/meta/webhooks/instagram',
+  'POST /api/v1/app/social/channel-connections/meta/webhooks/instagram',
 ]);
 
 const appRoutes = loadRoutesForDomain('app').filter(

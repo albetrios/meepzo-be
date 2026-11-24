@@ -190,6 +190,31 @@ export const verificationCodeSentExample = {
   expires_in_seconds: 900,
 };
 
+// ── Confirm your email (feat-instagram-dm-sending § 11.B) ──
+export const emailConfirmationSentSchema = {
+  type: 'object',
+  properties: {
+    resend_after_seconds: { type: 'integer' },
+    expires_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const emailConfirmationSentExample = {
+  resend_after_seconds: 60,
+  expires_at: '2026-11-25T10:00:00.000Z',
+};
+
+export const emailConfirmedSchema = {
+  type: 'object',
+  properties: {
+    is_email_verified: { type: 'boolean', enum: [true] },
+  },
+};
+
+export const emailConfirmedExample = {
+  is_email_verified: true,
+};
+
 // ── Message ──
 export const messageSchema = {
   type: 'object',

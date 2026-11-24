@@ -22,8 +22,10 @@ import {
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 
 /**
- * `app.instagram_webhook_events` through its repository (routes-final § 4.B.3, 4.B.10 — WH10,
- * WH12, WH14): the store once per key, the `queued` mark, the claim of the account's head (strict
+ * `app.instagram_webhook_events` through its repository (launch § 4.B.3, 4.B.10 — WH10, WH12, WH14;
+ * keyed by the channel account and split by day since feat-instagram-dm-sending R16): the insert
+ * (the repeat guard moved to the key table — `instagram-webhook-event-store.db.unit.test.ts`), the
+ * `queued` mark, the claim of the account's head (strict
  * order, the lease, spent attempts), the claim-guarded marks and release. Every statement runs
  * inside the organization's own context — the receiver's verified scope, processing's job scope —
  * so the suite also holds under `pnpm test:rls-role`.
@@ -71,11 +73,11 @@ describe('InstagramWebhookEventRepository (database)', () => {
     otherAccount = await insertTestInstagramAccount(otherOrganization.id);
   });
 
-  function claim(organizationScope = organization, accountId = account.id) {
+  function claim(organizationScope = organization, accountId = account.channelAccountId) {
     return inOrganization(organizationScope, () =>
       repository.claimOldestWaitingEvent({
         organizationId: organizationScope.id,
-        instagramAccountId: accountId,
+        channelAccountId: accountId,
         maxProcessingAttempts: MAX_ATTEMPTS,
         claimLeaseMinutes: LEASE_MINUTES,
       }),
@@ -87,11 +89,11 @@ describe('InstagramWebhookEventRepository (database)', () => {
       const inserted = await inOrganization(organization, () =>
         repository.insertEvents({
           organizationId: organization.id,
-          instagramAccountId: account.id,
+          channelAccountId: account.channelAccountId,
           requestId: 'req-1',
           events: [
             newEvent(),
-            newEvent({ eventKind: 'echo', eventKey: 'echo:mid-1', skipReason: 'echo' }),
+            newEvent({ eventKey: 'comment:18000000000000002', skipReason: 'own_comment' }),
           ],
         }),
       );
@@ -106,36 +108,40 @@ describe('InstagramWebhookEventRepository (database)', () => {
         attempt_count: 0,
         request_id: 'req-1',
         organization_id: organization.id,
-        instagram_account_id: account.id,
+        channel_account_id: account.channelAccountId,
       });
-      expect(skipped).toMatchObject({ status: 'skipped', skip_reason: 'echo' });
+      expect(skipped).toMatchObject({
+        status: 'skipped',
+        skip_reason: 'own_comment',
+        payload: null,
+      });
       expect(skipped?.processed_at).toBeInstanceOf(Date);
     });
 
-    it('stores a repeat delivery once: the second insert returns nothing new', async () => {
+    it('inserts every event it is given — the repeat guard is the key table (WH20)', async () => {
       const store = () =>
         inOrganization(organization, () =>
           repository.insertEvents({
             organizationId: organization.id,
-            instagramAccountId: account.id,
+            channelAccountId: account.channelAccountId,
             requestId: null,
             events: [newEvent()],
           }),
         );
 
       expect(await store()).toHaveLength(1);
-      expect(await store()).toEqual([]);
+      expect(await store()).toHaveLength(1);
       const [row] = await operatorQuery<Array<{ count: number }>>`
         SELECT count(*)::int AS count FROM app.instagram_webhook_events
         WHERE organization_id = ${organization.id}`;
-      expect(row?.count).toBe(1);
+      expect(row?.count).toBe(2);
     });
 
     it('keys events per account: the same key on another account is another event', async () => {
       await inOrganization(organization, () =>
         repository.insertEvents({
           organizationId: organization.id,
-          instagramAccountId: account.id,
+          channelAccountId: account.channelAccountId,
           requestId: null,
           events: [newEvent()],
         }),
@@ -143,7 +149,7 @@ describe('InstagramWebhookEventRepository (database)', () => {
       const other = await inOrganization(otherOrganization, () =>
         repository.insertEvents({
           organizationId: otherOrganization.id,
-          instagramAccountId: otherAccount.id,
+          channelAccountId: otherAccount.channelAccountId,
           requestId: null,
           events: [newEvent({ instagramUserId: otherAccount.instagramUserId })],
         }),
@@ -157,7 +163,7 @@ describe('InstagramWebhookEventRepository (database)', () => {
         inOrganization(organization, () =>
           repository.insertEvents({
             organizationId: organization.id,
-            instagramAccountId: otherAccount.id,
+            channelAccountId: otherAccount.channelAccountId,
             requestId: null,
             events: [newEvent()],
           }),
@@ -169,7 +175,7 @@ describe('InstagramWebhookEventRepository (database)', () => {
       const inserted = await inOrganization(organization, () =>
         repository.insertEvents({
           organizationId: organization.id,
-          instagramAccountId: account.id,
+          channelAccountId: account.channelAccountId,
           requestId: null,
           events: [],
         }),
@@ -193,7 +199,7 @@ describe('InstagramWebhookEventRepository (database)', () => {
       const turned = await inOrganization(organization, () =>
         repository.markQueued({
           organizationId: organization.id,
-          instagramAccountId: account.id,
+          channelAccountId: account.channelAccountId,
           eventIds: [received.id, skipped.id],
         }),
       );
@@ -287,8 +293,8 @@ describe('InstagramWebhookEventRepository (database)', () => {
         account: otherAccount,
       });
 
-      expect(await claim(organization, otherAccount.id)).toBeNull();
-      expect(await claim(otherOrganization, otherAccount.id)).not.toBeNull();
+      expect(await claim(organization, otherAccount.channelAccountId)).toBeNull();
+      expect(await claim(otherOrganization, otherAccount.channelAccountId)).not.toBeNull();
     });
   });
 
@@ -298,7 +304,7 @@ describe('InstagramWebhookEventRepository (database)', () => {
       if (result === null) throw new Error('nothing claimed');
       return {
         organizationId: organization.id,
-        instagramAccountId: account.id,
+        channelAccountId: account.channelAccountId,
         eventId: result.event.id,
         claimedAttemptCount: result.event.attempt_count,
       };
@@ -308,16 +314,18 @@ describe('InstagramWebhookEventRepository (database)', () => {
       await insertTestInstagramWebhookEvent({ organizationId: organization.id, account });
     });
 
-    it('marks a claimed event processed', async () => {
+    it('marks a claimed event processed and clears its body (WH22)', async () => {
       const key = await claimedKey();
+      expect((await readTestInstagramWebhookEvent(key.eventId))?.payload).not.toBeNull();
 
       expect(await inOrganization(organization, () => repository.markProcessed(key))).toBe(true);
       const row = await readTestInstagramWebhookEvent(key.eventId);
       expect(row?.status).toBe('processed');
       expect(row?.processed_at).toBeInstanceOf(Date);
+      expect(row?.payload).toBeNull();
     });
 
-    it('marks a claimed event skipped with its reason', async () => {
+    it('marks a claimed event skipped with its reason and clears its body (WH22)', async () => {
       const key = await claimedKey();
 
       expect(
@@ -328,10 +336,11 @@ describe('InstagramWebhookEventRepository (database)', () => {
       expect(await readTestInstagramWebhookEvent(key.eventId)).toMatchObject({
         status: 'skipped',
         skip_reason: 'automation_disabled',
+        payload: null,
       });
     });
 
-    it('marks a claimed event failed with a code, cut to 2000 characters', async () => {
+    it('marks a claimed event failed with a code, cut to 2000 characters — its body kept', async () => {
       const key = await claimedKey();
 
       await inOrganization(organization, () =>
@@ -340,6 +349,7 @@ describe('InstagramWebhookEventRepository (database)', () => {
       const row = await readTestInstagramWebhookEvent(key.eventId);
       expect(row?.status).toBe('failed');
       expect(row?.error_message).toHaveLength(2000);
+      expect(row?.payload).not.toBeNull();
     });
 
     it('changes nothing once another run took the claim over (the attempt count moved on)', async () => {

@@ -28,7 +28,6 @@
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": 200,
   "GET /api/v1/app/social/instagram/accounts/:channel_account_id/media": 200,
   "GET /api/v1/app/social/instagram/accounts/:channel_account_id/stories": 200,
-  "GET /api/v1/app/social/instagram/webhook": 200,
   "GET /api/v1/app/social/instagram/webhook-events": 200,
   "GET /api/v1/audit/logs": 200,
   "GET /api/v1/auth/me/auth-methods": 200,
@@ -103,7 +102,6 @@
   "POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts": 200,
   "POST /api/v1/app/social/channel-connections/:provider/data-deletion": 200,
   "POST /api/v1/app/social/channel-connections/:provider/deauthorize": 200,
-  "POST /api/v1/app/social/instagram/webhook": 200,
   "POST /api/v1/app/automations": 200,
   "POST /api/v1/auth/email/login": 200,
   "POST /api/v1/auth/email/send-code": 200,
@@ -165,5 +163,11 @@
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": 200,
   "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": 200,
   "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": 200,
-  "POST /api/v1/billing/payment-methods/:payment_method_id/default": 200
+  "POST /api/v1/billing/payment-methods/:payment_method_id/default": 200,
+  "GET /api/v1/app/social/channel-connections/meta/webhooks/instagram": 200,
+  "GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status": 200,
+  "GET /api/v1/app/usage": 200,
+  "POST /api/v1/app/social/channel-connections/meta/webhooks/instagram": 200,
+  "POST /api/v1/auth/email/confirm": 200,
+  "POST /api/v1/users/me/email-confirmation": 200
 }

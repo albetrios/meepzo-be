@@ -8,7 +8,7 @@ import { dirname, resolve } from 'node:path';
  * `captchaPreHandler` that every other public credential endpoint has.
  *
  * The `mfa_session_token` is single-use (`GETDEL`) so per-email rate-limiting
- * is already enforced at `POST /auth/login` (which mints the token). Captcha
+ * is already enforced at the first factor that mints the token (`POST /auth/email/login`). Captcha
  * adds a second friction layer against automated TOTP guessing from accumulated
  * tokens without requiring the bot to re-solve per brute-force attempt.
  *

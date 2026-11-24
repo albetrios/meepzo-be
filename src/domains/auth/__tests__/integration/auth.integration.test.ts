@@ -1,17 +1,11 @@
-import { createHash } from 'node:crypto';
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { redisConnection } from '@/infrastructure/cache/redis.client.js';
-import { IP_FAILED_LOGIN_THRESHOLD } from '@/shared/constants/index.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import {
-  injectAuthenticated,
-  injectUnauthenticated,
-  injectRoute,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated, injectRoute } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { eq } from 'drizzle-orm';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { users } from '@/domains/user/user.schema.js';
 import {
@@ -22,8 +16,6 @@ import {
 import { env } from '@/shared/config/env.config.js';
 import esSuccess from '@/shared/locales/es/success.json' with { type: 'json' };
 import type { FastifyInstance } from 'fastify';
-
-const AUTH_LOGIN_PATH = '/auth/login';
 
 /**
  * Domain integration — **canonical for what comes back through the routes**.
@@ -59,65 +51,15 @@ describe('Auth Domain — Response contract (integration)', () => {
 
   // ─── Per-IP failed-login throttle ─────────────────────────────
 
-  describe('POST /api/v1/auth/login — per-IP failed-login throttle', () => {
-    // A TEST-NET-3 address of its own, so a seeded counter never throttles the loopback address
-    // every other suite logs in from.
-    const throttledIp = '203.0.113.77';
-    const counterKey = `auth:failed_login:ip:${createHash('sha256').update(throttledIp).digest('hex')}`;
-
-    afterEach(async () => {
-      await redisConnection.del(counterKey);
-    });
-
-    async function loginFromThrottledIp(failuresSoFar: number) {
-      await redisConnection.set(counterKey, String(failuresSoFar), 'EX', 600);
-      const { user, password } = await createTestUserWithPassword();
-      return app.inject({
-        method: 'POST',
-        url: testApiPath(AUTH_LOGIN_PATH),
-        remoteAddress: throttledIp,
-        headers: { 'content-type': 'application/json', 'accept-language': 'en' },
-        payload: { email: user.email, password },
-      });
-    }
-
-    it('answers 429 rate_limited with Retry-After at the threshold, even for valid credentials', async () => {
-      const response = await loginFromThrottledIp(IP_FAILED_LOGIN_THRESHOLD);
-
-      expect(response.statusCode).toBe(429);
-      const retryAfter = Number(response.headers['retry-after']);
-      expect(retryAfter).toBeGreaterThan(0);
-      expect(retryAfter).toBeLessThanOrEqual(600);
-      expect(response.json().error).toMatchObject({
-        type: 'request_error',
-        code: 'rate_limited',
-        detail: 'Too many requests',
-      });
-    });
-
-    it('still signs in one failure below the threshold', async () => {
-      const response = await loginFromThrottledIp(IP_FAILED_LOGIN_THRESHOLD - 1);
-
-      expect(response.statusCode).toBe(200);
-      expect(response.json().data.access_token).toEqual(expect.any(String));
-    });
-  });
-
-  // ─── Login envelope ───────────────────────────────────────────
-
-  describe('POST /api/v1/auth/login — MFA challenge envelope', () => {
+  describe('POST /api/v1/auth/email/login — MFA challenge envelope', () => {
     it('should return mfa_required without access_token when MFA is enabled', async () => {
-      const { user, password } = await createTestUserWithPassword();
+      const user = await createTestUser();
       await getOperatorDatabase()
         .update(users)
         .set({ is_mfa_enabled: true })
         .where(eq(users.public_id, user.public_id));
 
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath(AUTH_LOGIN_PATH),
-        payload: { email: user.email, password },
-      });
+      const response = await signInWithEmailCode(app, { email: user.email });
       expect(response.statusCode).toBe(200);
       const data = (response.json() as { data: Record<string, unknown> }).data;
       expect(data.mfa_required).toBe(true);
@@ -132,17 +74,13 @@ describe('Auth Domain — Response contract (integration)', () => {
     });
 
     it('should return 401 on refresh when login stopped at MFA and no session cookie was set', async () => {
-      const { user, password } = await createTestUserWithPassword();
+      const user = await createTestUser();
       await getOperatorDatabase()
         .update(users)
         .set({ is_mfa_enabled: true })
         .where(eq(users.public_id, user.public_id));
 
-      const loginResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath(AUTH_LOGIN_PATH),
-        payload: { email: user.email, password },
-      });
+      const loginResponse = await signInWithEmailCode(app, { email: user.email });
       expect(loginResponse.statusCode).toBe(200);
 
       const refreshResponse = await app.inject({
@@ -190,12 +128,8 @@ describe('Auth Domain — Response contract (integration)', () => {
     }
 
     async function loginAndGetResponseHeaders() {
-      const { user, password } = await createTestUserWithPassword();
-      const loginResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath(AUTH_LOGIN_PATH),
-        payload: { email: user.email, password },
-      });
+      const user = await createTestUser();
+      const loginResponse = await signInWithEmailCode(app, { email: user.email });
       expect(loginResponse.statusCode).toBe(200);
       return loginResponse.headers;
     }
@@ -351,12 +285,8 @@ describe('Auth Domain — Response contract (integration)', () => {
     });
 
     it('should return 401 when the session cookie is replayed after logout', async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const loginResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath(AUTH_LOGIN_PATH),
-        payload: { email: user.email, password },
-      });
+      const user = await createTestUser();
+      const loginResponse = await signInWithEmailCode(app, { email: user.email });
       expect(loginResponse.statusCode).toBe(200);
       const cookieHeader = authCookieHeaderFromLoginResponse(loginResponse.headers);
       const accessToken = (loginResponse.json() as { data: { access_token: string } }).data

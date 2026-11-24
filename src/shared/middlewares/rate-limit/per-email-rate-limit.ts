@@ -3,8 +3,8 @@ import { STRICT_PUBLIC_PER_EMAIL_RATE_LIMIT_OPTIONS } from '@/shared/middlewares
 import { refuseRateLimitedRequest } from '@/shared/middlewares/rate-limit/rate-limit-refusal.js';
 
 /**
- * Builds the per-email `preHandler` for the public credential and outbound-email routes (login,
- * send-code, forgot-password, passkey options): 5 requests per 15 minutes per normalized email in
+ * Builds the per-email `preHandler` for the public credential and outbound-email routes (email
+ * send-code, passkey options): 5 requests per 15 minutes per normalized email in
  * production, whatever address they come from.
  *
  * @remarks

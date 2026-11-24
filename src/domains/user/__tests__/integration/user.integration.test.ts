@@ -592,7 +592,7 @@ describe('User Domain — Integration', () => {
         token: token,
       });
       expect(response.statusCode, response.body).toBe(200);
-      expect(Array.isArray((response.json() as { data: unknown }).data)).toBe(true);
+      expect((response.json() as { data: { kinds: unknown[] } }).data.kinds).toHaveLength(7);
     });
   });
 

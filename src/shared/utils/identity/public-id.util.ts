@@ -37,6 +37,11 @@ export const PUBLIC_ID_PREFIXES = {
    * feat-instagram-dm-sending MC1; prefix chosen at kickoff, P22).
    */
   channelConnection: 'chc',
+  /**
+   * One connected inbox of an organization, whatever its channel (`app.channel_accounts`,
+   * feat-instagram-dm-sending CA1; prefix chosen at kickoff, P22).
+   */
+  channelAccount: 'cha',
   /** The organization's connected Instagram account (`app.instagram_accounts`, IA1). */
   instagramAccount: 'iga',
   /** One Instagram user who interacted with one of the organization's Instagram accounts (`app.contacts`, CT1). */
@@ -130,6 +135,7 @@ export const PARAM_NAME_TO_ENTITY = {
   contact_id: 'contact',
   automation_id: 'automation',
   channel_connection_id: 'channelConnection',
+  channel_account_id: 'channelAccount',
 } as const satisfies Record<string, PublicIdEntity>;
 
 /** Deterministic placeholder id for an entity (valid shape, never a real row). */

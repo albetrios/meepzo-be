@@ -72,7 +72,7 @@ Bounded contexts live under [src/domains/](src/domains/). Each domain owns its r
 | --- | --- | --- |
 | [app](src/domains/app/) | `/api/v1/app` | Instagram automation: a team's connected Instagram account, its comment / DM / story-reply automations and their contacts (Postgres schema `app`). The Instagram account sub-domain (connect, read, disconnect; its token kept encrypted), contacts, the automations (list, create, read, edit, delete; the "next post" expiry) and the stored webhook events are built; the run engine and the webhook receiver land with launch-2026-11-20-ujai. |
 | [audit](src/domains/audit/) | `/api/v1/audit` | Append-only audit log of security- and governance-relevant actions (`audit-emission` pattern). Read API is global-admin only. |
-| [auth](src/domains/auth/) | `/api/v1/auth` | Authentication: passwords (argon2id), email verification-code login, OAuth, MFA (TOTP), WebAuthn, sessions. Issues short-lived JWTs and Origin-checked session cookies. |
+| [auth](src/domains/auth/) | `/api/v1/auth` | Authentication with no passwords (P84): email verification-code login, OAuth, MFA (TOTP), WebAuthn, sessions. Issues short-lived JWTs and Origin-checked session cookies. |
 | [billing](src/domains/billing/) | `/api/v1/billing` | Plans, subscriptions, and the Stripe integration. Stripe is authoritative; webhooks reconcile state via the `subscription-change-flow` and `dunning-flow`. |
 | [notify](src/domains/notify/) | `/api/v1/notify` | In-app notifications and outbound webhook delivery to customer endpoints (transactional outbox + retries + DLQ). |
 | [tenancy](src/domains/tenancy/) | `/api/v1/tenancy` | Organizations, memberships, member roles + permissions, invitations, organization API keys. Owner of `tenant-isolation` enforcement. |
@@ -99,7 +99,7 @@ These patterns are implemented identically across the codebase. See [src/PATTERN
 Top user journeys that touch more than one domain. Full sequence diagrams and failure modes in [src/FLOWS.md](src/FLOWS.md).
 
 - **`signup-flow`** — email verification-code sign-up across `auth` (verification token, JWT issuance) → `notify`/mail (delivery) → `user` (profile materialization).
-- **`login-flow`** — password + optional MFA across `auth` (challenge, lockout) → audit (`audit-emission`).
+- **`login-flow`** — a first factor (email code, OAuth, passkey) + optional MFA across `auth` (challenge) → audit (`audit-emission`).
 - **`organization-invitation-flow`** — admin invites teammate across `tenancy` (membership materialization) → `notify`/mail → `auth` (signup-flow for new users).
 - **`organization-switch-and-capability-discovery-flow`** — active-organization switch across `auth` (`switch-to-organization` / `switch-to-personal`, `org`-claim JWT re-issue) → `tenancy` (membership check, capability discovery).
 - **`subscription-change-flow`** — Stripe webhook reconciliation across `billing` (subscription state) → `notify` (in-app + email) → `audit`.
@@ -120,7 +120,7 @@ Deliberate business, UX, and security trade-offs encoded as constants. Full rati
 
 - **`VERIFICATION_CODE_TTL_MINUTES = 15`** — security/UX trade-off on the verification-token replay window.
 - **`ACCESS_TOKEN_EXPIRY_SECONDS = 900`** — short JWT lifetime; refresh via Origin-checked session cookie.
-- **`MAX_FAILED_LOGIN_ATTEMPTS = 10` / `ACCOUNT_LOCKOUT_MINUTES = 30`** — credential-stuffing deterrent.
+- **`VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS = 5` / `EMAIL_CODE_WRONG_TRIES_PER_DAY = 20`** — email-code guessing deterrent (per code, per email per day).
 - **`IDEMPOTENCY_RESPONSE_CACHE_TTL_SECONDS = 86 400`** — mirrors Stripe's 24 h replay window.
 - **`PERMISSION_CACHE_DEFAULT_TTL_SECONDS = 300`** — safety net for cross-process permission-cache invalidation.
 - **`NOTIFICATION_UNREAD_COUNT_CACHE_TTL_SECONDS = 60`** — backstop on the polled unread badge, for the two writers that cannot name a user.

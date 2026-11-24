@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,7 +20,6 @@ import {
   readRunRow,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   buildInstagramProfile,
   createInstagramTeam,
   connectInstagramAccount,
@@ -245,7 +245,7 @@ describe('Instagram account — the organization is deleted', () => {
       (
         await injectAuthenticated(app, {
           method: 'DELETE',
-          url: INSTAGRAM_ACCOUNT_PATH,
+          url: await organizationChannelAccountPath(team.organization.id),
           token: team.ownerToken,
         })
       ).statusCode,

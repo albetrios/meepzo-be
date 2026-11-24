@@ -1,10 +1,10 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import { injectUnauthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUser, createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import {
   provisionOrganizationWithOwner,
   provisionPersonalOrganization,
@@ -40,12 +40,8 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
     return (JSON.parse(json) as { org?: string }).org;
   }
 
-  async function login({ email, password }: { email: string; password: string }) {
-    const response = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email, password },
-    });
+  async function login({ email }: { email: string }) {
+    const response = await signInWithEmailCode(app, { email });
     expect(response.statusCode, response.body).toBe(200);
     return (response.json() as { data: { access_token: string } }).data.access_token;
   }
@@ -76,12 +72,12 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
   }
 
   it('pins an organization, reports it, opens it at the next login, and null returns to the organization used last', async () => {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
     await provisionPersonalOrganization({ ownerUserId: user.id });
     const pinned = await createTeamOrganization({ ownerUserId: user.id, name: 'Pinned' });
     const other = await createTeamOrganization({ ownerUserId: user.id, name: 'Other' });
 
-    const token = await login({ email: user.email, password });
+    const token = await login({ email: user.email });
     const switched = await app.inject({
       method: 'POST',
       url: testApiPath('/auth/switch-to-organization'),
@@ -112,9 +108,9 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
     ).toBe(pinned.public_id);
 
     // The organization last switched to is `other`; the pin wins.
-    expect(decodeOrgClaim(await login({ email: user.email, password }))).toBe(pinned.public_id);
+    expect(decodeOrgClaim(await login({ email: user.email }))).toBe(pinned.public_id);
 
-    const nextToken = await login({ email: user.email, password });
+    const nextToken = await login({ email: user.email });
     const cleared = await patchSettings({
       accessToken: nextToken,
       body: { default_organization_id: null },
@@ -124,16 +120,16 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
       (cleared.json() as { data: { default_organization_id: string | null } }).data
         .default_organization_id,
     ).toBeNull();
-    expect(decodeOrgClaim(await login({ email: user.email, password }))).toBe(other.public_id);
+    expect(decodeOrgClaim(await login({ email: user.email }))).toBe(other.public_id);
   });
 
   it("answers 422 default_organization_unavailable for someone else's organization, a personal workspace or an unknown id", async () => {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
     const stranger = await createTestUser();
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
     await createTeamOrganization({ ownerUserId: user.id, name: 'Mine' });
     const theirs = await createTeamOrganization({ ownerUserId: stranger.id, name: 'Theirs' });
-    const token = await login({ email: user.email, password });
+    const token = await login({ email: user.email });
 
     for (const organizationPublicId of [
       theirs.public_id,
@@ -152,8 +148,8 @@ describe('PATCH /users/me/settings — default_organization_id', () => {
   });
 
   it('answers 400 for a blank default_organization_id', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const token = await login({ email: user.email, password });
+    const user = await createTestUser();
+    const token = await login({ email: user.email });
 
     const response = await patchSettings({
       accessToken: token,

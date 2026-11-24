@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -21,7 +22,6 @@ import {
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   buildInstagramProfile,
   createInstagramTeam,
   connectInstagramAccount,
@@ -129,12 +129,12 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     profile: TestInstagramProfile;
     fixture?: InstagramTeamFixture;
   }): Promise<string> {
-    const { account } = await connectInstagramAccount({
+    const { instagramAccountPublicId } = await connectInstagramAccount({
       app,
       token: fixture.ownerToken,
       profile,
     });
-    return account.id;
+    return instagramAccountPublicId;
   }
 
   /** Disconnects `fixture`'s account through route 4. */
@@ -148,7 +148,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
     const response = await injectAuthenticated(app, {
       method: 'DELETE',
-      url: INSTAGRAM_ACCOUNT_PATH,
+      url: await organizationChannelAccountPath(fixture.organization.id),
       token: fixture.ownerToken,
     });
     expect(response.statusCode).toBe(204);

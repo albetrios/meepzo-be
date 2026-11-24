@@ -16,7 +16,7 @@ import { checkStatus } from '../helpers/checks.js';
  * final refresh MUST come back 401 — a load-visible proof that logout actually
  * revokes, not just deletes a cookie client-side.
  *
- * Credentials via `DEMO_EMAIL` / `DEMO_PASSWORD` (same defaults as login-smoke).
+ * Signs `DEMO_EMAIL` in by email code (the TEST_MODE echo — passwords are off, P84).
  */
 export const options = {
   scenarios: {
@@ -43,21 +43,26 @@ export const options = {
 };
 
 export function setup() {
-  if (!(__ENV.DEMO_EMAIL && __ENV.DEMO_PASSWORD)) {
-    throw new Error('Session journey requires explicit DEMO_EMAIL and DEMO_PASSWORD');
+  if (!__ENV.DEMO_EMAIL) {
+    throw new Error('Session journey requires an explicit DEMO_EMAIL');
   }
 }
 
 export function sessionRefreshJourney() {
   const email = __ENV.DEMO_EMAIL;
-  const password = __ENV.DEMO_PASSWORD;
 
-  // 1) Login — sets the httpOnly session cookie + readable csrf_token cookie
+  // 1) Sign in by email code — sets the httpOnly session cookie + readable csrf_token cookie
   //    in this VU's jar and returns the short-lived Bearer token.
-  const loginResponse = http.post(`${API_PREFIX}/auth/login`, JSON.stringify({ email, password }), {
+  const sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
     headers: PUBLIC_AUTH_FORM_HEADERS,
-    tags: { name: 'session-journey-login' },
+    tags: { name: 'session-journey-send-code' },
   });
+  const code = sent.status === 200 ? JSON.parse(sent.body).data?.debug_verification_code : null;
+  const loginResponse = http.post(
+    `${API_PREFIX}/auth/email/login`,
+    JSON.stringify({ email, code }),
+    { headers: PUBLIC_AUTH_FORM_HEADERS, tags: { name: 'session-journey-login' } },
+  );
   checkStatus(loginResponse, 200, 'session-journey login');
   if (loginResponse.status !== 200) fail('Session journey login failed');
   const accessToken = JSON.parse(loginResponse.body).data?.access_token;

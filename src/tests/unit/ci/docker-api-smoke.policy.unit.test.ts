@@ -67,12 +67,16 @@ describe('post-merge API smoke against the built image', () => {
     }
   });
 
-  it('signs the smoke in as the account the seed creates', () => {
+  it('signs the smoke in as the account the seed creates, by email code (TEST_MODE container)', () => {
     const account = (step: string): string[] =>
       (dockerSteps.get(step) ?? '').match(/DEMO_(?:EMAIL|PASSWORD): .+/g) ?? [];
     const seeded = account('Seed the full demo data for the API smoke');
-    expect(seeded).toHaveLength(2);
+    // Passwords are off (P84): the account is its email; the container echoes the code (TEST_MODE).
+    expect(seeded).toEqual(['DEMO_EMAIL: demo@example.com']);
     expect(account('API smoke against the container')).toEqual(seeded);
+    expect(readFileSync(join(WORKFLOWS, 'reusable-docker-build-trivy.yml'), 'utf8')).toMatch(
+      /-e TEST_MODE=true/,
+    );
   });
 
   it('runs on post-merge only, with the dependencies the checkout needs', () => {

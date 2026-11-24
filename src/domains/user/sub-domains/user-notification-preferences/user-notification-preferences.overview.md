@@ -6,25 +6,37 @@ Parent: [user](../../user.overview.md)
 
 ## Purpose
 
-Per-user opt-in / opt-out for the notification + email channels. The platform respects these preferences at fan-out time — a notification handler that would have produced a row for a user who has opted out of the channel is a no-op.
+A person's notification choices per **kind × channel** (feat-instagram-dm-sending UN9, UN10, P87):
+`GET /users/me/notification-preferences` (route 135) answers the seven kinds of `NOTIFICATION_KINDS`
+(`src/shared/constants/notification.constants.ts`) — automation problem, direct message limit,
+contact details left, team change, billing, weekly summary, broadcast or past comments done — each
+with its types and its `EMAIL`, `IN_APP`, `WEB_PUSH` channels (`is_enabled`, `is_default`,
+`is_locked`). `PUT` (route 136) saves 1–21 `{ kind, channel, is_enabled }` items. The notify dispatch
+reads the same rows before each send (`notification-dispatch.service.ts`, UN11).
 
 ## Key invariants
 
-- **Default-on for transactional channels**: security-relevant notifications (login alerts, MFA enrolment, password change) ignore the preference and always deliver. Marketing / promotional channels are opt-out and respect the preference.
-- **One row per user**: missing row implies platform defaults (which are channel-aware as above).
-- **Granularity is per-channel × per-event-class**: the schema lets a user opt out of "billing notifications via email" but keep "billing notifications in-app".
+- **Stored per type, spoken per kind**: one `auth.user_notification_preferences` row per
+  `(user, notification_type, channel)` (unique natural key, the upsert target); a save writes the row
+  of every type of the kind in one transaction. Only the items sent change.
+- **A missing row is the kind's default** (D54): email off for contact details left and for broadcast
+  or past comments done, in-app off for the weekly summary, push off everywhere ("soon" — saved, never
+  sent yet).
+- **One rule for read and send**: `resolveNotificationKindChannel` — a locked channel is on; else the
+  kind's stored rows (all must be on); else the default.
+- **Always sent, never in the grid**: billing email (`is_locked`), `security.alert` and the other types
+  in no kind; the organization's mute (`tenancy.organization_notification_policies`) still wins.
 
 ## Lifecycle
 
 ```mermaid
 stateDiagram-v2
-  [*] --> default: user has no row → platform defaults apply
-  default --> customized: PATCH /users/me/notification-preferences
-  customized --> customized: subsequent PATCH
-  customized --> default: explicit reset
+  [*] --> default: no row → the kind's default
+  default --> chosen: PUT /users/me/notification-preferences (rows for every type of the kind)
+  chosen --> chosen: a later PUT of the same kind × channel (upsert)
 ```
 
 ## Failure modes
 
-- **Attempt to opt out of a transactional channel** → 400; UI should hide the toggle for those channels.
-- **Unknown channel or event-class key** → 400.
+- **Billing email set off** → `422` with reason `notification_preference_locked`; nothing is written.
+- **Empty list, over 21 items, a repeated kind × channel, an unknown kind or channel (`SMS`)** → `400`.

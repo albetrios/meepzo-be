@@ -5,12 +5,12 @@ import { deriveSecretsSubKey } from '@/shared/utils/security/secrets-sub-key.uti
 export const VERIFICATION_CODE_LENGTH = 6;
 
 /**
- * Alphanumeric alphabet a verification code is drawn from. Crockford-style: uppercase letters +
- * digits with the ambiguous glyphs `0 O 1 I L` removed so a code read off a screen and typed back
- * is unlikely to be transcribed wrong. 31 symbols → {@link VERIFICATION_CODE_LENGTH}=6 gives a
- * ~31^6 ≈ 887M keyspace (far larger than a 6-digit numeric OTP's 1e6).
+ * Alphabet a verification code is drawn from: digits only (AT6, plan:L7634) — six digits are typed on
+ * a phone keypad and read off an email without a letter/number mix-up. The 10^6 keyspace is guarded
+ * online by {@link VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS} per code, {@link EMAIL_CODE_WRONG_TRIES_PER_DAY}
+ * per email, the {@link VERIFICATION_CODE_TTL_MINUTES} lifetime and single-use consume.
  */
-export const VERIFICATION_CODE_CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const VERIFICATION_CODE_CHARSET = '0123456789';
 
 /** Minutes an issued verification code stays valid before it must be re-requested. */
 export const VERIFICATION_CODE_TTL_MINUTES = 15;
@@ -25,13 +25,23 @@ export const VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS = 5;
 /** Seconds a caller must wait between successive code resends for the same purpose (anti-spam). */
 export const VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS = 60;
 
+/**
+ * Wrong email-code sign-in tries one email may spend in {@link EMAIL_CODE_WRONG_TRIES_DAY_SECONDS}
+ * before `POST /auth/email/login` answers `429 code_day_limit` (AT8). Counted in Redis by the email's
+ * hash — it limits, it does not record; a successful sign-in clears it.
+ */
+export const EMAIL_CODE_WRONG_TRIES_PER_DAY = 20;
+
+/** Window of the {@link EMAIL_CODE_WRONG_TRIES_PER_DAY} counter: 24 hours, from its first wrong try. */
+export const EMAIL_CODE_WRONG_TRIES_DAY_SECONDS = 24 * 60 * 60;
+
 /** HMAC pepper for verification codes — a labelled sub-key of `SECRETS_ENCRYPTION_KEY`. */
 function verificationCodePepper(): Buffer {
   return deriveSecretsSubKey('verification-code-pepper');
 }
 
 /**
- * Generates a cryptographically-random alphanumeric verification code of
+ * Generates a cryptographically-random digits-only verification code of
  * {@link VERIFICATION_CODE_LENGTH} characters drawn from {@link VERIFICATION_CODE_CHARSET}.
  *
  * @remarks
@@ -40,7 +50,7 @@ function verificationCodePepper(): Buffer {
  * - **Side effects:** none.
  * - **Notes:** the raw code is emailed to the user and never persisted; only
  *   {@link hashVerificationCode} of it is stored. Guess-resistance comes from the large keyspace,
- *   short TTL, single-use consume, and per-user attempt cap.
+ *   short TTL, single-use consume, the per-code attempt cap and the per-email day limit.
  */
 export function generateVerificationCode(): string {
   let code = '';
@@ -52,14 +62,14 @@ export function generateVerificationCode(): string {
 
 /**
  * Normalizes a user-submitted verification code: trims surrounding whitespace, removes internal
- * spaces/hyphens (some clients chunk the code for readability), and uppercases it so input is
- * case-insensitive and matches the stored hash regardless of how the user typed it.
+ * spaces/hyphens (some clients chunk the code for readability), and uppercases it so a letter code
+ * issued before the digits-only change (AT6) still matches its stored hash until it expires.
  *
  * @remarks
  * - **Side effects:** none.
  * - **Notes:** generation only ever emits {@link VERIFICATION_CODE_CHARSET} characters, so a valid
  *   code is always in-charset after normalization; a transcription error simply fails to match and
- *   surfaces as the uniform "invalid or expired" rejection rather than a validation error.
+ *   surfaces as a `code_wrong` rejection rather than a validation error.
  */
 export function normalizeVerificationCode(raw: string): string {
   return raw.trim().replace(/[\s-]/g, '').toUpperCase();

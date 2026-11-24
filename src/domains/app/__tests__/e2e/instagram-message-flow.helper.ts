@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
@@ -40,7 +41,6 @@ import {
   readAccountContactRows,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
@@ -324,12 +324,14 @@ export class InstagramMessageFlow {
       profile,
     });
     expect(nock.pendingMocks()).toEqual([]);
-    const publicId = account.id;
+    // The Instagram row of the connected channel account (route 7 answers the `cha_` id, R5).
     const rows = await readInstagramAccountRows(this.team.organization.id);
-    const row = rows.find((candidate) => candidate.public_id === publicId);
+    const row = rows.find(
+      (candidate) => candidate.instagram_user_id === account.instagram.instagram_user_id,
+    );
     this.connectedAccount = {
       id: Number(row?.id),
-      publicId,
+      publicId: row?.public_id ?? '',
       instagramUserId: profile.user_id,
       instagramAppUserId: profile.id,
     };
@@ -338,7 +340,10 @@ export class InstagramMessageFlow {
   /** Disconnects the account (route 4). */
   async disconnect(): Promise<void> {
     mockInstagramUnsubscribe({ instagramAppUserId: this.account.instagramAppUserId });
-    const response = await this.asOwner({ method: 'DELETE', url: INSTAGRAM_ACCOUNT_PATH });
+    const response = await this.asOwner({
+      method: 'DELETE',
+      url: await organizationChannelAccountPath(this.team.organization.id),
+    });
     expect(response.statusCode).toBe(204);
   }
 

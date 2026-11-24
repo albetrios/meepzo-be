@@ -1,4 +1,4 @@
-import { MEMBERSHIP_STATUS } from './membership.constants.js';
+import { MEMBERSHIP_STATUS, type MembershipInviteResult } from './membership.constants.js';
 
 /**
  * The membership statuses that occupy a billable seat (REQ-4).
@@ -185,4 +185,49 @@ export interface CallerMembershipContext {
   /** The membership's public id (`mem_…`). */
   membership_id: string;
   roles: CallerRoleSummary[];
+}
+
+/**
+ * One address of an invite (route 117, § 9.C.6): the address as folded, what it came to, and the
+ * membership (`mem_…`) when `invited` or `already_member` (`null` otherwise). Outside production,
+ * with `MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED` on, an `invited` line also carries the raw accept
+ * token as `debug_invitation_token` (launch ROUTE #164).
+ */
+export interface MembershipInviteLine {
+  email: string;
+  result: MembershipInviteResult;
+  membership_id: string | null;
+  debug_invitation_token?: string;
+}
+
+/** `POST /tenancy/organization/memberships` answer (route 117): one line per address, in order. */
+export interface MembershipInviteOutput {
+  results: MembershipInviteLine[];
+  /** How many lines are `invited`. */
+  invited_count: number;
+}
+
+/** The members list's header counts (route 116, TN9): live members per main role, Owner first. */
+export interface MembershipRoleCount {
+  role_id: string;
+  name: string;
+  count: number;
+}
+
+/**
+ * One address of an invite, as `MembershipService.create` takes it: an address that already
+ * passed the email check, the roles (`role_ids`, main first) and the invitation's lifetime.
+ */
+export interface MembershipInviteeInput {
+  email: string;
+  role_ids: readonly string[];
+  /** Days until the invitation expires (1–365); 7 when absent. */
+  expires_in_days?: number | undefined;
+}
+
+/** What `MembershipService.invite` answers: the route's body and the memberships it invited. */
+export interface MembershipInviteResultWithInvited {
+  output: MembershipInviteOutput;
+  /** The memberships created or revived as `invited`, in order — one audit entry each. */
+  invited: MembershipOutput[];
 }

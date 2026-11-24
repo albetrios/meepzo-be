@@ -77,33 +77,78 @@ export const userSettingsExample = {
   analytics_consent_at: '2026-10-10T08:00:00.000Z',
 };
 
-// ── Notification Preference ──
-export const notificationPreferenceSchema = {
+// ── Notification Preferences (routes 135–136, feat-instagram-dm-sending UN10) ──
+const notificationPreferenceChannelSchema = {
   type: 'object',
   properties: {
-    notification_type: { type: 'string' },
     channel: {
       type: 'string',
-      enum: ['EMAIL', 'SMS', 'WEB_PUSH', 'IN_APP'],
-      description: 'Possible values: EMAIL | SMS | WEB_PUSH | IN_APP',
+      enum: ['EMAIL', 'IN_APP', 'WEB_PUSH'],
+      description: 'Possible values: EMAIL | IN_APP | WEB_PUSH',
       example: 'EMAIL',
     },
-    is_enabled: { type: 'boolean' },
+    is_enabled: { type: 'boolean', description: 'The effective value' },
+    is_default: { type: 'boolean', description: 'True while the person never chose one' },
+    is_locked: { type: 'boolean', description: 'Always on (billing email); cannot be set off' },
   },
 };
 
-export const notificationPreferenceExamples = [
-  {
-    notification_type: 'subscription.updated',
-    channel: 'EMAIL',
-    is_enabled: true,
+export const notificationPreferencesSchema = {
+  type: 'object',
+  properties: {
+    kinds: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          kind: {
+            type: 'string',
+            enum: [
+              'automation_problem',
+              'direct_message_limit',
+              'contact_details_left',
+              'team_change',
+              'billing',
+              'weekly_summary',
+              'broadcast_or_past_comments_done',
+            ],
+          },
+          types: { type: 'array', items: { type: 'string' } },
+          channels: { type: 'array', items: notificationPreferenceChannelSchema },
+        },
+      },
+    },
   },
-  {
-    notification_type: 'member.invited',
-    channel: 'WEB_PUSH',
-    is_enabled: false,
-  },
-];
+};
+
+export const notificationPreferencesExample = {
+  kinds: [
+    {
+      kind: 'contact_details_left',
+      types: ['contact.details_left'],
+      channels: [
+        { channel: 'EMAIL', is_enabled: false, is_default: true, is_locked: false },
+        { channel: 'IN_APP', is_enabled: true, is_default: true, is_locked: false },
+        { channel: 'WEB_PUSH', is_enabled: false, is_default: true, is_locked: false },
+      ],
+    },
+    {
+      kind: 'billing',
+      types: [
+        'billing.payment_failed',
+        'billing.payment_succeeded',
+        'subscription.updated',
+        'billing.trial_ending',
+        'billing.plan_choice_required',
+      ],
+      channels: [
+        { channel: 'EMAIL', is_enabled: true, is_default: true, is_locked: true },
+        { channel: 'IN_APP', is_enabled: false, is_default: false, is_locked: false },
+        { channel: 'WEB_PUSH', is_enabled: false, is_default: true, is_locked: false },
+      ],
+    },
+  ],
+};
 
 // ── Access Token ──
 export const accessTokenSchema = {
@@ -133,13 +178,15 @@ export const verificationCodeSentSchema = {
   type: 'object',
   properties: {
     message: { type: 'string' },
-    expires_in_minutes: { type: 'integer' },
+    resend_after_seconds: { type: 'integer' },
+    expires_in_seconds: { type: 'integer' },
   },
 };
 
 export const verificationCodeSentExample = {
   message: 'If an account exists with this email, you will receive a sign-in code shortly.',
-  expires_in_minutes: 15,
+  resend_after_seconds: 60,
+  expires_in_seconds: 900,
 };
 
 // ── Message ──
@@ -190,7 +237,7 @@ export const authMethodSchema = {
       enum: ['PASSWORD', 'EMAIL_CODE', 'OAUTH', 'MFA_TOTP', 'MFA_SMS', 'MFA_EMAIL'],
       description:
         'Possible values: PASSWORD | EMAIL_CODE | OAUTH | MFA_TOTP | MFA_SMS | MFA_EMAIL',
-      example: 'PASSWORD',
+      example: 'EMAIL_CODE',
     },
     provider: { type: 'string', nullable: true },
     is_primary: { type: 'boolean' },
@@ -200,7 +247,7 @@ export const authMethodSchema = {
 
 export const authMethodExample = {
   id: 'am_k7x9m2pqr4w8n1v3a5b6c',
-  method_type: 'PASSWORD',
+  method_type: 'EMAIL_CODE',
   provider: null,
   is_primary: true,
   verified_at: '2026-01-15T10:30:00.000Z',

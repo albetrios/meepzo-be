@@ -13,11 +13,10 @@ API (or from `pnpm db:seed:bulk`).
 | Field | Value |
 | ----- | ----- |
 | Email | `demo@example.com` |
-| Password | `DEMO_PASSWORD` (8+ characters). Unset → a random password that is never printed, so set it to log in |
+| Sign-in | No password (passwords are off, P84): sign in by email code — `POST /auth/email/send-code` echoes the code under TEST_MODE |
 
-The API smoke test (`pnpm test:api-smoke`) and the k6 auth scenario read the same `DEMO_EMAIL` /
-`DEMO_PASSWORD` and default to `demo@example.com` / `DemoPassword123!` — seed with
-`DEMO_PASSWORD=DemoPassword123! pnpm db:seed:full` to match them.
+The API smoke test (`pnpm test:api-smoke`) and the k6 auth scenario read the same `DEMO_EMAIL`
+(default `demo@example.com`) and sign it in by email code against a server running with TEST_MODE.
 
 ## Demo organization
 

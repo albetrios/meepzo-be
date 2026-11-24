@@ -5,8 +5,8 @@
  * Prerequisites:
  * - `docker compose up -d` (Postgres + Redis for migrate, seed, and server)
  * - Optional: `pnpm compose:wait` after compose up so Postgres is ready before migrate.
- * - Set `DEMO_PASSWORD` in `.env` to match smoke defaults (e.g. DemoPassword123!),
- *   otherwise full seed may generate a random demo password and login will fail.
+ * - The smoke signs the demo user in by email code (passwords are off, P84): the server runs with
+ *   TEST_MODE so send-code echoes the code.
  *
  * Usage: pnpm verify:base
  * Verbose server logs: VERIFY_BASE_VERBOSE=1 pnpm verify:base

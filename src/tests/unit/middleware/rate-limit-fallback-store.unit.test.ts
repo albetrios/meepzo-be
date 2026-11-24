@@ -78,7 +78,7 @@ describe('createRedisFallbackRateLimitStore', () => {
       incr: Parameters<typeof incrAsync>[0]['incr'];
       child: (options: { routeInfo: { method: string; url: string } }) => never;
     };
-    const child = store.child({ routeInfo: { method: 'POST', url: '/auth/login' } });
+    const child = store.child({ routeInfo: { method: 'POST', url: '/auth/email/login' } });
 
     const parentHit = await incrAsync(store, 'ip', 1000, 5);
     const childHit = await incrAsync(child as never, 'ip', 1000, 5);

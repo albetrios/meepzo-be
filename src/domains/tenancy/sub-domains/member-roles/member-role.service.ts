@@ -200,12 +200,23 @@ export class MemberRoleService {
     organization_id: number;
     role_internal_id: number;
   }): Promise<string> {
-    const role = await this.memberRoleRepository.findByInternalId(
-      role_internal_id,
-      organization_id,
-    );
+    const role = await this.findRoleRecordByInternalId({ organization_id, role_internal_id });
     if (!role) throw new NotFoundError('Role');
     return role.public_id;
+  }
+
+  /**
+   * The organization's live role with this internal id, or null — the role names of a
+   * membership notice (UN8). MUST run inside the organization's context.
+   */
+  async findRoleRecordByInternalId({
+    organization_id,
+    role_internal_id,
+  }: {
+    organization_id: number;
+    role_internal_id: number;
+  }): Promise<MemberRoleRow | null> {
+    return this.memberRoleRepository.findByInternalId(role_internal_id, organization_id);
   }
 
   async resolveRolePublicIdByInternalId({

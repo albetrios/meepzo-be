@@ -6,8 +6,8 @@
  *           pnpm dev + pnpm dev:worker
  *
  * Usage: pnpm test:api-smoke
- * Env: BASE_URL (default http://localhost:3000), DEMO_EMAIL, DEMO_PASSWORD
- * Deploy CD sets BASE_URL from Railway API domain; optional GitHub secrets SMOKE_DEMO_EMAIL / SMOKE_DEMO_PASSWORD
+ * Env: BASE_URL (default http://localhost:3000), DEMO_EMAIL. Signs in by email code (passwords are
+ * off, P84), so the server must run with TEST_MODE — send-code then echoes the code.
  */
 import '@/shared/config/load-env-files.js';
 import { decodeJwt } from 'jose';
@@ -25,7 +25,6 @@ import {
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000';
 const API_PREFIX = '/api/v1';
 const EMAIL = process.env.DEMO_EMAIL ?? 'demo@example.com';
-const PASSWORD = process.env.DEMO_PASSWORD ?? 'DemoPassword123!';
 
 /** Acceptable HTTP statuses (route reachable, auth/validation handled). */
 type ExpectedStatus = number | number[];
@@ -146,8 +145,8 @@ function notifyPath(suffix: string): string {
 /**
  * Dev-only CAPTCHA bypass, sent on every request so the public auth forms (login, email send-code)
  * reach their real handling when the API enforces CAPTCHA locally (`pnpm setup:local
- * --with-captcha`, which also sets CAPTCHA_BYPASS_ALLOWED=true) — without it the invalid-password
- * probe would pass on a CAPTCHA 401 instead of the credential check. Ignored when CAPTCHA is off or
+ * --with-captcha`, which also sets CAPTCHA_BYPASS_ALLOWED=true) — without it the wrong-code
+ * probe would pass on a CAPTCHA 401 instead of the code check. Ignored when CAPTCHA is off or
  * the bypass is not allowed, and production refuses it.
  */
 const CAPTCHA_BYPASS_HEADERS = { 'X-Captcha-Bypass': 'true' } as const;
@@ -176,18 +175,32 @@ async function runProbe(probe: RouteProbe): Promise<void> {
 }
 
 async function setupLogin(): Promise<void> {
-  const { body } = await requestJson({
-    path: `${API_PREFIX}/auth/login`,
+  const { body: sentBody } = await requestJson({
+    path: `${API_PREFIX}/auth/email/send-code`,
     options: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...CAPTCHA_BYPASS_HEADERS },
-      body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+      body: JSON.stringify({ email: EMAIL }),
+      expectedStatus: 200,
+    },
+  });
+  const code = (sentBody as { data?: { debug_verification_code?: string } }).data
+    ?.debug_verification_code;
+  if (!code) {
+    throw new Error('login: send-code echoed no code — the server needs TEST_MODE');
+  }
+  const { body } = await requestJson({
+    path: `${API_PREFIX}/auth/email/login`,
+    options: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...CAPTCHA_BYPASS_HEADERS },
+      body: JSON.stringify({ email: EMAIL, code }),
       expectedStatus: 200,
     },
   });
   const payload = body as { data?: { access_token?: string } };
   if (!payload.data?.access_token) {
-    throw new Error('login: missing access_token — run pnpm db:seed:full with DEMO_PASSWORD');
+    throw new Error('login: missing access_token — run pnpm db:seed:full');
   }
   smokeContext.accessToken = payload.data.access_token;
 }
@@ -273,11 +286,11 @@ function buildDomainProbes(): RouteProbe[] {
   const probes = [
     // ── Public ────────────────────────────────────────────────────────
     {
-      name: 'POST /api/v1/auth/login (invalid password)',
+      name: 'POST /api/v1/auth/email/login (wrong code)',
       method: 'POST',
-      path: `${API_PREFIX}/auth/login`,
-      expectedStatus: [401, 404],
-      body: { email: EMAIL, password: 'wrong-password' },
+      path: `${API_PREFIX}/auth/email/login`,
+      expectedStatus: [401, 429],
+      body: { email: 'smoke-wrong-code@example.com', code: '000000' },
     },
     {
       name: 'POST /api/v1/auth/logout (public, no session)',
@@ -606,7 +619,7 @@ async function main(): Promise<void> {
 
   await runCase({ label: 'setup: login', run: setupLogin });
   if (!smokeContext.accessToken) {
-    console.error('\nSetup failed — run: DEMO_PASSWORD=DemoPassword123! pnpm db:seed:full');
+    console.error('\nSetup failed — run: pnpm db:seed:full, and start the server with TEST_MODE');
     process.exit(1);
   }
 

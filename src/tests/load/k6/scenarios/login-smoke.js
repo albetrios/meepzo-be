@@ -11,8 +11,8 @@ import { checkStatus, checkResponseTime } from '../helpers/checks.js';
 /**
  * k6 Scenario: Login + GET /users/me
  *
- * Minimal auth smoke for throughput checks. Set credentials via env:
- * `DEMO_EMAIL`, `DEMO_PASSWORD`, optional `BASE_URL`.
+ * Minimal auth smoke for throughput checks: email code (send-code → the TEST_MODE echo →
+ * email/login; passwords are off, P84). Env: `DEMO_EMAIL`, optional `BASE_URL`.
  */
 export const options = {
   scenarios: {
@@ -27,12 +27,17 @@ export const options = {
 
 export function loginSmoke() {
   const email = __ENV.DEMO_EMAIL || 'demo@example.com';
-  const password = __ENV.DEMO_PASSWORD || 'DemoPassword123!';
 
-  const loginResponse = http.post(`${API_PREFIX}/auth/login`, JSON.stringify({ email, password }), {
+  const sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
     headers: PUBLIC_AUTH_FORM_HEADERS,
-    tags: { name: 'login-smoke-login' },
+    tags: { name: 'login-smoke-send-code' },
   });
+  const code = sent.status === 200 ? JSON.parse(sent.body).data?.debug_verification_code : null;
+  const loginResponse = http.post(
+    `${API_PREFIX}/auth/email/login`,
+    JSON.stringify({ email, code }),
+    { headers: PUBLIC_AUTH_FORM_HEADERS, tags: { name: 'login-smoke-login' } },
+  );
   checkStatus(loginResponse, 200, 'login');
   checkResponseTime(loginResponse, 800, 'login');
 

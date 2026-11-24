@@ -58,7 +58,7 @@ through a resolver that sees deleted organizations.
 | `tenancy.organization.update` | `organization` | Name, slug or status changed (`metadata.changed_fields`; a status change at `WARNING`) |
 | `tenancy.organization.delete` | `organization` | Organization deleted (`WARNING`; when the delete erased Instagram accounts (launch D54), `metadata.erased_instagram_account_public_ids` and `metadata.erased_instagram_post_count` — the one record of that erase; a delete the reconcile worker finishes writes no row) |
 | `tenancy.organization_settings.update` | `organization_settings` | Settings changed (`metadata.changed_fields`; a `security_policy` change at `WARNING`) |
-| `tenancy.membership.create` | `membership` | Member added — an invitation is sent |
+| `tenancy.membership.create` | `membership` | Member invited — one entry per email of an invite answered `invited`; an invitation is sent |
 | `tenancy.membership.update` | `membership` | Member's role or status changed (the member in `target_user_id`) |
 | `tenancy.membership.delete` | `membership` | Member removed |
 | `tenancy.membership.leave` | `membership` | Member left the organization |
@@ -105,7 +105,10 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 | Action | Resource type | When |
 | ------ | ------------- | ---- |
 | `app.instagram_account.connect` | `instagram_account` | Instagram account connected or reconnected (`WARNING`, `metadata.instagram_account_public_id`, `metadata.is_new_connection`) — recorded after the connect commits, best-effort |
-| `app.instagram_account.disconnect` | `instagram_account` | Instagram account disconnected — revoked, its token erased (`WARNING`, `metadata.instagram_account_public_id`) |
+| `app.channel_account.disconnect` | `channel_account` | One channel account disconnected (route 8) — revoked, its lanes stopped; the connection's token erased with its last account (`WARNING`, `metadata.channel_account_public_id`, `metadata.old_value` / `metadata.new_value` — `{ connection_status }`) — after the commit, best-effort; replaces the launch's `app.instagram_account.disconnect` |
+| `app.channel_account.pause` | `channel_account` | The owner paused the account's sending (route 9) (`INFO`, `metadata.channel_account_public_id`, `metadata.old_value` / `metadata.new_value` — `{ is_paused }`) |
+| `app.channel_account.resume` | `channel_account` | The owner's pause cleared (route 10) (`INFO`, as pause) |
+| `app.channel_account.activate` | `channel_account` | A "not in your plan" account made active (route 11) (`WARNING`, `metadata.channel_account_public_id`, `metadata.stopped_channel_account_public_id` — the account swapped out, or `null`, `metadata.old_value` / `metadata.new_value` — `{ plan_stop_reason }`) |
 | `app.instagram_account.deauthorize` | `instagram_account` | Meta's deauthorize callback — the account's owner removed the app; in this organization the account was revoked and its token erased (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
 | `app.instagram_account.data_deletion` | `instagram_account` | Meta's data-deletion callback — revoked, token, profile and stored posts erased in this organization (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`, `metadata.confirmation_code` — the code Meta got, the request's only record, `metadata.erased_post_count`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
 | `app.instagram_account_settings.update` | `instagram_account` | Instagram account settings changed — the automation switch or the public reply safety (`INFO`, `metadata.instagram_account_public_id`, `metadata.changed_fields` — names only, never values) — recorded after the change commits, best-effort |

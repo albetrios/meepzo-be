@@ -14,6 +14,7 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
 import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
@@ -79,12 +80,24 @@ async function insertAccount(options: {
   instagramAppUserId: string;
   isRevoked: boolean;
 }): Promise<{ id: number }> {
+  const [channelAccount] = await database
+    .insert(channel_accounts)
+    .values({
+      public_id: generatePublicId('channelAccount'),
+      organization_id: options.organizationId,
+      channel_connection_id: options.channelConnectionId,
+      provider_account_id: options.instagramUserId,
+      display_name: `@account_${options.instagramUserId.slice(-2)}`,
+      connection_status: options.isRevoked ? 'revoked' : 'connected',
+      disconnected_at: options.isRevoked ? new Date() : null,
+    })
+    .returning({ id: channel_accounts.id });
   const [account] = await database
     .insert(instagram_accounts)
     .values({
       public_id: generatePublicId('instagramAccount'),
       organization_id: options.organizationId,
-      channel_connection_id: options.channelConnectionId,
+      channel_account_id: channelAccount!.id,
       instagram_user_id: options.instagramUserId,
       instagram_app_user_id: options.instagramAppUserId,
       username: `account_${options.instagramUserId.slice(-2)}`,

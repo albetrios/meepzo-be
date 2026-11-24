@@ -6,13 +6,12 @@ import { isSecretKey } from '@/shared/utils/security/sensitive-redaction.util.js
  *
  * @remarks
  * Matched against the Fastify route template from {@link normalizeIdempotencyRoutePath}, which is
- * the FULL prefixed path (e.g. `/api/v1/auth/login`). The patterns are therefore suffix-anchored
+ * the FULL prefixed path (e.g. `/api/v1/auth/email/login`). The patterns are therefore suffix-anchored
  * (`/…$/`, not `/^\/…$/`) so they match regardless of the `/api/v{n}` version prefix. The
  * api-key issuance route is the flattened `/api/v1/tenancy/organization/api-keys` (the active organization
  * comes from the token claim — there is no `/organizations/{organization_id}` segment).
  */
 const IDEMPOTENCY_EXCLUDED_ROUTE_PATTERNS: RegExp[] = [
-  /\/auth\/login$/,
   /\/auth\/email\/login$/,
   /\/auth\/mfa\/login$/,
   /\/auth\/oauth\/[^/]+\/callback$/,

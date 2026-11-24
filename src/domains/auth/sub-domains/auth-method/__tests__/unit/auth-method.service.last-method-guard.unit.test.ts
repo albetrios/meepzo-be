@@ -4,7 +4,6 @@ import { AuthMethodService } from '@/domains/auth/sub-domains/auth-method/auth-m
 import type { UserService } from '@/domains/user/user.service.js';
 import type { AuthMethodRepository } from '@/domains/auth/sub-domains/auth-method/auth-method.repository.js';
 import type { VerificationTokenRepository } from '@/domains/auth/sub-domains/auth-method/verification-token/verification-token.repository.js';
-import type { AuthSessionService } from '@/domains/auth/sub-domains/auth-session/auth-session.service.js';
 
 vi.mock('@/infrastructure/database/contexts/database-context.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -29,7 +28,7 @@ const METHOD_PUB_A = 'testmethodpuba123456'; // being deleted
 
 /**
  * Regression for sec-A5 (Medium): `DELETE /me/auth-methods/:publicId` must refuse to revoke the
- * user's last login-capable credential (PASSWORD/OAUTH/EMAIL_CODE), or the user is locked out.
+ * user's last login-capable credential (OAUTH/EMAIL_CODE), or the user is locked out.
  *
  * route-audit C1: the "is another login-capable method active?" check and the revoke now run in ONE
  * statement (`revokeUnlessLastLoginCapable` — an `EXISTS` over the user's other active rows), so two
@@ -39,7 +38,6 @@ const METHOD_PUB_A = 'testmethodpuba123456'; // being deleted
 describe('AuthMethodService.delete — last-method guard (sec-A5 / route-audit C1 atomic)', () => {
   const userService = {
     requireUserRecordByPublicId: vi.fn(),
-    clearPasswordHash: vi.fn().mockResolvedValue(null),
   } as unknown as UserService;
 
   const authMethodRepository = {
@@ -48,13 +46,11 @@ describe('AuthMethodService.delete — last-method guard (sec-A5 / route-audit C
   } as unknown as AuthMethodRepository;
 
   const verificationTokenRepository = {} as VerificationTokenRepository;
-  const authSessionService = {} as AuthSessionService;
 
   const service = new AuthMethodService(
     userService,
     authMethodRepository,
     verificationTokenRepository,
-    authSessionService,
   );
 
   const user = { id: 1, public_id: 'user_pub' };
@@ -69,12 +65,12 @@ describe('AuthMethodService.delete — last-method guard (sec-A5 / route-audit C
     } as never);
   });
 
-  it('refuses to delete the last login-capable method (PASSWORD only)', async () => {
+  it('refuses to delete the last login-capable method (OAUTH only)', async () => {
     vi.mocked(authMethodRepository.findByPublicIdForUser).mockResolvedValue({
       id: 42,
       public_id: METHOD_PUB_A,
       user_id: 1,
-      method_type: 'PASSWORD',
+      method_type: 'OAUTH',
       revoked_at: null,
     } as never);
     // Atomic guard matches zero rows — no other login-capable method remains.
@@ -83,15 +79,14 @@ describe('AuthMethodService.delete — last-method guard (sec-A5 / route-audit C
     await expect(
       service.delete({ userPublicId: 'user_pub', methodPublicId: METHOD_PUB_A }),
     ).rejects.toBeInstanceOf(ForbiddenError);
-    expect(userService.clearPasswordHash).not.toHaveBeenCalled();
   });
 
-  it('allows deletion of one of several login-capable methods (PASSWORD when OAUTH remains)', async () => {
+  it('allows deletion of one of several login-capable methods (one OAUTH when another remains)', async () => {
     vi.mocked(authMethodRepository.findByPublicIdForUser).mockResolvedValue({
       id: 42,
       public_id: METHOD_PUB_A,
       user_id: 1,
-      method_type: 'PASSWORD',
+      method_type: 'OAUTH',
       revoked_at: null,
     } as never);
 
@@ -102,10 +97,8 @@ describe('AuthMethodService.delete — last-method guard (sec-A5 / route-audit C
     expect(authMethodRepository.revokeUnlessLastLoginCapable).toHaveBeenCalledWith(
       42,
       user.id,
-      expect.arrayContaining(['PASSWORD', 'OAUTH', 'EMAIL_CODE']),
+      expect.arrayContaining(['OAUTH', 'EMAIL_CODE']),
     );
-    // PASSWORD revocation also clears the stale hash.
-    expect(userService.clearPasswordHash).toHaveBeenCalledWith('user_pub');
   });
 
   it('allows deletion of an MFA method even when it is the only credential — the guard is login-capable-only', async () => {
@@ -125,7 +118,6 @@ describe('AuthMethodService.delete — last-method guard (sec-A5 / route-audit C
       user.id,
       expect.any(Array),
     );
-    expect(userService.clearPasswordHash).not.toHaveBeenCalled();
   });
 
   it('throws NotFoundError when the method does not exist (no guarded revoke)', async () => {

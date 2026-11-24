@@ -1,8 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { requireRecentStepUpPreHandler } from '@/shared/middlewares/core/recent-step-up.middleware.js';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { authenticateWhenBearerPresent } from '@/shared/middlewares/core/auth.middleware.js';
 import {
   EXPENSIVE_AUTHED_RATE_LIMIT,
+  INVITATION_PREVIEW_RATE_LIMIT,
   MODERATE_AUTHED_RATE_LIMIT,
   ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
   STRICT_AUTHED_RATE_LIMIT,
@@ -13,6 +15,7 @@ import type { MembershipInvitationService } from './membership-invitation/member
 import {
   acceptMembershipInvitationDto,
   membershipInvitationIdParamsDto,
+  previewMembershipInvitationDto,
   resendMembershipInvitationDto,
 } from './membership-invitation/membership-invitation.dto.js';
 import {
@@ -37,8 +40,9 @@ export interface MembershipRoutesDeps {
  * Fastify plugin that registers the team's routes (launch §2.B, §2.C): the active organization's
  * memberships (list, get, add, change, remove, restore, effective codes), the invited member's
  * invite (revoke, resend — nested under the membership, T9), self-service leave /
- * transfer-ownership, and the invitee-facing `/membership-invitations/:membership_invitation_id/accept`
- * and `…/decline` (launch D84). One code set gates them (T8): `membership:read|create|update|delete`;
+ * transfer-ownership, the PUBLIC invitation page `/membership-invitations/:membership_invitation_id/preview`
+ * (feat-instagram-dm-sending route 118 — optional sign-in, its own rate limit) and the invitee-facing
+ * `…/accept` and `…/decline` (launch D84). One code set gates them (T8): `membership:read|create|update|delete`;
  * accepting and declining need only the signed-in owner of the invited, verified email; every
  * `POST` takes `X-Idempotency-Key` (T13).
  */
@@ -59,7 +63,7 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         schema: {
           summary: 'List memberships',
           description:
-            'The team list — every status, with roles and the pending invite. Filters: q (name or email), status, role_id (main or extra role); include_ended=true adds ended members. Sort by created_at (default) or name. Requires membership:read.',
+            "The team list — every status, with roles and the pending invite. Filters: q (name or email), status, role_id (main or extra role); include_ended=true adds ended members. Sort by created_at (default) or name. meta.counts_by_role lists each role that is a live member's main role with how many hold it (Owner first), whatever the filters. Requires membership:read.",
           tags: ['Membership'],
         },
       },
@@ -104,9 +108,9 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         onRequest: [app.authenticate],
         preHandler: [requireOrganizationPermission(TENANCY_PERMISSIONS.MEMBERSHIP_CREATE)],
         schema: {
-          summary: 'Add member by email',
+          summary: 'Invite members by email',
           description:
-            'Adds a member by email: provisions or resolves the login, creates an invited membership with the given roles (role_ids, main first) and staff profile (phone, tone, working days and hours, commission), and emails an invitation token. The same login added again gets its ended membership back. The invitee becomes active on accept. Outside production, with MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED on, invitation.debug_invitation_token carries the raw accept token (for local QA — the email never arrives). Requires membership:create.',
+            "Invites 1–20 emails with one role (role_ids, exactly one — a system role, not the Owner role). Each email in order, on its own: invited (provisions or resolves the login, creates an invited membership — an ended one of the same login comes back — and emails an invitation token), already_member, already_invited, or invalid_email (the rest still go). Answers results (email, result, membership_id) and invited_count; one X-Idempotency-Key replays the whole answer. The invitee becomes active on accept; staff details are set with PATCH. Outside production, with MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED on, an invited line's debug_invitation_token carries the raw accept token (for local QA — the email never arrives). Requires membership:create.",
           tags: ['Membership'],
           body: createMembershipDto,
         },
@@ -240,6 +244,26 @@ export function membershipRoutes(deps: MembershipRoutesDeps): FastifyPluginAsync
         },
       },
       membershipController.transferOwnership,
+    );
+
+    // ── The invitation page (PUBLIC, the token) ──
+    zodApplication.post<{ Params: { membership_invitation_id: string } }>(
+      '/membership-invitations/:membership_invitation_id/preview',
+      {
+        // Route 118 (TN11): 30 a minute per IP; no captcha — nothing is said without the token.
+        ...INVITATION_PREVIEW_RATE_LIMIT,
+        // Optional sign-in: a valid bearer is recognised, none (or a bad one) reads signed out.
+        preHandler: [authenticateWhenBearerPresent],
+        schema: {
+          summary: 'Preview invitation',
+          description:
+            "What the invitation page shows, for whoever holds the emailed token (sent in the body, not the URL): state (valid, accepted, expired, or revoked — a declined invitation too), the organization (name, logo_color), role_name, inviter_first_name, expires_at, signed_in, and email_matches — whether the signed-in, verified email is the invited one (null when signed out; the invitee's email is never returned). An unknown id or a wrong token is a 404. Public, with an optional bearer; 30 requests a minute per IP. Saves nothing.",
+          tags: ['Invitation'],
+          params: membershipInvitationIdParamsDto,
+          body: previewMembershipInvitationDto,
+        },
+      },
+      invitationController.previewMembershipInvitation,
     );
 
     // ── The invitee (cross-organization, signed in) ──

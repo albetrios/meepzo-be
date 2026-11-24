@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+// These flows invite into a custom role; custom roles are switched off in this product
+// (feat-instagram-dm-sending TN3, P203 (7)), so the suite runs with the platform switch on.
+vi.mock(
+  '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    TENANCY_CUSTOM_ROLES_ENABLED: true,
+  }),
+);
 import { lookup } from 'node:dns/promises';
 import { Queue } from 'bullmq';
 import { asc, eq } from 'drizzle-orm';
@@ -34,6 +43,7 @@ import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestWebhook } from '@/tests/factories/webhook.factory.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { invitedMembershipPublicId } from '@/tests/helpers/membership-invite.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -147,7 +157,14 @@ describe('Integration: organization resource events reach subscribed webhooks', 
       userId: owner.public_id,
       organizationPublicId: organization.public_id,
     });
-    return { owner, organization, role, webhook, token };
+    // The role an invite gives: never the owner's own (the Owner role, feat-instagram-dm-sending
+    // § 9.C.9 — a 400), so a second role with the same codes.
+    const inviteRole = await createRoleWithPermissions({
+      organizationId: organization.id,
+      permissionCodes: [...permissionCodes],
+      createdByUserId: owner.id,
+    });
+    return { owner, organization, role, inviteRole, webhook, token };
   }
 
   async function envelopes(webhookId: number, eventType: string): Promise<Envelope[]> {
@@ -222,17 +239,20 @@ describe('Integration: organization resource events reach subscribed webhooks', 
   });
 
   it('membership.created, .updated and .deleted follow a member through add, suspend and remove', async () => {
-    const { organization, role, webhook, token } = await createSubscribedOrganization();
+    const { organization, role, inviteRole, webhook, token } = await createSubscribedOrganization();
 
     const added = await injectAuthenticated(app, {
       method: 'POST',
       url: testApiPath('/tenancy/organization/memberships'),
       token,
       headers: { 'x-idempotency-key': `membership-${randomUUID()}` },
-      payload: { email: `invitee-${randomUUID()}@example.com`, role_ids: [role.public_id] },
+      payload: {
+        emails: [`invitee-${randomUUID()}@example.com`],
+        role_ids: [inviteRole.public_id],
+      },
     });
     expect(added.statusCode, added.body).toBe(200);
-    const invited = (added.json() as { data: { id: string; status: string } }).data;
+    const invited = { id: invitedMembershipPublicId(added) };
     const [createdEnvelope] = await envelopes(webhook.id, 'membership.created');
     expectEnvelope(createdEnvelope, 'membership.created', invited.id);
     expect(createdEnvelope?.data).toMatchObject({ status: 'invited' });
@@ -267,16 +287,19 @@ describe('Integration: organization resource events reach subscribed webhooks', 
   });
 
   it('membership.deleted also fires when a pending invitation is revoked', async () => {
-    const { role, webhook, token } = await createSubscribedOrganization();
+    const { inviteRole, webhook, token } = await createSubscribedOrganization();
     const added = await injectAuthenticated(app, {
       method: 'POST',
       url: testApiPath('/tenancy/organization/memberships'),
       token,
       headers: { 'x-idempotency-key': `membership-${randomUUID()}` },
-      payload: { email: `revoked-${randomUUID()}@example.com`, role_ids: [role.public_id] },
+      payload: {
+        emails: [`revoked-${randomUUID()}@example.com`],
+        role_ids: [inviteRole.public_id],
+      },
     });
     expect(added.statusCode, added.body).toBe(200);
-    const invited = (added.json() as { data: { id: string } }).data;
+    const invited = { id: invitedMembershipPublicId(added) };
 
     const revoked = await injectAuthenticated(app, {
       method: 'DELETE',

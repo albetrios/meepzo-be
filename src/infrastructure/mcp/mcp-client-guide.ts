@@ -26,11 +26,11 @@ alongside \`${MCP_OPENAPI_RESOURCE_URI}\` (full spec) and \`${MCP_ROUTES_RESOURC
 
 ## 1. Authentication
 
-- **Password login:** \`POST /api/v1/auth/login\` with \`{ email, password }\` →
+- **Email-code sign-in:** \`POST /api/v1/auth/email/send-code\` with \`{ email }\`, then
+  \`POST /api/v1/auth/email/login\` with \`{ email, code }\` (six digits) →
   \`{ data: { access_token, ... } }\`. Public auth forms must send an
-  \`X-Captcha-Token\` header.
-- **Alternatives:** email verification-code login (\`POST /api/v1/auth/email/send-code\`
-  then \`/auth/email/login\`), OAuth (\`/api/v1/auth/oauth/...\`), and MFA / WebAuthn
+  \`X-Captcha-Token\` header. There are no passwords.
+- **Alternatives:** OAuth (\`/api/v1/auth/oauth/...\`), passkeys, and MFA / WebAuthn
   step-up for sensitive actions.
 - The \`access_token\` is a short-lived RS256 JWT. Send it as
   \`Authorization: Bearer <access_token>\` on every authenticated request. It

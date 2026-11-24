@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 163
+  Total routes: 164
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 26
+  Routes: 30
 ================================================================================
 
   — Sub Domains —
@@ -24,6 +24,12 @@ Legend:
   DELETE /api/v1/app/automations/:automation_id                   204  -    team  PERM: automation:delete
   GET    /api/v1/app/contacts                                     200  -    team  PERM: contact:read
   DELETE /api/v1/app/contacts/:contact_id                         204  -    team  PERM: contact:delete
+  GET    /api/v1/app/social/channel-accounts                      200  -    team  PERM: channel-account:read
+  GET    /api/v1/app/social/channel-accounts/:channel_account_id  200  -    team  PERM: channel-account:read
+  DELETE /api/v1/app/social/channel-accounts/:channel_account_id  204  -    team  PERM: channel-account:manage
+  POST   /api/v1/app/social/channel-accounts/:channel_account_id/activate  200  req  team  PERM: channel-account:manage
+  POST   /api/v1/app/social/channel-accounts/:channel_account_id/pause  200  -    team  PERM: channel-account:manage
+  POST   /api/v1/app/social/channel-accounts/:channel_account_id/resume  200  -    team  PERM: channel-account:manage
   GET    /api/v1/app/social/channel-connections                   200  -    team  PERM: channel-account:read
   GET    /api/v1/app/social/channel-connections/:channel_connection_id  200  -    team  PERM: channel-account:read
   DELETE /api/v1/app/social/channel-connections/:channel_connection_id  204  -    team  PERM: channel-account:manage
@@ -33,8 +39,6 @@ Legend:
   POST   /api/v1/app/social/channel-connections/:channel_connection_id/reconnect  200  -    team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/callback  200  req  team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
-  GET    /api/v1/app/social/instagram/account                     200  -    team  PERM: instagram-account:read
-  DELETE /api/v1/app/social/instagram/account                     204  -    team  PERM: instagram-account:manage
   PATCH  /api/v1/app/social/instagram/account/settings            200  -    team  PERM: instagram-account:manage
   POST   /api/v1/app/social/instagram/data-deletion               200  -    both  PUBLIC
   POST   /api/v1/app/social/instagram/deauthorize                 200  -    both  PUBLIC
@@ -53,12 +57,11 @@ Legend:
 
 ================================================================================
   DOMAIN: AUTH (/api/v1/auth)
-  Routes: 33
+  Routes: 29
 ================================================================================
 
   POST   /api/v1/auth/email/login                                 200  -    both  PUBLIC
   POST   /api/v1/auth/email/send-code                             200  -    both  PUBLIC
-  POST   /api/v1/auth/login                                       200  -    both  PUBLIC
   POST   /api/v1/auth/logout                                      200  -    both  TOKEN: access-token
   GET    /api/v1/auth/me/auth-methods                             200  -    both  AUTH
   POST   /api/v1/auth/me/auth-methods                             200  -    both  AUTH
@@ -80,9 +83,6 @@ Legend:
   GET    /api/v1/auth/oauth/:provider                             200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/:provider/callback                    200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/providers                             200  -    both  PUBLIC
-  POST   /api/v1/auth/password/change                             200  -    both  AUTH
-  POST   /api/v1/auth/password/forgot                             200  -    both  PUBLIC
-  POST   /api/v1/auth/password/reset                              200  -    both  PUBLIC
   POST   /api/v1/auth/refresh                                     200  -    both  TOKEN: session-cookie
   POST   /api/v1/auth/step-up                                     200  -    both  AUTH
   POST   /api/v1/auth/switch-to-organization                      200  -    both  AUTH
@@ -141,12 +141,13 @@ Legend:
 
 ================================================================================
   DOMAIN: TENANCY (/api/v1/tenancy)
-  Routes: 43
+  Routes: 44
 ================================================================================
 
   — Sub Domains —
   POST   /api/v1/tenancy/membership-invitations/:membership_invitation_id/accept  200  req  both  AUTH
   POST   /api/v1/tenancy/membership-invitations/:membership_invitation_id/decline  200  req  both  AUTH
+  POST   /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview  200  -    both  PUBLIC
   GET    /api/v1/tenancy/organization                             200  -    both  AUTH
   PATCH  /api/v1/tenancy/organization                             200  -    both  PERM: organization:update
   DELETE /api/v1/tenancy/organization                             204  -    team  PERM: organization:delete
@@ -254,22 +255,23 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 163
-  Public          : 20
-  Authenticated   : 54
+  Total routes    : 164
+  Public          : 18
+  Authenticated   : 53
   Role-guarded    : 9
-  Perm-guarded    : 75
+  Perm-guarded    : 79
   Token-guarded   : 5
-  Team-only (O)   : 32
+  Team-only (O)   : 36
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (21) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (22) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
   accepts an optional key (24h Redis cache).
 
     POST /api/v1/app/automations
+    POST /api/v1/app/social/channel-accounts/:channel_account_id/activate
     POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts
     POST /api/v1/app/social/channel-connections/:provider/callback
     POST /api/v1/billing/payment-methods/setup

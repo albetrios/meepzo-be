@@ -5,7 +5,7 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
-import { NotFoundError, UnprocessableEntityError } from '@/shared/errors/index.js';
+import type { NotFoundError } from '@/shared/errors/index.js';
 import type {
   InstagramAccountRepository,
   InstagramAccountRow,
@@ -110,6 +110,7 @@ function accountRow(overrides: Partial<InstagramAccountRow> = {}): InstagramAcco
     public_id: ACCOUNT_PUBLIC_ID,
     organization_id: TEAM.id,
     channel_connection_id: CHANNEL_CONNECTION_ID,
+    channel_account_id: 5,
     instagram_user_id: INSTAGRAM_USER_ID,
     instagram_app_user_id: INSTAGRAM_APP_USER_ID,
     username: 'acme.shop',
@@ -288,81 +289,6 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(async (callback: () => Promise<void>) => callback());
   enqueueReconnectNotice.mockReset().mockResolvedValue(undefined);
-});
-
-describe('InstagramAccountService.getAccount (route 2, IA13)', () => {
-  it.each(['connected', 'expired', 'error'])(
-    'answers the %s account with its settings and both users',
-    async (connectionStatus) => {
-      const { service, settingsService, organizationService } = setup({
-        liveAccount: accountRow({ connection_status: connectionStatus }),
-      });
-
-      const account = await service.getAccount({ scope });
-
-      expect(account).toMatchObject({
-        id: ACCOUNT_PUBLIC_ID,
-        connection_status: connectionStatus,
-        access_expires_at: TOKEN_EXPIRES_AT.toISOString(),
-        connected_by_user_id: CONNECTING_USER_PUBLIC_ID,
-        settings: { is_automation_enabled: true, updated_by_user_id: SETTINGS_EDITOR_PUBLIC_ID },
-      });
-      expect(settingsService.findSettings).toHaveBeenCalledWith({ scope, instagramAccount });
-      expect(organizationService.resolveUserPublicIdsByInternalIds).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it('answers no user for one the account never had, or one deleted since', async () => {
-    const never = setup({
-      liveAccount: accountRow({ connected_by_user_id: null }),
-      settings: settingsRow({ updated_by_user_id: null }),
-    });
-    const withoutUsers = await never.service.getAccount({ scope });
-    expect(withoutUsers.connected_by_user_id).toBeNull();
-    expect(withoutUsers.settings.updated_by_user_id).toBeNull();
-    expect(never.organizationService.resolveUserPublicIdsByInternalIds).toHaveBeenCalledWith([]);
-
-    const deleted = setup();
-    deleted.organizationService.resolveUserPublicIdsByInternalIds.mockResolvedValueOnce(new Map());
-    const withDeletedUsers = await deleted.service.getAccount({ scope });
-    expect(withDeletedUsers.connected_by_user_id).toBeNull();
-    expect(withDeletedUsers.settings.updated_by_user_id).toBeNull();
-  });
-
-  it('never reads the token and never calls Instagram', async () => {
-    const { service, tokenService } = setup();
-
-    await service.getAccount({ scope });
-
-    expect(tokenService.findAccessToken).not.toHaveBeenCalled();
-    expect(unitOfWork.openCountAtInstagramCalls).toEqual([]);
-  });
-
-  it('answers 404 instagram_not_connected without a live account', async () => {
-    const { service, settingsService } = setup({ liveAccount: null });
-
-    const error = await rejection(service.getAccount({ scope }));
-
-    expect(error).toBeInstanceOf(NotFoundError);
-    expect((error as NotFoundError).reason).toBe('instagram_not_connected');
-    expect(settingsService.findSettings).not.toHaveBeenCalled();
-  });
-
-  it('answers 404 team_organization_required on a personal organization — a read is never a 422 (IA3)', async () => {
-    const { service, accountRepository } = setup({ organizationType: 'PERSONAL' });
-
-    const error = await rejection(service.getAccount({ scope }));
-
-    expect(error).toBeInstanceOf(NotFoundError);
-    expect((error as NotFoundError).reason).toBe('team_organization_required');
-    expect(accountRepository.findLiveByOrganizationId).not.toHaveBeenCalled();
-  });
-
-  it('fails when the account has no settings row', async () => {
-    const { service } = setup({ settings: null });
-
-    await expect(service.getAccount({ scope })).rejects.toThrow('no settings row');
-  });
 });
 
 describe('InstagramAccountService lookups', () => {
@@ -557,87 +483,6 @@ describe('InstagramAccountService lookups', () => {
       ).resolves.toBeNull();
       expect(accountRepository.findByPublicIdInOrganization).not.toHaveBeenCalled();
     });
-  });
-});
-
-describe('InstagramAccountService.disconnect (route 4, IA14)', () => {
-  const disconnectInput = { scope, requestId: 'request-disconnect' };
-
-  it('unsubscribes outside the units of work, then revokes the account and erases its token', async () => {
-    const { service, accountRepository, tokenService } = setup();
-
-    await expect(service.disconnect(disconnectInput)).resolves.toEqual({
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-    });
-
-    expect(instagramClient.unsubscribeInstagramWebhookFields).toHaveBeenCalledWith({
-      encryptedAccessToken: STORED_CIPHERTEXT,
-      instagramAppUserId: INSTAGRAM_APP_USER_ID,
-      requestId: 'request-disconnect',
-    });
-    expect(unitOfWork.openCountAtInstagramCalls).toEqual([0]);
-    expect(accountRepository.revoke).toHaveBeenCalledWith(instagramAccount);
-    expect(tokenService.revokeConnection).toHaveBeenCalledWith({ scope, channelConnection });
-    expect(accountRepository.eraseProfile).not.toHaveBeenCalled();
-  });
-
-  it('calls no Instagram for an account without a token', async () => {
-    const { service, accountRepository } = setup({ storedToken: null });
-
-    await service.disconnect(disconnectInput);
-
-    expect(instagramClient.unsubscribeInstagramWebhookFields).not.toHaveBeenCalled();
-    expect(accountRepository.revoke).toHaveBeenCalledTimes(1);
-  });
-
-  it('disconnects all the same when the unsubscribe fails, and logs it', async () => {
-    const { service, accountRepository, tokenService } = setup();
-    instagramClient.unsubscribeInstagramWebhookFields.mockRejectedValue(
-      instagramError({ errorClass: 'outage' }),
-    );
-
-    await expect(service.disconnect(disconnectInput)).resolves.toEqual({
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-    });
-
-    expect(accountRepository.revoke).toHaveBeenCalledTimes(1);
-    expect(tokenService.revokeConnection).toHaveBeenCalledTimes(1);
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestId: 'request-disconnect',
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-        errorClass: 'outage',
-      }),
-      'app.instagram_account.webhook_unsubscription_failed',
-    );
-  });
-
-  it('answers 404 instagram_not_connected without a live account, calling no Instagram', async () => {
-    const { service } = setup({ liveAccount: null });
-
-    const error = await rejection(service.disconnect(disconnectInput));
-
-    expect((error as NotFoundError).reason).toBe('instagram_not_connected');
-    expect(instagramClient.unsubscribeInstagramWebhookFields).not.toHaveBeenCalled();
-  });
-
-  it('answers 404 instagram_not_connected when another disconnect won, erasing nothing', async () => {
-    const { service, accountRepository, tokenService } = setup();
-    accountRepository.revoke.mockResolvedValueOnce(null);
-
-    const error = await rejection(service.disconnect(disconnectInput));
-
-    expect((error as NotFoundError).reason).toBe('instagram_not_connected');
-    expect(tokenService.revokeConnection).not.toHaveBeenCalled();
-  });
-
-  it('refuses a personal organization with 422 (IA3)', async () => {
-    const { service, accountRepository } = setup({ organizationType: 'PERSONAL' });
-
-    expect(await rejection(service.disconnect(disconnectInput))).toBeInstanceOf(
-      UnprocessableEntityError,
-    );
-    expect(accountRepository.findLiveByOrganizationId).not.toHaveBeenCalled();
   });
 });
 

@@ -109,7 +109,7 @@ describe('rate-limit.middleware', () => {
     expect(options.allowList({ url: '/readyz' })).toBe(true);
     // The removed /health route is no longer allow-listed.
     expect(options.allowList({ url: '/health' })).toBe(false);
-    expect(options.allowList({ url: testApiPath('/auth/login') })).toBe(false);
+    expect(options.allowList({ url: testApiPath('/auth/email/login') })).toBe(false);
   });
 
   /*
@@ -135,7 +135,12 @@ describe('rate-limit.middleware', () => {
     const { logger } = await import('@/shared/utils/infrastructure/logger.util.js');
     const { Sentry } = await import('@/infrastructure/observability/sentry/sentry.js');
     options.onExceeded!(
-      { ip: '198.51.100.7', method: 'POST', url: testApiPath('/auth/login'), routeOptions: {} },
+      {
+        ip: '198.51.100.7',
+        method: 'POST',
+        url: testApiPath('/auth/email/login'),
+        routeOptions: {},
+      },
       'ip:198.51.100.7',
     );
     expect(logger.warn).toHaveBeenCalledWith(
@@ -336,7 +341,7 @@ describe('rate-limit.middleware', () => {
       expect(options.allowList({ url: testApiPath('/healthcheck') })).toBe(false);
       expect(options.allowList({ url: testApiPath('/health-tracker') })).toBe(false);
       expect(options.allowList({ url: '/foo/health/bar' })).toBe(false);
-      expect(options.allowList({ url: testApiPath('/auth/login') })).toBe(false);
+      expect(options.allowList({ url: testApiPath('/auth/email/login') })).toBe(false);
     });
   });
 

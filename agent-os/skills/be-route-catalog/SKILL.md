@@ -87,14 +87,12 @@ Legend:
   Routes: <count>
 ================================================================================
 
-  POST   /api/v1/auth/login                                       200  -    both  PUBLIC
   POST   /api/v1/auth/logout                                      200  -    both  PUBLIC
   ...
   GET    /api/v1/auth/me/mfa                                      200  -    both  AUTH
   POST   /api/v1/auth/me/mfa/enroll                               200  -    both  AUTH
   POST   /api/v1/auth/me/webauthn/register/options               200  -    both  AUTH
   POST   /api/v1/auth/mfa/login                                   200  -    both  PUBLIC
-  POST   /api/v1/auth/password/change                             200  -    both  AUTH
   ...
 
 ================================================================================

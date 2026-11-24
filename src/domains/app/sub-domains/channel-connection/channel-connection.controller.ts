@@ -10,10 +10,8 @@ import {
   buildAuditActorFields,
   recordScopedAuditEvent,
 } from '@/shared/utils/infrastructure/audit-request-context.util.js';
-import {
-  CHANNEL_ACCOUNT_AUDIT_RESOURCE_TYPE,
-  CHANNEL_CONNECTION_AUDIT_RESOURCE_TYPE,
-} from './channel-connection.constants.js';
+import { CHANNEL_ACCOUNT_AUDIT_RESOURCE_TYPE } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
+import { CHANNEL_CONNECTION_AUDIT_RESOURCE_TYPE } from './channel-connection.constants.js';
 import type { ChannelConnectionService } from './channel-connection.service.js';
 import {
   validateChannelAccountPick,

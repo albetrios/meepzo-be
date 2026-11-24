@@ -42,7 +42,7 @@ The MCP server reads the proxy on `:3010`, so `pnpm dashboards:up` (or `pnpm das
 Bull Board (`/admin/queues`) needs a real logged-in **super_admin** — a minted token alone is
 rejected. So the proxy signs in as a demo user to get one:
 
-- **Credentials:** `DEMO_EMAIL` / `DEMO_PASSWORD` env, default **`demo@example.com` / `DemoPassword123!`**
+- **Credentials:** `DEMO_EMAIL` env, default **`demo@example.com`** — the proxy signs in by email code (passwords are off), which the local API echoes under TEST_MODE
   (read identically by `proxy.mjs` and the seed below — keep the defaults in sync).
 - **Super_admin:** the email must be listed in `GLOBAL_ADMIN_EMAILS` (super_admin is global,
   not organization-scoped). `dashboards:up` warns if it isn't. A platform admin also needs an
@@ -52,7 +52,7 @@ rejected. So the proxy signs in as a demo user to get one:
 - **Ensured at startup:** `dashboards:up` runs **`pnpm db:seed:demo-admin`** after `db:migrate` (the
   database step: create, migrate, the database logins; Drizzle Studio browses as the operator login)
   ([`src/scripts/seed/ensure-demo-admin.ts`](../../../src/scripts/seed/ensure-demo-admin.ts)) —
-  idempotent, creates the demo user + organization + Admin role + membership, and **resets the password**
+  idempotent, creates the demo user + organization + Admin role + membership, and enrolls the TOTP factor
   so a fresh DB (or one left with only faker users by `db:seed:bulk`) still authenticates. Run it
   by hand any time Bull Board 502s: `pnpm db:seed:demo-admin`.
 

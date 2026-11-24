@@ -42,6 +42,25 @@
   "POST /api/v1/app/social/channel-connections/:provider/start": {
     "model": "organization"
   },
+  "GET /api/v1/app/social/channel-accounts/:channel_account_id": {
+    "model": "organization"
+  },
+  "DELETE /api/v1/app/social/channel-accounts/:channel_account_id": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/app/social/channel-accounts/:channel_account_id/pause": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/app/social/channel-accounts/:channel_account_id/resume": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/app/social/channel-accounts/:channel_account_id/activate": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
   "DELETE /api/v1/auth/me/auth-methods/:auth_method_id": {
     "model": "user",
     "verifyNoMutation": true

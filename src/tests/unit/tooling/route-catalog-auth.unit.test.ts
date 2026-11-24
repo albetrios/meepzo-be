@@ -26,6 +26,6 @@ describe('route-catalog-auth', () => {
 
   it('loadProtectedRoutesFromCatalog excludes PUBLIC routes', () => {
     const routes = loadProtectedRoutesFromCatalog();
-    expect(routes.some((route) => route.path === '/api/v1/auth/login')).toBe(false);
+    expect(routes.some((route) => route.path === '/api/v1/auth/email/login')).toBe(false);
   });
 });

@@ -15,8 +15,10 @@ What it owns today: the routes plugin (`app.routes.ts`, mounted by `src/routes.t
 `app` (`appSchema` in `src/infrastructure/database/pg-schemas.ts`, created by
 `migrations/20261121050908_app_schema.sql`), the channel connection (feat-instagram-dm-sending routes
 1–5, 40 and 42 — start, callback, reconnect, pick, list, one, disconnect business; the tables
-`app.channel_connections`, `app.channel_connection_tokens` and `app.channel_connection_usages`) and the
-Instagram account (routes 2–8, Meta's PUBLIC deauthorize and data-deletion callbacks included; the
+`app.channel_connections`, `app.channel_connection_tokens` and `app.channel_connection_usages`), the channel
+account (routes 6–11 — list, one, disconnect, pause, resume, choose active accounts — the capability list and the
+one feature check; the table `app.channel_accounts`, ROUTE row R5) and the Instagram account (its settings, pickers,
+Meta's PUBLIC deauthorize and data-deletion callbacks included; the
 launch's connect route 1 retired with Instagram Login, RC-6; the tables `app.instagram_accounts` and
 `app.instagram_account_settings` — the channel and Instagram tables created by
 `migrations/20261121064529_app_instagram_account.sql` — and
@@ -89,6 +91,7 @@ In build order (`iterations/launch-2026-11-20-ujai/plans/routes-final.md`):
 | Sub-domain | Purpose |
 | --- | --- |
 | [channel-connection](src/domains/app/sub-domains/channel-connection/channel-connection.overview.md) | One provider login of an organization for one business (Meta Unified Login): the Meta adapter (`channel-connection-meta/` — the one Meta client, the login calls, the usage headers, the signature checks), the one-use login state, and Meta's usage kept per connection with its Redis copy (DM-sending iteration, ROUTE row R2; the tables and routes land in R3). |
+| [channel-account](src/domains/app/sub-domains/channel-account/channel-account.overview.md) | One connected inbox of an organization, whatever its channel (`app.channel_accounts`, `cha_`): its status, pause, suspend, plan stop and automation switch; routes 6–11; the capability list and the one feature check (CA11); the channel connection's account port (DM-sending iteration, ROUTE row R5). |
 | [instagram-account](src/domains/app/sub-domains/instagram-account/instagram-account.overview.md) | The organization's one connected Instagram account and its encrypted token (connect, read, disconnect), the daily account check and the reconnect notice (two workers); nested `instagram-account-settings` (the automation switch and public reply safety, changed by route 3) and `instagram-media` (the post and story pickers, read live — routes 5–6 — and the stored posts `app.instagram_media`) and `instagram-account-meta-callback` (Meta's PUBLIC deauthorize and data-deletion callbacks — routes 7–8). |
 | [contact](src/domains/app/sub-domains/contact/contact.overview.md) | The people who interacted with each Instagram account (list, erase — routes 9 and 10), written only by event processing through the contact service; the erase anonymises in place and runs the registered erasure steps. |
 | [automation](src/domains/app/sub-domains/automation/automation.overview.md) | Comment, DM and story-reply automations of each Instagram account (list, create, read, edit, delete — routes 11–15), "next post" linking for event processing, the 15-minute expiry worker and the daily deleted-automation purge; nested `automation-run` (runs, run events, comment logs and the run engine whose entry points event processing calls — no routes; the hourly 7-day wait cancel and the daily run and comment-log retention workers). |
@@ -105,7 +108,7 @@ This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERN
 - [`idempotency`](src/PATTERNS.md#idempotency) — signed-in writes that create (route 1, connect; route
   12, create an automation) require `X-Idempotency-Key`.
 - [`audit-emission`](src/PATTERNS.md#audit-emission) — `app.<resource>.<verb>` audit actions
-  (`app.instagram_account.connect`, `app.instagram_account.disconnect`,
+  (`app.channel_account.disconnect`, `.pause`, `.resume`, `.activate`, `app.instagram_account.connect`,
   `app.instagram_account.deauthorize`, `app.instagram_account.data_deletion` — anonymous actor,
   `metadata.source = 'meta'` — `app.instagram_account_settings.update`, `app.contact.delete`,
   `app.automation.create`, `app.automation.update`, `app.automation.delete`).

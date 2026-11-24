@@ -27,6 +27,17 @@ export const acceptMembershipInvitationDto = z
   .strict();
 
 /**
+ * Zod schema for the `POST /membership-invitations/:membership_invitation_id/preview` request body
+ * (feat-instagram-dm-sending route 118, TN11): the raw token from the emailed link — sent in the
+ * body so it stays out of URLs and logs — SHA-256 compared against the stored `token_hash`.
+ */
+export const previewMembershipInvitationDto = z
+  .object({
+    token: trimmedStringMinMax({ min: 1, max: 512 }),
+  })
+  .strict();
+
+/**
  * Zod schema for the `GET /users/me/membership-invitations` query (launch D84 (1), ROUTE #172) —
  * cursor pagination only: the list is always the caller's own pending invitations, oldest first.
  */
@@ -49,5 +60,7 @@ export type AcceptMembershipInvitationInput = z.infer<typeof acceptMembershipInv
 export type ListMyMembershipInvitationsQueryInput = z.infer<
   typeof listMyMembershipInvitationsQueryDto
 >;
+/** Validated body inferred from {@link previewMembershipInvitationDto}. */
+export type PreviewMembershipInvitationInput = z.infer<typeof previewMembershipInvitationDto>;
 /** Validated body inferred from {@link resendMembershipInvitationDto}. */
 export type ResendMembershipInvitationInput = z.infer<typeof resendMembershipInvitationDto>;

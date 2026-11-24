@@ -288,7 +288,7 @@ meepzo-fe in the same session → its own hook launches its own bootstrap.sh, de
 | Stop the API + worker | `pnpm dev:stack:stop` (Postgres + Redis stay; `pnpm compose:down` stops them) |
 | Bring it back | `bash tooling/setup/agent/bootstrap.sh` |
 | A scratch database again | `pnpm dev:stack:reset-db` — drops and recreates the local Compose database, then migrate, logins, seed, API and worker (the installs are skipped) |
-| A known demo password | set `DEMO_PASSWORD` in the environment's variables (`demo@example.com`) |
+| The demo sign-in | sign `demo@example.com` in by email code — `TEST_MODE` echoes the code (no passwords, P84) |
 | Follow SonarQube | `tail -f /tmp/agent-stack/sonarqube-backend.log` (meepzo-fe's: `sonarqube-frontend.log`). [`start-sonarqube.sh`](../../tooling/setup/agent/start-sonarqube.sh) waits until no bring-up holds the lock and Docker answers, then starts the server, so the first push finds it up instead of waiting about two minutes. Its first lock check comes after 30 s, so meepzo-fe's copy, launched by a hook that runs beside this repository's, cannot miss a bring-up that has not taken the lock yet. `SONAR=0` in the environment's variables skips it |
 
 The banner shows `Stack: starting…` / `live` and tells the agent to run `pnpm dev:stack:wait`

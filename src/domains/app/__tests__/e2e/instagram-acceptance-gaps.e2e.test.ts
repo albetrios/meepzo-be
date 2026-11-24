@@ -1,3 +1,7 @@
+import {
+  CHANNEL_ACCOUNTS_PATH,
+  organizationChannelAccountPath,
+} from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { randomUUID } from 'node:crypto';
 import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
@@ -35,7 +39,6 @@ import {
 import { nextInstagramObjectId } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import { readAccountContactRows } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   TEST_INSTAGRAM_LONG_LIVED_TOKEN,
   buildInstagramProfile,
   createInstagramTeam,
@@ -639,6 +642,7 @@ describe('Instagram acceptance across features (e2e)', () => {
         accounts: [{ id: profile.user_id, username: profile.username }],
       });
       const [account] = await readInstagramAccountRows(team.organization.id);
+      const accountPath = await organizationChannelAccountPath(team.organization.id);
       /** The account's daily check (no renewal since WC-35: the connection's token never ends). */
       const checkDaily = () =>
         processInstagramAccountDailyCheckJob({
@@ -671,7 +675,7 @@ describe('Instagram acceptance across features (e2e)', () => {
             .reply(500, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 2 }));
           const disconnected = await injectAuthenticated(app, {
             method: 'DELETE',
-            url: INSTAGRAM_ACCOUNT_PATH,
+            url: accountPath,
             token: team.ownerToken,
           });
           expect(disconnected.statusCode).toBe(204);
@@ -680,7 +684,8 @@ describe('Instagram acceptance across features (e2e)', () => {
           'outbound.call.failed',
           'app.instagram_account.daily_check.completed',
           'request.complete',
-          INSTAGRAM_ACCOUNT_PATH,
+          // The log names the route pattern, not the account's id.
+          CHANNEL_ACCOUNTS_PATH,
         ],
       });
       expect(nock.pendingMocks()).toEqual([]);

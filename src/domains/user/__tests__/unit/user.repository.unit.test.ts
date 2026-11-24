@@ -84,11 +84,6 @@ describe('UserRepository', () => {
     expect(mockInsert).toHaveBeenCalled();
   });
 
-  it('updatePassword returns null when user missing', async () => {
-    mockReturning.mockResolvedValue([]);
-    expect(await repository.updatePassword('missing', 'hash')).toBeNull();
-  });
-
   it('updateEmailVerified returns null when user missing', async () => {
     mockReturning.mockResolvedValue([]);
     expect(await repository.updateEmailVerified('missing')).toBeNull();
@@ -115,9 +110,8 @@ describe('UserRepository', () => {
     expect(await repository.softDelete('missing')).toBeNull();
   });
 
-  it('updateLoginAttempt and updateMfaEnabled return null when user missing', async () => {
+  it('updateMfaEnabled returns null when user missing', async () => {
     mockReturning.mockResolvedValue([]);
-    expect(await repository.updateLoginAttempt('missing', 1, null)).toBeNull();
     expect(await repository.updateMfaEnabled('missing', true)).toBeNull();
   });
 

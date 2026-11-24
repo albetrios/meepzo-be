@@ -30,6 +30,17 @@ export const ERROR_CODE_TO_SNAKE: Record<AppErrorCode, string> = {
 };
 
 /**
+ * The only extra fields an error body may carry beside `type`, `code`, `reason`, `detail` and
+ * `errors[]` (AT3): `tries_left` (the wrong-code tries left on this code) and `retry_after_seconds`
+ * (the wait of a `429`, beside the `Retry-After` header, so a browser app need not read headers).
+ * A unit test pins this list; a new field is a contract change.
+ */
+export const APP_ERROR_FIELD_NAMES = ['tries_left', 'retry_after_seconds'] as const;
+
+/** The extra error-body fields set with {@link AppError.withFields} — see {@link APP_ERROR_FIELD_NAMES}. */
+export type AppErrorFields = Partial<Record<(typeof APP_ERROR_FIELD_NAMES)[number], number>>;
+
+/**
  * Base class for every typed application error. Carries an HTTP status code,
  * an i18n `messageKey`, optional `messageParams` for interpolation, and a
  * fallback English message used when no i18n context is available. The error
@@ -61,6 +72,11 @@ export class AppError extends Error {
    * Set via {@link AppError.withRetryAfter}; meaningful on 429 and 503.
    */
   retryAfterSeconds?: number;
+  /**
+   * Extra snake_case integers the error body carries as `error.<name>` (AT3) — only the names in
+   * {@link APP_ERROR_FIELD_NAMES}. Set via {@link AppError.withFields}; serialized on a 4xx only.
+   */
+  fields?: AppErrorFields;
 
   constructor(
     code: AppErrorCode,
@@ -103,6 +119,16 @@ export class AppError extends Error {
    */
   withRetryAfter(seconds: number): this {
     this.retryAfterSeconds = seconds;
+    return this;
+  }
+
+  /**
+   * Attaches extra body fields ({@link AppError.fields}) and returns `this` (fluent), e.g.
+   * `throw new UnauthorizedError('errors:emailCodeWrong').withReason('code_wrong').withFields({ tries_left: 3 })`.
+   * Merges with fields set before; the names are limited to {@link APP_ERROR_FIELD_NAMES} by the type.
+   */
+  withFields(fields: AppErrorFields): this {
+    this.fields = { ...this.fields, ...fields };
     return this;
   }
 }

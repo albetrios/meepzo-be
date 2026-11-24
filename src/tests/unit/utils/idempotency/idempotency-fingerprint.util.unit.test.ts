@@ -87,9 +87,8 @@ describe('buildIdempotencyRequestFingerprint — the concrete record (G2-6)', ()
 
 describe('isIdempotencyRouteExcluded', () => {
   // Matched against the full prefixed Fastify route template (request.routeOptions.url), e.g.
-  // `/api/v1/auth/login` — the patterns are suffix-anchored so the /api/v{n} prefix is irrelevant.
+  // `/api/v1/auth/email/login` — the patterns are suffix-anchored so the /api/v{n} prefix is irrelevant.
   it('excludes auth token issuance and api-key creation routes', () => {
-    expect(isIdempotencyRouteExcluded('/api/v1/auth/login')).toBe(true);
     expect(isIdempotencyRouteExcluded('/api/v1/auth/email/login')).toBe(true);
     expect(isIdempotencyRouteExcluded('/api/v1/auth/mfa/login')).toBe(true);
     expect(isIdempotencyRouteExcluded('/api/v1/auth/oauth/google/callback')).toBe(true);

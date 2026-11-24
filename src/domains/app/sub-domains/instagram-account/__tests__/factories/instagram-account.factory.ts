@@ -28,8 +28,7 @@ import {
   connectInstagramAccountsThroughRoutes,
   readChannelConnectionTokenCiphertexts,
 } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
-/** `GET` / `DELETE /app/social/instagram/account` (routes 2 and 4). */
-export const INSTAGRAM_ACCOUNT_PATH = testApiPath('/app/social/instagram/account');
+import { channelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 /** `PATCH /app/social/instagram/account/settings` (route 3). */
 export const INSTAGRAM_ACCOUNT_SETTINGS_PATH = testApiPath(
   '/app/social/instagram/account/settings',
@@ -91,16 +90,17 @@ export function buildInstagramProfile(
 /** How the mocked `subscribed_apps` call answers after a connect. */
 export type TestSubscriptionOutcome = 'success' | 'failure' | 'none';
 
-/** The Instagram account object `GET /app/social/instagram/account` answers (route 2). */
+/** The Channel account object `GET /app/social/channel-accounts/{channel_account_id}` answers (route 7). */
 export type TestConnectedInstagramAccount = Record<string, unknown> & {
   id: string;
   connection_status: string;
+  instagram: Record<string, unknown> & { instagram_user_id: string };
 };
 
 /**
  * Connects one Instagram account for the team the way the frontend does now — start, callback and
  * pick of a channel connection (feat-instagram-dm-sending routes 1–3), Meta mocked with nock — and
- * answers the account as route 2 reads it, with the connection's public id. Replaces the launch's
+ * answers the channel account as route 7 reads it (R5), with the connection's public id. Replaces the launch's
  * Instagram Login connect (RC-6).
  */
 export async function connectInstagramAccount({
@@ -115,23 +115,35 @@ export async function connectInstagramAccount({
   profile: TestInstagramProfile;
   subscription?: TestSubscriptionOutcome;
   clientBusinessId?: string;
-}): Promise<{ account: TestConnectedInstagramAccount; channelConnectionPublicId: string }> {
-  const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+}): Promise<{
+  account: TestConnectedInstagramAccount;
+  channelConnectionPublicId: string;
+  /** The Instagram row's own `iga_` id (the launch suites' audit and callback ids until R6). */
+  instagramAccountPublicId: string;
+}> {
+  const { channelConnectionPublicId, pick } = await connectInstagramAccountsThroughRoutes({
     app,
     token,
     accounts: [{ id: profile.user_id, username: profile.username }],
     subscription,
     ...(clientBusinessId !== undefined ? { clientBusinessId } : {}),
   });
+  const picked = (pick as { results: Array<{ channel_account: { id: string } | null }> }).results[0]
+    ?.channel_account;
+  if (picked == null) throw new Error('the pick connected no account');
   const read = await injectAuthenticated(app, {
     method: 'GET',
-    url: INSTAGRAM_ACCOUNT_PATH,
+    url: channelAccountPath(picked.id),
     token,
   });
   if (read.statusCode !== 200) throw new Error(`account read answered ${read.statusCode}`);
+  const [row] = await operatorQuery<Array<{ public_id: string }>>`
+    SELECT public_id FROM app.instagram_accounts WHERE instagram_user_id = ${profile.user_id}
+    ORDER BY id DESC LIMIT 1`;
   return {
     account: (read.json() as { data: TestConnectedInstagramAccount }).data,
     channelConnectionPublicId,
+    instagramAccountPublicId: row?.public_id ?? '',
   };
 }
 

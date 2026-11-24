@@ -17,6 +17,7 @@ import { database } from '@/infrastructure/database/connection.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
 import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
@@ -186,12 +187,22 @@ describe('Security: sensitive-field leakage sweep', () => {
       channel_connection_id: connection!.id,
       encrypted_access_token: 'v1:leaked-instagram-token-ciphertext',
     });
+    const [channelAccount] = await database
+      .insert(channel_accounts)
+      .values({
+        public_id: generatePublicId('channelAccount'),
+        organization_id: organization.id,
+        channel_connection_id: connection!.id,
+        provider_account_id: '17841400000000099',
+        display_name: '@leak_probe',
+      })
+      .returning({ id: channel_accounts.id, public_id: channel_accounts.public_id });
     const [account] = await database
       .insert(instagram_accounts)
       .values({
         public_id: generatePublicId('instagramAccount'),
         organization_id: organization.id,
-        channel_connection_id: connection!.id,
+        channel_account_id: channelAccount!.id,
         instagram_user_id: '17841400000000099',
         instagram_app_user_id: '17841400000000099',
         username: 'leak_probe',
@@ -208,7 +219,7 @@ describe('Security: sensitive-field leakage sweep', () => {
     });
     const response = await injectAuthenticated(app, {
       method: 'GET',
-      url: testApiPath('/app/social/instagram/account'),
+      url: testApiPath(`/app/social/channel-accounts/${channelAccount!.public_id}`),
       token,
     });
 

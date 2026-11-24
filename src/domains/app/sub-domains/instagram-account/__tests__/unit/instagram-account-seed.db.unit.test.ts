@@ -15,6 +15,7 @@ import { channel_connections } from '@/domains/app/sub-domains/channel-connectio
 import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { META_REQUIRED_PERMISSIONS } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import { channelConnectionSeedContribution } from '@/domains/app/sub-domains/channel-connection/seed/index.js';
+import { channelAccountSeedContribution } from '@/domains/app/sub-domains/channel-account/seed/index.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
 import { instagramAccountSeedContribution } from '@/domains/app/sub-domains/instagram-account/seed/index.js';
@@ -22,6 +23,7 @@ import { instagramAccountSeedContribution } from '@/domains/app/sub-domains/inst
 /** The connection seed, then the account seed — the app domain's order. */
 const connectionAndAccountSeed = composeContributions(
   channelConnectionSeedContribution,
+  channelAccountSeedContribution,
   instagramAccountSeedContribution,
 );
 
@@ -91,7 +93,7 @@ describe('Instagram account bulk seed (database)', () => {
     expect(accounts).toHaveLength(1);
     const account = accounts[0]!;
     expect(account).toMatchObject({
-      channel_connection_id: connection.id,
+      channel_account_id: expect.any(Number),
       connection_status: 'connected',
       connected_by_user_id: organization.ownerUserId,
       disconnected_at: null,

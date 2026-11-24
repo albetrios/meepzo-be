@@ -10,14 +10,10 @@ import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
 import {
-  LoginDto,
   EmailSendCodeDto,
   EmailLoginDto,
   MfaVerifyDto,
   CreateAuthMethodDto,
-  ForgotPasswordDto,
-  ResetPasswordDto,
-  ChangePasswordDto,
   MfaEnrollDto,
   MfaEnrollConfirmDto,
   MfaLoginVerifyDto,
@@ -31,6 +27,10 @@ import {
   AdminUpdateUserDto,
   UploadAvatarDto,
 } from '@/domains/user/user.dto.js';
+import {
+  activateChannelAccountDto,
+  emptyChannelAccountBodyDto,
+} from '@/domains/app/sub-domains/channel-account/channel-account.dto.js';
 import { UpdateUserSettingsDto } from '@/domains/user/sub-domains/user-settings/user-settings.dto.js';
 import { PutNotificationPreferencesDto } from '@/domains/user/sub-domains/user-notification-preferences/user-notification-preferences.dto.js';
 import { exportUserDataBodyDto } from '@/domains/user/sub-domains/user-data-export/user-data-export.dto.js';
@@ -69,6 +69,7 @@ import {
 
 import {
   acceptMembershipInvitationDto,
+  previewMembershipInvitationDto,
   resendMembershipInvitationDto,
 } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.dto.js';
 
@@ -116,7 +117,6 @@ import {
  */
 export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Auth ──
-  'POST /api/v1/auth/login': LoginDto,
   'POST /api/v1/auth/email/send-code': EmailSendCodeDto,
   'POST /api/v1/auth/email/login': EmailLoginDto,
   'POST /api/v1/auth/me/mfa/verify': MfaVerifyDto,
@@ -124,9 +124,6 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/auth/me/mfa/enroll/confirm': MfaEnrollConfirmDto,
   'POST /api/v1/auth/step-up': StepUpVerifyDto,
   'POST /api/v1/auth/mfa/login': MfaLoginVerifyDto,
-  'POST /api/v1/auth/password/forgot': ForgotPasswordDto,
-  'POST /api/v1/auth/password/reset': ResetPasswordDto,
-  'POST /api/v1/auth/password/change': ChangePasswordDto,
   'POST /api/v1/auth/webauthn/authenticate/options': webauthnAuthenticateOptionsDto,
   'POST /api/v1/auth/webauthn/authenticate/verify': webauthnAuthenticateVerifyDto,
   'POST /api/v1/auth/me/webauthn/register/verify': webauthnRegisterVerifyDto,
@@ -168,6 +165,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Invitations ── (add-member issues invitations via POST /organization/memberships, REQ-1)
   'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/accept':
     acceptMembershipInvitationDto,
+  'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/preview':
+    previewMembershipInvitationDto,
   'POST /api/v1/tenancy/organization/memberships/{membership_id}/invitation/resend':
     resendMembershipInvitationDto,
 
@@ -195,6 +194,12 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/app/social/channel-connections/{provider}/callback': channelConnectCallbackDto,
   'POST /api/v1/app/social/channel-connections/{channel_connection_id}/accounts':
     channelAccountPickDto,
+  // ── App: channel account ──
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/pause': emptyChannelAccountBodyDto,
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/resume':
+    emptyChannelAccountBodyDto,
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/activate':
+    activateChannelAccountDto,
   // ── App: Instagram account ──
   'PATCH /api/v1/app/social/instagram/account/settings': UpdateInstagramAccountSettingsDto,
   // Meta's callbacks (routes 7–8): form-encoded, not JSON — see FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.

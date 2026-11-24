@@ -2,15 +2,29 @@ import http from 'k6/http';
 import { API_PREFIX, PUBLIC_AUTH_FORM_HEADERS } from './config.js';
 
 /**
- * Perform login and return the access token.
+ * Sign in by email code and return the access token (passwords are off, P84).
+ *
+ * `POST /auth/email/send-code`, then `POST /auth/email/login` with the code the target echoes under
+ * `TEST_MODE` (`debug_verification_code`) — a load target must run with it. Each sign-in emails
+ * the account a new code; a second send for the same email within 60 s is refused
+ * (`429 code_resend_too_soon`) unless the target turns the resend spacing off
+ * (`AUTH_EMAIL_CODE_RESEND_COOLDOWN_ENABLED=false`, local and development only).
  *
  * The token is a signed JWT whose `org` claim is the user's default active organization.
  * Organization-scoped routes resolve the tenant from this claim — there is no `{organization_id}`
  * path segment and no organization id header for the flat routes. To act in a different
  * organization, re-mint the token with `switchToOrganization` / `switchToPersonal`.
  */
-export function login(email, password) {
-  const response = http.post(`${API_PREFIX}/auth/login`, JSON.stringify({ email, password }), {
+export function login(email) {
+  const sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
+    headers: PUBLIC_AUTH_FORM_HEADERS,
+  });
+  if (sent.status !== 200) throw new Error(`Load send-code failed with HTTP ${sent.status}`);
+  const code = JSON.parse(sent.body).data?.debug_verification_code;
+  if (typeof code !== 'string' || code.length === 0) {
+    throw new Error('Load send-code returned no code echo — the target needs TEST_MODE');
+  }
+  const response = http.post(`${API_PREFIX}/auth/email/login`, JSON.stringify({ email, code }), {
     headers: PUBLIC_AUTH_FORM_HEADERS,
   });
 
@@ -67,8 +81,8 @@ export function switchToPersonal(token) {
  * `organizationPublicId`. Returns the plain login token only when no organization is requested.
  * Login or requested scope failure aborts setup instead of targeting another tenant.
  */
-export function loginScopedToOrganization(email, password, organizationPublicId) {
-  const token = login(email, password);
+export function loginScopedToOrganization(email, organizationPublicId) {
+  const token = login(email);
   if (!(token && organizationPublicId)) return token;
   return switchToOrganization(token, organizationPublicId);
 }

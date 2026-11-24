@@ -6,11 +6,9 @@ import {
   type OrganizationPrincipalDatabaseScope,
   type UserPrincipalDatabaseScope,
 } from '@/infrastructure/database/contexts/database-context.js';
-import { withSavepoint } from '@/infrastructure/database/transaction.js';
 import type { SupportedLanguage } from '@/shared/constants/i18n.constants.js';
 import type { NotificationType } from '@/shared/constants/notification.constants.js';
 import { PAGINATION } from '@/shared/constants/pagination.constants.js';
-import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
 import type { NotificationRepository } from './notification.repository.js';
 import type { UserService } from '@/domains/user/user.service.js';
@@ -49,7 +47,8 @@ export interface OrganizationNotificationContent {
  * What {@link NotificationService.createOrganizationNotifications} did.
  *
  * @remarks
- * - **Algorithm:** `createdCount` rows were written; `deduplicated` is `true` when an earlier call
+ * - **Algorithm:** `createdCount` recipients were notified (an inbox row, or the email alone where
+ *   in-app is off); `deduplicated` is `true` when an earlier call
  *   with the same key had already sent them, and nothing was written.
  * - **Failure modes:** none — a return shape.
  * - **Side effects:** none.
@@ -247,20 +246,20 @@ export class NotificationService {
    * @remarks
    * - **Algorithm:** one unit of work in the caller's organization scope (joining the caller's open
    *   unit for the same organization): resolve the organization; when a notification of this type
-   *   already carries `dedupeKey` in the organization, stop; else, per recipient in its own
-   *   savepoint, `createAndDispatchNotification` (the row with `data.channels`, `data.locale` and
-   *   `data.dedupe_key`; its dispatch job enqueued after the commit). The recipients' public ids are
-   *   resolved in the same unit, and their cached unread counts are dropped after the commit.
+   *   already carries `dedupeKey` in the organization, stop; else one `createAndDispatchNotification`
+   *   for all the recipients — the check before send (UN11) reads their choices in one query, then
+   *   writes the inbox row where in-app is on and records the email alone where only email is on,
+   *   both keyed by `dedupeKey`. The cached unread counts of the recipients that got a row are
+   *   dropped after the commit.
    * - **Failure modes:** `NotFoundError('Organization')` when the scope's organization does not
-   *   resolve. One recipient's failed row is logged (`notify.organization_notification.failed`) and
-   *   skipped; when every recipient failed, the first error is rethrown, so a retry sends them all.
-   *   The cache invalidation is best-effort.
-   * - **Side effects:** `notify.notifications` rows; one `notification` job per row after the
-   *   commit; one unread-count tombstone per recipient after the commit.
+   *   resolve. One recipient's failure is logged (`notify.dispatch.recipient_failed`) and skipped;
+   *   when every recipient failed, the first error is rethrown, so a retry sends them all.
+   * - **Side effects:** `notify.notifications` rows and `auth.mail_outbox` rows; one `notification`
+   *   or mail job per recipient after the commit; one unread-count tombstone per inbox row.
    * - **Notes:** the worker process builds this container too (`createDomainContainers`), so the
    *   dispatch `createAndDispatchNotification` relies on is configured there as in the API. The
-   *   once-only check makes a re-run of the caller's job — a stalled job run again after its commit
-   *   — send nothing twice; recipients are internal user ids resolved by the caller through the
+   *   once-only check and the email's outbox key (`notification:<type>:<dedupeKey>:<user>`) make a
+   *   re-run of the caller's job send nothing twice, even when nobody got an inbox row; recipients are internal user ids resolved by the caller through the
    *   membership service.
    */
   async createOrganizationNotifications({
@@ -288,47 +287,25 @@ export class NotificationService {
         });
         if (alreadySent) return { createdUserIds: [], failedCount: 0, deduplicated: true };
 
-        const createdUserIds: number[] = [];
-        let firstError: unknown;
-        for (const recipientUserId of recipientUserIds) {
-          try {
-            // A savepoint per recipient: a failed INSERT would otherwise abort the whole unit.
-            await withSavepoint(() =>
-              createAndDispatchNotification({
-                input: {
-                  user_id: recipientUserId,
-                  organization_id: organizationId,
-                  type: notification.type,
-                  title: notification.title,
-                  message: notification.message,
-                  action_url: notification.actionUrl,
-                  data: {
-                    channels: [...notification.channels],
-                    locale: notification.locale,
-                    dedupe_key: dedupeKey,
-                  },
-                },
-              }),
-            );
-            createdUserIds.push(recipientUserId);
-          } catch (error) {
-            firstError ??= error;
-            logger.error(
-              {
-                err: error,
-                recipientUserId,
-                notificationType: notification.type,
-                organizationPublicId: scope.organizationPublicId,
-              },
-              'notify.organization_notification.failed',
-            );
-          }
-        }
-        if (createdUserIds.length === 0 && firstError !== undefined) throw firstError;
-        await this.invalidateUnreadCountsAfterCommit(createdUserIds);
+        const dispatched = await createAndDispatchNotification({
+          input: {
+            recipientUserIds,
+            organization_id: organizationId,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            action_url: notification.actionUrl,
+            channels: notification.channels,
+            locale: notification.locale,
+            dedupe_key: dedupeKey,
+          },
+        });
+        await runEnqueueAfterCommit(async () => {
+          await invalidateCachedUnreadNotificationCounts(dispatched.inAppUserPublicIds);
+        });
         return {
-          createdUserIds,
-          failedCount: recipientUserIds.length - createdUserIds.length,
+          createdUserIds: [...dispatched.inAppUserIds, ...dispatched.emailOnlyUserIds],
+          failedCount: dispatched.failedCount,
           deduplicated: false,
         };
       },
@@ -338,28 +315,5 @@ export class NotificationService {
       failedCount: outcome.failedCount,
       deduplicated: outcome.deduplicated,
     };
-  }
-
-  /**
-   * Resolves the recipients' public ids inside the open unit (no handle after the commit) and drops
-   * their cached unread counts once it commits — best-effort, never failing the notifications.
-   */
-  private async invalidateUnreadCountsAfterCommit(
-    recipientUserIds: readonly number[],
-  ): Promise<void> {
-    if (recipientUserIds.length === 0) return;
-    try {
-      const recipientPublicIds = await withSavepoint(() =>
-        this.repository.resolveUserPublicIdsByInternalIds(recipientUserIds),
-      );
-      await runEnqueueAfterCommit(async () => {
-        await invalidateCachedUnreadNotificationCounts(recipientPublicIds);
-      });
-    } catch (error) {
-      logger.warn(
-        { err: error },
-        'notify.organization_notification.unread_cache_invalidate.failed',
-      );
-    }
   }
 }

@@ -28,10 +28,7 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   'GET /api/v1/auth/oauth/providers',
   'POST /api/v1/auth/email/login',
   'POST /api/v1/auth/email/send-code',
-  'POST /api/v1/auth/login',
   'POST /api/v1/auth/mfa/login',
-  'POST /api/v1/auth/password/forgot',
-  'POST /api/v1/auth/password/reset',
   'POST /api/v1/auth/webauthn/authenticate/options',
   'POST /api/v1/auth/webauthn/authenticate/verify',
   // Billing — public plan catalog + Stripe-signature-verified webhook ingress
@@ -50,6 +47,10 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   // (instagramWebhookIngressPlugin, before anything is parsed); see instagram-webhook.routes.ts.
   'GET /api/v1/app/social/instagram/webhook',
   'POST /api/v1/app/social/instagram/webhook',
+  // Tenancy — the invitation page (feat-instagram-dm-sending route 118, TN11): answers only for the
+  // emailed token (SHA-256 matched in a SECURITY DEFINER resolver; a wrong token or id is one 404),
+  // 30 a minute per IP; an optional bearer only tells whether the signed-in email is the invited one.
+  'POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview',
 ];
 
 describe('Security: public route allowlist', () => {

@@ -5,15 +5,14 @@ export function buildTagDefinitions(
   const builtInTagDescriptions: Record<string, string> = {
     Health: 'Server health and readiness probes',
     MCP: 'Model Context Protocol — tools and resources for agents (requires admin JWT when ENABLE_MCP_SERVER=true)',
-    Auth: 'Authentication — login, logout, password management',
+    Auth: 'Authentication — logout, refresh, active organization (no passwords)',
     'Email Login': 'Passwordless sign-in with an emailed verification code',
     OAuth: 'OAuth 2.0 social login flows',
-    Password: 'Password management (forgot, reset, change)',
     'Email Verification': 'Email address verification',
     MFA: 'Multi-factor authentication enrollment and verification',
     Token: 'Token refresh and management',
     Session: 'Session management — list and revoke active sessions',
-    'Auth Method': 'Manage linked authentication methods (password, OAuth, etc.)',
+    'Auth Method': 'Manage linked authentication methods (email code, OAuth, MFA)',
     User: 'Current user profile management',
     'User Settings': 'User personal settings (dark mode, language, etc.)',
     'Notification Preferences': 'Per-user notification type and channel preferences',
@@ -37,8 +36,10 @@ export function buildTagDefinitions(
     Upload: 'Pre-signed URL generation for file uploads',
     'Channel connection':
       "The organization's provider logins — Meta's Unified Login for a business portfolio: start, finish, reconnect, pick its Instagram accounts under the plan's limit, list, read and disconnect the business",
+    'Channel account':
+      "The organization's connected accounts, whatever their channel (Instagram now): list, read, disconnect one, pause and resume its sending, and choose which accounts are active within the plan",
     'Instagram account':
-      "The organization's connected Instagram professional account — read, change its settings, disconnect, browse its posts and stories, and Meta's deauthorize and data-deletion callbacks",
+      "The organization's connected Instagram professional accounts — change their settings, browse their posts and stories, and Meta's deauthorize and data-deletion callbacks",
     Contact:
       "The people who interacted with the organization's Instagram accounts — list and erase",
     'Instagram Webhook':
@@ -54,7 +55,6 @@ export function buildTagDefinitions(
     'Auth',
     'Email Login',
     'OAuth',
-    'Password',
     'Email Verification',
     'MFA',
     'Token',
@@ -82,6 +82,7 @@ export function buildTagDefinitions(
     'Webhook',
     'Upload',
     'Channel connection',
+    'Channel account',
     'Instagram account',
     'Contact',
     'Automation',

@@ -35,7 +35,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-ci-investigation/SKILL.md",
-      "computedHash": "18e4927dfc0e23b936c1b1ca4b2028c3caac026a8e39a6685c2e7b53dc4d495e"
+      "computedHash": "d8a0d7797f78194c6cfdb20a74a22c3d5fda380e09800b4bd4d0739b9d454731"
     },
     "be-code-quality-guard": {
       "source": "local",
@@ -191,7 +191,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-route-catalog/SKILL.md",
-      "computedHash": "3b304ed214778e012274a43929d7d99a29f3172102f996c72f106beb78cebbca"
+      "computedHash": "0e971141cb2b2b4d85b53a3a004ba7b201ebea4ca50b449f073af9c9476862f2"
     },
     "be-route-schema-doc-guard": {
       "source": "local",

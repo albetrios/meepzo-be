@@ -92,6 +92,18 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-mutation: channel connect state of another organization',
   'POST /api/v1/app/social/channel-connections/:provider/start':
     'cross-organization-resource: the state is bound to the caller organization',
+  // The channel account (feat-instagram-dm-sending R5, routes 7–11): another organization's account
+  // is 404 channel_account_not_found and unchanged (channel-account.integration.test.ts).
+  'GET /api/v1/app/social/channel-accounts/:channel_account_id':
+    'cross-organization-resource: channel account',
+  'DELETE /api/v1/app/social/channel-accounts/:channel_account_id':
+    'cross-organization-mutation: channel account DELETE',
+  'POST /api/v1/app/social/channel-accounts/:channel_account_id/pause':
+    'cross-organization-mutation: channel account pause',
+  'POST /api/v1/app/social/channel-accounts/:channel_account_id/resume':
+    'cross-organization-mutation: channel account resume',
+  'POST /api/v1/app/social/channel-accounts/:channel_account_id/activate':
+    'cross-organization-mutation: channel account activate',
   'PATCH /api/v1/tenancy/organization/notification-policies/:notification_policy_id':
     'cross-organization-mutation: notification policy PATCH',
   'DELETE /api/v1/tenancy/organization/notification-policies/:notification_policy_id':

@@ -97,142 +97,72 @@ function setup({
   return { repository, send };
 }
 
-/** The recipients `createAndDispatchNotification` was called for, in order. */
-function dispatchedRecipients(): number[] {
-  return createAndDispatchNotification.mock.calls.map(
-    ([call]) => (call as { input: { user_id: number } }).input.user_id,
-  );
-}
-
 /**
- * {@link NotificationService.createOrganizationNotifications} without a database: one row — and one
- * dispatch, which carries the email channel — per recipient, the once-only check, and the two failure
- * branches (some recipients fail: logged and skipped; all fail: the first error reaches the caller).
+ * {@link NotificationService.createOrganizationNotifications} without a database: one dispatch for
+ * every recipient (the check before send lives in the dispatch — UN11), the once-only check, the
+ * cache drop for the inbox recipients, and a dispatch failure reaching the caller.
  */
 describe('NotificationService.createOrganizationNotifications', () => {
   beforeEach(() => {
-    vi.resetAllMocks();
-    createAndDispatchNotification.mockResolvedValue(undefined);
-    invalidateCounts.mockResolvedValue(undefined);
+    vi.clearAllMocks();
+    createAndDispatchNotification.mockResolvedValue({
+      inAppUserIds: [1, 2],
+      inAppUserPublicIds: ['usr_recipient_1', 'usr_recipient_2'],
+      emailOnlyUserIds: [3],
+      skippedCount: 0,
+      failedCount: 0,
+    });
   });
 
-  it('creates and dispatches one notification per recipient, in the app and by email', async () => {
-    const { repository, send } = setup();
+  it('dispatches once for all the recipients with the dedupe key and counts every notified one', async () => {
+    const { send } = setup();
 
-    await expect(send([11, 12, 13])).resolves.toEqual({
-      createdCount: 3,
-      failedCount: 0,
-      deduplicated: false,
-    });
+    const result = await send([1, 2, 3]);
 
-    expect(createAndDispatchNotification).toHaveBeenCalledTimes(3);
-    expect(dispatchedRecipients()).toEqual([11, 12, 13]);
-    expect(createAndDispatchNotification).toHaveBeenNthCalledWith(1, {
+    expect(createAndDispatchNotification).toHaveBeenCalledExactlyOnceWith({
       input: {
-        user_id: 11,
+        recipientUserIds: [1, 2, 3],
         organization_id: ORGANIZATION_ID,
         type: 'instagram.reconnect_required',
         title: notification.title,
         message: notification.message,
         action_url: notification.actionUrl,
-        // The dispatch job reads the channels from the row: the email goes out from there.
-        data: { channels: ['in_app', 'email'], locale: 'en', dedupe_key: DEDUPE_KEY },
+        channels: notification.channels,
+        locale: 'en',
+        dedupe_key: DEDUPE_KEY,
       },
     });
-    expect(repository.existsOrganizationNotificationWithDedupeKey).toHaveBeenCalledWith({
-      organization_id: ORGANIZATION_ID,
-      type: 'instagram.reconnect_required',
-      dedupe_key: DEDUPE_KEY,
-    });
-    expect(invalidateCounts).toHaveBeenCalledWith([
-      'usr_recipient_11',
-      'usr_recipient_12',
-      'usr_recipient_13',
-    ]);
+    expect(result).toEqual({ createdCount: 3, failedCount: 0, deduplicated: false });
+    expect(invalidateCounts).toHaveBeenCalledWith(['usr_recipient_1', 'usr_recipient_2']);
   });
 
-  it('sends nothing a second time for one key', async () => {
+  it('sends nothing when a notification with the key already exists (a replay)', async () => {
     const { send } = setup({ alreadySent: true });
 
-    await expect(send([11, 12])).resolves.toEqual({
-      createdCount: 0,
-      failedCount: 0,
-      deduplicated: true,
-    });
+    const result = await send([1, 2]);
+
+    expect(result).toEqual({ createdCount: 0, failedCount: 0, deduplicated: true });
     expect(createAndDispatchNotification).not.toHaveBeenCalled();
-    expect(invalidateCounts).not.toHaveBeenCalled();
   });
 
-  it('logs and skips a recipient whose notification fails, and tells the others', async () => {
-    const { send } = setup();
-    const failure = new Error('the insert failed');
-    createAndDispatchNotification
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(failure)
-      .mockResolvedValueOnce(undefined);
-
-    await expect(send([11, 12, 13])).resolves.toEqual({
-      createdCount: 2,
-      failedCount: 1,
-      deduplicated: false,
-    });
-
-    expect(dispatchedRecipients()).toEqual([11, 12, 13]);
-    expect(loggerError).toHaveBeenCalledWith(
-      {
-        err: failure,
-        recipientUserId: 12,
-        notificationType: 'instagram.reconnect_required',
-        organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      },
-      'notify.organization_notification.failed',
-    );
-    // Only the recipients who were told have a new unread notification.
-    expect(invalidateCounts).toHaveBeenCalledWith(['usr_recipient_11', 'usr_recipient_13']);
-  });
-
-  it('rethrows the first error when every recipient fails, so a retry tells them all', async () => {
-    const { send } = setup();
-    const firstFailure = new Error('the first failure');
-    createAndDispatchNotification
-      .mockRejectedValueOnce(firstFailure)
-      .mockRejectedValueOnce(new Error('the second failure'));
-
-    await expect(send([11, 12])).rejects.toBe(firstFailure);
-
-    expect(loggerError).toHaveBeenCalledTimes(2);
-    expect(invalidateCounts).not.toHaveBeenCalled();
-  });
-
-  it('answers none created for no recipients, throwing nothing', async () => {
-    const { send } = setup();
-
-    await expect(send([])).resolves.toEqual({
-      createdCount: 0,
-      failedCount: 0,
-      deduplicated: false,
-    });
-    expect(invalidateCounts).not.toHaveBeenCalled();
-  });
-
-  it('answers NotFoundError when the organization is gone, sending nothing', async () => {
+  it('refuses an organization that does not resolve', async () => {
     const { send } = setup({ organizationId: null });
-
-    await expect(send([11])).rejects.toBeInstanceOf(NotFoundError);
+    await expect(send([1])).rejects.toBeInstanceOf(NotFoundError);
     expect(createAndDispatchNotification).not.toHaveBeenCalled();
   });
 
-  it('never fails the notifications over the cached unread counts', async () => {
-    const { repository, send } = setup();
-    repository.resolveUserPublicIdsByInternalIds.mockRejectedValueOnce(
-      new Error('the read failed'),
-    );
+  it('passes on the failed count and rethrows a dispatch where every recipient failed', async () => {
+    const { send } = setup();
+    createAndDispatchNotification.mockResolvedValueOnce({
+      inAppUserIds: [1],
+      inAppUserPublicIds: ['usr_recipient_1'],
+      emailOnlyUserIds: [],
+      skippedCount: 0,
+      failedCount: 1,
+    });
+    expect(await send([1, 2])).toEqual({ createdCount: 1, failedCount: 1, deduplicated: false });
 
-    await expect(send([11])).resolves.toMatchObject({ createdCount: 1, failedCount: 0 });
-
-    expect(loggerWarn).toHaveBeenCalledWith(
-      expect.objectContaining({ err: expect.any(Error) }),
-      'notify.organization_notification.unread_cache_invalidate.failed',
-    );
+    createAndDispatchNotification.mockRejectedValueOnce(new Error('insert failed'));
+    await expect(send([1, 2])).rejects.toThrow('insert failed');
   });
 });

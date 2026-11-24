@@ -1,6 +1,8 @@
 import type { MembershipInvitationRef } from '@/domains/tenancy/sub-domains/membership/membership.types.js';
 import type {
   MembershipInvitationOutput,
+  MembershipInvitationPreviewOutput,
+  MembershipInvitationPreviewRow,
   MyMembershipInvitationOutput,
   PendingInvitationForEmailRow,
 } from './membership-invitation.types.js';
@@ -84,5 +86,27 @@ export function attachInvitationTokenEcho<
   return {
     ...membership,
     invitation: { ...membership.invitation, debug_invitation_token: issued.debug_invitation_token },
+  };
+}
+
+/**
+ * Shapes the invitation page's read (route 118, routes-final § 9.C.6). The invitee's email never
+ * leaves: `email_matches` says only whether the signed-in caller's verified email is it, and is
+ * `null` for a signed-out caller.
+ */
+export function serializeMembershipInvitationPreview(options: {
+  row: MembershipInvitationPreviewRow;
+  signed_in: boolean;
+  email_matches: boolean | null;
+}): MembershipInvitationPreviewOutput {
+  const { row } = options;
+  return {
+    state: row.state,
+    organization: { name: row.organization_name, logo_color: row.organization_logo_color },
+    role_name: row.role_name,
+    inviter_first_name: row.inviter_first_name,
+    expires_at: row.expires_at.toISOString(),
+    signed_in: options.signed_in,
+    email_matches: options.signed_in ? options.email_matches : null,
   };
 }

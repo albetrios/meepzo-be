@@ -69,7 +69,6 @@ describe('completeOAuthUserSession (database transaction boundary)', () => {
       {} as never,
       new AuthMethodRepository(),
       {} as never,
-      {} as never,
     );
 
     const result = await completeOAuthUserSession({

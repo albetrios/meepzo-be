@@ -57,14 +57,21 @@ const CONVERSIONS: readonly Conversion[] = [
     'cascade',
     'membership_additional_roles_role_fk',
   ),
-  // feat-instagram-dm-sending R3 (MC1, P111): an Instagram account names the channel connection it
-  // came through, RESTRICT — a connection is revoked, never deleted.
+  // feat-instagram-dm-sending R5 (CA1, P116): a channel account names the connection it came
+  // through, and its Instagram extension names it (1:1), RESTRICT — neither is ever deleted.
   link(
-    'app.instagram_accounts',
+    'app.channel_accounts',
     'channel_connection_id',
     'app.channel_connections',
     'restrict',
-    'instagram_accounts_channel_connection_fk',
+    'channel_accounts_channel_connection_fk',
+  ),
+  link(
+    'app.instagram_accounts',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'instagram_accounts_channel_account_fk',
   ),
   // launch R12 (WH16): an Instagram webhook event names its account through the composite key.
   link(
@@ -178,14 +185,26 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
       [`chc_${String(organization.id).padStart(21, '0')}`, organization.id, instagramUserId],
     ),
   );
+  const [channelAccount] = rowsOf<{ id: string }>(
+    await operatorQuery.unsafe(
+      `INSERT INTO app.channel_accounts (public_id, organization_id, channel_connection_id, provider_account_id, display_name)
+       VALUES ($1, $2, $3, $4, '@acme_shop') RETURNING id`,
+      [
+        `cha_${String(organization.id).padStart(21, '0')}`,
+        organization.id,
+        connection?.id,
+        instagramUserId,
+      ],
+    ),
+  );
   const [account] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(
-      `INSERT INTO app.instagram_accounts (public_id, organization_id, channel_connection_id, instagram_user_id, instagram_app_user_id, username)
+      `INSERT INTO app.instagram_accounts (public_id, organization_id, channel_account_id, instagram_user_id, instagram_app_user_id, username)
        VALUES ($1, $2, $3, $4, $4, 'acme_shop') RETURNING id`,
       [
         `iga_${String(organization.id).padStart(21, '0')}`,
         organization.id,
-        connection?.id,
+        channelAccount?.id,
         instagramUserId,
       ],
     ),

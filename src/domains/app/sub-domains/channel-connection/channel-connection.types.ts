@@ -159,9 +159,8 @@ export interface ChannelConnectionAccountScope {
  * MC5–MC8) — the port of sub-domain 1B (channel account) and 2 (its Instagram extension).
  *
  * @remarks
- * Built at ROUTE row R3 over the launch's `app.instagram_accounts` (`InstagramAccountService`, P111);
- * ROUTE row R5 implements it on `app.channel_accounts` with its Instagram extension (R6) and swaps it
- * in the app container. Every write joins the caller's unit of work; no provider call is made in
+ * Built at ROUTE row R3 over the launch's `app.instagram_accounts` (P111); implemented since ROUTE
+ * row R5 by `ChannelAccountService` on `app.channel_accounts` with its Instagram extension (P116). Every write joins the caller's unit of work; no provider call is made in
  * one — the subscribe and unsubscribe steps run outside any unit.
  */
 export interface ChannelConnectionAccountPort {

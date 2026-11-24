@@ -16,6 +16,7 @@ invitation email through the transactional mail outbox.
 | --- | --- |
 | `DELETE /tenancy/organization/memberships/{membership_id}/invitation` | `membership:delete` |
 | `POST /tenancy/organization/memberships/{membership_id}/invitation/resend` | `membership:update` |
+| `POST /tenancy/membership-invitations/{membership_invitation_id}/preview` | PUBLIC — the emailed token in the body; an optional bearer (`authenticateWhenBearerPresent`); 30 a minute per IP (feat-instagram-dm-sending TN11) |
 | `POST /tenancy/membership-invitations/{membership_invitation_id}/accept` | signed in (the invitee) |
 | `POST /tenancy/membership-invitations/{membership_invitation_id}/decline` | signed in (the invitee) |
 | `GET /users/me/membership-invitations` | signed in (the invitee's own) |
@@ -48,6 +49,7 @@ each with the clinic, the role names and who invited them — none for an unveri
   The env schema refuses the flag outside the `local` and `development` targets; it defaults off and
   the test harness pins it off. A token-bearing answer is never cached (idempotency cache skip,
   `cache-control: no-store`).
+- The invitation page's preview (route 118) reads through the SECURITY DEFINER `tenancy.resolve_membership_invitation_preview(public_id, token_hash)` (migration `20261124091500`): it answers only when the token's SHA-256 matches, so an unknown id and a wrong token are the same 404. It says `valid` · `accepted` · `expired` · `revoked` (declined, revoked, or the invited membership ended), the organization's name and tile colour, the main role's name, the inviter's first name and `expires_at`; `email_matches` only for a signed-in caller (their verified email), never the invitee's email. Nothing is written and no audit entry is made.
 - Accept is atomic and one-shot, and is gated on a **verified** email that matches the invitation; a suspended member cannot self-restore via accept (activation requires status `invited`). The emailed token is optional (launch D84 (2)): signing in with the invited, verified email proves what holding the token proves, so the invitee accepts in the app; a token that is sent must still match.
 - Declining (launch D84 (3)) runs through `MembershipService.declineInvitation`, under the same verified-email binding: the invitation is revoked and the invited membership ends (`declined`) through the one leave step in one transaction, which frees its seat; the inviter — or, when they are no longer an active member, whoever can add members — gets an in-app `membership.invite_declined`. An expired invitation can be declined too.
 - An invitation left 7 days past its expiry frees its seat: the daily `membership-invitation-expiry` sweep ends the invited membership (`invitation_expired`) through `MembershipService.endExpiredInvitation`, re-checking every condition in the organization's own context, so anything resent, accepted or removed since the scan is a skip. Until then an admin can resend it (T11); afterwards they invite the person again.

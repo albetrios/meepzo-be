@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -6,7 +6,6 @@ import { generate as generateTotp } from 'otplib';
 import { logs } from '@/domains/audit/audit.schema.js';
 import { audit_outbox } from '@/domains/audit/audit-outbox.schema.js';
 import { runAuditOutboxDrainJob } from '@/domains/audit/workers/audit-outbox-drain.processor.js';
-import { verification_tokens } from '@/domains/auth/sub-domains/auth-method/verification-token/verification-token.schema.js';
 import {
   createMembership,
   createRoleWithPermissions,
@@ -19,7 +18,7 @@ import {
   withMaintenanceDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
-import { createTestUser, createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
@@ -92,13 +91,13 @@ describe('auth audit trail — security events reach audit.logs', () => {
     return recoveryCodes[0]!;
   }
 
-  it('a failed password login is recorded as an anonymous auth.login_failure', async () => {
-    const { user } = await createTestUserWithPassword({ isEmailVerified: true });
+  it('a failed email-code login is recorded as an anonymous auth.login_failure', async () => {
+    const user = await createTestUser({ isEmailVerified: true });
 
     const response = await injectUnauthenticated(application, {
       method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password: 'NotTheRightPassword1!' },
+      url: testApiPath('/auth/email/login'),
+      payload: { email: user.email, code: '000000' },
     });
     expect(response.statusCode).toBe(401);
 
@@ -111,7 +110,7 @@ describe('auth audit trail — security events reach audit.logs', () => {
     expect(staged[0]).toMatchObject({
       actor_user_public_id: null,
       actor_api_key_public_id: null,
-      metadata: { source: 'password', actor_kind: 'anonymous' },
+      metadata: { source: 'email_code', actor_kind: 'anonymous' },
     });
 
     expect((await drainAuditOutbox()).permanentlyFailed).toBe(0);
@@ -123,8 +122,8 @@ describe('auth audit trail — security events reach audit.logs', () => {
       actor_api_key_id: null,
       resource_type: 'session',
       metadata: {
-        source: 'password',
-        error_code: 'errors:invalidEmailOrPassword',
+        source: 'email_code',
+        error_code: 'errors:emailCodeWrong',
         actor_kind: 'anonymous',
       },
     });
@@ -134,49 +133,14 @@ describe('auth audit trail — security events reach audit.logs', () => {
     expect(serializedRow).not.toContain(user.public_id);
   });
 
-  it('a completed password reset is recorded as auth.password.reset, attributed to the user', async () => {
-    const { user } = await createTestUserWithPassword({ isEmailVerified: true });
-    const rawToken = randomBytes(32).toString('hex');
-    await getOperatorDatabase()
-      .insert(verification_tokens)
-      .values({
-        token_type: 'PASSWORD_RESET',
-        token_hash: createHash('sha256').update(rawToken).digest('hex'),
-        user_id: user.id,
-        email: user.email,
-        expires_at: new Date(Date.now() + 3_600_000),
-      });
-
-    const response = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/password/reset'),
-      payload: { token: rawToken, password: 'BrandNewPassword456!' },
-    });
-    expect(response.statusCode).toBe(200);
-
-    expect((await drainAuditOutbox()).permanentlyFailed).toBe(0);
-
-    const rows = await auditLogRows('auth.password.reset');
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      actor_user_id: user.id,
-      resource_type: 'user',
-      severity: 'WARNING',
-    });
-  });
-
   it('an MFA login with a recovery code is recorded as auth.mfa.recovery_code_used, attributed to the user', async () => {
-    const { user, password } = await createTestUserWithPassword({ isEmailVerified: true });
+    const user = await createTestUser({ isEmailVerified: true });
     const recoveryCode = await enrollTotpAndTakeRecoveryCode(user.public_id);
 
-    const passwordStep = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
-    expect(passwordStep.statusCode).toBe(200);
+    const firstFactorStep = await signInWithEmailCode(application, { email: user.email });
+    expect(firstFactorStep.statusCode).toBe(200);
     const { mfa_session_token: mfaSessionToken } = (
-      passwordStep.json() as { data: { mfa_session_token: string } }
+      firstFactorStep.json() as { data: { mfa_session_token: string } }
     ).data;
     expect(mfaSessionToken).toBeTruthy();
 

@@ -51,7 +51,7 @@ describe('Security: Auth public rate limit burst (429)', () => {
       async () => ({ data: { message: 'ok' } }),
     );
     application.post(
-      '/auth/login',
+      '/auth/email/login',
       {
         ...STRICT_PUBLIC_RATE_LIMIT,
       },
@@ -78,15 +78,15 @@ describe('Security: Auth public rate limit burst (429)', () => {
     expect(responses.filter((response) => response.statusCode === 429).length).toBeGreaterThan(0);
   });
 
-  it('caps login-style public POST at 5 req/min per IP (6th returns 429)', async () => {
+  it('caps email-login-style public POST at 5 req/min per IP (6th returns 429)', async () => {
     const application = await createAuthStylePublicRouteApp();
     const responses = [];
     for (let attempt = 0; attempt < 7; attempt += 1) {
       responses.push(
         await application.inject({
           method: 'POST',
-          url: '/auth/login',
-          payload: { email: `burst-${attempt}@example.com`, password: 'x' },
+          url: '/auth/email/login',
+          payload: { email: `burst-${attempt}@example.com`, code: '482913' },
         }),
       );
     }
@@ -121,9 +121,9 @@ describe('Security: Auth public rate limit burst (429)', () => {
       responses.push(
         await application.inject({
           method: 'POST',
-          url: '/auth/login',
+          url: '/auth/email/login',
           headers: { 'x-real-ip': `198.51.100.${attempt}` },
-          payload: { email: `xrip-${attempt}@example.com`, password: 'x' },
+          payload: { email: `xrip-${attempt}@example.com`, code: '482913' },
         }),
       );
     }
@@ -150,7 +150,7 @@ describe('Security: Auth public rate limit burst (429)', () => {
     await application.register(rateLimit, { global: false });
     const perEmailRateLimit = createPerEmailRateLimitPreHandler(application);
     application.post(
-      '/auth/login',
+      '/auth/email/login',
       { ...STRICT_PUBLIC_RATE_LIMIT, preHandler: [perEmailRateLimit] },
       async () => ({ data: { message: 'ok' } }),
     );
@@ -166,11 +166,11 @@ describe('Security: Auth public rate limit burst (429)', () => {
       responses.push(
         await application.inject({
           method: 'POST',
-          url: '/auth/login',
+          url: '/auth/email/login',
           // A fresh connection address per attempt: the per-IP bucket never fills, so only the
           // per-email budget can refuse.
           remoteAddress: `198.51.100.${attempt + 1}`,
-          payload: { email: 'victim@example.com', password: 'x' },
+          payload: { email: 'victim@example.com', code: '482913' },
         }),
       );
     }
@@ -185,16 +185,16 @@ describe('Security: Auth public rate limit burst (429)', () => {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       await application.inject({
         method: 'POST',
-        url: '/auth/login',
+        url: '/auth/email/login',
         remoteAddress: `203.0.113.${attempt + 1}`,
-        payload: { email: 'noisy@example.com', password: 'x' },
+        payload: { email: 'noisy@example.com', code: '482913' },
       });
     }
     const otherEmailResponse = await application.inject({
       method: 'POST',
-      url: '/auth/login',
+      url: '/auth/email/login',
       remoteAddress: '203.0.113.200',
-      payload: { email: 'quiet@example.com', password: 'x' },
+      payload: { email: 'quiet@example.com', code: '482913' },
     });
     expect(otherEmailResponse.statusCode).toBe(200);
   });

@@ -1,3 +1,4 @@
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { Queue } from 'bullmq';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -105,6 +106,13 @@ describe('Instagram reconnect notice (IA9)', () => {
       scope: scope(),
       callback: async () => {
         const { account } = await new InstagramAccountRepository().upsertConnected({
+          channelAccountId: (
+            await insertChannelAccount({
+              organizationId: team.organization.id,
+              providerAccountId: profile.user_id,
+              channelConnectionId: connection.id,
+            })
+          ).id,
           organizationId: team.organization.id,
           channelConnectionId: connection.id,
           instagramUserId: profile.user_id,

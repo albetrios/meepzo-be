@@ -1,13 +1,11 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import type { FastifyInstance } from 'fastify';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import {
-  injectAuthenticated,
-  injectUnauthenticated,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 
 function sessionIdCookiePairFromLoginResponse(loginResponseHeaders: {
   'set-cookie'?: string | string[];
@@ -40,13 +38,9 @@ describe('refresh rotates session token hash', () => {
   });
 
   it('old access token is rejected after refresh; new token works on GET /users/me', async () => {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
 
-    const loginResponse = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const loginResponse = await signInWithEmailCode(application, { email: user.email });
     expect(loginResponse.statusCode).toBe(200);
     const oldAccessToken = (loginResponse.json() as { data: { access_token: string } }).data
       .access_token;

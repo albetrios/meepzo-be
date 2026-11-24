@@ -52,37 +52,43 @@ describe('Security: email-code login online brute-force cap', () => {
     });
   }
 
-  it('rejects wrong codes past the per-user cap, and never leaks account existence in the rejection', async () => {
+  it('rejects wrong codes past the per-code cap with the same answers for a known and an unknown email', async () => {
     const victim = await createTestUser({ email: 'brute-victim@example.com' });
     // Issue a real live code so the account is in the exact state a legitimate
     // login would face — the attacker just does not know the value.
-    await sendCode(victim.email);
+    const sent = await sendCode(victim.email);
+    const liveCode = (sent.json() as { data?: { debug_verification_code?: string } }).data
+      ?.debug_verification_code;
+    const wrongCode = liveCode === '000000' ? '111111' : '000000';
 
-    const wrongCode = 'ZZZZZZ';
-    const observedStatuses: number[] = [];
-    // Burn through the cap. Each wrong guess increments the per-user counter; the
-    // service rejects once attempts EXCEED the cap, so drive it one past.
-    for (let attempt = 0; attempt < VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS + 1; attempt += 1) {
-      const response = await attemptLogin(victim.email, wrongCode);
-      observedStatuses.push(response.statusCode);
+    /** The answer sequence of `cap + 1` wrong tries: status, reason and tries left. */
+    async function burn(email: string) {
+      const answers: Array<{ status: number; reason: unknown; tries_left: unknown }> = [];
+      for (let attempt = 0; attempt < VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS + 1; attempt += 1) {
+        const response = await attemptLogin(email, wrongCode);
+        const error = (response.json() as { error?: Record<string, unknown> }).error ?? {};
+        answers.push({
+          status: response.statusCode,
+          reason: error.reason,
+          tries_left: error.tries_left,
+        });
+      }
+      return answers;
     }
 
-    // Every attempt is a generic 401 — before AND after the cap trips. The cap
-    // changes throughput (further guesses are refused without touching the code
-    // store), never the status/shape, so there is no distinguishable signal.
-    expect(observedStatuses.every((status) => status === 401)).toBe(true);
-
-    // The capped rejection is byte-identical to a plain wrong-code rejection for
-    // the same account — no "account locked / too many attempts" copy that would
-    // confirm the email maps to a real user.
-    const cappedRejection = await attemptLogin(victim.email, wrongCode);
-    expect(cappedRejection.statusCode).toBe(401);
-    const cappedBody = cappedRejection.json() as {
-      error?: { code?: string; detail?: string };
-    };
-    expect(cappedBody.error?.code).toBeDefined();
-    // The generic invalid-code identity, not a lockout-specific one.
-    expect(cappedBody.error?.detail ?? '').not.toMatch(/lock|too many|attempt/i);
+    const known = await burn(victim.email);
+    // AT8: tries 1–4 are code_wrong with the tries left, the 5th and later code_used_up — all 401.
+    expect(known.every((answer) => answer.status === 401)).toBe(true);
+    expect(
+      known.slice(0, VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS - 1).map((a) => a.tries_left),
+    ).toEqual([4, 3, 2, 1]);
+    expect(known.slice(VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS - 1).map((a) => a.reason)).toEqual([
+      'code_used_up',
+      'code_used_up',
+    ]);
+    // The counter is keyed by the email, so a stranger's email walks the identical sequence —
+    // the used-up answer confirms nothing about whether the account exists.
+    expect(await burn('brute-nobody@example.com')).toEqual(known);
   });
 
   it('applies the cap per-email — hammering one account does not lock out another', async () => {
@@ -93,13 +99,16 @@ describe('Security: email-code login online brute-force cap', () => {
 
     // Exhaust victim A's attempt budget entirely.
     for (let attempt = 0; attempt < VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS + 2; attempt += 1) {
-      await attemptLogin(victim.email, 'ZZZZZZ');
+      await attemptLogin(victim.email, '000000');
     }
 
     // Bystander B, untouched, still gets the normal generic 401 for a wrong code —
-    // A's counter did not bleed onto B (the counter is keyed by user id, so a
+    // A's counter did not bleed onto B (the counter is keyed by the email, so a
     // shared/global counter regression would surface here as a premature reject).
-    const bystanderResponse = await attemptLogin(bystander.email, 'YYYYYY');
+    const bystanderResponse = await attemptLogin(bystander.email, '000000');
     expect(bystanderResponse.statusCode).toBe(401);
+    expect((bystanderResponse.json() as { error?: { reason?: string } }).error?.reason).toBe(
+      'code_wrong',
+    );
   });
 });

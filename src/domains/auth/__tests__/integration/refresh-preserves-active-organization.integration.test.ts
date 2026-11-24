@@ -1,3 +1,4 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
@@ -7,9 +8,8 @@ import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/memb
 import { memberships } from '@/domains/tenancy/sub-domains/membership/membership.schema.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import { injectUnauthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import {
   provisionPersonalOrganization,
   provisionOrganizationWithOwner,
@@ -58,17 +58,13 @@ describe('refresh preserves the switched active organization (audit-#3)', () => 
   }
 
   it('refresh keeps the organization claim on the organization the caller switched to', async () => {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
     // The personal organization is the only one at login, so it is the login default; the caller
     // then joins TEAM organization B and switches to it. (An organization that exists at login would be
     // the default itself — an organization beats the personal workspace.)
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
 
-    const loginResponse = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const loginResponse = await signInWithEmailCode(app, { email: user.email });
     expect(loginResponse.statusCode).toBe(200);
     const loginToken = (loginResponse.json() as { data: { access_token: string } }).data
       .access_token;
@@ -113,15 +109,11 @@ describe('refresh preserves the switched active organization (audit-#3)', () => 
    * for the organization the caller had just left, while the session row named the new one.
    */
   it('a switch that commits while a refresh is running leaves the refresh on the switched organization', async () => {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
     // Personal is the only organization at login (the login default); B is joined afterwards.
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
 
-    const loginResponse = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const loginResponse = await signInWithEmailCode(app, { email: user.email });
     expect(loginResponse.statusCode).toBe(200);
     const loginToken = (loginResponse.json() as { data: { access_token: string } }).data
       .access_token;
@@ -183,14 +175,10 @@ describe('refresh preserves the switched active organization (audit-#3)', () => 
   });
 
   it('refresh falls back to the default organization when the persisted membership is no longer valid', async () => {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
     const personal = await provisionPersonalOrganization({ ownerUserId: user.id });
 
-    const loginResponse = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const loginResponse = await signInWithEmailCode(app, { email: user.email });
     expect(loginResponse.statusCode).toBe(200);
     const cookie = sessionCookie(loginResponse.headers);
 

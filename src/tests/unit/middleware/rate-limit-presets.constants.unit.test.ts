@@ -66,6 +66,15 @@ describe('rate-limit-presets', () => {
     expect(REFRESH_RATE_LIMIT.config.rateLimit.timeWindow).toBe(60_000);
   });
 
+  it('INVITATION_PREVIEW_RATE_LIMIT caps the invitation page at 30 req/min per IP (route 118, TN11)', async () => {
+    mockEnv.RATE_LIMIT_RELAXED_CAPS = false;
+    const { INVITATION_PREVIEW_RATE_LIMIT } = await import(
+      '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js'
+    );
+    expect(INVITATION_PREVIEW_RATE_LIMIT.config.rateLimit.max).toBe(30);
+    expect(INVITATION_PREVIEW_RATE_LIMIT.config.rateLimit.timeWindow).toBe(60_000);
+  });
+
   it('INSTAGRAM_WEBHOOK_RATE_LIMIT caps Meta deliveries at 1,200 req/min per IP (WH11)', async () => {
     mockEnv.RATE_LIMIT_RELAXED_CAPS = false;
     const { INSTAGRAM_WEBHOOK_RATE_LIMIT, WEBHOOK_RATE_LIMIT } = await import(

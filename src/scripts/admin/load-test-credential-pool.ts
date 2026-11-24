@@ -2,16 +2,10 @@
  * Load-test credential pool generator.
  *
  * Run AFTER `pnpm db:seed:bulk` (or via `pnpm db:seed:loadtest` which chains both).
- * Does two things:
- *   1. Stamps a single Argon2id hash onto every `bulk-user-*@seed.local` user that has
- *      no password yet — one hash computation, one bulk UPDATE — so they become loginable
- *      via POST /api/v1/auth/login without touching any other seed logic.
- *   2. Joins users → memberships → organizations to export
- *      `src/tests/load/k6/data/credential-pool.json`, one entry per distinct user with an active bulk membership.
- *      k6 scenarios index into this pool by `__VU` so each VU authenticates as a distinct user.
- *
- * Env knobs:
- *   LOAD_TEST_PASSWORD  — plaintext password stamped on bulk users (default: LoadTest123!)
+ * Joins users → memberships → organizations to export `src/tests/load/k6/data/credential-pool.json`,
+ * one entry per distinct user with an active bulk membership. k6 scenarios index into this pool by
+ * `__VU` so each VU signs in as a distinct user — by email code (passwords are off, P84): the target
+ * runs with `TEST_MODE`, so `POST /auth/email/send-code` echoes the code (`helpers/auth.js`).
  *
  * Usage:
  *   pnpm tool:load-test-credential-pool      (after bulk seed exists)
@@ -28,7 +22,6 @@ import { getRequestDatabase } from '@/infrastructure/database/contexts/database-
 import { users } from '@/domains/user/user.schema.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { memberships } from '@/domains/tenancy/sub-domains/membership/membership.schema.js';
-import { hashPassword } from '@/shared/utils/security/password.util.js';
 import { assertBulkSeedAllowed } from '@/scripts/seed/production-guard.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { parseCommandLine } from '@tooling/setup/common/script.js';
@@ -43,8 +36,6 @@ const OUTPUT_PATH = join(process.cwd(), 'src/tests/load/k6/data/credential-pool.
 export interface CredentialPoolEntry {
   /** Deterministic bulk email; indexes the user across runs. */
   email: string;
-  /** Plaintext password stamped by this script — same value for all bulk users. */
-  password: string;
   /** Public id of the organization this user is an active member of (used to scope tokens). */
   organizationPublicId: string;
   /** Public id of this user (for assertions in scenario checks). */
@@ -54,23 +45,9 @@ export interface CredentialPoolEntry {
 async function run(env: NodeJS.ProcessEnv): Promise<void> {
   assertBulkSeedAllowed(env);
 
-  const password = env.LOAD_TEST_PASSWORD ?? 'LoadTest123!';
   const database = getRequestDatabase();
 
-  // Step 1 — stamp password_hash on bulk users that don't have one yet.
-  // Compute the hash once and issue a single UPDATE to avoid N*argon2 slowness.
-  logger.info('load-test-credential-pool: computing password hash (argon2id)...');
-  const passwordHash = await hashPassword(password);
-
-  const stamped = await database
-    .update(users)
-    .set({ password_hash: passwordHash })
-    .where(and(like(users.email, BULK_EMAIL_PATTERN), isNull(users.password_hash)))
-    .returning({ id: users.id });
-
-  logger.info({ stamped: stamped.length }, 'load-test-credential-pool: password hash stamped');
-
-  // Step 2 — export one deterministic organization per distinct user. Reusing a user
+  // Export one deterministic organization per distinct user. Reusing a user
   // across VUs can rebind its session and invalidate another VU's scoped token.
   //
   // MFA accounts are excluded, and the two exclusions below mirror `completeFirstFactorAuth`'s
@@ -115,12 +92,11 @@ async function run(env: NodeJS.ProcessEnv): Promise<void> {
 
   const pool: CredentialPoolEntry[] = uniqueRows.map((row) => ({
     email: row.email,
-    password,
     organizationPublicId: row.organizationPublicId,
     userPublicId: row.userPublicId,
   }));
 
-  // Step 3 — write pool JSON (gitignored; contains plaintext password).
+  // Write the pool JSON (gitignored).
   await mkdir(join(process.cwd(), 'src/tests/load/k6/data'), { recursive: true });
   await writeFile(OUTPUT_PATH, JSON.stringify(pool, null, 2));
 

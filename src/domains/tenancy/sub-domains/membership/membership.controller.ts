@@ -41,6 +41,8 @@ function createMembershipReadHandlers(service: MembershipService) {
       return paginatedResponse({
         data: result.items,
         request_id: getRequestIdentifier(request),
+        // TN9 (route 116): live members per main role, Owner first, whatever the filters.
+        extraMeta: { counts_by_role: result.counts_by_role },
         pagination: {
           per_page: result.limit,
           next: result.next_cursor,
@@ -72,11 +74,9 @@ function createMembershipWriteHandlers(service: MembershipService) {
     createMembership: async (request: FastifyRequest, _reply: FastifyReply) => {
       const auth = requirePrincipal(request);
       const scope = requireOrganizationScope(request);
-      const _organizationId = scope.organizationPublicId;
-      // REQ-1: "Add member" — the raw invitation token is delivered ONLY via email, never returned
-      // (bar the dev-only `invitation.debug_invitation_token` echo, ROUTE #164); the response
-      // carries the created INVITED membership (with its embedded invitation ref).
-      const data = await service.create({
+      // Route 117 (TN10): 1–20 addresses, one line each. The raw invitation token is delivered ONLY
+      // via email, never returned (bar the dev-only `debug_invitation_token` echo, ROUTE #164).
+      const { output, invited } = await service.invite({
         scope,
         body: request.body,
         invited_by_user_public_id: getActingUserPublicId(auth),
@@ -84,22 +84,25 @@ function createMembershipWriteHandlers(service: MembershipService) {
           requestId: getRequestIdentifier(request),
         },
       });
-      await recordScopedAuditEvent({
-        request,
-        input: {
-          ...buildAuditActorFields(auth),
-          action: 'tenancy.membership.create',
-          resource_type: 'membership',
-          organizationPublicId: scope.organizationPublicId,
-          target_user_public_id: data.user_id,
-          metadata: {
-            membership_public_id: data.id,
-            role_public_ids: data.role_ids,
-            invitation_public_id: data.invitation?.id ?? null,
+      // TN6: one audit entry per invited membership (as built).
+      for (const membership of invited) {
+        await recordScopedAuditEvent({
+          request,
+          input: {
+            ...buildAuditActorFields(auth),
+            action: 'tenancy.membership.create',
+            resource_type: 'membership',
+            organizationPublicId: scope.organizationPublicId,
+            target_user_public_id: membership.user_id,
+            metadata: {
+              membership_public_id: membership.id,
+              role_public_ids: membership.role_ids,
+              invitation_public_id: membership.invitation?.id ?? null,
+            },
           },
-        },
-      });
-      return successResponse({ data, request_id: getRequestIdentifier(request) });
+        });
+      }
+      return successResponse({ data: output, request_id: getRequestIdentifier(request) });
     },
     updateMembership: async (request: FastifyRequest, _reply: FastifyReply) => {
       const auth = requirePrincipal(request);

@@ -75,7 +75,7 @@ describe('VerificationTokenService', () => {
       vi.mocked(repository.consumeIfValid).mockResolvedValueOnce(null);
       const result = await service.consumeIfValid({
         token_hash: 'expired-token-hash',
-        expected_type: 'PASSWORD_RESET',
+        expected_type: 'EMAIL_CHANGE',
       });
       expect(result).toBeNull();
     });

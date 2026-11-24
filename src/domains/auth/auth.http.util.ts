@@ -1,10 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { NotImplementedError } from '@/shared/errors/index.js';
-import {
-  translateMessageKeyPayload,
-  type MessageKeyPayload,
-} from '@/shared/utils/i18n/i18n-response.util.js';
 import { translateRequestMessage } from '@/shared/utils/i18n/translate-request.util.js';
 import { env } from '@/shared/config/env.config.js';
 import { deriveSecretsSubKey } from '@/shared/utils/security/secrets-sub-key.util.js';
@@ -254,20 +250,6 @@ export function isOauthProviderNotImplementedError(error: unknown): boolean {
 export function readRequestOrigin(request: FastifyRequest): string | undefined {
   const origin = request.headers.origin;
   return typeof origin === 'string' && origin.length > 0 ? origin : undefined;
-}
-
-/** Maps auth-method service payloads with optional `messageKey` to translated HTTP bodies. */
-export function resolveAuthMessageKeyResponse({
-  request,
-  data,
-}: {
-  request: FastifyRequest;
-  data: MessageKeyPayload | Record<string, unknown>;
-}): Record<string, unknown> {
-  if (typeof (data as MessageKeyPayload).messageKey === 'string') {
-    return translateMessageKeyPayload({ request, payload: data as MessageKeyPayload });
-  }
-  return data;
 }
 
 /** Sends a translated 501 response when an OAuth provider has not been wired (used by both the redirect and callback handlers). */

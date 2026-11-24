@@ -37,7 +37,6 @@ import {
   processInstagramWebhookAccountJob,
 } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
 import {
-  INSTAGRAM_ACCOUNT_SETTINGS_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
   createInstagramTeam,
@@ -380,16 +379,6 @@ export class InstagramCommentFlow {
     });
     expect(response.statusCode, response.body).toBe(204);
     this.connectedAccount = null;
-  }
-
-  /** Changes the account's settings (route 3). */
-  async changeSettings(payload: Record<string, unknown>): Promise<void> {
-    const response = await this.request({
-      method: 'PATCH',
-      url: INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-      payload,
-    });
-    expect(response.statusCode, response.body).toBe(200);
   }
 
   /** Creates a live comment automation (route 12); any field may be overridden. */

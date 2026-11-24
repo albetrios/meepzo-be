@@ -3,6 +3,8 @@ import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { ChannelAccountRepository } from './sub-domains/channel-account/channel-account.repository.js';
 import { ChannelAccountService } from './sub-domains/channel-account/channel-account.service.js';
+import { ChannelAccountPlanStopService } from './sub-domains/channel-account/channel-account-plan-stop.service.js';
+import type { ChannelConnectionTrialPort } from './sub-domains/channel-connection/channel-connection.types.js';
 import { ChannelConnectionRepository } from './sub-domains/channel-connection/channel-connection.repository.js';
 import {
   type ChannelConnectionPlanAccessService,
@@ -21,6 +23,7 @@ import { InstagramAccountService } from './sub-domains/instagram-account/instagr
 import { InstagramAccountExtensionService } from './sub-domains/instagram-account/instagram-account-extension.service.js';
 import { InstagramAccountSettingsRepository } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
+import type { InstagramAccountSettingsChannelAccountPort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
 import { InstagramMediaRepository } from './sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramMediaService } from './sub-domains/instagram-account/instagram-media/instagram-media.service.js';
@@ -84,6 +87,32 @@ export type AppContainer = {
 };
 
 /**
+ * The channel connection service (routes 1–5, 40, 42): its accounts through the channel account
+ * (P111 → R5) and a trial pick through billing's trial port (R24); no lane port until R18 builds it.
+ */
+function createChannelConnectionService(options: {
+  channelConnectionRepository: ChannelConnectionRepository;
+  channelConnectionTokenService: ChannelConnectionTokenService;
+  channelConnectionUsageService: ChannelConnectionUsageService;
+  channelAccountService: ChannelAccountService;
+  organizationService: OrganizationService;
+  planAccessService: ChannelConnectionPlanAccessService;
+  trialPort: ChannelConnectionTrialPort;
+}): ChannelConnectionService {
+  return new ChannelConnectionService(
+    options.channelConnectionRepository,
+    options.channelConnectionTokenService,
+    options.channelConnectionUsageService,
+    options.channelAccountService,
+    options.organizationService,
+    options.planAccessService,
+    redisConnection,
+    undefined,
+    options.trialPort,
+  );
+}
+
+/**
  * The Instagram account sub-domain's services (routes-final § 2): the extension's one writer
  * (2.A.10, ROUTE row R6), the settings and the account service, over the channel account repository
  * that moves the account's status (CA4, CA8).
@@ -94,18 +123,22 @@ export type AppContainer = {
 function createInstagramAccountServices({
   organizationService,
   channelConnectionTokenService,
+  settingsChannelAccountPort,
 }: {
   organizationService: OrganizationService;
   channelConnectionTokenService: ChannelConnectionTokenService;
+  /** Route 12's channel account steps (P42, CA11) — the channel account service, built after. */
+  settingsChannelAccountPort: InstagramAccountSettingsChannelAccountPort;
 }) {
   const instagramAccountRepository = new InstagramAccountRepository();
   const channelAccountRepository = new ChannelAccountRepository();
   const instagramAccountExtensionService = new InstagramAccountExtensionService(
     instagramAccountRepository,
   );
+  // The lane wake after a limit change (IA14) is sub-domain 6's — not passed until ROUTE row R18.
   const instagramAccountSettingsService = new InstagramAccountSettingsService(
     new InstagramAccountSettingsRepository(),
-    instagramAccountRepository,
+    settingsChannelAccountPort,
     organizationService,
   );
   const instagramAccountService = new InstagramAccountService(
@@ -127,15 +160,25 @@ function createInstagramAccountServices({
 /**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
- * team check, user id resolution; billing's plan read: the channel account limit).
+ * team check, user id resolution; billing's plan read: the channel account limit; billing's trial
+ * port: a pick during a trial).
+ *
+ * @remarks
+ * The channel account (1B, R5) is also billing's accounts port (R24); its plan-stop port answers
+ * `plan_ended` (R24) and gains `plan_limit` at R18. The connection reaches accounts through the
+ * channel account (P111 → R5) and records a trial pick through billing's trial port (R24). Neither
+ * takes a lane port until R18 builds it.
  */
 export function createAppContainer({
   organizationService,
   planAccessService,
+  trialPort,
 }: {
   organizationService: OrganizationService;
   /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
   planAccessService: ChannelConnectionPlanAccessService;
+  /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
+  trialPort: ChannelConnectionTrialPort;
 }): AppContainer {
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
@@ -151,9 +194,22 @@ export function createAppContainer({
     instagramAccountExtensionService,
     instagramAccountSettingsService,
     instagramAccountService,
-  } = createInstagramAccountServices({ organizationService, channelConnectionTokenService });
-  // The channel account (1B, R5): routes 6–11, the feature check, the connection's account port.
-  // Its lane port (R18) and plan-stop port (R18, R24) are not passed until their rows build them.
+  } = createInstagramAccountServices({
+    organizationService,
+    channelConnectionTokenService,
+    // The channel account service depends on the settings service, so route 12 reaches it through
+    // this port; each call runs at request time, after both are built.
+    settingsChannelAccountPort: {
+      requireLiveInstagramAccount: (input) =>
+        channelAccountService.requireLiveInstagramAccount(input),
+      setAutomationEnabled: (input) => channelAccountService.setAutomationEnabled(input),
+      canChannelAccountUseFeature: (input) =>
+        channelAccountService.canChannelAccountUseFeature(input),
+    },
+  });
+  // The channel account (1B, ROUTE row R5): routes 6–11, the one feature check, and the
+  // connection's account port over `app.channel_accounts` with its Instagram extension. Its lane
+  // port (R18) is not passed until its row builds it; the plan-stop port is R24's.
   const channelAccountService = new ChannelAccountService(
     channelAccountRepository,
     instagramAccountExtensionService,
@@ -163,35 +219,24 @@ export function createAppContainer({
     channelConnectionTokenService,
     organizationService,
     planAccessService,
+    undefined,
+    new ChannelAccountPlanStopService(planAccessService),
   );
-  // The connection reaches accounts through the channel account (P111 → R5). The lane port (R18)
-  // and the trial port (R24) are not passed until their rows build them.
-  const channelConnectionService = new ChannelConnectionService(
+  const channelConnectionService = createChannelConnectionService({
     channelConnectionRepository,
     channelConnectionTokenService,
     channelConnectionUsageService,
     channelAccountService,
     organizationService,
     planAccessService,
-    redisConnection,
-  );
-  // Routes 13–14 (2.C, ROUTE row R8): Meta's 190 breaks the account's connection (MC11). Until
-  // R4's `ChannelConnectionService.markConnectionBroken` is wired here, the port breaks the
-  // connection's accounts through the channel account (the accounts' half of MC11).
+    trialPort,
+  });
+  // Routes 13–14 (2.C, ROUTE row R8): Meta's 190 breaks the account's connection through the
+  // connection (MC11, R4's `markConnectionBroken`).
   const instagramMediaService = new InstagramMediaService(
     new InstagramMediaRepository(),
     instagramAccountService,
-    {
-      markConnectionBroken: async ({ scope, channelConnection, requestId }) => {
-        const broken = await channelAccountService.markAccountsOfConnectionBroken({
-          scope,
-          organizationId: channelConnection.organizationId,
-          channelConnectionId: channelConnection.channelConnectionId,
-          requestId,
-        });
-        return broken.length > 0;
-      },
-    },
+    channelConnectionService,
   );
   // Meta's callbacks (MC14–MC16) and the organization's delete (IAC5) erase here; R53 adds the
   // callbacks' team-alert port as the fifth argument below.
@@ -279,6 +324,7 @@ export function registerAppContainer(application: FastifyInstance): void {
     createAppContainer({
       organizationService,
       planAccessService: application.billingDomain.subscriptionService,
+      trialPort: application.billingDomain.subscriptionTrialService,
     }),
   );
 }

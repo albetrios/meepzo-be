@@ -12,6 +12,20 @@ export type PaymentProviderCall =
       providerPriceId: string | null;
       billingCycle: 'monthly' | 'yearly';
       quantity: number | undefined;
+      trialPeriodDays: number | undefined;
+    }
+  | {
+      method: 'schedulePriceChangeAtPeriodEnd';
+      providerSubscriptionId: string;
+      providerPriceId: string;
+    }
+  | { method: 'releaseScheduledPriceChange'; providerSubscriptionId: string }
+  | { method: 'detachPaymentMethod'; paymentMethodId: string }
+  | {
+      method: 'setDefaultPaymentMethod';
+      providerCustomerId: string;
+      providerSubscriptionId: string | null;
+      paymentMethodId: string;
     }
   | { method: 'updateSubscriptionPrice'; providerSubscriptionId: string; providerPriceId: string }
   | { method: 'updateSubscriptionQuantity'; providerSubscriptionId: string; quantity: number }
@@ -71,6 +85,7 @@ export class FakePaymentProvider implements PaymentProvider {
     plan: PlanRecord;
     billingCycle: 'monthly' | 'yearly';
     quantity?: number;
+    trialPeriodDays?: number;
   }): Promise<PaymentProviderCreateResult> {
     paymentProviderCalls.push({
       method: 'createSubscription',
@@ -80,11 +95,13 @@ export class FakePaymentProvider implements PaymentProvider {
       }),
       billingCycle: input.billingCycle,
       quantity: input.quantity,
+      trialPeriodDays: input.trialPeriodDays,
     });
     return {
       providerSubscriptionId: `sub_fake_${randomUUID()}`,
       providerCustomerId: `cus_fake_${randomUUID()}`,
-      initialStatus: 'ACTIVE',
+      // Stripe answers `trialing` for a subscription created with a trial (BL7).
+      initialStatus: input.trialPeriodDays === undefined ? 'ACTIVE' : 'TRIALING',
     };
   }
 
@@ -137,6 +154,49 @@ export class FakePaymentProvider implements PaymentProvider {
       method: 'updateSubscriptionQuantity',
       providerSubscriptionId,
       quantity,
+    });
+  }
+
+  async schedulePriceChangeAtPeriodEnd({
+    providerSubscriptionId,
+    providerPriceId,
+  }: {
+    providerSubscriptionId: string;
+    providerPriceId: string;
+  }): Promise<void> {
+    paymentProviderCalls.push({
+      method: 'schedulePriceChangeAtPeriodEnd',
+      providerSubscriptionId,
+      providerPriceId,
+    });
+  }
+
+  async releaseScheduledPriceChange({
+    providerSubscriptionId,
+  }: {
+    providerSubscriptionId: string;
+  }): Promise<void> {
+    paymentProviderCalls.push({ method: 'releaseScheduledPriceChange', providerSubscriptionId });
+  }
+
+  async detachPaymentMethod({ paymentMethodId }: { paymentMethodId: string }): Promise<void> {
+    paymentProviderCalls.push({ method: 'detachPaymentMethod', paymentMethodId });
+  }
+
+  async setDefaultPaymentMethod({
+    providerCustomerId,
+    providerSubscriptionId,
+    paymentMethodId,
+  }: {
+    providerCustomerId: string;
+    providerSubscriptionId: string | null;
+    paymentMethodId: string;
+  }): Promise<void> {
+    paymentProviderCalls.push({
+      method: 'setDefaultPaymentMethod',
+      providerCustomerId,
+      providerSubscriptionId,
+      paymentMethodId,
     });
   }
 

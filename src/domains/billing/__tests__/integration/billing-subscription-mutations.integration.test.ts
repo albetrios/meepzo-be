@@ -235,9 +235,9 @@ describe('Billing Subscription Mutations — Integration', () => {
       expect(body.data).toBeDefined();
     });
 
-    it('auto-suspends the most-recently-joined excess members on an over-cap downgrade, keeping the owner (F2)', async () => {
-      // Owner + 2 active members = 3 seats used. Downgrade to a 1-seat plan: the 2 non-owner members
-      // are suspended (longest-tenured-kept ordering, owner never suspended), so the change succeeds.
+    it('suspends no member when the organization moves to a one-seat plan (BL9 — F2 retired at R24)', async () => {
+      // Owner + 2 active members = 3 seats used. A move to a 1-seat plan used to suspend the 2
+      // non-owner members (F2); feat-instagram-dm-sending BL9 removed that — nobody is suspended.
       const {
         user: owner,
         organization,
@@ -275,7 +275,7 @@ describe('Billing Subscription Mutations — Integration', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      // The two non-owner members are now suspended; the owner stays active.
+      // feat-instagram-dm-sending BL9 (R24): a plan change suspends nobody — plans carry no seats.
       const statusOf = async (userId: number) =>
         (
           await getOperatorDatabase()
@@ -288,12 +288,12 @@ describe('Billing Subscription Mutations — Integration', () => {
               ),
             )
         )[0]?.status;
-      expect(await statusOf(memberA.id)).toBe('suspended');
-      expect(await statusOf(memberB.id)).toBe('suspended');
+      expect(await statusOf(memberA.id)).toBe('active');
+      expect(await statusOf(memberB.id)).toBe('active');
       expect(await statusOf(owner.id)).toBe('active');
     });
 
-    it('keeps the oldest non-owner seat and suspends the newest on a two-seat downgrade', async () => {
+    it('keeps every member active on a two-seat plan change (BL9 — no downgrade suspension)', async () => {
       const {
         user: owner,
         organization,
@@ -344,7 +344,7 @@ describe('Billing Subscription Mutations — Integration', () => {
       const statuses = new Map(rows.map((row) => [row.userId, row.status]));
       expect(statuses.get(owner.id)).toBe('active');
       expect(statuses.get(olderUser.id)).toBe('active');
-      expect(statuses.get(newerUser.id)).toBe('suspended');
+      expect(statuses.get(newerUser.id)).toBe('active');
     });
 
     it('downgrade of an owner-only organization to a 0-seat plan succeeds without suspending the owner (F2)', async () => {

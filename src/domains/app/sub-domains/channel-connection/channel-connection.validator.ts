@@ -6,9 +6,12 @@ import {
   CHANNEL_CONNECT_CODE_REDIRECT_SUFFIX,
   type ChannelAccountPickInput,
   type ChannelConnectCallbackInput,
+  type ListChannelConnectionAdsQueryInput,
   channelAccountPickDto,
   channelConnectCallbackDto,
   emptyChannelConnectionBodyDto,
+  listChannelConnectionAdAccountsQueryDto,
+  listChannelConnectionAdsQueryDto,
   listChannelConnectionsQueryDto,
 } from './channel-connection.dto.js';
 import type { ChannelConnectionProvider } from './channel-connection-state.js';
@@ -57,4 +60,16 @@ export function validateChannelAccountPick(data: unknown): ChannelAccountPickInp
 export function validateListChannelConnectionsQuery(data: unknown): { includeRevoked: boolean } {
   const parsed = parseWithSchema({ schema: listChannelConnectionsQueryDto, data: data ?? {} });
   return { includeRevoked: parsed.include_revoked === 'true' };
+}
+
+/** Route 41's query: none (strict). */
+export function validateListChannelConnectionAdAccountsQuery(data: unknown): void {
+  parseWithSchema({ schema: listChannelConnectionAdAccountsQueryDto, data: data ?? {} });
+}
+
+/** Route 15's query: `ad_account_id` (digits, required), `limit` 1–50 (default 25), `after` (1.8). */
+export function validateListChannelConnectionAdsQuery(
+  data: unknown,
+): ListChannelConnectionAdsQueryInput {
+  return parseWithSchema({ schema: listChannelConnectionAdsQueryDto, data: data ?? {} });
 }

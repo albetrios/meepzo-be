@@ -26,12 +26,13 @@ Built by ROUTE row R3 of the launch iteration (`iterations/launch-2026-11-20-uja
 work (§ 1 IA8, IA9): the daily account check — refresh the profile, subscribe the webhook fields
 again (the token renewal left with WC-35: the connection's token never ends) — and the reconnect
 notice that follows every break.
-The nested folders carry the rest of § 1: `instagram-account-settings/` (route 3,
-`PATCH /api/v1/app/social/instagram/account/settings`, ROUTE row R4), `instagram-media/` (the
-launch's routes 5–6 and the stored posts, R5 — routes 13–14 under the named account since
-feat-instagram-dm-sending R8). Meta's deauthorize and data-deletion callbacks (the launch's
-`instagram-account-meta-callback/`) moved to the channel connection at feat-instagram-dm-sending R9
-(routes 16–17, P46); their per-organization erase stays here (`InstagramAccountErasureService`).
+The nested folders carry the rest of § 1: `instagram-account-settings/` (route 12 of
+feat-instagram-dm-sending, `PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings`,
+ROUTE row R7 — keyed by the channel account), `instagram-media/` (the launch's routes 5–6 and the
+stored posts, R5 — routes 13–14 under the named account since feat-instagram-dm-sending R8). Meta's
+deauthorize and data-deletion callbacks (the launch's `instagram-account-meta-callback/`) moved to the
+channel connection at feat-instagram-dm-sending R9 (routes 16–17, P46); their per-organization erase
+stays here (`InstagramAccountErasureService`).
 
 ## Layout
 
@@ -59,13 +60,13 @@ feat-instagram-dm-sending R8). Meta's deauthorize and data-deletion callbacks (t
   business match's connections) (revoke, token and — on a data deletion — profile erase, in the caller's
   verified scope), for the organization's delete the best-effort unsubscribe and
   `disconnectForOrganizationOffboarding` (D54), and for the run engine `findAutomationAccountAccess` (the event's account with
-  its encrypted token and reply-safety settings, read in the job's scope — sub-domain 3.B)
+  its encrypted token and settings row, read in the job's scope — sub-domain 3.B)
 - `instagram-account-erasure.service.ts` — the one erase of an account's data in an organization:
   Meta's callbacks (`eraseForMeta`) and the organization's delete (`eraseForOrganizationOffboarding`,
   called by tenancy through its offboarding port, D54) — the account service's disconnect and the
   media service's stored posts, in one transaction
-- `instagram-account-settings/` — nested: the automation switch and public reply safety, and route 3
-  that changes them ([overview](instagram-account-settings/instagram-account-settings.overview.md))
+- `instagram-account-settings/` — nested: the account's limits, stop words and behaviour switches,
+  and route 12 that changes them (the automation switch with them, on the channel account — R7) ([overview](instagram-account-settings/instagram-account-settings.overview.md))
 - `instagram-media/` — nested: the post and story pickers of one named account (routes 13–14, read
   live through the connection's token) and the stored posts with their missed-comment watch and a
   Live's end, which sub-domains 4–6 write through its service ([overview](instagram-media/instagram-media.overview.md))
@@ -140,7 +141,7 @@ The status below is the channel account's (`app.channel_accounts.connection_stat
 
 ```mermaid
 stateDiagram-v2
-    [*] --> connected: a channel connection's pick — new row, default settings
+    [*] --> connected: a channel connection's pick — new row, empty settings
     connected --> error: markConnectionBroken (any token refusal)
     error --> connected: reconnect (the callback, MC6) or a pick (same row)
     connected --> revoked: disconnect (route 8) — the connection's token with its last account
@@ -188,10 +189,11 @@ in the organization's language, linking to the frontend's Instagram page — thr
 
 ## Events
 
-None emitted on the event bus. Connect and disconnect write the audit entries
-`app.instagram_account.connect` and `app.instagram_account.disconnect` (WARNING, resource type
-`instagram_account`, IA7) through `recordScopedAuditEvent`, after the write commits and
-best-effort — an audit failure never fails the request (audit-emission, D36). Meta's callbacks
+None emitted on the event bus. Connecting and disconnecting are the channel connection's and the
+channel account's (`app.channel_connection.connect` / `.disconnect`, `app.channel_account.connect` /
+`.disconnect`). Route 12 writes `app.instagram_account_settings.update` (INFO, resource type
+`instagram_account`) through `recordScopedAuditEvent`, after the write commits and best-effort — an
+audit failure never fails the request (audit-emission, D36). Meta's callbacks
 (the channel connection's since R9) write `app.channel_connection.deauthorize` and
 `.data_deletion`. The erase of
 an organization's delete (D54) is named on tenancy's `tenancy.organization.delete` entry.

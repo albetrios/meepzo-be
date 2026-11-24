@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 163
+  Total routes: 167
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 28
+  Routes: 30
 ================================================================================
 
   — Sub Domains —
@@ -34,13 +34,15 @@ Legend:
   GET    /api/v1/app/social/channel-connections/:channel_connection_id  200  -    team  PERM: channel-account:read
   DELETE /api/v1/app/social/channel-connections/:channel_connection_id  204  -    team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:channel_connection_id/accounts  200  req  team  PERM: channel-account:manage
+  GET    /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts  200  -    team  PERM: channel-account:read
+  GET    /api/v1/app/social/channel-connections/:channel_connection_id/ads  200  -    team  PERM: channel-account:read
   POST   /api/v1/app/social/channel-connections/:channel_connection_id/reconnect  200  -    team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/callback  200  req  team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/data-deletion  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/:provider/deauthorize  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
-  PATCH  /api/v1/app/social/instagram/account/settings            200  -    team  PERM: instagram-account:manage
   GET    /api/v1/app/social/instagram/accounts/:channel_account_id/media  200  -    team  PERM: instagram-account:read
+  PATCH  /api/v1/app/social/instagram/accounts/:channel_account_id/settings  200  -    team  PERM: instagram-account:manage
   GET    /api/v1/app/social/instagram/accounts/:channel_account_id/stories  200  -    team  PERM: instagram-account:read
   GET    /api/v1/app/social/instagram/webhook                     200  -    both  PUBLIC
   POST   /api/v1/app/social/instagram/webhook                     200  -    both  PUBLIC
@@ -91,12 +93,14 @@ Legend:
 
 ================================================================================
   DOMAIN: BILLING (/api/v1/billing)
-  Routes: 13
+  Routes: 15
 ================================================================================
 
   — Sub Domains —
   GET    /api/v1/billing/invoices                                 200  -    both  PERM: subscription:read
   GET    /api/v1/billing/payment-methods                          200  -    both  PERM: subscription:read
+  DELETE /api/v1/billing/payment-methods/:payment_method_id       204  -    team  PERM: subscription:manage
+  POST   /api/v1/billing/payment-methods/:payment_method_id/default  200  req  team  PERM: subscription:manage
   POST   /api/v1/billing/payment-methods/setup                    200  req  team  PERM: subscription:manage
   GET    /api/v1/billing/plans                                    200  -    both  PUBLIC
   GET    /api/v1/billing/plans/:plan_id                           200  -    both  PUBLIC
@@ -254,16 +258,16 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 163
+  Total routes    : 167
   Public          : 19
   Authenticated   : 53
   Role-guarded    : 9
-  Perm-guarded    : 77
+  Perm-guarded    : 81
   Token-guarded   : 5
-  Team-only (O)   : 34
+  Team-only (O)   : 38
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (22) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (23) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
@@ -273,6 +277,7 @@ Legend:
     POST /api/v1/app/social/channel-accounts/:channel_account_id/activate
     POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts
     POST /api/v1/app/social/channel-connections/:provider/callback
+    POST /api/v1/billing/payment-methods/:payment_method_id/default
     POST /api/v1/billing/payment-methods/setup
     POST /api/v1/billing/subscriptions
     POST /api/v1/billing/subscriptions/:subscription_id/cancel

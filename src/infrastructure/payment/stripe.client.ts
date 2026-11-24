@@ -4,6 +4,7 @@ import { env } from '@/shared/config/env.config.js';
 import { PAGINATION } from '@/shared/constants/pagination.constants.js';
 import { buildOutboundCallOptions, outboundCall } from '@/infrastructure/outbound/index.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
+import { isStripeResourceMissing } from '@/infrastructure/payment/stripe-error.util.js';
 
 /** Pinned Stripe API version — bump deliberately and verify against Stripe's changelog. */
 const STRIPE_API_VERSION = '2026-09-30.endive';
@@ -252,6 +253,12 @@ export async function createStripeSubscription(options: {
   /** Seats billed from the first invoice; Stripe's default (1) when omitted. */
   quantity?: number;
   trialEnd?: number;
+  /**
+   * The no-card trial of a paid plan (feat-instagram-dm-sending BL7): Stripe's `trial_period_days`,
+   * no payment method asked, the subscription cancelled at the trial's end when none was added, and a
+   * card added meanwhile saved as the subscription's default.
+   */
+  trialPeriodDays?: number;
   metadata?: Record<string, string>;
   idempotencyKey?: string;
   requestId?: string;
@@ -269,6 +276,13 @@ export async function createStripeSubscription(options: {
             customer: options.customerId,
             items: [omitUndefined({ price: options.priceId, quantity: options.quantity })],
             trial_end: options.trialEnd,
+            ...(options.trialPeriodDays === undefined
+              ? {}
+              : {
+                  trial_period_days: options.trialPeriodDays,
+                  trial_settings: { end_behavior: { missing_payment_method: 'cancel' as const } },
+                  payment_settings: { save_default_payment_method: 'on_subscription' as const },
+                }),
             metadata: options.metadata,
             payment_behavior: 'default_incomplete' as const,
           }),
@@ -395,6 +409,126 @@ export async function updateStripeSubscription({
           params,
           options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined,
         );
+      },
+    }),
+  );
+}
+
+/** The id of a subscription's schedule, or `null` (the field is an id or, expanded, the object). */
+function readSubscriptionScheduleId(subscription: Stripe.Subscription): string | null {
+  const { schedule } = subscription;
+  if (!schedule) return null;
+  return typeof schedule === 'string' ? schedule : schedule.id;
+}
+
+/** A schedule phase item's price id (an id or, expanded, the object). */
+function readPhaseItemPriceId(item: Stripe.SubscriptionSchedule.Phase.Item): string {
+  return typeof item.price === 'string' ? item.price : item.price.id;
+}
+
+/**
+ * Schedules a subscription's price change for the end of its current period — the move down of
+ * feat-instagram-dm-sending BL5 (P77): a Stripe subscription schedule whose first phase is the current
+ * price until the period end and whose second phase is the new price; the schedule releases the
+ * subscription after it, so Stripe invoices the renewal at the new price itself.
+ *
+ * @remarks
+ * - **Algorithm:** retrieves the subscription; reuses its schedule (a second move down replaces the
+ *   target) or creates one `from_subscription`; then rewrites the phases: the current phase kept as it
+ *   is (its price, quantity, dates and trial end — a plan change during a trial keeps its end), then
+ *   the new price with no proration.
+ * - **Failure modes:** a Stripe error is rethrown for the caller's mapping; a schedule Stripe returns
+ *   with no current phase is an `Error`.
+ * - **Side effects:** creates or updates one Stripe subscription schedule. Each write carries its own
+ *   suffix of `idempotencyKey`, so a retried request repeats neither.
+ */
+export async function scheduleStripeSubscriptionPriceChange(options: {
+  subscriptionId: string;
+  priceId: string;
+  idempotencyKey?: string;
+  requestId?: string;
+}): Promise<Stripe.SubscriptionSchedule> {
+  return outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId: options.requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        const keyed = (suffix: string) =>
+          options.idempotencyKey
+            ? { idempotencyKey: `${options.idempotencyKey}:${suffix}` }
+            : undefined;
+        const subscription = await stripe.subscriptions.retrieve(options.subscriptionId);
+        const existingScheduleId = readSubscriptionScheduleId(subscription);
+        const schedule = existingScheduleId
+          ? await stripe.subscriptionSchedules.retrieve(existingScheduleId)
+          : await stripe.subscriptionSchedules.create(
+              { from_subscription: options.subscriptionId },
+              keyed('schedule-create'),
+            );
+        const currentPhase = schedule.phases[0];
+        if (!currentPhase) {
+          throw new Error(`stripe.subscription_schedule.${schedule.id}: no current phase`);
+        }
+        const quantity = subscription.items.data[0]?.quantity ?? 1;
+        return stripe.subscriptionSchedules.update(
+          schedule.id,
+          {
+            end_behavior: 'release',
+            phases: [
+              omitUndefined({
+                items: currentPhase.items.map((item) => ({
+                  price: readPhaseItemPriceId(item),
+                  quantity: item.quantity ?? quantity,
+                })),
+                start_date: currentPhase.start_date,
+                end_date: currentPhase.end_date,
+                trial_end: currentPhase.trial_end ?? undefined,
+              }),
+              {
+                items: [{ price: options.priceId, quantity }],
+                proration_behavior: 'none' as const,
+              },
+            ],
+          },
+          keyed('schedule-update'),
+        );
+      },
+    }),
+  );
+}
+
+/**
+ * Releases a subscription's schedule, if it has one — a scheduled move down taken back or replaced by
+ * a move up (feat-instagram-dm-sending BL5, BL15). The subscription keeps its current price and period.
+ * Answers whether a schedule was released.
+ */
+export async function releaseStripeSubscriptionSchedule(options: {
+  subscriptionId: string;
+  idempotencyKey?: string;
+  requestId?: string;
+}): Promise<boolean> {
+  return outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId: options.requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        const subscription = await stripe.subscriptions.retrieve(options.subscriptionId);
+        const scheduleId = readSubscriptionScheduleId(subscription);
+        if (!scheduleId) return false;
+        await stripe.subscriptionSchedules.release(
+          scheduleId,
+          {},
+          options.idempotencyKey
+            ? { idempotencyKey: `${options.idempotencyKey}:schedule-release` }
+            : undefined,
+        );
+        return true;
       },
     }),
   );
@@ -544,6 +678,114 @@ export async function retrieveStripeCustomerDefaultPaymentMethodId({
         const defaultPm = customer.invoice_settings?.default_payment_method;
         if (!defaultPm) return null;
         return typeof defaultPm === 'string' ? defaultPm : defaultPm.id;
+      },
+    }),
+  );
+}
+
+/**
+ * Retrieves one payment method by its Stripe id (`pm_…`) — the card routes' ownership check
+ * (feat-instagram-dm-sending BL20, BL21). Answers `null` when Stripe has no such payment method.
+ *
+ * @remarks
+ * - **Failure modes:** Stripe's `resource_missing` answers `null` (the caller's `404`); every other
+ *   Stripe error propagates unwrapped through {@link outboundCall}.
+ */
+export async function retrieveStripePaymentMethod({
+  paymentMethodId,
+  requestId,
+}: {
+  paymentMethodId: string;
+  requestId?: string | undefined;
+}): Promise<Stripe.PaymentMethod | null> {
+  return outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        try {
+          return await stripe.paymentMethods.retrieve(paymentMethodId);
+        } catch (error) {
+          if (isStripeResourceMissing(error)) return null;
+          throw error;
+        }
+      },
+    }),
+  );
+}
+
+/**
+ * Detaches a payment method from its customer — removing a card (feat-instagram-dm-sending BL20,
+ * route 105). Stripe clears the customer's default when the card was it.
+ */
+export async function detachStripePaymentMethod({
+  paymentMethodId,
+  options,
+}: {
+  paymentMethodId: string;
+  options?: { requestId?: string; idempotencyKey?: string } | undefined;
+}): Promise<Stripe.PaymentMethod> {
+  return outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId: options?.requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        return stripe.paymentMethods.detach(
+          paymentMethodId,
+          {},
+          options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined,
+        );
+      },
+    }),
+  );
+}
+
+/**
+ * Makes a card the default — the customer's `invoice_settings.default_payment_method` and, when the
+ * organization has a live Stripe subscription, its `default_payment_method` (feat-instagram-dm-sending
+ * BL21, route 106).
+ *
+ * @remarks
+ * - **Side effects:** one or two Stripe updates; each carries its own suffix of `idempotencyKey`, so
+ *   a retried request repeats neither. Setting the card that is already the default is harmless.
+ */
+export async function setStripeCustomerDefaultPaymentMethod(options: {
+  customerId: string;
+  subscriptionId: string | null;
+  paymentMethodId: string;
+  idempotencyKey?: string | undefined;
+  requestId?: string | undefined;
+}): Promise<void> {
+  await outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId: options.requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        const keyed = (suffix: string) =>
+          options.idempotencyKey
+            ? { idempotencyKey: `${options.idempotencyKey}:${suffix}` }
+            : undefined;
+        await stripe.customers.update(
+          options.customerId,
+          { invoice_settings: { default_payment_method: options.paymentMethodId } },
+          keyed('customer-default'),
+        );
+        if (options.subscriptionId) {
+          await stripe.subscriptions.update(
+            options.subscriptionId,
+            { default_payment_method: options.paymentMethodId },
+            keyed('subscription-default'),
+          );
+        }
       },
     }),
   );

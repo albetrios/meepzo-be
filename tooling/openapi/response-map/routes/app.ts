@@ -52,6 +52,25 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: null,
     example: null,
   },
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ad-accounts': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      { type: 'array', items: schemas.metaAdAccountSchema },
+      [schemas.metaAdAccountExample],
+      schemas.adAccessMetaProperty,
+    ),
+    example: null,
+  },
+  // Meta's cursor — no estimated_total (MC13).
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ads': {
+    statusCode: 200,
+    schema: wrapUncountedPaginated(
+      schemas.metaAdSchema,
+      [schemas.metaAdExample],
+      schemas.adAccessMetaProperty,
+    ),
+    example: null,
+  },
   // ── Channel account (feat-instagram-dm-sending § 1B) ──
   'GET /api/v1/app/social/channel-accounts': {
     statusCode: 200,
@@ -86,7 +105,7 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
   // ── Instagram account settings ──
-  'PATCH /api/v1/app/social/instagram/account/settings': {
+  'PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings': {
     statusCode: 200,
     schema: wrapSuccess(
       schemas.instagramAccountSettingsSchema,

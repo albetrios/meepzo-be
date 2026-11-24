@@ -362,7 +362,7 @@ describe('Channel account routes', () => {
       const account = nextAccount();
       const { ids } = await connect([account]);
       await operatorQuery`
-        UPDATE app.instagram_account_settings SET public_reply_chance_percent = 40
+        UPDATE app.instagram_account_settings SET person_hour_limit = 40
         WHERE organization_id = ${team.organization.id}`;
       mockInstagramUnsubscribe({ instagramUserId: account.id });
       expect((await disconnect(ids[0] ?? '')).statusCode).toBe(204);
@@ -375,7 +375,7 @@ describe('Channel account routes', () => {
       expect(again[0]).toBe(ids[0]);
       const back = dataOf<ChannelAccountAnswer>(await read(again[0] ?? ''));
       expect(back.connection_status).toBe('connected');
-      expect(back.instagram?.settings).toMatchObject({ public_reply_chance_percent: 40 });
+      expect(back.instagram?.settings).toMatchObject({ person_hour_limit: 40 });
     });
 
     it('still disconnects when the unsubscribe fails', async () => {

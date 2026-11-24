@@ -17,7 +17,7 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
  * `…/data-deletion` — form-encoded, in their own encapsulated plugin so their body parser reaches no
  * other route), the channel account (`/social/channel-accounts/…` — list, one, disconnect, pause,
  * resume, choose active accounts), the Instagram account's settings
- * (`/social/instagram/account/settings`), its post and story pickers
+ * (`/social/instagram/accounts/{channel_account_id}/settings`), its post and story pickers
  * (`/social/instagram/accounts/{channel_account_id}/media`, `…/stories`), contacts (`/contacts`), the
  * Instagram webhook (Meta's `/social/instagram/webhook` and the team's
  * `/social/instagram/webhook-events`), and automations (`/automations`).

@@ -96,6 +96,10 @@ describe('Stripe webhook ingestion contract (`constructStripeWebhookEvent` + Str
       updateSubscriptionQuantity: async () => {},
       compensateFailedCreate: async () => {},
       compensatePlanChange: async () => {},
+      schedulePriceChangeAtPeriodEnd: async () => {},
+      releaseScheduledPriceChange: async () => {},
+      detachPaymentMethod: async () => {},
+      setDefaultPaymentMethod: async () => {},
     },
   );
   const webhookEventHandlerServiceOutbound = new StripeWebhookService(

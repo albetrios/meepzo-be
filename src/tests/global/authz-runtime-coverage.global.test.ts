@@ -47,6 +47,12 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-resource: organization by-slug',
 
   // ── model: organization — cross-organization writes (cross-organization-mutation.security.test.ts) ────
+  // The card routes (feat-instagram-dm-sending § 8.C): another organization's Stripe card answers 404
+  // and nothing is detached or set — subscription-payment-method.integration.test.ts.
+  'DELETE /api/v1/billing/payment-methods/:payment_method_id':
+    'subscription-payment-method: another organization card (cross-organization, no mutation)',
+  'POST /api/v1/billing/payment-methods/:payment_method_id/default':
+    'subscription-payment-method: another organization card (cross-organization, no mutation)',
   'POST /api/v1/billing/subscriptions/:subscription_id/cancel':
     'cross-organization-mutation: subscription cancel',
   'POST /api/v1/billing/subscriptions/:subscription_id/change-plan':
@@ -76,6 +82,12 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   // nothing is saved; start mints a state bound to the caller's own organization only.
   'GET /api/v1/app/social/channel-connections/:channel_connection_id':
     'cross-organization-resource: channel connection',
+  // feat-instagram-dm-sending R4: channel-connection-ad-picker.integration.test.ts reads another
+  // organization's connection's ad accounts and ads → 404 channel_connection_not_found, no Meta call.
+  'GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts':
+    'cross-organization-resource: channel connection ad accounts',
+  'GET /api/v1/app/social/channel-connections/:channel_connection_id/ads':
+    'cross-organization-resource: channel connection ads',
   'DELETE /api/v1/app/social/channel-connections/:channel_connection_id':
     'cross-organization-mutation: channel connection DELETE',
   'POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts':
@@ -92,6 +104,8 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-resource: channel account',
   'DELETE /api/v1/app/social/channel-accounts/:channel_account_id':
     'cross-organization-mutation: channel account DELETE',
+  'PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings':
+    'cross-organization-mutation: Instagram account settings (route 12 — another organization answers 404 channel_account_not_found, nothing written)',
   'POST /api/v1/app/social/channel-accounts/:channel_account_id/pause':
     'cross-organization-mutation: channel account pause',
   'POST /api/v1/app/social/channel-accounts/:channel_account_id/resume':

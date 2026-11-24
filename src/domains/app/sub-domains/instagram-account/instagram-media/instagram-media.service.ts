@@ -16,11 +16,12 @@ import {
 import {
   MetaGraphApiError,
   buildMetaGraphMalformedAnswerError,
+  describeMetaGraphError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import { isMetaTokenRefused } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramAccountReadAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
-import { describeInstagramRefreshError } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
 import {
   metaGraphCircuitOpenError,
   instagramReconnectRequiredError,
@@ -53,14 +54,6 @@ import type {
 interface InstagramLiveReadTarget {
   instagramUserId: string;
   encryptedAccessToken: string;
-}
-
-/** Meta's code for a refused token — the one answer that breaks the connection (MC11). */
-const META_TOKEN_REFUSED_ERROR_CODE = 190;
-
-/** Whether Meta refused the connection's token itself (code 190), not a permission (MC11, IA15). */
-function isMetaTokenRefusal(error: MetaGraphApiError): boolean {
-  return error.errorClass === 'auth' && error.instagramErrorCode === META_TOKEN_REFUSED_ERROR_CODE;
 }
 
 /** Maps a post as Instagram sent it onto the stored row's values (IA17). */
@@ -380,11 +373,11 @@ export class InstagramMediaService {
     if (error instanceof CircuitBreakerOpenError) return metaGraphCircuitOpenError(error);
     if (!(error instanceof MetaGraphApiError)) return error;
     if (error.errorClass !== 'auth') return instagramUnavailableError(error.retryAfterSeconds);
-    if (isMetaTokenRefusal(error)) {
+    if (isMetaTokenRefused(error)) {
       await this.connectionBreakPort.markConnectionBroken({
         scope,
         channelConnection: access.channelConnection,
-        lastCheckError: describeInstagramRefreshError(error),
+        lastCheckError: describeMetaGraphError(error),
         requestId,
       });
     }

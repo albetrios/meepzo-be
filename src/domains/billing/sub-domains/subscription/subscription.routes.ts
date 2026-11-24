@@ -8,6 +8,8 @@ import { createSubscriptionController } from './subscription.controller.js';
 import {
   ChangePlanDto,
   CreateSubscriptionDto,
+  emptyPaymentMethodBodyDto,
+  paymentMethodIdParamsDto,
   subscriptionIdParamsDto,
 } from './subscription.dto.js';
 
@@ -62,7 +64,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         schema: {
           summary: 'Create subscription',
           description:
-            'Creates a new subscription for the organization. Only one active subscription is allowed. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.',
+            "Creates a new subscription for the organization — or, with `is_trial: true`, starts the 7-day no-card trial of a paid plan (Creator or Studio): the plan's features at once, `trial_end` 7 days ahead, Stripe cancels it at the end unless a card was added. One trial per organization and per Instagram account, ever (`409 trial_already_used`); `422 plan_has_no_trial` on Free. Only one active subscription is allowed. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.",
           tags: ['Subscription'],
           body: CreateSubscriptionDto,
         },
@@ -81,7 +83,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         schema: {
           summary: 'Change subscription plan',
           description:
-            'Upgrades or downgrades the subscription to a different plan. Proration is applied automatically. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.',
+            "Changes the subscription's plan. A dearer plan applies at once with proration. A cheaper plan or Free waits for the period end (a Stripe subscription schedule; Free cancels at the period end) — the answer carries `scheduled_change`, and `keep_channel_account_ids` (0–10 of this organization's connected `cha_…` accounts, at most the new plan's limit) picks the accounts that stay active (none given: the oldest connected). The current plan again takes the scheduled move back. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.",
           tags: ['Subscription'],
           params: subscriptionIdParamsDto,
           body: ChangePlanDto,
@@ -171,6 +173,42 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         },
       },
       controller.listPaymentMethods,
+    );
+    zodApplication.delete<{ Params: { payment_method_id: string } }>(
+      '/payment-methods/:payment_method_id',
+      {
+        config: ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
+        schema: {
+          summary: 'Remove payment method',
+          description:
+            "Removes a card from the organization's Stripe customer. `{payment_method_id}` is Stripe's `pm_…` card id; a card that is not this organization's answers 404. The only card cannot be removed while a paid plan is on (active, past due, unpaid or trialing) — `409 default_card_in_use`; add another card first. Team organizations only. Requires SUBSCRIPTION_MANAGE permission.",
+          tags: ['Subscription'],
+          params: paymentMethodIdParamsDto,
+        },
+      },
+      controller.deletePaymentMethod,
+    );
+    zodApplication.post<{ Params: { payment_method_id: string } }>(
+      '/payment-methods/:payment_method_id/default',
+      {
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+        },
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
+        schema: {
+          summary: 'Set default payment method',
+          description:
+            "Makes the card the default — the Stripe customer's invoice default and the live subscription's — and answers the organization's cards with `is_default`. `{payment_method_id}` is Stripe's `pm_…` card id; a card that is not this organization's answers 404. Repeating it for the default card gives the same answer. No body. Team organizations only. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe. See docs/reference/reliability/idempotency.md.",
+          tags: ['Subscription'],
+          params: paymentMethodIdParamsDto,
+          body: emptyPaymentMethodBodyDto,
+        },
+      },
+      controller.setDefaultPaymentMethod,
     );
     zodApplication.post(
       '/payment-methods/setup',

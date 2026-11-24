@@ -152,12 +152,10 @@ describe('Instagram webhook — routes 16–17', () => {
   }
 
   async function setAutomationEnabled(isAutomationEnabled: boolean): Promise<void> {
+    // The switch is the channel account's since ROUTE row R7 (P42).
     await operatorQuery`
-      INSERT INTO app.instagram_account_settings
-        (organization_id, instagram_account_id, is_automation_enabled)
-      VALUES (${team.organization.id}, ${account.id}, ${isAutomationEnabled})
-      ON CONFLICT (organization_id, instagram_account_id)
-      DO UPDATE SET is_automation_enabled = EXCLUDED.is_automation_enabled`;
+      UPDATE app.channel_accounts SET is_automation_enabled = ${isAutomationEnabled}
+      WHERE id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id})`;
   }
 
   async function setConnectionStatus(status: 'expired' | 'error' | 'revoked'): Promise<void> {

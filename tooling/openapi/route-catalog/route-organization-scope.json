@@ -85,7 +85,6 @@
   "GET /api/v1/users/me/membership-invitations": "both",
   "GET /api/v1/app/social/channel-accounts": "team",
   "GET /api/v1/app/social/channel-accounts/:channel_account_id": "team",
-  "PATCH /api/v1/app/social/instagram/account/settings": "team",
   "PATCH /api/v1/app/automations/:automation_id": "team",
   "PATCH /api/v1/notify/notifications/:notification_id/read": "both",
   "PATCH /api/v1/notify/webhooks/:webhook_id": "both",
@@ -161,5 +160,10 @@
   "PUT /api/v1/tenancy/organization/roles/:role_id/permissions": "both",
   "PUT /api/v1/users/me/avatar": "both",
   "PUT /api/v1/users/me/notification-preferences": "both",
-  "PUT /api/v1/users/me/presence": "both"
+  "PUT /api/v1/users/me/presence": "both",
+  "DELETE /api/v1/billing/payment-methods/:payment_method_id": "team",
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": "team",
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": "team",
+  "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": "team",
+  "POST /api/v1/billing/payment-methods/:payment_method_id/default": "team"
 }

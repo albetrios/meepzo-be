@@ -43,6 +43,7 @@ function serviceReading(subject: PlanAccessSubject | null) {
 const FREE = {
   public_id: 'pln_free',
   name: 'Free',
+  is_active: true,
   price_monthly: '0.00',
   price_yearly: '0.00',
   features: FREE_PLAN_FEATURES,
@@ -50,6 +51,7 @@ const FREE = {
 const CREATOR = {
   public_id: 'pln_creator',
   name: 'Creator',
+  is_active: true,
   price_monthly: '29.00',
   price_yearly: '276.00',
   features: CREATOR_PLAN_FEATURES,
@@ -83,6 +85,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       trialEndsAt: null,
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
+      isPlanChoiceRequired: false,
     });
     await expect(
       service.assertOrganizationWritable({ organizationPublicId: 'org_old' }),
@@ -107,6 +110,7 @@ describe('SubscriptionService plan access — the plan entitlement (D3, BL2)', (
       trialEndsAt: null,
       plan: { publicId: 'pln_free', name: 'Free' },
       features: FREE_PLAN_FEATURES,
+      isPlanChoiceRequired: false,
     });
   });
 

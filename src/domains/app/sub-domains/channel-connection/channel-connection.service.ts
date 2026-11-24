@@ -12,12 +12,16 @@ import {
 import {
   type InstagramAccountProfile,
   type MetaAssignedInstagramAccount,
+  type MetaConnectionReadOptions,
+  listMetaAdAccountAds,
+  listMetaAdAccounts,
   listMetaAssignedInstagramAccounts,
   readInstagramAccountProfile,
   readMetaAppSettings,
   readMetaClientBusinessId,
   readMetaGrantedPermissions,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { describeMetaGraphError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import {
   buildMetaLoginUrl,
   exchangeMetaLoginCode,
@@ -33,22 +37,30 @@ import {
   isPostgresUniqueViolation,
 } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { CHANNEL_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
+import { instagramReconnectRequiredError } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
 import {
   CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN,
+  CHANNEL_CONNECTION_AD_ACCESS,
   CHANNEL_CONNECTION_STATUS,
+  META_ADS_PERMISSION,
   META_REQUIRED_PERMISSIONS,
 } from './channel-connection.constants.js';
 import {
+  adAccountNotFoundError,
   channelAccountConnectedElsewhereError,
   channelConnectionBusinessMismatchError,
   channelConnectionNotConnectedError,
   channelConnectionNotFoundError,
   planAccountLimitError,
   providerPermissionsMissingError,
+  isMetaAdPermissionMissing,
+  isMetaTokenRefused,
   toChannelConnectRouteError,
+  toChannelConnectionAdReadError,
   toChannelConnectionReadError,
 } from './channel-connection-error.util.js';
 import type {
+  ChannelConnectionKey,
   ChannelConnectionRepository,
   ChannelConnectionRow,
 } from './channel-connection.repository.js';
@@ -63,11 +75,15 @@ import {
   serializeChannelAccountPlanRoom,
   serializeChannelConnection,
   serializeChannelConnectionAccount,
+  serializeMetaAd,
+  serializeMetaAdAccount,
 } from './channel-connection.serializer.js';
 import type {
   ChannelAccountPickItemOutput,
   ChannelAccountPickResultOutput,
   ChannelConnectAccountOutput,
+  ChannelConnectionAdAccountList,
+  ChannelConnectionAdPage,
   ChannelConnectResultOutput,
   ChannelConnectStartOutput,
   ChannelConnectionAccount,
@@ -132,6 +148,13 @@ export interface ChannelAccountPickResult {
   connectedAccountPublicIds: string[];
 }
 
+/** What the ad picker's Meta reads need (routes 15 and 41): the connection and its encrypted token. */
+interface AdPickerAccess {
+  organizationId: number;
+  connection: ChannelConnectionRow;
+  encryptedAccessToken: string;
+}
+
 /** The organization, its internal id and the caller's internal id. */
 interface CallerOrganization {
   organizationId: number;
@@ -171,10 +194,11 @@ function toPickRaceError(error: unknown): unknown {
 }
 
 /**
- * The channel connection service (routes-final § 1 — routes 1–5, 40, 42): starts a provider login
- * and a reconnect, finishes it into one connection per business with its token and reconnects the
- * business's accounts, picks accounts under the plan's limit, lists and reads connections, and
- * disconnects a business.
+ * The channel connection service (routes-final § 1 — routes 1–5, 15, 40–42): starts a provider
+ * login and a reconnect, finishes it into one connection per business with its token and reconnects
+ * the business's accounts, picks accounts under the plan's limit, lists and reads connections,
+ * disconnects a business, reads the ad picker (its ad accounts, then one ad account's ads) and breaks
+ * a connection whose token Meta refuses (MC11).
  *
  * @remarks
  * Algorithm:
@@ -630,6 +654,168 @@ export class ChannelConnectionService {
   }
 
   /**
+   * Route 41 (MC13, P57): the ad accounts the connection's login reaches, for the ad picker — read
+   * live from Meta, never stored.
+   *
+   * @remarks
+   * Algorithm: (1) one unit — the team read check, the connection (`connected`), and, when it holds
+   * `ads_read`, its token; (2) outside any unit, `GET /me/adaccounts` (Meta's first 100, no paging)
+   * with the connection's usage recorder. Without `ads_read` — on the connection, or as Meta answers
+   * — the list is empty and `adAccess` is `missing` (the screen offers "Connect an ad account").
+   * Failure modes: `404 channel_connection_not_found`, `404 team_organization_required`,
+   * `404 instagram_reconnect_required` (the connection is not `connected`, or Meta refused its token
+   * — then {@link ChannelConnectionService.markConnectionBroken} first), `503 instagram_unavailable` /
+   * `instagram_not_configured`. Side effects: one Meta call; on a refused token, the break (MC11).
+   */
+  async listAdAccounts({
+    scope,
+    requestId,
+    channelConnectionPublicId,
+  }: Omit<ChannelConnectionCaller, 'userPublicId'> & {
+    channelConnectionPublicId: string;
+  }): Promise<ChannelConnectionAdAccountList> {
+    const access = await this.readAdAccess({ scope, channelConnectionPublicId });
+    if (access === null) return { adAccess: CHANNEL_CONNECTION_AD_ACCESS.MISSING, items: [] };
+    const adAccounts = await this.readAdsFromMeta({
+      scope,
+      requestId,
+      access,
+      adAccountId: null,
+      read: (options) => listMetaAdAccounts(options),
+    });
+    if (adAccounts === null) return { adAccess: CHANNEL_CONNECTION_AD_ACCESS.MISSING, items: [] };
+    return {
+      adAccess: CHANNEL_CONNECTION_AD_ACCESS.GRANTED,
+      items: adAccounts.map(serializeMetaAdAccount),
+    };
+  }
+
+  /**
+   * Route 15 (MC13, P57): one page of the ads of **one** of the connection's ad accounts with their
+   * Instagram post, for ad automations — read live from Meta, never stored.
+   *
+   * @remarks
+   * Algorithm: (1) as route 41's step 1; (2) outside any unit, the connection's ad accounts — an
+   * `ad_account_id` not among them → `404 ad_account_not_found`; (3) `GET /act_{id}/ads` with `limit`
+   * and Meta's `after` passed through; (4) one unit — the organization's channel accounts whose
+   * Instagram id is an ad's `instagram_user_id` (not revoked), so each ad names the account it runs
+   * as. Without `ads_read` the page is empty and `adAccess` is `missing`.
+   * Failure modes: as route 41, plus `404 ad_account_not_found` (not one of the connection's, or Meta
+   * refused reading it). Side effects: two Meta calls; on a refused token, the break (MC11).
+   */
+  async listAds({
+    scope,
+    requestId,
+    channelConnectionPublicId,
+    adAccountId,
+    limit,
+    after,
+  }: Omit<ChannelConnectionCaller, 'userPublicId'> & {
+    channelConnectionPublicId: string;
+    adAccountId: string;
+    limit: number;
+    after?: string | undefined;
+  }): Promise<ChannelConnectionAdPage> {
+    const missing: ChannelConnectionAdPage = {
+      adAccess: CHANNEL_CONNECTION_AD_ACCESS.MISSING,
+      items: [],
+      limit,
+      nextCursor: null,
+    };
+    const access = await this.readAdAccess({ scope, channelConnectionPublicId });
+    if (access === null) return missing;
+    const adAccounts = await this.readAdsFromMeta({
+      scope,
+      requestId,
+      access,
+      adAccountId: null,
+      read: (options) => listMetaAdAccounts(options),
+    });
+    if (adAccounts === null) return missing;
+    if (!adAccounts.some((adAccount) => adAccount.adAccountId === adAccountId)) {
+      throw adAccountNotFoundError();
+    }
+    const page = await this.readAdsFromMeta({
+      scope,
+      requestId,
+      access,
+      adAccountId,
+      read: (options) => listMetaAdAccountAds({ ...options, adAccountId, limit, after }),
+    });
+    if (page === null) return missing;
+    const accountByInstagramId = await this.findAdChannelAccounts({
+      scope,
+      organizationId: access.organizationId,
+      instagramUserIds: page.items.flatMap((ad) =>
+        ad.instagramUserId === null ? [] : [ad.instagramUserId],
+      ),
+    });
+    return {
+      adAccess: CHANNEL_CONNECTION_AD_ACCESS.GRANTED,
+      items: page.items.map((ad) =>
+        serializeMetaAd({
+          ad,
+          ad_account_id: adAccountId,
+          channel_account_public_id:
+            ad.instagramUserId === null
+              ? null
+              : (accountByInstagramId.get(ad.instagramUserId) ?? null),
+        }),
+      ),
+      limit,
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  /**
+   * MC11: a broken token breaks every account of its connection — the one guarded change
+   * `connected → error` on the connection and, in the same commit, every `connected` account of it
+   * → `error`, each with one reconnect notice after the commit (WC-46).
+   *
+   * @remarks
+   * Algorithm: one unit in the caller's scope (joining an open one): the guarded change with
+   * `last_check_error` (Meta's codes only); when it won, the accounts through
+   * {@link ChannelConnectionAccountPort.markAccountsOfConnectionBroken}. Failure modes: none of its
+   * own — `false` when the connection was not `connected` any more (another caller won, or it was
+   * revoked), so only the winner breaks the accounts and enqueues notices. Side effects: the status
+   * changes; one reconnect-notice job per account broken now.
+   * Notes: called by routes 15 and 41 on Meta's code 190; the daily token check (WC-34, ROUTE row
+   * R51) and the senders of sub-domains 2 and 6 call it too. Stopping the accounts' lanes (login, no
+   * end) joins it with the lane port at ROUTE row R18.
+   */
+  async markConnectionBroken({
+    scope,
+    channelConnection,
+    lastCheckError,
+    requestId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelConnection: ChannelConnectionKey;
+    /** Meta's class, code, subcode and HTTP status (`describeMetaGraphError`) — never its text. */
+    lastCheckError: string;
+    /** The caller's request or job id, carried into the notice jobs. */
+    requestId: string;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const broken = await this.connectionRepository.markBroken({
+          ...channelConnection,
+          lastCheckError,
+        });
+        if (broken === null) return false;
+        await this.accountPort.markAccountsOfConnectionBroken({
+          scope,
+          organizationId: channelConnection.organizationId,
+          channelConnectionId: channelConnection.channelConnectionId,
+          requestId,
+        });
+        return true;
+      },
+    });
+  }
+
+  /**
    * Route 5 (MC8): "Disconnect business" — every account of the connection revoked, then the
    * connection, its token deleted.
    *
@@ -997,6 +1183,108 @@ export class ChannelConnectionService {
         return { organizationId, userId };
       },
     });
+  }
+
+  /**
+   * The ad picker's first step (routes 15 and 41), in one unit: the team read check, the connection
+   * (`connected`) and — when it holds `ads_read` — its token; `null` when it does not.
+   */
+  private async readAdAccess({
+    scope,
+    channelConnectionPublicId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelConnectionPublicId: string;
+  }): Promise<AdPickerAccess | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organizationId = await this.requireReadableOrganization(scope);
+        const connection = await this.connectionRepository.findByPublicId({
+          organizationId,
+          channelConnectionPublicId,
+        });
+        if (connection === null) throw channelConnectionNotFoundError();
+        if (connection.status !== CHANNEL_CONNECTION_STATUS.CONNECTED) {
+          throw instagramReconnectRequiredError();
+        }
+        if (!connection.scopes.includes(META_ADS_PERMISSION)) return null;
+        const token = await this.tokenService.findAccessToken({
+          scope,
+          channelConnection: { organizationId, channelConnectionId: connection.id },
+        });
+        if (token === null) throw instagramReconnectRequiredError();
+        return { organizationId, connection, encryptedAccessToken: token.encryptedAccessToken };
+      },
+    });
+  }
+
+  /**
+   * One ad picker read from Meta, outside any unit of work, with the connection's usage recorder:
+   * `null` when Meta says the ad permission is missing; Meta refusing the token (190) breaks the
+   * connection (MC11) before the route error.
+   */
+  private async readAdsFromMeta<TResult>({
+    scope,
+    requestId,
+    access,
+    adAccountId,
+    read,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    requestId: string;
+    access: AdPickerAccess;
+    /** Route 15's ad account on its ads read (Meta refusing it → `404 ad_account_not_found`). */
+    adAccountId: string | null;
+    read: (options: MetaConnectionReadOptions) => Promise<TResult>;
+  }): Promise<TResult | null> {
+    try {
+      return await read({
+        encryptedAccessToken: access.encryptedAccessToken,
+        requestId,
+        recordUsage: this.usageService.buildUsageRecorder({
+          scope,
+          channelConnectionPublicId: access.connection.public_id,
+        }),
+      });
+    } catch (error) {
+      if (isMetaAdPermissionMissing(error)) return null;
+      if (isMetaTokenRefused(error)) {
+        await this.markConnectionBroken({
+          scope,
+          channelConnection: {
+            organizationId: access.organizationId,
+            channelConnectionId: access.connection.id,
+          },
+          lastCheckError: describeMetaGraphError(error),
+          requestId,
+        });
+      }
+      throw toChannelConnectionAdReadError({ error, adAccountId });
+    }
+  }
+
+  /** The organization's not-revoked channel accounts by Instagram id → public id (route 15). */
+  private async findAdChannelAccounts({
+    scope,
+    organizationId,
+    instagramUserIds,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    instagramUserIds: readonly string[];
+  }): Promise<Map<string, string>> {
+    if (instagramUserIds.length === 0) return new Map();
+    const accounts = await this.accountPort.findAccountsByProviderIds({
+      scope,
+      organizationId,
+      providerAccountIds: [...new Set(instagramUserIds)],
+    });
+    return new Map(
+      accounts
+        .filter((account) => account.connectionStatus !== CHANNEL_CONNECTION_STATUS.REVOKED)
+        .map((account) => [account.providerAccountId, account.publicId]),
+    );
   }
 
   /** The team check of a read (`404 team_organization_required`) — its internal id. */

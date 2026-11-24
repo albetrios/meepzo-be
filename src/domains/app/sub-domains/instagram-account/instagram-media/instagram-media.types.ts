@@ -111,9 +111,8 @@ export interface InstagramStoredMediaTarget {
  *
  * @remarks
  * Notes: the connection's guarded `connected → error`, then every `connected` account of it →
- * `error` with one reconnect notice each; `false` when another caller already broke it. Until R4's
- * connection service is wired here, the app container passes an adapter over the channel account's
- * `markAccountsOfConnectionBroken` (the accounts' half of MC11).
+ * `error` with one reconnect notice each; `false` when another caller already broke it. The app
+ * container passes `ChannelConnectionService` itself.
  */
 export interface InstagramMediaConnectionBreakPort {
   markConnectionBroken(input: {

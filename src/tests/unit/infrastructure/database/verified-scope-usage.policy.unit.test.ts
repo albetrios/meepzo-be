@@ -34,6 +34,10 @@ const ALLOWED_IMPORTERS = [
   // delivery's Instagram account by sub-domain 1's SECURITY DEFINER resolver
   // (`app.resolve_organization_public_id_for_instagram_user`); the events are stored in its scope.
   'src/domains/app/sub-domains/instagram-webhook/instagram-webhook.service.ts',
+  // Billing's accounts port (feat-instagram-dm-sending § 8.10, R24): billing passes the organization
+  // it already proved (the caller's signed `org` claim on routes 102, 103, 108) and the channel
+  // account service reads that organization's accounts in its scope.
+  'src/domains/app/sub-domains/channel-account/channel-account.service.ts',
   // Notification inbox reads keyed on resolved ids. (The dispatch worker left this ledger: the
   // recipient's public id now travels in its job, so it mints PRINCIPAL_SCOPE.JOB.)
   'src/domains/notify/sub-domains/notification/notification.service.ts',

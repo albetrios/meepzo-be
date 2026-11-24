@@ -17,6 +17,12 @@
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": {
     "model": "organization"
   },
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": {
+    "model": "organization"
+  },
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": {
+    "model": "organization"
+  },
   "DELETE /api/v1/app/social/channel-connections/:channel_connection_id": {
     "model": "organization",
     "verifyNoMutation": true
@@ -40,6 +46,10 @@
     "model": "organization"
   },
   "DELETE /api/v1/app/social/channel-accounts/:channel_account_id": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": {
     "model": "organization",
     "verifyNoMutation": true
   },
@@ -75,6 +85,14 @@
   },
   "DELETE /api/v1/auth/me/webauthn/credentials/:credential_id": {
     "model": "user",
+    "verifyNoMutation": true
+  },
+  "DELETE /api/v1/billing/payment-methods/:payment_method_id": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/billing/payment-methods/:payment_method_id/default": {
+    "model": "organization",
     "verifyNoMutation": true
   },
   "GET /api/v1/billing/subscriptions/:subscription_id": {

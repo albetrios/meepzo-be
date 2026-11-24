@@ -1,7 +1,9 @@
 /**
- * Instagram account settings bulk seeder — gives every account of a registry organization that has
- * no settings row the default one, as the first connect does (IA12 step 4): the automation switch
- * on, public reply safety off, 80 %, 60 an hour, 20–60 seconds — the column defaults.
+ * Instagram account settings bulk seeder — gives every Instagram account of a registry organization
+ * that has no settings row the empty one, as the pick does (feat-instagram-dm-sending MC7, IA12):
+ * every limit empty (the settings file's values), replies under comments and once per person per
+ * post on, mark as seen off, no stop words, no extra delay — the column defaults, keyed by the
+ * channel account (P47).
  *
  * Idempotency: one row per account (`idx_instagram_account_settings_organization_account`), every
  * insert `ON CONFLICT DO NOTHING`; a re-run, or an account whose settings a user changed, keeps the
@@ -36,7 +38,7 @@ export async function seedInstagramAccountSettingsBulk(context: SeedContext): Pr
   const accounts = await database
     .select({
       organizationId: instagram_accounts.organization_id,
-      instagramAccountId: instagram_accounts.id,
+      channelAccountId: instagram_accounts.channel_account_id,
     })
     .from(instagram_accounts)
     .where(inArray(instagram_accounts.organization_id, organizationIds));
@@ -52,7 +54,7 @@ export async function seedInstagramAccountSettingsBulk(context: SeedContext): Pr
     .values(
       accounts.map((account) => ({
         organization_id: account.organizationId,
-        instagram_account_id: account.instagramAccountId,
+        channel_account_id: account.channelAccountId,
       })),
     )
     .onConflictDoNothing()

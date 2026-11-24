@@ -20,7 +20,7 @@ import { planFeaturesSchema } from '@/domains/billing/sub-domains/plan/plan.type
 import type {
   PlanAccessPlan,
   PlanAccessSubject,
-  SubscriptionPublicState,
+  StripeSubscriptionPriorState,
   SubscriptionCreateData,
   SubscriptionUpdateData,
   StripeSubscriptionOrderingState,
@@ -30,6 +30,7 @@ import type {
 function toPlanAccessPlan(columns: {
   public_id: string | null;
   name: string | null;
+  is_active: boolean | null;
   price_monthly: string | null;
   price_yearly: string | null;
   features: unknown;
@@ -37,6 +38,7 @@ function toPlanAccessPlan(columns: {
   if (
     columns.public_id === null ||
     columns.name === null ||
+    columns.is_active === null ||
     columns.price_monthly === null ||
     columns.price_yearly === null
   ) {
@@ -45,6 +47,7 @@ function toPlanAccessPlan(columns: {
   return {
     public_id: columns.public_id,
     name: columns.name,
+    is_active: columns.is_active,
     price_monthly: columns.price_monthly,
     price_yearly: columns.price_yearly,
     features: planFeaturesSchema.parse(columns.features),
@@ -94,6 +97,13 @@ const subscriptionRowWithPlanPublicId = {
   created_by_user_id: subscriptions.created_by_user_id,
   updated_by_user_id: subscriptions.updated_by_user_id,
   last_stripe_event_created_at: subscriptions.last_stripe_event_created_at,
+  scheduled_plan_id: subscriptions.scheduled_plan_id,
+  scheduled_change_at: subscriptions.scheduled_change_at,
+  downgrade_keep: subscriptions.downgrade_keep,
+  /** The scheduled plan's public id (BL5), read through a sub-select — `null` with no scheduled change. */
+  scheduled_plan_public_id: sql<
+    string | null
+  >`(SELECT scheduled_plan.public_id FROM billing.plans AS scheduled_plan WHERE scheduled_plan.id = ${subscriptions.scheduled_plan_id})`,
   plan_public_id: plans.public_id,
   // REQ-4: the joined plan's seat allowance — the fallback for seats_total when the
   // subscription has no Stripe-synced `seats` yet.
@@ -280,6 +290,24 @@ export class SubscriptionRepository {
    *   when the catalog has no Free plan.
    * - **Side effects:** none — read-only, under the caller's organization context.
    */
+  /**
+   * Whether the organization ever had a trial (BL7): a subscription row of it with `trial_end` set —
+   * rows are never deleted (billing ledgers). Served by `idx_subscriptions_org_trialled`.
+   */
+  async hasOrganizationTrialled(organization_id: number): Promise<boolean> {
+    const rows = await this.db()
+      .select({ id: subscriptions.id })
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.organization_id, organization_id),
+          sql`${subscriptions.trial_end} IS NOT NULL`,
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async findPlanAccessSubject(organization_public_id: string): Promise<PlanAccessSubject | null> {
     const freePlan = alias(plans, 'free_plan');
     const rows = await this.db()
@@ -290,11 +318,13 @@ export class SubscriptionRepository {
         subscription_trial_end: subscriptions.trial_end,
         plan_public_id: plans.public_id,
         plan_name: plans.name,
+        plan_is_active: plans.is_active,
         plan_price_monthly: plans.price_monthly,
         plan_price_yearly: plans.price_yearly,
         plan_features: plans.features,
         free_plan_public_id: freePlan.public_id,
         free_plan_name: freePlan.name,
+        free_plan_is_active: freePlan.is_active,
         free_plan_price_monthly: freePlan.price_monthly,
         free_plan_price_yearly: freePlan.price_yearly,
         free_plan_features: freePlan.features,
@@ -331,6 +361,7 @@ export class SubscriptionRepository {
               plan: toPlanAccessPlan({
                 public_id: row.plan_public_id,
                 name: row.plan_name,
+                is_active: row.plan_is_active,
                 price_monthly: row.plan_price_monthly,
                 price_yearly: row.plan_price_yearly,
                 features: row.plan_features,
@@ -339,6 +370,7 @@ export class SubscriptionRepository {
       freePlan: toPlanAccessPlan({
         public_id: row.free_plan_public_id,
         name: row.free_plan_name,
+        is_active: row.free_plan_is_active,
         price_monthly: row.free_plan_price_monthly,
         price_yearly: row.free_plan_price_yearly,
         features: row.free_plan_features,
@@ -421,6 +453,32 @@ export class SubscriptionRepository {
           .onConflictDoNothing({
             target: subscriptions.provider_subscription_id,
             where: sql`${subscriptions.provider_subscription_id} IS NOT NULL`,
+          })
+          .returning();
+        return rows[0] ?? null;
+      },
+    });
+    return inserted === null
+      ? null
+      : this.reloadInsertedSubscription(inserted.public_id, data.organization_id);
+  }
+
+  /**
+   * Inserts the organization's local `ACTIVE` Free row (no Stripe id) unless it already holds a live
+   * row — the Stripe webhook's unpaid trial end and scheduled move to Free (routes-final § 8.D BL22).
+   * `null` when a live row exists: `ON CONFLICT DO NOTHING` on the one-live-row index
+   * (`idx_subscriptions_org`) keeps the webhook's transaction usable (a caught unique violation would
+   * abort it) — the organization subscribed again meanwhile, and that row is its plan.
+   */
+  async createLocalFreeRowUnlessLive(data: SubscriptionCreateData) {
+    const inserted = await runInsertWithPublicIdentifierRetry({
+      insert: async () => {
+        const rows = await this.db()
+          .insert(subscriptions)
+          .values(buildSubscriptionInsertValues(data))
+          .onConflictDoNothing({
+            target: subscriptions.organization_id,
+            where: sql`${subscriptions.status} NOT IN ('CANCELED', 'INCOMPLETE_EXPIRED')`,
           })
           .returning();
         return rows[0] ?? null;
@@ -564,10 +622,13 @@ export class SubscriptionRepository {
     };
   }
 
-  /** The customer-visible fields a Stripe sync can change, before the sync runs (`null` when absent). */
+  /**
+   * The customer-visible fields a Stripe sync can change, and what decides its plan-state case (the
+   * trial end, the scheduled move down), before the sync runs (`null` when absent).
+   */
   async findPublicStateByProviderSubscriptionId(
     provider_subscription_id: string,
-  ): Promise<SubscriptionPublicState | null> {
+  ): Promise<StripeSubscriptionPriorState | null> {
     const rows = await this.db()
       .select({
         status: subscriptions.status,
@@ -576,6 +637,10 @@ export class SubscriptionRepository {
         current_period_start: subscriptions.current_period_start,
         current_period_end: subscriptions.current_period_end,
         plan_id: subscriptions.plan_id,
+        billing_cycle: subscriptions.billing_cycle,
+        trial_end: subscriptions.trial_end,
+        scheduled_plan_id: subscriptions.scheduled_plan_id,
+        downgrade_keep: subscriptions.downgrade_keep,
       })
       .from(subscriptions)
       .where(eq(subscriptions.provider_subscription_id, provider_subscription_id))

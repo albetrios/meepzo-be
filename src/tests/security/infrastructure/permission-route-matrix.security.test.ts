@@ -72,6 +72,8 @@ function grantedPermissionCodes(route: (typeof organizationPermissionRoutes)[num
 function placeholderForParamName(paramName: string): string {
   // `{provider}` is a non-entity param whose schema takes `meta` only (feat-instagram-dm-sending MC1).
   if (paramName === 'provider') return 'meta';
+  // `{payment_method_id}` is Stripe's card id, a non-entity param (feat-instagram-dm-sending P78).
+  if (paramName === 'payment_method_id') return 'pm_placeholder';
   const entity = PARAM_NAME_TO_ENTITY[paramName as keyof typeof PARAM_NAME_TO_ENTITY];
   return entity ? publicIdPlaceholderFor(entity) : 'placeholder';
 }
@@ -95,6 +97,10 @@ function materializeOrganizationScopedPath(
   // An automation's DELETE takes the same reason query (launch AU12, AQ6).
   if (route.method === 'DELETE' && route.path.includes('/app/automations/')) {
     return `${path}?reason=mistake`;
+  }
+  // The ad picker's ads read needs one ad account (feat-instagram-dm-sending route 15, P57).
+  if (route.method === 'GET' && route.path.endsWith('/:channel_connection_id/ads')) {
+    return `${path}?ad_account_id=1234567890123`;
   }
   return path;
 }
@@ -161,7 +167,7 @@ function payloadForPermissionRoute(
   if (route.path.includes('/roles/:role_id')) {
     return { name: 'Matrix role updated' };
   }
-  if (route.path.endsWith('/app/social/instagram/account/settings')) {
+  if (route.path.endsWith('/app/social/instagram/accounts/:channel_account_id/settings')) {
     // A setting in range, so body validation (400) does not preempt the permission check (403).
     return { is_automation_enabled: false };
   }

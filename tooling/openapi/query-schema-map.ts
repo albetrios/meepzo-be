@@ -10,7 +10,11 @@ import { ListAuditLogsQueryDto } from '@/domains/audit/audit.dto.js';
 import { ListInstagramWebhookEventsQueryDto } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.dto.js';
 import { InstagramWebhookSubscriptionQueryDto } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.dto.js';
 import { listContactsQueryDto } from '@/domains/app/sub-domains/contact/contact.dto.js';
-import { listChannelConnectionsQueryDto } from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
+import {
+  listChannelConnectionAdAccountsQueryDto,
+  listChannelConnectionAdsQueryDto,
+  listChannelConnectionsQueryDto,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
 import { listChannelAccountsQueryDto } from '@/domains/app/sub-domains/channel-account/channel-account.dto.js';
 import {
   deleteAutomationQueryDto,
@@ -64,6 +68,11 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   // App: channel connections (feat-instagram-dm-sending routes-final § 1.8, route 4).
   'GET /api/v1/app/social/channel-connections': listChannelConnectionsQueryDto,
   'GET /api/v1/app/social/channel-accounts': listChannelAccountsQueryDto,
+  // The ad picker (routes 41 and 15, § 1.8): none; one ad account, Meta's limit 1–50 and after.
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ad-accounts':
+    listChannelConnectionAdAccountsQueryDto,
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ads':
+    listChannelConnectionAdsQueryDto,
   // App: the Instagram account's route 2 takes no query (strict).
   // App: contacts (routes-final § 2.8, route 9).
   'GET /api/v1/app/contacts': listContactsQueryDto,

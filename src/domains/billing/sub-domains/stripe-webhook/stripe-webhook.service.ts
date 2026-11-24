@@ -17,7 +17,25 @@ import type {
 } from './stripe-webhook-event.repository.js';
 import { enqueueStripeWebhook } from './queues/stripe-webhook.queue.js';
 import { runStripeWebhookHandlerWithOrganizationContext } from './stripe-webhook-organization.util.js';
-import { SUBSCRIPTION_EVENT } from '@/domains/billing/sub-domains/subscription/events/subscription.events.js';
+import {
+  PLAN_STATE_CHANGE,
+  SUBSCRIPTION_EVENT,
+} from '@/domains/billing/sub-domains/subscription/events/subscription.events.js';
+import type {
+  PlanAccess,
+  StripeSubscriptionPriorState,
+} from '@/domains/billing/sub-domains/subscription/subscription.types.js';
+import {
+  CLEARED_SCHEDULED_CHANGE,
+  decideChangePlanDirection,
+} from '@/domains/billing/sub-domains/subscription/subscription-plan-change.util.js';
+import { isPaidPlan } from '@/domains/billing/sub-domains/plan/plan.service.js';
+import {
+  decideEndedPlanChange,
+  decideSyncedPlanChange,
+  isLiveSubscriptionStatus,
+  isScheduledMoveApplied,
+} from './stripe-webhook-plan-state.util.js';
 import {
   StripeWebhookEventAbandonedError,
   StripeWebhookPermanentError,
@@ -31,6 +49,13 @@ import {
 
 /** Result row type from PlanRepository.findByStripePriceId; threaded through the sec-B9 fallback. */
 type MatchedPlanForCreate = Awaited<ReturnType<PlanRepository['findByStripePriceId']>>;
+
+/** What a plan-state case (routes-final § 8.D BL22) starts from: the live row and the entitlement before. */
+interface PlanStateBefore {
+  previous: StripeSubscriptionPriorState;
+  access: PlanAccess;
+  organizationPublicId: string;
+}
 
 /**
  * Resolves the local `billing_cycle` ('monthly' | 'yearly') for a Stripe price
@@ -410,6 +435,35 @@ export class StripeWebhookService {
     }
   }
 
+  /**
+   * sec-B7: resolves a Stripe price id to the local plan. When Stripe is the source of truth (an
+   * admin swapped the plan in the Dashboard, or a schedule flipped it), the webhook is the only
+   * signal — so the sync carries `plan_id`. No match leaves the row's plan in place (never nulled —
+   * that would serve "no plan" to every entitlement read) and raises audit-#13's catalog-drift
+   * alert with the offending ids.
+   */
+  private async resolvePlanForStripePrice({
+    stripePriceId,
+    providerSubscriptionId,
+  }: {
+    stripePriceId: string | undefined;
+    providerSubscriptionId: string;
+  }): Promise<MatchedPlanForCreate> {
+    if (!stripePriceId) return null;
+    const matchedPlan = await this.planRepository.findByStripePriceId(stripePriceId);
+    if (!matchedPlan) {
+      logger.warn(
+        { providerSubscriptionId, stripePriceId },
+        'stripe.webhook.plan_id_resolution_miss',
+      );
+      captureMessage({
+        message: 'stripe.webhook.plan_id_resolution_miss',
+        options: { level: 'warning', extra: { providerSubscriptionId, stripePriceId } },
+      });
+    }
+    return matchedPlan;
+  }
+
   private async handleSubscriptionUpdated({
     stripeSubscription,
     stripeEventCreatedAt,
@@ -449,54 +503,29 @@ export class StripeWebhookService {
         ? firstItem.quantity
         : undefined;
 
-    /**
-     * sec-B7: resolve the Stripe price id → local plan id. When Stripe is the
-     * source of truth (an admin used the Dashboard to swap the plan), the
-     * webhook is the only signal we receive — so the sync MUST include
-     * `plan_id`. Omit it (rather than setting it to `null`) when the lookup
-     * returns no match: a dropped row could mean an unsynced catalog entry,
-     * but silently nulling the column would null every cached entitlement and
-     * effectively downgrade the customer to "no plan". Better to leave the
-     * existing plan_id in place and log the drift — alert tooling already
-     * watches webhook-handler logs.
-     */
+    // sec-B7: the price's plan flows into `plan_id` (see resolvePlanForStripePrice).
     const stripePriceId = firstItem?.price?.id;
-    let resolvedPlanId: number | undefined;
-    // Track the matched plan so the sec-B9 fallback INSERT path can derive
-    // `billing_cycle` from whether the Stripe price id is the monthly or
-    // yearly column on the plan row.
-    let matchedPlanForCreate: MatchedPlanForCreate = null;
-    if (stripePriceId) {
-      const matchedPlan = await this.planRepository.findByStripePriceId(stripePriceId);
-      if (matchedPlan) {
-        resolvedPlanId = matchedPlan.id;
-        matchedPlanForCreate = matchedPlan;
-      } else {
-        // audit-#13: a Stripe price id with no matching local plan means the
-        // plan↔Stripe catalog has drifted (Dashboard price created/changed
-        // without syncing `billing.plans`). The row keeps its existing plan_id
-        // (never nulled), but the drift must be visible — promote it from a bare
-        // log line to a Sentry alert with the offending ids so operators can
-        // reconcile the catalog instead of relying on log scraping.
-        logger.warn(
-          { providerSubscriptionId, stripePriceId },
-          'stripe.webhook.plan_id_resolution_miss',
-        );
-        captureMessage({
-          message: 'stripe.webhook.plan_id_resolution_miss',
-          options: {
-            level: 'warning',
-            extra: { providerSubscriptionId, stripePriceId },
-          },
-        });
-      }
-    }
+    // Track the matched plan so the sec-B9 fallback INSERT path can derive `billing_cycle` from
+    // whether the Stripe price id is the monthly or yearly column on the plan row.
+    const matchedPlanForCreate = await this.resolvePlanForStripePrice({
+      stripePriceId,
+      providerSubscriptionId,
+    });
+    const resolvedPlanId = matchedPlanForCreate?.id;
 
     // The customer-visible state before the sync: the same-second reconciliation can re-apply what
     // an HTTP mutation already wrote (and announced), and that must not emit a second event.
     const previous = await this.subscriptionService.findStripeSubscriptionPublicState({
       providerSubscriptionId,
       repositoryOverride: subscriptionRepository,
+    });
+    // § 8.D BL22 case 3: Stripe's schedule flipped the price to the scheduled plan — the three
+    // schedule columns clear in the same write.
+    const isScheduledMove =
+      previous !== null && isScheduledMoveApplied({ before: previous, resolvedPlanId });
+    const planStateBefore = await this.readPlanStateBefore({
+      previous,
+      subscriptionRepository,
     });
     const row = await this.subscriptionService.syncFromStripeProviderSubscription({
       provider_subscription_id: providerSubscriptionId,
@@ -514,6 +543,7 @@ export class StripeWebhookService {
         // REQ-4: sync the seat quantity from Stripe so local `subscriptions.seats` (and thus
         // seats_total) stays in lockstep with the provider.
         seats,
+        ...(isScheduledMove ? CLEARED_SCHEDULED_CHANGE : {}),
       }),
       stripe_event_created_at: stripeEventCreatedAt,
       repositoryOverride: subscriptionRepository,
@@ -534,6 +564,15 @@ export class StripeWebhookService {
         status: row.status,
         repositoryOverride: subscriptionRepository,
       });
+      if (planStateBefore) {
+        await this.applySyncedPlanState({
+          planStateBefore,
+          row,
+          isScheduledMove,
+          matchedPlan: matchedPlanForCreate,
+          subscriptionRepository,
+        });
+      }
       logger.info(
         { providerSubscriptionId, status: mappedStatus },
         'stripe.webhook.subscription_synced',
@@ -778,6 +817,13 @@ export class StripeWebhookService {
   }): Promise<void> {
     const providerSubscriptionId = stripeSubscription.id;
 
+    const planStateBefore = await this.readPlanStateBefore({
+      previous: await this.subscriptionService.findStripeSubscriptionPublicState({
+        providerSubscriptionId,
+        repositoryOverride: subscriptionRepository,
+      }),
+      subscriptionRepository,
+    });
     const row = await this.subscriptionService.markCanceledByStripeProviderSubscriptionId({
       provider_subscription_id: providerSubscriptionId,
       stripe_event_created_at: stripeEventCreatedAt,
@@ -796,6 +842,9 @@ export class StripeWebhookService {
         status: row.status,
         repositoryOverride: subscriptionRepository,
       });
+      if (planStateBefore) {
+        await this.applyEndedPlanState({ planStateBefore, subscriptionRepository });
+      }
       logger.info({ providerSubscriptionId }, 'stripe.webhook.subscription_canceled');
       return;
     }
@@ -879,6 +928,171 @@ export class StripeWebhookService {
     );
     throw new Error(
       `stripe.webhook.subscription_cancel_local_row_missing:${providerSubscriptionId}`,
+    );
+  }
+
+  /**
+   * What a plan-state case starts from (routes-final § 8.D BL22): the live row before this event's
+   * write and the organization's entitlement then, read in the event's organization unit. `null` —
+   * no case applies — when the row is absent or already terminal.
+   */
+  private async readPlanStateBefore({
+    previous,
+    subscriptionRepository,
+  }: {
+    previous: StripeSubscriptionPriorState | null;
+    subscriptionRepository: SubscriptionRepository;
+  }): Promise<PlanStateBefore | null> {
+    if (!(previous && isLiveSubscriptionStatus(previous.status))) return null;
+    const organization = await subscriptionRepository.findOrganizationFromCurrentContext();
+    if (!organization) return null;
+    const access = await this.subscriptionService.getPlanAccess({
+      organizationPublicId: organization.public_id,
+      repositoryOverride: subscriptionRepository,
+    });
+    return { previous, access, organizationPublicId: organization.public_id };
+  }
+
+  /**
+   * § 8.D BL22 cases 1, 2 and 4 — a live row that Stripe ended (`.deleted`, or `.updated` with
+   * status `canceled`).
+   *
+   * @remarks
+   * - **Algorithm:** {@link decideEndedPlanChange}. An unpaid trial end (`trial_ended`) or a scheduled
+   *   move to Free (`moved_down`) inserts the local `ACTIVE` Free row in this commit (the scheduled
+   *   plan, or the catalog's Free plan for a trial) and announces it; a cancelled paid plan
+   *   (`plan_ended`) inserts nothing. After the commit, `PLAN_STATE_CHANGED` with the row's kept
+   *   accounts (`downgrade_keep`) on a move to Free.
+   * - **Failure modes:** a catalog with no Free plan skips the insert with an alert (the trial then
+   *   ends as a cancelled plan would); a live row the organization already holds keeps it (no insert).
+   * - **Side effects:** at most one subscription row, `subscription.created` for it, one
+   *   `subscription.plan_state_changed` after commit (only when the entitlement moved).
+   */
+  private async applyEndedPlanState({
+    planStateBefore,
+    subscriptionRepository,
+  }: {
+    planStateBefore: PlanStateBefore;
+    subscriptionRepository: SubscriptionRepository;
+  }): Promise<void> {
+    const { previous } = planStateBefore;
+    const scheduledPlan =
+      previous.scheduled_plan_id === null
+        ? null
+        : await this.planRepository.findById(previous.scheduled_plan_id);
+    const isScheduledPlanFree = scheduledPlan !== null && !isPaidPlan({ plan: scheduledPlan });
+    const change = decideEndedPlanChange({ before: previous, isScheduledPlanFree });
+    if (change !== PLAN_STATE_CHANGE.PLAN_ENDED) {
+      const freePlan =
+        isScheduledPlanFree && change === PLAN_STATE_CHANGE.MOVED_DOWN
+          ? scheduledPlan
+          : await this.planRepository.findFreePlan();
+      await this.insertLocalFreeRow({ freePlanId: freePlan?.id, subscriptionRepository });
+    }
+    await this.subscriptionService.emitPlanStateChangedAfterCommit({
+      organizationPublicId: planStateBefore.organizationPublicId,
+      change,
+      previous: planStateBefore.access,
+      keptChannelAccountPublicIds:
+        change === PLAN_STATE_CHANGE.PLAN_ENDED ? null : previous.downgrade_keep,
+    });
+  }
+
+  /** The local Free row of an unpaid trial end or a move to Free, announced in the same commit. */
+  private async insertLocalFreeRow({
+    freePlanId,
+    subscriptionRepository,
+  }: {
+    freePlanId: number | undefined;
+    subscriptionRepository: SubscriptionRepository;
+  }): Promise<void> {
+    if (freePlanId === undefined) {
+      logger.warn({}, 'stripe.webhook.free_plan_missing');
+      captureMessage({
+        message: 'stripe.webhook.free_plan_missing',
+        options: { level: 'warning' },
+      });
+      return;
+    }
+    const freeRow = await this.subscriptionService.insertLocalFreeRowFromStripeWebhookEvent({
+      freePlanId,
+      repositoryOverride: subscriptionRepository,
+    });
+    if (!freeRow) return;
+    await this.subscriptionService.emitSubscriptionEvent({
+      type: SUBSCRIPTION_EVENT.CREATED,
+      subscription: freeRow,
+      repositoryOverride: subscriptionRepository,
+      propagateFailure: true,
+    });
+  }
+
+  /**
+   * § 8.D BL22 cases 3 and 5 — a `.created` / `.updated` sync of a live row: the scheduled move
+   * applied, paid again, paid for the first time, or another plan; a row that the sync ended goes to
+   * {@link applyEndedPlanState}.
+   *
+   * @remarks
+   * - **Algorithm:** {@link decideSyncedPlanChange}; a plan changed outside a schedule is compared on
+   *   the row's cycle with route 103's own rule ({@link decideChangePlanDirection}). After the commit,
+   *   `PLAN_STATE_CHANGED` — with the kept accounts when the scheduled move was applied.
+   * - **Side effects:** one `subscription.plan_state_changed` after commit (only when the entitlement
+   *   moved).
+   */
+  private async applySyncedPlanState({
+    planStateBefore,
+    row,
+    isScheduledMove,
+    matchedPlan,
+    subscriptionRepository,
+  }: {
+    planStateBefore: PlanStateBefore;
+    row: { status: string; plan_id: number; billing_cycle: string };
+    isScheduledMove: boolean;
+    matchedPlan: MatchedPlanForCreate;
+    subscriptionRepository: SubscriptionRepository;
+  }): Promise<void> {
+    if (!isLiveSubscriptionStatus(row.status)) {
+      await this.applyEndedPlanState({ planStateBefore, subscriptionRepository });
+      return;
+    }
+    const { previous } = planStateBefore;
+    const change = decideSyncedPlanChange({
+      before: previous,
+      after: row,
+      isScheduledMove,
+      isCheaperPlan:
+        !isScheduledMove &&
+        row.plan_id !== previous.plan_id &&
+        (await this.isCheaperPlan({ previousPlanId: previous.plan_id, matchedPlan, row })),
+    });
+    if (change === null) return;
+    await this.subscriptionService.emitPlanStateChangedAfterCommit({
+      organizationPublicId: planStateBefore.organizationPublicId,
+      change,
+      previous: planStateBefore.access,
+      keptChannelAccountPublicIds: isScheduledMove ? previous.downgrade_keep : null,
+    });
+  }
+
+  /** Whether Stripe moved the row to a plan cheaper on its own cycle (a Dashboard change). */
+  private async isCheaperPlan({
+    previousPlanId,
+    matchedPlan,
+    row,
+  }: {
+    previousPlanId: number;
+    matchedPlan: MatchedPlanForCreate;
+    row: { billing_cycle: string };
+  }): Promise<boolean> {
+    const previousPlan = await this.planRepository.findById(previousPlanId);
+    if (!(previousPlan && matchedPlan)) return false;
+    return (
+      decideChangePlanDirection({
+        currentPlan: previousPlan,
+        targetPlan: matchedPlan,
+        billingCycle: row.billing_cycle === 'YEARLY' ? 'yearly' : 'monthly',
+      }) === 'down'
     );
   }
 

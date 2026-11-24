@@ -54,6 +54,11 @@ export const PUBLIC_ID_PREFIXES = {
   automationRun: 'run',
   /** One comment × automation log (`app.automation_comment_logs`, AU1) — unused until a read route (D13). */
   automationCommentLog: 'acl',
+  /**
+   * One Instagram account that had the 7-day trial, in any organization (`billing.trial_accounts`,
+   * feat-instagram-dm-sending BL7; prefix chosen at kickoff, P22).
+   */
+  trialAccount: 'tra',
 } as const;
 
 /** Entity keys of {@link PUBLIC_ID_PREFIXES}. */

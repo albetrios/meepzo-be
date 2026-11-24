@@ -11,16 +11,20 @@ import {
   channelConnectCallbackDto,
   channelConnectionIdParamsDto,
   channelConnectionProviderParamsDto,
+  listChannelConnectionAdAccountsQueryDto,
+  listChannelConnectionAdsQueryDto,
   listChannelConnectionsQueryDto,
 } from './channel-connection.dto.js';
 
 /**
  * Returns the Fastify plugin that registers the channel connection routes (routes-final § 1.7),
  * mounted under `/api/v1/app` at `/social/channel-connections/…`: start (1), callback (2),
- * reconnect (40), pick (3), list (4), one (42) and "Disconnect business" (5).
+ * reconnect (40), pick (3), list (4), one (42), "Disconnect business" (5) and the ad picker — the
+ * ad accounts (41), then one ad account's ads (15).
  *
  * @remarks
- * Gates (P59): `channel-account:manage` on 1, 2, 3, 5, 40; `channel-account:read` on 4, 42. Routes 2
+ * Gates (P59): `channel-account:manage` on 1, 2, 3, 5, 40; `channel-account:read` on 4, 15, 41, 42.
+ * Routes 2
  * and 3 require `X-Idempotency-Key` — merged into their `config`, never a top-level preset spread,
  * which would drop the flag; 1 and 40 take none (a repeat mints another harmless state, MC4). The
  * `{provider}` and `{channel_connection_id}` parameters share the segment after
@@ -128,6 +132,38 @@ export function channelConnectionRoutes(service: ChannelConnectionService): Fast
         },
       },
       controller.getChannelConnection,
+    );
+    zodApplication.get<{ Params: { channel_connection_id: string } }>(
+      '/social/channel-connections/:channel_connection_id/ad-accounts',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ)],
+        schema: {
+          summary: "List a channel connection's ad accounts",
+          description:
+            "Returns the ad accounts the connection's login reaches, for the ad picker — ad account id, name and Meta's account status — read live from Meta (its first 100, no paging), never stored. The ads are then read one ad account at a time. Without the optional ads_read permission the list is empty and meta.ad_access is missing (the screen offers Connect an ad account, a new login); with it, meta.ad_access is granted. 404 channel_connection_not_found when it is not this organization's; 404 instagram_reconnect_required when the connection is not connected, or Meta refuses its token (the connection and its accounts then move to error, each account with one reconnect notice); 503 instagram_unavailable (with Retry-After) when Meta is down or throttling. Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
+          tags: [CHANNEL_CONNECTION_TAG],
+          params: channelConnectionIdParamsDto,
+          querystring: listChannelConnectionAdAccountsQueryDto,
+        },
+      },
+      controller.listChannelConnectionAdAccounts,
+    );
+    zodApplication.get<{ Params: { channel_connection_id: string } }>(
+      '/social/channel-connections/:channel_connection_id/ads',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ)],
+        schema: {
+          summary: "List one ad account's ads",
+          description:
+            "Returns one page of the ads of one of the connection's ad accounts (ad_account_id required, from the ad accounts list), for ad-comment and ad Send message automations — ad id, name, status, the Instagram post it runs (instagram_media_id, or null), the organization's channel account it runs as (channel_account_id, or null), thumbnail and Meta's creation time — read live from Meta, never stored. Paging is Meta's own cursor: limit 1–50 (default 25), after = the previous page's meta.pagination.next; no total. Without the optional ads_read permission the page is empty and meta.ad_access is missing. 404 ad_account_not_found when ad_account_id is not one of the connection's; 404 channel_connection_not_found; 404 instagram_reconnect_required when the connection is not connected, or Meta refuses its token (the connection and its accounts then move to error); 503 instagram_unavailable (with Retry-After). Team organizations only (404 team_organization_required). Requires CHANNEL_ACCOUNT_READ permission.",
+          tags: [CHANNEL_CONNECTION_TAG],
+          params: channelConnectionIdParamsDto,
+          querystring: listChannelConnectionAdsQueryDto,
+        },
+      },
+      controller.listChannelConnectionAds,
     );
     zodApplication.delete<{ Params: { channel_connection_id: string } }>(
       '/social/channel-connections/:channel_connection_id',

@@ -50,6 +50,7 @@ TableGroup billing {
   billing.stripe_subscription_tombstones
   billing.stripe_webhook_events
   billing.subscriptions
+  billing.trial_accounts
 }
 
 TableGroup notify {
@@ -342,16 +343,22 @@ Note app.contacts {
 }
 
 Table app.instagram_account_settings {
+  broadcast_hour_limit smallint
+  channel_account_id bigint [not null]
   created_at timestamptz [not null]
+  extra_delay_seconds_max smallint
+  extra_delay_seconds_min smallint
+  extra_stop_words text [not null]
+  fast_hour_limit int
   id bigint [pk, increment]
-  instagram_account_id bigint [not null]
-  is_automation_enabled boolean [not null]
-  is_public_reply_safety_enabled boolean [not null]
+  is_automatic_notice_enabled boolean [not null]
+  is_comment_reply_trigger_enabled boolean [not null]
+  is_mark_seen_after_reply_enabled boolean [not null]
+  is_once_per_person_per_post_enabled boolean [not null]
+  opening_day_limit int
+  opening_hour_limit smallint
   organization_id bigint [not null]
-  public_reply_chance_percent smallint [not null]
-  public_reply_gap_max_seconds smallint [not null]
-  public_reply_gap_min_seconds smallint [not null]
-  public_reply_hour_limit smallint [not null]
+  person_hour_limit smallint
   updated_at timestamptz [not null]
   updated_by_user_id bigint
 }
@@ -824,6 +831,7 @@ Table billing.subscriptions {
   created_by_user_id bigint
   current_period_end timestamptz [not null]
   current_period_start timestamptz [not null]
+  downgrade_keep jsonb
   id bigint [pk, increment, not null]
   last_stripe_event_created_at timestamptz
   organization_id bigint [not null]
@@ -832,6 +840,8 @@ Table billing.subscriptions {
   provider_customer_id varchar(255)
   provider_subscription_id varchar(255)
   public_id varchar(28) [not null]
+  scheduled_change_at timestamptz
+  scheduled_plan_id bigint
   seats int
   status varchar(20) [not null]
   trial_end timestamptz
@@ -841,6 +851,21 @@ Table billing.subscriptions {
 
 Note billing.subscriptions {
   'RLS: enabled\nPolicies: subscriptions_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table billing.trial_accounts {
+  created_at timestamptz [not null]
+  id bigint [pk, increment]
+  instagram_user_id varchar(30) [not null]
+  organization_id bigint
+  plan_id bigint [not null]
+  public_id varchar(28) [not null]
+  started_at timestamptz [not null]
+  subscription_id bigint
+}
+
+Note billing.trial_accounts {
+  'RLS: enabled\nPolicies: trial_accounts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table notify.notifications {
@@ -1147,6 +1172,7 @@ Ref: billing.plans.updated_by_user_id > auth.users.id [delete: no action]
 Ref: billing.subscriptions.created_by_user_id > auth.users.id [delete: no action]
 Ref: billing.subscriptions.organization_id > tenancy.organizations.id [delete: cascade]
 Ref: billing.subscriptions.plan_id > billing.plans.id [delete: restrict]
+Ref: billing.subscriptions.scheduled_plan_id > billing.plans.id [delete: restrict]
 Ref: billing.subscriptions.updated_by_user_id > auth.users.id [delete: no action]
 Ref: notify.notifications.organization_id > tenancy.organizations.id [delete: set null]
 Ref: notify.notifications.user_id > auth.users.id [delete: cascade]

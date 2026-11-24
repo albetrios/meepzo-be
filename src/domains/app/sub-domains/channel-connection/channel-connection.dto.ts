@@ -4,6 +4,8 @@ import {
   CHANNEL_ACCOUNT_PICK_MAX,
   CHANNEL_CONNECTION_CHANNELS,
   CHANNEL_CONNECTION_PROVIDERS,
+  META_AD_CURSOR_MAX_LENGTH,
+  META_AD_PAGE_SIZE,
 } from './channel-connection.constants.js';
 
 /** Longest login code a callback accepts (routes-final § 1.8). */
@@ -20,7 +22,7 @@ export const channelConnectionProviderParamsDto = z
   .object({ provider: z.enum(CHANNEL_CONNECTION_PROVIDERS) })
   .strict();
 
-/** Path of routes 3, 5, 40, 42 (and 15, 41): `{channel_connection_id}`. */
+/** Path of routes 3, 5, 15, 40–42: `{channel_connection_id}`. */
 export const channelConnectionIdParamsDto = z
   .object({ channel_connection_id: trimmedStringMinMax({ min: 1, max: 28 }) })
   .strict();
@@ -59,6 +61,37 @@ export const channelAccountPickDto = z
 export const listChannelConnectionsQueryDto = z
   .object({ include_revoked: z.enum(['true', 'false']).optional() })
   .strict();
+
+/** Meta's ad account id — digits, without the `act_` prefix (route 15's `ad_account_id`, 1.8). */
+const META_AD_ACCOUNT_ID_PATTERN = /^[0-9]{1,32}$/;
+
+/** Query of `GET /app/social/channel-connections/{channel_connection_id}/ad-accounts` (route 41): none. Strict. */
+export const listChannelConnectionAdAccountsQueryDto = z.object({}).strict();
+
+/**
+ * Query of `GET /app/social/channel-connections/{channel_connection_id}/ads` (route 15, 1.8): one
+ * ad account at a time (P57) and Meta's own paging.
+ *
+ * @remarks
+ * `ad_account_id` required, digits (an ad account of route 41); `limit` 1–50, default 25, passed on
+ * as Meta's `limit`; `after` is Meta's cursor from the previous page's `meta.pagination.next`,
+ * 1–1000 characters, passed back untouched. Strict: an unknown query field is a `400`.
+ */
+export const listChannelConnectionAdsQueryDto = z
+  .object({
+    ad_account_id: z.string().regex(META_AD_ACCOUNT_ID_PATTERN),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(META_AD_PAGE_SIZE.maximum)
+      .default(META_AD_PAGE_SIZE.default),
+    after: z.string().min(1).max(META_AD_CURSOR_MAX_LENGTH).optional(),
+  })
+  .strict();
+
+/** The parsed query of {@link listChannelConnectionAdsQueryDto}. */
+export type ListChannelConnectionAdsQueryInput = z.infer<typeof listChannelConnectionAdsQueryDto>;
 
 /** An empty body (routes 1 and 40 take none): absent, `null` or `{}`; any field is a `400`. */
 export const emptyChannelConnectionBodyDto = z.object({}).strict().nullish();

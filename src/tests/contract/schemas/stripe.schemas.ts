@@ -147,6 +147,27 @@ export const StripePaymentMethodListResponseContractSchema = z.object({
   ),
 });
 
+/**
+ * One payment method as `paymentMethods.retrieve` / `.detach` answer it — the fields the card routes
+ * read (feat-instagram-dm-sending BL20, BL21): `customer` for the ownership check (null once
+ * detached) and the card's display fields.
+ */
+export const StripePaymentMethodResponseContractSchema = z
+  .object({
+    id: z.string().regex(/^pm_[A-Za-z0-9]+$/),
+    object: z.literal('payment_method'),
+    customer: z.string().min(1).nullable(),
+    card: z
+      .object({
+        brand: z.string().min(1),
+        last4: z.string().length(4),
+        exp_month: z.number().int(),
+        exp_year: z.number().int(),
+      })
+      .loose(),
+  })
+  .loose();
+
 /** Zod contract for `POST /v1/setup_intents` — only `client_secret` is consumed. */
 export const StripeSetupIntentResponseContractSchema = z
   .object({

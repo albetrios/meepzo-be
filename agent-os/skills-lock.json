@@ -5,7 +5,7 @@
       "source": "local",
       "sourceType": "local",
       "skillPath": "agent-os/skills/be-api-contract-guard/SKILL.md",
-      "computedHash": "80e960d5dc9765c3c15b790ee6ddcb01266c32b8d1769527012c99ef79caaca1"
+      "computedHash": "a707c31dac881354a9906c777264e6d202d1e1b4e5b50e20b6cd59c28730816d"
     },
     "be-auto-implement": {
       "source": "local",

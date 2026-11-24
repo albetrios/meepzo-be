@@ -8,19 +8,26 @@ import * as schemas from '@tooling/openapi/response-map/resource-schemas.js';
 
 /**
  * The active organization in `GET /auth/me/context` and the organization switches: the organization
- * plus its plan access (owner decision D3 — read-only mode for unpaid organizations).
+ * plus its plan access (owner decision D3 — read-only mode for unpaid organizations) and its
+ * not-revoked channel account count (feat-instagram-dm-sending BL16).
  */
 const activeOrganizationSchema = {
   ...schemas.organizationSchema,
   properties: {
     ...schemas.organizationSchema.properties,
     plan_access: schemas.planAccessSchema,
+    channel_accounts_count: {
+      type: 'integer',
+      minimum: 0,
+      description: 'How many not-revoked channel accounts the organization has.',
+    },
   },
 };
 
 const activeOrganizationExample = {
   ...schemas.organizationExample,
   plan_access: schemas.planAccessExample,
+  channel_accounts_count: 1,
 };
 
 export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = {
@@ -221,7 +228,13 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
         access_token: schemas.accessTokenExample.access_token,
         active_organization: {
           ...activeOrganizationExample,
-          plan_access: { state: 'active', grace_ends_at: null, trial_ends_at: null },
+          plan_access: {
+            ...schemas.planAccessExample,
+            state: 'active',
+            grace_ends_at: null,
+            plan: { id: 'pln_a1b2c3d4e5f6g7h8i9j0k', name: 'Free' },
+          },
+          channel_accounts_count: 0,
         },
         my_permissions: ['organization:read'],
         global_role: null,

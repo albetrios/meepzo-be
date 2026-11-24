@@ -3,6 +3,7 @@ import {
   PUBLIC_ID_PREFIXES,
   type PublicIdEntity,
 } from '@/shared/utils/identity/public-id.util.js';
+import { PAYMENT_METHOD_ID_PATTERN } from '@/domains/billing/sub-domains/subscription/subscription.constants.js';
 
 const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   user: 'user',
@@ -33,6 +34,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   automation: 'automation',
   automationRun: 'automation run',
   automationCommentLog: 'automation comment log',
+  trialAccount: 'trial account',
 };
 
 /** Stable, realistic 21-char example core (alphabet [a-z0-9]). */
@@ -72,6 +74,7 @@ export function getPathParameterExample(parameterName: string): string {
     provider: 'google',
     slug: 'acme-corporation',
     circuit_name: 'stripe',
+    payment_method_id: 'pm_1QExampleCardA1b2C3d4',
   };
   return literals[parameterName] ?? `example-${parameterName}`;
 }
@@ -90,6 +93,8 @@ export function getPathParameterDescription(parameterName: string): string {
     provider: 'OAuth provider name (`google` | `apple`)',
     slug: 'Organization URL-friendly slug',
     circuit_name: 'Managed circuit breaker name (`stripe` | `s3` | `resend` | `turnstile`)',
+    payment_method_id:
+      "Stripe's card id (`pm_` and 1–250 letters or digits) — one of the organization's cards",
   };
   return literals[parameterName] ?? `The ${parameterName} parameter`;
 }
@@ -103,6 +108,9 @@ export function getPathParameterSchema(parameterName: string): Record<string, un
   if (entity) {
     const prefix = PUBLIC_ID_PREFIXES[entity];
     return { type: 'string', pattern: `^${prefix}_[a-z0-9]{21}$` };
+  }
+  if (parameterName === 'payment_method_id') {
+    return { type: 'string', pattern: PAYMENT_METHOD_ID_PATTERN.source };
   }
   return { type: 'string' };
 }

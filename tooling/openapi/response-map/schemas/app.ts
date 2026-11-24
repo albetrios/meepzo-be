@@ -1,6 +1,6 @@
 /**
  * App domain resource schemas — the channel connection (feat-instagram-dm-sending routes-final
- * § 1.6), the channel account (§ 1B.6), the Instagram account settings (routes-final § 1.A.6, § 1.B.6, § 1.C.6), the
+ * § 1.6), the channel account (§ 1B.6), the Instagram account settings (§ 2.B.6), the
  * contact (§ 2.6), the automation (§ 3.A.6) and the Instagram webhook event (§ 4.B.6).
  */
 import {
@@ -15,17 +15,42 @@ import {
   INSTAGRAM_WEBHOOK_EVENT_STATUSES,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
 
-// ── Instagram account settings ──
-// Mirrors serializeInstagramAccountSettings key for key.
+// ── Instagram account settings (feat-instagram-dm-sending routes-final § 2.B.6) ──
+// Mirrors serializeInstagramAccountSettings key for key. Each owner limit null = the settings file.
+const nullableLimit = (maximum: number, minimum = 1) => ({
+  type: 'integer',
+  minimum,
+  maximum,
+  nullable: true,
+});
+
 export const instagramAccountSettingsSchema = {
   type: 'object',
   properties: {
     is_automation_enabled: { type: 'boolean' },
-    is_public_reply_safety_enabled: { type: 'boolean' },
-    public_reply_chance_percent: { type: 'integer', minimum: 0, maximum: 100 },
-    public_reply_hour_limit: { type: 'integer', minimum: 1, maximum: 1000 },
-    public_reply_gap_min_seconds: { type: 'integer', minimum: 5, maximum: 3600 },
-    public_reply_gap_max_seconds: { type: 'integer', minimum: 5, maximum: 3600 },
+    opening_hour_limit: nullableLimit(750),
+    opening_day_limit: { type: 'integer', minimum: 1, nullable: true },
+    fast_hour_limit: { type: 'integer', minimum: 1, nullable: true },
+    person_hour_limit: { type: 'integer', minimum: 1, nullable: true },
+    broadcast_hour_limit: nullableLimit(2000),
+    effective_limits: {
+      type: 'object',
+      properties: {
+        opening_hour_limit: { type: 'integer' },
+        opening_day_limit: { type: 'integer', nullable: true },
+        fast_hour_limit: { type: 'integer' },
+        person_hour_limit: { type: 'integer' },
+        broadcast_hour_limit: { type: 'integer' },
+      },
+    },
+    is_day_limit_enabled: { type: 'boolean' },
+    is_automatic_notice_enabled: { type: 'boolean' },
+    extra_stop_words: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+    is_comment_reply_trigger_enabled: { type: 'boolean' },
+    is_once_per_person_per_post_enabled: { type: 'boolean' },
+    is_mark_seen_after_reply_enabled: { type: 'boolean' },
+    extra_delay_seconds_min: nullableLimit(20),
+    extra_delay_seconds_max: nullableLimit(20),
     updated_by_user_id: { type: 'string', nullable: true },
     updated_at: { type: 'string', format: 'date-time' },
   },
@@ -33,11 +58,26 @@ export const instagramAccountSettingsSchema = {
 
 export const instagramAccountSettingsExample = {
   is_automation_enabled: true,
-  is_public_reply_safety_enabled: false,
-  public_reply_chance_percent: 80,
-  public_reply_hour_limit: 60,
-  public_reply_gap_min_seconds: 20,
-  public_reply_gap_max_seconds: 60,
+  opening_hour_limit: null,
+  opening_day_limit: null,
+  fast_hour_limit: null,
+  person_hour_limit: null,
+  broadcast_hour_limit: null,
+  effective_limits: {
+    opening_hour_limit: 150,
+    opening_day_limit: null,
+    fast_hour_limit: 10_000,
+    person_hour_limit: 60,
+    broadcast_hour_limit: 600,
+  },
+  is_day_limit_enabled: false,
+  is_automatic_notice_enabled: false,
+  extra_stop_words: [],
+  is_comment_reply_trigger_enabled: true,
+  is_once_per_person_per_post_enabled: true,
+  is_mark_seen_after_reply_enabled: false,
+  extra_delay_seconds_min: null,
+  extra_delay_seconds_max: null,
   updated_by_user_id: null,
   updated_at: '2026-11-21T09:00:00.000Z',
 };
@@ -330,6 +370,67 @@ export const channelAccountPickResultExample = {
     },
   ],
   plan_room: channelAccountPlanRoomExample,
+};
+
+// ── The ad picker (routes 41 and 15, MC13) ──
+// Mirror serializeMetaAdAccount / serializeMetaAd key for key (routes-final § 1.6).
+export const metaAdAccountSchema = {
+  type: 'object',
+  properties: {
+    ad_account_id: { type: 'string', description: "Meta's ad account id, digits, no act_ prefix" },
+    name: { type: 'string', nullable: true },
+    account_status: {
+      type: 'integer',
+      nullable: true,
+      description: "Meta's account_status (1 active, 2 disabled, …)",
+    },
+  },
+};
+
+export const metaAdAccountExample = {
+  ad_account_id: '1234567890123',
+  name: 'Handmade Shop ads',
+  account_status: 1,
+};
+
+export const metaAdSchema = {
+  type: 'object',
+  properties: {
+    ad_id: { type: 'string' },
+    name: { type: 'string', nullable: true },
+    status: { type: 'string', nullable: true, description: "Meta's effective_status" },
+    ad_account_id: { type: 'string' },
+    instagram_media_id: { type: 'string', nullable: true },
+    channel_account_id: {
+      type: 'string',
+      nullable: true,
+      description:
+        "The organization's channel account the ad runs as (matched by its Instagram id)",
+    },
+    thumbnail_url: { type: 'string', nullable: true },
+    created_at: { type: 'string', nullable: true, description: "Meta's created_time, as sent" },
+  },
+};
+
+export const metaAdExample = {
+  ad_id: '120200000000000001',
+  name: 'Winter sale',
+  status: 'ACTIVE',
+  ad_account_id: '1234567890123',
+  instagram_media_id: '18030000000000001',
+  channel_account_id: 'iga_q4w8n1v3a1b2ck7x9m2pr',
+  thumbnail_url: 'https://scontent.cdninstagram.com/v/ad-thumbnail.jpg',
+  created_at: '2026-11-01T10:00:00+0000',
+};
+
+/** `meta.ad_access` of the ad picker (MC13): `missing` → an empty list and "Connect an ad account". */
+export const adAccessMetaProperty = {
+  ad_access: {
+    type: 'string',
+    enum: ['granted', 'missing'],
+    description:
+      'granted when the connection holds ads_read; missing → the list is empty (offer Connect an ad account)',
+  },
 };
 
 // ── Instagram media item (route 5) ──

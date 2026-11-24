@@ -39,8 +39,8 @@ export interface InstagramErrorClassification {
   connectionStatus: InstagramBrokenConnectionStatus | null;
 }
 
-/** Graph error code for an invalid or expired access token. */
-const INSTAGRAM_ACCESS_TOKEN_ERROR_CODE = 190;
+/** Graph error code for an invalid or expired access token — the one code that breaks a connection (MC11). */
+export const INSTAGRAM_ACCESS_TOKEN_ERROR_CODE = 190;
 /** Subcode of {@link INSTAGRAM_ACCESS_TOKEN_ERROR_CODE}: the token's time ran out. */
 const INSTAGRAM_ACCESS_TOKEN_EXPIRED_SUBCODE = 463;
 /**
@@ -419,4 +419,36 @@ export function buildMetaGraphMalformedAnswerError({
     category: 'unknown',
     fallbackMessage: `Instagram answered ${operation} without ${missing}`,
   });
+}
+
+/**
+ * Longest description {@link describeMetaGraphError} answers — the `varchar(500)` of
+ * `app.channel_connections.last_check_error`.
+ */
+export const META_GRAPH_ERROR_DESCRIPTION_MAX_LENGTH = 500;
+
+/**
+ * A failed Meta call as a log line or `last_check_error` keeps it (IA8, MC11): Meta's class, code,
+ * subcode and HTTP status — never its text, which can quote the token (Meta answers "Malformed
+ * access token …" with it) — cut to 500 characters.
+ *
+ * @remarks
+ * - **Algorithm:** a `MetaGraphApiError` → `<class> (code …, subcode …, HTTP …)`; anything else →
+ *   its error name (an open circuit, a failure on our side), never its message.
+ * - **Failure modes:** none — pure.
+ * - **Side effects:** none.
+ * - **Notes:** the client builds its errors without the request URL or the token, so nothing here
+ *   can carry one. Used by the daily account check and the connection's break (MC11).
+ */
+export function describeMetaGraphError(error: unknown): string {
+  if (!(error instanceof MetaGraphApiError)) {
+    return `failed: ${error instanceof Error ? error.name : typeof error}`;
+  }
+  const details = [
+    error.instagramErrorCode === null ? null : `code ${error.instagramErrorCode}`,
+    error.instagramErrorSubcode === null ? null : `subcode ${error.instagramErrorSubcode}`,
+    error.status === undefined ? null : `HTTP ${error.status}`,
+  ].filter((part) => part !== null);
+  const suffix = details.length > 0 ? ` (${details.join(', ')})` : '';
+  return `${error.errorClass}${suffix}`.slice(0, META_GRAPH_ERROR_DESCRIPTION_MAX_LENGTH);
 }

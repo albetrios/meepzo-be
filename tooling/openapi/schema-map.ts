@@ -86,6 +86,7 @@ import { putMemberRolePermissionsDto } from '@/domains/tenancy/sub-domains/membe
 import {
   CreateSubscriptionDto,
   ChangePlanDto,
+  emptyPaymentMethodBodyDto,
 } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
 
 // ─── Upload ────────────────────────────────────────────────────────────
@@ -181,6 +182,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Billing: Subscriptions ──
   'POST /api/v1/billing/subscriptions': CreateSubscriptionDto,
   'POST /api/v1/billing/subscriptions/{subscription_id}/change-plan': ChangePlanDto,
+  'POST /api/v1/billing/payment-methods/{payment_method_id}/default': emptyPaymentMethodBodyDto,
 
   // ── Webhooks ──
   'POST /api/v1/notify/webhooks': CreateWebhookDto,
@@ -204,7 +206,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/app/social/channel-accounts/{channel_account_id}/activate':
     activateChannelAccountDto,
   // ── App: Instagram account ──
-  'PATCH /api/v1/app/social/instagram/account/settings': UpdateInstagramAccountSettingsDto,
+  'PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings':
+    UpdateInstagramAccountSettingsDto,
   // Meta's callbacks (routes 7–8): form-encoded, not JSON — see FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.
   'POST /api/v1/app/social/channel-connections/{provider}/deauthorize': MetaSignedRequestDto,
   'POST /api/v1/app/social/channel-connections/{provider}/data-deletion': MetaSignedRequestDto,

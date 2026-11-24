@@ -145,6 +145,7 @@ src/
     │   │   │   │   └── index.ts
     │   │   │   ├── channel-account-capabilities.constants.ts
     │   │   │   ├── channel-account-error.util.ts
+    │   │   │   ├── channel-account-plan-stop.service.ts
     │   │   │   ├── channel-account.constants.ts
     │   │   │   ├── channel-account.controller.ts
     │   │   │   ├── channel-account.dto.ts
@@ -162,9 +163,11 @@ src/
     │   │   │   │   │   ├── channel-connection-meta-callback.factory.ts
     │   │   │   │   │   └── channel-connection.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── channel-connection-ad-picker.integration.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback.integration.test.ts
     │   │   │   │   │   └── channel-connection.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-connection-error.util.unit.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback-ingress.plugin.unit.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback.serializer.unit.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback.service.unit.test.ts
@@ -272,6 +275,8 @@ src/
     │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
     │   │   │   ├── instagram-account-settings/
     │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── instagram-account-settings.factory.ts
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── instagram-account-settings.integration.test.ts
     │   │   │   │   │   └── unit/
@@ -285,6 +290,7 @@ src/
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── index.ts
     │   │   │   │   │   └── instagram-account-settings.bulk.seed.ts
+    │   │   │   │   ├── instagram-account-settings.constants.ts
     │   │   │   │   ├── instagram-account-settings.controller.ts
     │   │   │   │   ├── instagram-account-settings.dto.ts
     │   │   │   │   ├── instagram-account-settings.overview.md
@@ -782,6 +788,7 @@ src/
     │   │   │   │   │   ├── stripe-webhook-correlation.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-out-of-order-cancellation.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-payload-shrink.integration.test.ts
+    │   │   │   │   │   ├── stripe-webhook-plan-state.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-reclaim.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-replay.integration.test.ts
     │   │   │   │   │   ├── stripe-webhook-worker-claim-race.integration.test.ts
@@ -802,6 +809,7 @@ src/
     │   │   │   │   │   ├── stripe-webhook-event.repository.ledger-immutability.db.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook-ingress.plugin.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook-organization.util.unit.test.ts
+    │   │   │   │   │   ├── stripe-webhook-plan-state.util.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.controller.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.job.schema.unit.test.ts
     │   │   │   │   │   ├── stripe-webhook.processor-race.unit.test.ts
@@ -827,6 +835,7 @@ src/
     │   │   │   ├── stripe-webhook-event.repository.ts
     │   │   │   ├── stripe-webhook-ingress.plugin.ts
     │   │   │   ├── stripe-webhook-organization.util.ts
+    │   │   │   ├── stripe-webhook-plan-state.util.ts
     │   │   │   ├── stripe-webhook.controller.ts
     │   │   │   ├── stripe-webhook.overview.md
     │   │   │   ├── stripe-webhook.routes.ts
@@ -839,9 +848,11 @@ src/
     │   │   │       ├── integration/
     │   │   │       │   ├── subscription-happy.integration.test.ts
     │   │   │       │   ├── subscription-lifecycle.integration.test.ts
+    │   │   │       │   ├── subscription-payment-method.integration.test.ts
     │   │   │       │   ├── subscription-refusals.integration.test.ts
     │   │   │       │   ├── subscription-seat-ceiling.integration.test.ts
     │   │   │       │   ├── subscription-seat-entitlement.integration.test.ts
+    │   │   │       │   ├── subscription-trial-move-down.integration.test.ts
     │   │   │       │   └── subscription.integration.test.ts
     │   │   │       └── unit/
     │   │   │       │   ├── billing-account.serializer.unit.test.ts
@@ -849,11 +860,13 @@ src/
     │   │   │       │   ├── stripe-payment-provider.email.unit.test.ts
     │   │   │       │   ├── subscription-entitlement.util.unit.test.ts
     │   │   │       │   ├── subscription-period.util.unit.test.ts
+    │   │   │       │   ├── subscription-plan-change.util.unit.test.ts
     │   │   │       │   ├── subscription-routes-rate-limit.policy.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.job.schema.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.processor.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.queue.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.worker.unit.test.ts
+    │   │   │       │   ├── subscription-trial.service.unit.test.ts
     │   │   │       │   ├── subscription.controller.auth-matrix.unit.test.ts
     │   │   │       │   ├── subscription.controller.unit.test.ts
     │   │   │       │   ├── subscription.repository.db.unit.test.ts
@@ -888,6 +901,8 @@ src/
     │   │   │   ├── stripe-payment-provider.ts
     │   │   │   ├── subscription-entitlement.util.ts
     │   │   │   ├── subscription-period.util.ts
+    │   │   │   ├── subscription-plan-change.util.ts
+    │   │   │   ├── subscription-trial.service.ts
     │   │   │   ├── subscription.constants.ts
     │   │   │   ├── subscription.controller.ts
     │   │   │   ├── subscription.dto.ts
@@ -898,7 +913,9 @@ src/
     │   │   │   ├── subscription.serializer.ts
     │   │   │   ├── subscription.service.ts
     │   │   │   ├── subscription.types.ts
-    │   │   │   └── subscription.validator.ts
+    │   │   │   ├── subscription.validator.ts
+    │   │   │   ├── trial-account.repository.ts
+    │   │   │   └── trial-account.schema.ts
     │   ├── billing.container.ts
     │   ├── billing.overview.md
     │   ├── billing.permissions.ts
@@ -2303,7 +2320,10 @@ src/
     │   │   │   ├── customer.create.request.fields.json
     │   │   │   ├── customer.create.response.json
     │   │   │   ├── customer.retrieve.default-pm.response.json
+    │   │   │   ├── customer.update.default-pm.response.json
     │   │   │   ├── invoices.list.response.json
+    │   │   │   ├── payment-method.detach.response.json
+    │   │   │   ├── payment-method.retrieve.response.json
     │   │   │   ├── payment-methods.list.response.json
     │   │   │   ├── setup-intent.create.response.json
     │   │   │   ├── subscription.cancel.response.json

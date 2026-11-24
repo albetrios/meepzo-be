@@ -6,6 +6,8 @@ import {
   validateChannelConnectionIdParam,
   validateChannelConnectionProvider,
   validateEmptyChannelConnectionBody,
+  validateListChannelConnectionAdAccountsQuery,
+  validateListChannelConnectionAdsQuery,
   validateListChannelConnectionsQuery,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection.validator.js';
 
@@ -91,6 +93,35 @@ describe('channel connection validators', () => {
       includeRevoked: true,
     });
     expect(() => validateListChannelConnectionsQuery({ include_revoked: 'yes' })).toThrow(
+      ValidationError,
+    );
+  });
+
+  it("reads the ads query: one ad account, limit 1–50 (default 25), Meta's cursor (route 15, P57)", () => {
+    expect(validateListChannelConnectionAdsQuery({ ad_account_id: '42' })).toEqual({
+      ad_account_id: '42',
+      limit: 25,
+    });
+    expect(
+      validateListChannelConnectionAdsQuery({ ad_account_id: '42', limit: '50', after: 'c' }),
+    ).toEqual({ ad_account_id: '42', limit: 50, after: 'c' });
+  });
+
+  it.each([
+    ['no ad account', {}],
+    ['an act_ prefix', { ad_account_id: 'act_42' }],
+    ['limit 0', { ad_account_id: '42', limit: '0' }],
+    ['limit 51', { ad_account_id: '42', limit: '51' }],
+    ['an empty cursor', { ad_account_id: '42', after: '' }],
+    ['a cursor over 1000', { ad_account_id: '42', after: 'a'.repeat(1001) }],
+    ['an unknown field', { ad_account_id: '42', extra: '1' }],
+  ])('refuses an ads query with %s', (_case, query) => {
+    expect(() => validateListChannelConnectionAdsQuery(query)).toThrow(ValidationError);
+  });
+
+  it('takes no query on the ad accounts read', () => {
+    expect(() => validateListChannelConnectionAdAccountsQuery(undefined)).not.toThrow();
+    expect(() => validateListChannelConnectionAdAccountsQuery({ limit: '1' })).toThrow(
       ValidationError,
     );
   });

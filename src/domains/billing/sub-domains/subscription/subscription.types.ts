@@ -19,6 +19,18 @@ export interface SubscriptionPublicState {
   plan_id: number;
 }
 
+/**
+ * A Stripe-backed row before a webhook sync or cancel (routes-final § 8.D BL22): its public state
+ * plus what decides the plan-state case — the trial end, the scheduled move down and its kept
+ * accounts, and the billing cycle.
+ */
+export interface StripeSubscriptionPriorState extends SubscriptionPublicState {
+  billing_cycle: string;
+  trial_end: Date | null;
+  scheduled_plan_id: number | null;
+  downgrade_keep: string[] | null;
+}
+
 /** Repository-level input for {@link SubscriptionRepository.create} — already-resolved numeric IDs. */
 export interface SubscriptionCreateData {
   organization_id: number;
@@ -68,6 +80,12 @@ export interface SubscriptionUpdateData {
   current_period_end?: Date;
   plan_id?: number;
   billing_cycle?: string;
+  /** BL5 (P77): the plan a move down goes to at the period end; `null` clears the scheduled change. */
+  scheduled_plan_id?: number | null;
+  /** When the scheduled change applies (the period end); set exactly with `scheduled_plan_id`. */
+  scheduled_change_at?: Date | null;
+  /** BL6: the `cha_…` ids kept active after the move down; set only with a scheduled change. */
+  downgrade_keep?: string[] | null;
   /**
    * REQ-4: purchased seat quantity, written by the Stripe webhook reconcile path from the
    * subscription item's `quantity`. Left unset by every other update path so a partial patch
@@ -112,11 +130,16 @@ export interface PlanAccess {
   plan: { publicId: string; name: string } | null;
   /** That plan's typed features (BL12); `null` exactly when `plan` is. */
   features: PlanFeatures | null;
+  /**
+   * BL24 (P80): the live subscription points at a switched-off plan (Starter, Growth, Pro) — the
+   * organization is held to Free's features until it picks Creator or Studio.
+   */
+  isPlanChoiceRequired: boolean;
 }
 
 /**
- * Public `plan_access` body — `active_organization.plan_access` on `GET /auth/me/context`. The plan and
- * its features join it at iteration row R24 (routes-final BL16).
+ * Public `plan_access` body — `active_organization.plan_access` on `GET /auth/me/context` and the two
+ * organization switches (routes-final BL16, 8.B.6).
  */
 export interface PlanAccessOutput {
   state: PlanAccessState;
@@ -124,12 +147,43 @@ export interface PlanAccessOutput {
   grace_ends_at: string | null;
   /** ISO 8601 timestamp — when the 7-day trial ends while it runs; `null` otherwise (BL3). */
   trial_ends_at: string | null;
+  /** The plan whose features apply (`pln_…` id and name); `null` only with no Free plan in the catalog. */
+  plan: { id: string; name: string } | null;
+  /** That plan's typed features (8.A.6); `null` exactly when `plan` is. */
+  features: PlanFeatures | null;
+  /** `true` while the live subscription is on a switched-off plan — "Choose Creator or Studio" (BL24). */
+  is_plan_choice_required: boolean;
+}
+
+/** One not-revoked channel account as billing reads it through the accounts port (8.10). */
+export interface BillingChannelAccount {
+  /** `cha_…` */
+  publicId: string;
+  /** The Instagram user id (the account's provider id). */
+  instagramUserId: string;
+  connectedAt: Date;
+}
+
+/**
+ * The accounts port (routes-final § 8.10): billing never reads app tables — the app's channel account
+ * service implements this and the composition roots wire it (`wireChannelAccounts`). Read by routes 102
+ * (the trial's accounts), 103 (the kept accounts) and 108 (`channel_accounts_count`).
+ */
+export interface BillingChannelAccountsPort {
+  /** The organization's not-revoked channel accounts, oldest connected first. */
+  listActiveChannelAccounts(options: {
+    organizationPublicId: string;
+  }): Promise<BillingChannelAccount[]>;
+  /** How many not-revoked channel accounts the organization has. */
+  countConnectedChannelAccounts(options: { organizationPublicId: string }): Promise<number>;
 }
 
 /** A plan row as the plan entitlement reads it (its features parsed, BL12). */
 export interface PlanAccessPlan {
   public_id: string;
   name: string;
+  /** `false` for a switched-off row (Starter, Growth, Pro — BL24). */
+  is_active: boolean;
   price_monthly: string;
   price_yearly: string;
   features: PlanFeatures;

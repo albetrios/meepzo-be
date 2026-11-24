@@ -85,7 +85,6 @@
   "GET /api/v1/users/me/membership-invitations": 200,
   "GET /api/v1/app/social/channel-accounts": 200,
   "GET /api/v1/app/social/channel-accounts/:channel_account_id": 200,
-  "PATCH /api/v1/app/social/instagram/account/settings": 200,
   "PATCH /api/v1/app/automations/:automation_id": 200,
   "PATCH /api/v1/notify/notifications/:notification_id/read": 200,
   "PATCH /api/v1/notify/webhooks/:webhook_id": 200,
@@ -161,5 +160,10 @@
   "PUT /api/v1/tenancy/organization/roles/:role_id/permissions": 200,
   "PUT /api/v1/users/me/avatar": 200,
   "PUT /api/v1/users/me/notification-preferences": 200,
-  "PUT /api/v1/users/me/presence": 200
+  "PUT /api/v1/users/me/presence": 200,
+  "DELETE /api/v1/billing/payment-methods/:payment_method_id": 204,
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": 200,
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": 200,
+  "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": 200,
+  "POST /api/v1/billing/payment-methods/:payment_method_id/default": 200
 }

@@ -30,7 +30,7 @@ const accountUpdatedAtTimestamp = databaseUpdatedAtTimestamp(instagram_accounts.
 
 /**
  * One Instagram account as every read returns it: the extension row (`app.instagram_accounts`) plus
- * the four columns of its channel account the Instagram side acts on (ROUTE row R6, 2.A.3) — the
+ * the five columns of its channel account the Instagram side acts on (ROUTE row R6, 2.A.3) — the
  * account's one public id (`cha_…`, P47), its status, when it was connected and its connection.
  */
 export type InstagramAccountRow = typeof instagram_accounts.$inferSelect & {
@@ -42,15 +42,18 @@ export type InstagramAccountRow = typeof instagram_accounts.$inferSelect & {
   connected_at: Date;
   /** `app.channel_accounts.channel_connection_id` — the connection its token comes from. */
   channel_connection_id: number;
+  /** `app.channel_accounts.is_automation_enabled` — the account's automation switch (P42). */
+  is_automation_enabled: boolean;
 };
 
-/** The columns every account read returns: the extension row plus its channel account's four. */
+/** The columns every account read returns: the extension row plus its channel account's five. */
 const instagramAccountColumns = {
   ...getTableColumns(instagram_accounts),
   public_id: channel_accounts.public_id,
   connection_status: channel_accounts.connection_status,
   connected_at: channel_accounts.connected_at,
   channel_connection_id: channel_accounts.channel_connection_id,
+  is_automation_enabled: channel_accounts.is_automation_enabled,
 };
 
 /** The join of an Instagram account to its channel account (1:1, same organization). */

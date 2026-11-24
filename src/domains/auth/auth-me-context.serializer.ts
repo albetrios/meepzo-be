@@ -6,7 +6,7 @@ import type { AuthMeContextData, AuthMeContextOutput } from './auth-me-context.t
  * Serializes the aggregated {@link AuthMeContextData} into the public
  * `GET /auth/me/context` response. Every field is already a public shape and
  * passes through unchanged, except the active organization, which gains its
- * `plan_access` (owner decision D3).
+ * `plan_access` (owner decision D3) and `channel_accounts_count` (feat-instagram-dm-sending BL16).
  *
  * @remarks
  * The organization LIST is not part of this response — it lives at
@@ -24,6 +24,7 @@ export function serializeAuthMeContext(data: AuthMeContextData): AuthMeContextOu
       ? {
           ...organization,
           plan_access: serializePlanAccess(data.planAccess ?? ACTIVE_PLAN_ACCESS),
+          channel_accounts_count: data.channelAccountsCount ?? 0,
         }
       : null,
     membership_id: data.membershipId,

@@ -32,7 +32,10 @@
 --                                   the Instagram user id, profile, account type, private flag,
 --                                   webhook stamp and starter-question time. No public id, status or
 --                                   connection columns of its own — those are the channel account's.
---   app.instagram_account_settings  the automation switch and public reply safety, one per account.
+--   app.instagram_account_settings  the account's sending limits (empty = the settings file's value),
+--                                   stop words and behaviour switches, one per Instagram channel account
+--                                   (ROUTE row R7, routes-final § 2.B.3, IA12). The automation switch is
+--                                   the channel account's; public reply safety is per automation.
 --
 -- The launch's app.instagram_account_tokens (the Instagram Login token, renewed daily) is gone: the
 -- token lives on the connection (D24); no data moves (plan:L2924).
@@ -253,29 +256,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_channel_account ON app.
 CREATE TABLE IF NOT EXISTS app.instagram_account_settings (
   id BIGSERIAL PRIMARY KEY,
   organization_id BIGINT NOT NULL,
-  instagram_account_id BIGINT NOT NULL,
-  is_automation_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-  is_public_reply_safety_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-  public_reply_chance_percent SMALLINT NOT NULL DEFAULT 80,
-  public_reply_hour_limit SMALLINT NOT NULL DEFAULT 60,
-  public_reply_gap_min_seconds SMALLINT NOT NULL DEFAULT 20,
-  public_reply_gap_max_seconds SMALLINT NOT NULL DEFAULT 60,
+  channel_account_id BIGINT NOT NULL,
+  opening_hour_limit SMALLINT,
+  opening_day_limit INTEGER,
+  fast_hour_limit INTEGER,
+  person_hour_limit SMALLINT,
+  broadcast_hour_limit SMALLINT,
+  is_automatic_notice_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  extra_stop_words TEXT[] NOT NULL DEFAULT '{}',
+  is_comment_reply_trigger_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  is_once_per_person_per_post_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  is_mark_seen_after_reply_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  extra_delay_seconds_min SMALLINT,
+  extra_delay_seconds_max SMALLINT,
   updated_by_user_id BIGINT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT instagram_account_settings_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
-  CONSTRAINT instagram_account_settings_instagram_account_fk FOREIGN KEY (organization_id, instagram_account_id) REFERENCES app.instagram_accounts (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT instagram_account_settings_channel_account_fk FOREIGN KEY (organization_id, channel_account_id) REFERENCES app.channel_accounts (organization_id, id) ON DELETE RESTRICT,
   CONSTRAINT instagram_account_settings_updated_by_user_id_users_id_fk FOREIGN KEY (updated_by_user_id) REFERENCES auth.users (id) ON DELETE SET NULL,
-  CONSTRAINT chk_instagram_account_settings_chance CHECK (public_reply_chance_percent BETWEEN 0 AND 100),
-  CONSTRAINT chk_instagram_account_settings_hour_limit CHECK (public_reply_hour_limit BETWEEN 1 AND 1000),
-  CONSTRAINT chk_instagram_account_settings_gap_min CHECK (public_reply_gap_min_seconds BETWEEN 5 AND 3600),
-  CONSTRAINT chk_instagram_account_settings_gap_max CHECK (public_reply_gap_max_seconds BETWEEN 5 AND 3600),
-  CONSTRAINT chk_instagram_account_settings_gap_order CHECK (public_reply_gap_max_seconds >= public_reply_gap_min_seconds),
+  CONSTRAINT chk_instagram_account_settings_opening_hour_limit CHECK (opening_hour_limit IS NULL OR opening_hour_limit BETWEEN 1 AND 750),
+  CONSTRAINT chk_instagram_account_settings_opening_day_limit CHECK (opening_day_limit IS NULL OR opening_day_limit > 0),
+  CONSTRAINT chk_instagram_account_settings_fast_hour_limit CHECK (fast_hour_limit IS NULL OR fast_hour_limit > 0),
+  CONSTRAINT chk_instagram_account_settings_person_hour_limit CHECK (person_hour_limit IS NULL OR person_hour_limit > 0),
+  CONSTRAINT chk_instagram_account_settings_broadcast_hour_limit CHECK (broadcast_hour_limit IS NULL OR broadcast_hour_limit BETWEEN 1 AND 2000),
+  CONSTRAINT chk_instagram_account_settings_extra_stop_words CHECK (cardinality(extra_stop_words) <= 50 AND array_position(extra_stop_words, NULL) IS NULL),
+  CONSTRAINT chk_instagram_account_settings_extra_delay CHECK ((extra_delay_seconds_min IS NULL) = (extra_delay_seconds_max IS NULL) AND (extra_delay_seconds_min IS NULL OR (extra_delay_seconds_min BETWEEN 1 AND 20 AND extra_delay_seconds_max BETWEEN 1 AND 20 AND extra_delay_seconds_min <= extra_delay_seconds_max))),
   CONSTRAINT chk_instagram_account_settings_updated CHECK (updated_at >= created_at)
 );
 --> statement-breakpoint
--- One settings row per account, and the composite key's index.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_account_settings_organization_account ON app.instagram_account_settings USING btree (organization_id, instagram_account_id);
+-- One settings row per channel account, and the composite key's index (2.B.3, P47).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_account_settings_organization_account ON app.instagram_account_settings USING btree (organization_id, channel_account_id);
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_instagram_account_settings_updated_by_user_id ON app.instagram_account_settings USING btree (updated_by_user_id) WHERE updated_by_user_id IS NOT NULL;
 --> statement-breakpoint

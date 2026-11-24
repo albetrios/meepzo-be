@@ -62,7 +62,7 @@ export interface ChannelConnectionConnectResult {
 
 /**
  * Drizzle access to `app.channel_connections` (routes-final § 1.3, MCC1): the callback's upsert, the
- * organization's connections, one by public id, the organization lock of the pick (MC7), revoke.
+ * organization's connections, one by public id, the organization lock of the pick (MC7), revoke, the guarded break (MC11).
  *
  * @remarks
  * - **Algorithm:** every row statement names `organization_id` and, for a single row, its internal
@@ -294,6 +294,36 @@ export class ChannelConnectionRepository {
       sql`SELECT organization_public_id FROM app.resolve_organization_public_ids_for_provider_business(${provider}, ${clientBusinessId}) AS organization_public_id`,
     );
     return readOrganizationPublicIds(result);
+  }
+
+  /**
+   * The one guarded way a connection leaves `connected` (MC11): `connected` → `error`, stamping
+   * `status_changed_at` and `last_check_error` (Meta's codes only, never its text). Returns the
+   * changed row, or `null` when it was not `connected` any more — the caller that gets `null` lost
+   * the race and changes nothing else.
+   */
+  async markBroken({
+    organizationId,
+    channelConnectionId,
+    lastCheckError,
+  }: ChannelConnectionKey & { lastCheckError: string }): Promise<ChannelConnectionRow | null> {
+    const rows = await this.db()
+      .update(channel_connections)
+      .set({
+        status: 'error',
+        status_changed_at: databaseNowTimestamp,
+        last_check_error: lastCheckError,
+        updated_at: connectionUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          eq(channel_connections.organization_id, organizationId),
+          eq(channel_connections.id, channelConnectionId),
+          eq(channel_connections.status, 'connected'),
+        ),
+      )
+      .returning();
+    return rows[0] ?? null;
   }
 
   /**

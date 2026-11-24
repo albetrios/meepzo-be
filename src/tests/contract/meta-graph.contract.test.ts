@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   META_GRAPH_VERSION,
@@ -133,7 +134,7 @@ registerThirdPartyContractTestIsolationHooks();
  * | `me-client-business.success` | `GET /me?fields=client_business_id` of a business-integration system user token — docs/facebook-login/facebook-login-for-business (Business Integration System User access tokens) |
  * | `assigned-instagram-accounts.success` | the system user's `assigned_instagram_accounts` edge (`id`, `username`, cursor paging) — docs/marketing-api/reference/system-user |
  * | `permissions.success` | `GET /me/permissions` (`permission`, `status` granted / declined) — docs/graph-api/reference/user/permissions |
- * | `ad-accounts.success`, `ads.success` | `GET /me/adaccounts` and an ad account's `/ads` with `creative{effective_instagram_media_id,thumbnail_url}` — docs/marketing-api/reference/ad-account, …/ad-account/ads, …/ad-creative |
+ * | `ad-accounts.success`, `ads.success` | `GET /me/adaccounts` and an ad account's `/ads` with `creative{effective_instagram_media_id,instagram_user_id,thumbnail_url}` — docs/marketing-api/reference/ad-account, …/ad-account/ads, …/ad-creative |
  * | `instagram-account.success` / `.wrapped.success` | the IG User node read by its id on `graph.facebook.com` (`id`, `username`, counts) — docs/instagram-platform/instagram-graph-api/reference/ig-user; flat, or inside `data` as Meta's guides print it (D33) |
  * | `media.first-page` / `.last-page`, `stories.success`, `media-item.success` | IG User `/media` and `/stories` edges and the IG Media node (ISO `+0000` timestamps, `children.data`) — docs/instagram-platform/instagram-graph-api/reference/ig-user/media, …/ig-user/stories; Graph's cursor paging (`paging.cursors`, `paging.next` carrying `access_token` as live answers do) — docs/graph-api/results |
  * | `subscribed-apps.success` | `POST` / `DELETE /{id}/subscribed_apps` → `{ success: true }` — docs/instagram-platform/webhooks |
@@ -192,6 +193,18 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       timestamp: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+0000$/),
     })
     .loose();
+
+  /**
+   * The `appsecret_proof` every call with a customer's token carries (SE.M.14): the HMAC-SHA256 of
+   * the token keyed by the app secret, hex — computed here, apart from the client, so the wire is pinned.
+   */
+  function appSecretProofQuery(): { appsecret_proof: string } {
+    return {
+      appsecret_proof: createHmac('sha256', String(getEnv().META_APP_SECRET))
+        .update(ACCOUNT_ACCESS_TOKEN)
+        .digest('hex'),
+    };
+  }
 
   let encryptedAccountAccessToken = '';
   let loggerSpies: ReturnType<typeof vi.spyOn>[] = [];
@@ -364,6 +377,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
           name: 'Winter sale',
           status: 'ACTIVE',
           instagramMediaId: '18030000000000001',
+          instagramUserId: '17841400000000001',
           thumbnailUrl: 'https://scontent.cdninstagram.com/v/contract-fixture-ad.jpg',
           createdAt: '2026-11-01T10:00:00+0000',
         },
@@ -450,7 +464,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       const nextCursor = mediaFirstPageFixture.paging.cursors.after;
       graphWithAccountToken()
         .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/media`)
-        .query({ fields: MEDIA_FIELDS, limit: '2' })
+        .query({ fields: MEDIA_FIELDS, limit: '2', ...appSecretProofQuery() })
         .reply(200, (interceptedUri: string) => {
           interceptedUrls.push(
             readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL }),
@@ -459,7 +473,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         });
       graphWithAccountToken()
         .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/media`)
-        .query({ fields: MEDIA_FIELDS, limit: '2', after: nextCursor })
+        .query({ fields: MEDIA_FIELDS, limit: '2', after: nextCursor, ...appSecretProofQuery() })
         .reply(200, (interceptedUri: string) => {
           interceptedUrls.push(
             readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL }),
@@ -486,7 +500,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       GraphListPageContractSchema.parse(storiesSuccessFixture);
       graphWithAccountToken()
         .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/stories`)
-        .query({ fields: STORY_FIELDS, limit: '25' })
+        .query({ fields: STORY_FIELDS, limit: '25', ...appSecretProofQuery() })
         .reply(200, storiesSuccessFixture);
 
       const storiesPage = await listInstagramStories({
@@ -502,7 +516,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       MediaNodeContractSchema.parse(mediaItemSuccessFixture);
       graphWithAccountToken()
         .get(`${GRAPH_VERSION_PATH}/${mediaItemSuccessFixture.id}`)
-        .query({ fields: MEDIA_FIELDS })
+        .query({ fields: MEDIA_FIELDS, ...appSecretProofQuery() })
         .reply(200, mediaItemSuccessFixture);
 
       const mediaItem = await readInstagramMediaItem({
@@ -526,7 +540,10 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         .parse(userProfileSuccessFixture);
       graphWithAccountToken()
         .get(`${GRAPH_VERSION_PATH}/${userProfileSuccessFixture.id}`)
-        .query({ fields: 'name,username,profile_pic,follower_count,is_user_follow_business' })
+        .query({
+          fields: 'name,username,profile_pic,follower_count,is_user_follow_business',
+          ...appSecretProofQuery(),
+        })
         .reply(200, userProfileSuccessFixture);
 
       const userProfile = await readInstagramUserProfile({
@@ -550,10 +567,14 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       z.object({ success: z.literal(true) }).parse(subscribedAppsSuccessFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
-        .query({ subscribed_fields: 'comments,messages,messaging_postbacks' })
+        .query({
+          subscribed_fields: 'comments,messages,messaging_postbacks',
+          ...appSecretProofQuery(),
+        })
         .reply(200, subscribedAppsSuccessFixture);
       graphWithAccountToken()
         .delete(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
+        .query(appSecretProofQuery())
         .reply(200, subscribedAppsSuccessFixture);
       const subscriptionOptions = {
         encryptedAccessToken: encryptedAccountAccessToken,
@@ -588,10 +609,12 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       };
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`, directMessage)
+        .query(appSecretProofQuery())
         .matchHeader('content-type', 'application/json')
         .reply(200, messagesSuccessFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`, privateReply)
+        .query(appSecretProofQuery())
         .matchHeader('content-type', 'application/json')
         .reply(200, messagesSuccessFixture);
       const sender = {
@@ -615,6 +638,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       z.object({ id: z.string().regex(/^\d+$/) }).parse(commentRepliesSuccessFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/17865800000000001/replies`, { message: 'Sent you a message!' })
+        .query(appSecretProofQuery())
         .matchHeader('content-type', 'application/json')
         .reply(200, commentRepliesSuccessFixture);
 
@@ -728,9 +752,11 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         });
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
+        .query(appSecretProofQuery())
         .reply(400, graphErrorBusinessThrottledFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
+        .query(appSecretProofQuery())
         .reply(400, graphErrorBusinessThrottledFixture, { 'Retry-After': '86400' });
 
       await expect(send()).rejects.toMatchObject({
@@ -752,6 +778,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorRecipientNotFoundFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
+        .query(appSecretProofQuery())
         .reply(400, graphErrorRecipientNotFoundFixture);
 
       const rejection = await sendInstagramMessage({
@@ -776,6 +803,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorOutsideMessagingWindowFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
+        .query(appSecretProofQuery())
         .reply(400, graphErrorOutsideMessagingWindowFixture);
 
       const rejection = await sendInstagramMessage({
@@ -801,6 +829,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorQuickReplyRefusedFixture);
       graphWithAccountToken()
         .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/messages`)
+        .query(appSecretProofQuery())
         .reply(400, graphErrorQuickReplyRefusedFixture);
 
       const rejection = await sendInstagramMessage({

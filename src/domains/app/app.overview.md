@@ -109,7 +109,8 @@ This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERN
 - [`idempotency`](src/PATTERNS.md#idempotency) — signed-in writes that create (route 1, connect; route
   12, create an automation) require `X-Idempotency-Key`.
 - [`audit-emission`](src/PATTERNS.md#audit-emission) — `app.<resource>.<verb>` audit actions
-  (`app.channel_account.disconnect`, `.pause`, `.resume`, `.activate`, `app.instagram_account.connect`,
+  (`app.channel_connection.connect`, `.disconnect`, `app.channel_account.connect`, `.disconnect`,
+  `.pause`, `.resume`, `.activate`,
   `app.channel_connection.deauthorize`, `app.channel_connection.data_deletion` — anonymous actor,
   `metadata.source = 'meta'` — `app.instagram_account_settings.update`, `app.contact.delete`,
   `app.automation.create`, `app.automation.update`, `app.automation.delete`).

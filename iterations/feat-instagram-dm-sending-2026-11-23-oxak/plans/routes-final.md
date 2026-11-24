@@ -1,9 +1,11 @@
 # Route review — feat-instagram-dm-sending-2026-11-23-oxak
 
-**Status: rev 3 (2026-11-24) — room for WhatsApp and TikTok ([P48–P51](decisions.md), M10): contacts, automations and broadcasts shared again across channels, behind two channel seams; sub-domains 1, 1B, 2–7 and 11 at rev 3, 8 and 12 at rev 2, 9 and 10 at rev 1 — every sub-domain awaiting your OK (one-pass review, [P31](decisions.md)).**
+**Route review final — 2026-11-24.** Every sub-domain is confirmed; the frontend may kick off on these routes.
+
+**Status: final — rev 4 (2026-11-24), confirmed 2026-11-24 ([P90](decisions.md)): every open question answered ([P54–P89](decisions.md), M12) and written into its sub-domain; sub-domains 1, 1B, 2–7 and 11 at rev 4, 8 and 12 at rev 3, 9 and 10 at rev 2 — every sub-domain and nested sub-domain final (one-pass review, [P31](decisions.md)).**
 
 Iteration `feat-instagram-dm-sending-2026-11-23-oxak` · on branch `feat/instagram-automation` at `20823e3` (2026-11-23) · built
-from `intake-files/Instagram-DM-Sending-Plan-v8.md` (cited `plan:L<line>`) and `intake-files/BRIEF.md`, [decisions.md](decisions.md) P1–P52 (binding; the plan's D1–D73 are locked inputs), [db-changes.md](db-changes.md), [route-changes.md](route-changes.md)
+from `intake-files/Instagram-DM-Sending-Plan-v8.md` (cited `plan:L<line>`) and `intake-files/BRIEF.md`, [decisions.md](decisions.md) P1–P90 (binding; the plan's D1–D73 are locked inputs), [db-changes.md](db-changes.md), [route-changes.md](route-changes.md)
 (RC-n) and [worker-changes.md](worker-changes.md) (WC-n). The "before" of every changed app sub-domain is the frozen launch
 review, [`launch-2026-11-20-ujai/plans/routes-final.md`](../../launch-2026-11-20-ujai/plans/routes-final.md), as built (its
 `AS-BUILT.md` › Standing deviations); its ids are cited "launch IA5". Shape:
@@ -12,7 +14,7 @@ it **ditto**, and where agent-os cannot, it stops and asks before anything diffe
 
 How to read the tables: sub-domains 1, 1B and 2–7 are the `app` domain, paths under `/api/v1/app` (launch D1) — the common ones under `/social/channel-connections` and `/social/channel-accounts` (P47), the shared product at the top — `/contacts`, `/contact-tags`, `/automations`, `/broadcasts`, `/segments`, each list filtered by `channel_account_id` (P48) — and Instagram's own under `/social/instagram` (P47, P48); sub-domains 8–12 change
 the platform domains in place, paths under `/api/v1` as written (`/billing/…`, `/tenancy/…`, `/auth/…`, `/users/…`,
-`/uploads`). `{x_id}` is a public id (Stripe's `{payment_method_id}` is the one exception — BLQ2); **Gate** is the permission
+`/uploads`). `{x_id}` is a public id (Stripe's `{payment_method_id}` is the one exception — BLQ2, P78); **Gate** is the permission
 the caller needs (`AUTH` = signed in, no code; `PUBLIC` = no sign-in, with the provider's signature or token where named);
 **Idem** `req` = `X-Idempotency-Key` header required, empty, `none` or `—` = none (why: K3); `*` = required. Lists take
 `limit` and `after` (cursor). Route numbers are global, in three bands — 1–42 (app core; 40–42 added in rev 2, M9), 60–82 (app engine), 100–140 (product) — with gaps between sub-domains and never a repeat (65–68 are left unused, M6; rev 2 and rev 3 renumbered nothing, so 1's routes are 1–5, 15–17 and 40–42). **(new)**,
@@ -38,24 +40,24 @@ Build order: 8.A → 1 Channel connection → 1B Channel account → 2 Instagram
 
 | # | Sub-domain | Folder (`src/domains/…`) | Paths (`/app/…` for 1–7; as written for 8–12) | Routes | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Channel connection | `app/sub-domains/channel-connection/` **(new)** (+ adapter folder `channel-connection-meta/`) | `social/channel-connections` (+ `{provider}/start`, `{provider}/callback`, `{provider}/deauthorize`, `{provider}/data-deletion`, `{channel_connection_id}`, `accounts`, `reconnect`, `ad-accounts`, `ads`) | 11 (1–5, 15–17, 40–42); RC-6 removed | organizations, users; 8 (`channel_accounts_max`, the trial port — M4); 1B's and 2's account rows and 6's lanes at the pick | **rev 3 (2026-11-24) — no nested sub-domains, awaiting your OK** |
-| 1B | Channel account | `app/sub-domains/channel-account/` **(new)** | `social/channel-accounts` (+ `{channel_account_id}`, `pause`, `resume`, `activate`) | 6 (6–11) | 1; 8 (account limit); routes 9–11 and route 8's lane step built with 6 | **rev 3 (2026-11-24) — no nested sub-domains, awaiting your OK** |
-| 2 | Instagram account | `app/sub-domains/instagram-account/` (+ `instagram-account-settings/`, `instagram-media/`) | `social/instagram/accounts/{channel_account_id}` (+ `settings`, `media`, `stories`) | 3 (12–14) | 1, 1B; 8 (PRO) | **rev 3 (2026-11-24) — nested sub-domains 2.A–2.C, awaiting your OK** |
-| 3 | Contacts (shared, P48) | `app/sub-domains/contact/` (+ `contact-tag-event/`) | `contacts` (+ `bulk-actions`, `activity`, `failed-messages`), `contact-tags` — lists by `channel_account_id` | 9 (18–26) | 1B, 2; routes 24–26 over 4 and 6 | **rev 3 (2026-11-24) — nested sub-domains 3.A–3.B, awaiting your OK** |
-| 4 | Automations (shared, P48) | `app/sub-domains/automation/` (+ `automation-run/`, `automation-backfill/` **(new)**) | `automations` — lists by `channel_account_id` (+ `go-live`, `pause`, `duplicate`, `keyword-test`, `failed-messages`, `backfills`) | 13 (27–39) | 1B, 2, 3; 8 (PRO, plan ended); 6 (message rows, the month count at go-live; routes 36–37 over its retry service) | **rev 3 (2026-11-24) — nested sub-domains 4.A–4.C, awaiting your OK** |
-| 5 | Instagram webhook | `app/sub-domains/instagram-webhook/` (+ `instagram-webhook-event/`) | `social/channel-connections/meta/webhooks/instagram`, `social/instagram/webhook-events` | 3 (60–62) | 1, 1B, 2, 3, 4; 6 for intake's writes (intake built after 6) | **rev 3 (2026-11-24) — nested sub-domains 5.A–5.B, awaiting your OK** |
-| 6 | Instagram sending | `app/sub-domains/instagram-sending/` **(new)** (+ `instagram-message/`, `instagram-attachment/`) | `social/instagram/accounts/{channel_account_id}/sending-status`, `usage` | 2 (63–64) | 1, 1B, 2, 3, 4, 8, 12; 5's receiver and tables | **rev 3 (2026-11-24) — nested sub-domains 6.A–6.C, awaiting your OK** |
-| 7 | Broadcasts (shared, P48) | `app/sub-domains/broadcast/` **(new)** (+ `broadcast-segment/`, `broadcast-recipient/`) | `broadcasts` (+ `send`, `cancel`), `segments` (+ `audience-count`) — lists by `channel_account_id` | 13 (70–82) | 1B, 2, 3, 4, 6, 8 | **rev 3 (2026-11-24) — nested sub-domains 7.A–7.C, awaiting your OK** |
-| 8 | Billing — Flowdm plans, plan states, trial | `billing/sub-domains/plan/`, `subscription/` (+ `trial-account.*`, `workers/subscription-plan-state-check.*`), `stripe-webhook/` | `/billing/plans` (+ `{plan_id}`), `/billing/subscriptions` (+ `change-plan`), `/billing/payment-methods` (+ `{payment_method_id}`, `default`), `/billing/webhook`, `/auth/me/context` | 9 (100–108) | organizations, users; the app's accounts port (1B) | **rev 2 (2026-11-23) — nested sub-domains 8.A–8.D, awaiting your OK** |
-| 9 | Tenancy — roles and workspace | `tenancy/sub-domains/organization/`, `member-roles/`, `membership/` (+ `membership-invitation/`) | `/tenancy/organization`, `/tenancy/organization/roles/*`, `/tenancy/organization/memberships`, `/tenancy/membership-invitations/{membership_invitation_id}/preview` | 9 (110–118) | users; the app's codes (`app.permissions.ts`) and the upload code | **rev 1 — nested sub-domains 9.A–9.C, awaiting your OK** |
-| 10 | Auth — sign-in | `auth/sub-domains/auth-method/` (+ `oauth/`), `auth-mfa/`, `auth-trusted-device/` **(new, no routes)**, `auth-session/` | `/auth/email/*`, `/auth/oauth/*` (+ `apple/callback`), `/auth/mfa/login`, `/auth/step-up`, `/auth/me/auth-methods/{auth_method_id}`, `/auth/me/sessions` | 9 (120–128); 4 removed (RC-98–RC-101) | users; 9 (the MFA policy) | **rev 1 — nested sub-domains 10.A–10.D, awaiting your OK** |
-| 11 | User and notify — profile, settings, notifications | `user/` (root), `user/sub-domains/user-settings/`, `user-notification-preferences/`; `notify/sub-domains/notification/` (+ two workers) | `/users/me`, `/users/me/settings`, `/users/me/organizations`, `/users/me/email-confirmation`, `/auth/email/confirm`, `/users/me/notification-preferences` | 7 (130–136) | 10 (verification tokens, mail), 9 (memberships), the app's three ports | **rev 3 (2026-11-24) — nested sub-domains 11.A–11.D, awaiting your OK** |
-| 12 | Upload — message files | `upload/` | `/uploads` | 1 (140) | organizations; 9 (`upload:manage`) | **rev 2 (2026-11-23) — no nested sub-domains, awaiting your OK** |
+| 1 | Channel connection | `app/sub-domains/channel-connection/` **(new)** (+ adapter folder `channel-connection-meta/`) | `social/channel-connections` (+ `{provider}/start`, `{provider}/callback`, `{provider}/deauthorize`, `{provider}/data-deletion`, `{channel_connection_id}`, `accounts`, `reconnect`, `ad-accounts`, `ads`) | 11 (1–5, 15–17, 40–42); RC-6 removed | organizations, users; 8 (`channel_accounts_max`, the trial port — M4); 1B's and 2's account rows and 6's lanes at the pick | **final (rev 4, confirmed 2026-11-24)** — no nested sub-domains |
+| 1B | Channel account | `app/sub-domains/channel-account/` **(new)** | `social/channel-accounts` (+ `{channel_account_id}`, `pause`, `resume`, `activate`) | 6 (6–11) | 1; 8 (account limit); routes 9–11 and route 8's lane step built with 6 | **final (rev 4, confirmed 2026-11-24)** — no nested sub-domains |
+| 2 | Instagram account | `app/sub-domains/instagram-account/` (+ `instagram-account-settings/`, `instagram-media/`) | `social/instagram/accounts/{channel_account_id}` (+ `settings`, `media`, `stories`) | 3 (12–14) | 1, 1B; 8 (PRO) | **final (rev 4, confirmed 2026-11-24)** — nested sub-domains 2.A–2.C |
+| 3 | Contacts (shared, P48) | `app/sub-domains/contact/` (+ `contact-tag-event/`) | `contacts` (+ `bulk-actions`, `activity`, `failed-messages`), `contact-tags` — lists by `channel_account_id` | 9 (18–26) | 1B, 2; routes 24–26 over 4 and 6 | **final (rev 4, confirmed 2026-11-24)** — nested sub-domains 3.A–3.B |
+| 4 | Automations (shared, P48) | `app/sub-domains/automation/` (+ `automation-run/`, `automation-backfill/` **(new)**) | `automations` — lists by `channel_account_id` (+ `go-live`, `pause`, `duplicate`, `keyword-test`, `failed-messages`, `backfills`) | 13 (27–39) | 1B, 2, 3; 8 (PRO, plan ended); 6 (message rows, the month count at go-live; routes 36–37 over its retry service) | **final (rev 4, confirmed 2026-11-24)** — nested sub-domains 4.A–4.C |
+| 5 | Instagram webhook | `app/sub-domains/instagram-webhook/` (+ `instagram-webhook-event/`) | `social/channel-connections/meta/webhooks/instagram`, `social/instagram/webhook-events` | 3 (60–62) | 1, 1B, 2, 3, 4; 6 for intake's writes (intake built after 6) | **final (rev 4, confirmed 2026-11-24)** — nested sub-domains 5.A–5.B |
+| 6 | Instagram sending | `app/sub-domains/instagram-sending/` **(new)** (+ `instagram-message/`, `instagram-attachment/`) | `social/instagram/accounts/{channel_account_id}/sending-status`, `usage` | 2 (63–64) | 1, 1B, 2, 3, 4, 8, 12; 5's receiver and tables | **final (rev 4, confirmed 2026-11-24)** — nested sub-domains 6.A–6.C |
+| 7 | Broadcasts (shared, P48) | `app/sub-domains/broadcast/` **(new)** (+ `broadcast-segment/`, `broadcast-recipient/`) | `broadcasts` (+ `send`, `cancel`), `segments` (+ `audience-count`) — lists by `channel_account_id` | 13 (70–82) | 1B, 2, 3, 4, 6, 8 | **final (rev 4, confirmed 2026-11-24)** — nested sub-domains 7.A–7.C |
+| 8 | Billing — Flowdm plans, plan states, trial | `billing/sub-domains/plan/`, `subscription/` (+ `trial-account.*`, `workers/subscription-plan-state-check.*`), `stripe-webhook/` | `/billing/plans` (+ `{plan_id}`), `/billing/subscriptions` (+ `change-plan`), `/billing/payment-methods` (+ `{payment_method_id}`, `default`), `/billing/webhook`, `/auth/me/context` | 9 (100–108) | organizations, users; the app's accounts port (1B) | **final (rev 3, confirmed 2026-11-24)** — nested sub-domains 8.A–8.D |
+| 9 | Tenancy — roles and organization | `tenancy/sub-domains/organization/`, `member-roles/`, `membership/` (+ `membership-invitation/`) | `/tenancy/organization`, `/tenancy/organization/roles/*`, `/tenancy/organization/memberships`, `/tenancy/membership-invitations/{membership_invitation_id}/preview` | 9 (110–118) | users; the app's codes (`app.permissions.ts`) and the upload code | **final (rev 2, confirmed 2026-11-24)** — nested sub-domains 9.A–9.C |
+| 10 | Auth — sign-in | `auth/sub-domains/auth-method/` (+ `oauth/`), `auth-mfa/`, `auth-trusted-device/` **(new, no routes)**, `auth-session/` | `/auth/email/*`, `/auth/oauth/*` (+ `apple/callback`), `/auth/mfa/login`, `/auth/step-up`, `/auth/me/auth-methods/{auth_method_id}`, `/auth/me/sessions` | 9 (120–128); 4 removed (RC-98–RC-101) | users; 9 (the MFA policy) | **final (rev 2, confirmed 2026-11-24)** — nested sub-domains 10.A–10.D |
+| 11 | User and notify — profile, settings, notifications | `user/` (root), `user/sub-domains/user-settings/`, `user-notification-preferences/`; `notify/sub-domains/notification/` (+ two workers) | `/users/me`, `/users/me/settings`, `/users/me/organizations`, `/users/me/email-confirmation`, `/auth/email/confirm`, `/users/me/notification-preferences` | 7 (130–136) | 10 (verification tokens, mail), 9 (memberships), the app's three ports | **final (rev 4, confirmed 2026-11-24)** — nested sub-domains 11.A–11.D |
+| 12 | Upload — message files | `upload/` | `/uploads` | 1 (140) | organizations; 9 (`upload:manage`) | **final (rev 3, confirmed 2026-11-24)** — no nested sub-domains |
 
 Domain total: **95 routes** — 49 new, 45 changed (moves included; route 60 moved by P53, RC-115), 1 already as built (RC-67, route 104); **5 removed** (RC-6, RC-98–RC-101). Against today, one clause per sub-domain: **1** a provider login (Meta's
 Unified Login for Instagram, Facebook and ads) replaces the launch's Instagram Login connect (RC-6 removed, D24), and holds
 the reconnect, the ad picker and Meta's two callbacks; **1B** new — the common account of any channel: many accounts per
-workspace under `{channel_account_id}` paths, with pause, resume and choose active; **2** the Instagram extension — settings,
+organization under `{channel_account_id}` paths, with pause, resume and choose active; **2** the Instagram extension — settings,
 posts and stories under `social/instagram/accounts/{channel_account_id}`; **3** a contact can now be opened, noted, tagged,
 paused and acted on in bulk, with "What happened" and a retry of her failed messages; **4** the new automation shape with
 go-live, pause, duplicate, a keyword test, a retry of its failed messages and past comments; **5** the same three routes,
@@ -63,7 +65,7 @@ with a key table, an 8-day events table and an intake that only saves; **6** new
 message meter (it serves 3's and 4's failed-message retry); **7** new — broadcasts and segments; **8** Flowdm plans, the
 trial, the move down at the period end and two card routes; **9** four fixed roles, `contact:update`, inviting several
 emails and the invitation preview; **10** no passwords — four routes removed, Apple and trusted devices added; **11**
-onboarding fields, the workspace chooser, email confirmation and notification kinds; **12** the message-file purpose on
+onboarding fields, the organization chooser, email confirmation and notification kinds; **12** the message-file purpose on
 upload. Rev 2 (the channel split, P40–P47) touched 1–8, 11 and 12 (renames for 8, 11, 12); 9 and 10 are unchanged. Rev 3
 (P48–P51, M10) makes **3, 4 and 7 shared by every channel** (tables without the `instagram_` prefix, keyed by
 `channel_account_id` with a `channel` column; paths `/contacts…`, `/contact-tags`, `/automations…`, `/broadcasts…`,
@@ -75,50 +77,52 @@ connection** in 1 (P51); route numbers, counts and gates do not change.
 ## Open questions — one-pass review
 
 Every question of every sub-domain, in one table ([P31](decisions.md)). Each sub-domain's section 2 holds the same question
-with its context. Until you answer, the plan follows the recommendation and every row that rests on it says so. MGQ2
-comes from the merge (Merge notes M7). SNQ1 (drop `app.sending_helper_slots`) stays open. Rev 3 adds CAQ2 (the feature
-check's statuses, P50) and CTQ4 (where the tag list lives, P48); CTQ1–CTQ3 and AUQ4 now read the shared tables.
+with its context. **All answered on 2026-11-24** ([P54–P89](decisions.md), confirmed by [P90](decisions.md); Merge notes M12):
+the **Answer** column names each decision row. Three answers differ from the recommendation and are written into their
+sub-domains — **MCQ3 → P56** (MC15, MC16), **BCQ2 → P76** (BC3, BC19), **BLQ4 → P80** (BL11, BL24); BLQ3 (P79) is the one
+answer taken as the default (AMBER). MGQ2 comes from the merge (Merge notes M7). Rev 3 added CAQ2 (the feature check's
+statuses, P50) and CTQ4 (where the tag list lives, P48).
 
-| Id | Sub-domain | Question | Recommended | Alternative |
-| --- | --- | --- | --- | --- |
-| MCQ1 | 1 Channel connection | A reconnect from a portfolio an account moved to: attach its row at the callback, or only when the owner picks it? | **At the callback** (MC6) — the account is the workspace's already, the owner pressed Reconnect for it, and it saves a step; plan:L4676 reads the same | Only at a pick |
-| MCQ2 | 1 Channel connection | Does the pick re-read the assigned accounts from Meta, or trust the list the callback read? | **Re-read** (MC7) — the pick can come minutes later and a stale list could attach an account the business no longer shares; one Graph call per pick | Keep the callback's list in the login state |
-| MCQ3 | 1 Channel connection | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? (rev 1 IAQ1) | **Match the account's `provider_account_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (MC16); a connection column only if the test says so — then a new decision | Also match `client_business_id`; or a person-id column on the connection |
-| MCQ4 | 1 Channel connection | Does the ads list read one ad account at a time, or every ad account of the connection in one list? (rev 1 IAQ2) | **One at a time** (`ad_account_id` required; route 41 lists the ad accounts) — Meta pages per ad account, so a merged list has no single cursor | All ad accounts merged in one list |
-| MCQ5 | 1 Channel connection | Does "Reconnect" get its own route? | **Route 40**, a login bound to the connection (MC17) — the callback can refuse another business, and a connected connection can re-grant `ads_read` | Only a new login through route 1 (rev 1) |
-| CAQ1 | 1B Channel account | Where does "one workspace per account" live, now that status is on `app.channel_accounts` and the Instagram id on the extension? | **`provider_account_id` on the channel account**, unique per channel while not revoked, written with the extension's `instagram_user_id` in one commit (CAC5) | A status copy on the extension |
-| CAQ2 | 1B Channel account | P50's one feature check answers four reasons — which status does a route give each, when it refuses outright (not as a go-live list item)? | **`422 channel_lacks_feature`** (the channel cannot do it — the request asks for something impossible), **`409 permission_not_granted`** (the connection's state; the same call passes after a reconnect that grants it, route 40), **`403 plan_lacks_feature`** (was `plan_feature_required`, K11), **`422 feature_not_offered`** (as route 12's refusal, M2) — CA11 | `403` for all four |
-| CTQ1 | 3 Contacts | The tag list's cache key: be-read-cache-guard rule 1 takes a key from the verified scope, never a request parameter, but the list is per account | **`…:<organization>:<account>`**, the account id read back from Postgres inside the scope (CT8) — the organization segment is the tenant boundary and comes from the scope | One key per organization holding every account's list (ten lists recomputed on every tag change) |
-| CTQ2 | 3 Contacts | Must every contact list name its account? | **Required** (CT2) — the app is switched per account and the indexes lead with it; the launch is unreleased (P29) | Optional, default every account |
-| CTQ3 | 3 Contacts | Do bulk actions select by ids only, or also "every contact matching these filters"? | **Both** (CT7) — "select all 12,000" is the case pieces of 500 exist for (plan:L1039) | Ids only (1–500) |
-| CTQ4 | 3 Contacts | The account's tag list now that contacts are shared: `GET /contact-tags?channel_account_id=` or keep it under the account (`/social/channel-accounts/{channel_account_id}/contact-tags`)? | **`/contact-tags?channel_account_id=*`** (route 22, CT18) — every other contact read is a shared path filtered by the account, and the contact sub-domain owns the path it serves (M6's rule); the cache key still reads the account back inside the scope (CTQ1) | Under the channel account — a 1B path served by 3 |
-| AUQ1 | 4 Automations | Go-live answers a list of problems, each with its step (plan §5.1) — which status? | **`409 automation_not_ready` with `errors[]`** — the request is fine, the saved state conflicts and the same call passes once fixed (response-codes' 409 vs 422 rule); `errors[]` on this 409 is documented in `response-codes.md` | `422` with `errors[]` |
-| AUQ2 | 4 Automations | Does a save of a live or paused automation also run the account, plan and month checks (plan:L670)? | **Content checks only** (AU12) — a month-limit or plan-ended workspace must still fix a refused text (P10); the rest run at go-live | The full go-live list on every save |
-| AUQ3 | 4 Automations | A draft "needs only a name" (D28) — is the way to start chosen at create? | **`trigger_type` required at create** — the editor opens on a chosen way, a later change stays in the same group (plan:L687), every database check keys on it | Optional until go-live |
-| AUQ4 | 4 Automations | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so `idx_automation_runs_one_open` is the whole rule; WC-45 frees no key | Keep the key table |
-| WHQ1 | 5 Instagram webhook | How is "our own sent message" recognised before saving (plan step 3, the Redis `mid:` note)? | **A Postgres lookup** of the echo's `mid` in `app.instagram_messages` inside the store unit — the row holds `instagram_message_id`; no data only Redis has (P32); an early echo is stored `received` and matched by intake within 10 minutes (plan §27.13) | The plan's Redis `mid:` note (10 min; with P5's 60-second cap) |
-| WHQ2 | 5 Instagram webhook | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **Intake counts her message events of the last minute in Postgres** — the events are saved anyway; an index on (`channel_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" | The webhook adds 1 to a Redis counter |
-| SNQ1 | 6 Instagram sending | Keep `app.sending_helper_slots` (16 slots leased by servers, plan §34.1)? | **Drop it** — the repair runs as scheduler repeat jobs, one worker per tick (P7); the two per-server duties (clock, Redis watch) need no slot; db-changes loses the table | Keep it as the plan writes |
-| SNQ2 | 6 Instagram sending | `.env.example`'s `SENDING_ENABLED`? | **`true`** — the dev value ships active (CLAUDE.md), the schema default stays `false`; a hosted environment still needs its own `SENDING_ENVIRONMENT_ID` | `false` in the template too |
-| BCQ1 | 7 Broadcasts | How long does a deleted broadcast or segment wait before its purge? | **90 days** — the same as recipients' keep (P33), so a purge never leaves numbers no row explains | 30 days; or the automation's 180 |
-| BCQ2 | 7 Broadcasts | May a Free workspace make segments and count audiences? | **Yes** — only broadcast create and send are PRO (RC-48, RC-52); a trial's segments survive it and the editor can show the count before an upgrade | No — segments are PRO too |
-| BLQ1 | 8 Billing | How does the move down wait for the period end? | **A Stripe subscription schedule** + two mirror columns `scheduled_plan_id`, `scheduled_change_at` — Stripe invoices the renewal itself; the columns let route 103 and the billing screen show the change without a Stripe call | Keep the target only on our row and change Stripe's price ourselves at renewal (races the invoice) |
-| BLQ2 | 8 Billing | `{payment_method_id}` is Stripe's `pm_…` id, not one of our public ids | **A third non-entity param** beside `{provider}` and `{slug}` — cards live only in Stripe (plan:L8069); checked by shape (`pm_` + 1–250 letters and digits) and by ownership | Mint our own ids (a new table of cards) |
-| BLQ3 | 8 Billing | The plan feature key `dm_month_limit` (db-changes open item) | **`message_month_limit`** — full names, and channel-neutral since rev 2 (P43, P47: the table is the shared `message_month_counts`; rev 1 had `direct_message_month_limit`); applied across this file (M1, M9) | The plan's `dm_month_limit` |
-| BLQ4 | 8 Billing | The features of the turned-off rows Starter, Growth and Pro (a typed read refuses their old keys) | **Map them up**: Starter → Creator's, Growth and Pro → Studio's — a workspace still paying an old plan keeps paid powers; no Stripe change | Give them Free's |
-| TNQ1 | 9 Tenancy | The lavender tile value: the shared chip tones (`CHIP_TONE`) store it as `lav` | **Rename `lav` → `lavender`** everywhere in the same PR (a tenancy migration rewrites the `tone` rows and both `CHECK`s; meepzo-fe follows) — the full-names rule; one tone list for roles, members and the new column | Keep `lav` as a wire literal |
-| TNQ2 | 9 Tenancy | An invite takes one role (plan:L7891) but the code takes `role_ids` (main first) | **Keep `role_ids` with exactly one** — the shape `PATCH …/memberships` uses; turning extra roles on later is no contract change | A new `role_id` field |
-| ATQ1 | 10 Auth | Passwords: remove the code, or keep it behind `AUTH_PASSWORDS_ENABLED` false (the plan's switch)? | **Remove** the four routes and the password code paths now (AT1) — the migration empties every `password_hash`, so the switch could never come back on without a reset flow; the column stays | A code constant that leaves them unregistered |
-| ATQ2 | 10 Auth | Apple's form callback must end in a browser redirect (`303`, plan:L7686), while every `POST` answers `200` with no exemption | **One named exemption** — route 124 answers `303` with `Location`, listed in one allowlist the method-status middleware and the success-status gate both read, pinned by a test; CLAUDE.md and `response-codes.md` then say "no exemptions except the Apple form callback (303)" | `200` with a tiny HTML page whose `<meta http-equiv="refresh">` goes to the app (no exemption); or Apple's `response_mode=query` (only without the name and email scopes) |
-| ATQ3 | 10 Auth | The IP-to-place file (plan:L8804 — its licence and monthly updates) | **DB-IP "IP to City Lite"** (CC BY 4.0, no account or key; `.mmdb` read with the `maxmind` package; the file comes with the monthly image build; unset path → place empty, never an error) | MaxMind GeoLite2 City (free account + licence key, its EULA); or no place |
-| UNQ1 | 11 User and notify | The preferences API shape: the screen saves kind × channel (plan:L8150) | **The routes speak kinds** (`{ kind, channel, is_enabled }`); the server writes one row per type of the kind — only `NOTIFICATION_KINDS` knows the kinds; per-type rows stay the stored form | Keep type × channel and let the app expand kinds |
-| UNQ2 | 11 User and notify | In-app off but email on: the email still needs a dedupe key (plan:L8180 uses the notification's public id) | **The caller's `dedupe_key`**; the outbox key is `<type>:<dedupe_key>:<user>` and the in-app row is written only when in-app is on — every new type already has a "once" rule naming its key | Always write the row, hidden when in-app is off |
-| MGQ2 | header (K3) | Which idempotency rule do the app's signed-in `POST`s follow? | **The rewritten K3** — a `POST` that creates a row or starts background work requires the key; state actions (9, 10, 32, 33), a `POST` that saves nothing (35) and the login and reconnect starts (1, 40, a one-use Redis state — MC4, MC17) take none; it matches CLAUDE.md's per-route `idempotencyRequired` and the platform domains | The launch K3 and the template's hand-over line "every `POST` is `req`" — routes 1, 9, 10, 32, 33, 35 and 40 gain `req` |
+| Id | Sub-domain | Question | Recommended | Alternative | Answer |
+| --- | --- | --- | --- | --- | --- |
+| MCQ1 | 1 Channel connection | A reconnect from a portfolio an account moved to: attach its row at the callback, or only when the owner picks it? | **At the callback** (MC6) — the account is the organization's already, the owner pressed Reconnect for it, and it saves a step; plan:L4676 reads the same | Only at a pick | **P54** — at the callback (as recommended) |
+| MCQ2 | 1 Channel connection | Does the pick re-read the assigned accounts from Meta, or trust the list the callback read? | **Re-read** (MC7) — the pick can come minutes later and a stale list could attach an account the business no longer shares; one Graph call per pick | Keep the callback's list in the login state | **P55** — re-read from Meta at every pick (as recommended) |
+| MCQ3 | 1 Channel connection | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? (rev 1 IAQ1) | **Match the account's `provider_account_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (MC16); a connection column only if the test says so — then a new decision | Also match `client_business_id`; or a person-id column on the connection | **P56 — not the recommendation**: the account id **and** the business id — `provider_account_id` first, else `client_business_id` (every account of that connection); an unmatched id still gets its code and the team an email; revisit after the §43 test (MC15, MC16) |
+| MCQ4 | 1 Channel connection | Does the ads list read one ad account at a time, or every ad account of the connection in one list? (rev 1 IAQ2) | **One at a time** (`ad_account_id` required; route 41 lists the ad accounts) — Meta pages per ad account, so a merged list has no single cursor | All ad accounts merged in one list | **P57** — one ad account at a time (as recommended) |
+| MCQ5 | 1 Channel connection | Does "Reconnect" get its own route? | **Route 40**, a login bound to the connection (MC17) — the callback can refuse another business, and a connected connection can re-grant `ads_read` | Only a new login through route 1 (rev 1) | **P58** — its own route, 40 (as recommended) |
+| CAQ1 | 1B Channel account | Where does "one organization per account" live, now that status is on `app.channel_accounts` and the Instagram id on the extension? | **`provider_account_id` on the channel account**, unique per channel while not revoked, written with the extension's `instagram_user_id` in one commit (CAC5) | A status copy on the extension | **P60** — on `app.channel_accounts` (as recommended, CAC5) |
+| CAQ2 | 1B Channel account | P50's one feature check answers four reasons — which status does a route give each, when it refuses outright (not as a go-live list item)? | **`422 channel_lacks_feature`** (the channel cannot do it — the request asks for something impossible), **`409 permission_not_granted`** (the connection's state; the same call passes after a reconnect that grants it, route 40), **`403 plan_lacks_feature`** (was `plan_feature_required`, K11), **`422 feature_not_offered`** (as route 12's refusal, M2) — CA11 | `403` for all four | **P61** — split: `422` · `409` · `403` · `422` (as recommended) |
+| CTQ1 | 3 Contacts | The tag list's cache key: be-read-cache-guard rule 1 takes a key from the verified scope, never a request parameter, but the list is per account | **`…:<organization>:<account>`**, the account id read back from Postgres inside the scope (CT8) — the organization segment is the tenant boundary and comes from the scope | One key per organization holding every account's list (ten lists recomputed on every tag change) | **P64** — organization + account, the account read back inside the scope (as recommended, CT8) |
+| CTQ2 | 3 Contacts | Must every contact list name its account? | **Required** (CT2) — the app is switched per account and the indexes lead with it; the launch is unreleased (P29) | Optional, default every account | **P65** — required (as recommended) |
+| CTQ3 | 3 Contacts | Do bulk actions select by ids only, or also "every contact matching these filters"? | **Both** (CT7) — "select all 12,000" is the case pieces of 500 exist for (plan:L1039) | Ids only (1–500) | **P66** — ids (1–500) or a filter, in pieces of 500 (as recommended) |
+| CTQ4 | 3 Contacts | The account's tag list now that contacts are shared: `GET /contact-tags?channel_account_id=` or keep it under the account (`/social/channel-accounts/{channel_account_id}/contact-tags`)? | **`/contact-tags?channel_account_id=*`** (route 22, CT18) — every other contact read is a shared path filtered by the account, and the contact sub-domain owns the path it serves (M6's rule); the cache key still reads the account back inside the scope (CTQ1) | Under the channel account — a 1B path served by 3 | **P67** — `GET /contact-tags?channel_account_id=` (as recommended) |
+| AUQ1 | 4 Automations | Go-live answers a list of problems, each with its step (plan §5.1) — which status? | **`409 automation_not_ready` with `errors[]`** — the request is fine, the saved state conflicts and the same call passes once fixed (response-codes' 409 vs 422 rule); `errors[]` on this 409 is documented in `response-codes.md` | `422` with `errors[]` | **P68** — `409 automation_not_ready` with `errors[]` (as recommended) |
+| AUQ2 | 4 Automations | Does a save of a live or paused automation also run the account, plan and month checks (plan:L670)? | **Content checks only** (AU12) — a month-limit or plan-ended organization must still fix a refused text (P10); the rest run at go-live | The full go-live list on every save | **P69** — content checks only (as recommended) |
+| AUQ3 | 4 Automations | A draft "needs only a name" (D28) — is the way to start chosen at create? | **`trigger_type` required at create** — the editor opens on a chosen way, a later change stays in the same group (plan:L687), every database check keys on it | Optional until go-live | **P70** — required at create (as recommended) |
+| AUQ4 | 4 Automations | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so `idx_automation_runs_one_open` is the whole rule; WC-45 frees no key | Keep the key table | **P71** — drop (as recommended) |
+| WHQ1 | 5 Instagram webhook | How is "our own sent message" recognised before saving (plan step 3, the Redis `mid:` note)? | **A Postgres lookup** of the echo's `mid` in `app.instagram_messages` inside the store unit — the row holds `instagram_message_id`; no data only Redis has (P32); an early echo is stored `received` and matched by intake within 10 minutes (plan §27.13) | The plan's Redis `mid:` note (10 min; with P5's 60-second cap) | **P62** — a Postgres lookup (as recommended) |
+| WHQ2 | 5 Instagram webhook | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **Intake counts her message events of the last minute in Postgres** — the events are saved anyway; an index on (`channel_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" | The webhook adds 1 to a Redis counter | **P63** — Postgres at intake (as recommended) |
+| SNQ1 | 6 Instagram sending | Keep `app.sending_helper_slots` (16 slots leased by servers, plan §34.1)? | **Drop it** — the repair runs as scheduler repeat jobs, one worker per tick (P7); the two per-server duties (clock, Redis watch) need no slot; db-changes loses the table | Keep it as the plan writes | **P73** — drop `app.sending_helper_slots` (as recommended) |
+| SNQ2 | 6 Instagram sending | `.env.example`'s `SENDING_ENABLED`? | **`true`** — the dev value ships active (CLAUDE.md), the schema default stays `false`; a hosted environment still needs its own `SENDING_ENVIRONMENT_ID` | `false` in the template too | **P74** — `true` in the template (as recommended) |
+| BCQ1 | 7 Broadcasts | How long does a deleted broadcast or segment wait before its purge? | **90 days** — the same as recipients' keep (P33), so a purge never leaves numbers no row explains | 30 days; or the automation's 180 | **P75** — 90 days (as recommended) |
+| BCQ2 | 7 Broadcasts | May a Free organization make segments and count audiences? | **Yes** — only broadcast create and send are PRO (RC-48, RC-52); a trial's segments survive it and the editor can show the count before an upgrade | No — segments are PRO too | **P76 — not the recommendation**: PRO only — segment create, edit and count need Creator or Studio (`403 plan_lacks_feature`, the `segments` switch, P83); Free sees the upsell; a trial's segments stay saved, unusable until an upgrade (BC3, BC19) |
+| BLQ1 | 8 Billing | How does the move down wait for the period end? | **A Stripe subscription schedule** + two mirror columns `scheduled_plan_id`, `scheduled_change_at` — Stripe invoices the renewal itself; the columns let route 103 and the billing screen show the change without a Stripe call | Keep the target only on our row and change Stripe's price ourselves at renewal (races the invoice) | **P77** — the Stripe subscription schedule (as recommended) |
+| BLQ2 | 8 Billing | `{payment_method_id}` is Stripe's `pm_…` id, not one of our public ids | **A third non-entity param** beside `{provider}` and `{slug}` — cards live only in Stripe (plan:L8069); checked by shape (`pm_` + 1–250 letters and digits) and by ownership | Mint our own ids (a new table of cards) | **P78** — Stripe's id, a third non-entity param (as recommended) |
+| BLQ3 | 8 Billing | The plan feature key `dm_month_limit` (db-changes open item) | **`message_month_limit`** — full names, and channel-neutral since rev 2 (P43, P47: the table is the shared `message_month_counts`; rev 1 had `direct_message_month_limit`); applied across this file (M1, M9) | The plan's `dm_month_limit` | **P79** — `message_month_limit` (the recommendation, kept as the default — AMBER) |
+| BLQ4 | 8 Billing | The features of the turned-off rows Starter, Growth and Pro (a typed read refuses their old keys) | **Map them up**: Starter → Creator's, Growth and Pro → Studio's — an organization still paying an old plan keeps paid powers; no Stripe change | Give them Free's | **P80 — not the recommendation**: Free's — an organization still on an old row is held to Free's features and limits until it picks Creator or Studio; Stripe untouched; a notice and an email (BL11, BL24) |
+| TNQ1 | 9 Tenancy | The lavender tile value: the shared chip tones (`CHIP_TONE`) store it as `lav` | **Rename `lav` → `lavender`** everywhere in the same PR (a tenancy migration rewrites the `tone` rows and both `CHECK`s; meepzo-fe follows) — the full-names rule; one tone list for roles, members and the new column | Keep `lav` as a wire literal | **P81** — rename to `lavender` (as recommended) |
+| TNQ2 | 9 Tenancy | An invite takes one role (plan:L7891) but the code takes `role_ids` (main first) | **Keep `role_ids` with exactly one** — the shape `PATCH …/memberships` uses; turning extra roles on later is no contract change | A new `role_id` field | **P82** — `role_ids` with exactly one (as recommended) |
+| ATQ1 | 10 Auth | Passwords: remove the code, or keep it behind `AUTH_PASSWORDS_ENABLED` false (the plan's switch)? | **Remove** the four routes and the password code paths now (AT1) — the migration empties every `password_hash`, so the switch could never come back on without a reset flow; the column stays | A code constant that leaves them unregistered | **P84** — remove (as recommended) |
+| ATQ2 | 10 Auth | Apple's form callback must end in a browser redirect (`303`, plan:L7686), while every `POST` answers `200` with no exemption | **One named exemption** — route 124 answers `303` with `Location`, listed in one allowlist the method-status middleware and the success-status gate both read, pinned by a test; CLAUDE.md and `response-codes.md` then say "no exemptions except the Apple form callback (303)" | `200` with a tiny HTML page whose `<meta http-equiv="refresh">` goes to the app (no exemption); or Apple's `response_mode=query` (only without the name and email scopes) | **P85** — the one named `303` exception (as recommended) |
+| ATQ3 | 10 Auth | The IP-to-place file (plan:L8804 — its licence and monthly updates) | **DB-IP "IP to City Lite"** (CC BY 4.0, no account or key; `.mmdb` read with the `maxmind` package; the file comes with the monthly image build; unset path → place empty, never an error) | MaxMind GeoLite2 City (free account + licence key, its EULA); or no place | **P86** — DB-IP "IP to City Lite" (as recommended) |
+| UNQ1 | 11 User and notify | The preferences API shape: the screen saves kind × channel (plan:L8150) | **The routes speak kinds** (`{ kind, channel, is_enabled }`); the server writes one row per type of the kind — only `NOTIFICATION_KINDS` knows the kinds; per-type rows stay the stored form | Keep type × channel and let the app expand kinds | **P87** — per kind (as recommended) |
+| UNQ2 | 11 User and notify | In-app off but email on: the email still needs a dedupe key (plan:L8180 uses the notification's public id) | **The caller's `dedupe_key`**; the outbox key is `<type>:<dedupe_key>:<user>` and the in-app row is written only when in-app is on — every new type already has a "once" rule naming its key | Always write the row, hidden when in-app is off | **P88** — the caller's `dedupe_key` (as recommended) |
+| MGQ2 | header (K3) | Which idempotency rule do the app's signed-in `POST`s follow? | **The rewritten K3** — a `POST` that creates a row or starts background work requires the key; state actions (9, 10, 32, 33), a `POST` that saves nothing (35) and the login and reconnect starts (1, 40, a one-use Redis state — MC4, MC17) take none; it matches CLAUDE.md's per-route `idempotencyRequired` and the platform domains | The launch K3 and the template's hand-over line "every `POST` is `req`" — routes 1, 9, 10, 32, 33, 35 and 40 gain `req` | **P89** — creates and jobs only: the rewritten K3 (as recommended) |
 
 ## Merge notes
 
-The three drafted parts were merged verbatim except for these harmonisations (M1–M8); M9 is rev 2's channel split and M10
-rev 3's shared product and channel seams.
+The three drafted parts were merged verbatim except for these harmonisations (M1–M8); M9 is rev 2's channel split, M10
+rev 3's shared product and channel seams, M11 the webhook paths (P53) and M12 rev 4's answers (P54–P90).
 
 | # | Note |
 | --- | --- |
@@ -151,6 +155,7 @@ M9's route table — numbers stay; what moved (rev 1 → rev 2, paths under `/ap
 | --- | --- |
 | M10 | **Room for WhatsApp and TikTok, P48–P51 (rev 3, 2026-11-24).** P48 (option B) supersedes P44. (1) **Shared again**: the product tables lose the `instagram_` prefix and are keyed by `channel_account_id`, with a `channel` column where the row needs it — `app.contacts`, `app.contact_tag_events`, `app.automations`, `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs`, `app.automation_counts`, `app.automation_reply_states`, `app.automation_backfills`, `app.segments`, `app.broadcasts`, `app.broadcast_recipients`; folders `contact/` (+ `contact-tag-event/`), `automation/` (+ `automation-run/`, `automation-backfill/`), `broadcast/` (+ `broadcast-segment/`, `broadcast-recipient/`); index, check, file, service (`BroadcastService`, `BroadcastRecipientService`) and audit names (`app.contact.*`, `app.automation.*`, `app.automation_backfill.*`, `app.broadcast.*`, `app.segment.*`) follow; sub-domains 3, 4 and 7 are "Contacts", "Automations" and "Broadcasts" again; their routes move to `/contacts…`, `/automations…`, `/broadcasts…`, `/segments…`, and route 22 to `/contact-tags?channel_account_id=` (CTQ4); every list keeps `channel_account_id` required. (2) **Still Instagram's** (P43, P45 unchanged): `instagram_accounts` (the extension), its settings and media, every sending table, `instagram_attachments`, the webhook events and keys, the four queues `instagram-webhook`, `instagram-send-slow`, `instagram-send-fast`, `instagram-tasks` and their workers, the routes under `/social/instagram/…`. The shared sub-domains' jobs (contact bulk action, tag-event pick-up, past comments, segment count, broadcast audience) stay registered on `instagram-tasks`, the one task queue this iteration; a later channel registers the same job names on its own queue. (3) **The capability list** `CHANNEL_CAPABILITIES` — a code constant in 1B (CA11), Instagram the only entry: per channel its ways to start, steps, message kinds and features. (4) **The two seams** — outbound, `ChannelSendingPort` (AU34, SN22): the shared run engine and broadcasts never send; they save a waiting message through the account's channel's sending sub-domain (Instagram's 6 today), which picks the lane and reports `sent` · `failed` · `skipped` · `unknown` back to the run engine's `recordMessageResult` (4.B) or the recipient service (7.C); inbound (WH27, CT18): Instagram's intake turns its kinds into normalized event kinds and calls the shared entry points of contacts and the run engine. (5) **P49**: `app.channel_connection_tokens` gains `encrypted_refresh_token` (empty for Meta) and `token_type` `system_user` · `oauth_user` (MC18). (6) **P50**: one feature check in 1B (CA11) — the channel's capability **and** the connection's granted permission **and** the plan **and** the Meta test — replaces the three separate checks (capability, PRO, `APP_UNTESTED_META_FEATURES`); go-live (AU13, AU34), settings (2.B) and the engine (SN22) call it; its reasons `channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature` (renames `plan_feature_required` across this file) and `feature_not_offered` (now also route 12's refusal: `instagram_feature_not_offered` is retired, so M2's two names become one; CAQ2 holds the statuses). (7) **P51**: Meta's usage (`X-Business-Use-Case-Usage` and the app usage) is kept **per connection** by the shared Meta client (MC19 — columns on `app.channel_connections`, a short Redis copy for gate 1); every channel's engine reads it before a call (SN23); no Instagram lane keeps its own. P52 changes nothing here (the ad picker reads Meta live, MC13). New ids: MC18, MC19, MCC11, MCC12, CA11, CAC6, CAQ2, CT18, CTC12, CTQ4, AU34, AU35, AUC13, WH27, WHC17, SN22, SN23, SNC16, BC18, BCC10, K15. Route numbers, counts, gates and idempotency are unchanged. Old → new: |
 | M11 | **Meta webhooks, one route per object (P53, rev 3, 2026-11-24).** Routes 60–61 move from `/api/v1/app/social/instagram/webhook` to `/api/v1/app/social/channel-connections/meta/webhooks/instagram` (the Instagram object's callback URL in the Meta dashboard); later objects get their own path (`…/webhooks/page`, `…/webhooks/whatsapp-business-account`, `…/webhooks/ad-account`). Shared: only the receiver code in `channel-connection` (app-secret signature, verify-token handshake, envelope split). Separate: each object's event tables, intake queue and workers (Instagram: `instagram_webhook_events` + keys, P45). Route 62 (`/social/instagram/webhook-events`) is unchanged. Route numbers unchanged |
+| M12 | **Your answers, P54–P90 (rev 4, 2026-11-24) — the route review is final.** Every open question is answered (the header table's and each section 2's **Answer** column) and every sub-domain and nested sub-domain is `final (rev N, confirmed 2026-11-24)` (P90). (1) **Three answers differ from the recommendation** and are written in: **MCQ3 → P56** (MC15, MC16, MCC9: Meta's deauthorize and data-deletion calls match `provider_account_id` first, else `client_business_id` — every not-revoked account of that business's connections; a second resolver `app.resolve_organization_public_ids_for_provider_business` and the index `idx_channel_connections_provider_business`; an unmatched id still answers its code and emails the team); **BCQ2 → P76** (BC3, BC19, BCC11: segment create, edit and the audience count are PRO — Free → `403 plan_lacks_feature` on routes 78, 80, 82 and the upsell; reading and deleting stay open; a trial's segments stay saved, unusable until an upgrade); **BLQ4 → P80** (BL11, BL24, BLC13: the switched-off Starter, Growth and Pro rows carry Free's features and limits, so an organization still on one is held to Free until it picks Creator or Studio; Stripe untouched; route 108's `is_plan_choice_required`, the billing notice and one email `billing.plan_choice_required` — UN8 now nine new types, 20 in all). (2) **P83 — one plan switch per feature** (supersedes BL12's `is_pro_enabled`, the plan's `pro_features` bundle): the plan's typed `features` hold `message_month_limit`, `channel_accounts_max`, `has_priority_support` and `feature_switches`, one boolean per feature key (`PLAN_FEATURE_KEYS`, billing's; 1B's `CHANNEL_FEATURES` names each feature's key — CA11). The PRO switches: email ask `email_ask`, phone ask `phone_ask`, reply like a person `reply_like_person`, more than one public reply line `multiple_public_reply_lines`, message versions `message_versions`, broadcasts `broadcasts`, segments `segments`, past comments `past_comments`, extra delay `extra_delay` — off on Free, on for Creator and Studio; Studio alone `has_priority_support`. The one feature check (P50, CA11) reads the exact switch; a move down (D57) turns off exactly the switches the new plan lacks (BL8, WC-38); "PRO" is a label, not a field. Applied in K11, CA11, AU4, 2.B, BC3, BC19, BL12, BL13, 8.A.3, 8.A.6, BLC6. (3) **P59 — permission codes**: the shared Channel connection (1) and Channel account (1B) routes 1–11, 15, 40–42 are gated by the new `channel-account:read` / `channel-account:manage` — the same roles (Owner and Admin manage; Editor and Viewer read); routes 16–17 stay PUBLIC; Instagram settings and media (2) keep `instagram-account:*`, the webhook events (5) `instagram-webhook-event:read`; tenancy's migration `tenancy_permission_channel_account` adds the two codes and copies every grant of their `instagram-account:*` twins (TN12, TNC8 — P59's "rename", done as add-and-copy because Instagram keeps its codes); the reconnect notice goes to `channel-account:manage` (CA4, CAC2); K4 counts twelve app codes. (4) **P72 — workspace = organization**: identifiers, columns, routes and codes say `organization` (the one identifier with the word was the plan's `app_member_workspace_counts`, already `app_member_organization_counts`); the prose says organization too — 9.A is "Organization", 11.A "the organization chooser" — and "workspace" stays only where a screen is quoted (the Roles matrix's "Workspace · …" groups, "Workspace paused"). (5) **P73** drops `app.sending_helper_slots` (the repair runs as scheduler repeat jobs, P7); **P85** makes the Apple form callback (route 124) the one named `303` exception (K2); **P89** confirms K3 as rewritten — creates and jobs take `X-Idempotency-Key`, state switches, "try it" and the login / reconnect starts do not. (6) Revs bumped where content changed — 1, 1B, 2–7 and 11 to rev 4, 8 and 12 to rev 3, 9 and 10 to rev 2; each changed sub-domain's section 1 says what. New ids: BC19, BCC11, BL24, BLC13, TN12, TNC8, M12. Route numbers, counts and idempotency unchanged; gates change by P59 only, and routes 78, 80, 82 gain a plan refusal (P76). |
 
 M10's route table — numbers stay; what moved (rev 2 → rev 3, paths under `/api/v1/app`):
 
@@ -205,18 +210,18 @@ The launch's K1–K10 carried forward; **rewritten** and **new** rules marked.
 | # | Rule |
 | --- | --- |
 | K1 | **Base and organization scope** (launch K1). App routes are under `/api/v1/app` — the common login and account routes under `/social/channel-connections` and `/social/channel-accounts`, Instagram's under `/social/instagram` (P47), `/usage` common — take the active organization from the token (no organization segment) and are team-only: on a personal organization a write answers `422` (`assertTeamOrganization`) and a read `404 team_organization_required`. Another organization's id → `404`, never `403`. Path ids `{<table singular>_id}` in `PARAM_NAME_TO_ENTITY`. Sub-domains 8–12 keep their domains' bases and as-built scope (`/tenancy/organization` singular, `/users/me`, `/auth/me`); team-only where their section says so (routes 105–106, 131). |
-| K2 | **Shape** (launch K2). Success `200` (`DELETE` → `204`) with `{ data, meta }`; keyset lists through `finishKeysetPage`; snake_case body keys; unknown fields → `400`; errors `{ error: { type, code, reason?, detail, errors[] } }` with stable reasons and i18n keys. **New**: the envelope gains `error.tries_left` and `error.retry_after_seconds` (AT3); `409 automation_not_ready` carries `errors[]` (AUQ1). Exceptions, each named in its sub-domain: Meta's and Stripe's own answer shapes; a failed provider signature is `400`; and — if ATQ2 is answered as recommended — the one method→status exemption, route 124 → `303`. |
-| K3 | **Idempotency — rewritten (MGQ2).** In the app, every signed-in `POST` that creates a row or starts background work requires `X-Idempotency-Key`; state actions (`go-live`, `pause`, `resume`) answer a repeat with the same state and take none; a `POST` that saves nothing (`keyword-test`, the login start's and the reconnect start's one-use Redis state — routes 1, 40) takes none; the PUBLIC Meta routes (16, 17, 60, 61) take none — Meta's own ids make them safe to repeat. Sub-domains 8–12 keep the as-built `idempotencyRequired` set (the `I` column of `docs/routes.txt`: 102, 103, 106, 111, 115, 117, 140); sign-in, step-up, `/users/me/*` and the provider webhooks take none. The launch's K3 said every signed-in `POST`. |
-| K4 | **Codes and roles — rewritten.** Ten app codes in `app.permissions.ts` — the launch's nine (launch IA2) and `contact:update` (CTC1): `instagram-account:read` · `:manage`, `instagram-webhook-event:read`, `automation:read` · `:create` · `:update` · `:delete`, `contact:read` · `:update` **(new, P20)** · `:delete`. The codes stay as they are in rev 2 (P47 — roles are product-wide): the `instagram-account:*` codes also gate the channel connection (1) and the channel account (1B). Broadcasts and segments are gated by the `automation:*` codes (BC2); route 64 by the existing `organization:read`. Every team workspace holds four fixed roles — Owner, Admin, Editor (was Member), Viewer (new) — D55, sub-domain 9; custom roles are off (`TENANCY_CUSTOM_ROLES_ENABLED`, a code constant). |
-| K5 | **Row-level security** (launch K5). Every table: `organization_id` → organizations `ON DELETE CASCADE`, RLS enabled and forced, an organization policy with `USING` and `WITH CHECK`. Lookups before the organization is known go through narrow `SECURITY DEFINER` resolvers that answer only an organization public id or a yes / no, then work in that organization's scope. **Named exceptions**: `billing.trial_accounts` outlives its workspace (`organization_id` nullable, `SET NULL` — D73; the resolver `billing.resolve_trialled_instagram_user_ids`, BL18); `app.sending_states` is one row with no organization, maintenance login only (P16); `auth.trusted_devices` has a user policy (AT17). |
+| K2 | **Shape** (launch K2). Success `200` (`DELETE` → `204`) with `{ data, meta }`; keyset lists through `finishKeysetPage`; snake_case body keys; unknown fields → `400`; errors `{ error: { type, code, reason?, detail, errors[] } }` with stable reasons and i18n keys. **New**: the envelope gains `error.tries_left` and `error.retry_after_seconds` (AT3); `409 automation_not_ready` carries `errors[]` (AUQ1). Exceptions, each named in its sub-domain: Meta's and Stripe's own answer shapes; a failed provider signature is `400`; and the one named method→status exception, route 124 → `303` (ATQ2 → [P85](decisions.md)), listed in one allowlist the method-status middleware and the success-status gate both read. |
+| K3 | **Idempotency — rewritten (MGQ2 → [P89](decisions.md)).** In the app, every signed-in `POST` that creates a row or starts background work requires `X-Idempotency-Key`; state actions (`go-live`, `pause`, `resume`) answer a repeat with the same state and take none; a `POST` that saves nothing (`keyword-test`, the login start's and the reconnect start's one-use Redis state — routes 1, 40) takes none; the PUBLIC Meta routes (16, 17, 60, 61) take none — Meta's own ids make them safe to repeat. Sub-domains 8–12 keep the as-built `idempotencyRequired` set (the `I` column of `docs/routes.txt`: 102, 103, 106, 111, 115, 117, 140); sign-in, step-up, `/users/me/*` and the provider webhooks take none. The launch's K3 said every signed-in `POST`. |
+| K4 | **Codes and roles — rewritten.** Twelve app codes in `app.permissions.ts` — the launch's nine (launch IA2), `contact:update` (CTC1) and the two channel codes (P59): `channel-account:read` · `:manage` **(new, P59)**, `instagram-account:read` · `:manage`, `instagram-webhook-event:read`, `automation:read` · `:create` · `:update` · `:delete`, `contact:read` · `:update` **(new, P20)** · `:delete`. Since [P59](decisions.md) the shared channel connection (1) and channel account (1B) routes take `channel-account:*` — the same roles (Owner and Admin manage; Editor and Viewer read), tenancy's migration copies the `instagram-account:*` grants (TN12); Instagram's settings and media (2) keep `instagram-account:*` and its webhook events (5) `instagram-webhook-event:read`. Broadcasts and segments are gated by the `automation:*` codes (BC2); route 64 by the existing `organization:read`. Every team organization holds four fixed roles — Owner, Admin, Editor (was Member), Viewer (new) — D55, sub-domain 9; custom roles are off (`TENANCY_CUSTOM_ROLES_ENABLED`, a code constant). |
+| K5 | **Row-level security** (launch K5). Every table: `organization_id` → organizations `ON DELETE CASCADE`, RLS enabled and forced, an organization policy with `USING` and `WITH CHECK`. Lookups before the organization is known go through narrow `SECURITY DEFINER` resolvers that answer only an organization public id or a yes / no, then work in that organization's scope. **Named exceptions**: `billing.trial_accounts` outlives its organization (`organization_id` nullable, `SET NULL` — D73; the resolver `billing.resolve_trialled_instagram_user_ids`, BL18); `app.sending_states` is one row with no organization, maintenance login only (P16); `auth.trusted_devices` has a user policy (AT17). |
 | K6 | **Who did it** (launch K6). `*_by_user_id` → users `ON DELETE SET NULL`; no membership pointers (table below). |
 | K7 | **Personal data** (launch K7). Contact email, phone, name, profile, note and message text are masked in logs and erased when the team erases the contact (3.A, CT11 — also her waiting messages, tag events and recipients); the channel connection's token is encrypted and read only on the Meta client's path (MC9). |
 | K8 | **Background work** (launch K8). Pull-based, in the worker registry, one job per organization (or account) where it touches tenant data (`organizationPublicId` in the payload), safe to repeat, never sends a message twice (D16, D17); only a channel's sending sub-domain sends — Instagram's 6 (K15). |
 | K9 | **Audit** (launch K9). `<domain>.<resource>.<verb>` with the resource in snake_case: `app.channel_connection.connect`, `app.channel_account.pause`, `app.automation.go_live`, `app.instagram_message.retry`, … |
 | K10 | **Outside calls — rewritten.** Meta's Graph API on `graph.facebook.com`, `META_GRAPH_VERSION = 'v27.0'` as a code constant (MC2), through the one client `meta-graph.client.ts` in sub-domain 1's adapter folder `app/sub-domains/channel-connection/channel-connection-meta/` (moved from `src/infrastructure/social/instagram.client.ts` in rev 2, MC2) on the outbound pattern, its circuit `metaGraphCircuit` checked per call (never a whole queue — WH25); the token only in `Authorization`, plus `appsecret_proof`; never inside a database context. **Rev 3 (P51)**: the client reads Meta's usage headers on every answer and keeps them per connection (MC19); every channel's engine reads that usage before a call (SN23). Stripe through `stripe.client.ts` the same way, never inside a database context (8.10). |
-| K11 | **Plan entitlement — new.** Every plan decision reads sub-domain 8's `getPlanAccess` (state, typed features `message_month_limit`, `channel_accounts_max`, `is_pro_enabled`, `has_priority_support`, trial end — BL2, BL12); a PRO part is decided by **1B's one feature check** (P50, CA11 — `plan_lacks_feature`, `403` where a route refuses outright, CAQ2; it replaces `assertPlanFeature` as a separate check, which becomes one of its inputs); the plan ended → `403 organization_read_only` only where each section says (AU4, BC10); billing never reads app tables — it uses the app's ports (8.10). |
+| K11 | **Plan entitlement — new.** Every plan decision reads sub-domain 8's `getPlanAccess` (state, typed features `message_month_limit`, `channel_accounts_max`, `has_priority_support` and one on / off switch per feature in `feature_switches` (P83), trial end — BL2, BL12); a PRO part — one of those switches — is decided by **1B's one feature check** (P50, CA11 — `plan_lacks_feature`, `403` where a route refuses outright, CAQ2; it replaces `assertPlanFeature` as a separate check, which becomes one of its inputs); the plan ended → `403 organization_read_only` only where each section says (AU4, BC10); billing never reads app tables — it uses the app's ports (8.10). |
 | K12 | **Settings and switches — new.** Product switches are code constants (P4): `TENANCY_CUSTOM_ROLES_ENABLED`, `BILLING_SEAT_SYNC_ENABLED`, `APP_UNTESTED_META_FEATURES`; `BILLING_READ_ONLY_ENFORCED` stays an env var with its default flipped (BL4); the sending switch is the env var `SENDING_ENABLED` with `SENDING_ENVIRONMENT_ID` (SN7, SNQ2); `AUTH_PASSWORDS_ENABLED` does not exist (ATQ1). |
-| K13 | **Path params — new.** Non-entity params: `{provider}` (the auth providers, and `meta` on sub-domain 1's routes 1, 2, 16, 17), `{slug}` and — if BLQ2 is answered as recommended — `{payment_method_id}` (Stripe's `pm_…`). |
+| K13 | **Path params — new.** Non-entity params: `{provider}` (the auth providers, and `meta` on sub-domain 1's routes 1, 2, 16, 17), `{slug}` and `{payment_method_id}` (BLQ2 → P78) (Stripe's `pm_…`). |
 | K14 | **Shared reasons — new.** One name each across sub-domains: `plan_lacks_feature` (403, PRO), `plan_account_limit` (409, 1 and 1B), `channel_account_not_found` (404, 1B, 2, 3, 6 — was `instagram_account_not_found`), `message_month_limit_reached` (409, 7), `trial_used_by_account` (409, 1 via 8), `team_organization_required` (404, now also route 131); P50's four feature-check reasons `channel_lacks_feature` (422), `permission_not_granted` (409), `plan_lacks_feature` (403 — was `plan_feature_required`) and `feature_not_offered` (422; one name since rev 3 — M2, M10), each also a go-live problem code in `409 automation_not_ready`'s `errors[]` (CA11, CAQ2). Each new reason has its `errors:` key in `src/shared/locales/en/` and its row in `response-codes.md`. |
 | K15 | **Shared product, channel seams — new (rev 3, P48).** Contacts (3), automations (4) and broadcasts (7) are shared by every channel; they never import a channel's sub-domain. **Outbound**: they save a waiting message through `ChannelSendingPort`, picked by the account's `channel` (Instagram's implementation in 6 — AU34, SN22), and take results back at one entry point each (`recordMessageResult` in 4.B, the recipient service in 7.C). **Inbound**: a channel's intake (Instagram's 5) turns its provider's events into normalized event kinds and calls the shared entry points of contacts and the run engine (WH27, CT18). What a channel can do is `CHANNEL_CAPABILITIES` (1B, CA11), checked through the one feature check (P50). The port types live in the app kernel (`app.channel-ports.ts`), the wiring per channel in `app.container.ts`. |
 
@@ -327,9 +332,9 @@ out, the normalized inbound entry points in — and every "may this account use 
 
 ---
 
-## 1. Channel connection — rev 3 (2026-11-24) — no nested sub-domains (one nested adapter folder); awaiting your OK
+## 1. Channel connection — rev 4 (2026-11-24) — no nested sub-domains (one nested adapter folder); final (rev 4, confirmed 2026-11-24)
 
-**Status: rev 3 (2026-11-24) — awaiting your OK** (one-pass review, [P31](decisions.md); the channel split, [P40–P47](decisions.md)).
+**Status: final (rev 4, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md); the channel split, [P40–P47](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **`channel-connection` sub-domain folder** — `app/sub-domains/channel-connection/` (**new**, [P41](decisions.md)),
 the connection and its token at the folder root, and one nested folder **`channel-connection-meta/`** — the Meta provider
@@ -340,7 +345,7 @@ own, so it is not a nested sub-domain with sections (1.12).
 1.6 Objects returned · 1.7 Routes · 1.8 Request details · 1.9 Errors · 1.10 Rules worth knowing · 1.11 Code changes (whole sub-domain) ·
 1.12 Nested sub-domains (none; one adapter folder).
 
-One provider login of a workspace for one business: for Meta, **Unified Login** (D24) — one connection per business
+One provider login of an organization for one business: for Meta, **Unified Login** (D24) — one connection per business
 portfolio for Instagram, Facebook and ads, holding the granted scopes and its assets (Instagram accounts now; Facebook Pages
 and ad accounts through the same login later — D27, P41). This sub-domain starts the login, finishes it, starts a reconnect,
 picks which of its accounts to connect under the plan's account limit (D25, D26 — the account rows are sub-domain 1B's), lists
@@ -357,7 +362,7 @@ services). Route numbers: 1–5, 15–17, 40–42 (M9).
 
 ### 1.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. The launch's
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). The launch's
 review is the "before" ([launch routes-final § 1](../../launch-2026-11-20-ujai/plans/routes-final.md)). The ids stay MC… (the
 sub-domain was "Meta connection" in rev 1); MC13–MC16 came from rev 1's 2.C and 2.D.
 
@@ -370,45 +375,47 @@ MCQ5.
 
 **rev 3 changes** (P49, P50, P51, M10): the token table gains `encrypted_refresh_token` (empty for Meta) and `token_type` `system_user` · `oauth_user` (MC18); the shared Meta client keeps **Meta's usage per connection** — three columns on `app.channel_connections` and a short Redis copy — and every channel's engine reads it before a call (MC19); the reconnect (route 40) is also the answer to the feature check's `permission_not_granted` — it asks for the missing permission (P50, CA11), and the connection's granted `scopes` are one of that check's inputs. Routes, gates and counts unchanged.
 
+**rev 4 changes** (P54–P59, M12): Meta's two callbacks match the account id, else the business id — every account of that connection (MCQ3 → P56: MC15, MC16, a second resolver and an index); routes 1–5, 15, 40–42 gated by `channel-account:*` (P59); MCQ1, MCQ2, MCQ4, MCQ5 answered as recommended (P54, P55, P57, P58).
+
 | # | Decision |
 | --- | --- |
 | MC1 | **Folder, names, ids (P41, P47).** Today: no provider login; the Instagram Login lives in `instagram-account/` (`connect`, the token schema / repository / service at its root, `INSTAGRAM_APP_*` env). After: a new sub-domain `app/sub-domains/channel-connection/` with `channel-connection.{routes,controller,service,repository,schema,dto,validator,serializer,types,constants}.ts` and the token as a persistence part at the same root (`channel-connection-token.{schema,repository,service}.ts`, no controller, no routes — the launch's IA1 pattern). Tables `app.channel_connections` (column `provider`, `meta` the only value this iteration) and `app.channel_connection_tokens` — they supersede the rev 1 `app.meta_connections` and `app.meta_connection_tokens` (P41). Public-id entity `channelConnection` (prefix chosen at kickoff, P22); path param `{channel_connection_id}` in `PARAM_NAME_TO_ENTITY`; `{provider}` is the existing non-entity param (K13), its one value `meta`. Paths under `/api/v1/app/social/channel-connections/…` (P47). OpenAPI tag `Channel connection`. Other option: rev 1's Meta-only `meta-connection/` — a later Facebook or WhatsApp login would need a second copy. |
 | MC2 | **The one Meta client, in the connection's adapter folder (launch IA4 → after).** Today: `src/infrastructure/social/instagram.client.ts` speaks `api.instagram.com` / `graph.instagram.com` `v24.0`, puts the token in the query for the two exchanges and the renewal, and is the only caller of Instagram (outbound pattern, `instagramCircuit`, nock contract tests). After: the **same client, moved** (reuse rule — moved, never copied) to the nested adapter folder `app/sub-domains/channel-connection/channel-connection-meta/` as `meta-graph.client.ts`, beside `meta-graph-error.util.ts` (was `instagram-error.util.ts`), `meta-login.ts` (login address, code exchange) and `meta-signature.ts` (the `signed_request` check of routes 16–17 and the `X-Hub-Signature-256` check sub-domain 5's receiver imports); rebased on `graph.facebook.com`: the Instagram Login exchanges, renewal and `/me` go; it gains the Unified Login code exchange (`/oauth/access_token`, the app secret in the query, so that URL is redacted), `GET /me?fields=client_business_id`, `GET /me/assigned_instagram_accounts?fields=id,username`, the granted-permission read (plan:L4577 — which call shows a system-user token's permissions is a Meta test, §43), `GET /me/adaccounts` and an ad account's ads (MC13), and `DELETE /{instagram_user_id}/subscribed_apps`; every call with a customer token sends it only in `Authorization` and adds `appsecret_proof` (plan:L7183–L7194, SE.M.14). The circuit becomes `metaGraphCircuit` — one per provider; only provider calls check it, never a whole queue (P47 F3, sub-domain 5). The Graph version is a **code constant** `META_GRAPH_VERSION = 'v27.0'` beside `STRIPE_API_VERSION` — it does not vary by environment, so P4 keeps it out of env. The error map keeps its four classes; auth (190) now breaks the **connection** (MC11). Sub-domains 2, 5 and 6 call Meta only through this folder. Other option: keep the client in `src/infrastructure/social/` — the adapter would then be split across two trees. |
 | MC3 | **Settings (env) — the Meta app, not the Instagram app (D24, P4).** Today: `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_REDIRECT_URI`, `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (env-schema `INSTAGRAM_VARS`); unset → `503 instagram_not_configured`; the secret needs 32 characters when set (launch D53). After: `META_APP_ID`, `META_APP_SECRET` (code exchange, `appsecret_proof`, the webhook signature and Meta's callbacks — one secret), `META_CONFIG_ID`, `META_REDIRECT_URI` (the frontend's return page), `META_WEBHOOK_VERIFY_TOKEN` (renamed; sub-domain 5 reads it) — the four `INSTAGRAM_*` leave in the same change (be-env-schema-add; `.env.example`, `harness-provider-env.ts`, the external-credentials fill, GitHub Environments). Unset → the same `503 instagram_not_configured` (the frontend already branches on it; the reason names the product, not the vendor). Login-state time `CONNECT_STATE_MINUTES` 10 and `PROFILE_READ_TIMEOUT_MILLISECONDS` 3000 are constants in the app domain's settings file (P4, P6: `_MILLISECONDS`). |
 | MC4 | **Start (route 1) — a one-use login state in Redis (P26).** Today: Instagram Login has no server state (launch IQ6: the frontend checks `state`); the OAuth sign-in keeps a one-use Redis state (`oauth-state.ts`: `randomBytes` → `SET … EX`, `GETDEL` on use). After: route 1 (`{provider}` = `meta`) mints `state` (32 random bytes, base64url), stores `{ provider, organization_public_id, user_public_id, channel_connection_public_id: null }` under a one-use key for 10 minutes, and answers the Meta login address `https://www.facebook.com/dialog/oauth?client_id&config_id&redirect_uri&response_type=code&state&prompt=login` (always asks her to log in again). The set / one-use read core of `oauth-state.ts` is lifted into one shared helper both call (reuse rule — never two copies); the key stays in Redis only — short-lived login state, nothing is lost if it goes (P26). No body, no `X-Idempotency-Key` (a repeat mints another harmless state). Other option: a Postgres row per login attempt. |
-| MC5 | **Callback (route 2) — the code, then one commit, then the picker; a reconnect finishes here too.** Today: the launch's `POST …/instagram/connect` exchanges a code and commits account + token + settings at once (launch IA12). After, in order (plan:L4570–L4578): (1) read-and-delete the state — missing, used, older than 10 minutes, another user's, another workspace's or another provider's → `400 channel_connect_state_invalid`, nothing saved; (2) exchange the code on the server — refused → `422 provider_code_invalid`; Meta down before the exchange → `503 instagram_unavailable` with `Retry-After`; Meta failing after the one-time code was spent → `409 instagram_connect_restart_required` (launch D56, kept); (3) read `client_business_id` and the assigned Instagram accounts; a state minted by route 40 for a connection of **another** business → `409 channel_connection_business_mismatch`, nothing saved; (4) a missing required permission (`instagram_basic`, `instagram_manage_messages`, `instagram_manage_comments`) → `422 provider_permissions_missing`, nothing saved — `ads_read` is optional (MC13); (5) **one commit** in the caller's scope: insert or update the `(organization_id, provider, client_business_id)` connection row (`connected`, `config_id`, `scopes`, `connected_by_user_id`, `connected_at`, `status_changed_at`, `last_checked_at` = now; clears `disconnected_at`), write the encrypted token (`system_user`, `expires_at` empty), and **reconnect** (plan:L4674–L4681, MC6); (6) after commit: the audit entry, one account-set-up job (WC-30, sub-domain 2) per reconnected account, and their lanes woken (sub-domain 6). Answers the picker (1.6). `X-Idempotency-Key` required: the state is one-use, so a network retry without a replay would answer `400`; the frontend uses `channel-connect:<state>` as the key. |
-| MC6 | **What a reconnect touches (plan:L4674–L4681).** In MC5's commit: every **not-revoked** channel account of this workspace (1B) whose `provider_account_id` is in the new assigned list is attached to this connection (`channel_connection_id` — an account that moved to this portfolio moves its row) and goes `error → connected`; its login stops end (`stop_cleared_at`, through sub-domain 6's lane service). Only an account whose Instagram id equals the row's ever takes the row (plan:L2622). A `revoked` row is not reconnected here — the owner picks it (route 3, its settings come back). A connection left with no not-revoked account by a move goes `revoked` and its token is deleted in the same commit (nothing uses it). Other option: attach moved accounts only when the owner picks them again (one more step for the owner, MCQ1). |
-| MC7 | **Pick accounts (route 3) — the plan limit under the workspace lock (D25, D26, plan:L4590–L4604).** Before the transaction: re-read the connection's assigned accounts with its token (a pick not in the list → that pick `not_assigned`; Meta down → `503 instagram_unavailable`) and one profile read per pick (3 s each, fails open — the username is enough). One commit: `pg_advisory_xact_lock` on the organization id first (two first connects of one workspace have no row to lock yet, plan:L3553); count the workspace's not-revoked channel accounts — that plus the new picks over the plan's `channel_accounts_max` (billing, sub-domain 8, P47) → `409 plan_account_limit`, nothing saved; each pick → a new channel account (1B, `channel` = `instagram`, `provider_account_id` = the Instagram user id, `display_name` = `@username`) with its Instagram extension row (2.A) and settings row (2.B, every owner value empty), or the workspace's own old row of that account back (a revoked row — its settings return), `channel_connection_id` set, `connected`, `connected_at` = now (the new-account limit); a pick live in **another** workspace → that pick `connected_elsewhere` (`idx_channel_accounts_provider_account_live`), the others still connect; a pick already connected here → `already_connected`, unchanged; for a new row its four lanes (`slow`, `reply`, `fast`, `broadcast`, `ready` — sub-domain 6's service). After commit: one account-set-up job per connected pick (WC-30) and `app.channel_account.connect` per account. Answers one result per pick. During a trial (`TRIALING`), the picks go through billing's trial port first (sub-domain 8 — 8.B, BL14, BL18): an Instagram account that already had a trial in any workspace → `409 trial_used_by_account`, nothing saved; the pick's commit records its `billing.trial_accounts` rows (`recordTrialAccounts`). A connection not `connected` → `409 channel_connection_not_connected`. Today: one not-revoked account per organization (launch D5) → many, up to the plan. |
-| MC8 | **List (route 4), one connection (route 42) and "Disconnect business" (route 5).** Route 42 (new in rev 2, RC-112): one connection as in the list, a revoked one included (its id is known). Route 4: the workspace's connections for the connections screen — provider, business id, status, granted permissions, who connected and when, the last daily check and its error codes (never Meta's text), and its channel accounts (`id`, `channel`, `display_name`, `connection_status`); revoked ones only with `include_revoked=true`; never a token; no paging (a workspace has a handful). Route 5 (plan:L4683–L4693, L2623): before the transaction, per account of the connection, the best-effort starter-question removal and unsubscribe (logged, never blocks); one commit, lock order of plan §35: each not-revoked account as route 8 (sub-domain 1B, through its service), then the connection `revoked`, `disconnected_at`, its token deleted; after commit the accounts' Redis keys deleted and the audit entries. Automations, contacts and history stay; waiting messages stay and expire by the 7-day rule. Answers `204`. A revoked connection → `404 channel_connection_not_found` (a repeat). |
+| MC5 | **Callback (route 2) — the code, then one commit, then the picker; a reconnect finishes here too.** Today: the launch's `POST …/instagram/connect` exchanges a code and commits account + token + settings at once (launch IA12). After, in order (plan:L4570–L4578): (1) read-and-delete the state — missing, used, older than 10 minutes, another user's, another organization's or another provider's → `400 channel_connect_state_invalid`, nothing saved; (2) exchange the code on the server — refused → `422 provider_code_invalid`; Meta down before the exchange → `503 instagram_unavailable` with `Retry-After`; Meta failing after the one-time code was spent → `409 instagram_connect_restart_required` (launch D56, kept); (3) read `client_business_id` and the assigned Instagram accounts; a state minted by route 40 for a connection of **another** business → `409 channel_connection_business_mismatch`, nothing saved; (4) a missing required permission (`instagram_basic`, `instagram_manage_messages`, `instagram_manage_comments`) → `422 provider_permissions_missing`, nothing saved — `ads_read` is optional (MC13); (5) **one commit** in the caller's scope: insert or update the `(organization_id, provider, client_business_id)` connection row (`connected`, `config_id`, `scopes`, `connected_by_user_id`, `connected_at`, `status_changed_at`, `last_checked_at` = now; clears `disconnected_at`), write the encrypted token (`system_user`, `expires_at` empty), and **reconnect** (plan:L4674–L4681, MC6); (6) after commit: the audit entry, one account-set-up job (WC-30, sub-domain 2) per reconnected account, and their lanes woken (sub-domain 6). Answers the picker (1.6). `X-Idempotency-Key` required: the state is one-use, so a network retry without a replay would answer `400`; the frontend uses `channel-connect:<state>` as the key. |
+| MC6 | **What a reconnect touches (plan:L4674–L4681).** In MC5's commit: every **not-revoked** channel account of this organization (1B) whose `provider_account_id` is in the new assigned list is attached to this connection (`channel_connection_id` — an account that moved to this portfolio moves its row) and goes `error → connected`; its login stops end (`stop_cleared_at`, through sub-domain 6's lane service). Only an account whose Instagram id equals the row's ever takes the row (plan:L2622). A `revoked` row is not reconnected here — the owner picks it (route 3, its settings come back). A connection left with no not-revoked account by a move goes `revoked` and its token is deleted in the same commit (nothing uses it). Other option: attach moved accounts only when the owner picks them again (one more step for the owner, MCQ1). |
+| MC7 | **Pick accounts (route 3) — the plan limit under the organization lock (D25, D26, plan:L4590–L4604).** Before the transaction: re-read the connection's assigned accounts with its token (a pick not in the list → that pick `not_assigned`; Meta down → `503 instagram_unavailable`) and one profile read per pick (3 s each, fails open — the username is enough). One commit: `pg_advisory_xact_lock` on the organization id first (two first connects of one organization have no row to lock yet, plan:L3553); count the organization's not-revoked channel accounts — that plus the new picks over the plan's `channel_accounts_max` (billing, sub-domain 8, P47) → `409 plan_account_limit`, nothing saved; each pick → a new channel account (1B, `channel` = `instagram`, `provider_account_id` = the Instagram user id, `display_name` = `@username`) with its Instagram extension row (2.A) and settings row (2.B, every owner value empty), or the organization's own old row of that account back (a revoked row — its settings return), `channel_connection_id` set, `connected`, `connected_at` = now (the new-account limit); a pick live in **another** organization → that pick `connected_elsewhere` (`idx_channel_accounts_provider_account_live`), the others still connect; a pick already connected here → `already_connected`, unchanged; for a new row its four lanes (`slow`, `reply`, `fast`, `broadcast`, `ready` — sub-domain 6's service). After commit: one account-set-up job per connected pick (WC-30) and `app.channel_account.connect` per account. Answers one result per pick. During a trial (`TRIALING`), the picks go through billing's trial port first (sub-domain 8 — 8.B, BL14, BL18): an Instagram account that already had a trial in any organization → `409 trial_used_by_account`, nothing saved; the pick's commit records its `billing.trial_accounts` rows (`recordTrialAccounts`). A connection not `connected` → `409 channel_connection_not_connected`. Today: one not-revoked account per organization (launch D5) → many, up to the plan. |
+| MC8 | **List (route 4), one connection (route 42) and "Disconnect business" (route 5).** Route 42 (new in rev 2, RC-112): one connection as in the list, a revoked one included (its id is known). Route 4: the organization's connections for the connections screen — provider, business id, status, granted permissions, who connected and when, the last daily check and its error codes (never Meta's text), and its channel accounts (`id`, `channel`, `display_name`, `connection_status`); revoked ones only with `include_revoked=true`; never a token; no paging (an organization has a handful). Route 5 (plan:L4683–L4693, L2623): before the transaction, per account of the connection, the best-effort starter-question removal and unsubscribe (logged, never blocks); one commit, lock order of plan §35: each not-revoked account as route 8 (sub-domain 1B, through its service), then the connection `revoked`, `disconnected_at`, its token deleted; after commit the accounts' Redis keys deleted and the audit entries. Automations, contacts and history stay; waiting messages stay and expire by the 7-day rule. Answers `204`. A revoked connection → `404 channel_connection_not_found` (a repeat). |
 | MC9 | **Token isolation (launch IA5–IA7, moved here).** Today: the token lives in `app.instagram_account_tokens`, read only by its repository through the token service and the daily check, decrypted only inside the Instagram client, pinned by `instagram-account-token-isolation.policy.unit.test.ts`; its RLS has no maintenance arm. After, unchanged in kind, moved to the connection: (1) only `encrypted_access_token` is stored; (2) the plain token exists only inside the Meta client (MC2) — it takes the ciphertext, decrypts right before the call, returns new tokens already encrypted; (3) only `channel-connection-token.repository.ts` reads `app.channel_connection_tokens`, used only by the token service, the sender (sub-domain 6, right before a call) and the token check — the policy test is renamed `channel-connection-token-isolation.policy.unit.test.ts` and lists exactly these files; (4) its policy has the organization arm only — no sweep reads a token; (5) never in Redis, a log, a job payload or an idempotency replay (`encrypted_access_token` stays in the secret-field lists). The secrets-key rotation re-encrypts this table instead of the old one (launch D37). |
 | MC10 | **The daily token check — the connection's scheduled job (WC-34, P47; replaces the launch's daily account check, P17).** Today: once a day at 04:00 UTC per account — renew within 7 days of the end, refresh the profile, retry the subscription (`instagram-account-daily-check`). After: per **connection** every 24 h, spread by connection: an hourly sweep (maintenance scope, `idx_channel_connections_check_due`) hands one job per due connection to the `channel-connection-token-check` worker on the `instagram-tasks` queue (D3, P45 — the only queue a Meta job has this iteration), payload `organizationPublicId` + `channelConnectionPublicId`. The job, inside its organization: `GET /me/assigned_instagram_accounts`; OK → `last_checked_at`, `last_check_error` cleared, each connected account's Instagram profile refreshed (P17, through sub-domain 2, which also updates 1B's `display_name`), a connected account missing from the list → that account `error` (1B), its lanes stopped (no end), its reconnect notice; 190 or another "token not valid" → MC11; Meta down or "too fast" → try again later, nothing changes (the job checks `metaGraphCircuit` per call; the worker is never paused — F3). No renewal (WC-35 removed); the subscription check moves to WC-25 (sub-domain 2). |
 | MC11 | **A broken token breaks every account of its connection (plan:L4648–L4658, §33.1).** Today: the account service's guarded `markConnectionBroken` moves one account `connected → expired \| error` and only the winner enqueues the reconnect notice (launch IA9). After: `ChannelConnectionService.markConnectionBroken` — one guarded change `connected → error` on the connection (`status_changed_at`, `last_check_error` codes only) and, in the same commit, every `connected` channel account of it → `error` (1B) and all their lanes stopped (login, no end — sub-domain 6); the winner enqueues one reconnect notice per account after commit (WC-46, the existing Instagram worker in sub-domain 2). Called by the token check and by any send or read that gets 190 (sub-domains 2, 6 and routes 15, 41). `expired` is gone (the token never ends). |
 | MC12 | **Audit (launch K9 form).** `app.channel_connection.connect` (WARNING, `metadata.provider`, `is_reconnect`, `reconnected_account_count`), `app.channel_connection.disconnect` (WARNING, `disconnected_account_count`), per picked account `app.channel_account.connect` (WARNING), and `app.channel_connection.deauthorize` / `.data_deletion` (WARNING, `anonymousActor`, `metadata.source = 'meta'`, MC14) — all after commit. Failed connects log the support record of plan:L4590 (app id, `config_id`, the step that failed, Meta's code, subcode, trace id) — never a token or the app secret. |
 | MC13 | **The ad picker, read through the connection (routes 41 and 15, D41, plan:L876–L880; was rev 1's IA16 on the account).** The ads permission belongs to the login, not to one Instagram account (P41), so the picker reads the connection. Route 41: with `ads_read` on the connection, its ad accounts (`/me/adaccounts`: `ad_account_id`, `name`, `account_status`), no paging (Meta's first 100). Route 15: the ads of **one** ad account (`ad_account_id` required — MCQ4) with their Instagram post: `ad_id`, `name`, `status`, `instagram_media_id`, `channel_account_id` (the connected Instagram account the ad runs as, matched by its Instagram id, or null), `thumbnail_url`, `created_at`; Meta's cursor, `limit` 1–50. Without `ads_read`: both answer `data: []` and `meta.ad_access = 'missing'` — the screen says "Connect an ad account" (a new login), never an error. A connection in `error` → `404 instagram_reconnect_required`; a 190 calls MC11. Ad comments and the 7-day ad window stay refused at go-live while untested (P36, sub-domain 4). |
 | MC14 | **Meta's two callbacks, signed with the Meta app secret (routes 16–17, D24, P46; was rev 1's IA18 under the account).** Today (launch IA18): `signed_request` checked with `INSTAGRAM_APP_SECRET` (HMAC-SHA256, constant time), a route-scoped form parser, `WEBHOOK_RATE_LIMIT`, a body over 16 KB `413`, only connections older than `issued_at` (launch D53). After: the same plugin (`meta-signature.ts`, MC2) with `META_APP_SECRET`, on `/social/channel-connections/{provider}/deauthorize` and `…/data-deletion` (`{provider}` = `meta`; Meta's app dashboard takes one address of each per app, and the login is Meta-wide); unset → `503 instagram_not_configured`. No auth, no idempotency key (K3), always `200` once verified. |
-| MC15 | **Who is found (plan:L4695–L4705, MCQ3; was IA19).** Today: `app.resolve_organization_public_ids_for_instagram_app_user(text)` — every organization with a row of that app-scoped id. After: that resolver is **replaced** by `app.resolve_organization_public_ids_for_provider_account(text, text)` — every organization with a channel account of that provider's channel and `provider_account_id` (for `meta`: an Instagram account's `instagram_user_id`), any status (`SET search_path`, `GRANT EXECUTE` to `meepzo_be_app`, `REVOKE … FROM PUBLIC`, public ids only — launch IA6 pattern); each change runs in that organization's `VERIFIED` scope, and the connection resolves which accounts and people the callback reaches (P46). Route 16 (deauthorize): in each, the disconnect of CA8 (1B) without the unsubscribe call — `revoked`, lanes stopped, the connection's token deleted only with its last account. |
-| MC16 | **Data deletion and the unmatched id (route 17, plan:L4699–L4705; was IA20).** As route 16, plus in each organization the Instagram profile erased and the account's stored posts deleted (sub-domain 2's services; launch IA20 kept; contacts untouched, launch D22). An id that matches nothing still answers `200` (with its derived confirmation code), is logged and **emails the team** to handle the deletion by hand (the team-alert path of sub-domain 6, WC-57's team part). The answer shape is Meta's, as built. |
+| MC15 | **Who is found — the account id, else the business id (plan:L4695–L4705, MCQ3 → [P56](decisions.md); was IA19).** Today: `app.resolve_organization_public_ids_for_instagram_app_user(text)` — every organization with a row of that app-scoped id. After: that resolver is **replaced** by two, each `SET search_path`, `GRANT EXECUTE` to `meepzo_be_app`, `REVOKE … FROM PUBLIC`, public ids only (launch IA6 pattern): (1) `app.resolve_organization_public_ids_for_provider_account(text, text)` — every organization with a channel account of that provider's channel and `provider_account_id` (for `meta`: an Instagram account's `instagram_user_id`), any status; (2) only when (1) finds none, `app.resolve_organization_public_ids_for_provider_business(text, text)` — every organization with a connection of that provider and `client_business_id`, any status (`idx_channel_connections_provider_business`). Which id Meta signs on a Unified Login callback is still a §43 test, so the id is tried as an account id first, then as a business id (your answer, P56 — revisit when the test shows). Each change runs in that organization's `VERIFIED` scope (P46): an account match reaches that account; a business match reaches **every not-revoked channel account of that connection**. Route 16 (deauthorize): in each, the disconnect of CA8 (1B) for every account reached, without the unsubscribe call — `revoked`, lanes stopped, the connection's token deleted (and the connection `revoked`) with its last account. Other option (the recommendation): match `provider_account_id` only, a business column after the test. |
+| MC16 | **Data deletion and the unmatched id (route 17, plan:L4699–L4705; was IA20).** As route 16 (the account id, else the business id — P56), plus in each organization the Instagram profile erased and the stored posts deleted of every account it reached (sub-domain 2's services; launch IA20 kept; contacts untouched, launch D22). An id that matches neither still answers `200` (with its derived confirmation code), is logged and **emails the team** to handle the deletion by hand (the team-alert path of sub-domain 6, WC-57's team part). The answer shape is Meta's, as built. |
 | MC17 | **Reconnect (route 40) — start a login bound to this connection (new in rev 2, MCQ5).** The connections screen's "Reconnect" button: route 40 mints the same one-use state as route 1 with `channel_connection_public_id` set and answers the same login address; route 2 finishes it (MC5) and refuses a different business (`409 channel_connection_business_mismatch`). Allowed on a `connected` or `error` connection (a `connected` one re-grants permissions, e.g. `ads_read` for the ad picker); a `revoked` one → `404 channel_connection_not_found` (connect again with route 1). No body, no key (as route 1). A login started by route 1 for an already-connected business still reconnects at the callback (MC6). |
 | MC18 | **Refresh tokens for providers whose tokens expire (P49).** Today (rev 2): one system-user token per connection, `token_type` `system_user` only. After: `app.channel_connection_tokens` gains `encrypted_refresh_token` (`text`, null; `encryptFieldSecret` output, never empty when set) and `token_type` takes `system_user` · `oauth_user`. Meta's Unified Login keeps writing a `system_user` token with no refresh token (D24); a later provider whose user tokens expire (TikTok's OAuth) writes `oauth_user` with its refresh token and adds its own renewal in its adapter folder. Read only on the client path, like the access token (MC9). No job and no route changes now. |
 | MC19 | **Meta's usage, kept per connection (P51).** Today (rev 2): each Instagram lane reads Meta's usage from the answers it gets (WC-6 doubles the reply lane's boxes at 80 % and waits at 95 %; the past-comments read and the missed-comment look pause at 80 %), so Instagram, Facebook and ads calls of one business never see each other's use. After: the shared Meta client in `channel-connection-meta/` reads `X-Business-Use-Case-Usage` (per business, shared by its products) and the app usage header on **every** answer and keeps the highest percentage on the connection — `usage_percent`, `usage_wait_until` (Meta's estimated time to regain access, else now + 15 minutes at ≥ 95 %), `usage_read_at` — in a small unit of its own after the call (never inside a send's transaction; an older reading never overwrites a newer one), plus a Redis copy `app:meta_usage:<organization public id>:<connection public id>` (≤ 60 s, tombstoned on write, fail open to Postgres — P5, P32: Postgres stays the holder). Every channel's engine calls `readConnectionUsage` before a Meta call: ≥ 80 % slows (the plan's rule, plan:L2353–L2360), ≥ 95 % waits until `usage_wait_until`. Sub-domain 6's lanes and gate 1 (SN23), 4.C's past-comments read and 5's missed-comment look read it; none keeps its own. |
 
 ### 1.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| MCQ1 | A reconnect from a portfolio an account moved to: attach its row at the callback, or only when the owner picks it? | at the callback (MC6) · only at a pick | **At the callback** — the account is the workspace's already, the owner pressed Reconnect for it, and it saves a step; the plan's "its account row moves to the new connection" (plan:L4676) reads the same |
-| MCQ2 | The pick re-reads the assigned accounts from Meta, or trusts the list the callback read? | re-read (MC7) · keep the callback's list in the login state | **Re-read** — the pick can come minutes later; a stale list could attach an account the business no longer shares; the cost is one Graph call per pick |
-| MCQ3 | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? (rev 1 IAQ1) | match the account's `provider_account_id` · also match `client_business_id` · a person-id column on the connection | **Match `provider_account_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (MC16); add a connection column only if the test says so — a new decision then |
-| MCQ4 | The ads list reads one ad account at a time, or every ad account of the connection in one list? (rev 1 IAQ2) | one at a time (`ad_account_id` required, route 41 lists them) · all merged | **One at a time** — Meta pages per ad account, so a merged list has no single cursor; the frontend shows an ad-account switcher fed by route 41 |
-| MCQ5 | Does "Reconnect" get its own route, or is it only a new login through route 1 (rev 1)? | its own route 40, bound to the connection (MC17) · route 1 only | **Its own route** — the callback can then refuse a login into another business instead of silently creating a second connection, and a `connected` connection can re-grant `ads_read` |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| MCQ1 | A reconnect from a portfolio an account moved to: attach its row at the callback, or only when the owner picks it? | at the callback (MC6) · only at a pick | **At the callback** — the account is the organization's already, the owner pressed Reconnect for it, and it saves a step; the plan's "its account row moves to the new connection" (plan:L4676) reads the same | **P54** — at the callback (as recommended) |
+| MCQ2 | The pick re-reads the assigned accounts from Meta, or trusts the list the callback read? | re-read (MC7) · keep the callback's list in the login state | **Re-read** — the pick can come minutes later; a stale list could attach an account the business no longer shares; the cost is one Graph call per pick | **P55** — re-read from Meta at every pick (as recommended) |
+| MCQ3 | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? (rev 1 IAQ1) | match the account's `provider_account_id` · also match `client_business_id` · a person-id column on the connection | **Match `provider_account_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (MC16); add a connection column only if the test says so — a new decision then | **P56 — not the recommendation**: the account id **and** the business id — `provider_account_id` first, else `client_business_id` (every account of that connection); an unmatched id still gets its code and the team an email; revisit after the §43 test (MC15, MC16) |
+| MCQ4 | The ads list reads one ad account at a time, or every ad account of the connection in one list? (rev 1 IAQ2) | one at a time (`ad_account_id` required, route 41 lists them) · all merged | **One at a time** — Meta pages per ad account, so a merged list has no single cursor; the frontend shows an ad-account switcher fed by route 41 | **P57** — one ad account at a time (as recommended) |
+| MCQ5 | Does "Reconnect" get its own route, or is it only a new login through route 1 (rev 1)? | its own route 40, bound to the connection (MC17) · route 1 only | **Its own route** — the callback can then refuse a login into another business instead of silently creating a second connection, and a `connected` connection can re-grant `ads_read` | **P58** — its own route, 40 (as recommended) |
 
-Until you answer, the plan follows the recommendation.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 1.3 Tables and relations
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.channel_connections` | one provider login of a workspace for one business (Meta: a business portfolio) | one row per organization, provider and business, a revoked one reused (MC5); status by actions only (MC5, MC8, MC11); no soft delete — `revoked` stands in |
+| `app.channel_connections` | one provider login of an organization for one business (Meta: a business portfolio) | one row per organization, provider and business, a revoked one reused (MC5); status by actions only (MC5, MC8, MC11); no soft delete — `revoked` stands in |
 | `app.channel_connection_tokens` | its encrypted token — Meta's system-user token; an OAuth user's token with its refresh token for a later provider (P49) | one per connection; read only on the client path (MC9); deleted when the connection is `revoked` |
 | ~~`app.instagram_account_tokens`~~ | **removed** (D24) | its rows, repository, service, policy test and the daily renewal go; no data moves (plan:L2924) |
 
@@ -459,7 +466,7 @@ two channel tables get a migration of their own).
 
 Indexes: unique `idx_channel_connections_public_id`; unique `idx_channel_connections_organization_id_id` `(organization_id,
 id)` — the parent key of accounts and tokens; unique `idx_channel_connections_organization_business` `(organization_id,
-provider, client_business_id)`; `idx_channel_connections_check_due` `(last_checked_at) WHERE status = 'connected'` — the sweep
+provider, client_business_id)`; `idx_channel_connections_provider_business` `(provider, client_business_id)` — Meta's callbacks matched by business across organizations (MC15, P56, rev 4); `idx_channel_connections_check_due` `(last_checked_at) WHERE status = 'connected'` — the sweep
 across organizations; `idx_channel_connections_connected_by_user_id` `WHERE connected_by_user_id IS NOT NULL`. Checks
 `chk_channel_connections_provider`, `_status`, `_login_type`, `_client_business_id`, `_disconnected`, `_scopes`, `_usage_percent` (0–100, rev 3), `_updated`.
 RLS: enabled and forced, `channel_connections_tenant_isolation` `FOR ALL` — `USING` the organization arm OR
@@ -482,12 +489,12 @@ connection, and the composite key's index). Checks `chk_channel_connection_token
 
 ### 1.4 Permissions
 
-No new codes (P20; codes stay product-wide, P47). Held by default per the four roles (D55, sub-domain 9).
+Two new codes, `channel-account:read` and `channel-account:manage` ([P59](decisions.md)) — shared by every channel's connection and account, added by tenancy's migration with the grants the `instagram-account:*` codes have (TN12). Held by default per the four roles (D55, sub-domain 9).
 
 | Code | Roles matrix | Allows | Routes | Held by default |
 | --- | --- | --- | --- | --- |
-| `instagram-account:manage` | Workspace · Connect and remove Instagram accounts | start, finish, reconnect, pick, disconnect business | 1, 2, 3, 5, 40 | Owner, Admin |
-| `instagram-account:read` | Automations · See automations | the connections list, one connection, the ad accounts and ads | 4, 15, 41, 42 | Owner, Admin, Editor, Viewer |
+| `channel-account:manage` | Workspace · Connect and remove Instagram accounts | start, finish, reconnect, pick, disconnect business | 1, 2, 3, 5, 40 | Owner, Admin |
+| `channel-account:read` | Automations · See automations | the connections list, one connection, the ad accounts and ads | 4, 15, 41, 42 | Owner, Admin, Editor, Viewer |
 
 Routes 16–17 are PUBLIC (Meta's signed request).
 
@@ -535,15 +542,15 @@ Instagram post), `channel_account_id` (`cha_…` or null), `thumbnail_url`, `cre
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 1 | POST | `/social/channel-connections/{provider}/start` | Start the provider's login (Meta's Unified Login) **(new, RC-1)** | `instagram-account:manage` | none (MC4) |
-| 2 | POST | `/social/channel-connections/{provider}/callback` | Finish the login, or a reconnect; answers the picker **(new, RC-2)** | `instagram-account:manage` | req |
-| 40 | POST | `/social/channel-connections/{channel_connection_id}/reconnect` | Start a reconnect of this connection **(new, RC-113 — MC17)** | `instagram-account:manage` | none (MC17) |
-| 3 | POST | `/social/channel-connections/{channel_connection_id}/accounts` | Connect the picked accounts **(new, RC-3)** | `instagram-account:manage` | req |
-| 4 | GET | `/social/channel-connections` | The workspace's connections **(new, RC-4)** | `instagram-account:read` | |
-| 42 | GET | `/social/channel-connections/{channel_connection_id}` | One connection **(new, RC-112 — MC8)** | `instagram-account:read` | |
-| 5 | DELETE | `/social/channel-connections/{channel_connection_id}` | Disconnect business **(new, RC-5)** | `instagram-account:manage` | |
-| 41 | GET | `/social/channel-connections/{channel_connection_id}/ad-accounts` | Its ad accounts, for the ad picker **(new, RC-114 — MC13)** | `instagram-account:read` | |
-| 15 | GET | `/social/channel-connections/{channel_connection_id}/ads` | One ad account's ads, for ad automations **(new, RC-15; moved from the account in rev 2)** | `instagram-account:read` | |
+| 1 | POST | `/social/channel-connections/{provider}/start` | Start the provider's login (Meta's Unified Login) **(new, RC-1)** | `channel-account:manage` | none (MC4) |
+| 2 | POST | `/social/channel-connections/{provider}/callback` | Finish the login, or a reconnect; answers the picker **(new, RC-2)** | `channel-account:manage` | req |
+| 40 | POST | `/social/channel-connections/{channel_connection_id}/reconnect` | Start a reconnect of this connection **(new, RC-113 — MC17)** | `channel-account:manage` | none (MC17) |
+| 3 | POST | `/social/channel-connections/{channel_connection_id}/accounts` | Connect the picked accounts **(new, RC-3)** | `channel-account:manage` | req |
+| 4 | GET | `/social/channel-connections` | The organization's connections **(new, RC-4)** | `channel-account:read` | |
+| 42 | GET | `/social/channel-connections/{channel_connection_id}` | One connection **(new, RC-112 — MC8)** | `channel-account:read` | |
+| 5 | DELETE | `/social/channel-connections/{channel_connection_id}` | Disconnect business **(new, RC-5)** | `channel-account:manage` | |
+| 41 | GET | `/social/channel-connections/{channel_connection_id}/ad-accounts` | Its ad accounts, for the ad picker **(new, RC-114 — MC13)** | `channel-account:read` | |
+| 15 | GET | `/social/channel-connections/{channel_connection_id}/ads` | One ad account's ads, for ad automations **(new, RC-15; moved from the account in rev 2)** | `channel-account:read` | |
 | 16 | POST | `/social/channel-connections/{provider}/deauthorize` | Meta: the app was removed **(changed, RC-17; moved in rev 2)** | PUBLIC (Meta signed request) | none (K3) |
 | 17 | POST | `/social/channel-connections/{provider}/data-deletion` | Meta: delete the data **(changed, RC-18; moved in rev 2)** | PUBLIC (Meta signed request) | none (K3) |
 | — | ~~POST~~ | ~~`/social/instagram/connect`~~ | **REMOVED (RC-6)** — Instagram Login goes (D24); replaced by 1 + 2 + 3 | — | — |
@@ -569,14 +576,14 @@ Instagram post), `channel_account_id` (`cha_…` or null), `thumbnail_url`, `cre
 | --- | --- | --- |
 | 1, 2, 16, 17 | `400` · `provider` | not `meta` |
 | 2, 3 | `400` · `code` / `state` / `channel` / `provider_account_ids` | missing, empty, too long, a repeat, more than 10, not digits, an unknown channel or field |
-| 2 | `400` · `channel_connect_state_invalid` | the state is missing, used, older than 10 minutes, or another user's, workspace's or provider's (nothing saved) |
+| 2 | `400` · `channel_connect_state_invalid` | the state is missing, used, older than 10 minutes, or another user's, organization's or provider's (nothing saved) |
 | 2 | `422` · `provider_code_invalid` | Meta refuses the code |
 | 2 | `422` · `provider_permissions_missing` | `instagram_basic`, `instagram_manage_messages` or `instagram_manage_comments` not granted |
 | 2 | `409` · `instagram_connect_restart_required` | Meta failed after the one-time code was spent (launch D56) — start again |
 | 2 | `409` · `channel_connection_business_mismatch` | a reconnect started by route 40 came back from another business (nothing saved) |
 | 3 | `409` · `plan_account_limit` | not-revoked accounts + the picks exceed the plan's `channel_accounts_max` (nothing saved) |
 | 3 | `409` · `channel_connection_not_connected` | the connection is `error` or `revoked` — reconnect first |
-| 3 | `409` · `trial_used_by_account` | during a trial, a picked account already had a trial in a workspace (sub-domain 8's trial port, BL18; nothing saved) |
+| 3 | `409` · `trial_used_by_account` | during a trial, a picked account already had a trial in an organization (sub-domain 8's trial port, BL18; nothing saved) |
 | 3, 5, 15, 40–42 | `404` · `channel_connection_not_found` | not in the organization, another organization's; routes 5 and 40 also a revoked one |
 | 15, 41 | `404` · `instagram_reconnect_required` | the connection is `error`, or Meta just refused the token |
 | 15 | `400` · `ad_account_id` / `limit` / `after` | missing, not digits, out of range, too long, an unknown field |
@@ -596,7 +603,7 @@ Instagram post), `channel_account_id` (`cha_…` or null), `thumbnail_url`, `cre
   the token check read, close the unit of work, call Meta, then write in a new one.
 - **Status moves only these ways**: `connected → error` (MC11, the one guarded change); `error → connected` (a callback,
   MC5); any → `revoked` (route 5, or the last account leaving — route 8, Meta's callbacks); `revoked → connected` only by a
-  callback of the same business in the same workspace.
+  callback of the same business in the same organization.
 - **An unmatched id on 16–17 is `200` and a team email, never a `404`** — Meta must not retry.
 - **Frontend (meepzo-fe, later iteration, P30)**: the login page sends `state` back unchanged with the key
   `channel-connect:<state>`; `error=access_denied` shows "You stopped the connection. Nothing changed." and calls nothing;
@@ -612,9 +619,9 @@ Instagram post), `channel_account_id` (`cha_…` or null), `thumbnail_url`, `cre
 | MCC4 | MC5–MC7: routes 2–3 (`config: { idempotencyRequired: true }` merged into the rate-limit config), controller, service (the callback steps, reconnect, the pick under `pg_advisory_xact_lock`), DTOs (strict), serializers; the channel account rows (1B), the Instagram extension and settings rows (2) and lanes (6) through their services; reasons `channel_connect_state_invalid`, `provider_code_invalid`, `provider_permissions_missing`, `channel_connection_business_mismatch`, `plan_account_limit`, `channel_connection_not_connected`, `channel_connection_not_found` with `errors:` keys in `src/shared/locales/en/` and in `response-codes.md`; the launch reasons `instagram_code_invalid`, `instagram_account_not_professional`, `instagram_scopes_missing`, `organization_already_has_instagram_account` retired with RC-6 |
 | MCC5 | MC8: routes 4, 42 and 5, the disconnect-business service over sub-domain 1B's disconnect |
 | MCC6 | MC10, MC11: `channel-connection/queues/channel-connection-token-check.{queue,job.schema}.ts` (`organizationPublicId`, `channelConnectionPublicId`), `workers/channel-connection-token-check.{worker,processor}.ts` (on `instagram-tasks`, never paused; the hourly sweep as a second job name under `runGlobalRetentionWorkerJob`), registry, `WORKER_QUEUE_NAMES`, scheduler; the launch's `instagram-account-daily-check` queue, worker and tests removed (WC-35); `markConnectionBroken` on the connection; tests: due / not due, OK clears the error, a missing account → `error`, 190 → connection and every account `error` with one notice each, Meta down changes nothing, twice = once |
-| MCC7 | MC12, tests and seeds: the audit actions; integration tests for every success and error of 1.9, two first connects racing (the advisory lock), a pick over the limit, one pick elsewhere while the others connect, a reconnect that moves an account; RLS test as `meepzo_be_app`; bulk seed — each demo team workspace gets one connection with a fake encrypted token (`channel-connection/seed/`); `pnpm routes:catalog`, success statuses, `docs:generate` |
+| MCC7 | MC12, tests and seeds: the audit actions; integration tests for every success and error of 1.9, two first connects racing (the advisory lock), a pick over the limit, one pick elsewhere while the others connect, a reconnect that moves an account; RLS test as `meepzo_be_app`; bulk seed — each demo team organization gets one connection with a fake encrypted token (`channel-connection/seed/`); `pnpm routes:catalog`, success statuses, `docs:generate` |
 | MCC8 | MC13: routes 41 and 15 (client calls for ad accounts and ads, DTO, serializer, `meta.ad_access`, the match of an ad to a channel account by Instagram id); reason `ad_account_not_found`; nock tests — paging passed through, no `ads_read` → empty lists, the break on 190, an `error` connection `404` |
-| MCC9 | MC14–MC16: the `signed_request` plugin on `META_APP_SECRET` at the two new paths; the new resolver in the account migration (the app-user one dropped), its security test as `meepzo_be_app`; the disconnect through CA8's path (token kept while another account uses the connection); the unmatched-id team email; integration tests — an unmatched id still `200` with a code and one team email, a connection's last account deletes its token, another organization's live account untouched |
+| MCC9 | MC14–MC16: the `signed_request` plugin on `META_APP_SECRET` at the two new paths; the two new resolvers (account, then business — P56) and `idx_channel_connections_provider_business` in the account migration (the app-user resolver dropped), their security tests as `meepzo_be_app`; the disconnect through CA8's path (token kept while another account uses the connection); the unmatched-id team email; integration tests — an account-id match, a business-id match that reaches every account of its connection, an unmatched id still `200` with a code and one team email, a connection's last account deletes its token, another organization's live account untouched |
 | MCC10 | MC1, MC17: a router test that `{provider}` and `{channel_connection_id}` resolve on the same segment (`meta/start`, `meta/deauthorize` vs `<id>/accounts`, `<id>/ads`, `DELETE <id>`); the route catalog and frontend map rows of routes 40–42 |
 | MCC11 | MC18: the token schema and migration — `encrypted_refresh_token`, `token_type` `oauth_user`, the two checks; the token service writes `system_user` for Meta and never a refresh token; the isolation policy test covers the new column (read only on the client path); a unit test that a refresh token is stored encrypted |
 | MCC12 | MC19: the Meta client parses `X-Business-Use-Case-Usage` and the app usage header on every answer and writes the connection's three usage columns in its own unit (an older reading dropped); `readConnectionUsage` and `channel-connection-usage.cache.ts` under be-read-cache-guard (key from the verified scope, tombstone after the write, fail open, TTL ≤ 60 s, the five tests); callers in 4.C, 5 and 6 switched to it; nock tests — 80 % slows, 95 % waits until Meta's time or 15 minutes, a missing header changes nothing |
@@ -626,9 +633,9 @@ map, the login calls and the two signature checks; no table, no route of its own
 
 ---
 
-## 1B. Channel account — rev 3 (2026-11-24) — no nested sub-domains; awaiting your OK
+## 1B. Channel account — rev 4 (2026-11-24) — no nested sub-domains; final (rev 4, confirmed 2026-11-24)
 
-**Status: rev 3 (2026-11-24) — awaiting your OK** (P31; new in rev 2, [P42](decisions.md)).
+**Status: final (rev 4, confirmed 2026-11-24)** (P31; new in rev 2, [P42](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **`channel-account` sub-domain folder** — `app/sub-domains/channel-account/` (**new**, P42), the channel account
 at the folder root; no nested sub-domains. Numbered 1B so that sub-domains 2–12 keep their numbers (M9).
@@ -640,7 +647,7 @@ changes (whole sub-domain) · 1B.12 Nested sub-domains (none).
 **Ids are new in rev 2**: decisions `CA1`…, code changes `CAC1`…, questions `CAQ1`… — most moved from rev 1's sub-domain 2
 (IA1–IA5, IA9–IA11, IAC1, IAC2, IAC4, IAC7; the map is in M9).
 
-The common part of every connected inbox, whatever its channel: a workspace now holds **many** accounts (Free 1, Creator 3,
+The common part of every connected inbox, whatever its channel: an organization now holds **many** accounts (Free 1, Creator 3,
 Studio 10 — D26), each brought in by a channel connection (sub-domain 1); `channel` is `instagram` this iteration (a
 Facebook Page later, D27). This sub-domain lists and reads them, disconnects one, pauses and resumes its sending, swaps which
 accounts are active within the plan (D57), and holds the account's status, display name, its pause / suspend / plan-stop
@@ -653,7 +660,7 @@ owner — CA5). Route numbers run 6–11.
 
 ### 1B.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm.
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90).
 
 **rev 2 changes** (new sub-domain, P42, P47): the common account table `app.channel_accounts` split out of
 `app.instagram_accounts`; routes 6–11 moved from `/social/instagram/accounts/{instagram_account_id}…` to
@@ -662,35 +669,36 @@ automation switch now live on the account (CA3) instead of the lanes and the set
 
 **rev 3 changes** (P48, P50, M10): 1B now holds the per-channel **capability list** `CHANNEL_CAPABILITIES` and the **one feature check** "can this channel account use feature X" (CA11) that go-live (4), settings (2), broadcasts (7) and the engine (6) call instead of three separate checks; the shared product tables (contacts, automations, broadcasts, segments — P48) point at `app.channel_accounts` as before; new question CAQ2 (the refusals' statuses). Routes 6–11 unchanged.
 
+**rev 4 changes** (P59, P60, P61, P76, P83, M12): routes 6–11 gated by `channel-account:*` (P59); the feature check reads the plan's own switch for each feature (P83) and also guards segments (routes 78, 80, 82 — P76); CAQ1 and CAQ2 answered as recommended (P60, P61).
+
 | # | Decision |
 | --- | --- |
 | CA1 | **Folder, table, ids (P42, P47).** Today: the account is `instagram-account/`'s root (`app.instagram_accounts`, `iga_…`). After: a new sub-domain `app/sub-domains/channel-account/` with `channel-account.{routes,controller,service,repository,schema,dto,validator,serializer,types,constants}.ts`, owning `app.channel_accounts`; the Instagram columns stay on `app.instagram_accounts`, now a 1:1 extension (sub-domain 2). Public-id entity `channelAccount` (prefix `cha` proposed, confirmed at kickoff — P22; the account's one public id, P47: Instagram routes take `{channel_account_id}` too, no second Instagram id); path param `{channel_account_id}` in `PARAM_NAME_TO_ENTITY` (`instagram_account_id` leaves it). Every pointer that was `instagram_account_id` on a product or sending table becomes `channel_account_id` → `app.channel_accounts` (P47), and every job payload's `instagramAccountPublicId` becomes `channelAccountPublicId`. Paths under `/api/v1/app/social/channel-accounts/…`. OpenAPI tag `Channel account`. Other option: keep one Instagram table — a later channel would copy every column and route. |
-| CA2 | **Many accounts: path ids, the singular routes go (P1, D26; was IA1).** Today: one not-revoked account per organization (launch D5), so the account routes are singular with no path id — `GET` / `DELETE /social/instagram/account`, `PATCH …/account/settings`, `GET …/media`, `…/stories`. After: the common routes nest under `/social/channel-accounts/{channel_account_id}` (6–11) and the Instagram ones under `/social/instagram/accounts/{channel_account_id}` (12–14, 63); the five singular routes are **moved** (CHANGED in route-changes), never kept beside the new ones. The unique index "one per organization" is dropped; one workspace per account stays (`idx_channel_accounts_provider_account_live`, CAQ1). Other option: singular routes plus an active-account claim or query — rejected in P1. |
-| CA3 | **The account holds its pause, suspend and plan stop (P42, D57, P18; was IA2, which kept them on the lanes).** Today: the account has only `connection_status`. After: `app.channel_accounts` holds `paused_at` (the owner's pause, route 9), `suspended_at` (the team's suspend, P18 — no route this iteration) and `plan_stopped_at` ("not in your plan", D57 — written by route 11, the pick's limit and WC-38), plus `is_automation_enabled` (the automation switch, moved from the Instagram settings, P42). These are **the** copy: the Instagram lanes no longer carry a pause, a suspend or a `plan_downgrade` stop — a lane turn reads its account's three columns in the same unit of work (sub-domain 6, SN12). The workspace-wide plan stops (`plan_limit`, `plan_ended`) and every error stop stay on the lanes (6). The object shows `is_paused`, `is_suspended`, `is_in_plan`, `is_automation_enabled` from the row and `active_stop` through sub-domain 6's lane service in the same unit of work. Other option: rev 1's IA2 — the state on four lane rows per account, which a second channel would have to copy. |
-| CA4 | **Status loses `expired`; the connection breaks accounts (D24; was IA3).** Today: `connection_status` `connected` · `expired` · `error` · `revoked`; `expired` = the 60-day token ended (subcode 463); one account breaks alone (launch IA9). After: `connected` · `error` · `revoked`. An account goes `connected → error` either with its connection (sub-domain 1, MC11) or alone (missing from the assigned list, became personal, §25.9 — plan:L4660–L4672), through this service's guarded `markAccountBroken`; the winner enqueues the reconnect notice (WC-46, the Instagram `instagram-reconnect-notice` worker of sub-domain 2 — every job but the token check is Instagram's, P47 — addressed to Owners and Admins, `instagram-account:manage`). `error → connected` only by a reconnect (sub-domain 1). |
+| CA2 | **Many accounts: path ids, the singular routes go (P1, D26; was IA1).** Today: one not-revoked account per organization (launch D5), so the account routes are singular with no path id — `GET` / `DELETE /social/instagram/account`, `PATCH …/account/settings`, `GET …/media`, `…/stories`. After: the common routes nest under `/social/channel-accounts/{channel_account_id}` (6–11) and the Instagram ones under `/social/instagram/accounts/{channel_account_id}` (12–14, 63); the five singular routes are **moved** (CHANGED in route-changes), never kept beside the new ones. The unique index "one per organization" is dropped; one organization per account stays (`idx_channel_accounts_provider_account_live`, CAQ1). Other option: singular routes plus an active-account claim or query — rejected in P1. |
+| CA3 | **The account holds its pause, suspend and plan stop (P42, D57, P18; was IA2, which kept them on the lanes).** Today: the account has only `connection_status`. After: `app.channel_accounts` holds `paused_at` (the owner's pause, route 9), `suspended_at` (the team's suspend, P18 — no route this iteration) and `plan_stopped_at` ("not in your plan", D57 — written by route 11, the pick's limit and WC-38), plus `is_automation_enabled` (the automation switch, moved from the Instagram settings, P42). These are **the** copy: the Instagram lanes no longer carry a pause, a suspend or a `plan_downgrade` stop — a lane turn reads its account's three columns in the same unit of work (sub-domain 6, SN12). The organization-wide plan stops (`plan_limit`, `plan_ended`) and every error stop stay on the lanes (6). The object shows `is_paused`, `is_suspended`, `is_in_plan`, `is_automation_enabled` from the row and `active_stop` through sub-domain 6's lane service in the same unit of work. Other option: rev 1's IA2 — the state on four lane rows per account, which a second channel would have to copy. |
+| CA4 | **Status loses `expired`; the connection breaks accounts (D24; was IA3).** Today: `connection_status` `connected` · `expired` · `error` · `revoked`; `expired` = the 60-day token ended (subcode 463); one account breaks alone (launch IA9). After: `connected` · `error` · `revoked`. An account goes `connected → error` either with its connection (sub-domain 1, MC11) or alone (missing from the assigned list, became personal, §25.9 — plan:L4660–L4672), through this service's guarded `markAccountBroken`; the winner enqueues the reconnect notice (WC-46, the Instagram `instagram-reconnect-notice` worker of sub-domain 2 — every job but the token check is Instagram's, P47 — addressed to Owners and Admins, `channel-account:manage`). `error → connected` only by a reconnect (sub-domain 1). |
 | CA5 | **Routes that act on lanes are built with sub-domain 6 (was IA4).** Pause, resume, activate (routes 9–11) and the "lanes stopped" part of disconnect (route 8) and pick (sub-domain 1, route 3) wake or stop `app.instagram_send_lanes` through sub-domain 6's lane service in the caller's transaction. The lanes table comes with sub-domain 6, so these three routes are built in 6's ROUTE row and route 8's lane step lands then (the launch's CT5 pattern). Other option: build the lane table early — it then has no reader for several rows. |
 | CA6 | **Team-only and personal organizations (launch IA3 kept; was IA5).** Writes 8–11 → `422` through `assertTeamOrganization({ capability: 'INSTAGRAM' })`; reads 6, 7 → `404 team_organization_required`; `403 missing_permission` first. Another organization's account or a revoked one → `404 channel_account_not_found` (new reason, P47 — the launch's `instagram_not_connected` meant "this organization has none"; it stays only as automation create's `409`, sub-domain 4). |
 | CA7 | **List, read, pause, resume (routes 6, 7, 9, 10, plan:L2599–L2600; was IA9).** Route 6: every not-revoked account, oldest-connected first (the account menu; at most 10), filter `channel` (one or more; default every channel), each a Channel account summary. Route 7: one account with its Instagram extension and settings (`instagram`, through sub-domain 2's service) and sending state (CA3) — database only, never Meta. Route 9: `paused_at` = now (and `paused_by_user_id`); comments and taps are still saved, nothing goes; an already paused account answers the same. Route 10: clears only the owner's pause — error stops, a team suspend and a plan stop stay; each lane with waiting messages gets one turn again and fast tickets come back in pieces of 500 over 5 minutes (sub-domain 6). Both answer the Channel account. A repeat lands in the same state, so neither takes an idempotency key. Pausing a `revoked` account is a `404`; an `error` account may be paused and resumed (the owner may stop it before reconnecting). |
 | CA8 | **Disconnect one account (route 8, plan:L4683–L4693; was IA10).** Today (launch IA14): best-effort unsubscribe, then `revoked`, token row deleted, `token_expires_at` and `webhook_subscribed_at` emptied. After: before the transaction, best-effort removal of its starter questions and `DELETE /{instagram_user_id}/subscribed_apps` (sub-domain 2's Instagram step; logged, never blocks); one commit: `revoked`, `disconnected_at`; the extension's `webhook_subscribed_at` and `starter_questions_set_at` emptied (sub-domain 2's service); its four lanes `stopped` with no turn (sub-domain 6); **the connection's token is deleted only when no other not-revoked account uses that connection** — then the connection is `revoked` too (sub-domain 1); after commit its Redis keys go (`cnt:*`, `acct:`, `auto:`, `banner:`, `estimate:`, `tags:` — each owner's cache module invalidates its own). Automations stay `live`, contacts and history stay; waiting messages stay waiting and expire by the 7-day rule, or go on if the same account reconnects (launch IQ1 kept). The organization frees one slot of its plan. |
 | CA9 | **Choose active accounts (route 11, D57, plan:L2631; was IA11).** An account is "not in your plan" while `plan_stopped_at` is set (CA3). Route 11 makes such an account active: under `pg_advisory_xact_lock` on the organization (the same lock as the pick, MC7), count the active accounts (not revoked, no plan stop); at the plan's `channel_accounts_max` the body must name `stop_channel_account_id` — an active account of the same organization — which gets `plan_stopped_at` in the same commit; below the limit (an active account was disconnected) none is needed. The activated account's `plan_stopped_at` clears and its lanes wake after commit. Already active → `409 channel_account_already_active`; at the limit with no account named → `409 plan_account_limit`; the named account not active or another organization's → `400 stop_channel_account_id`. `X-Idempotency-Key` required: a network retry must replay the swap's answer, not a `409`. A pending move-down's kept list is billing's (sub-domain 8, RC-59) and is not changed here. |
 | CA10 | **Audit (launch K9; from IA7).** `app.channel_account.connect` (WARNING, written by sub-domain 1's pick — MC12), `.disconnect` (WARNING), `.pause`, `.resume` (INFO), `.activate` (WARNING, `metadata.stopped_channel_account_public_id`). All after commit. |
-| CA11 | **The capability list and the one feature check (P48, P50).** Today (rev 2): what an automation may use is checked three ways in three places — the plan's PRO parts (`assertPlanFeature`, 4 and 7), Meta's untested features (`APP_UNTESTED_META_FEATURES`, 4's go-live and 2's settings) and nothing for the channel or the connection's permissions. After: (1) **`CHANNEL_CAPABILITIES`** — a code constant (P4) in `channel-account/channel-account-capabilities.constants.ts`, one entry per channel, `instagram` the only one now: its ways to start (the 15 `trigger_type` values, AU8), its steps (`hello`, `follow`, `email`, `phone`, `messages`, `tags`, `public_reply`, `hide_comment`), its message kinds (`text`, `image`, `cards`, `quick_replies`, `audio`, `file`, `post`) and its features (e.g. `past_comments`, `broadcasts`, `mark_seen`, `reply_like_person`, `starter_questions`); a later channel adds its entry and nothing else changes. Beside it, **`CHANNEL_FEATURES`** maps each feature to what it needs: the capability, the connection's permission (e.g. `ads_read` for an ad start), the plan feature (PRO — D35, D57) and whether Meta's test must have passed (P36). (2) **One check**, `canChannelAccountUseFeature({ databaseHandle, organizationId, channelAccountId, feature })` → allowed, or the first failing reason in this order: **`channel_lacks_feature`** (the account's channel does not list it), **`permission_not_granted`** (the connection's `scopes` lack it — the answer is route 40's reconnect, which asks for the missing permission, MC17), **`plan_lacks_feature`** (sub-domain 8's `getPlanAccess`; was `plan_feature_required`), **`feature_not_offered`** (still on `APP_UNTESTED_META_FEATURES`, owned by 6's settings file). It reads Postgres and constants only (no Meta call) inside the caller's unit; `listChannelAccountFeatureProblems` checks a whole automation or broadcast in one read of each input. (3) **Callers**: go-live lists every refusal as a problem item (AU13, AU34); a save that turns a part on, route 38, routes 71 and 75 and route 12 refuse outright with the statuses of CAQ2; the run engine and the lanes skip a part the account can no longer use, never refuse it (D57, SN22). `assertPlanFeature` stays only as the plan input of this check. Other option: keep three checks — three places to update for every new channel. |
+| CA11 | **The capability list and the one feature check (P48, P50).** Today (rev 2): what an automation may use is checked three ways in three places — the plan's PRO parts (`assertPlanFeature`, 4 and 7), Meta's untested features (`APP_UNTESTED_META_FEATURES`, 4's go-live and 2's settings) and nothing for the channel or the connection's permissions. After: (1) **`CHANNEL_CAPABILITIES`** — a code constant (P4) in `channel-account/channel-account-capabilities.constants.ts`, one entry per channel, `instagram` the only one now: its ways to start (the 15 `trigger_type` values, AU8), its steps (`hello`, `follow`, `email`, `phone`, `messages`, `tags`, `public_reply`, `hide_comment`), its message kinds (`text`, `image`, `cards`, `quick_replies`, `audio`, `file`, `post`) and its features (`email_ask`, `phone_ask`, `reply_like_person`, `multiple_public_reply_lines`, `message_versions`, `broadcasts`, `segments`, `past_comments`, `extra_delay`, `mark_seen`, `starter_questions`, …); a later channel adds its entry and nothing else changes. Beside it, **`CHANNEL_FEATURES`** maps each feature to what it needs: the capability, the connection's permission (e.g. `ads_read` for an ad start), the plan switch it reads — one per feature, the PRO ones off on Free (P83; D35, D57) and whether Meta's test must have passed (P36). (2) **One check**, `canChannelAccountUseFeature({ databaseHandle, organizationId, channelAccountId, feature })` → allowed, or the first failing reason in this order: **`channel_lacks_feature`** (the account's channel does not list it), **`permission_not_granted`** (the connection's `scopes` lack it — the answer is route 40's reconnect, which asks for the missing permission, MC17), **`plan_lacks_feature`** (the plan's own switch for that feature, read from sub-domain 8's `getPlanAccess` — P83; was `plan_feature_required`), **`feature_not_offered`** (still on `APP_UNTESTED_META_FEATURES`, owned by 6's settings file). It reads Postgres and constants only (no Meta call) inside the caller's unit; `listChannelAccountFeatureProblems` checks a whole automation or broadcast in one read of each input. (3) **Callers**: go-live lists every refusal as a problem item (AU13, AU34); a save that turns a part on, route 38, routes 71, 75, 78, 80 and 82 (P76) and route 12 refuse outright with the statuses of CAQ2; the run engine and the lanes skip a part the account can no longer use, never refuse it (D57, SN22). `assertPlanFeature` stays only as the plan input of this check. Other option: keep three checks — three places to update for every new channel. |
 
 ### 1B.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| CAQ1 | Where does "one workspace per account" live, now that the status is on `app.channel_accounts` and the Instagram user id on the extension (a partial unique index cannot read two tables)? | `provider_account_id` on the channel account (unique per channel while not revoked) · keep the id only on the extension and add a status copy there | **`provider_account_id` on the channel account** — the provider's own id is common to every channel (Instagram user id, Page id), written once at the pick in the same commit as the extension's `instagram_user_id`; the service keeps the two equal and a DB test pins it |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| CAQ1 | Where does "one organization per account" live, now that the status is on `app.channel_accounts` and the Instagram user id on the extension (a partial unique index cannot read two tables)? | `provider_account_id` on the channel account (unique per channel while not revoked) · keep the id only on the extension and add a status copy there | **`provider_account_id` on the channel account** — the provider's own id is common to every channel (Instagram user id, Page id), written once at the pick in the same commit as the extension's `instagram_user_id`; the service keeps the two equal and a DB test pins it | **P60** — on `app.channel_accounts` (as recommended, CAC5) |
+| CAQ2 | P50's one feature check answers four reasons — which status does a route give each when it refuses outright (go-live lists them as `errors[]` items instead)? | `422 channel_lacks_feature`, `409 permission_not_granted`, `403 plan_lacks_feature`, `422 feature_not_offered` · `403` for all four | **The first** — `channel_lacks_feature` asks for something the channel can never do (`422`, like a bad field); `permission_not_granted` is the connection's state and the same call passes after a reconnect (`409`); `plan_lacks_feature` keeps the PRO refusal's `403` (was `plan_feature_required`); `feature_not_offered` keeps route 12's `422` (M2, M10) | **P61** — split: `422` · `409` · `403` · `422` (as recommended) |
 
-| CAQ2 | P50's one feature check answers four reasons — which status does a route give each when it refuses outright (go-live lists them as `errors[]` items instead)? | `422 channel_lacks_feature`, `409 permission_not_granted`, `403 plan_lacks_feature`, `422 feature_not_offered` · `403` for all four | **The first** — `channel_lacks_feature` asks for something the channel can never do (`422`, like a bad field); `permission_not_granted` is the connection's state and the same call passes after a reconnect (`409`); `plan_lacks_feature` keeps the PRO refusal's `403` (was `plan_feature_required`); `feature_not_offered` keeps route 12's `422` (M2, M10) |
-
-Until you answer, the plan follows the recommendation.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 1B.3 Tables and relations
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.channel_accounts` | one connected inbox of a workspace (an Instagram professional account now) | many per organization (the plan's limit, checked at the pick); one not-revoked row per provider account across organizations (CAQ1); status by actions only (CA4); no soft delete — `revoked` |
+| `app.channel_accounts` | one connected inbox of an organization (an Instagram professional account now) | many per organization (the plan's limit, checked at the pick); one not-revoked row per provider account across organizations (CAQ1); status by actions only (CA4); no soft delete — `revoked` |
 
 ```text
 tenancy.organizations
@@ -735,7 +743,7 @@ changed in place (D1, P29; db-changes decides the file).
 
 Indexes: unique `idx_channel_accounts_public_id`; unique `idx_channel_accounts_organization_id_id` `(organization_id, id)` —
 the parent key of every `channel_account_id`; unique `idx_channel_accounts_provider_account_live` `(channel,
-provider_account_id) WHERE connection_status <> 'revoked'` (one workspace per account — was
+provider_account_id) WHERE connection_status <> 'revoked'` (one organization per account — was
 `idx_instagram_accounts_instagram_user_live`); `idx_channel_accounts_organization_channel` `(organization_id, channel,
 connected_at) WHERE connection_status <> 'revoked'` (route 6); `idx_channel_accounts_connection` `(organization_id,
 channel_connection_id)` — the composite key's index and "the accounts of a connection" (reconnect, break, disconnect
@@ -749,14 +757,14 @@ maintenance arm in `USING` (the 10-minute check and the plan-change sweep read a
 
 ### 1B.4 Permissions
 
-No new codes (P47 — codes stay as they are; the Instagram ones gate the channel account while Instagram is its only channel).
+The two codes of 1.4 ([P59](decisions.md)) — `channel-account:read` · `:manage`, held by the same roles the Instagram codes are (TN12).
 
 | Code | Roles matrix | Allows | Routes | Held by default |
 | --- | --- | --- | --- | --- |
-| `instagram-account:read` | Automations · See automations and their numbers | the accounts | 6, 7 | Owner, Admin, Editor, Viewer |
-| `instagram-account:manage` | Workspace · Connect and remove Instagram accounts | disconnect, pause, resume, choose active accounts; receives the reconnect notice | 8, 9, 10, 11 | Owner, Admin |
+| `channel-account:read` | Automations · See automations and their numbers | the accounts | 6, 7 | Owner, Admin, Editor, Viewer |
+| `channel-account:manage` | Workspace · Connect and remove Instagram accounts | disconnect, pause, resume, choose active accounts; receives the reconnect notice | 8, 9, 10, 11 | Owner, Admin |
 
-Pause and resume stay with `instagram-account:manage` (plan §45.5 row 7 names connecting and removing; the plan names no
+Pause and resume stay with `channel-account:manage` (P59) (plan §45.5 row 7 names connecting and removing; the plan names no
 other holder — an Editor cannot stop an account's sending).
 
 ### 1B.5 Common to every route
@@ -790,12 +798,12 @@ holds most lanes, or null — the banners read sub-domain 6's sending status, RC
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 6 | GET | `/social/channel-accounts` | The workspace's accounts — the account menu **(new, RC-7)** | `instagram-account:read` | |
-| 7 | GET | `/social/channel-accounts/{channel_account_id}` | One account **(moved from `/social/instagram/account`, RC-8)** | `instagram-account:read` | |
-| 8 | DELETE | `/social/channel-accounts/{channel_account_id}` | Disconnect one account **(moved, RC-9)** | `instagram-account:manage` | |
-| 9 | POST | `/social/channel-accounts/{channel_account_id}/pause` | Pause its sending **(new, RC-10)** | `instagram-account:manage` | none (CA7) |
-| 10 | POST | `/social/channel-accounts/{channel_account_id}/resume` | Resume it **(new, RC-11)** | `instagram-account:manage` | none (CA7) |
-| 11 | POST | `/social/channel-accounts/{channel_account_id}/activate` | Choose active accounts — swap one in **(new, RC-60)** | `instagram-account:manage` | req |
+| 6 | GET | `/social/channel-accounts` | The organization's accounts — the account menu **(new, RC-7)** | `channel-account:read` | |
+| 7 | GET | `/social/channel-accounts/{channel_account_id}` | One account **(moved from `/social/instagram/account`, RC-8)** | `channel-account:read` | |
+| 8 | DELETE | `/social/channel-accounts/{channel_account_id}` | Disconnect one account **(moved, RC-9)** | `channel-account:manage` | |
+| 9 | POST | `/social/channel-accounts/{channel_account_id}/pause` | Pause its sending **(new, RC-10)** | `channel-account:manage` | none (CA7) |
+| 10 | POST | `/social/channel-accounts/{channel_account_id}/resume` | Resume it **(new, RC-11)** | `channel-account:manage` | none (CA7) |
+| 11 | POST | `/social/channel-accounts/{channel_account_id}/activate` | Choose active accounts — swap one in **(new, RC-60)** | `channel-account:manage` | req |
 
 ### 1B.8 Request details
 
@@ -837,11 +845,11 @@ holds most lanes, or null — the banners read sub-domain 6's sending status, RC
 | # | Change |
 | --- | --- |
 | CAC1 | CA1, CA2: `channel-account/` folder; `channel-account.schema.ts` (columns, indexes, checks, policy as 1B.3) in the account migration changed in place; `PUBLIC_ID_PREFIXES.channelAccount`, `PARAM_NAME_TO_ENTITY.channel_account_id` (the `instagram_account_id` entry removed); every route file under the new paths; the singular routes removed from the route catalog, `route-organization-scope.json`, `route-success-statuses.json`, OpenAPI examples and the frontend route map; `EXPECTED_FORCE_RLS_TABLES` +1; OpenAPI tag `Channel account`; `channel-account.overview.md`; `src/domains/CLAUDE.md`'s app row (was IAC1) |
-| CAC2 | CA3, CA4: `connection_status` values without `expired` (constants, the check, the serializer); `markAccountBroken` (guarded `connected → error`); the pause, suspend and plan-stop columns and the automation switch read by intake (5) and the lane turn (6) — the lane columns they replace removed with sub-domain 6; the reconnect-notice recipients (`instagram-account:manage`) and copy keys ("@account is no longer shared", "Switch @account back to Creator or Business") (was IAC2) |
+| CAC2 | CA3, CA4: `connection_status` values without `expired` (constants, the check, the serializer); `markAccountBroken` (guarded `connected → error`); the pause, suspend and plan-stop columns and the automation switch read by intake (5) and the lane turn (6) — the lane columns they replace removed with sub-domain 6; the reconnect-notice recipients (`channel-account:manage`) and copy keys ("@account is no longer shared", "Switch @account back to Creator or Business") (was IAC2) |
 | CAC3 | CA6, CA10: the audit actions; reasons `channel_account_not_found`, `channel_account_already_active` (`errors:` keys, `response-codes.md`); `instagram_not_connected` kept for automation create only (was IAC4) |
 | CAC4 | CA7–CA9: routes 6–11 with schemas (`idempotencyRequired` on 11), controller, service, DTOs (strict), serializers (summary and full, the Instagram part through sub-domain 2's serializer); repository — accounts of a connection, active count under the lock, the guarded break, revoke; the lane calls through sub-domain 6's service (built with 6, CA5); integration tests — every success and error of 1B.9, a pause that leaves error stops, a disconnect that keeps the token while another account uses the connection and deletes it with the last, a swap at the limit, two swaps racing (the lock), the `channel` filter, the `test:rls-role` lane (was IAC6, IAC7) |
-| CAC5 | CAQ1: the pick writes `provider_account_id` and the extension's `instagram_user_id` in one commit; a DB test that the two stay equal and that a second live row of one account in another workspace is refused |
-| CAC6 | CA11, CAQ2: `channel-account-capabilities.constants.ts` (`CHANNEL_CAPABILITIES`, `CHANNEL_FEATURES`, checked by `validate:constants`); `canChannelAccountUseFeature` and `listChannelAccountFeatureProblems` in the channel-account service, exposed to 2, 4, 6 and 7 through `app.container.ts`; reasons `channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature` (renamed from `plan_feature_required`), `feature_not_offered` with their `errors:` keys and `response-codes.md` rows; unit tests — each reason alone, the order when several fail, a channel without the entry, a connection without the scope, Free vs Creator, an untested feature |
+| CAC5 | CAQ1: the pick writes `provider_account_id` and the extension's `instagram_user_id` in one commit; a DB test that the two stay equal and that a second live row of one account in another organization is refused |
+| CAC6 | CA11, CAQ2: `channel-account-capabilities.constants.ts` (`CHANNEL_CAPABILITIES`, `CHANNEL_FEATURES`, checked by `validate:constants`); `canChannelAccountUseFeature` and `listChannelAccountFeatureProblems` in the channel-account service, exposed to 2, 4, 6 and 7 through `app.container.ts`; reasons `channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature` (renamed from `plan_feature_required`), `feature_not_offered` with their `errors:` keys and `response-codes.md` rows; unit tests — each reason alone, the order when several fail, a channel without the entry, a connection without the scope, Free vs Creator on each PRO switch (P83), segments refused on Free (P76), an untested feature |
 
 ### 1B.12 Nested sub-domains
 
@@ -849,9 +857,9 @@ None — one table, no persistence parts.
 
 ---
 
-## 2. Instagram account — rev 3 (2026-11-24) — nested sub-domains 2.A–2.C; awaiting your OK
+## 2. Instagram account — rev 4 (2026-11-24) — nested sub-domains 2.A–2.C; final (rev 4, confirmed 2026-11-24)
 
-**Status: rev 3 (2026-11-24) — awaiting your OK** (P31).
+**Status: final (rev 4, confirmed 2026-11-24)** (P31). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 **Ids restart for this iteration**: decisions `IA1`…, code changes `IAC1`…, questions `IAQ1`… are this iteration's; the
 frozen launch's ids are cited as "launch IA5" (its § 1). Rev 2 moved IA1–IA5, IA9–IA11 and their code changes to 1B
@@ -878,7 +886,7 @@ numbers run 12–14.
 
 ### 2.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. A decision that
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). A decision that
 belongs to one table is in its nested sub-domain.
 
 **rev 2 changes** (P42, P46, P47): the sub-domain is now the **Instagram extension** — the common account and routes 6–11
@@ -991,15 +999,15 @@ Every route can answer the errors in 2.5; each route's own errors are in its nes
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-account/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 2.A Instagram account | folder root | `app.instagram_accounts` | — (background work, IA6) | awaiting your OK |
-| 2.B Instagram account settings | `instagram-account-settings/` | `app.instagram_account_settings` | 12 | awaiting your OK |
-| 2.C Instagram media | `instagram-media/` | `app.instagram_media` | 13–14 | awaiting your OK |
+| 2.A Instagram account | folder root | `app.instagram_accounts` | — (background work, IA6) | final (rev 4, confirmed 2026-11-24) |
+| 2.B Instagram account settings | `instagram-account-settings/` | `app.instagram_account_settings` | 12 | final (rev 4, confirmed 2026-11-24) |
+| 2.C Instagram media | `instagram-media/` | `app.instagram_media` | 13–14 | final (rev 4, confirmed 2026-11-24) |
 
 Rev 1's 2.D Meta callbacks (`instagram-account-meta-callback/`, routes 16–17) moved to sub-domain 1 (MC14–MC16).
 
 ---
 
-### 2.A Instagram account — `instagram-account/` (folder root) — awaiting your OK
+### 2.A Instagram account — `instagram-account/` (folder root) — final (rev 4, confirmed 2026-11-24)
 
 #### 2.A.1 Decisions
 
@@ -1009,7 +1017,7 @@ Rev 1's 2.D Meta callbacks (`instagram-account-meta-callback/`, routes 16–17) 
 
 #### 2.A.2 Open questions
 
-None (CAQ1, 1B.2, decides where the one-live-row rule lives).
+None (CAQ1, 1B.2 — answered P60: the one-live-row rule is on `app.channel_accounts`).
 
 #### 2.A.3 Tables and relations
 
@@ -1071,14 +1079,14 @@ None of its own.
 
 ---
 
-### 2.B Instagram account settings — `instagram-account/instagram-account-settings/` — awaiting your OK
+### 2.B Instagram account settings — `instagram-account/instagram-account-settings/` — final (rev 4, confirmed 2026-11-24)
 
 #### 2.B.1 Decisions
 
 | # | Decision |
 | --- | --- |
 | IA12 | **The settings v8 (D22, D64–D68, plan:L2895–L2920).** Today: `is_automation_enabled` plus five public-reply-safety columns (`is_public_reply_safety_enabled`, `public_reply_chance_percent` 0–100, `public_reply_hour_limit` 1–1000, gap min / max 5–3600). After: the five reply columns **go** (per automation now — D14, D32; sub-domain 4); `is_automation_enabled` **moves to the channel account** (P42, 1B.3) — route 12 still accepts it and writes it through 1B's service in the same commit (no channel-account `PATCH` this iteration); **added** — every number nullable, empty = the settings file's value (D22, P4): `opening_hour_limit` (database 1–750, API 1–700), `opening_day_limit` (API from the hour limit to 24 × it; read only while `DAY_LIMIT_ENABLED` is on — accepted and stored when it is off, the answer says `is_day_limit_enabled: false`), `fast_hour_limit` (1–20,000), `person_hour_limit` (5–100), `broadcast_hour_limit` (1–2,000), `is_automatic_notice_enabled` (off), `extra_stop_words` (0–50, each 1–50 characters, trimmed, lowercased, no repeats — added to `STOP_WORDS`, D49), `is_comment_reply_trigger_enabled` (on, D64), `is_once_per_person_per_post_enabled` (on, D65), `is_mark_seen_after_reply_enabled` (off, D66), `extra_delay_seconds_min` / `_max` (1–20, both or neither, min ≤ max on the merged result, D67). Names take the `is_` form (P21; the plan's `trigger_on_comment_replies` …). The settings row's key is `channel_account_id` (P47). |
-| IA13 | **What a save refuses.** A bound outside the API range → `400` naming the field; min above max on the merged result → `400 extra_delay_seconds_max`. **PRO** (D35, D67): setting the extra delay on a plan without PRO → `403 plan_lacks_feature` (1B's feature check over sub-domain 8's plan read, CA11; clearing it is always allowed). **Meta-test-gated** (P36): turning `is_mark_seen_after_reply_enabled` on while the untested-feature list holds `mark_seen` → `422 feature_not_offered` (a deploy changes the list, not the request). A read-only plan does not refuse a save (P10). Optional `expected_updated_at` → `409 record_changed` (launch IA15 kept). Works on an `error` account; `revoked` → `404`. |
+| IA13 | **What a save refuses.** A bound outside the API range → `400` naming the field; min above max on the merged result → `400 extra_delay_seconds_max`. **PRO** (D35, D67): setting the extra delay on a plan whose `extra_delay` switch is off (P83) → `403 plan_lacks_feature` (1B's feature check over sub-domain 8's plan read, CA11; clearing it is always allowed). **Meta-test-gated** (P36): turning `is_mark_seen_after_reply_enabled` on while the untested-feature list holds `mark_seen` → `422 feature_not_offered` (a deploy changes the list, not the request). A read-only plan does not refuse a save (P10). Optional `expected_updated_at` → `409 record_changed` (launch IA15 kept). Works on an `error` account; `revoked` → `404`. |
 | IA14 | **What a save sets off (plan:L2610–L2611, L2673–L2684).** A limit change: after commit, the slow and reply lanes get a new turn (a working lane keeps going and moves the turn at its save — sub-domain 6); the behaviour switches and stop words count for new events only — messages already waiting keep their time. The worker reads every number again and uses the settings-file value for a bad one (plan:L1991). Event processing (sub-domain 5) reads the settings through this service on every event; no cache (launch IA15). The answer shows each limit's owner value and its effective value. |
 
 #### 2.B.2 Open questions
@@ -1167,7 +1175,7 @@ what the lanes use now, the new-account limit included), `is_day_limit_enabled` 
 
 ---
 
-### 2.C Instagram media — `instagram-account/instagram-media/` — awaiting your OK
+### 2.C Instagram media — `instagram-account/instagram-media/` — final (rev 4, confirmed 2026-11-24)
 
 #### 2.C.1 Decisions
 
@@ -1250,9 +1258,9 @@ As 2.5.
 
 ---
 
-## 3. Contacts — rev 3 (2026-11-24) — nested sub-domains 3.A–3.B; awaiting your OK
+## 3. Contacts — rev 4 (2026-11-24) — nested sub-domains 3.A–3.B; final (rev 4, confirmed 2026-11-24)
 
-**Status: rev 3 (2026-11-24) — awaiting your OK** (P31).
+**Status: final (rev 4, confirmed 2026-11-24)** (P31). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **`contact` sub-domain folder** — `app/sub-domains/contact/` (the launch's `contact/`, kept and shared by every channel — P48; the contact at the folder root) with a
 new nested `contact-tag-event/` (a table, its service and two workers; no routes — the launch's `automation-run/` shape).
@@ -1261,7 +1269,7 @@ new nested `contact-tag-event/` (a table, its service and two workers; no routes
 3.6 Objects returned · 3.7 Routes · 3.8 Request details · 3.9 Errors · 3.10 Rules worth knowing · 3.11 Code changes (whole sub-domain) ·
 3.12 Nested sub-domains · then **3.A Contacts · 3.B Contact tag events** — each with the same eleven sections.
 
-The people who wrote to or commented on one of the workspace's accounts — of any channel (P48; Instagram the only one now). The launch lists them and erases one (launch
+The people who wrote to or commented on one of the organization's accounts — of any channel (P48; Instagram the only one now). The launch lists them and erases one (launch
 § 2); now the team also opens one, writes a private note, tags them (one or many), pauses automations for one person
 (D71), sees "What happened" (P13), and retries her failed messages (D72); a stop word she writes opts her out (D49), and
 every tag change is an event that can start a tag automation (D45). Design read: plan §14.4, §14.7, §15.4, §18.4, §19.16
@@ -1271,7 +1279,7 @@ retry. Route numbers run 18–26.
 
 ### 3.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. The launch's
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). The launch's
 review is the "before" ([launch routes-final § 2](../../launch-2026-11-20-ujai/plans/routes-final.md)).
 
 **rev 2 changes** (P44, P47, M9): renamed Contacts → **Instagram contacts** — folder `instagram-contact/` (+ `instagram-contact-tag-event/`), tables `app.instagram_contacts`, `app.instagram_contact_tag_events`; routes under `/social/instagram/contacts…` (route 22 at `/social/instagram/accounts/{channel_account_id}/contact-tags`); the account filter, body field and pointer `instagram_account_id` → `channel_account_id` (→ `app.channel_accounts`, 1B); `{contact_id}` and the `contact_id` columns keep their names; audit `app.instagram_contact.*`; job payloads `channelAccountPublicId`.
@@ -1294,14 +1302,14 @@ review is the "before" ([launch routes-final § 2](../../launch-2026-11-20-ujai/
 
 ### 3.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| CTQ1 | be-read-cache-guard rule 1 says a cache key comes from the verified scope, never a request parameter; the tag list is per account. | key `…:<organization>:<account>` with the account id read back from Postgres inside the scope (CT8) · one key per organization holding every account's list | **The first** — the organization segment is the tenant boundary and comes from the scope; the account segment is a row the scope already proved is the organization's, so it can never reach another tenant; the second recomputes ten lists on every tag change |
-| CTQ2 | Must every contact list name its account? | required (CT2) · optional, default every account | **Required** — the app is switched per account and the indexes lead with it; the launch is unreleased (P29), so the breaking change costs nothing |
-| CTQ3 | Bulk actions select by ids only, or also "every contact matching these filters"? | ids and filter (CT7) · ids only (1–500) | **Both** — "select all 12,000" is the case pieces of 500 exist for (plan:L1039) |
-| CTQ4 | Route 22 now that contacts are shared: `GET /contact-tags?channel_account_id=` or under the account (`/social/channel-accounts/{channel_account_id}/contact-tags`)? | the shared path with the account as a query (CT18) · a 1B path served by 3 | **The shared path** — every other contact read is a shared path filtered by `channel_account_id`, and a route lives in the sub-domain whose path it has (M6); the cache key still reads the account back inside the scope (CTQ1) |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| CTQ1 | be-read-cache-guard rule 1 says a cache key comes from the verified scope, never a request parameter; the tag list is per account. | key `…:<organization>:<account>` with the account id read back from Postgres inside the scope (CT8) · one key per organization holding every account's list | **The first** — the organization segment is the tenant boundary and comes from the scope; the account segment is a row the scope already proved is the organization's, so it can never reach another tenant; the second recomputes ten lists on every tag change | **P64** — organization + account, the account read back inside the scope (as recommended, CT8) |
+| CTQ2 | Must every contact list name its account? | required (CT2) · optional, default every account | **Required** — the app is switched per account and the indexes lead with it; the launch is unreleased (P29), so the breaking change costs nothing | **P65** — required (as recommended) |
+| CTQ3 | Bulk actions select by ids only, or also "every contact matching these filters"? | ids and filter (CT7) · ids only (1–500) | **Both** — "select all 12,000" is the case pieces of 500 exist for (plan:L1039) | **P66** — ids (1–500) or a filter, in pieces of 500 (as recommended) |
+| CTQ4 | Route 22 now that contacts are shared: `GET /contact-tags?channel_account_id=` or under the account (`/social/channel-accounts/{channel_account_id}/contact-tags`)? | the shared path with the account as a query (CT18) · a 1B path served by 3 | **The shared path** — every other contact read is a shared path filtered by `channel_account_id`, and a route lives in the sub-domain whose path it has (M6); the cache key still reads the account back inside the scope (CTQ1) | **P67** — `GET /contact-tags?channel_account_id=` (as recommended) |
 
-Until you answer, the plan follows the recommendation.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 3.3 Tables and relations
 
@@ -1405,18 +1413,18 @@ Every route can answer the errors in 3.5; each route's own errors are in 3.A.9.
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/contact/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 3.A Contacts | folder root | `app.contacts` | 18–26 | awaiting your OK |
-| 3.B Contact tag events | `contact-tag-event/` | `app.contact_tag_events` | — | awaiting your OK |
+| 3.A Contacts | folder root | `app.contacts` | 18–26 | final (rev 4, confirmed 2026-11-24) |
+| 3.B Contact tag events | `contact-tag-event/` | `app.contact_tag_events` | — | final (rev 4, confirmed 2026-11-24) |
 
 ---
 
-### 3.A Contacts — `contact/` (folder root) — awaiting your OK
+### 3.A Contacts — `contact/` (folder root) — final (rev 4, confirmed 2026-11-24)
 
 #### 3.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| CT11 | **Erase also cancels her messages and her tag events (RC-25, plan:L2628).** Today (launch CT7, CT8): lock, run the erasure steps (4's run copies), clear every personal column, keep the row; `chk_contacts_erased`. After: the same, with two more steps (3.10) and more columns cleared — `note`, `opted_out_at`, `last_opening_message_at`, `automations_off_at`, `automations_off_by_user_id`, `came_in_ref`, `first_message_at`, `last_comment_at`, `last_story_activity_at`, `last_broadcast_at` emptied and `comment_count` 0 (her activity is personal data too); `first_automation_id`, `came_in_via` and `channel` stay (they name the workspace's own automation, not her). `chk_contacts_erased` lists them. No body, no key, a repeat `404` — as built. |
+| CT11 | **Erase also cancels her messages and her tag events (RC-25, plan:L2628).** Today (launch CT7, CT8): lock, run the erasure steps (4's run copies), clear every personal column, keep the row; `chk_contacts_erased`. After: the same, with two more steps (3.10) and more columns cleared — `note`, `opted_out_at`, `last_opening_message_at`, `automations_off_at`, `automations_off_by_user_id`, `came_in_ref`, `first_message_at`, `last_comment_at`, `last_story_activity_at`, `last_broadcast_at` emptied and `comment_count` 0 (her activity is personal data too); `first_automation_id`, `came_in_via` and `channel` stay (they name the organization's own automation, not her). `chk_contacts_erased` lists them. No body, no key, a repeat `404` — as built. |
 | CT12 | **The list (route 18).** Today: `q` over username, full name, email; `tags`, `has_email`, `has_phone`, `is_following_account`, `first_seen_from` / `_to`, `automation_id`, `instagram_account_id`; sorts `last_message_received_at` · `first_seen_at` · `username`. After: `channel_account_id` required (CT2); `q` also over `phone` (the trigram expression adds `coalesce(phone, '')`, plan:L2980); new filters `is_opted_out`, `is_automations_paused`, `came_in_via` (one or more `trigger_type` values), `first_automation_id` (`aut_…`); the sorts as built. Each row is a Contact (no note). |
 | CT13 | **Open one contact (route 19).** A Contact detail: the row plus `note`, `automations_paused_by_user_id`, `last_opening_message_at`, `first_automation` `{ id, name }` (a deleted automation shows its name until purged, then null), `open_run_count`. Database only. |
 | CT14 | **What happened (route 24, D46, D50, P13).** Our messages to her (sub-domain 6, kept about 30 days — split by run-start week, P13) and her runs' history (4.B run events, 90 days: started, step changes, `email_received`, `phone_received`, `hello_tapped`, `follow_tapped`, ended), merged newest first. Never her own free text, never the email or phone values (they are on the contact, launch AU23). Paging by keyset `(occurred_at, source, id)` — each source reads `limit + 1` after the cursor, the service merges and `finishKeysetPage` cuts. `meta.message_horizon_days` = 30 tells the screen why older entries show only run history. |
@@ -1424,7 +1432,7 @@ Every route can answer the errors in 3.5; each route's own errors are in 3.A.9.
 
 #### 3.A.2 Open questions
 
-CTQ1 (3.2, the cache key), CTQ2 (the required account), CTQ3 (bulk by filter), CTQ4 (route 22's path, rev 3).
+CTQ1 (3.2, the cache key), CTQ2 (the required account), CTQ3 (bulk by filter), CTQ4 (route 22's path, rev 3) — all answered as recommended (P64–P67).
 
 #### 3.A.3 Tables and relations
 
@@ -1562,7 +1570,7 @@ As 3.7.
 
 ---
 
-### 3.B Contact tag events — `contact/contact-tag-event/` — awaiting your OK
+### 3.B Contact tag events — `contact/contact-tag-event/` — final (rev 4, confirmed 2026-11-24)
 
 #### 3.B.1 Decisions
 
@@ -1638,9 +1646,9 @@ None of its own.
 
 ---
 
-## 4. Automations — rev 3 (2026-11-24) — nested sub-domains 4.A–4.C; awaiting your OK
+## 4. Automations — rev 4 (2026-11-24) — nested sub-domains 4.A–4.C; final (rev 4, confirmed 2026-11-24)
 
-**Status: rev 3 (2026-11-24) — awaiting your OK** (P31).
+**Status: final (rev 4, confirmed 2026-11-24)** (P31). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **`automation` sub-domain folder** — `app/sub-domains/automation/` (the launch's `automation/`, kept and shared by every channel — P48; the automation, its counters and its
 public-reply pacing at the folder root) with `automation-run/` (as built) and a new `automation-backfill/` (past comments,
@@ -1665,7 +1673,7 @@ Builds on 1B (the account), 2 (its media), 3 (contacts — and it adds 3's two k
 
 ### 4.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. The launch's
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). The launch's
 review is the "before" ([launch routes-final § 3](../../launch-2026-11-20-ujai/plans/routes-final.md)).
 
 **rev 2 changes** (P44, P47, M9): renamed Automations → **Instagram automations** — folders `instagram-automation/` (+ `instagram-automation-run/`, `instagram-automation-backfill/`), tables `app.instagram_automations`, `app.instagram_automation_runs`, `app.instagram_automation_run_events`, `app.instagram_automation_comment_logs`, `app.instagram_automation_counts`, `app.instagram_automation_reply_states`, `app.instagram_automation_backfills`; routes under `/social/instagram/automations…`; `instagram_account_id` → `channel_account_id` (→ `app.channel_accounts`, 1B); `{automation_id}`, `{automation_backfill_id}` and the `automation_id` columns keep their names; audit `app.instagram_automation.*`; go-live reads the account state from 1B and media and starter questions from 2.
@@ -1677,7 +1685,7 @@ review is the "before" ([launch routes-final § 3](../../launch-2026-11-20-ujai/
 | AU1 | **Folders, names, ids (P38).** Today: `automation/` (routes 11–15 of the launch) and `automation-run/` (no routes; runs, run events, comment logs, the engine). After: both stay `automation/` and `automation/automation-run/`, their tables shared by every channel (P48 — rev 2's `instagram-automation/` and `app.instagram_*`, P44, are undone); a new nested `automation-backfill/` (routes 38–39, `app.automation_backfills`, the past-comments worker); `app.automation_counts` and `app.automation_reply_states` are persistence parts at the folder root (`automation-count.*`, `automation-reply-state.*` — schema, repository, a small service each; no controller). The plan's singular `automation_reply_state` becomes the plural table name (db-changes). Public id of a backfill: prefix at kickoff (P22); **its path id is `{automation_backfill_id}`** (the table's singular — the template's rule), not route-changes' `{backfill_id}`, registered in `PARAM_NAME_TO_ENTITY`. |
 | AU2 | **Codes — no new ones (P20, D55).** `automation:read` · `create` · `update` · `delete` as built; past comments and the automation's failed-message retry reuse them (D69, D72). The Member role becomes **Editor** and gains `automation:delete` (D55, sub-domain 9) — Editors may create, edit, go live, pause and delete. Viewer reads. |
 | AU3 | **Status by actions only (P8, D28).** Today: `live` · `inactive`, set by `PATCH status`. After: `draft` · `live` · `paused` (`inactive` → `paused` in the migration changed in place — no data, P29); `PATCH` saves content only; route 32 goes live from `draft` or `paused`, route 33 pauses a `live` one; delete from any status. Going live when already `live`, or pausing an already `paused` automation with the same mode, answers `200` and changes nothing (a repeat is safe, so neither takes a key); pausing a `draft` → `409 transition_not_allowed`. An automatic stop (`stopped_reason` `bad_text` · `post_deleted`, set by sub-domains 5–6) keeps it `live` and sends nothing until fixed (route 30). A plan change never stops one (D57). |
-| AU4 | **Plans: read-only, PRO, untested features (P10, D35, D57, P36).** Today: `app-plan-access.ts`'s preHandler refuses create, edit and delete with `403 organization_read_only` while `BILLING_READ_ONLY_ENFORCED` is on; no PRO, no feature list. After: (1) **plan ended or workspace suspended** → only go-live is refused (`403 organization_read_only`, the same reason; the preHandler moves from create / edit / delete to route 32); create, edit, pause, duplicate and delete stay open (P10); (2) **PRO** (email, phone, "Reply like a person", more than one reply line, a second version, past comments): a draft may hold them; going live with one on a plan without PRO is a go-live problem; a save of a live or paused automation that turns one on (off in the saved row) → `403 plan_lacks_feature`; past comments → `403 plan_lacks_feature`; PRO parts already on before a move down stay saved and the engine ignores them (4.B); (3) **untested Meta features** — the code list `APP_UNTESTED_META_FEATURES` in the app domain's settings file (P4, owned by sub-domain 6): `story_repost`, `live_comment`, `ad_comment`, the 7-day ad window, `quick_replies` and `cards` on Unified Login, `mark_seen` — a go-live that uses one is a problem (`feature_not_offered` — one item of `409 automation_not_ready`'s `errors[]`; the settings field's `422` has the same name since rev 3, 2.B, M10); drafts may hold them; removing an item is a deploy after its §43 test. Plan features come from sub-domain 8's plan read. |
+| AU4 | **Plans: read-only, PRO, untested features (P10, D35, D57, P36).** Today: `app-plan-access.ts`'s preHandler refuses create, edit and delete with `403 organization_read_only` while `BILLING_READ_ONLY_ENFORCED` is on; no PRO, no feature list. After: (1) **plan ended or organization suspended** → only go-live is refused (`403 organization_read_only`, the same reason; the preHandler moves from create / edit / delete to route 32); create, edit, pause, duplicate and delete stay open (P10); (2) **PRO** — since P83 each part its own plan switch (`email_ask`, `phone_ask`, `reply_like_person`, `multiple_public_reply_lines`, `message_versions`, `past_comments`; 2.B's extra delay is `extra_delay`): a draft may hold them; going live with one whose switch the plan lacks is a go-live problem; a save of a live or paused automation that turns one on (off in the saved row) → `403 plan_lacks_feature`; past comments → `403 plan_lacks_feature`; PRO parts already on before a move down stay saved and the engine ignores them (4.B); (3) **untested Meta features** — the code list `APP_UNTESTED_META_FEATURES` in the app domain's settings file (P4, owned by sub-domain 6): `story_repost`, `live_comment`, `ad_comment`, the 7-day ad window, `quick_replies` and `cards` on Unified Login, `mark_seen` — a go-live that uses one is a problem (`feature_not_offered` — one item of `409 automation_not_ready`'s `errors[]`; the settings field's `422` has the same name since rev 3, 2.B, M10); drafts may hold them; removing an item is a deploy after its §43 test. Plan features come from sub-domain 8's plan read. |
 | AU5 | **Idempotency.** `X-Idempotency-Key` required on 28 (create), 34 (duplicate), 37 (retry) and 38 (past comments) — each makes a row or background work; routes 32, 33 (state no-ops, AU3) and 35 (saves nothing) take none. |
 | AU6 | **Background work owned here** (all pull-based, `organizationPublicId` in every job, safe to repeat): **next-post linking** (WC-43, changed — every 15 minutes, per account with a live waiting "my next post" automation, read the posts published since its go-live and link the first, once; no window, no dates); **next-post expiry** (WC-44) **removed** — "my next post" never expires (P12); **deleted-automation purge** (WC-47, changed — counters, reply state and backfills go by cascade, file links through sub-domain 6); the run workers (4.B) and the past-comments read (4.C). After a go-live, pause, delete or question change of a starter-question automation, it enqueues sub-domain 2's starter-question sync (IA6) after commit. |
 | AU7 | **Audit (K9).** As built `app.automation.create` · `.update` (changed fields) · `.delete`; new `app.automation.go_live`, `.pause` (`metadata.mode`), `.duplicate` (`metadata.source_automation_public_id`), `.failed_messages_retry`, `app.automation_backfill.start` — all after commit. |
@@ -1686,14 +1694,14 @@ review is the "before" ([launch routes-final § 3](../../launch-2026-11-20-ujai/
 
 ### 4.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| AUQ1 | Go-live answers a list of problems, each with its step (plan §5.1). Which status? | `409 automation_not_ready` with `errors[]` · `422` with `errors[]` | **409** — the request (no body) is fine; the automation's saved state conflicts with going live and the same call passes once it is fixed (response-codes' 409 vs 422 rule); `errors[]` on this one 409 is new and is documented in `response-codes.md` |
-| AUQ2 | A save of a live or paused automation "runs the same full check" (plan:L670) — does that include the account, plan and month checks? | content checks only (AU12) · the full list | **Content only** — a month-limit or plan-ended workspace must still be able to fix a refused text (P10); the account, plan and month checks run at go-live |
-| AUQ3 | A draft "needs only a name" (D28) — is the way to start chosen at create? | `trigger_type` required at create · optional until go-live | **Required** — the editor opens on a chosen way, a later change must stay in the same group (plan:L687), and every database check keys on it |
-| AUQ4 | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | drop — the launch's one-open-run index does it · keep the key table | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so the partial unique index `idx_automation_runs_one_open` is the whole rule; WC-45 then frees no key |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| AUQ1 | Go-live answers a list of problems, each with its step (plan §5.1). Which status? | `409 automation_not_ready` with `errors[]` · `422` with `errors[]` | **409** — the request (no body) is fine; the automation's saved state conflicts with going live and the same call passes once it is fixed (response-codes' 409 vs 422 rule); `errors[]` on this one 409 is new and is documented in `response-codes.md` | **P68** — `409 automation_not_ready` with `errors[]` (as recommended) |
+| AUQ2 | A save of a live or paused automation "runs the same full check" (plan:L670) — does that include the account, plan and month checks? | content checks only (AU12) · the full list | **Content only** — a month-limit or plan-ended organization must still be able to fix a refused text (P10); the account, plan and month checks run at go-live | **P69** — content checks only (as recommended) |
+| AUQ3 | A draft "needs only a name" (D28) — is the way to start chosen at create? | `trigger_type` required at create · optional until go-live | **Required** — the editor opens on a chosen way, a later change must stay in the same group (plan:L687), and every database check keys on it | **P70** — required at create (as recommended) |
+| AUQ4 | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | drop — the launch's one-open-run index does it · keep the key table | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so the partial unique index `idx_automation_runs_one_open` is the whole rule; WC-45 then frees no key | **P71** — drop (as recommended) |
 
-Until you answer, the plan follows the recommendation.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 4.3 Tables and relations
 
@@ -1813,24 +1821,24 @@ Every route can answer the errors in 4.5; each route's own errors are in 4.A.9 a
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/automation/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 4.A Automations | folder root | `app.automations`, `app.automation_counts`, `app.automation_reply_states` | 27–37 | awaiting your OK |
-| 4.B Automation runs | `automation-run/` | `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs` | — | awaiting your OK |
-| 4.C Automation backfills | `automation-backfill/` | `app.automation_backfills` | 38–39 | awaiting your OK |
+| 4.A Automations | folder root | `app.automations`, `app.automation_counts`, `app.automation_reply_states` | 27–37 | final (rev 4, confirmed 2026-11-24) |
+| 4.B Automation runs | `automation-run/` | `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs` | — | final (rev 4, confirmed 2026-11-24) |
+| 4.C Automation backfills | `automation-backfill/` | `app.automation_backfills` | 38–39 | final (rev 4, confirmed 2026-11-24) |
 
 ---
 
-### 4.A Automations — `automation/` (folder root) — awaiting your OK
+### 4.A Automations — `automation/` (folder root) — final (rev 4, confirmed 2026-11-24)
 
 #### 4.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| AU8 | **The new shape (plan:L2995–L3145).** Today: the launch's columns — `opening_message`, `is_follow_required`, `follow_request_message`, email / phone switches and messages, one `final_message`, `tags`, `is_dm_keyword_trigger_enabled`, `next_post_starts_at` / `_ends_at`, `completed_run_count`, three trigger types. After: flat start fields — `trigger_type` (15: `comment`, `live_comment`, `story_reply`, `story_mention`, `story_repost`, `dm_keyword` (was `dm`), `first_message`, `shared_post`, `starter_question`, `ref_link`, `default_reply`, `ad_comment`, `ad_message`, `tag_added`, `tag_removed`), `channel`, `also_start_from` (`story_reply`, `dm`, at most 2 — replaces the DM switch, D38), `target_scope` (+ `between`), `target_starts_at` / `target_ends_at`, `next_post_status` (`waiting` · `linked`), `ref_code`, `starter_questions`, `ad_id`, `trigger_tag`, `default_reply_mode`, `keywords` (as built); the public reply per automation — `is_public_reply_enabled` (kept, P21), `public_reply_texts` (kept), `is_public_reply_mention_enabled` (on, D63), `is_reply_like_person_enabled` (D59), `public_reply_hour_limit` (10 · 20 · 30 · 60 · 100, empty = 60), `is_hide_comment_after_direct_message_enabled` (D33); **`steps`** — one object (≤ 64 KB) with `hello`, `follow`, `email`, `phone`, `messages[]` (7 kinds, 1–10, waits 0 or 1–1,380 minutes), `tags` — validated by one zod schema (`automation-steps.dto.ts`), files by upload public id in the same workspace that passed the type and content checks (P34, P25); `stopped_reason` / `stopped_at`; `cancelled_before_at`. The 13 launch message columns, the DM switch, `tags`, `completed_run_count` (+ its check and index) and the two next-post dates go. |
+| AU8 | **The new shape (plan:L2995–L3145).** Today: the launch's columns — `opening_message`, `is_follow_required`, `follow_request_message`, email / phone switches and messages, one `final_message`, `tags`, `is_dm_keyword_trigger_enabled`, `next_post_starts_at` / `_ends_at`, `completed_run_count`, three trigger types. After: flat start fields — `trigger_type` (15: `comment`, `live_comment`, `story_reply`, `story_mention`, `story_repost`, `dm_keyword` (was `dm`), `first_message`, `shared_post`, `starter_question`, `ref_link`, `default_reply`, `ad_comment`, `ad_message`, `tag_added`, `tag_removed`), `channel`, `also_start_from` (`story_reply`, `dm`, at most 2 — replaces the DM switch, D38), `target_scope` (+ `between`), `target_starts_at` / `target_ends_at`, `next_post_status` (`waiting` · `linked`), `ref_code`, `starter_questions`, `ad_id`, `trigger_tag`, `default_reply_mode`, `keywords` (as built); the public reply per automation — `is_public_reply_enabled` (kept, P21), `public_reply_texts` (kept), `is_public_reply_mention_enabled` (on, D63), `is_reply_like_person_enabled` (D59), `public_reply_hour_limit` (10 · 20 · 30 · 60 · 100, empty = 60), `is_hide_comment_after_direct_message_enabled` (D33); **`steps`** — one object (≤ 64 KB) with `hello`, `follow`, `email`, `phone`, `messages[]` (7 kinds, 1–10, waits 0 or 1–1,380 minutes), `tags` — validated by one zod schema (`automation-steps.dto.ts`), files by upload public id in the same organization that passed the type and content checks (P34, P25); `stopped_reason` / `stopped_at`; `cancelled_before_at`. The 13 launch message columns, the DM switch, `tags`, `completed_run_count` (+ its check and index) and the two next-post dates go. |
 | AU9 | **Two levels of database checks (plan:L3096–L3120).** Every save (drafts too): lists, lengths, counts, ranges, `steps` is an object under 64 KB. Go-live rules written `status = 'draft' OR (…)`, so a `live` or `paused` row must pass them: `chk_automations_live_trigger_fields`, `_live_target`, `_live_also_start_from`, `_live_next_post`, `_live_between`, `_live_public_reply`, `_live_hide`, `_live_messages`, `_live_hello_next_button` (replaces `chk_automations_comment_opening_button`; P2 — a hello always has a "sends your next step" button, since the message list always has one). The API checks the rest (the full `steps` shape, PRO, starter-question totals, `nudge` only where she messaged first, `trigger_tag` not in `steps.tags`, one live catch-all, the comment-without-hello rule, the month limit, warnings). |
 | AU10 | **The list (route 27).** Today: every automation of the organization, `instagram_account_id` optional, sorts `created_at` · `name` · `last_triggered_at` · `completed_run_count`. After: `channel_account_id` **required** (CT2's reason); filters `status` (several), `trigger_type` (several), `q` (name); sorts `created_at` · `name` · `last_triggered_at` (the run-count sort goes — the plan shows counts, it does not sort by them, plan:L3042); each row with its all-time `runs_started` and `tapped_percent` ((taps + typed answers) / runs, D61 — the sum of its 16 count slots, at most 400 small rows for a page of 25); a draft shows `updated_at` ("edited 1h ago"). `meta.totals` = `{ live_count, runs_started }` for the account (the top bar, plan:L2527). The launch's follow-up — an index for `last_triggered_at` descending — lands here. |
-| AU11 | **Create a draft (route 28, D28).** Today: a complete automation, every rule checked, the account implied (the one connected). After: `name*` (1–255), `channel_account_id*` (an account of the organization that is not revoked — an `error` one is fine for a draft), `trigger_type*` (AUQ3); everything else optional and checked for shape only (AU9's every-save level); `status` `draft`; `is_reply_like_person_enabled` defaults to `true` when the plan has PRO (D59); a `ref_link` draft gets a free `ref_code` when none is given. Nothing is sent, nothing else is checked. A read-only plan may create (P10). |
+| AU11 | **Create a draft (route 28, D28).** Today: a complete automation, every rule checked, the account implied (the one connected). After: `name*` (1–255), `channel_account_id*` (an account of the organization that is not revoked — an `error` one is fine for a draft), `trigger_type*` (AUQ3); everything else optional and checked for shape only (AU9's every-save level); `status` `draft`; `is_reply_like_person_enabled` defaults to `true` when the plan's `reply_like_person` switch is on (D59, P83); a `ref_link` draft gets a free `ref_code` when none is given. Nothing is sent, nothing else is checked. A read-only plan may create (P10). |
 | AU12 | **Save content (route 30, RC-29).** A draft saves anything that passes AU9's every-save level. A `live` or `paused` one must also pass the go-live **content** checks (AU13's 1, 5–17 — AUQ2) on the merged result; problems → `400` with one `errors[]` item per problem, its `field` the step path (`body.steps.hello.versions.0.buttons`) so the editor jumps there; turning a PRO part on without PRO → `403 plan_lacks_feature`. `trigger_type` may change only inside its group (plan §4.1) → else `400 trigger_type`. Side effects in the same commit (sub-domain 6): waiting rows of a removed step or message cancelled (`cancelled_by_owner`); a fixed text clears `stopped_reason` and puts its bad-text failures under 7 days back to `waiting`; a reply-step change empties the reply state's box (it starts again). New runs use the new steps. Optional `expected_updated_at`. |
-| AU13 | **Go live (route 32, D28, P2, P36).** From `draft` or `paused`. The checks, all run, answered together as `409 automation_not_ready` with `errors[]` (AUQ1), each `{ field, reason, detail }`: 1 name · 2 the account `connected` and its connection not `error` / `revoked` · 3 plan not ended, workspace not suspended (`403 organization_read_only` instead of a list item — AU4) · 4 the month limit not reached (sub-domain 6's month count) · 5 every part it uses — the way to start, each step and message kind, each PRO and Meta-tested part — through 1B's one feature check (CA11, AU34: `channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature`, `feature_not_offered`, one item each) · 6 the way to start complete · 7 keywords where needed · 8 starter questions 1–4 and the account's live total ≤ 4, counted under `FOR UPDATE` on the account row · 9 `ref_code` valid and free on the account · 10 one live `first_message` and one live `default_reply` per account · 11 the hello (text ≤ 640, 1–3 buttons, `https://` links, a next-step button — P2) · 12 the comment-without-hello rule · 13 follow · 14 email / phone wordings · 15 messages complete, files checked · 16 public reply lines (≥ 3 with "Reply like a person") · 17 tags. Warnings, never refusals, in `meta.warnings`: a keyword another live automation of the account uses; a private account on a comment kind. All good → `live`; a `next` automation gets `target_starts_at` = now and `next_post_status` `waiting`; from `paused`, its waiting DMs under 7 days go on; its lanes wake (6); a starter-question one enqueues the sync (IA6). |
+| AU13 | **Go live (route 32, D28, P2, P36).** From `draft` or `paused`. The checks, all run, answered together as `409 automation_not_ready` with `errors[]` (AUQ1), each `{ field, reason, detail }`: 1 name · 2 the account `connected` and its connection not `error` / `revoked` · 3 plan not ended, organization not suspended (`403 organization_read_only` instead of a list item — AU4) · 4 the month limit not reached (sub-domain 6's month count) · 5 every part it uses — the way to start, each step and message kind, each PRO and Meta-tested part — through 1B's one feature check (CA11, AU34: `channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature`, `feature_not_offered`, one item each) · 6 the way to start complete · 7 keywords where needed · 8 starter questions 1–4 and the account's live total ≤ 4, counted under `FOR UPDATE` on the account row · 9 `ref_code` valid and free on the account · 10 one live `first_message` and one live `default_reply` per account · 11 the hello (text ≤ 640, 1–3 buttons, `https://` links, a next-step button — P2) · 12 the comment-without-hello rule · 13 follow · 14 email / phone wordings · 15 messages complete, files checked · 16 public reply lines (≥ 3 with "Reply like a person") · 17 tags. Warnings, never refusals, in `meta.warnings`: a keyword another live automation of the account uses; a private account on a comment kind. All good → `live`; a `next` automation gets `target_starts_at` = now and `next_post_status` `waiting`; from `paused`, its waiting DMs under 7 days go on; its lanes wake (6); a starter-question one enqueues the sync (IA6). |
 | AU14 | **Pause (route 33).** `mode*` = `keep` (waiting DMs stay, people in the middle finish) or `cancel` (`cancelled_before_at` = now: its waiting messages count as cancelled from now and the helper marks them, 500 a round — WC-19, sub-domain 6; the lanes already skip them). A starter-question one enqueues the sync. `paused` with `keep` then `cancel` sets `cancelled_before_at`; the same mode again is a no-op (AU3). No undo route — the client replays (P15). |
 | AU15 | **Duplicate (route 34).** A `draft` named "<name> (copy)" (cut to 255) on the same account; `steps` and settings copied (files by the same upload ids); counters, reply state, backfills, `stopped_*`, `next_post_*` and `cancelled_before_at` not copied; a `ref_link` one gets a new free `ref_code` (the old one plus `-` and 4 random characters, ≤ 64). Allowed from any status. |
 | AU16 | **Delete (route 31, P11).** Today: `reason` and `note` required in the query (`recordDeleteQuerySchema`). After: `reason` optional (`mistake` · `duplicate` · `not_needed` · `other`; `other` needs `note`) — an `isReasonOptional` option on the shared `recordDeleteQuerySchemaOf` factory (`record-fields.util.ts`, reuse rule), not a second schema; stops at once in one commit: open runs `cancelled` (`automation_deleted`, 4.B), waiting messages `cancelled` (`automation_deleted`, 6); contacts it collected stay; a starter-question one enqueues the sync after commit; purged later (WC-47). |
@@ -1841,7 +1849,7 @@ Every route can answer the errors in 4.5; each route's own errors are in 4.A.9 a
 
 #### 4.A.2 Open questions
 
-AUQ1 (the go-live status), AUQ2 (save checks), AUQ3 (way to start at create).
+AUQ1 (the go-live status), AUQ2 (save checks), AUQ3 (way to start at create) — answered as recommended (P68–P70).
 
 #### 4.A.3 Tables and relations
 
@@ -1971,7 +1979,7 @@ As 4.7, rows 27–37.
 | 30 | `409` · `record_changed` / `next_post_already_linked` | stale save / a linked next-post's target changed |
 | 31 | `400` · `note` | `other` without a note |
 | 32 | `409` · `automation_not_ready` (with `errors[]`) | any go-live check fails (AU13) |
-| 32 | `403` · `organization_read_only` | the plan ended or the workspace is suspended |
+| 32 | `403` · `organization_read_only` | the plan ended or the organization is suspended |
 | 33 | `409` · `transition_not_allowed` | pausing a draft |
 | 29–37 | `404` · `automation_not_found` | not in the organization, another organization's, or deleted |
 | writes | `422` | a personal organization; the key missing, malformed or reused (28, 34, 37) |
@@ -1994,14 +2002,14 @@ As 4.7, rows 27–37.
 
 ---
 
-### 4.B Automation runs — `automation/automation-run/` — awaiting your OK
+### 4.B Automation runs — `automation/automation-run/` — final (rev 4, confirmed 2026-11-24)
 
 #### 4.B.1 Decisions
 
 | # | Decision |
 | --- | --- |
 | AU21 | **Run columns (plan:L3147–L3173).** Added `trigger_occurred_at` (the 7-day clock — a comment's `entry.time`, its own `timestamp` when the webhook came over 1 h late), `once_key` (the plan's `post_key`, ≤ 255, D13), `direct_message_sent_at` (first DM `sent` or `unknown`), `last_message_number` (1–10), `version_numbers` (`{"hello": 2}`); removed `trigger_text` (her free text is never kept — D46; the erase step loses that part), `sending_message_kind`, `sending_started_at` (+ `chk_automation_runs_sending` — the claim moves to the message row, sub-domain 6). `trigger_type` = how this run started (the 15 kinds; may differ through "also start from"); `current_step` `final_dm` → `messages`; `waiting_for` + `any`; `cancel_reason` + `expired` · `opted_out` · `window_closed` · `contact_excluded` · `replaced`. Kept 90 days after it ends (was 180, D16). |
-| AU22 | **The once rule (D13, D65).** Each way to start has its once key (plan:L478–L498: the media id, `live:…`, `story:…`, `dm:<date>`, `first`, `share:…`, `starter:<date>`, `ref:<date>`, `default:<date>` or `default:<message id>`, `ad:<ad id>`, `tag:<tag>:<event id>`; `<date>` the workspace's day). A start whose `(automation, contact, once_key)` already had a DM is logged `ignored` · `once_per_post` (comment log) or its message `skipped` · `once_per_post`. The account switch "once per person per post" off makes the key the event's own id (D65). It frees itself when the old run is deleted (~90 days). Today: once per person per automation, ever (`previous_run_final`). |
+| AU22 | **The once rule (D13, D65).** Each way to start has its once key (plan:L478–L498: the media id, `live:…`, `story:…`, `dm:<date>`, `first`, `share:…`, `starter:<date>`, `ref:<date>`, `default:<date>` or `default:<message id>`, `ad:<ad id>`, `tag:<tag>:<event id>`; `<date>` the organization's day). A start whose `(automation, contact, once_key)` already had a DM is logged `ignored` · `once_per_post` (comment log) or its message `skipped` · `once_per_post`. The account switch "once per person per post" off makes the key the event's own id (D65). It frees itself when the old run is deleted (~90 days). Today: once per person per automation, ever (`previous_run_final`). |
 | AU23 | **One open run per automation and person; an allowed comment replaces it (P35, AUQ4).** The launch's partial unique index `idx_automation_runs_one_open` stays the whole rule. A comment (or an ad or Live comment) that may start a new run — another post, or "every time" — cancels her open run of that automation (`cancelled` · `replaced`; its waiting messages `cancelled` · `replaced` through 6; its comment log `cancelled`) and starts the new run **in the same commit**. A second comment on the same post with "once" on → `ignored` · `once_per_post`. Every other way to start while her run is open → `ignored` · `run_in_progress`. No `automation_run_open_key` table. |
 | AU24 | **The engine decides; it never sends (WC-9 removed, D3).** Today: the run engine sends inline from the event job (claim on the run, 200–1,000 ms pauses, reply safety counted from comment logs). After: each step saves a waiting message (`not_before` for a list wait) through `ChannelSendingPort` (AU35) — the channel's sending sub-domain (Instagram's 6) picks its lane and sends it; it reports the result (`sent`, `failed`, `skipped`, `unknown`) to `recordMessageResult`, a tap comes back through the inbound seam, and the engine moves the run on in that commit. Step order (plan §5.2): hello → (comments: public reply → hide) → wait for a tap or any text (one nudge after 60 min, D30) → follow → email → phone → messages 1–N (a window check before each; closed → that message `skipped` `window_closed`, no rows for the rest, the run `cancelled` `window_closed`, D29) → tags (with tag events, 3.B) → `completed`. The run, the contact's "via" columns (3) and the counts (4.A) move in the same commits. |
 | AU25 | **A result we cannot know (D17).** Today: an unknown outcome fails the step (launch AQ5). After: an `unknown` message is never sent again by itself; its run waits for `any`; only her next message or tap may send that step once more (the same row back to `waiting`, sub-domain 6); a tap proves only the message that carries that button. |
@@ -2013,7 +2021,7 @@ As 4.7, rows 27–37.
 
 #### 4.B.2 Open questions
 
-AUQ4 (4.2) — no open-run key table.
+AUQ4 (4.2) — no open-run key table; answered P71: dropped.
 
 #### 4.B.3 Tables and relations
 
@@ -2083,7 +2091,7 @@ failed, skipped, unknown; AU35), plus the erase and pause steps (AU29). Every un
 
 ---
 
-### 4.C Automation backfills — `automation/automation-backfill/` — awaiting your OK
+### 4.C Automation backfills — `automation/automation-backfill/` — final (rev 4, confirmed 2026-11-24)
 
 #### 4.C.1 Decisions
 
@@ -2181,9 +2189,9 @@ As 4.5.
 
 ---
 
-## 5. Instagram webhook — rev 3 (2026-11-24) — nested sub-domains 5.A–5.B; awaiting your OK
+## 5. Instagram webhook — rev 4 (2026-11-24) — nested sub-domains 5.A–5.B; final (rev 4, confirmed 2026-11-24)
 
-Status: `rev 3 (2026-11-24) — awaiting your OK`
+**Status: final (rev 4, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **`instagram-webhook` sub-domain folder** — `app/sub-domains/instagram-webhook/` (the receiver and intake at the
 folder root) with `instagram-webhook-event/` (the events, their keys, the list).
@@ -2204,7 +2212,7 @@ P35), and sub-domain 6 for the message rows intake writes and the own-message lo
 
 ### 5.1 Decisions (whole sub-domain)
 
-Taken on the standing answer "go with the recommendation" (P31: reviewed with every sub-domain in one pass). A decision that
+Taken on the standing answer "go with the recommendation", confirmed with the answers of 2026-11-24 (P54–P90) (P31: reviewed with every sub-domain in one pass). A decision that
 belongs to one part is in its nested sub-domain.
 
 **rev 2 changes** (P45–P47, M9): stays Instagram's — `/social/channel-connections/meta/webhooks/instagram`, `app.instagram_webhook_events` + keys, the `instagram-webhook` queue; Meta's deauthorize and data-deletion callbacks are sub-domain 1's (M5); the account pointer `channel_account_id` (→ `app.channel_accounts`), payloads `channelAccountPublicId`; account state and the automation switch read from 1B, the signature check from 1's adapter; the webhook review's F3 and F5 adopted (WH25, WH26).
@@ -2215,7 +2223,7 @@ belongs to one part is in its nested sub-domain.
 | --- | --- |
 | WH1 | **Folders stay; intake grows at the root.** Today (launch WH1): `instagram-webhook/` holds the receiver and the per-account processing (`workers/instagram-webhook.processor.ts`, 856 lines, which also sends through the run engine); `instagram-webhook-event/` owns the events table, the list and the clean-up. → Same two folders. The root keeps the receiver (routes 60–61) and becomes **intake**: `workers/instagram-webhook-intake.processor.ts` (the three kind jobs), `workers/instagram-tag-event-intake.processor.ts` (tag events), the stuck-event pick-up and the missed-comment check. The nested `instagram-webhook-event/` also owns the new **`app.instagram_webhook_event_keys`** — a persistence part with no routes (schema + repository, written through the event service). No new folder: intake has no route of its own (`src/domains/CLAUDE.md`: flatten a folder with no distinct routes). Other option: a nested `instagram-webhook-intake/` folder — it would hold workers only. |
 | WH2 | **Store first; Postgres down answers 500 / 503 — no Redis buffer (P32).** Today (launch WH10): events are stored before the answer; a store failure is `500`/`503` and Meta delivers again. The plan (§26.3, plan:L4799–L4807) pushes events to a Redis `webhook-buffer` when Postgres is down or slow. → **Launch behaviour kept** (P32): nothing Postgres does not have lives in Redis. New: the store unit runs with `SET LOCAL statement_timeout` = 3 s (plan `WEBHOOK_SAVE_TIMEOUT_MS`), so a slow Postgres answers `503` inside Meta's 5-second budget instead of timing out. **No webhook pool of its own** (plan §26.4 rule 1): the API and the workers already run in separate processes (AS-BUILT "Queues, workers and order"), so busy workers never hold the receiver's connections. What Meta does not redeliver (a tap after its "few more times") is caught for comments by the missed-comment check (WH17); taps are lost only when Postgres is down longer than Meta retries — the risk P32 accepted. Other option: a 5-connection pool for the receiver (plan `WEBHOOK_DB_POOL_SIZE`). |
-| WH3 | **Which accounts' events are saved.** Today: an unknown or `revoked` account → nothing stored (launch WH4); `expired`/`error` → stored `skipped account_disconnected`; the automation switch off → `skipped automation_disabled`. → Unknown or `revoked`: unchanged (200, a log line, the metric). **An `error` account, a paused, suspended or stopped account, a workspace at its month limit or whose plan ended: saved `received` and taken in by intake** — its messages wait in its stopped lanes (plan:L4744–L4746, RC-16), so the owner's comments are answered once she reconnects or the stop ends. `expired` no longer exists (the Meta token never expires — channel-connection's change). The switch off still stores `skipped automation_disabled` (the plan keeps `is_automation_enabled`, plan:L2912 — now on the channel account, P42). `account_disconnected` stays only for intake: an account `revoked` between store and intake. |
+| WH3 | **Which accounts' events are saved.** Today: an unknown or `revoked` account → nothing stored (launch WH4); `expired`/`error` → stored `skipped account_disconnected`; the automation switch off → `skipped automation_disabled`. → Unknown or `revoked`: unchanged (200, a log line, the metric). **An `error` account, a paused, suspended or stopped account, an organization at its month limit or whose plan ended: saved `received` and taken in by intake** — its messages wait in its stopped lanes (plan:L4744–L4746, RC-16), so the owner's comments are answered once she reconnects or the stop ends. `expired` no longer exists (the Meta token never expires — channel-connection's change). The switch off still stores `skipped automation_disabled` (the plan keeps `is_automation_enabled`, plan:L2912 — now on the channel account, P42). `account_disconnected` stays only for intake: an account `revoked` between store and intake. |
 | WH4 | **Meta's proofs and settings.** Today: route 61's HMAC key is `INSTAGRAM_APP_SECRET` and route 60's token `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (env-schema.ts:330–360). → the **Meta app secret** and the **Meta webhook verify token** — the env rename (`META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, plan §36.26) is channel-connection's change; this sub-domain only reads them through its existing config accessor. Everything else of the launch's proof stays: the ingress plugin, the shared raw-body registry, nothing parsed before the signature, 5 MB, `INSTAGRAM_WEBHOOK_RATE_LIMIT` 1,200 a minute, `400 invalid_webhook_signature` / `invalid_webhook_verify_token`, `503 instagram_webhook_not_configured`. |
 | WH5 | **Intake layout (D3, plan §24.2).** Today (launch WH5): one queue `instagram-webhook`, one deduplicated job per account working through **all** its events in order, built with `createProviderPausableWorker` (an Instagram outage pauses it). → Same queue, four job names: `intake-messages`, `intake-live`, `intake-comments` (one per account each, deduplicated per kind and account with `keepLastIfActive`, the launch's pattern) and `intake-tag-events` (one per contact, WH15); priorities 1 · 1 · 5, and **10** for an account with more than 500 waiting comment events or for comments a past-comments read added (plan `INTAKE_LOW_PRIORITY`) — **taps and typed answers never wait behind comments**. Each job takes the account's oldest waiting event **of its kind group** (5-minute lease, as today), handles it, and after 25 events (`INSTAGRAM_WEBHOOK_EVENTS_PER_JOB`, kept) adds one follow-up job. **No longer provider-pausable** (plan:L4477–L4478): intake calls Meta only for a new contact's profile and a late comment's time, each 3 s and failing open. Job data: `organizationPublicId`, `channelAccountPublicId` (or `contactPublicId` for tags), `intakeKind`, `requestId`, trace fields — public ids only (K8). |
 | WH6 | **Personal data and logs.** Today (launch WH6): the payload is never logged; the list masks it; a contact erase leaves the person's events to the 30-day clean-up. → Unchanged rules, shorter life: the body is **cleared when the event is done** (WH22) and the whole row goes after 8 days (WH24), so no erasure step is needed now either. A story mention's media link is never copied out of the body (plan:L4791). The new flood count (WH16) and own-message check (WH9) carry ids only. |
@@ -2226,10 +2234,12 @@ belongs to one part is in its nested sub-domain.
 
 ### 5.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| WHQ1 | How is "our own sent message" recognised before saving (plan step 3, the Redis `mid:` note)? | **a Postgres lookup** of the echo's `mid` in `app.instagram_messages` inside the store unit · the plan's Redis `mid:` note (10 min; with P5's 60-second cap) | **Postgres** — the message row already holds `instagram_message_id` (sub-domain 6); one index probe per echo, no data only Redis has (P32). An echo that arrives before the send's result is saved is stored `received` and intake matches it within 10 minutes (plan §27.13), which can also turn an `unknown` message `sent` |
-| WHQ2 | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **intake counts her message events of the last minute in Postgres** · the webhook adds 1 to a Redis counter | **Postgres** — the events are saved anyway; an index on (`channel_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" (plan §27.6 rule 1) without a second store; the webhook only saves |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| WHQ1 | How is "our own sent message" recognised before saving (plan step 3, the Redis `mid:` note)? | **a Postgres lookup** of the echo's `mid` in `app.instagram_messages` inside the store unit · the plan's Redis `mid:` note (10 min; with P5's 60-second cap) | **Postgres** — the message row already holds `instagram_message_id` (sub-domain 6); one index probe per echo, no data only Redis has (P32). An echo that arrives before the send's result is saved is stored `received` and intake matches it within 10 minutes (plan §27.13), which can also turn an `unknown` message `sent` | **P62** — a Postgres lookup (as recommended) |
+| WHQ2 | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **intake counts her message events of the last minute in Postgres** · the webhook adds 1 to a Redis counter | **Postgres** — the events are saved anyway; an index on (`channel_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" (plan §27.6 rule 1) without a second store; the webhook only saves | **P63** — Postgres at intake (as recommended) |
+
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 Until answered, the plan follows the recommendation and every row that rests on it says so.
 
@@ -2341,12 +2351,12 @@ What one action sets off (same request or transaction unless marked worker):
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-webhook/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 5.A Instagram webhook | folder root | — (stores through 5.B) | 60–61, intake, stuck-event pick-up, missed-comment check | awaiting your OK |
-| 5.B Instagram webhook events | `instagram-webhook-event/` | `app.instagram_webhook_events`, `app.instagram_webhook_event_keys` | 62, key clean-up, the events' day parts | awaiting your OK |
+| 5.A Instagram webhook | folder root | — (stores through 5.B) | 60–61, intake, stuck-event pick-up, missed-comment check | final (rev 4, confirmed 2026-11-24) |
+| 5.B Instagram webhook events | `instagram-webhook-event/` | `app.instagram_webhook_events`, `app.instagram_webhook_event_keys` | 62, key clean-up, the events' day parts | final (rev 4, confirmed 2026-11-24) |
 
 ---
 
-### 5.A Instagram webhook — `instagram-webhook/` (folder root) — awaiting your OK
+### 5.A Instagram webhook — `instagram-webhook/` (folder root) — final (rev 4, confirmed 2026-11-24)
 
 #### 5.A.1 Decisions
 
@@ -2365,7 +2375,7 @@ What one action sets off (same request or transaction unless marked worker):
 
 #### 5.A.2 Open questions
 
-WHQ1 (5.2) — WH9 step 3 and WH10; WHQ2 (5.2) — WH16.
+WHQ1 (5.2) — WH9 step 3 and WH10; WHQ2 (5.2) — WH16; both answered as recommended (P62, P63).
 
 #### 5.A.3 Tables and relations
 
@@ -2452,7 +2462,7 @@ A row this table saves `received` is born `skipped automation_disabled` when the
 | messages · `echo` | — | 10-minute match to our message (→ `sent`), else the 6-hour quiet time (WH10) |
 | tag events (WH15) | — | the account's tag automations; chain ≤ 3; window open; `run_in_progress` while open |
 
-**Once keys** (D13; "every time" mode replaces them by the event's id, D65; `<date>` = the day in the workspace's time zone).
+**Once keys** (D13; "every time" mode replaces them by the event's id, D65; `<date>` = the day in the organization's time zone).
 
 | Way to start | Once key | Way to start | Once key |
 | --- | --- | --- | --- |
@@ -2480,7 +2490,7 @@ contact's, the job is intake's) · WC-48 event and key clean-up (5.B) · WC-55 t
 
 ---
 
-### 5.B Instagram webhook events — `instagram-webhook/instagram-webhook-event/` — awaiting your OK
+### 5.B Instagram webhook events — `instagram-webhook/instagram-webhook-event/` — final (rev 4, confirmed 2026-11-24)
 
 #### 5.B.1 Decisions
 
@@ -2491,7 +2501,7 @@ contact's, the job is intake's) · WC-48 event and key clean-up (5.B) · WC-55 t
 | WH20 | **The key table (plan §19.5, P33).** Today: the event row's unique key. → `app.instagram_webhook_event_keys`, a plain table: primary key **`(organization_id, channel_account_id, event_key)`** — organization first, as the launch's child keys (AS-BUILT "Index and key names"; db-changes draws `(channel_account_id, event_key)`), so it also serves the composite foreign key's cascade; `received_at`; index `(received_at)` for the delete. Inserted `ON CONFLICT DO NOTHING` before the events (WH9). Deleted in batches once older than 8 days (WC-48, daily). The plan's 16 hash parts are not used (P33). |
 | WH21 | **Retry of a failed event.** Today: `failed` is final after 5 attempts. → `next_attempt_at` set on the 5th failed try (WH12); the pick-up (WH17) puts it back to `received` hourly (attempt count from 0) until its trigger is 7 days old; then `next_attempt_at` empties and it stays `failed` until its day part is dropped. Index `(next_attempt_at) WHERE status = 'failed' AND next_attempt_at IS NOT NULL` (plan:L3219). |
 | WH22 | **Body cleared when done (D15, plan:L3215).** Today: the payload stays 30 days, masked only in the list. → the guarded update that makes an event `processed` or `skipped` sets `payload` to **null** in the same statement; rows born `skipped` (own comment, edit, unsupported, the switch off) are **stored without a body**. Check: `(status IN ('received', 'queued', 'failed')) = (payload IS NOT NULL)`. So only waiting and failed events keep a body, and they are masked in route 62 as today. Other option: `{}` as the plan writes — keeps the `NOT NULL` but leaves an empty object that means nothing. |
-| WH23 | **Route 62 — 8 days, many accounts (RC-19).** Today (launch WH17): newest first, filters `status`, `event_kind`, `received_from`/`received_to`, `include_total`; payload masked. → the same list over at most 8 days, plus **`channel_account_id`** (a filter and a field — a workspace now holds many accounts, D26), `next_attempt_at` and the new kinds and reasons; `payload` is `null` once the event is done. A `received_from` older than 8 days is accepted and simply finds nothing. |
+| WH23 | **Route 62 — 8 days, many accounts (RC-19).** Today (launch WH17): newest first, filters `status`, `event_kind`, `received_from`/`received_to`, `include_total`; payload masked. → the same list over at most 8 days, plus **`channel_account_id`** (a filter and a field — an organization now holds many accounts, D26), `next_attempt_at` and the new kinds and reasons; `payload` is `null` once the event is done. A `received_from` older than 8 days is accepted and simply finds nothing. |
 | WH24 | **Clean-up (WC-48, WC-55).** Today: daily 03:00 UTC batch delete of events older than 30 days (`instagram-webhook-event-retention`). → the events go by **dropping day parts** older than 8 days (WC-55); the 03:00 job now deletes **keys** older than 8 days in batches. A contact erase still registers no erasure step (launch WH18) — her events go within 8 days, their bodies earlier (WH22). |
 
 #### 5.B.2 Open questions
@@ -2602,9 +2612,9 @@ An `channel_account_id` of another organization finds nothing (an empty page, no
 | WHC15 | WH24: `instagram-webhook-event-retention` now deletes keys older than 8 days (`deleteInBatchesByCondition`, 03:00 UTC kept); `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS` 30 → the 8-day constant (one constant for the replay guard, the keys and the parts); seeds (`seed/instagram-webhook-event.bulk.seed.ts`: the new kinds, bodies null when done, keys); `docs/reference/data/data-lifecycle-deletion.md` row; i18n labels for the new kinds and reasons |
 
 ---
-## 6. Instagram sending — rev 3 (2026-11-24) — nested sub-domains 6.A–6.C; awaiting your OK
+## 6. Instagram sending — rev 4 (2026-11-24) — nested sub-domains 6.A–6.C; final (rev 4, confirmed 2026-11-24)
 
-Status: `rev 3 (2026-11-24) — awaiting your OK`
+**Status: final (rev 4, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **`instagram-sending` sub-domain folder** — `app/sub-domains/instagram-sending/` (the lanes, gates, counts, stops,
 the global sending state and the repair duties at the folder root) with `instagram-message/` and `instagram-attachment/`.
@@ -2619,7 +2629,7 @@ the global sending state and the repair duties at the folder root) with `instagr
 intake only saves `waiting` messages (sub-domain 5) and this sub-domain **sends them**: four lanes per account (slow,
 reply, fast, broadcast), two gates and the month count in the claim's commit, one shared result save, the Instagram error
 groups and stops, and an every-minute repair that never sends. It is mostly background work — 6.10 maps every piece to its
-worker-changes row. Two routes read it: the account's sending status (banners and estimates) and the workspace's
+worker-changes row. Two routes read it: the account's sending status (banners and estimates) and the organization's
 DM meter; the summary and retry of failed messages per automation and per contact are sub-domains 4's and 3's routes
 (36–37, 25–26), over this sub-domain's retry service (Merge notes M6). Design read: plan §24 (L4344–L4480),
 §28–§35 (L5177–L6168), §19.1–19.16 (L3226–L3640), §15.2–15.3 (L2530–L2591), §15.11 (L2700–L2733), §39 (L7044–L7091); D3–D9,
@@ -2629,7 +2639,7 @@ state), billing (the plan's features and DM limit), upload (message files). Rout
 
 ### 6.1 Decisions (whole sub-domain)
 
-Taken on the standing answer "go with the recommendation" (P31). A decision that belongs to one table is in its nested
+Taken on the standing answer "go with the recommendation", confirmed with the answers of 2026-11-24 (P54–P90) (P31). A decision that belongs to one table is in its nested
 sub-domain.
 
 **rev 2 changes** (P43, P47, M9): `meta_attachments` → `app.instagram_attachments` (`instagram-attachment/`); `direct_message_month_counts` → the shared `app.message_month_counts`, the limit `message_month_limit`, the account count `channel_accounts_max`; `app.sending_states` shared; pause, suspend and the account's plan stop moved from the lanes to the channel account (1B — SN9, SN12); the account pointer `channel_account_id`; route 63 under `…/{channel_account_id}/sending-status`; the Meta client from 1's adapter. Everything else stays Instagram's.
@@ -2643,21 +2653,23 @@ sub-domain.
 | SN3 | **The gates (D18, plan §31).** Today: reply safety counted from comment logs in Postgres; no send limit. → before a send: **gate 1**, an advisory Redis count per account and count group (a sorted set per minute, organization-scoped keys, 100 ms timeout, skipped for 30 s after 3 timeouts — never inside a transaction); then **one** Postgres commit that (a) checks **gate 2**, the account's `app.instagram_send_minute_counts` summed over the last 61 minutes against the group's hour limit, (b) checks the **month count** (D34), (c) adds 1 to both, (d) marks the message `sending` with a 120 s lease and writes its attempt row. Postgres decides; Redis only saves a wasted claim. Count groups: `open` (slow), `reply`, `fast`, `broadcast`; `none` for follow checks. The person limit (60 an hour) is read from Postgres (her `sent` messages of the last hour). |
 | SN4 | **One shared result save, retried inside the send — no save-result jobs (P32, plan §28.4).** Today: the run engine books its own send result. → one function `saveSendResult` (6.B) owns every effect of an answer: the message's status and Instagram id, give-backs of counts on a sure "not sent", the run's next step and its fast ticket, the opening DM's bookkeeping (`last_opening_message_at`, the run's `direct_message_sent_at`), the public reply / hide / nudge rows, list message N+1, tags, completion, the stop rules, and the lane's release (only while `working_turn` is this turn). It is called by the four lanes, the repair duties and intake (a tap's `unknown` → `sent`). **After Meta answered, a failed save is retried inside the same job** — deadlock or lock timeout 3 times, a lost connection after 1, 2, 4, 8 s — while the message keeps its lease; if it still fails, the message stays `sending`, its lease runs out and WC-14 settles it `unknown` (never sent again by itself, D17). The Instagram message id is logged (an id, never text), so an echo or a tap can still prove it `sent`. Other option: the plan's Redis save-result jobs — refused by P32. |
 | SN5 | **Instagram errors and stops (D19, plan §33).** Today: auth errors set the account `error`/`expired` (AS-BUILT "Instagram auth errors"); other errors only fail that send. → every answer maps to **one group** (6.A.10): `too_fast` stops that lane (Meta's time, else 15 → 360 minutes; a broadcast lane twice as long), `blocked` all lanes with tests after 24, 48, then every 72 hours, `account_flagged` that lane, `login_expired` every account of the channel connection (no end, reconnect notice), `account_not_shared` / not business that account, `access_off` and `app_not_approved` all lanes with hourly tests, `app_limit` all accounts when 2 accounts get it within 5 minutes; per-message groups (`person`, `window_closed`, `bad_text`, `wrong_permission`, `comment_gone`, `live_ended`, `attachment_failed`, `try_later`, `no_answer`, `never_connected`, `already_sent`). A stop never fails a DM: it goes back to `waiting` with no try used. "In a row" and "30 % bad" are counted from `app.instagram_send_attempts`, never Redis. **Sending starts again by itself** when a stop ends (D19). Every stop is a row in `app.instagram_send_stops`. The code lists come from constants (P4); codes Meta tests must still name (`CODES_ALREADY_SENT`, `CODES_LIVE_ENDED`, `CODES_ATTACHMENT_GONE`) start empty and their features stay refused at go-live (P36). |
-| SN6 | **Repair duties on the existing scheduler (P7).** Today: one cron per job in `scheduler.ts` (minute granularity, `upsertJobScheduler` with `pattern`). → one queue **`instagram-sending-repair`** (family `instagram`, `retentionDefinition`-style, `holdsConnectionDuringExternalIo: false`) with **one repeat job per rule group**: `repair-every-minute` (WC-13, 14, 15, 17, 18, 19, 20, 37's month check, 56's backup, 57), `outage-check` every **10 seconds** (WC-22), `waiting-estimate` every 10 minutes (WC-24), `live-check` every minute (WC-16, calls Meta), and the daily clean-ups (WC-53, 54). Each duty handles at most 500 rows a round, is safe to run twice, reads ids across organizations under the `app.global_retention_cleanup` arm and changes each organization in its own `runOrganizationScopedWorkerJob`. The 10-second repeat needs **`every`** in the scheduler: `ScheduledJob` takes `cronPattern` **or** `everyMilliseconds` (one change, `scheduler.ts` and its unit test). Two duties cannot ride BullMQ and run **in each worker process** instead: the clock check (WC-23 — every server's own clock) and the "Redis lost or emptied" watch (SN10). So the plan's 16 helper slots are not needed (SNQ1). |
+| SN6 | **Repair duties on the existing scheduler (P7).** Today: one cron per job in `scheduler.ts` (minute granularity, `upsertJobScheduler` with `pattern`). → one queue **`instagram-sending-repair`** (family `instagram`, `retentionDefinition`-style, `holdsConnectionDuringExternalIo: false`) with **one repeat job per rule group**: `repair-every-minute` (WC-13, 14, 15, 17, 18, 19, 20, 37's month check, 56's backup, 57), `outage-check` every **10 seconds** (WC-22), `waiting-estimate` every 10 minutes (WC-24), `live-check` every minute (WC-16, calls Meta), and the daily clean-ups (WC-53, 54). Each duty handles at most 500 rows a round, is safe to run twice, reads ids across organizations under the `app.global_retention_cleanup` arm and changes each organization in its own `runOrganizationScopedWorkerJob`. The 10-second repeat needs **`every`** in the scheduler: `ScheduledJob` takes `cronPattern` **or** `everyMilliseconds` (one change, `scheduler.ts` and its unit test). Two duties cannot ride BullMQ and run **in each worker process** instead: the clock check (WC-23 — every server's own clock) and the "Redis lost or emptied" watch (SN10). So the plan's 16 helper slots are not needed — `app.sending_helper_slots` is dropped (SNQ1 → [P73](decisions.md)). |
 | SN7 | **The global switch and the environment id (D20, P4) and the settings version (D21).** Today: nothing stops a restored copy from sending. → (1) env **`SENDING_ENABLED`** (boolean, static default `false`; be-env-schema-add — the one flag for "this deployment may send"): `false` → the send workers, the tasks that call Meta and the repair duties are not registered (`isEnabled`); the webhook still saves. (2) env **`SENDING_ENVIRONMENT_ID`** (text, 1–64; a production `.refine()` requires it when `SENDING_ENABLED` is on): must equal `app.sending_states.environment_id`, read at worker start and once a minute — a mismatch stops this server's sending and alerts the team, so a Neon branch or restore of production (which carries production's id) never sends from a test server. The row is created by `prepareDatabase` with the server's id **only when missing**, never overwritten. (3) **`SENDING_SETTINGS_VERSION`** (a constant in the app-domain constants file, P4): a server whose version is older than `app.sending_states.settings_version` takes no tickets; a newer one raises it. Runtime code reads `env.SENDING_ENABLED` alone, never combined (CLAUDE.md env rule 2). |
-| SN8 | **The month limit (D34, D62, P3).** Today: no limit. → every message into her chat counts (`is_counted_as_direct_message`: DMs, private replies, broadcast messages; not public replies, hides, follow checks), in `app.message_month_counts` per workspace and calendar month **in the workspace's time zone** (`tenancy.organizations.timezone`), 16 slots by account so accounts never wait on each other. The limit is the plan's `message_month_limit` (billing, P37 placeholders: Free 1,000, Creator 10,000, Studio 50,000). At 100 %: a plan stop `plan_limit` on the **slow, fast and broadcast** lanes of every account of the workspace — the reply lane goes on (P3, D62); a DM whose 7 days end behind it is `expired` · `plan_limit`. 80 % and 100 % send one notice and one email each per month (WC-56). The 1st of the month (her time zone) or an upgrade wakes them (WC-37). Intake never checks the limit; the claim does (plan:L4831). |
-| SN9 | **Plan states and PRO at run time (D35, D57).** Today: the read-only plan refuses automation writes only (AS-BUILT "Read-only plan"). → a plan stop `plan_ended` (all four lanes) for a cancelled paid plan at its period end or a grace that ended; an account the smaller plan does not keep carries `plan_stopped_at` on its channel account (1B, CA3 — P42; rev 1 put a `plan_downgrade` stop on its four lanes); a suspended workspace, or a team suspend (`suspended_at` on the channel account, P18), stops every lane. The engine reads the plan's features **at run time** (through 1B's one feature check since rev 3 — CA11, P50): PRO parts the plan lacks are ignored, never deleted (email and phone steps skipped, "Reply like a person" as OFF, one reply line, version A only, no extra delay). Plan stops sit **beside** an error stop and both must end (plan §33.2 rule 4) — so a lane row holds the two apart (SN12). |
+| SN8 | **The month limit (D34, D62, P3).** Today: no limit. → every message into her chat counts (`is_counted_as_direct_message`: DMs, private replies, broadcast messages; not public replies, hides, follow checks), in `app.message_month_counts` per organization and calendar month **in the organization's time zone** (`tenancy.organizations.timezone`), 16 slots by account so accounts never wait on each other. The limit is the plan's `message_month_limit` (billing, P37 placeholders: Free 1,000, Creator 10,000, Studio 50,000). At 100 %: a plan stop `plan_limit` on the **slow, fast and broadcast** lanes of every account of the organization — the reply lane goes on (P3, D62); a DM whose 7 days end behind it is `expired` · `plan_limit`. 80 % and 100 % send one notice and one email each per month (WC-56). The 1st of the month (her time zone) or an upgrade wakes them (WC-37). Intake never checks the limit; the claim does (plan:L4831). |
+| SN9 | **Plan states and PRO at run time (D35, D57).** Today: the read-only plan refuses automation writes only (AS-BUILT "Read-only plan"). → a plan stop `plan_ended` (all four lanes) for a cancelled paid plan at its period end or a grace that ended; an account the smaller plan does not keep carries `plan_stopped_at` on its channel account (1B, CA3 — P42; rev 1 put a `plan_downgrade` stop on its four lanes); a suspended organization, or a team suspend (`suspended_at` on the channel account, P18), stops every lane. The engine reads the plan's features **at run time** (through 1B's one feature check since rev 3 — CA11, P50): PRO parts the plan lacks are ignored, never deleted (email and phone steps skipped, "Reply like a person" as OFF, one reply line, version A only, no extra delay). Plan stops sit **beside** an error stop and both must end (plan §33.2 rule 4) — so a lane row holds the two apart (SN12). |
 | SN10 | **Redis lost, emptied or replaced (plan §31.5, WC-21).** Today: the scheduler registers its repeat jobs once at boot; an emptied Redis loses them until a restart. → each worker process watches its BullMQ connection (reconnect events and the server's `run_id`): when Redis comes back new or empty, it re-registers the job schedulers (`registerScheduledJobs` is an idempotent upsert), rebuilds the gate-1 counts from the minute counts under one rebuild lock, and the next repair round puts the lanes' turns back with a small spread. Postgres decides throughout, so gate counts stay safe. The team is emailed after 1 minute down (through the mail outbox). |
-| SN11 | **Short-lived Redis copies (P5, be-read-cache-guard).** Today: none here. → three copies, each organization-scoped, built from Postgres, fail-open to Postgres, TTL ≤ 60 s, tombstoned after the commit that changes them: the account's **sending status** (route 63, 10 s), the workspace's **month count** (route 64 and the claim's quick look, 10 s — the claim itself always reads the slots), and the **waiting estimate** (WC-24, written every 10 minutes but kept 60 s and rebuilt on a miss by route 63). Nothing in Redis that Postgres does not have (P32). |
+| SN11 | **Short-lived Redis copies (P5, be-read-cache-guard).** Today: none here. → three copies, each organization-scoped, built from Postgres, fail-open to Postgres, TTL ≤ 60 s, tombstoned after the commit that changes them: the account's **sending status** (route 63, 10 s), the organization's **month count** (route 64 and the claim's quick look, 10 s — the claim itself always reads the slots), and the **waiting estimate** (WC-24, written every 10 minutes but kept 60 s and rebuilt on a miss by route 63). Nothing in Redis that Postgres does not have (P32). |
 | SN22 | **Instagram's side of the outbound seam (P48, rev 3; the contract is AU35).** Today (rev 2): 4.B, 5 and 7 called `InstagramMessageService` by name. → `InstagramMessageService` implements `ChannelSendingPort` (`app.channel-ports.ts`), wired as `channelSendingPorts.instagram`. **It receives** `saveWaitingMessage` with the organization, the channel account, the contact, the source (run or broadcast, with `automationRunStartedAt` — the partition key, SN17), the step, the message kind, the content by reference (step path, upload public ids — never text), `notBefore`, `triggerOccurredAt` and the event a reply answers; it writes the `waiting` row in the caller's transaction. **It chooses the lane** — `slow` for an opening private reply or DM, `reply` for a public reply or hide, `fast` for answers, lists, nudges, follow checks and Live replies, `broadcast` for 7 — sets the delivery `channel` and `is_counted_as_direct_message`, and wakes the lane after commit; it answers `skipped` with its reason when the row can never go. Before a send it asks 1B's feature check for the message's parts (CA11): a part the account can no longer use is **skipped**, never refused (D57). **It reports back** from `saveSendResult` in the result's own commit: `recordMessageResult` (4.B) for a run's message, `BroadcastRecipientService.recordMessageResult` (7.C) for a broadcast's, with `sent` · `failed` · `skipped` · `unknown` (`expired` as `skipped` with its reason; `cancelled` never reported). Cancel, skip, the month read and the failed-message summary and retry are the port's other operations. A later channel's sending sub-domain implements the same port with its own lanes. |
 | SN23 | **Meta's usage comes from the connection (P51).** Today (rev 2): the lanes read Meta's usage from their own answers (the reply lane's 80 % / 95 % rule, WC-6). → the shared Meta client keeps the usage per connection (MC19); every lane turn and the fast lane call `readConnectionUsage` (its Redis copy for gate 1, Postgres behind it) before a Meta call — ≥ 80 % slows (boxes doubled), ≥ 95 % waits until `usage_wait_until`; the lanes keep no usage of their own, and a Facebook or ads call of the same business now slows Instagram's sends too. A send's own answer updates it through the client, after the call. |
 
 ### 6.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| SNQ1 | Keep `app.sending_helper_slots` (16 slots leased by servers, plan §34.1)? | **drop it** — the repair runs as scheduler repeat jobs, one worker per tick (P7) · keep it as the plan writes | **drop** — BullMQ already gives each repeat tick to one worker, so the slot lease has nothing left to share; the two per-server duties (clock, Redis watch) need no slot. db-changes would lose the table |
-| SNQ2 | `.env.example`'s `SENDING_ENABLED` | **`true`** — the repository rule: the dev value ships active, the schema default stays `false` · `false` in the template too | **`true`** (CLAUDE.md "the dev value ships ACTIVE in `.env.example`"); safe because a hosted environment still needs its own `SENDING_ENVIRONMENT_ID` to match its database's row |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| SNQ1 | Keep `app.sending_helper_slots` (16 slots leased by servers, plan §34.1)? | **drop it** — the repair runs as scheduler repeat jobs, one worker per tick (P7) · keep it as the plan writes | **drop** — BullMQ already gives each repeat tick to one worker, so the slot lease has nothing left to share; the two per-server duties (clock, Redis watch) need no slot. db-changes would lose the table | **P73** — drop `app.sending_helper_slots` (as recommended) |
+| SNQ2 | `.env.example`'s `SENDING_ENABLED` | **`true`** — the repository rule: the dev value ships active, the schema default stays `false` · `false` in the template too | **`true`** (CLAUDE.md "the dev value ships ACTIVE in `.env.example`"); safe because a hosted environment still needs its own `SENDING_ENVIRONMENT_ID` to match its database's row | **P74** — `true` in the template (as recommended) |
+
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 Until answered, the plan follows the recommendation and every row that rests on it says so.
 
@@ -2665,10 +2677,10 @@ Until answered, the plan follows the recommendation and every row that rests on 
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.instagram_send_lanes` | one row per account and lane — its turn, lease, box, limits, error stop and workspace plan stop (pause, suspend and the account's plan stop are 1B's) | four rows per account, made at connect (channel-connection writes them through this sub-domain's service); never deleted while the account lives |
+| `app.instagram_send_lanes` | one row per account and lane — its turn, lease, box, limits, error stop and organization plan stop (pause, suspend and the account's plan stop are 1B's) | four rows per account, made at connect (channel-connection writes them through this sub-domain's service); never deleted while the account lives |
 | `app.instagram_send_stops` | the history of every stop of a lane or of all lanes | plain; batch-deleted after 90 days (WC-53) |
 | `app.instagram_send_minute_counts` | messages sent per account, count group and minute — gate 2 | raised in the claim's commit; rows over 2 hours old deleted (WC-20) |
-| `app.message_month_counts` | DMs sent per workspace, month (its time zone) and slot | raised in the claim's commit; kept 13 months (WC-54); never recounted |
+| `app.message_month_counts` | DMs sent per organization, month (its time zone) and slot | raised in the claim's commit; kept 13 months (WC-54); never recounted |
 | `app.sending_states` | one row for the whole system — environment id, settings version, the all-accounts stop and test | **no organization** (P16): maintenance login only |
 | `app.instagram_messages` | one message we send or plan to send, of a run or a broadcast | **split by week** of its run's start, about 30 days (P33, P13); public id |
 | `app.instagram_send_attempts` | one call to Meta for a message | **split by day**, 8 days (P33, D16) |
@@ -2710,7 +2722,7 @@ failed-messages routes it serves are gated in 4 (`automation:read` · `:update`)
 | Code | Roles matrix | Allows | Routes | Held by default |
 | --- | --- | --- | --- | --- |
 | `instagram-account:read` | Instagram account · View | an account's sending status | 63 | Owner, Admin, Editor, Viewer |
-| `organization:read` | Workspace · View | the workspace's DM meter and notices | 64 | Owner, Admin, Editor, Viewer |
+| `organization:read` | Workspace · View | the organization's DM meter and notices | 64 | Owner, Admin, Editor, Viewer |
 
 ### 6.5 Common to every route
 
@@ -2734,7 +2746,7 @@ failed-messages routes it serves are gated in 4 (`automation:read` · `:update`)
 | # | Method | Path | Purpose | Gate | Idem | RC |
 | --- | --- | --- | --- | --- | --- | --- |
 | 63 | GET | `/social/instagram/accounts/{channel_account_id}/sending-status` | What the account's banners need **(new)** | `instagram-account:read` | — | RC-35 |
-| 64 | GET | `/usage` | The workspace's DM meter, accounts used and notices **(new)** | `organization:read` | — | RC-56 |
+| 64 | GET | `/usage` | The organization's DM meter, accounts used and notices **(new)** | `organization:read` | — | RC-56 |
 
 The failed-messages routes (RC-37–RC-40) live in the sub-domains whose paths they have — 4's routes 36–37
 (`/automations/{automation_id}/failed-messages/…`) and 3's routes 25–26 (`/contacts/{contact_id}/failed-messages/…`) —
@@ -2782,7 +2794,7 @@ fast message (plan §30): ticket fast-<igm>-<tries> at not_before ──► her 
 | WC-23 | server clock vs Postgres, over 2 s → no tickets on this server [15] | in each worker process | every minute |
 | WC-24 | "will go / may expire" estimate per account with waiting opening DMs [17] | `waiting-estimate` | every 10 min |
 | WC-32 | upload a message file to Meta once per account (6.C) | `instagram-tasks` · `attachment-upload` | go-live, file change, or at send |
-| WC-37 | month wake at the 1st (workspace time zone) or an upgrade [24] | found by `repair-every-minute`, job `month-wake` on `instagram-tasks` | every minute |
+| WC-37 | month wake at the 1st (organization time zone) or an upgrade [24] | found by `repair-every-minute`, job `month-wake` on `instagram-tasks` | every minute |
 | WC-38 | plan change at period end: the accounts' plan stop (1B), `plan_ended`, PRO parts off; backup every 15 min [29] | `instagram-tasks` · `plan-change` (billing reports it) | on billing's event |
 | WC-42 | retry failed messages, 500 at a time, once each (6.B) | `instagram-tasks` · `retry-failed` | 4's route 37, 3's route 26 |
 | WC-49 | send attempts' day parts past 8 days dropped | shared partition upkeep (5.B WHC13) | daily |
@@ -2815,26 +2827,26 @@ one.
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-sending/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 6.A Instagram sending | folder root | `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.message_month_counts`, `app.sending_states` | 63–64, the four lanes, the repair duties | awaiting your OK |
-| 6.B Instagram messages | `instagram-message/` | `app.instagram_messages`, `app.instagram_send_attempts` | — (`saveSendResult`, the retry service behind 3's 25–26 and 4's 36–37) | awaiting your OK |
-| 6.C Instagram attachments | `instagram-attachment/` | `app.instagram_attachments` | — (file upload task) | awaiting your OK |
+| 6.A Instagram sending | folder root | `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.message_month_counts`, `app.sending_states` | 63–64, the four lanes, the repair duties | final (rev 4, confirmed 2026-11-24) |
+| 6.B Instagram messages | `instagram-message/` | `app.instagram_messages`, `app.instagram_send_attempts` | — (`saveSendResult`, the retry service behind 3's 25–26 and 4's 36–37) | final (rev 4, confirmed 2026-11-24) |
+| 6.C Instagram attachments | `instagram-attachment/` | `app.instagram_attachments` | — (file upload task) | final (rev 4, confirmed 2026-11-24) |
 
 ---
 
-### 6.A Instagram sending — `instagram-sending/` (folder root) — awaiting your OK
+### 6.A Instagram sending — `instagram-sending/` (folder root) — final (rev 4, confirmed 2026-11-24)
 
 #### 6.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| SN12 | **Lanes (D4, plan §19.10).** Four rows per account made in channel-connection's connect commit (RC-3) through `InstagramSendLaneService.createLanesForAccount`, the reconnect reusing them. `state`: `ready` · `working` · `sleeping` · `stopped` (fast: `ready`, `stopped` only). The **error stop** (`stop_reason` one of the stop groups, `stop_until` — empty = the owner must act, `stop_count`, codes, `stop_cleared_at`) and the **plan stop** (**new**: `plan_stop_reason` `plan_limit` · `plan_ended` — the workspace-wide plan stops, `plan_stopped_at`) are separate columns, so both can hold at once (SN9; db-changes has one `stop_reason` for both). The owner's pause, the team's suspend and the account's plan stop live on the channel account (1B — `paused_at`, `suspended_at`, `plan_stopped_at`, P42) and a lane turn reads them in its unit of work; the lanes carry no copy (rev 1 had `paused_at` and `suspended_at` here). The slow row also holds the account's one test claim (`testing_lane`, `testing_until`); the fast row its `sending_count` (≤ 20). |
+| SN12 | **Lanes (D4, plan §19.10).** Four rows per account made in channel-connection's connect commit (RC-3) through `InstagramSendLaneService.createLanesForAccount`, the reconnect reusing them. `state`: `ready` · `working` · `sleeping` · `stopped` (fast: `ready`, `stopped` only). The **error stop** (`stop_reason` one of the stop groups, `stop_until` — empty = the owner must act, `stop_count`, codes, `stop_cleared_at`) and the **plan stop** (**new**: `plan_stop_reason` `plan_limit` · `plan_ended` — the organization-wide plan stops, `plan_stopped_at`) are separate columns, so both can hold at once (SN9; db-changes has one `stop_reason` for both). The owner's pause, the team's suspend and the account's plan stop live on the channel account (1B — `paused_at`, `suspended_at`, `plan_stopped_at`, P42) and a lane turn reads them in its unit of work; the lanes carry no copy (rev 1 had `paused_at` and `suspended_at` here). The slow row also holds the account's one test claim (`testing_lane`, `testing_until`); the fast row its `sending_count` (≤ 20). |
 | SN13 | **Stops history (plan §33.2 rule 9).** Every stop that starts writes an `app.instagram_send_stops` row (lane, or `all` for a plan stop or an account-wide one; reason; codes; `started_at`; `stop_until`) in the same commit, and its end sets `ended_at` and `ended_by` (`time` · `test` · `owner` · `team`). Route 63 shows each lane's current stop from the lane row; the history serves the team and the "stop over 1 hour" email (WC-57). |
-| SN14 | **Route 63, the sending status (RC-35).** Today: none. → one object for the account's banners (plan §15.2): per lane the waiting count, state, wait reason, next send time and its current stops; paused, suspended, the new-account limit and its end (connect + 7 days), the estimate (about how many will go, how many may expire, done at about), today's line (sent, not sure, skipped and of those "chat closed", expired — in the workspace's day), the per-automation "chat closed" lines, and the last broadcast, past-comments and retry results (read from `app.broadcasts`, `app.automation_backfills` and the messages' `owner_retry_at` — no table of results). Read through the 10-second copy (SN11). |
-| SN15 | **Route 64, the DM meter (RC-56, P14).** Today: `GET /auth/me/context` carries plan access only. → `GET /usage`: the month's `used` (sum of the 16 slots), `limit` (the plan's `message_month_limit`), `resets_on` (the 1st of next month in the workspace's time zone), `state` `ok` · `nearly` (80 %) · `reached` (100 %); channel accounts used against the plan's `channel_accounts_max`; and the workspace notices to show (limit nearly reached, reached, payment failed, plan ended, trial ends soon, being set up, paused) — billing's and tenancy's states read through their services. Dismissing a notice is the browser's (P27). |
+| SN14 | **Route 63, the sending status (RC-35).** Today: none. → one object for the account's banners (plan §15.2): per lane the waiting count, state, wait reason, next send time and its current stops; paused, suspended, the new-account limit and its end (connect + 7 days), the estimate (about how many will go, how many may expire, done at about), today's line (sent, not sure, skipped and of those "chat closed", expired — in the organization's day), the per-automation "chat closed" lines, and the last broadcast, past-comments and retry results (read from `app.broadcasts`, `app.automation_backfills` and the messages' `owner_retry_at` — no table of results). Read through the 10-second copy (SN11). |
+| SN15 | **Route 64, the DM meter (RC-56, P14).** Today: `GET /auth/me/context` carries plan access only. → `GET /usage`: the month's `used` (sum of the 16 slots), `limit` (the plan's `message_month_limit`), `resets_on` (the 1st of next month in the organization's time zone), `state` `ok` · `nearly` (80 %) · `reached` (100 %); channel accounts used against the plan's `channel_accounts_max`; and the organization notices to show (limit nearly reached, reached, payment failed, plan ended, trial ends soon, being set up, paused) — billing's and tenancy's states read through their services. Dismissing a notice is the browser's (P27). |
 
 #### 6.A.2 Open questions
 
-SNQ1 (6.2) — `app.sending_helper_slots`; SNQ2 (6.2) — `.env.example`.
+SNQ1 (6.2) — answered P73: `app.sending_helper_slots` dropped; SNQ2 (6.2) — answered P74: `true` in `.env.example`.
 
 #### 6.A.3 Tables and relations
 
@@ -2869,7 +2881,7 @@ Indexes: unique (`organization_id`, `channel_account_id`, `lane`); `(next_run_at
 Index `(minute_start)`. `fillfactor = 80`.
 
 `app.message_month_counts`: primary key (`organization_id`, `month_start`, `slot`); `month_start date` (the 1st in the
-workspace's time zone); `slot smallint` 0–15 (from the account's id); `count integer ≥ 0`; `updated_at`. No account
+organization's time zone); `slot smallint` 0–15 (from the account's id); `count integer ≥ 0`; `updated_at`. No account
 column (P6 name; db-changes). Index `(month_start)` (the 13-month delete). `fillfactor = 80`.
 
 `app.sending_states` (**no organization**, P16): `id smallint` primary key, `CHECK (id = 1)`; `environment_id varchar(64)`;
@@ -2962,7 +2974,7 @@ of a paused, stopped or deleted automation, an opted-out or excluded contact, or
 
 ---
 
-### 6.B Instagram messages — `instagram-sending/instagram-message/` — awaiting your OK
+### 6.B Instagram messages — `instagram-sending/instagram-message/` — final (rev 4, confirmed 2026-11-24)
 
 #### 6.B.1 Decisions
 
@@ -3055,7 +3067,7 @@ None of its own — 3.A.9 and 4.A.9.
 
 ---
 
-### 6.C Instagram attachments — `instagram-sending/instagram-attachment/` — awaiting your OK
+### 6.C Instagram attachments — `instagram-sending/instagram-attachment/` — final (rev 4, confirmed 2026-11-24)
 
 #### 6.C.1 Decisions
 
@@ -3113,9 +3125,9 @@ None of its own; a send that cannot upload ends its message `failed` · `attachm
 | SNC16 | SN22, SN23 (rev 3): `InstagramMessageService implements ChannelSendingPort` (the lane choice inside it, the results back through `recordMessageResult` and 7.C's), wired in `app.container.ts`; the lanes' usage read switched to `readConnectionUsage` (1, MCC12), no usage kept on the lanes; tests — the port's contract run against Instagram's implementation (each step's lane, a `skipped` answer, each result reaching the engine once), a usage of 95 % on the connection holds every lane of every account of that connection |
 
 ---
-## 7. Broadcasts — rev 3 (2026-11-24) — nested sub-domains 7.A–7.C; awaiting your OK
+## 7. Broadcasts — rev 4 (2026-11-24) — nested sub-domains 7.A–7.C; final (rev 4, confirmed 2026-11-24)
 
-Status: `rev 3 (2026-11-24) — awaiting your OK`
+**Status: final (rev 4, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **`broadcast` sub-domain folder** — `app/sub-domains/broadcast/` (shared by every channel — P48) (the broadcast at the folder root) with
 `broadcast-segment/` and `broadcast-recipient/`.
@@ -3137,17 +3149,19 @@ Route numbers run 70–82.
 
 ### 7.1 Decisions (whole sub-domain)
 
-Taken on the standing answer "go with the recommendation" (P31).
+Taken on the standing answer "go with the recommendation", confirmed with the answers of 2026-11-24 (P54–P90) (P31).
 
 **rev 2 changes** (P44, P47, M9): renamed Broadcasts → **Instagram broadcasts** — folders `instagram-broadcast/` (+ `instagram-broadcast-segment/`, `instagram-broadcast-recipient/`), tables `app.instagram_broadcasts`, `app.instagram_segments`, `app.instagram_broadcast_recipients`; routes under `/social/instagram/broadcasts…` and `/social/instagram/segments…`; `instagram_account_id` → `channel_account_id` (→ `app.channel_accounts`, 1B); `{broadcast_id}`, `{segment_id}` keep their names; audit `app.instagram_broadcast.*`, `app.instagram_segment.*`.
 
 **rev 3 changes** (P48, P50, M10): **Broadcasts again — shared by every channel.** Folders `broadcast/` (+ `broadcast-segment/`, `broadcast-recipient/`), tables `app.broadcasts`, `app.segments`, `app.broadcast_recipients` (indexes and checks without the prefix), keyed by `channel_account_id` with `channel`; routes back to `/broadcasts…` and `/segments…`; audit `app.broadcast.*`, `app.segment.*`. Messages are saved through **`ChannelSendingPort`** and results come back to the recipient service (BC18 — the outbound seam); PRO and the channel's support come from 1B's one feature check (P50). Route numbers, gates and objects unchanged.
 
+**rev 4 changes** (P75, P76, P83, M12): segments are PRO — segment create, edit and the audience count refuse Free with `403 plan_lacks_feature` (BCQ2 → P76: BC3, BC19, BCC11); the PRO checks read the plan's `broadcasts` and `segments` switches (P83); BCQ1 answered as recommended (P75).
+
 | # | Decision |
 | --- | --- |
 | BC1 | **Folder and names (P38).** Today: nothing. → `broadcast/` holds `app.broadcasts` and routes 70–76 at its root; nested `broadcast-segment/` owns `app.segments` and routes 77–82; nested `broadcast-recipient/` is a persistence module with no routes owning `app.broadcast_recipients` (written by the broadcast service, the audience job, intake and sub-domain 6). The segment table keeps the plan's name `app.segments` (P38) although its folder carries the parent's prefix. Paths: `/broadcasts`, and **`/segments` top-level**, because a segment is reused by many broadcasts — it is not one broadcast's child (RC-41–46). Path ids `{broadcast_id}`, `{segment_id}` in `PARAM_NAME_TO_ENTITY`; public-id prefixes proposed `brc`, `seg` (P22 — kickoff confirms; the broadcast's goes in its button payloads). Build order: segments, then broadcasts, then recipients; the foreign key from `app.instagram_messages.broadcast_id` lands in this sub-domain's migration (SN17). |
 | BC2 | **Codes: the automation set (P20, D68).** Today: `automation:read` · `create` · `update` · `delete` (launch K4). → reused, no new code: `automation:read` lists and reads broadcasts and segments and counts an audience; `create` makes a draft or a segment; `update` edits, sends and cancels; `delete` deletes. Holders after the role change (Member → Editor, new Viewer): Owner, Admin and Editor make, send and cancel; Viewer only reads (plan:L2690). Other option: own `broadcast:*` codes — refused by D68 / P20. |
-| BC3 | **PRO gate (D35, D57).** Today: `createAppPlanAccessPreHandler` refuses automation writes on a read-only plan with `403 organization_read_only`. → a **feature** check beside it — since rev 3 1B's one feature check `broadcasts` (CA11, P50: the channel's capability, the connection's permission, the plan — `assertPlanFeature` is its plan input — and Meta's test) — Free → **`403 plan_lacks_feature`** ("Broadcasts are on Creator and Studio", i18n) on **create (71) and send (75)** only; reading, editing a draft, cancelling, deleting and segments stay open, so drafts and segments survive a move down (D57). A plan ended (read-only) refuses send with the existing `403 organization_read_only`. Reuse: one helper in `app-plan-access.ts`, which the automation's PRO steps use too. |
+| BC3 | **PRO gate (D35, D57).** Today: `createAppPlanAccessPreHandler` refuses automation writes on a read-only plan with `403 organization_read_only`. → a **feature** check beside it — since rev 3 1B's one feature check `broadcasts` (CA11, P50: the channel's capability, the connection's permission, the plan — `assertPlanFeature` is its plan input — and Meta's test) — Free → **`403 plan_lacks_feature`** ("Broadcasts are on Creator and Studio", i18n) on **create (71) and send (75)**, and — since BCQ2 → [P76](decisions.md) — on **segment create (78), edit (80) and the audience count (82)** through the `segments` switch (BC19); reading, editing a draft, cancelling and deleting stay open, so drafts and segments survive a move down (D57) — a trial's segments stay saved, unusable until an upgrade. A plan ended (read-only) refuses send with the existing `403 organization_read_only`. Reuse: one helper in `app-plan-access.ts`, which the automation's PRO steps use too. |
 | BC4 | **Soft delete, then purge (P9).** Today: automations soft-delete and are purged 180 days later (launch). → broadcasts and segments carry `deleted_at`; deleted rows leave every list and read (`404`). A **daily purge** removes for good the ones deleted more than **90 days** ago (BCQ1) — a broadcast's recipients and messages go with it by cascade; a segment once no live broadcast points at it (`segment_id` is set null on its drafts at delete, BC17). No delete reason (the plan names none; P11 made the automation's optional). |
 | BC5 | **One account each (D26).** A segment and a broadcast belong to one channel account, named in the create body (`channel_account_id`) and fixed; the lists require it as a filter (one account's screen, RC-41, RC-47). The conditions read only that account's contacts; a button may only start that account's automations. A `revoked` account's drafts stay; sending is refused (`409 instagram_not_connected`). |
 | BC6 | **Audit (launch K9).** `app.broadcast.create` · `update` · `delete` · `send` · `cancel` and `app.segment.create` · `update` · `delete`, written after commit; the plan requires send and cancel (plan:L4088), the rest follow the automation's pattern. |
@@ -3156,10 +3170,12 @@ Taken on the standing answer "go with the recommendation" (P31).
 
 ### 7.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| BCQ1 | How long a deleted broadcast or segment waits before its purge | **90 days** · 30 days · the automation's 180 | **90 days** — the same as recipients' keep (P33), so a purge never leaves numbers no row explains |
-| BCQ2 | May a Free workspace make segments and count audiences? | **yes** — only broadcast create and send are PRO (RC-48, RC-52) · no — segments are PRO too | **yes** — harmless, keeps a trial's segments after it ends, and the editor can show the count before an upgrade |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| BCQ1 | How long a deleted broadcast or segment waits before its purge | **90 days** · 30 days · the automation's 180 | **90 days** — the same as recipients' keep (P33), so a purge never leaves numbers no row explains | **P75** — 90 days (as recommended) |
+| BCQ2 | May a Free organization make segments and count audiences? | **yes** — only broadcast create and send are PRO (RC-48, RC-52) · no — segments are PRO too | **yes** — harmless, keeps a trial's segments after it ends, and the editor can show the count before an upgrade | **P76 — not the recommendation**: PRO only — segment create, edit and count need Creator or Studio (`403 plan_lacks_feature`, the `segments` switch, P83); Free sees the upsell; a trial's segments stay saved, unusable until an upgrade (BC3, BC19) |
+
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 Until answered, the plan follows the recommendation and every row that rests on it says so.
 
@@ -3277,7 +3293,7 @@ move down (billing) ────► scheduled and waiting-for-chats broadcasts `
 | # | Change |
 | --- | --- |
 | BCC1 | BC1: folders `app/sub-domains/broadcast/`, `…/broadcast-segment/`, `…/broadcast-recipient/` with their overviews (the status machine diagram in `broadcast.overview.md`); routes mounted by `app.routes.ts`; `PUBLIC_ID_PREFIXES` `broadcast` · `segment` and `PARAM_NAME_TO_ENTITY` `broadcast_id` · `segment_id`; OpenAPI tags `Broadcasts`, `Segments`; `tooling/openapi/query-schema-map.ts`; `src/domains/CLAUDE.md` map; migrations (new dated files after sub-domain 6's, in the order segments → broadcasts → recipients → the messages' foreign key) |
-| BCC2 | BC2, BC3: gates on every route (the domain permissions file, no catalog change — the codes exist); `assertPlanFeature` in `app-plan-access.ts` reading billing's typed features, the new reasons `plan_lacks_feature`, `transition_not_allowed`, `broadcast_not_draft`, `broadcast_active`, `broadcast_incomplete`, `broadcast_not_found`, `segment_not_found` and `message_month_limit_reached` registered in `response-codes.md` (`AppError.withReason`) with their keys in `src/shared/locales/en/errors.json` first; tests: a Free workspace `403` on 71 and 75 and `200` on the rest, a Viewer `403` on every write, an ended plan `403 organization_read_only` on 75 |
+| BCC2 | BC2, BC3: gates on every route (the domain permissions file, no catalog change — the codes exist); `assertPlanFeature` in `app-plan-access.ts` reading billing's typed features, the new reasons `plan_lacks_feature`, `transition_not_allowed`, `broadcast_not_draft`, `broadcast_active`, `broadcast_incomplete`, `broadcast_not_found`, `segment_not_found` and `message_month_limit_reached` registered in `response-codes.md` (`AppError.withReason`) with their keys in `src/shared/locales/en/errors.json` first; tests: a Free organization `403` on 71, 75, 78, 80 and 82 and `200` on the rest, a Viewer `403` on every write, an ended plan `403 organization_read_only` on 75 |
 | BCC3 | BC4, BC7: the purge worker `broadcast/workers/broadcast-tombstone-retention.*` (daily, after the app's 03:xx clean-ups, `retentionDefinition`, family `instagram`) with constant `BROADCAST_TOMBSTONE_RETENTION_DAYS` = 90 in the app-domain constants file; the two repair duties (WC-28, WC-29) registered in sub-domain 6's group; the two task handlers (WC-39, WC-40); a DB test per duty that running it twice changes nothing |
 | BCC4 | BC6: audit actions in the audit action list; i18n for the in-app "broadcast done" notice (notify's type, P28's notification kinds) |
 | BCC5 | Seeds and docs: `broadcast/seed/` (segments, drafts and done broadcasts with recipients per seeded account); `pnpm routes:catalog`, success statuses (`200` ×11, `204` ×2), `validate:route-organization-scope`, `docs:generate`, Postman; `docs/reference/data/data-lifecycle-deletion.md` rows |
@@ -3286,13 +3302,13 @@ move down (billing) ────► scheduled and waiting-for-chats broadcasts `
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/broadcast/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 7.A Broadcasts | folder root | `app.broadcasts` | 70–76, start and end duties, purge | awaiting your OK |
-| 7.B Broadcast segments | `broadcast-segment/` | `app.segments` | 77–82, the segment count | awaiting your OK |
-| 7.C Broadcast recipients | `broadcast-recipient/` | `app.broadcast_recipients` | — (the audience job, the recipient clean-up) | awaiting your OK |
+| 7.A Broadcasts | folder root | `app.broadcasts` | 70–76, start and end duties, purge | final (rev 4, confirmed 2026-11-24) |
+| 7.B Broadcast segments | `broadcast-segment/` | `app.segments` | 77–82, the segment count | final (rev 4, confirmed 2026-11-24) |
+| 7.C Broadcast recipients | `broadcast-recipient/` | `app.broadcast_recipients` | — (the audience job, the recipient clean-up) | final (rev 4, confirmed 2026-11-24) |
 
 ---
 
-### 7.A Broadcasts — `broadcast/` (folder root) — awaiting your OK
+### 7.A Broadcasts — `broadcast/` (folder root) — final (rev 4, confirmed 2026-11-24)
 
 #### 7.A.1 Decisions
 
@@ -3305,7 +3321,7 @@ move down (billing) ────► scheduled and waiting-for-chats broadcasts `
 
 #### 7.A.2 Open questions
 
-BCQ1 (7.2) — the purge horizon.
+BCQ1 (7.2) — the purge horizon; answered P75: 90 days.
 
 #### 7.A.3 Tables and relations
 
@@ -3386,13 +3402,13 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | 70, 71 | `400` · `channel_account_id` | missing, or not an `cha_…` id |
 | 71, 73 | `400` · `name` / `messages` / `conditions` / `segment_id` | out of range; both audiences; a message's own errors (the automation's message checks); a `start_automation_id` that is not a live automation of this account; a segment of another account |
 | 71 | `404` · `instagram_not_connected` | the account is not this organization's, or `revoked` |
-| 71, 75 | `403` · `plan_lacks_feature` | a Free workspace (BC3) |
+| 71, 75 | `403` · `plan_lacks_feature` | a Free organization (BC3) |
 | 75 | `403` · `organization_read_only` | the plan ended (read-only) |
 | 73 | `409` · `broadcast_not_draft` / `record_changed` | it left `draft`; a stale `expected_updated_at` |
 | 74 | `409` · `broadcast_active` | `scheduled`, `sending` or `waiting_for_chats` — cancel first |
 | 75 | `400` · `mode` / `scheduled_at` / `open_wait_days` | not one of its values, the time in the past or over 30 days ahead, out of 1–7, or a field of another mode |
 | 75 | `409` · `transition_not_allowed` | not a `draft` |
-| 75 | `409` · `message_month_limit_reached` | the workspace's DMs of this month are used up |
+| 75 | `409` · `message_month_limit_reached` | the organization's DMs of this month are used up |
 | 75 | `409` · `instagram_not_connected` | the account is `revoked` or `error` |
 | 75 | `422` · `broadcast_incomplete` | no messages, or no audience (its segment was deleted) |
 | 71, 75 | `422` · `channel_lacks_feature` / `409` · `permission_not_granted` | the account's channel cannot send broadcasts or one of its message kinds / the connection lacks the permission (1B's feature check, CA11, CAQ2) |
@@ -3414,7 +3430,7 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 
 ---
 
-### 7.B Broadcast segments — `broadcast/broadcast-segment/` — awaiting your OK
+### 7.B Broadcast segments — `broadcast/broadcast-segment/` — final (rev 4, confirmed 2026-11-24)
 
 #### 7.B.1 Decisions
 
@@ -3424,10 +3440,11 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | BC13 | **The audience query.** One builder turns conditions into a query over the account's `app.contacts` (and, for `automation`, `app.automation_runs`; for `commented` keywords, `app.automation_comment_logs`) — the contact columns the plan names are kept in the same commits as the events (contact's change). Always left out: opted out, paused, deleted, a broadcast in the last 24 hours. "Can get it now" adds her open window (`last_direct_message_received_at` within 24 hours − 15 minutes). The builder lives in the segment repository (it may read the same domain's schemas for joins). |
 | BC14 | **Audience count (route 82, RC-46).** For saved or unsaved conditions: counted inline under `SET LOCAL statement_timeout = '2s'`; on a timeout the `segment-count` task (WC-39) counts it in the background (deduplicated by account and a hash of the conditions) and writes a 60-second organization-scoped Redis copy (P5 — derived from Postgres); the answer then says `is_counting: true` and the client asks again. |
 | BC15 | **Edit and delete (RC-44, RC-45).** `PATCH` changes name or conditions; drafts that use the segment follow it, sent broadcasts keep their copy. Delete is soft (BC4) and, in the same transaction, empties `segment_id` on this account's **drafts** that use it — they need a new audience before send (`422 broadcast_incomplete`); scheduled and later broadcasts already hold their copy. |
+| BC19 | **Segments are PRO (BCQ2 → [P76](decisions.md)).** Today: nothing. After: segment create (78), edit (80) and the audience count (82) ask 1B's one feature check for `segments` (CA11 — the plan's `segments` switch, P83); Free → `403 plan_lacks_feature` ("Segments are on Creator and Studio", i18n) and the editor shows the upsell; listing (77), reading (79) and deleting (81) stay open, so segments made during a trial stay saved after a move down, unusable until an upgrade (D57). The count of a broadcast's one-off conditions is route 82 too, so counting is PRO wherever it is asked. Other option (the recommendation): segments and counts open on Free. |
 
 #### 7.B.2 Open questions
 
-BCQ2 (7.2) — segments on Free.
+BCQ2 (7.2) — answered [P76](decisions.md): segments are PRO (BC19).
 
 #### 7.B.3 Tables and relations
 
@@ -3497,6 +3514,7 @@ As 7.5.
 | 78 | `404` · `instagram_not_connected` | the account is not this organization's (a `revoked` one may still hold segments: allowed) |
 | 80 | `409` · `record_changed` | a stale `expected_updated_at` |
 | 79–82 | `404` · `segment_not_found` | absent, deleted or another organization's |
+| 78, 80, 82 | `403` · `plan_lacks_feature` | a plan without the `segments` switch — Free (BC19, P76) |
 
 #### 7.B.10 Rules worth knowing
 
@@ -3507,10 +3525,11 @@ As 7.5.
 | # | Change |
 | --- | --- |
 | BCC8 | BC12–BC15: schema, repository (with the audience builder and its statement timeout), service, the `segmentConditionsSchema` DTO (one schema for segments and broadcasts' one-off conditions), validator, serializer, controller, routes 77–82; the `segment-count` task handler and its cache file (be-read-cache-guard's five tests); unit tests: every field and the 2-level and 20-condition limits; DB tests: each condition against seeded contacts, the always-left-out rules, the open-window count; delete empties drafts' `segment_id` |
+| BCC11 | BC19: the `segments` feature check on routes 78, 80 and 82 (through 1B's `canChannelAccountUseFeature`); the `errors:` copy (`src/shared/locales/en/` first); tests — Free `403` on 78, 80, 82 and `200` on 77, 79, 81; Creator `200`; a trial's segment still readable after a move down |
 
 ---
 
-### 7.C Broadcast recipients — `broadcast/broadcast-recipient/` — awaiting your OK
+### 7.C Broadcast recipients — `broadcast/broadcast-recipient/` — final (rev 4, confirmed 2026-11-24)
 
 #### 7.C.1 Decisions
 
@@ -3583,9 +3602,9 @@ None of its own.
 
 ---
 
-## 8. Billing — Flowdm plans, plan states, trial — rev 2 (2026-11-23) — nested sub-domains 8.A–8.D; awaiting your OK
+## 8. Billing — Flowdm plans, plan states, trial — rev 3 (2026-11-24) — nested sub-domains 8.A–8.D; final (rev 3, confirmed 2026-11-24)
 
-**Status: rev 2 (2026-11-23) — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: final (rev 3, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **billing domain's own sub-domains**, changed in place in `src/domains/billing/sub-domains/` — `plan/` (8.A),
 `subscription/` (8.B subscriptions, plan states and the trial; 8.C cards — the payment-method code lives in the same
@@ -3597,8 +3616,8 @@ folder today), `stripe-webhook/` (8.D). The domain is in `main`, so every databa
 8.12 Nested sub-domains · then **8.A Plans · 8.B Subscriptions, plan states and the trial · 8.C Cards · 8.D Stripe webhook** — each
 with the same eleven sections.
 
-What the sending engine needs from billing: the three Flowdm plans with four typed limits (DMs a month, Instagram accounts, PRO,
-priority support), one plan state per workspace that the app reads and is told about when it changes, the move down at the
+What the sending engine needs from billing: the three Flowdm plans with typed features (DMs a month, accounts, one switch per feature — P83,
+priority support), one plan state per organization that the app reads and is told about when it changes, the move down at the
 period end with the accounts kept, a 7-day no-card trial, and two card routes. Design read: plan §46 (plan:L7911–L8113), §47.8
 (plan:L8214–L8236), §50.5 B3 (plan:L8441), §50.6 (plan:L8467–L8481), §53.3 item 4 (plan:L8805); `db-changes.md` › plan,
 subscription, trial_account; `route-changes.md` RC-57–RC-59, RC-64–RC-69 (RC-60 is served by sub-domain 1B, route 11);
@@ -3607,42 +3626,44 @@ a port, 8.10). Route numbers run 100–108.
 
 ### 8.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. There is no launch review
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). There is no launch review
 for billing (the launch built the `app` domain only); every "today" is the code in `main`.
 
 **rev 2 changes** (P47, M9): plan features `instagram_accounts_max` → `channel_accounts_max` and `direct_message_month_limit` → `message_month_limit`; the accounts port is 1B's (`listActiveChannelAccounts`, `countConnectedChannelAccounts`); `keep_channel_account_ids` (route 103), `channel_accounts_count` (route 108), `kept_channel_account_public_ids` on `PLAN_STATE_CHANGED`; route 11 is 1B's. No route or table of billing changes shape.
 
+**rev 3 changes** (P77–P80, P83, M12): one on / off switch per feature replaces the `is_pro_enabled` bundle (BL12, P83); the switched-off Starter, Growth and Pro rows hold an organization to Free's features and limits until it picks Creator or Studio — a notice and an email, Stripe untouched (BLQ4 → P80: BL11, BL24, BLC13); BLQ1–BLQ3 answered as recommended (P77, P78, P79).
+
 | # | Decision |
 | --- | --- |
 | BL1 | **Where things live (P38).** Today: `plan/`, `subscription/` (with the payment-method routes and the Stripe customer), `stripe-webhook/`, the seat-sync and seat-reconcile workers. After: the same folders; the trial's table is a persistence part of `subscription/` (`trial-account.{schema,repository}.ts`, no controller, no routes — the trial is started through `POST /billing/subscriptions`); the plan-state check (WC-59) is a new worker in `subscription/workers/`. No new sub-domain folder. Other option: a `subscription/subscription-trial/` nested folder — but it would own one table and no route. |
-| BL2 | **One plan read for every decision (reuse).** Today: `SubscriptionService.getPlanAccess` answers `{ state, graceEndsAt }` and `assertOrganizationWritable` refuses product writes (`403 organization_read_only`); nothing reads `plan.features` (plan:L7918). After: `getPlanAccess` is extended in place (not a second reader) to answer the workspace's **plan entitlement** — `state` (`active` · `grace` · `read_only`), `grace_ends_at`, `trial_ends_at`, the plan's public id and name, and its typed `features` (8.A) — the one read the app's checks use: the account limit (sub-domain 1 MC7, sub-domain 1B CA9), `assertPlanFeature` / the PRO gate (sub-domains 4, 6, 7), the month limit (sub-domain 6), the meter (RC-56). It reads Postgres only (one query, as today); P5's Redis copy is the app's concern. |
-| BL3 | **Plan states (plan:L7951–L7985, D35).** Today: `resolvePlanAccess` gives a never-paid TEAM workspace a 14-day grace from `created_at` (`NEW_ORGANIZATION_TRIAL_DAYS`), then `read_only`; a lapsed paid plan gets `current_period_end + BILLING_DUNNING_GRACE_DAYS`. After: **Free never ends** — no live paid subscription and no ended paid plan → `active` on Free; `NEW_ORGANIZATION_TRIAL_DAYS` and its POLICIES.md row go (reuse rule — not left beside the new rule). Paid or trialing → `active` (`trial_ends_at` while `TRIALING`). `PAST_DUE` / `UNPAID` → `grace` until `current_period_end + 14 days` (`BILLING_DUNNING_GRACE_DAYS` 14, as built), then `read_only`. A **cancelled paid plan** ends at its period end with no grace → `read_only` ("plan ended", plan:L7973). A move to Free or an unpaid trial end is not "plan ended" — both leave a live **local Free row** (BL5, BL7), so they read `active`. PERSONAL stays `active`. |
-| BL4 | **`BILLING_READ_ONLY_ENFORCED` default flips to `true` (plan:L7976).** Today: default `false`, because on, a never-paid workspace locked itself after 14 days with no way to pay. After: with Free never ending (BL3) only a lapsed or cancelled **paid** plan reaches `read_only`, so on is the production-safe value — the env var stays (one flag, the env layer owns it), its default becomes `true`, `.env.example` and the test harness set it explicitly (the harness keeps `false` for the suites that do not test billing). Other option: keep the default `false` and set `true` in each hosted environment file. |
+| BL2 | **One plan read for every decision (reuse).** Today: `SubscriptionService.getPlanAccess` answers `{ state, graceEndsAt }` and `assertOrganizationWritable` refuses product writes (`403 organization_read_only`); nothing reads `plan.features` (plan:L7918). After: `getPlanAccess` is extended in place (not a second reader) to answer the organization's **plan entitlement** — `state` (`active` · `grace` · `read_only`), `grace_ends_at`, `trial_ends_at`, the plan's public id and name, and its typed `features` (8.A) — the one read the app's checks use: the account limit (sub-domain 1 MC7, sub-domain 1B CA9), `assertPlanFeature` / the PRO gate (sub-domains 4, 6, 7), the month limit (sub-domain 6), the meter (RC-56). It reads Postgres only (one query, as today); P5's Redis copy is the app's concern. |
+| BL3 | **Plan states (plan:L7951–L7985, D35).** Today: `resolvePlanAccess` gives a never-paid TEAM organization a 14-day grace from `created_at` (`NEW_ORGANIZATION_TRIAL_DAYS`), then `read_only`; a lapsed paid plan gets `current_period_end + BILLING_DUNNING_GRACE_DAYS`. After: **Free never ends** — no live paid subscription and no ended paid plan → `active` on Free; `NEW_ORGANIZATION_TRIAL_DAYS` and its POLICIES.md row go (reuse rule — not left beside the new rule). Paid or trialing → `active` (`trial_ends_at` while `TRIALING`). `PAST_DUE` / `UNPAID` → `grace` until `current_period_end + 14 days` (`BILLING_DUNNING_GRACE_DAYS` 14, as built), then `read_only`. A **cancelled paid plan** ends at its period end with no grace → `read_only` ("plan ended", plan:L7973). A move to Free or an unpaid trial end is not "plan ended" — both leave a live **local Free row** (BL5, BL7), so they read `active`. PERSONAL stays `active`. |
+| BL4 | **`BILLING_READ_ONLY_ENFORCED` default flips to `true` (plan:L7976).** Today: default `false`, because on, a never-paid organization locked itself after 14 days with no way to pay. After: with Free never ending (BL3) only a lapsed or cancelled **paid** plan reaches `read_only`, so on is the production-safe value — the env var stays (one flag, the env layer owns it), its default becomes `true`, `.env.example` and the test harness set it explicitly (the harness keeps `false` for the suites that do not test billing). Other option: keep the default `false` and set `true` in each hosted environment file. |
 | BL5 | **Moving down at the period end (D57, plan:L7987–L8027).** Today: `change-plan` swaps the Stripe price at once (proration) and suspends members above the new seat count. After: **up** (a dearer plan) — at once, as built; **down** — at the period end: a paid → smaller paid move is a Stripe subscription schedule (the current phase to `current_period_end`, then the new price — Stripe stays the truth for payments), a paid → Free move is `cancel_at_period_end` on Stripe plus our scheduled Free; the row records `scheduled_plan_id`, `scheduled_change_at` and the owner's `downgrade_keep` (BLQ1 — two columns db-changes does not list yet). At the period end the Stripe webhook (8.D) applies it: the row's `plan_id` follows Stripe's price (paid → paid), or the Stripe row ends `CANCELED` and a **local `ACTIVE` Free row** (no Stripe id) is inserted in the same commit (paid → Free); `PLAN_STATE_CHANGED` (BL8) carries the kept accounts. A second `change-plan` before then replaces the pick or the target; a `change-plan` back to the current plan releases the schedule. The member suspension on downgrade goes (BL9). |
-| BL6 | **The kept accounts (`downgrade_keep`, D57).** `keep_channel_account_ids` on `change-plan` (route 103): a list of `cha_…` of this workspace's active accounts, at most the new plan's `channel_accounts_max`; saved with the scheduled change as a JSON list of public ids (db-changes); empty or absent → the oldest-connected stay (applied by the app at the period end, WC-38). Billing checks the ids through the **accounts port** (8.10) — never the app's tables. The pick is a hint the app applies at the end: an account disconnected meanwhile is skipped and the next oldest fills its place. The pick is also used by an unpaid trial end (BL7). |
-| BL7 | **The 7-day no-card trial (D73, plan:L8081–L8113).** Today: `POST /billing/subscriptions` takes `plan_id`, `billing_cycle`; Stripe trials are not used (`trial_end` is only synced). After: the body takes `is_trial: true` (Creator or Studio, monthly or yearly). Refused `409 trial_already_used` when the workspace ever had a trial (a subscription row of the organization with `trial_end` set — rows are never deleted, billing ledgers) or when one of its not-revoked Instagram accounts had one (`billing.trial_accounts`, 8.B). Stripe: `trial_period_days` 7 (`PAID_TRIAL_DAYS` 7, a billing constant — not environment-varying, P4), no payment method, `trial_settings.end_behavior.missing_payment_method = cancel`, the default card saved on the subscription when one is added (plan §53.3 item 4 — the exact settings checked when building, against the Stripe sandbox). In the same commit as the row: one `billing.trial_accounts` row per not-revoked account. Unpaid end: Stripe cancels; the webhook (8.D) ends the row `CANCELED` and inserts the local Free row — the moving-down rule (accounts above Free's 1 get the account plan stop — 1B's `plan_stopped_at`, the pick of BL6 or the oldest). Paid end: the plan goes on. A plan change during the trial keeps its end date. |
-| BL8 | **`PLAN_STATE_CHANGED` (plan:L7977).** Today: billing emits `subscription.created` / `.updated` / `.cancelled` (webhooks to customers, notify). After: a new event `subscription.plan_state_changed` in `SUBSCRIPTION_EVENT`, emitted **after commit** whenever the entitlement of BL2 changes: Stripe events (8.D), an upgrade (route 103), a trial start (route 102), a scheduled move applied (8.D), a grace that ended (WC-59). Payload: `organizationPublicId`, `change` (`upgraded` · `moved_down` · `plan_ended` · `resumed` · `trial_started` · `trial_ended`), the previous and current `{ state, plan_public_id }`, the current `features`, `kept_channel_account_public_ids` (on `moved_down` / `trial_ended`). The app's handler (sub-domain 6) only enqueues the plan-change task (WC-38, one per organization and change); billing never touches app tables. |
+| BL6 | **The kept accounts (`downgrade_keep`, D57).** `keep_channel_account_ids` on `change-plan` (route 103): a list of `cha_…` of this organization's active accounts, at most the new plan's `channel_accounts_max`; saved with the scheduled change as a JSON list of public ids (db-changes); empty or absent → the oldest-connected stay (applied by the app at the period end, WC-38). Billing checks the ids through the **accounts port** (8.10) — never the app's tables. The pick is a hint the app applies at the end: an account disconnected meanwhile is skipped and the next oldest fills its place. The pick is also used by an unpaid trial end (BL7). |
+| BL7 | **The 7-day no-card trial (D73, plan:L8081–L8113).** Today: `POST /billing/subscriptions` takes `plan_id`, `billing_cycle`; Stripe trials are not used (`trial_end` is only synced). After: the body takes `is_trial: true` (Creator or Studio, monthly or yearly). Refused `409 trial_already_used` when the organization ever had a trial (a subscription row of the organization with `trial_end` set — rows are never deleted, billing ledgers) or when one of its not-revoked Instagram accounts had one (`billing.trial_accounts`, 8.B). Stripe: `trial_period_days` 7 (`PAID_TRIAL_DAYS` 7, a billing constant — not environment-varying, P4), no payment method, `trial_settings.end_behavior.missing_payment_method = cancel`, the default card saved on the subscription when one is added (plan §53.3 item 4 — the exact settings checked when building, against the Stripe sandbox). In the same commit as the row: one `billing.trial_accounts` row per not-revoked account. Unpaid end: Stripe cancels; the webhook (8.D) ends the row `CANCELED` and inserts the local Free row — the moving-down rule (accounts above Free's 1 get the account plan stop — 1B's `plan_stopped_at`, the pick of BL6 or the oldest). Paid end: the plan goes on. A plan change during the trial keeps its end date. |
+| BL8 | **`PLAN_STATE_CHANGED` (plan:L7977).** Today: billing emits `subscription.created` / `.updated` / `.cancelled` (webhooks to customers, notify). After: a new event `subscription.plan_state_changed` in `SUBSCRIPTION_EVENT`, emitted **after commit** whenever the entitlement of BL2 changes: Stripe events (8.D), an upgrade (route 103), a trial start (route 102), a scheduled move applied (8.D), a grace that ended (WC-59). Payload: `organizationPublicId`, `change` (`upgraded` · `moved_down` · `plan_ended` · `resumed` · `trial_started` · `trial_ended`), the previous and current `{ state, plan_public_id }`, the current `features` (so WC-38 turns off exactly the switches the new plan lacks — P83), `kept_channel_account_public_ids` (on `moved_down` / `trial_ended`). The app's handler (sub-domain 6) only enqueues the plan-change task (WC-38, one per organization and change); billing never touches app tables. |
 | BL9 | **Seats off (D55, plan:L7943).** Today: `included_seats` 1 / 5 / 15 / 25; the member add reserves a seat (`409 seat_limit_reached`); the seat-sync job pushes the member count to Stripe as the quantity; the seat-reconcile worker and the downgrade suspension follow it. After: `included_seats` empty on every plan (unlimited, the migration sets it); the seat sync is off — a billing **code constant** `BILLING_SEAT_SYNC_ENABLED = false` (not environment-varying, P4) read at the enqueue sites and the reconcile worker's registration; Stripe's quantity stays 1; `suspendExcessMembersForDowngrade` is removed from `changePlan` (unreachable with no seat ceiling); `seat_limit_reached` stays in the code (still thrown if a plan ever carries seats) but unreachable. Other option: remove the seat machinery now — a larger change with no product effect; left for a clean-up. |
 | BL10 | **Audit (K9 form, after commit).** `billing.subscription.trial_start` (WARNING, `metadata.plan_public_id`, `channel_account_count`), `billing.subscription.change_plan` gains `metadata.is_scheduled`, `scheduled_change_at`, `kept_channel_account_count`; `billing.payment_method.delete`, `billing.payment_method.set_default` (WARNING) — never a card number, only brand and last 4. |
 
 ### 8.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| BLQ1 | How the move down waits for the period end | a Stripe subscription schedule + our two mirror columns `scheduled_plan_id`, `scheduled_change_at` · keep the target only on our row and change Stripe's price ourselves at renewal | **The Stripe schedule** — Stripe invoices the renewal itself, so changing the price "at renewal" from our side races the invoice; the two columns let route 103 and the billing screen show the change without a Stripe call. db-changes must add both columns to `subscription` |
-| BLQ2 | `{payment_method_id}` is Stripe's `pm_…` id, not one of our public ids | add it as the third non-entity param beside `{provider}` and `{slug}` · mint our own ids (a new table of cards) | **A third non-entity param** — cards live only in Stripe (no table, plan:L8069); the param is checked by shape (`pm_` + 1–250 letters and digits) and by ownership (the card's customer is the workspace's); be-api-contract-guard's list and the param policy test name it |
-| BLQ3 | The feature key `dm_month_limit` (db-changes open item) | `message_month_limit` (full names, P6) · the plan's `dm_month_limit` | **`message_month_limit`** — P6 already renamed the table to `message_month_counts`; "dm" is an abbreviation the naming rule refuses; sub-domain 6 (SN15, SNC7) follows — applied at merge (M1) |
-| BLQ4 | The features of the turned-off rows Starter, Growth and Pro (a typed read refuses their old keys) | map them: Starter → Creator's, Growth and Pro → Studio's · give them Free's | **Map them up** — a workspace still paying an old plan keeps paid powers until it moves; a typed read never meets an old key; no Stripe change |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| BLQ1 | How the move down waits for the period end | a Stripe subscription schedule + our two mirror columns `scheduled_plan_id`, `scheduled_change_at` · keep the target only on our row and change Stripe's price ourselves at renewal | **The Stripe schedule** — Stripe invoices the renewal itself, so changing the price "at renewal" from our side races the invoice; the two columns let route 103 and the billing screen show the change without a Stripe call. db-changes must add both columns to `subscription` | **P77** — the Stripe subscription schedule (as recommended) |
+| BLQ2 | `{payment_method_id}` is Stripe's `pm_…` id, not one of our public ids | add it as the third non-entity param beside `{provider}` and `{slug}` · mint our own ids (a new table of cards) | **A third non-entity param** — cards live only in Stripe (no table, plan:L8069); the param is checked by shape (`pm_` + 1–250 letters and digits) and by ownership (the card's customer is the organization's); be-api-contract-guard's list and the param policy test name it | **P78** — Stripe's id, a third non-entity param (as recommended) |
+| BLQ3 | The feature key `dm_month_limit` (db-changes open item) | `message_month_limit` (full names, P6) · the plan's `dm_month_limit` | **`message_month_limit`** — P6 already renamed the table to `message_month_counts`; "dm" is an abbreviation the naming rule refuses; sub-domain 6 (SN15, SNC7) follows — applied at merge (M1) | **P79** — `message_month_limit` (the recommendation, kept as the default — AMBER) |
+| BLQ4 | The features of the turned-off rows Starter, Growth and Pro (a typed read refuses their old keys) | map them: Starter → Creator's, Growth and Pro → Studio's · give them Free's | **Map them up** — an organization still paying an old plan keeps paid powers until it moves; a typed read never meets an old key; no Stripe change | **P80 — not the recommendation**: Free's — an organization still on an old row is held to Free's features and limits until it picks Creator or Studio; Stripe untouched; a notice and an email (BL11, BL24) |
 
-Until you answer, the plan follows the recommendation and every row that rests on it says so.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 8.3 Tables and relations
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `billing.plans` (changed) | the global plan catalog — Free, Creator, Studio active; Starter, Growth, Pro off | `features` exactly four typed keys (8.A); `included_seats` empty; no RLS (shared catalog, as built) |
-| `billing.subscriptions` (changed) | a workspace's subscription | + `downgrade_keep`, + `scheduled_plan_id`, `scheduled_change_at` (BLQ1); one non-terminal row per organization (as built) |
-| `billing.trial_accounts` (new) | every Instagram account that had the trial, in any workspace | one row per `instagram_user_id`, ever (BL7) |
+| `billing.plans` (changed) | the global plan catalog — Free, Creator, Studio active; Starter, Growth, Pro off (with Free's features — P80) | typed `features`: two limits, priority support and one switch per feature (8.A, P83); `included_seats` empty; no RLS (shared catalog, as built) |
+| `billing.subscriptions` (changed) | an organization's subscription | + `downgrade_keep`, + `scheduled_plan_id`, `scheduled_change_at` (BLQ1); one non-terminal row per organization (as built) |
+| `billing.trial_accounts` (new) | every Instagram account that had the trial, in any organization | one row per `instagram_user_id`, ever (BL7) |
 
 ```text
 tenancy.organizations
@@ -3711,7 +3732,7 @@ No new codes. Held by default per the four roles (D55, sub-domain 9): billing is
 | 105 | DELETE | `/billing/payment-methods/{payment_method_id}` | Remove a card **(new)** | `subscription:manage` | | RC-68 |
 | 106 | POST | `/billing/payment-methods/{payment_method_id}/default` | Make it the default card **(new)** | `subscription:manage` | req | RC-69 |
 | 107 | POST | `/billing/webhook` | Stripe's events — an unpaid trial and a scheduled move down end here **(changed)** | Stripe-Signature | | RC-66 |
-| 108 | GET | `/auth/me/context` | `plan_access` adds `trial_ends_at`; the workspace adds `channel_accounts_count` **(changed)** | AUTH | | RC-64 |
+| 108 | GET | `/auth/me/context` | `plan_access` adds `trial_ends_at`; the organization adds `channel_accounts_count` **(changed)** | AUTH | | RC-64 |
 
 ### 8.8 Request details
 
@@ -3742,32 +3763,32 @@ Every route can answer the errors in 8.5; each route's own errors are in its nes
 | BLC2 | BL2, BL3, BL4: `resolvePlanAccess` rewritten (Free never ends, the local Free row, cancelled paid → `read_only`); `getPlanAccess` answers the entitlement; `PlanAccessOutput` + `trial_ends_at`; the env default flip (be-env-schema-add: schema, `.env.example`, `src/tests/setup.ts`, the refine comment); unit tests for every state of plan:L7966–L7973 |
 | BLC3 | BL8: `SUBSCRIPTION_EVENT.PLAN_STATE_CHANGED`, its payload type, emitted after commit from 8.B and 8.D and WC-59; an event test per `change` value; the app's handler is sub-domain 6's (WC-38) |
 | BLC4 | BL10 and the ports of 8.10: the audit actions; `ChannelAccountsPort` / `TrialPort` types, wired in `src/routes.ts` and the worker bootstrap; i18n keys for every new reason (`src/shared/locales/en/errors.json`) and their rows in `docs/reference/api/response-codes.md` |
-| BLC5 | Tests and seeds: the reference seed = the migration's rows (8.A); bulk seed — demo team workspaces on Free, Creator (one trialing) and Studio (`subscription/seed/`); integration tests for every success and error in 8.A–8.D; contract tests (`src/tests/contract/stripe*`) for the schedule, the trial create, detach and default; `pnpm routes:catalog`, `validate:route-success-statuses`, `docs:generate` |
+| BLC5 | Tests and seeds: the reference seed = the migration's rows (8.A); bulk seed — demo team organizations on Free, Creator (one trialing) and Studio (`subscription/seed/`); integration tests for every success and error in 8.A–8.D; contract tests (`src/tests/contract/stripe*`) for the schedule, the trial create, detach and default; `pnpm routes:catalog`, `validate:route-success-statuses`, `docs:generate` |
 
 ### 8.12 Nested sub-domains
 
 | Nested sub-domain | Folder (`src/domains/billing/sub-domains/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 8.A Plans | `plan/` | `billing.plans` | 100–101 | awaiting your OK |
-| 8.B Subscriptions, plan states and the trial | `subscription/` | `billing.subscriptions`, `billing.trial_accounts` | 102, 103, 108 | awaiting your OK |
-| 8.C Cards | `subscription/` (the payment-method service and serializer) | — (Stripe only) | 104–106 | awaiting your OK |
-| 8.D Stripe webhook | `stripe-webhook/` | `billing.stripe_webhook_events` (unchanged) | 107 | awaiting your OK |
+| 8.A Plans | `plan/` | `billing.plans` | 100–101 | final (rev 3, confirmed 2026-11-24) |
+| 8.B Subscriptions, plan states and the trial | `subscription/` | `billing.subscriptions`, `billing.trial_accounts` | 102, 103, 108 | final (rev 3, confirmed 2026-11-24) |
+| 8.C Cards | `subscription/` (the payment-method service and serializer) | — (Stripe only) | 104–106 | final (rev 3, confirmed 2026-11-24) |
+| 8.D Stripe webhook | `stripe-webhook/` | `billing.stripe_webhook_events` (unchanged) | 107 | final (rev 3, confirmed 2026-11-24) |
 
 ---
 
-### 8.A Plans — `billing/sub-domains/plan/` — awaiting your OK
+### 8.A Plans — `billing/sub-domains/plan/` — final (rev 3, confirmed 2026-11-24)
 
 #### 8.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| BL11 | **The three plans (plan:L7932–L7949, P37).** Today: Free, Starter, Growth, Pro; `features` a loose map (`priority_support`, `audit_log`, `sso`), `included_seats` 1 / 5 / 15 / 25. After, one new migration `billing_flowdm_plans` and the reference seed in step: **Free** updated ($0, $0); **Creator** added ($29 a month, $276 a year — placeholders, P37); **Studio** added ($79, $756 — placeholders); Starter, Growth, Pro `is_active = false` (billing rows are never deleted), their features mapped (BLQ4); `included_seats` empty on all seven rows (D55). Stripe product and price ids stay empty until ops creates them at go-live (P37) — until then a paid plan answers `422 planNotAvailableForBillingCycle` on subscribe (as built: no Stripe price for the cycle). |
-| BL12 | **Typed features (plan:L7944).** Today: `PlanFeatures = Record<string, boolean \| number \| string>`, nothing checks it. After: one zod object `planFeaturesSchema` with exactly `message_month_limit` (integer ≥ 0; BLQ3), `channel_accounts_max` (integer 1–100), `is_pro_enabled` (boolean — the plan's `pro_features`, P21 form), `has_priority_support` (boolean — `priority_support`, P21 form), `.strict()`: checked when a row is written (seed, migration-backed tests) and parsed on every read in the repository — an unknown or missing key is a loud error, never a silent default. The table keeps `jsonb`; a `CHECK` pins the four keys and their JSON types (the database refuses a bad row too). Values: Free 1,000 / 1 / no / no; Creator 10,000 / 3 / yes / no; Studio 50,000 / 10 / yes / yes. Other option: the plan's names `pro_features`, `priority_support` — not the `is_` / `has_` form P21 asks for. |
-| BL13 | **The plan object (RC-57, RC-58).** Today: `features` verbatim, `limits: { seats }`, `price_yearly` the yearly total (or null without a yearly price), `billing_cycles`. After: `features` the typed four; `price_yearly_per_month` = `price_yearly` ÷ 12, two decimals (plan:L7949); `limits` goes (seats are unlimited on every plan — the field would always read `null`). The one-minute in-process catalog memo stays (as built); the decision reads (`requireActivePlanByPublicId`, the entitlement) never use it (as built). Other option: keep `limits: { seats: null }` for old clients — meepzo-fe changes with this contract anyway (P30). |
+| BL11 | **The three plans (plan:L7932–L7949, P37).** Today: Free, Starter, Growth, Pro; `features` a loose map (`priority_support`, `audit_log`, `sso`), `included_seats` 1 / 5 / 15 / 25. After, one new migration `billing_flowdm_plans` and the reference seed in step: **Free** updated ($0, $0); **Creator** added ($29 a month, $276 a year — placeholders, P37); **Studio** added ($79, $756 — placeholders); Starter, Growth, Pro `is_active = false` (billing rows are never deleted), their features set to **Free's** (BLQ4 → [P80](decisions.md), BL24); `included_seats` empty on all seven rows (D55). Stripe product and price ids stay empty until ops creates them at go-live (P37) — until then a paid plan answers `422 planNotAvailableForBillingCycle` on subscribe (as built: no Stripe price for the cycle). |
+| BL12 | **Typed features — one switch per feature (plan:L7944, [P83](decisions.md)).** Today: `PlanFeatures = Record<string, boolean \| number \| string>`, nothing checks it. After: one zod object `planFeaturesSchema`, `.strict()`, with `message_month_limit` (integer ≥ 0; BLQ3), `channel_accounts_max` (integer 1–100), `has_priority_support` (boolean — the plan's `priority_support`, P21 form) and `feature_switches` — **one boolean per feature key** of `PLAN_FEATURE_KEYS` (a billing constant in `plan.constants.ts`; 1B's `CHANNEL_FEATURES` names each feature's key — CA11 — and a unit test pins that the two lists agree): the PRO switches `email_ask`, `phone_ask`, `reply_like_person`, `multiple_public_reply_lines`, `message_versions`, `broadcasts`, `segments` (P76), `past_comments`, `extra_delay`, and the channel features every plan has (`starter_questions`, `mark_seen`, …). It supersedes the rev 2 `is_pro_enabled` (the plan's `pro_features` bundle, D35): "PRO" is a label for the switches a plan turns on, not a field. Checked when a row is written (seed, migration-backed tests) and parsed on every read in the repository — an unknown or missing key is a loud error, never a silent default. The table keeps `jsonb`; a `CHECK` pins the four top-level keys and their JSON types (the database refuses a bad row too). Values: Free 1,000 / 1 / no priority support / the PRO switches off, every other switch on; Creator 10,000 / 3 / no / every switch on; Studio 50,000 / 10 / **yes** / every switch on. A new or changed plan is a new or changed row — no code change; the one feature check (CA11) reads the exact switch, and a move down (D57, BL8) turns off exactly the switches the new plan lacks. Other option: the rev 2 bundle `is_pro_enabled` — every PRO feature on one flag. |
+| BL13 | **The plan object (RC-57, RC-58).** Today: `features` verbatim, `limits: { seats }`, `price_yearly` the yearly total (or null without a yearly price), `billing_cycles`. After: `features` the typed object of BL12 (P83); `price_yearly_per_month` = `price_yearly` ÷ 12, two decimals (plan:L7949); `limits` goes (seats are unlimited on every plan — the field would always read `null`). The one-minute in-process catalog memo stays (as built); the decision reads (`requireActivePlanByPublicId`, the entitlement) never use it (as built). Other option: keep `limits: { seats: null }` for old clients — meepzo-fe changes with this contract anyway (P30). |
 
 #### 8.A.2 Open questions
 
-BLQ3 (the feature key name) and BLQ4 (the old rows' features) — 8.2.
+BLQ3 (the feature key name — P79, `message_month_limit`) and BLQ4 (the old rows' features — P80, Free's: BL11, BL24) — 8.2; both answered.
 
 #### 8.A.3 Tables and relations
 
@@ -3775,7 +3796,7 @@ BLQ3 (the feature key name) and BLQ4 (the old rows' features) — 8.2.
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
-| `features` | `jsonb` | no | — | **changed**: exactly the four keys of BL12; `CHECK` on the key set and JSON types (`chk_plans_features`) |
+| `features` | `jsonb` | no | — | **changed**: the keys of BL12 — four top-level, the switches inside `feature_switches` (P83); `CHECK` on the top-level key set and JSON types (`chk_plans_features`) |
 | `included_seats` | `integer` | yes | | **changed**: empty on every row (the migration); the existing check stays |
 | `is_active` | `boolean` | no | `true` | Starter, Growth, Pro → `false` |
 | `price_monthly`, `price_yearly` | `decimal(10,2)` | no | | seeded placeholders (P37) |
@@ -3796,8 +3817,8 @@ As 8.5; PUBLIC with the catalog cache headers (as built).
 #### 8.A.6 Objects returned
 
 **Plan**: `id` (`pln_…`), `name`, `description`, `price_monthly`, `price_yearly` (or null), `price_yearly_per_month` (or null),
-`billing_cycles`, `currency`, `is_active`, `features` (`{ message_month_limit, channel_accounts_max, is_pro_enabled,
-has_priority_support }`), `created_at`, `updated_at`.
+`billing_cycles`, `currency`, `is_active`, `features` (`{ message_month_limit, channel_accounts_max,
+has_priority_support, feature_switches: { <feature key>: boolean } }` — BL12, P83), `created_at`, `updated_at`.
 
 #### 8.A.7 Routes (100–101)
 
@@ -3828,25 +3849,26 @@ has_priority_support }`), `created_at`, `updated_at`.
 
 | # | Change |
 | --- | --- |
-| BLC6 | BL11–BL13: migration `billing_flowdm_plans` (rows, `CHECK`, seats empty, default dropped); `DEFAULT_PLANS` = the three plans + the three off rows; `planFeaturesSchema` in `plan.types.ts` (the `PlanFeatures` type inferred from it) parsed in `plan.repository.ts`; `price_yearly_per_month` in `plan.service.ts`'s output; `limits` removed from `PlanOutput`; k6 billing journeys and the Stripe sandbox catalog script follow the new names; unit tests for the schema (missing, unknown, wrong type) |
+| BLC6 | BL11–BL13: migration `billing_flowdm_plans` (rows, `CHECK`, seats empty, default dropped); `DEFAULT_PLANS` = the three plans + the three off rows; `planFeaturesSchema` in `plan.types.ts` (the `PlanFeatures` type inferred from it) parsed in `plan.repository.ts`; `PLAN_FEATURE_KEYS` in `plan.constants.ts` (P83); the off rows seeded with Free's features (P80); `price_yearly_per_month` in `plan.service.ts`'s output; `limits` removed from `PlanOutput`; k6 billing journeys and the Stripe sandbox catalog script follow the new names; unit tests for the schema (missing, unknown, wrong type, a switch not in `PLAN_FEATURE_KEYS`) and that `PLAN_FEATURE_KEYS` equals the switch keys of 1B's `CHANNEL_FEATURES` |
 
 ---
 
-### 8.B Subscriptions, plan states and the trial — `billing/sub-domains/subscription/` — awaiting your OK
+### 8.B Subscriptions, plan states and the trial — `billing/sub-domains/subscription/` — final (rev 3, confirmed 2026-11-24)
 
 #### 8.B.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| BL14 | **Subscribe and trial (route 102, RC-65).** Today: `plan_id`, `billing_cycle`; a Free plan creates a local row, a paid plan a Stripe subscription (`payment_behavior: default_incomplete`) with a Redis lock per organization. After: + `is_trial` (optional, default `false`). With `is_trial`: the plan must be paid (`422 plan_has_no_trial` for Free); the checks of BL7 before Stripe (`409 trial_already_used`); the Stripe call with the trial settings; the row `TRIALING`, `trial_end` = now + 7 days; in the same commit the `billing.trial_accounts` rows (a unique-key race with another workspace → `409 trial_already_used`, nothing kept — the Stripe subscription is cancelled as the existing compensation does); after commit `PLAN_STATE_CHANGED` (`trial_started`) and the audit entry. Without `is_trial` as built, plus `PLAN_STATE_CHANGED` (`upgraded`) once Stripe says paid (8.D) — a Free local row emits `resumed` when it ends a plan-ended state. |
-| BL15 | **Change plan (route 103, RC-59).** Today: `plan_id` only; immediate. After: `plan_id*`, `keep_channel_account_ids` (BL6). Dearer → as built (immediate Stripe price swap with proration), clears any scheduled change, emits `upgraded`. Cheaper or Free → scheduled (BL5): checks the pick (each a not-revoked, active account of this workspace — through the port; at most the new plan's `channel_accounts_max`; no repeats), creates or updates the Stripe schedule (or `cancel_at_period_end` for Free), then writes `scheduled_plan_id`, `scheduled_change_at` (= `current_period_end`), `downgrade_keep`. The same plan as the current one → releases the schedule and clears the three columns. During a trial the end date stays (plan:L8104). The answer is the Subscription with its `scheduled_change` (8.B.6). The Redis lock per subscription stays (as built). |
-| BL16 | **Plan state for the app and the context (route 108, RC-64).** Today: `active_organization.plan_access` = `{ state, grace_ends_at }`. After: `{ state, grace_ends_at, trial_ends_at, plan: { id, name }, features }` (the BL2 entitlement, serialized), and `active_organization.channel_accounts_count` (the not-revoked accounts, through the accounts port — the "being set up" notice, plan:L8227). "Workspace paused" is the organization's existing `status` (`SUSPENDED`, plan:L7907) — already in the answer, no new field. The DM meter is not here (RC-56, P14). |
+| BL14 | **Subscribe and trial (route 102, RC-65).** Today: `plan_id`, `billing_cycle`; a Free plan creates a local row, a paid plan a Stripe subscription (`payment_behavior: default_incomplete`) with a Redis lock per organization. After: + `is_trial` (optional, default `false`). With `is_trial`: the plan must be paid (`422 plan_has_no_trial` for Free); the checks of BL7 before Stripe (`409 trial_already_used`); the Stripe call with the trial settings; the row `TRIALING`, `trial_end` = now + 7 days; in the same commit the `billing.trial_accounts` rows (a unique-key race with another organization → `409 trial_already_used`, nothing kept — the Stripe subscription is cancelled as the existing compensation does); after commit `PLAN_STATE_CHANGED` (`trial_started`) and the audit entry. Without `is_trial` as built, plus `PLAN_STATE_CHANGED` (`upgraded`) once Stripe says paid (8.D) — a Free local row emits `resumed` when it ends a plan-ended state. |
+| BL15 | **Change plan (route 103, RC-59).** Today: `plan_id` only; immediate. After: `plan_id*`, `keep_channel_account_ids` (BL6). Dearer → as built (immediate Stripe price swap with proration), clears any scheduled change, emits `upgraded`. Cheaper or Free → scheduled (BL5): checks the pick (each a not-revoked, active account of this organization — through the port; at most the new plan's `channel_accounts_max`; no repeats), creates or updates the Stripe schedule (or `cancel_at_period_end` for Free), then writes `scheduled_plan_id`, `scheduled_change_at` (= `current_period_end`), `downgrade_keep`. The same plan as the current one → releases the schedule and clears the three columns. During a trial the end date stays (plan:L8104). The answer is the Subscription with its `scheduled_change` (8.B.6). The Redis lock per subscription stays (as built). |
+| BL16 | **Plan state for the app and the context (route 108, RC-64).** Today: `active_organization.plan_access` = `{ state, grace_ends_at }`. After: `{ state, grace_ends_at, trial_ends_at, plan: { id, name }, features, is_plan_choice_required }` (the BL2 entitlement, serialized), and `active_organization.channel_accounts_count` (the not-revoked accounts, through the accounts port — the "being set up" notice, plan:L8227). "Workspace paused" is the organization's existing `status` (`SUSPENDED`, plan:L7907) — already in the answer, no new field. The DM meter is not here (RC-56, P14). |
 | BL17 | **The plan-state check (WC-59, plan:L7978, L8106).** Every 15 minutes (`PLAN_STATE_CHECK_MINUTES` 15, a billing constant), a sweep under a maintenance scope (`MAINTENANCE_SCOPE.BILLING_PLAN_STATE_CHECK`, new, frozen) finds (a) dunning subscriptions whose `current_period_end + 14 days` has passed and that no event has marked yet, and (b) trialing subscriptions 3 days and 1 day before `trial_end` (`TRIAL_NOTICE_DAYS` 3, 1); one job per organization on the billing queue, payload `organizationPublicId` (+ `subscriptionPublicId`). Inside its organization the job re-reads the row: (a) emits `PLAN_STATE_CHANGED` (`plan_ended`) — once in effect, because the app's handler enqueues WC-38 with the job id `plan-change:<organization>:plan_ended:<period end>` (a repeat is dropped; no marker column); (b) sends `billing.trial_ending` to the billing recipients (sub-domain 11) with the dedupe key `trial-ending:<subscription>:<days>`. Safe to repeat; safe to skip (the next run catches up). Other option: a Stripe `customer.subscription.trial_will_end` event for the 3-day notice — Stripe sends it once, 3 days ahead, and never the 1-day one. |
-| BL18 | **One trial per Instagram account, across workspaces, without reading them.** The pre-check needs rows of every workspace, which RLS hides: a `SECURITY DEFINER` function `billing.resolve_trialled_instagram_user_ids(text[])` answers only which of the given ids already had a trial (yes / no, no organization) — the launch's resolver form (`app.resolve_organization_public_id_for_instagram_user`); the unique key is the final guard. |
+| BL18 | **One trial per Instagram account, across organizations, without reading them.** The pre-check needs rows of every organization, which RLS hides: a `SECURITY DEFINER` function `billing.resolve_trialled_instagram_user_ids(text[])` answers only which of the given ids already had a trial (yes / no, no organization) — the launch's resolver form (`app.resolve_organization_public_id_for_instagram_user`); the unique key is the final guard. |
+| BL24 | **Old plan rows hold an organization to Free (BLQ4 → [P80](decisions.md)).** Today: Starter, Growth and Pro are live plans with their own loose features. After: the migration (BL11) turns them off **and** writes Free's features into them (1,000 messages a month, 1 account, every PRO switch off, no priority support), so every reader — the account limit, the month limit, the one feature check — holds an organization still on one of them to Free with no special case. Its Stripe subscription is not touched (it pays its old price until it changes plan). The entitlement (BL2) adds `is_plan_choice_required` (`true` while the live row points at an off plan): route 108 carries it and the billing screen shows the notice "Choose Creator or Studio". The plan-state check (WC-59, BL17) finds such subscriptions and, once per subscription (job id `plan-change:<organization>:legacy_plan:<subscription>`), emits `PLAN_STATE_CHANGED` (`moved_down` — WC-38 puts the plan stop on accounts above Free's 1, the oldest-connected kept) and sends one email `billing.plan_choice_required` to the billing recipients (sub-domain 11, dedupe key `plan-choice:<subscription>`). Picking Creator or Studio (route 103) ends it — an up move, as built. Other option (the recommendation): map Starter → Creator's, Growth and Pro → Studio's. |
 
 #### 8.B.2 Open questions
 
-BLQ1 (how the move down waits) — 8.2.
+BLQ1 (how the move down waits) — 8.2; answered P77: the Stripe schedule.
 
 #### 8.B.3 Tables and relations
 
@@ -3859,7 +3881,7 @@ BLQ1 (how the move down waits) — 8.2.
 | `scheduled_change_at` | `timestamptz` | yes | | **new** (BLQ1): `(scheduled_plan_id IS NULL) = (scheduled_change_at IS NULL)`; `downgrade_keep IS NULL OR scheduled_plan_id IS NOT NULL` |
 | `trial_end` | `timestamptz` | yes | | as built; now also the "had a trial" mark (BL7) |
 
-New indexes: `(organization_id) WHERE trial_end IS NOT NULL` — the "workspace had a trial" check; `(trial_end) WHERE status =
+New indexes: `(organization_id) WHERE trial_end IS NOT NULL` — the "organization had a trial" check; `(trial_end) WHERE status =
 'TRIALING'` — WC-59's trial notices; `(current_period_end) WHERE status IN ('PAST_DUE', 'UNPAID')` — WC-59's grace sweep;
 `(scheduled_plan_id) WHERE scheduled_plan_id IS NOT NULL` (the foreign key). RLS: the existing organization policy, enabled and
 forced (as built); WC-59's sweep reads under its maintenance scope's bypass arm (the policy's `USING` gains the new scope's GUC
@@ -3870,13 +3892,13 @@ alongside the retention arm; `WITH CHECK` stays organization-only).
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `id`, `public_id`, `created_at` | standard | no | | |
-| `organization_id` | `bigint` | **yes** | | → organizations `ON DELETE SET NULL` — the row outlives its workspace (Rule below) |
+| `organization_id` | `bigint` | **yes** | | → organizations `ON DELETE SET NULL` — the row outlives its organization (Rule below) |
 | `instagram_user_id` | `text` | no | | digits, 1–30; **unique** (one trial per account, ever) |
 | `plan_id` | `bigint` | no | | → plans `ON DELETE RESTRICT` |
 | `subscription_id` | `bigint` | yes | | → subscriptions `ON DELETE SET NULL` — the trial it came with |
 | `started_at` | `timestamptz` | no | `now()` | the trial start, or the connect time for an account added during the trial |
 
-Rule on deletion: the row must outlive its workspace — an account that trialled in a deleted workspace must not trial again —
+Rule on deletion: the row must outlive its organization — an account that trialled in a deleted organization must not trial again —
 so the standard `ON DELETE CASCADE` would break D73. `organization_id` is therefore nullable with `ON DELETE SET NULL`: the
 organization's hard purge (its tombstone-retention worker) leaves the row with no organization; a null-organization row matches no
 request's policy (invisible), and only the resolver of BL18 still sees it. Its `subscription_id` → subscriptions `ON DELETE SET
@@ -3903,7 +3925,7 @@ As 8.5.
 `{ plan_id, change_at, keep_channel_account_ids }`) + `is_trial` (`status = 'TRIALING'`).
 
 **Plan access** (`active_organization.plan_access` on route 108 and on the two switch routes, as built): `state`, `grace_ends_at`,
-`trial_ends_at`, `plan` (`{ id, name }`), `features` (8.A.6). Route 108's `active_organization` also carries
+`trial_ends_at`, `plan` (`{ id, name }`), `features` (8.A.6), `is_plan_choice_required` (BL24, P80). Route 108's `active_organization` also carries
 `channel_accounts_count` (integer).
 
 #### 8.B.7 Routes (102, 103, 108)
@@ -3927,9 +3949,9 @@ As 8.5.
 | Route | Status · reason | When |
 | --- | --- | --- |
 | 102 | `422` · `plan_has_no_trial` | `is_trial` on the Free plan |
-| 102 | `409` · `trial_already_used` | the workspace had a trial, or one of its accounts had one (anywhere) |
+| 102 | `409` · `trial_already_used` | the organization had a trial, or one of its accounts had one (anywhere) |
 | 102 | `409` · `subscription_already_exists` / `subscription_create_in_progress` | as built |
-| 103 | `400` · `keep_channel_account_ids` | not this workspace's active accounts, a repeat, more than the new plan allows, or given on a move up |
+| 103 | `400` · `keep_channel_account_ids` | not this organization's active accounts, a repeat, more than the new plan allows, or given on a move up |
 | 103 | `422` · `subscription_not_mutable` / `planNotAvailableForBillingCycle` | as built (terminal subscription; no price for the cycle) |
 | 103 | `409` · `subscription_change_in_progress` | as built |
 | 102, 103 | `422` | a personal organization; the idempotency key missing, malformed or reused |
@@ -3940,7 +3962,7 @@ As 8.5.
 
 - **Where the plan comes from, for every reader**: the live row (`TRIALING`, `ACTIVE`, `PAST_DUE`, `UNPAID`) → its plan; none →
   Free (by name — the one row the reference seed guarantees). A plan the row points at that is off (Starter …) still answers its
-  mapped features (BLQ4).
+  features — Free's, so the organization is held to Free (BLQ4 → P80, BL24).
 - **Downgrade at the period end is billing's moment, the stops are the app's**: billing changes the plan row and emits the event;
   WC-38 (sub-domain 6) sets the accounts' plan stop (1B's `plan_stopped_at`), ends broadcasts and past-comment reads — within the same 15-minute backup.
 
@@ -3952,26 +3974,27 @@ As 8.5.
 | BLC8 | BL5, BL6, BL15: `ChangePlanDto` + `keep_channel_account_ids`; the move-down path (Stripe subscription schedule create / update / release in `stripe.client.ts` and the payment-provider port, `cancel_at_period_end` for Free); the three columns and their checks in the `billing_subscriptions_downgrade_keep` migration; `scheduled_change` in `subscription.serializer.ts`; `suspendExcessMembersForDowngrade` removed |
 | BLC9 | BL16: `AuthMeContextService` takes the accounts port; `PlanAccessOutput` + `trial_ends_at`, `plan`, `features`; `channel_accounts_count`; the switch routes' answers follow (one serializer) |
 | BLC10 | BL17: `subscription/workers/subscription-plan-state-check.{worker,processor,constants}.ts`, its queue and job schema (`organizationPublicId`, `subscriptionPublicId`), the sweep under `MAINTENANCE_SCOPE.BILLING_PLAN_STATE_CHECK` (registered in `database-context.ts`; the subscriptions policy's bypass arm); registry, scheduler (every 15 minutes), DLQ; tests — a grace that ended emits once, a trial at 3 and 1 days notifies once each, a repeat sends nothing twice |
+| BLC13 | BL24: the off rows' features in `billing_flowdm_plans` (Free's); `is_plan_choice_required` on the entitlement and `PlanAccessOutput`; WC-59's third finding (subscriptions on an off plan, once per subscription) with the `moved_down` event and the `billing.plan_choice_required` email; tests — an organization on Growth reads Free's limits and switches, gets one email and one event however often the check runs, route 103 to Creator clears the flag, Stripe is never called for it |
 
 ---
 
-### 8.C Cards — `billing/sub-domains/subscription/` (payment methods) — awaiting your OK
+### 8.C Cards — `billing/sub-domains/subscription/` (payment methods) — final (rev 3, confirmed 2026-11-24)
 
 #### 8.C.1 Decisions
 
 | # | Decision |
 | --- | --- |
 | BL19 | **List (route 104, RC-67) — already built.** Today: `GET /billing/payment-methods` already answers `is_default` per card (`BillingAccountSerializer.paymentMethods` reads the customer's default). After: unchanged; RC-67 is served as built — the change files should mark it EXISTING (their sync — Merge notes M8). |
-| BL20 | **Remove a card (route 105, RC-68, plan:L8075).** Stripe detaches it (`paymentMethods.detach`, outside a database context). The card must be the workspace customer's (`card.customer` = the workspace's Stripe customer) — else `404` (no existence leak). Refused `409 default_card_in_use` when it is the only card while a paid plan is on (`ACTIVE`, `PAST_DUE`, `UNPAID`, or `TRIALING` with a card — the trial's end would then have nothing to charge). Answers `204`. |
+| BL20 | **Remove a card (route 105, RC-68, plan:L8075).** Stripe detaches it (`paymentMethods.detach`, outside a database context). The card must be the organization customer's (`card.customer` = the organization's Stripe customer) — else `404` (no existence leak). Refused `409 default_card_in_use` when it is the only card while a paid plan is on (`ACTIVE`, `PAST_DUE`, `UNPAID`, or `TRIALING` with a card — the trial's end would then have nothing to charge). Answers `204`. |
 | BL21 | **The default card (route 106, RC-69, plan:L8076).** Sets the customer's `invoice_settings.default_payment_method` and the live subscription's `default_payment_method` (both Stripe calls, the client's `X-Idempotency-Key` forwarded as Stripe's idempotency key — be-idempotency-guard). Already the default → the same answer (a repeat is harmless). Answers the card list (8.C.6) so the screen repaints. |
 
 #### 8.C.2 Open questions
 
-BLQ2 (`{payment_method_id}` as a third non-entity param) — 8.2.
+BLQ2 (`{payment_method_id}` as a third non-entity param) — 8.2; answered P78.
 
 #### 8.C.3 Tables and relations
 
-None — cards live only in Stripe (plan:L8069). The workspace's Stripe customer is read from its subscription row (as built).
+None — cards live only in Stripe (plan:L8069). The organization's Stripe customer is read from its subscription row (as built).
 
 #### 8.C.4 Permissions
 
@@ -4009,7 +4032,7 @@ As 8.5; 105 and 106 are team-only (`422` on a personal organization, like `POST 
 | Route | Status · reason | When |
 | --- | --- | --- |
 | 105, 106 | `400` · `payment_method_id` | not `pm_` + 1–250 letters and digits |
-| 105, 106 | `404` | no such card on the workspace's customer, or no customer |
+| 105, 106 | `404` | no such card on the organization's customer, or no customer |
 | 105 | `409` · `default_card_in_use` | the only card while a paid plan is on |
 | 105, 106 | `422` | a personal organization; (106) the idempotency key missing, malformed or reused |
 | 105, 106 | `503` | Stripe down or its circuit open |
@@ -4026,7 +4049,7 @@ None beyond 8.10.
 
 ---
 
-### 8.D Stripe webhook — `billing/sub-domains/stripe-webhook/` — awaiting your OK
+### 8.D Stripe webhook — `billing/sub-domains/stripe-webhook/` — final (rev 3, confirmed 2026-11-24)
 
 #### 8.D.1 Decisions
 
@@ -4086,9 +4109,9 @@ As built (`400` bad signature, `503` not configured).
 
 ---
 
-## 9. Tenancy — roles and workspace — rev 1 (2026-11-23) — nested sub-domains 9.A–9.C; awaiting your OK
+## 9. Tenancy — roles and organization — rev 2 (2026-11-24) — nested sub-domains 9.A–9.C; final (rev 2, confirmed 2026-11-24)
 
-**Status: rev 1 — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: final (rev 2, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **tenancy domain's own sub-domains**, changed in place in `src/domains/tenancy/sub-domains/` — `organization/` (9.A),
 `member-roles/` (9.B), `membership/` with `membership-invitation/` (9.C). The domain is in `main`: new tenancy migrations only
@@ -4096,43 +4119,44 @@ Code: the **tenancy domain's own sub-domains**, changed in place in `src/domains
 
 9.1 Decisions (whole sub-domain) · 9.2 Open questions · 9.3 Tables and relations · 9.4 Permissions · 9.5 Common to every route ·
 9.6 Objects returned · 9.7 Routes · 9.8 Request details · 9.9 Errors · 9.10 Rules worth knowing · 9.11 Code changes (whole sub-domain) ·
-9.12 Nested sub-domains · then **9.A Workspace · 9.B Roles · 9.C Members and invitations** — each with the same eleven sections.
+9.12 Nested sub-domains · then **9.A Organization · 9.B Roles · 9.C Members and invitations** — each with the same eleven sections.
 
-The four fixed roles every team workspace holds (Owner, Admin, Editor, Viewer — D55), the one new code `contact:update` (P20),
+The four fixed roles every team organization holds (Owner, Admin, Editor, Viewer — D55), the one new code `contact:update` (P20),
 custom roles switched off, unlimited members, an invite of several emails at once, the invitation page's preview, and two
-workspace fields (a read-only slug, a tile colour). Design read: plan §45 (plan:L7782–L7907), §50.5 B2 (plan:L8440), the
+organization fields (a read-only slug, a tile colour). Design read: plan §45 (plan:L7782–L7907), §50.5 B2 (plan:L8440), the
 migration list (plan:L8459–L8461); `db-changes.md` › organization, Reference data; `route-changes.md` RC-86–RC-94. Builds on:
 users (auth), the app's codes (`app.permissions.ts`), the upload code. Route numbers run 110–118.
 
 ### 9.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. No launch review covers
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). No launch review covers
 tenancy; "today" is the code in `main` plus the launch's Member role (launch D2, D3, D31, AS-BUILT "Member role").
 
 | # | Decision |
 | --- | --- |
-| TN1 | **Four locked system roles on every team workspace (plan:L7861–L7889, D55).** Today: Owner (locked, every code), Admin (locked, `ADMIN_PERMISSION_CODES`), Member (locked, six codes: `organization:read`, `instagram-account:read`, `automation:read`, `automation:create`, `automation:update`, `contact:read`) from `DEFAULT_TEAM_ROLES` (`organization-provisioning.ts`), applied by provisioning and `reconcileDefaultTeamRoles`. After: **Member becomes Editor** — the same row renamed (its public id, members and grants keep), plus `automation:delete` (D55), `contact:update` (P20) and `upload:manage` (message files); `MEMBER_ROLE_NAME` → `EDITOR_ROLE_NAME` (plan:L7881); **Viewer is new** — locked, `is_system`, codes `organization:read`, `instagram-account:read`, `automation:read`, `contact:read`, tone `sky`; added by provisioning, by `reconcileDefaultTeamRoles` and by a new migration for the workspaces that exist (plan:L7882). Codes not on the screen (webhooks, audit logs, notification policies, `instagram-webhook-event:read`) stay Owner and Admin (as built). Other option: keep Member and add Editor beside it — two near-identical roles on the Roles screen. |
-| TN2 | **One new code `contact:update` (P20).** Today: the app holds nine codes (`app.permissions.ts`). After: `CONTACT_UPDATE: 'contact:update'` in `APP_PERMISSIONS` (sub-domain 3's CT1 names it), its row in `tenancy.permissions` (the catalog seed and the new migration `tenancy_permission_contact_update`), granted to Owner, Admin and Editor of every team workspace in that migration (plan:L7883). The migration runs before the Editor rename's grants (both in one file is also fine — one migration per plan sketch, ordered). |
+| TN1 | **Four locked system roles on every team organization (plan:L7861–L7889, D55).** Today: Owner (locked, every code), Admin (locked, `ADMIN_PERMISSION_CODES`), Member (locked, six codes: `organization:read`, `instagram-account:read`, `automation:read`, `automation:create`, `automation:update`, `contact:read`) from `DEFAULT_TEAM_ROLES` (`organization-provisioning.ts`), applied by provisioning and `reconcileDefaultTeamRoles`. After: **Member becomes Editor** — the same row renamed (its public id, members and grants keep), plus `automation:delete` (D55), `contact:update` (P20) and `upload:manage` (message files); `MEMBER_ROLE_NAME` → `EDITOR_ROLE_NAME` (plan:L7881); **Viewer is new** — locked, `is_system`, codes `organization:read`, `channel-account:read` (P59), `instagram-account:read`, `automation:read`, `contact:read`, tone `sky`; added by provisioning, by `reconcileDefaultTeamRoles` and by a new migration for the organizations that exist (plan:L7882). Codes not on the screen (webhooks, audit logs, notification policies, `instagram-webhook-event:read`) stay Owner and Admin (as built). Other option: keep Member and add Editor beside it — two near-identical roles on the Roles screen. |
+| TN2 | **One new code `contact:update` (P20).** Today: the app holds nine codes (`app.permissions.ts`). After: `CONTACT_UPDATE: 'contact:update'` in `APP_PERMISSIONS` (sub-domain 3's CT1 names it), its row in `tenancy.permissions` (the catalog seed and the new migration `tenancy_permission_contact_update`), granted to Owner, Admin and Editor of every team organization in that migration (plan:L7883). The migration runs before the Editor rename's grants (both in one file is also fine — one migration per plan sketch, ordered). |
 | TN3 | **Custom roles off (plan:L7884).** Today: create, edit, delete, restore a custom role and replace its codes are live (`role:create` … ); members may hold extra roles (`membership_additional_roles`). After: a **tenancy code constant** `TENANCY_CUSTOM_ROLES_ENABLED = false` (a product switch, not environment-varying — P4) checked first in the five write routes (9.B) → `403 custom_roles_off`, and in `POST` / `PATCH …/memberships` when `role_ids` names more than one role or a role that is not one of the four system roles → `403 custom_roles_off`. Reads stay (the Roles screen reads them, plan:L7885). A member who already holds a custom role keeps it until an Admin changes it (plan:L7884) — nothing is migrated. Other option: remove the custom-role code — it stays a platform feature another product may switch on. |
-| TN4 | **Unlimited members (D55).** Today: inviting reserves a seat against the plan's `included_seats` (`409 seat_limit_reached`, billing's seat port). After: `included_seats` is empty on every plan (billing BL9), so the reserve never refuses; the seat port stays (billing's), no tenancy change beyond tests that a workspace with 30 members invites a 31st. |
-| TN5 | **Workspace paused stops sending (plan:L7907).** Today: `status` `SUSPENDED` (our team's) leaves sending on. After: no tenancy change — the sending engine reads the organization's status (sub-domain 6) and `GET /auth/me/context` already carries `status` (billing BL16). Recorded here so the change files show where it lives. |
+| TN4 | **Unlimited members (D55).** Today: inviting reserves a seat against the plan's `included_seats` (`409 seat_limit_reached`, billing's seat port). After: `included_seats` is empty on every plan (billing BL9), so the reserve never refuses; the seat port stays (billing's), no tenancy change beyond tests that an organization with 30 members invites a 31st. |
+| TN5 | **Organization paused stops sending (plan:L7907).** Today: `status` `SUSPENDED` (our team's) leaves sending on. After: no tenancy change — the sending engine reads the organization's status (sub-domain 6) and `GET /auth/me/context` already carries `status` (billing BL16). Recorded here so the change files show where it lives. |
 | TN6 | **Audit (as built, K9 form).** `tenancy.membership.invite` once per invited email (as built — one entry per row), `tenancy.role.*` writes now refused leave no entry; the role rename is a migration (no audit row). |
+| TN12 | **Two codes for the shared channel routes ([P59](decisions.md)).** Today: `instagram-account:read` / `:manage` gate every account route. After: `CHANNEL_ACCOUNT_READ: 'channel-account:read'` and `CHANNEL_ACCOUNT_MANAGE: 'channel-account:manage'` in `APP_PERMISSIONS` gate the shared Channel connection and Channel account routes (sub-domains 1 and 1B: 1–11, 15, 40–42); a new tenancy migration `tenancy_permission_channel_account` adds both catalog rows and grants each to every role that holds its `instagram-account:*` twin — Owner and Admin both, Editor and Viewer read — idempotent on re-run. P59 calls it a rename; it is done as add-and-copy because Instagram's settings and media keep `instagram-account:*`. `DEFAULT_TEAM_ROLES`, `ADMIN_PERMISSION_CODES` and `reconcileDefaultTeamRoles` carry the new codes; Owner holds every code (as built). Runs after `tenancy_permission_contact_update`. The Roles screen's rows do not change (its "Connect and remove Instagram accounts" covers both codes). |
 
 ### 9.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| TNQ1 | The tile colour value for lavender: the shared chip tones (`CHIP_TONE`, used by roles' and members' `tone`) store it as `lav` | rename the shared value `lav` → `lavender` everywhere in the same PR (a tenancy migration rewrites the `tone` rows and both `CHECK`s; meepzo-fe follows) · keep `lav` as a wire literal | **Rename to `lavender`** — the full-names rule and your brief ("value names full words"); `db-changes.md` already writes `lavender`; reuse means one tone list, so it changes for roles and members too, not only the new column |
-| TNQ2 | An invite takes one role (plan:L7891) but the code takes `role_ids` (main first) | keep `role_ids` and allow exactly one (custom and extra roles off, TN3) · a new `role_id` field | **Keep `role_ids`** with exactly one — the same shape `PATCH …/memberships` uses; turning extra roles on later is no contract change |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| TNQ1 | The tile colour value for lavender: the shared chip tones (`CHIP_TONE`, used by roles' and members' `tone`) store it as `lav` | rename the shared value `lav` → `lavender` everywhere in the same PR (a tenancy migration rewrites the `tone` rows and both `CHECK`s; meepzo-fe follows) · keep `lav` as a wire literal | **Rename to `lavender`** — the full-names rule and your brief ("value names full words"); `db-changes.md` already writes `lavender`; reuse means one tone list, so it changes for roles and members too, not only the new column | **P81** — rename to `lavender` (as recommended) |
+| TNQ2 | An invite takes one role (plan:L7891) but the code takes `role_ids` (main first) | keep `role_ids` and allow exactly one (custom and extra roles off, TN3) · a new `role_id` field | **Keep `role_ids`** with exactly one — the same shape `PATCH …/memberships` uses; turning extra roles on later is no contract change | **P82** — `role_ids` with exactly one (as recommended) |
 
-Until you answer, the plan follows the recommendation and every row that rests on it says so.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 9.3 Tables and relations
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `tenancy.organizations` (changed) | a workspace | + `logo_color` (9.A); `slug` never changes after create |
-| `tenancy.roles` (rows change) | a role of a workspace | Member rows renamed Editor; a Viewer row added per team workspace |
+| `tenancy.organizations` (changed) | an organization | + `logo_color` (9.A); `slug` never changes after create |
+| `tenancy.roles` (rows change) | a role of an organization | Member rows renamed Editor; a Viewer row added per team organization |
 | `tenancy.role_permissions` (rows change) | role ↔ code | Editor + 3 codes; Viewer's 4; `contact:update` for Owner, Admin, Editor |
 | `tenancy.permissions` (one row) | the code catalog | + `contact:update` |
 | `tenancy.memberships`, `tenancy.membership_invitations` | unchanged | the preview reads an invitation through a resolver (9.C) |
@@ -4158,6 +4182,7 @@ forced — as built); `tenancy.permissions` is the global catalog (as built). Ea
 | `membership:create` | Workspace · Members, workspace name, API keys | invite 1–20 emails | 117 | Owner, Admin |
 | — (PUBLIC, the invitation token) | — | the invitation page | 118 | the invitee |
 | `contact:update` **(new, P20)** | Contacts · Tag contacts, write notes | (sub-domain 3's routes) | — | Owner, Admin, Editor |
+| `channel-account:read` / `channel-account:manage` **(new, P59)** | as `instagram-account:*` (TN12) | (sub-domains 1 and 1B's routes) | — | read: Owner, Admin, Editor, Viewer; manage: Owner, Admin |
 
 The four roles × the nine screen permissions are plan:L7867–L7877; Viewer holds the four reads only.
 
@@ -4176,7 +4201,7 @@ The four roles × the nine screen permissions are plan:L7867–L7877; Viewer hol
 
 | Object | Where |
 | --- | --- |
-| Organization | 9.A.6 — Workspace |
+| Organization | 9.A.6 — Organization |
 | Role | 9.B.6 — Roles (as built) |
 | Membership list meta · Invite result · Invitation preview | 9.C.6 — Members and invitations |
 
@@ -4206,40 +4231,41 @@ Every route can answer the errors in 9.5; each route's own errors are in its nes
 
 - **Role names are never the guard.** Every check reads `is_system` / `is_locked` and the codes (as built); the rename touches
   only `name` (and the constant). Who gets a notification of a kind (sub-domain 11) is decided by codes too, never by role name.
-- **The workspace chooser's counts** (members, Instagram accounts, live automations — `GET /users/me/organizations`, sub-domain 11
-  route 132) read across the caller's workspaces through one `SECURITY DEFINER` function owned by the app (11.A, UN3); tenancy
+- **The organization chooser's counts** (members, Instagram accounts, live automations — `GET /users/me/organizations`, sub-domain 11
+  route 132) read across the caller's organizations through one `SECURITY DEFINER` function owned by the app (11.A, UN3); tenancy
   data (the memberships) is read inside it for the members count; tenancy never imports app code.
 
 ### 9.11 Code changes (whole sub-domain)
 
 | # | Change |
 | --- | --- |
-| TNC1 | TN1, TN2: new tenancy migrations `tenancy_permission_contact_update` (the catalog row and the three grants) and `tenancy_roles_editor_viewer` (rename every team workspace's `is_system` Member → Editor and its three new grants; insert Viewer and its four grants per team workspace; idempotent on re-run); `DEFAULT_TEAM_ROLES` = Admin, Editor, Viewer; `EDITOR_ROLE_NAME`, `VIEWER_ROLE_NAME`; the permission catalog seed; `scripts/seed/full.ts`'s demo roles; `src/domains/tenancy/tenancy.overview.md`, `src/POLICIES.md`'s role table, `docs/` role docs; tests — a new team gets four roles with exactly these codes, the reconcile on an old team, a Viewer `403` on every app write, an Editor deletes an automation |
+| TNC1 | TN1, TN2: new tenancy migrations `tenancy_permission_contact_update` (the catalog row and the three grants) and `tenancy_roles_editor_viewer` (rename every team organization's `is_system` Member → Editor and its three new grants; insert Viewer and its four grants per team organization; idempotent on re-run); `DEFAULT_TEAM_ROLES` = Admin, Editor, Viewer; `EDITOR_ROLE_NAME`, `VIEWER_ROLE_NAME`; the permission catalog seed; `scripts/seed/full.ts`'s demo roles; `src/domains/tenancy/tenancy.overview.md`, `src/POLICIES.md`'s role table, `docs/` role docs; tests — a new team gets four roles with exactly these codes, the reconcile on an old team, a Viewer `403` on every app write, an Editor deletes an automation |
 | TNC2 | TN3: `TENANCY_CUSTOM_ROLES_ENABLED` in `member-role.constants.ts`; the guard first in the five role writes and in the membership `role_ids` check; reason `custom_roles_off` (`errors:customRolesOff`, `response-codes.md`); tests per route |
 | TNC3 | TN4: the invite-the-31st test; `seat_limit_reached` documented as unreachable while plans carry no seats |
+| TNC8 | TN12: `APP_PERMISSIONS` + the two codes; migration `tenancy_permission_channel_account` (two catalog rows, the copied grants, idempotent); the permission catalog seed; the gates of routes 1–11, 15, 40–42 (sub-domains 1, 1B) and their `docs/routes.txt` rows; `src/POLICIES.md`'s role table; tests — the migration's grants equal the `instagram-account:*` grants, a Viewer reads route 6 and is refused route 9, an Editor is refused route 3 |
 
 ### 9.12 Nested sub-domains
 
 | Nested sub-domain | Folder (`src/domains/tenancy/sub-domains/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 9.A Workspace | `organization/` | `tenancy.organizations` | 110 | awaiting your OK |
-| 9.B Roles | `member-roles/` | `tenancy.roles`, `tenancy.role_permissions` (rows) | 111–115 | awaiting your OK |
-| 9.C Members and invitations | `membership/` (+ `membership-invitation/`) | `tenancy.memberships`, `tenancy.membership_invitations` (unchanged) | 116–118 | awaiting your OK |
+| 9.A Organization | `organization/` | `tenancy.organizations` | 110 | final (rev 2, confirmed 2026-11-24) |
+| 9.B Roles | `member-roles/` | `tenancy.roles`, `tenancy.role_permissions` (rows) | 111–115 | final (rev 2, confirmed 2026-11-24) |
+| 9.C Members and invitations | `membership/` (+ `membership-invitation/`) | `tenancy.memberships`, `tenancy.membership_invitations` (unchanged) | 116–118 | final (rev 2, confirmed 2026-11-24) |
 
 ---
 
-### 9.A Workspace — `tenancy/sub-domains/organization/` — awaiting your OK
+### 9.A Organization — `tenancy/sub-domains/organization/` — final (rev 2, confirmed 2026-11-24)
 
 #### 9.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
 | TN7 | **Slug read only (plan:L7903).** Today: `updateOrganizationDto` takes `slug` (and a taken one is `409 organization_slug_exists`). After: `slug` stays in the strict DTO only so a client that sends it gets the clear refusal `422 slug_read_only` instead of `400` unknown key; it is made once from the name at create. `POST /tenancy/organizations` today **requires** `slug` (`createOrganizationDto`); onboarding step 3 sends the name only (plan:L7808) — so `slug` becomes optional there and is made from the name (kebab, unique with a short suffix on a clash) — a change to a route no RC row lists (for the route-changes sync — Merge notes M8). |
-| TN8 | **Tile colour `logo_color` (plan:L7905).** One of five chip tones `sky` · `lavender` (TNQ1) · `sage` · `peach` · `slate`, a subset of the shared `CHIP_TONE` list (reuse — one tone vocabulary, `ORGANIZATION_LOGO_COLORS` = those five); default picked from the name at create (a stable hash of the lower-cased name, mod 5 — one name always gets one colour); the migration fills existing workspaces the same way; `PATCH` may set it. The uploaded logo stays in the API (`PUT …/logo`, as built). |
+| TN8 | **Tile colour `logo_color` (plan:L7905).** One of five chip tones `sky` · `lavender` (TNQ1) · `sage` · `peach` · `slate`, a subset of the shared `CHIP_TONE` list (reuse — one tone vocabulary, `ORGANIZATION_LOGO_COLORS` = those five); default picked from the name at create (a stable hash of the lower-cased name, mod 5 — one name always gets one colour); the migration fills existing organizations the same way; `PATCH` may set it. The uploaded logo stays in the API (`PUT …/logo`, as built). |
 
 #### 9.A.2 Open questions
 
-TNQ1 (`lav` → `lavender`) — 9.2.
+TNQ1 (`lav` → `lavender`) — 9.2; answered P81: renamed.
 
 #### 9.A.3 Tables and relations
 
@@ -4299,7 +4325,7 @@ None beyond 9.10.
 
 ---
 
-### 9.B Roles — `tenancy/sub-domains/member-roles/` — awaiting your OK
+### 9.B Roles — `tenancy/sub-domains/member-roles/` — final (rev 2, confirmed 2026-11-24)
 
 #### 9.B.1 Decisions
 
@@ -4312,7 +4338,7 @@ None.
 #### 9.B.3 Tables and relations
 
 `tenancy.roles` — no column change; rows: Member → Editor (`name`; `description` "Makes and runs automations and keeps contacts
-tidy."), a Viewer row per team workspace (`is_system`, `is_locked`, tone `sky`). `tenancy.role_permissions` — rows as TN1, TN2.
+tidy."), a Viewer row per team organization (`is_system`, `is_locked`, tone `sky`). `tenancy.role_permissions` — rows as TN1, TN2.
 Both: organization policy, enabled and forced (as built).
 
 #### 9.B.4 Permissions
@@ -4361,7 +4387,7 @@ TNC1, TNC2 (9.11).
 
 ---
 
-### 9.C Members and invitations — `tenancy/sub-domains/membership/` (+ `membership-invitation/`) — awaiting your OK
+### 9.C Members and invitations — `tenancy/sub-domains/membership/` (+ `membership-invitation/`) — final (rev 2, confirmed 2026-11-24)
 
 #### 9.C.1 Decisions
 
@@ -4369,11 +4395,11 @@ TNC1, TNC2 (9.11).
 | --- | --- |
 | TN9 | **Counts by role (route 116, RC-87, plan:L7895).** Today: the list answers members only. After: `meta.counts_by_role` — `[{ role_id, name, count }]` for each role that is someone's **main** role among live members (`active`, `invited`, `suspended`), Owner first, whatever the list's filters (the screen's header counts); one grouped query in the membership repository beside the page query. |
 | TN10 | **Invite several emails (route 117, RC-88, plan:L7891–L7897).** Today: `email` (one), `role_ids`, `expires_in_days` (default 7), staff fields. After: `emails` (1–20, `INVITE_EMAILS_MAX` 20, trimmed, lower-cased, repeats folded) replaces `email`; `role_ids` exactly one (TNQ2, TN3); the staff profile fields go (a multi-email invite cannot carry one person's phone or hours — they stay on `PATCH`). One `X-Idempotency-Key` covers the whole request (be-idempotency-guard: the answer replays). Each email in its own unit of work, in order: `invited` (a membership `invited` + an invitation + its email, as built per row), `already_member` (a live member has the email), `already_invited` (a live invitation exists), `invalid_email` (fails the email check — the rest still go). Answers one result per email (9.C.6). |
-| TN11 | **Invitation preview (route 118, RC-86, plan:L7828–L7847).** PUBLIC; body `{ token }` (POST keeps it out of URLs and logs); `30` a minute per IP (`INVITATION_PREVIEW_PER_MINUTE` 30, the route's rate limit). A new `SECURITY DEFINER` resolver `tenancy.resolve_membership_invitation_preview(public_id, token_hash)` answers only when the SHA-256 of the token matches the row (the existing `resolve_membership_invitation_lookup_by_public_id` is the accept path's and keeps its signature): `state` (`valid` · `accepted` · `expired` · `revoked` — a declined invitation reads `revoked`), the workspace's `name` and `logo_color`, the main role's name, the inviter's first name, `expires_at`. A wrong token or id → `404` (the same as unknown). `signed_in` = a valid bearer came with it; `email_matches` only when signed in (the caller's verified email equals the invitation's); a signed-out caller never sees the invitee's email. No body is stored, no audit row. |
+| TN11 | **Invitation preview (route 118, RC-86, plan:L7828–L7847).** PUBLIC; body `{ token }` (POST keeps it out of URLs and logs); `30` a minute per IP (`INVITATION_PREVIEW_PER_MINUTE` 30, the route's rate limit). A new `SECURITY DEFINER` resolver `tenancy.resolve_membership_invitation_preview(public_id, token_hash)` answers only when the SHA-256 of the token matches the row (the existing `resolve_membership_invitation_lookup_by_public_id` is the accept path's and keeps its signature): `state` (`valid` · `accepted` · `expired` · `revoked` — a declined invitation reads `revoked`), the organization's `name` and `logo_color`, the main role's name, the inviter's first name, `expires_at`. A wrong token or id → `404` (the same as unknown). `signed_in` = a valid bearer came with it; `email_matches` only when signed in (the caller's verified email equals the invitation's); a signed-out caller never sees the invitee's email. No body is stored, no audit row. |
 
 #### 9.C.2 Open questions
 
-TNQ2 (`role_ids` kept, exactly one) — 9.2.
+TNQ2 (`role_ids` kept, exactly one) — 9.2; answered P82.
 
 #### 9.C.3 Tables and relations
 
@@ -4447,9 +4473,9 @@ null), `expires_at`, `signed_in`, `email_matches` (null when signed out).
 
 ---
 
-## 10. Auth — sign-in — rev 1 (2026-11-23) — nested sub-domains 10.A–10.D; awaiting your OK
+## 10. Auth — sign-in — rev 2 (2026-11-24) — nested sub-domains 10.A–10.D; final (rev 2, confirmed 2026-11-24)
 
-**Status: rev 1 — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: final (rev 2, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **auth domain's own sub-domains**, changed in place in `src/domains/auth/` — `sub-domains/auth-method/` with its
 `oauth/` and the email code (10.A, 10.B), `sub-domains/auth-mfa/` plus one **new** persistence folder
@@ -4468,7 +4494,7 @@ organization's MFA policy (tenancy). Route numbers run 120–128; the four remov
 
 ### 10.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. "Today" is the code in
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). "Today" is the code in
 `main` (no launch review covers auth).
 
 | # | Decision |
@@ -4481,13 +4507,13 @@ Taken on your standing answer "go with the recommendation" — change any of the
 
 ### 10.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| ATQ1 | Passwords: remove the code, or keep it behind `AUTH_PASSWORDS_ENABLED` false (the plan's switch) | remove the four routes and the password code paths now (AT1) · a code constant that leaves them unregistered | **Remove** — the migration empties every `password_hash`, so the switch could never be turned back on without a reset flow; a switch that is always off is dead code the reuse rule refuses. The column stays |
-| ATQ2 | Apple's form callback must end in a browser redirect (plan:L7686, `303`), while every `POST` answers `200` with no exemption (CLAUDE.md, the method-status middleware) | one named exemption — route 124 answers `303` with `Location`, listed in a single allowlist the method-status middleware and the success-status gate both read, pinned by a test that it holds exactly this route · `200` with a tiny HTML page whose `<meta http-equiv="refresh">` goes to the app page (no exemption, no script) · ask Apple for `response_mode=query` (only possible without the name and email scopes) | **The one named `303` exemption** — this POST is a top-level browser navigation sent by Apple, not an API call of our client; a `303` is the HTTP answer for POST-then-GET, the HTML page is a workaround that also needs a CSP for one route. The policy line in CLAUDE.md and `response-codes.md` becomes "no exemptions except the Apple form callback (303)". If you would rather keep "no exemptions" literally, the `200` HTML page is the fallback |
-| ATQ3 | The IP-to-place file (plan:L8804 — its licence and monthly updates) | DB-IP "IP to City Lite" (CC BY 4.0, no account, monthly file; attribution on the sessions screen or the legal page) · MaxMind GeoLite2 City (free account + licence key, its EULA, monthly) · no place | **DB-IP Lite** — no account or key to keep as a secret, a plain attribution licence, the same `.mmdb` format; read with the `maxmind` reader package (be-dependency-security pin); the file comes in with the image build each month (not a runtime download); unset path → place empty, never an error |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| ATQ1 | Passwords: remove the code, or keep it behind `AUTH_PASSWORDS_ENABLED` false (the plan's switch) | remove the four routes and the password code paths now (AT1) · a code constant that leaves them unregistered | **Remove** — the migration empties every `password_hash`, so the switch could never be turned back on without a reset flow; a switch that is always off is dead code the reuse rule refuses. The column stays | **P84** — remove (as recommended) |
+| ATQ2 | Apple's form callback must end in a browser redirect (plan:L7686, `303`), while every `POST` answers `200` with no exemption (CLAUDE.md, the method-status middleware) | one named exemption — route 124 answers `303` with `Location`, listed in a single allowlist the method-status middleware and the success-status gate both read, pinned by a test that it holds exactly this route · `200` with a tiny HTML page whose `<meta http-equiv="refresh">` goes to the app page (no exemption, no script) · ask Apple for `response_mode=query` (only possible without the name and email scopes) | **The one named `303` exemption** — this POST is a top-level browser navigation sent by Apple, not an API call of our client; a `303` is the HTTP answer for POST-then-GET, the HTML page is a workaround that also needs a CSP for one route. The policy line in CLAUDE.md and `response-codes.md` becomes "no exemptions except the Apple form callback (303)". If you would rather keep "no exemptions" literally, the `200` HTML page is the fallback | **P85** — the one named `303` exception (as recommended) |
+| ATQ3 | The IP-to-place file (plan:L8804 — its licence and monthly updates) | DB-IP "IP to City Lite" (CC BY 4.0, no account, monthly file; attribution on the sessions screen or the legal page) · MaxMind GeoLite2 City (free account + licence key, its EULA, monthly) · no place | **DB-IP Lite** — no account or key to keep as a secret, a plain attribution licence, the same `.mmdb` format; read with the `maxmind` reader package (be-dependency-security pin); the file comes in with the image build each month (not a runtime download); unset path → place empty, never an error | **P86** — DB-IP "IP to City Lite" (as recommended) |
 
-Until you answer, the plan follows the recommendation and every row that rests on it says so.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 10.3 Tables and relations
 
@@ -4572,8 +4598,8 @@ Every route can answer the errors in 10.5; each route's own errors are in its ne
 ### 10.10 Rules worth knowing
 
 - **Four ways in, the email code always on** (plan:L7617–L7620): the mailbox is the key; 2FA is the extra lock.
-- **A trusted device never skips a step-up, never for a `super_admin`, never in a workspace that requires 2FA** (D56): the session it
-  opens has `mfa_verified_at` empty, so `POST /auth/switch-to-organization` into a 2FA workspace still answers `403 mfa_required`
+- **A trusted device never skips a step-up, never for a `super_admin`, never in an organization that requires 2FA** (D56): the session it
+  opens has `mfa_verified_at` empty, so `POST /auth/switch-to-organization` into a 2FA organization still answers `403 mfa_required`
   (as built).
 - **No IP leaves us**: the place is looked up in a local file (ATQ3).
 
@@ -4590,14 +4616,14 @@ Every route can answer the errors in 10.5; each route's own errors are in its ne
 
 | Nested sub-domain | Folder (`src/domains/auth/sub-domains/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 10.A Email code and passwords off | `auth-method/` (email login, verification code) | `auth.users`, `auth.auth_methods`, `auth.verification_tokens` (rows) | 120, 121; RC-98–RC-101 removed | awaiting your OK |
-| 10.B Google, Apple and the sign-in ways | `auth-method/oauth/` | `auth.auth_methods` | 122–125 | awaiting your OK |
-| 10.C Two-factor, trusted devices and step-up | `auth-mfa/`, `auth-trusted-device/` **(new)** | `auth.trusted_devices` | 126, 127 | awaiting your OK |
-| 10.D Sessions | `auth-session/` | `auth.sessions` | 128 | awaiting your OK |
+| 10.A Email code and passwords off | `auth-method/` (email login, verification code) | `auth.users`, `auth.auth_methods`, `auth.verification_tokens` (rows) | 120, 121; RC-98–RC-101 removed | final (rev 2, confirmed 2026-11-24) |
+| 10.B Google, Apple and the sign-in ways | `auth-method/oauth/` | `auth.auth_methods` | 122–125 | final (rev 2, confirmed 2026-11-24) |
+| 10.C Two-factor, trusted devices and step-up | `auth-mfa/`, `auth-trusted-device/` **(new)** | `auth.trusted_devices` | 126, 127 | final (rev 2, confirmed 2026-11-24) |
+| 10.D Sessions | `auth-session/` | `auth.sessions` | 128 | final (rev 2, confirmed 2026-11-24) |
 
 ---
 
-### 10.A Email code and passwords off — `auth/sub-domains/auth-method/` — awaiting your OK
+### 10.A Email code and passwords off — `auth/sub-domains/auth-method/` — final (rev 2, confirmed 2026-11-24)
 
 #### 10.A.1 Decisions
 
@@ -4610,7 +4636,7 @@ Every route can answer the errors in 10.5; each route's own errors are in its ne
 
 #### 10.A.2 Open questions
 
-ATQ1 (remove the password code) — 10.2.
+ATQ1 (remove the password code) — 10.2; answered P84: removed.
 
 #### 10.A.3 Tables and relations
 
@@ -4673,7 +4699,7 @@ built). Route 121 answers the sign-in result (10.C.6).
 
 ---
 
-### 10.B Google, Apple and the sign-in ways — `auth/sub-domains/auth-method/oauth/` — awaiting your OK
+### 10.B Google, Apple and the sign-in ways — `auth/sub-domains/auth-method/oauth/` — final (rev 2, confirmed 2026-11-24)
 
 #### 10.B.1 Decisions
 
@@ -4687,7 +4713,7 @@ built). Route 121 answers the sign-in result (10.C.6).
 
 #### 10.B.2 Open questions
 
-ATQ2 (the `303`) — 10.2.
+ATQ2 (the `303`) — 10.2; answered P85: the one named exception.
 
 #### 10.B.3 Tables and relations
 
@@ -4757,7 +4783,7 @@ cookie, as built). Route 124: no body — `303` with `Location`.
 
 ---
 
-### 10.C Two-factor, trusted devices and step-up — `auth/sub-domains/auth-mfa/`, `auth/sub-domains/auth-trusted-device/` (new) — awaiting your OK
+### 10.C Two-factor, trusted devices and step-up — `auth/sub-domains/auth-mfa/`, `auth/sub-domains/auth-trusted-device/` (new) — final (rev 2, confirmed 2026-11-24)
 
 #### 10.C.1 Decisions
 
@@ -4765,7 +4791,7 @@ cookie, as built). Route 124: no body — `303` with `Location`.
 | --- | --- |
 | AT15 | **Step-up without a password (route 127, plan:L7752–L7771).** Today: `STRONG_STEP_UP_FACTORS = ['password', 'mfa']`; an email-code step-up (`code`) is bootstrap-only (`email_code`, weak) and refused for an account with a password or MFA. After: the password branch goes (AT1); the body takes `code` (6 digits — the field name kept, the plan's `email_code` meaning); the `email_code` window counts as **strong when the person has no settled 2FA factor** (`requireStrongRecentStepUpPreHandler` reads it so; a person with settled 2FA still needs an MFA step-up, `POST /auth/me/mfa/verify`, as built). The provisional rule stays (`PROVISIONAL_FACTOR_PERIOD_SECONDS` 72 h): while the only factor is provisional, an email code still opens a strong step-up (plan:L7769). The email-code step-up has its own try count (as built, A-8). Turning off 2FA needs a 2FA code only (as built). |
 | AT16 | **Wrong 2FA codes (route 126, plan:L7716–L7720).** Today: 10 wrong codes in 15 minutes (`MAX_MFA_VERIFICATION_ATTEMPTS` 10, `MFA_VERIFICATION_LOCKOUT_TTL_SECONDS` 900), then the same `401` as a wrong code. After: each wrong code `401 mfa_code_wrong` + `tries_left`; over the limit `429 mfa_locked` + `retry_after_seconds` (the counter's remaining time). The stronger message from the 3rd is the app's (plan:L7720). |
-| AT17 | **"Trust this device for 30 days" (plan:L7722–L7750, D56).** Route 126 takes `trust_device` (boolean, default false). On a right code with it: a new `auth.trusted_devices` row (the SHA-256 of 32 random bytes, the user agent, `expires_at` = now + 30 days, `TRUSTED_DEVICE_DAYS` 30 — use never extends it) and the cookie `trusted_device` (HttpOnly, Secure, SameSite Lax, path `/api/v1/auth`, 30 days); an 11th live row revokes the oldest (`TRUSTED_DEVICES_MAX` 10). At sign-in, `completeFirstFactorAuth` reads the cookie: a live row of the same person, not expired, **and** the workspace that opens does not require 2FA (`tenancy.organization_requires_mfa`, as built) **and** the person is not `super_admin` → the session opens without the code (`last_used_at` set; `mfa_verified_at` stays empty); otherwise the 2FA screen (as built). Trusted devices end early: 2FA turned off or its factor removed (`DELETE /auth/me/mfa/{mfa_method_id}`), "sign out everywhere else" (`DELETE /auth/me/sessions` — all but this browser's), the account deleted or suspended. Constants in the auth domain (P4 — not environment-varying). |
+| AT17 | **"Trust this device for 30 days" (plan:L7722–L7750, D56).** Route 126 takes `trust_device` (boolean, default false). On a right code with it: a new `auth.trusted_devices` row (the SHA-256 of 32 random bytes, the user agent, `expires_at` = now + 30 days, `TRUSTED_DEVICE_DAYS` 30 — use never extends it) and the cookie `trusted_device` (HttpOnly, Secure, SameSite Lax, path `/api/v1/auth`, 30 days); an 11th live row revokes the oldest (`TRUSTED_DEVICES_MAX` 10). At sign-in, `completeFirstFactorAuth` reads the cookie: a live row of the same person, not expired, **and** the organization that opens does not require 2FA (`tenancy.organization_requires_mfa`, as built) **and** the person is not `super_admin` → the session opens without the code (`last_used_at` set; `mfa_verified_at` stays empty); otherwise the 2FA screen (as built). Trusted devices end early: 2FA turned off or its factor removed (`DELETE /auth/me/mfa/{mfa_method_id}`), "sign out everywhere else" (`DELETE /auth/me/sessions` — all but this browser's), the account deleted or suspended. Constants in the auth domain (P4 — not environment-varying). |
 
 #### 10.C.2 Open questions
 
@@ -4842,11 +4868,11 @@ true, factor }` (`factor` added: `email_code` · `mfa`).
 | --- | --- |
 | ATC8 | AT15: `StepUpVerifyDto` (code only), `recent-step-up.util.ts` (strong when no settled factor), the handler; tests — no 2FA: email code removes a passkey; settled 2FA: `403 mfa_step_up_required`; provisional only: email code is strong |
 | ATC9 | AT16: the `mfa_code_wrong` / `mfa_locked` reasons with the counter's remaining tries and time in `auth-mfa.service.ts` |
-| ATC10 | AT17: new auth migration `auth_trusted_devices` (table, indexes, user policy, FORCE; `EXPECTED_FORCE_RLS_TABLES` +1); `auth-trusted-device/auth-trusted-device.{schema,repository,service,constants}.ts`; the cookie in `auth.http.util.ts`; the skip in `complete-first-factor-auth.ts`; the early ends in the MFA removal, sign-out-everywhere-else, account delete and suspend paths; the session clean-up worker's extra delete; tests — trusted + no 2FA workspace skips, trusted + 2FA workspace asks, `super_admin` asks, the 11th revokes the oldest, a stolen cookie of another person does nothing, an expired row does nothing |
+| ATC10 | AT17: new auth migration `auth_trusted_devices` (table, indexes, user policy, FORCE; `EXPECTED_FORCE_RLS_TABLES` +1); `auth-trusted-device/auth-trusted-device.{schema,repository,service,constants}.ts`; the cookie in `auth.http.util.ts`; the skip in `complete-first-factor-auth.ts`; the early ends in the MFA removal, sign-out-everywhere-else, account delete and suspend paths; the session clean-up worker's extra delete; tests — trusted + no 2FA organization skips, trusted + 2FA organization asks, `super_admin` asks, the 11th revokes the oldest, a stolen cookie of another person does nothing, an expired row does nothing |
 
 ---
 
-### 10.D Sessions — `auth/sub-domains/auth-session/` — awaiting your OK
+### 10.D Sessions — `auth/sub-domains/auth-session/` — final (rev 2, confirmed 2026-11-24)
 
 #### 10.D.1 Decisions
 
@@ -4857,7 +4883,7 @@ true, factor }` (`factor` added: `email_code` · `mfa`).
 
 #### 10.D.2 Open questions
 
-ATQ3 (the file and its licence) — 10.2.
+ATQ3 (the file and its licence) — 10.2; answered P86: DB-IP Lite.
 
 #### 10.D.3 Tables and relations
 
@@ -4913,9 +4939,9 @@ None beyond 10.10.
 
 ---
 
-## 11. User and notify — profile, settings, notifications — rev 3 (2026-11-24) — nested sub-domains 11.A–11.D; awaiting your OK
+## 11. User and notify — profile, settings, notifications — rev 4 (2026-11-24) — nested sub-domains 11.A–11.D; final (rev 4, confirmed 2026-11-24)
 
-**Status: rev 3 (2026-11-24) — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: final (rev 4, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **user domain** (`src/domains/user/` — the person at the root, `sub-domains/user-settings/`,
 `sub-domains/user-notification-preferences/`) and the **notify domain** (`src/domains/notify/sub-domains/notification/`, its
@@ -4924,10 +4950,10 @@ new folder.
 
 11.1 Decisions (whole sub-domain) · 11.2 Open questions · 11.3 Tables and relations · 11.4 Permissions · 11.5 Common to every route ·
 11.6 Objects returned · 11.7 Routes · 11.8 Request details · 11.9 Errors · 11.10 Rules worth knowing · 11.11 Code changes (whole sub-domain) ·
-11.12 Nested sub-domains · then **11.A The person and the workspace chooser · 11.B Confirm your email · 11.C Notification kinds and
+11.12 Nested sub-domains · then **11.A The person and the organization chooser · 11.B Confirm your email · 11.C Notification kinds and
 the check before send · 11.D Weekly summary and grouped notes** — each with the same eleven sections.
 
-Onboarding's two fields, reduce motion, the workspace chooser, the confirm-email link, and notifications: seven kinds the person
+Onboarding's two fields, reduce motion, the organization chooser, the confirm-email link, and notifications: seven kinds the person
 switches per channel, eight new types, defaults with security and billing email always on (D54), the dispatch that finally reads
 the choice, the weekly summary and the grouped "new contact details" note. Design read: plan §45.2, §45.4 (plan:L7802–L7859),
 §47 (plan:L8115–L8236), §50.5 B2/B4 (plan:L8440, L8442); `db-changes.md` › user, user_setting; `route-changes.md` RC-79–RC-85;
@@ -4936,7 +4962,7 @@ app (counts through ports). Route numbers run 130–136.
 
 ### 11.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. "Today" is the code in `main`.
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). "Today" is the code in `main`.
 
 **rev 2 changes** (P44, P47, M9): names follow the app's renamed tables (`app.channel_accounts`, `app.instagram_automations`, `app.instagram_automation_counts`, `app.message_month_counts`); the chooser's `channel_accounts_count`; job payloads `channelAccountPublicId`. No route changes shape.
 
@@ -4949,12 +4975,12 @@ Taken on your standing answer "go with the recommendation" — change any of the
 
 ### 11.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| UNQ1 | The preferences API shape: the screen saves kind × channel (plan:L8150) | the routes speak kinds (`{ kind, channel, is_enabled }`), the server writes one row per type of the kind · keep type × channel and let the app expand kinds | **Kinds** — one place knows which types make a kind (`NOTIFICATION_KINDS`), so the app cannot drift; the per-type rows stay the stored form (no new table, plan:L8150) |
-| UNQ2 | When in-app is off but email on, the email still needs a dedupe key (plan:L8180 uses the notification's public id) | callers pass a `dedupe_key`; the outbox key is `<type>:<dedupe_key>:<user>` and the in-app row is written only when in-app is on · always write the row, hidden when in-app is off | **The caller's `dedupe_key`** — every new type already has a "once" rule (once per stop, per month and line, per week, per broadcast) that names its key; no hidden rows |
+| # | Question | Options | Recommendation | Answer |
+| --- | --- | --- | --- | --- |
+| UNQ1 | The preferences API shape: the screen saves kind × channel (plan:L8150) | the routes speak kinds (`{ kind, channel, is_enabled }`), the server writes one row per type of the kind · keep type × channel and let the app expand kinds | **Kinds** — one place knows which types make a kind (`NOTIFICATION_KINDS`), so the app cannot drift; the per-type rows stay the stored form (no new table, plan:L8150) | **P87** — per kind (as recommended) |
+| UNQ2 | When in-app is off but email on, the email still needs a dedupe key (plan:L8180 uses the notification's public id) | callers pass a `dedupe_key`; the outbox key is `<type>:<dedupe_key>:<user>` and the in-app row is written only when in-app is on · always write the row, hidden when in-app is off | **The caller's `dedupe_key`** — every new type already has a "once" rule (once per stop, per month and line, per week, per broadcast) that names its key; no hidden rows | **P88** — the caller's `dedupe_key` (as recommended) |
 
-Until you answer, the plan follows the recommendation and every row that rests on it says so.
+Answered on 2026-11-24 — the **Answer** column names each decision ([decisions.md](decisions.md)); the decisions of this sub-domain carry the answers.
 
 ### 11.3 Tables and relations
 
@@ -5010,7 +5036,7 @@ No permission codes — every route is AUTH or PUBLIC (as built).
 | # | Method | Path | Purpose | Gate | Idem | RC |
 | --- | --- | --- | --- | --- | --- | --- |
 | 130 | PATCH | `/users/me` | + Instagram handle and goal (onboarding) **(changed)** | AUTH | | RC-81 |
-| 131 | PATCH | `/users/me/settings` | + reduce motion; a personal workspace is refused as the default **(changed)** | AUTH | | RC-82 |
+| 131 | PATCH | `/users/me/settings` | + reduce motion; a personal organization is refused as the default **(changed)** | AUTH | | RC-82 |
 | 132 | GET | `/users/me/organizations` | The chooser: role and counts, `q`, personal hidden **(changed)** | AUTH | | RC-83 |
 | 133 | POST | `/users/me/email-confirmation` | Email the confirm link; resend after 60 s **(new)** | AUTH | | RC-80 |
 | 134 | POST | `/auth/email/confirm` | Confirm the email with the link's token **(new)** | PUBLIC (token) | | RC-79 |
@@ -5032,7 +5058,7 @@ Every route can answer the errors in 11.5; each route's own errors are in its ne
 
 - **Always sent, never in the grid** (plan:L8156): `security.alert`, sign-in codes, invitation emails, the confirm-email link.
 - **Push is saved, never sent** (plan:L8155): `WEB_PUSH` choices are stored now; nothing sends them (plan §49).
-- The workspace's own mute (`organization_notification_policies`) still wins over a person's choice (plan:L8182, as built).
+- The organization's own mute (`organization_notification_policies`) still wins over a person's choice (plan:L8182, as built).
 
 ### 11.11 Code changes (whole sub-domain)
 
@@ -5045,22 +5071,22 @@ Every route can answer the errors in 11.5; each route's own errors are in its ne
 
 | Nested sub-domain | Folder | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 11.A The person and the workspace chooser | `user/` (root), `user/sub-domains/user-settings/` | `auth.users`, `auth.user_settings` | 130–132 | awaiting your OK |
-| 11.B Confirm your email | `user/` (root) + `auth/sub-domains/auth-method/verification-token/` | `auth.verification_tokens` (rows) | 133, 134 | awaiting your OK |
-| 11.C Notification kinds and the check before send | `user/sub-domains/user-notification-preferences/`, `notify/sub-domains/notification/` | `user_notification_preferences`, `notify.notifications` (rows) | 135, 136 | awaiting your OK |
-| 11.D Weekly summary and grouped notes | `notify/sub-domains/notification/workers/` | — | — (WC-58, two notify jobs) | awaiting your OK |
+| 11.A The person and the organization chooser | `user/` (root), `user/sub-domains/user-settings/` | `auth.users`, `auth.user_settings` | 130–132 | final (rev 4, confirmed 2026-11-24) |
+| 11.B Confirm your email | `user/` (root) + `auth/sub-domains/auth-method/verification-token/` | `auth.verification_tokens` (rows) | 133, 134 | final (rev 4, confirmed 2026-11-24) |
+| 11.C Notification kinds and the check before send | `user/sub-domains/user-notification-preferences/`, `notify/sub-domains/notification/` | `user_notification_preferences`, `notify.notifications` (rows) | 135, 136 | final (rev 4, confirmed 2026-11-24) |
+| 11.D Weekly summary and grouped notes | `notify/sub-domains/notification/workers/` | — | — (WC-58, two notify jobs) | final (rev 4, confirmed 2026-11-24) |
 
 ---
 
-### 11.A The person and the workspace chooser — `user/`, `user/sub-domains/user-settings/` — awaiting your OK
+### 11.A The person and the organization chooser — `user/`, `user/sub-domains/user-settings/` — final (rev 4, confirmed 2026-11-24)
 
 #### 11.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
 | UN3 | **Onboarding fields (route 130, plan:L7802–L7826).** Today: `first_name`, `last_name`, `job_title`, `avatar_key`. After: + `instagram_handle` (input may carry a leading `@` and capitals; saved without `@`, lower case; letters, digits, `.` and `_`, 1–30 — Instagram's rule; `null` clears) and `goal` (`capture_leads` · `drive_sales` · `grow_community`, or `null`). Both may stay empty ("Skip for now", plan:L7824); the handle is a profile note and connects nothing (plan:L7826). `GET /users/me` answers both. |
-| UN4 | **Reduce motion and the default workspace (route 131, plan:L7857, L8204).** + `is_reduce_motion_enabled` (boolean, default false — the plan's `reduce_motion` in the P21 form, next to `is_dark_mode_enabled`). `default_organization_id` naming a personal workspace → `422 team_organization_required` (today it is allowed; the existing `422 default_organization_unavailable` stays for one the caller does not belong to). |
-| UN5 | **The workspace chooser (route 132, RC-83, plan:L7849–L7859).** Today: `organizationService.listForUser` — every organization the caller owns or actively belongs to, the personal one included, cursor paging. After: the personal workspace is hidden (Flowdm never shows or opens it, plan:L7857); `q` searches by name (1–100, case-insensitive); each row adds `role` (the main role's `{ id, name }`), `members_count`, `channel_accounts_count`, `live_automations_count`. The counts come from **one** `SECURITY DEFINER` function owned by the app, `app.list_organization_counts_for_user(user_public_id text, organization_public_ids text[])`, which answers only organizations where that user has an active membership (so it reads across organizations without opening RLS — the same form as `tenancy.user_has_active_membership_for_organization`), called once per page through the counts port (UN1). The migration is the app's (plan:L8460: "a migration file next to the app ones") — a new app migration `app_member_organization_counts` (the plan's `app_member_workspace_counts`, full names), not a change to the seven launch files. Paging stays cursor-based (as built). |
+| UN4 | **Reduce motion and the default organization (route 131, plan:L7857, L8204).** + `is_reduce_motion_enabled` (boolean, default false — the plan's `reduce_motion` in the P21 form, next to `is_dark_mode_enabled`). `default_organization_id` naming a personal organization → `422 team_organization_required` (today it is allowed; the existing `422 default_organization_unavailable` stays for one the caller does not belong to). |
+| UN5 | **The organization chooser (route 132, RC-83, plan:L7849–L7859).** Today: `organizationService.listForUser` — every organization the caller owns or actively belongs to, the personal one included, cursor paging. After: the personal organization is hidden (Flowdm never shows or opens it, plan:L7857); `q` searches by name (1–100, case-insensitive); each row adds `role` (the main role's `{ id, name }`), `members_count`, `channel_accounts_count`, `live_automations_count`. The counts come from **one** `SECURITY DEFINER` function owned by the app, `app.list_organization_counts_for_user(user_public_id text, organization_public_ids text[])`, which answers only organizations where that user has an active membership (so it reads across organizations without opening RLS — the same form as `tenancy.user_has_active_membership_for_organization`), called once per page through the counts port (UN1). The migration is the app's (plan:L8460: "a migration file next to the app ones") — a new app migration `app_member_organization_counts` (the plan's `app_member_workspace_counts`, full names), not a change to the seven launch files. Paging stays cursor-based (as built). |
 
 #### 11.A.2 Open questions
 
@@ -5120,13 +5146,13 @@ As 11.5.
 | Route | Status · reason | When |
 | --- | --- | --- |
 | 130 | `400` · `instagram_handle` / `goal` | not Instagram's handle form, over 30; not one of the three |
-| 131 | `422` · `team_organization_required` | `default_organization_id` is the caller's personal workspace |
+| 131 | `422` · `team_organization_required` | `default_organization_id` is the caller's personal organization |
 | 131 | `422` · `default_organization_unavailable` | as built |
 | 132 | `400` · `q` | over 100 characters |
 
 #### 11.A.10 Rules worth knowing
 
-- The app shows the chooser when the person has 2 or more workspaces; one with no team workspace gets onboarding (plan:L7853,
+- The app shows the chooser when the person has 2 or more organizations; one with no team organization gets onboarding (plan:L7853,
   L7857) — both the app's reading of route 132.
 
 #### 11.A.11 Code changes
@@ -5134,11 +5160,11 @@ As 11.5.
 | # | Change |
 | --- | --- |
 | UNC3 | UN3, UN4: migrations `auth_users_onboarding_fields`, `user_settings_reduce_motion`; schemas, DTOs (`UpdateMeDto`, `UpdateUserSettingsDto`), serializers, the personal-default refusal in the settings service; seeds (demo users with a handle and goal); tests |
-| UNC4 | UN5: the app migration with the function and its grant; the counts port's app implementation; `listForUser` hides PERSONAL, takes `q`, joins the main role, merges the counts; `listOrganizationsQueryDto` → a chooser query DTO with `q`; tests — personal hidden, counts per workspace, another user's workspace never counted, `q` |
+| UNC4 | UN5: the app migration with the function and its grant; the counts port's app implementation; `listForUser` hides PERSONAL, takes `q`, joins the main role, merges the counts; `listOrganizationsQueryDto` → a chooser query DTO with `q`; tests — personal hidden, counts per organization, another user's organization never counted, `q` |
 
 ---
 
-### 11.B Confirm your email — `user/` + `auth/…/verification-token/` — awaiting your OK
+### 11.B Confirm your email — `user/` + `auth/…/verification-token/` — final (rev 4, confirmed 2026-11-24)
 
 #### 11.B.1 Decisions
 
@@ -5207,20 +5233,20 @@ As 11.5; 134 has the strict public rate limit (as built for the former reset rou
 
 ---
 
-### 11.C Notification kinds and the check before send — `user/sub-domains/user-notification-preferences/`, `notify/sub-domains/notification/` — awaiting your OK
+### 11.C Notification kinds and the check before send — `user/sub-domains/user-notification-preferences/`, `notify/sub-domains/notification/` — final (rev 4, confirmed 2026-11-24)
 
 #### 11.C.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| UN8 | **Eight new types (plan:L8139–L8147, §50.6).** `NOTIFICATION_TYPES` (11 today) + `automation.stopped`, `contact.details_left`, `membership.role_changed`, `membership.removed`, `report.weekly_summary`, `broadcast.done`, `automation.backfill_done`, `billing.trial_ending` = 19. The DM 80 % and 100 % notes are the existing `billing.usage_threshold` (`data.percent` 80 \| 100, once a month per line — WC-56); "an automation hits an error" is the existing `instagram.reconnect_required` beside `automation.stopped`. Types stay code constants (no database check — plan:L8465). Who emits: `automation.stopped` (sub-domain 6's automatic stop, once per stop), `broadcast.done` (7), `automation.backfill_done` (4), `contact.details_left` (11.D), `billing.trial_ending` (billing WC-59), `report.weekly_summary` (11.D), `membership.role_changed` and `membership.removed` (notify's handlers of tenancy's `membership.updated` — when the main role changes — and `membership.deleted`; the event payload gains the previous main role). |
-| UN9 | **Seven kinds (plan:L8137–L8147, D54).** One constant `NOTIFICATION_KINDS` maps kind → types, recipients rule (UN2) and default per channel: `automation_problem` (`automation.stopped`, `instagram.reconnect_required`; Owner/Admin/Editor; email on, in-app on), `direct_message_limit` (`billing.usage_threshold`; Owner/Admin/Editor; on, on), `contact_details_left` (`contact.details_left`; Owner/Admin/Editor; **email off**, on), `team_change` (`membership.invite_accepted`, `.invite_declined`, `.role_changed`, `.removed`; Owner/Admin + the member; on, on), `billing` (`billing.payment_failed`, `.payment_succeeded`, `subscription.updated`, `billing.trial_ending`; Owner/Admin; **email always on**, in-app on), `weekly_summary` (`report.weekly_summary`; every member; on, **in-app off**), `broadcast_or_past_comments_done` (`broadcast.done`, `automation.backfill_done`; who started it + Owner/Admin; **email off**, on). Push (`WEB_PUSH`) defaults off ("soon"). Security email is not in the grid and always sent (11.10). |
+| UN8 | **Nine new types (plan:L8139–L8147, §50.6; P80).** `NOTIFICATION_TYPES` (11 today) + `automation.stopped`, `contact.details_left`, `membership.role_changed`, `membership.removed`, `report.weekly_summary`, `broadcast.done`, `automation.backfill_done`, `billing.trial_ending`, `billing.plan_choice_required` (P80, BL24) = 20. The DM 80 % and 100 % notes are the existing `billing.usage_threshold` (`data.percent` 80 \| 100, once a month per line — WC-56); "an automation hits an error" is the existing `instagram.reconnect_required` beside `automation.stopped`. Types stay code constants (no database check — plan:L8465). Who emits: `automation.stopped` (sub-domain 6's automatic stop, once per stop), `broadcast.done` (7), `automation.backfill_done` (4), `contact.details_left` (11.D), `billing.trial_ending` and `billing.plan_choice_required` (billing WC-59), `report.weekly_summary` (11.D), `membership.role_changed` and `membership.removed` (notify's handlers of tenancy's `membership.updated` — when the main role changes — and `membership.deleted`; the event payload gains the previous main role). |
+| UN9 | **Seven kinds (plan:L8137–L8147, D54).** One constant `NOTIFICATION_KINDS` maps kind → types, recipients rule (UN2) and default per channel: `automation_problem` (`automation.stopped`, `instagram.reconnect_required`; Owner/Admin/Editor; email on, in-app on), `direct_message_limit` (`billing.usage_threshold`; Owner/Admin/Editor; on, on), `contact_details_left` (`contact.details_left`; Owner/Admin/Editor; **email off**, on), `team_change` (`membership.invite_accepted`, `.invite_declined`, `.role_changed`, `.removed`; Owner/Admin + the member; on, on), `billing` (`billing.payment_failed`, `.payment_succeeded`, `subscription.updated`, `billing.trial_ending`, `billing.plan_choice_required`; Owner/Admin; **email always on**, in-app on), `weekly_summary` (`report.weekly_summary`; every member; on, **in-app off**), `broadcast_or_past_comments_done` (`broadcast.done`, `automation.backfill_done`; who started it + Owner/Admin; **email off**, on). Push (`WEB_PUSH`) defaults off ("soon"). Security email is not in the grid and always sent (11.10). |
 | UN10 | **The routes speak kinds (UNQ1, RC-84, RC-85).** `GET` answers the seven kinds, each with its channels' effective value (a missing row = the default) and `is_locked` (billing email); `PUT` takes `kinds: [{ kind, channel, is_enabled }]` (up to 21 = 7 × 3) and writes one row per type of the kind in one transaction ("changes save as they are made" — the app may send one item). `channel` is `EMAIL` · `IN_APP` · `WEB_PUSH` (the existing `NOTIFICATION_CHANNELS`; `SMS` is not offered). Billing email off → `422 notification_preference_locked`. Other option: keep type × channel (the app expands kinds). |
 | UN11 | **Check the choice before each send (plan:L8163–L8182).** Today: `createAndDispatchNotification` writes the row and enqueues in-app + email for every recipient without reading any choice. After: the dispatch takes the kind's recipients (UN2), reads **all** their choices for the type in one query, then per person: in-app on → the notification row (as today); email on → the mail-outbox row with the dedupe key `notification:<type>:<dedupe_key>:<user_public_id>` (UNQ2 — `dedupe_key` becomes a required input of the create, each emitter passes its once key); push on → nothing yet. The organization's mute still wins (as built). Locked billing email is sent whatever a stored row says. |
 
 #### 11.C.2 Open questions
 
-UNQ1, UNQ2 — 11.2.
+UNQ1, UNQ2 — 11.2; answered P87 (per kind), P88 (the caller's `dedupe_key`).
 
 #### 11.C.3 Tables and relations
 
@@ -5273,19 +5299,19 @@ in the screen's order (UN9).
 
 | # | Change |
 | --- | --- |
-| UNC6 | UN8, UN9: `NOTIFICATION_TYPES` + 8, `NOTIFICATION_KINDS` in `src/shared/constants/notification.constants.ts`; the organization-policy DTO reads the same list (as built); the email and in-app copy per new type (`src/shared/locales/en/notifications.json` first); notify's handlers for `membership.updated` (main-role change) and `membership.deleted`; tenancy's event payload + the previous main role |
+| UNC6 | UN8, UN9: `NOTIFICATION_TYPES` + 9, `NOTIFICATION_KINDS` in `src/shared/constants/notification.constants.ts`; the organization-policy DTO reads the same list (as built); the email and in-app copy per new type (`src/shared/locales/en/notifications.json` first); notify's handlers for `membership.updated` (main-role change) and `membership.deleted`; tenancy's event payload + the previous main role |
 | UNC7 | UN10: the DTO (`kinds`), the service's expand-to-types upsert in one transaction, the kinds serializer with defaults; `notification_preference_locked`; tests — the defaults with no rows, billing email locked, one kind writes every type's row |
 | UNC8 | UN11: `createAndDispatchNotification` takes `dedupe_key` and the kind's recipients rule; one choices query per notification; in-app only when on; outbox key; every existing emitter (invitation accepted / declined, the reconnect notice, billing) passes its key; tests — in-app off + email on sends one email and writes no row, the mute wins, a replay sends nothing twice |
 
 ---
 
-### 11.D Weekly summary and grouped notes — `notify/sub-domains/notification/workers/` — awaiting your OK
+### 11.D Weekly summary and grouped notes — `notify/sub-domains/notification/workers/` — final (rev 4, confirmed 2026-11-24)
 
 #### 11.D.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| UN12 | **The weekly summary (WC-58, plan:L8184–L8192).** An hourly sweep under a maintenance scope (`MAINTENANCE_SCOPE.NOTIFY_WEEKLY_SUMMARY`, new, frozen) lists the team workspaces where it is now Monday 09:00–09:59 in their time zone (`tenancy.organizations.timezone`; `WEEKLY_SUMMARY_WEEKDAY` 1, `WEEKLY_SUMMARY_HOUR` 9 — notify constants) and enqueues one job per workspace (job id `weekly-summary:<organization>:<iso year-week>`, payload `organizationPublicId`, `weekStart`). The job, inside its organization: the app's `readWeeklySummary` port (UN1) — per Instagram account for the last 7 days: runs started, DMs sent, % tapped, new contacts, emails and phones collected, the top automation, plus the month count (`app.automation_counts`, `app.message_month_counts`, the runs — one read); nothing happened → no email; else one email per member with the kind's email on (default on), through the mail outbox, dedupe `weekly:<organization>:<year-week>:<user>` — a restart never sends twice. In-app default off (D54). Pull-based (scheduler → queue → worker), safe to repeat and to skip an hour. |
+| UN12 | **The weekly summary (WC-58, plan:L8184–L8192).** An hourly sweep under a maintenance scope (`MAINTENANCE_SCOPE.NOTIFY_WEEKLY_SUMMARY`, new, frozen) lists the team organizations where it is now Monday 09:00–09:59 in their time zone (`tenancy.organizations.timezone`; `WEEKLY_SUMMARY_WEEKDAY` 1, `WEEKLY_SUMMARY_HOUR` 9 — notify constants) and enqueues one job per organization (job id `weekly-summary:<organization>:<iso year-week>`, payload `organizationPublicId`, `weekStart`). The job, inside its organization: the app's `readWeeklySummary` port (UN1) — per Instagram account for the last 7 days: runs started, DMs sent, % tapped, new contacts, emails and phones collected, the top automation, plus the month count (`app.automation_counts`, `app.message_month_counts`, the runs — one read); nothing happened → no email; else one email per member with the kind's email on (default on), through the mail outbox, dedupe `weekly:<organization>:<year-week>:<user>` — a restart never sends twice. In-app default off (D54). Pull-based (scheduler → queue → worker), safe to repeat and to skip an hour. |
 | UN13 | **Grouped "new contact details" (plan:L8157, plan:L8162 example).** At most one note per Instagram account per hour (`CONTACT_DETAILS_NOTICE_EVERY_MINUTES` 60). After the commit that saves a contact's email or phone, the app calls notify's `noteContactDetailsLeft({ organizationPublicId, channelAccountPublicId, at })`, which adds a delayed job (job id `contact-details:<account>` — BullMQ keeps one pending job per id, so the 2nd and 3rd detail in the hour add nothing) due 60 minutes after the first; the job counts, through the app's `countContactsWithDetailsLeft` port, the account's contacts whose details were saved since the window's start, and writes one `contact.details_left` notification ("3 new contacts left details on @account_a") to the kind's recipients — in-app by default, email off. Zero (all erased meanwhile) → nothing. Postgres holds the truth (the contacts' times); the job holds only the window start. |
 
 #### 11.D.2 Open questions
@@ -5322,20 +5348,20 @@ None (job failures retry with the notify queue's backoff and land in the DLQ, as
 
 #### 11.D.10 Rules worth knowing
 
-- Estimate (plan:L8192): 1,000 workspaces over their time zones = a few hundred reads an hour.
+- Estimate (plan:L8192): 1,000 organizations over their time zones = a few hundred reads an hour.
 
 #### 11.D.11 Code changes
 
 | # | Change |
 | --- | --- |
-| UNC9 | UN12: `notify/sub-domains/notification/workers/notification-weekly-summary.{worker,processor,constants}.ts`, queue and job schema (`organizationPublicId`, `weekStart`), the sweep under the new maintenance scope (`database-context.ts`), registry, scheduler (hourly), DLQ; the email template; tests — a workspace at Monday 09:30 local gets one job, at 10:00 none, a quiet week sends nothing, twice = once |
+| UNC9 | UN12: `notify/sub-domains/notification/workers/notification-weekly-summary.{worker,processor,constants}.ts`, queue and job schema (`organizationPublicId`, `weekStart`), the sweep under the new maintenance scope (`database-context.ts`), registry, scheduler (hourly), DLQ; the email template; tests — an organization at Monday 09:30 local gets one job, at 10:00 none, a quiet week sends nothing, twice = once |
 | UNC10 | UN13: the delayed job `notification-contact-details` (queue, job schema with `organizationPublicId`, `channelAccountPublicId`, `windowStartedAt`), `noteContactDetailsLeft`; tests — three details in an hour → one note of 3, a detail after the note starts a new window |
 
 ---
 
-## 12. Upload — message files — rev 2 (2026-11-23) — no nested sub-domains; awaiting your OK
+## 12. Upload — message files — rev 3 (2026-11-24) — no nested sub-domains; final (rev 3, confirmed 2026-11-24)
 
-**Status: rev 2 (2026-11-23) — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: final (rev 3, confirmed 2026-11-24)** (one-pass review, [P31](decisions.md)). Confirmed with your answers ([P54–P90](decisions.md), M12).
 
 Code: the **upload domain** (`src/domains/upload/`, one folder, no sub-domains — as built), changed in place: its constants, DTO,
 validator, content-type and magic-byte checks, and one new read for the sending engine. No migration (the purpose list is a code
@@ -5354,13 +5380,13 @@ upload (EXISTING), instagram_attachment; `route-changes.md` RC-61 (RC-62, RC-63 
 
 ### 12.1 Decisions (whole sub-domain)
 
-Taken on your standing answer "go with the recommendation" — change any of them before you confirm. "Today" is the code in `main`.
+Taken on your standing answer "go with the recommendation", then confirmed with your answers of 2026-11-24 (P54–P90). "Today" is the code in `main`.
 
 **rev 2 changes** (P43, M9): the message-file reference is `app.instagram_attachments` (was `meta_attachments`). No route changes shape.
 
 | # | Decision |
 | --- | --- |
-| UP1 | **A new purpose `message-media` (plan:L8443).** Today: four purposes (`avatar`, `organization-logo`, `user-file`, `organization-file`), kebab-case values in `UPLOAD_PURPOSES`; `organization-file` takes png, jpeg, webp, pdf up to 10 MB, no audio. After: `MESSAGE_MEDIA: 'message-media'` (the existing value style; the plan's `MESSAGE_MEDIA` is the constant's key), target **organization** (`UPLOAD_PURPOSE_REQUIRED_TARGET`), key prefix `message-media`, no thumbnails; bound to the workspace (the organization id on the row, as every organization upload). Other option: widen `organization-file` — but its size, types and SVG rule differ, and the sending engine must know a file was meant for a message. |
+| UP1 | **A new purpose `message-media` (plan:L8443).** Today: four purposes (`avatar`, `organization-logo`, `user-file`, `organization-file`), kebab-case values in `UPLOAD_PURPOSES`; `organization-file` takes png, jpeg, webp, pdf up to 10 MB, no audio. After: `MESSAGE_MEDIA: 'message-media'` (the existing value style; the plan's `MESSAGE_MEDIA` is the constant's key), target **organization** (`UPLOAD_PURPOSE_REQUIRED_TARGET`), key prefix `message-media`, no thumbnails; bound to the organization (the organization id on the row, as every organization upload). Other option: widen `organization-file` — but its size, types and SVG rule differ, and the sending engine must know a file was meant for a message. |
 | UP2 | **Types and sizes per type (plan:L8445).** Today: one `maxSize` per purpose. After: `UploadPurposeConfig` gains an optional `maxSizeByContentType` (the validator and the presigned `content-length-range` read it before `maxSize`): `image/png`, `image/jpeg` ≤ 8 MB (`MESSAGE_IMAGE_MAX_BYTES`); `audio/aac`, `audio/mp4` (`.m4a`, `.mp4`), `audio/x-m4a` (`.m4a` — what Safari and macOS send), `audio/wav` ≤ 25 MB (`MESSAGE_AUDIO_MAX_BYTES`); `application/pdf` ≤ 25 MB (`MESSAGE_FILE_MAX_BYTES`) — the plan's `_MB` names in full-name byte form (P6). No webp (Instagram's attachment types, plan:L8445) and **no SVG** even when `UPLOAD_ALLOW_SVG` is on (`getAllowedContentTypesForPurpose` skips this purpose — SVG has no magic bytes and Instagram does not take it). |
 | UP3 | **The upload ceiling 10 → 25 MB (plan:L8445).** `UPLOAD_DTO_FILE_SIZE_MAX_BYTES` = 25 MB (the highest per-type cap, as its comment requires); every other purpose keeps its own smaller cap (as built). |
 | UP4 | **Type and magic-byte checks only — no scan (P34, a D58 deviation).** Today: confirm checks the object's length and content type, and the first 32 bytes against `MAGIC_SIGNATURES` — **only for the types that have a signature** (png, jpeg, webp, pdf); an unknown type would pass unchecked. After: `file-magic.util.ts` gains the audio signatures — AAC ADTS (`FF F1`, `FF F9`, `FF F0`, `FF F8`) and ADIF (`ADIF`), MP4 / M4A (`ftyp` at offset 4), WAV (`RIFF` at 0 and `WAVE` at 8, the webp form) — and the `message-media` purpose **requires** every one of its types to be verifiable (a unit test pins it), so a message file is used only after confirm's type and content checks pass. No `scan_status` column, no scanner, no scan step (P34); D58's "scanned clean" reads "confirmed (type and magic bytes)" for this iteration. Other option: build the scan now — P34 moved it to a later iteration. |
@@ -5452,31 +5478,43 @@ None — the upload domain is one folder.
 
 ## Before you hand a sub-domain over for its OK
 
-Run on the whole file (rev 3, 2026-11-24, after the shared product and channel seams M10; before that rev 2, after M9), by
-script where it can be:
+Run on the whole file (rev 4, 2026-11-24, after your answers M12 — the review is final; before that rev 3 after M10 and M11,
+rev 2 after M9), by script where it can be:
 
 - Every table row has its header's number of columns — **checked by script: 0 rows off** across every table of the file
-  (re-run at rev 3: 0 off; rev 2 fixed one row, SN18's job id, whose `|` split a cell); every sub-domain (1, 1B, 2–12) has sections 1–12 and every
-  nested sub-domain 1–11 — **checked by script**.
+  (re-run at rev 4 after the **Answer** columns were added to the header's question table and every section 2; rev 4 also
+  removed the blank line that split 1B.2's table between CAQ1 and CAQ2); every sub-domain (1, 1B, 2–12) has sections 1–12 and
+  every nested sub-domain 1–11 — **checked by script**.
 - No decision, code-change or question id is used twice, and every id the text cites exists — **checked by script** for the
   prefixes MC, CA, IA, CT, AU, WH, SN, BC, BL, TN, AT, UN, UP (decisions, `…C` code changes, `…Q` questions), K and M: no repeat
-  (each question sits once in the header table and once in its section 2, by design), none dangling — re-run at rev 3 with
-  M10's new ids (MC18, MC19, MCC11, MCC12, CA11, CAC6, CAQ2, CT18, CTC12, CTQ4, AU34, AU35, AUC13, WH27, WHC17, SN22,
-  SN23, SNC16, BC18, BCC10, K15, M10). Launch ids are cited
-  "launch …"; rev 1 ids that moved (IA1–IA5, IA9–IA11, IA16, IA18–IA20, IAC1, IAC2, IAC4, IAC7, IAQ1, IAQ2) are cited only
-  as "was …" / "rev 1 …" and mapped in M9.
+  (each question sits once in the header table and once in its section 2, by design; MGQ2 only in the header), none dangling —
+  re-run at rev 4 with M12's new ids (BC19, BCC11, BL24, BLC13, TN12, TNC8, M12). Launch ids are cited "launch …"; rev 1 ids
+  that moved (IA1–IA5, IA9–IA11, IA16, IA18–IA20, IAC1, IAC2, IAC4, IAC7, IAQ1, IAQ2) are cited only as "was …" / "rev 1 …" and
+  mapped in M9.
+- Every open question is answered — **checked by script**: 33 questions, each with its decision row in the header table's and
+  its section 2's **Answer** column (P54–P89; P79 the one default), no "Until you answer" left; the three answers that differ
+  from the recommendation (MCQ3 → P56, BCQ2 → P76, BLQ4 → P80) are written into their decisions (M12).
+- Every sub-domain and nested sub-domain reads `final (rev N, confirmed 2026-11-24)` in its heading, its status line, the
+  sub-domains table and its parent's section 12 — **checked by script**: no `awaiting your OK` left; the **Route review final**
+  line sits under the title (P90).
 - The route numbers never repeat; gaps fall only between sub-domains, at 43–59 and at 65–68 (M6); rev 2 renumbered nothing
-  and added 40–42 (M9); rev 3 renumbered and added nothing (M10); each sub-domain's count in its section 7 matches the sub-domains table (11, 6, 3, 9, 13, 3, 2, 13,
-  9, 9, 9, 7, 1 for 1, 1B, 2–12) and the domain total (95: 49 new, 44 changed, 1 as built, 1 unchanged) — **checked by
-  script**, again at rev 3 (95 numbers, none repeated). Every RC row is served by exactly one sub-domain (RC-15, RC-17, RC-18 and RC-112–RC-114 by 1; RC-7–RC-11 and
+  and added 40–42 (M9); rev 3 and rev 4 renumbered and added nothing (M10, M12); each sub-domain's count in its section 7
+  matches the sub-domains table (11, 6, 3, 9, 13, 3, 2, 13, 9, 9, 9, 7, 1 for 1, 1B, 2–12) and the domain total (95: 49 new,
+  45 changed — moves included, route 60 moved by P53 — and 1 as built) — **checked by script**, again at rev 4 (95 numbers,
+  none repeated). Every RC row is served by exactly one sub-domain (RC-15, RC-17, RC-18 and RC-112–RC-114 by 1; RC-7–RC-11 and
   RC-60 by 1B; RC-37, RC-38 by 4 and RC-39, RC-40 by 3 only).
-- Every route has a gate and an Idem cell; every `POST` without `req` names its reason (K3, MGQ2): 1, 9, 10, 16, 17, 32,
-  33, 35, 40, 61 in the app; 107, 118, 120, 121, 124, 126, 127, 133, 134 as built in the platform domains.
+- Every route has a gate and an Idem cell; every `POST` without `req` names its reason (K3, MGQ2 → P89): 1, 9, 10, 16, 17, 32,
+  33, 35, 40, 61 in the app; 107, 118, 120, 121, 124, 126, 127, 133, 134 as built in the platform domains. Since P59 routes
+  1–11, 15 and 40–42 are gated by `channel-account:*` and routes 12–14 keep `instagram-account:*`; since P76 routes 78, 80 and
+  82 also refuse a plan without the `segments` switch (`403 plan_lacks_feature`).
 - Every table states its RLS, its branch rule (none — this product has no branches) and every pointer's `ON DELETE`;
   no membership pointer is added (K5, K6); every product and sending pointer to an account is `channel_account_id` →
   `app.channel_accounts` (P47); since rev 3 the shared product tables (3, 4, 7) carry no `instagram_` prefix and point at
-  no Instagram table — they reach a channel only through the two seams (K15, M10).
+  no Instagram table — they reach a channel only through the two seams (K15, M10). No identifier, column, route or code
+  contains `workspace` (P72; the prose says organization, "workspace" only where a screen is quoted).
 - `plans/route-changes.md`, `plans/db-changes.md` and `plans/worker-changes.md` say the same as the sub-domains — rev 1
   **done** (synced 2026-11-23 from M8); rev 2's channel split is synced by the change-files pass of the same day (RC-112–RC-114
-  cited here); rev 3's M10 (P48–P51) is synced by the change-files pass of 2026-11-24, run beside this one. Open: SNQ1 keeps
-  `sending_helper_slot` until answered.
+  cited here); rev 3's M10 (P48–P51) by the change-files pass of 2026-11-24; rev 4's M12 (P54–P90) by the change-files pass
+  of 2026-11-24 run beside this one — `app.sending_helper_slots` dropped (P73), the business resolver and its index (P56),
+  `feature_switches` and the off rows' Free features (P83, P80), the code migration (P59), the plan refusal on RC-42, RC-44
+  and RC-46 (P76), WC-59's old-plan finding and the `billing.plan_choice_required` email (P80). Nothing is open.

@@ -308,6 +308,8 @@ describe('createAuthController', () => {
     expect(authService.refreshToken).toHaveBeenCalledWith({
       sessionPublicId: 'session',
       refreshSecret: 'refresh-secret',
+      // The refreshing request's IP — a new one moves the session's place (§ 10.D AT18).
+      ipAddress: '127.0.0.1',
     });
     expect(refreshReply.setCookie).toHaveBeenCalledWith(
       'session_id',

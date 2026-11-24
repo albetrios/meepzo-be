@@ -583,6 +583,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── auth-session.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── auth-session.place.db.unit.test.ts
     │   │   │   │   │   ├── auth-session.refresh-concurrency.db.unit.test.ts
     │   │   │   │   │   ├── auth-session.repository.db.unit.test.ts
     │   │   │   │   │   ├── auth-session.repository.expired.db.unit.test.ts
@@ -592,6 +593,7 @@ src/
     │   │   │   │   │   ├── session-cleanup.constants.unit.test.ts
     │   │   │   │   │   ├── session-cleanup.worker.unit.test.ts
     │   │   │   │   │   ├── session-lifetime.unit.test.ts
+    │   │   │   │   │   ├── session-place.unit.test.ts
     │   │   │   │   │   └── session-token-cache.service.unit.test.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── auth-session.bulk.seed.ts
@@ -607,6 +609,7 @@ src/
     │   │   │   ├── auth-session.service.ts
     │   │   │   ├── auth-session.types.ts
     │   │   │   ├── session-lifetime.ts
+    │   │   │   ├── session-place.ts
     │   │   │   └── session-token-cache.service.ts
     │   │   ├── auth-trusted-device/
     │   │   │   ├── __tests__/
@@ -2385,6 +2388,7 @@ src/
     │   ├── route-organization-scope.helper.ts
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
+    │   ├── session-place-mmdb.helper.ts
     │   ├── test-api-prefix.helper.ts
     │   ├── test-app.ts
     │   ├── test-auth.ts

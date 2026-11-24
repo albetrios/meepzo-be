@@ -530,6 +530,8 @@ Table auth.sessions {
   last_active_at timestamptz [not null]
   mfa_verified_at timestamptz
   organization_id bigint
+  place_city varchar(100)
+  place_country varchar(2)
   previous_refresh_token_hash varchar(64)
   public_id varchar(28) [not null, unique]
   refresh_token_hash varchar(64)

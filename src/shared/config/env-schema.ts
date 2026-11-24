@@ -678,6 +678,14 @@ const envSchemaBase = z.object({
   /** WebAuthn relying party display name shown in passkey prompts. */
   WEBAUTHN_RP_NAME: z.string().min(1).optional(),
 
+  /**
+   * Local IP-to-place file (`.mmdb`, DB-IP "IP to City Lite") that gives each session its city and
+   * country (GET /auth/me/sessions). Optional: unset → every session's place stays empty, never an
+   * error. The image build puts the file at `/app/data/session-place.mmdb` when it is built with
+   * `SESSION_PLACE_DATABASE_URL`; no address ever leaves the process.
+   */
+  SESSION_PLACE_DATABASE_PATH: z.string().min(1).optional(),
+
   // App URLs
   // Required (https) in production — see the FRONTEND_URL production refine below.
   FRONTEND_URL: z.url().optional(),

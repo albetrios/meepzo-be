@@ -11,7 +11,8 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { AuthSessionRepository } from './auth-session.repository.js';
-import type { AuthSessionCreateData } from './auth-session.types.js';
+import type { AuthSessionCreateData, AuthSessionNetworkUpdate } from './auth-session.types.js';
+import { NO_SESSION_PLACE_LOOKUP, type SessionPlaceLookup } from './session-place.js';
 import type { TrustedDeviceService } from '@/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.service.js';
 import {
   getCachedSessionTokenValid,
@@ -53,6 +54,9 @@ function refreshHashesEqual({ left, right }: { left: string; right: string }): b
  *   downstream bearer checks see the change immediately. On refresh-secret reuse
  *   (an already-rotated secret replayed), {@link refreshSessionCredentials}
  *   revokes the user's entire session family, not just the targeted session.
+ * - **Place:** a new session, and a refresh from a new IP, store the IP's city and country from
+ *   the injected {@link SessionPlaceLookup} (a local file, routes-final § 10.D AT18); no file or no
+ *   match leaves both null.
  * - **Notes:** {@link verifyActiveAccessToken} is hot-pathed by the auth
  *   middleware and uses a 60-second Redis cache to amortise DB round-trips.
  */
@@ -61,7 +65,19 @@ export class AuthSessionService {
     private readonly userService: UserService,
     private readonly sessionRepository: AuthSessionRepository,
     private readonly trustedDeviceService?: TrustedDeviceService,
+    private readonly sessionPlaceLookup: SessionPlaceLookup = NO_SESSION_PLACE_LOOKUP,
   ) {}
+
+  /** The place columns for an IP address — both null when the place file has no match or there is no file. */
+  private placeOf(
+    ipAddress: string,
+  ): Pick<AuthSessionNetworkUpdate, 'place_city' | 'place_country'> {
+    const place = this.sessionPlaceLookup.findPlace(ipAddress);
+    return {
+      place_city: place?.place_city ?? null,
+      place_country: place?.place_country ?? null,
+    };
+  }
 
   async list(userPublicId: string) {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
@@ -215,11 +231,16 @@ export class AuthSessionService {
     data,
   }: {
     userPublicId: string;
-    data: Omit<AuthSessionCreateData, 'user_id' | 'refresh_token_hash'>;
+    data: Omit<
+      AuthSessionCreateData,
+      'user_id' | 'refresh_token_hash' | 'place_city' | 'place_country'
+    >;
   }): Promise<{ public_id: string; refresh_secret: string }> {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new NotFoundError('User');
     const refreshSecret = generateRefreshSecret({ userPublicId });
+    // The place is looked up before the transaction: an in-process file read, never a network call.
+    const place = this.placeOf(data.ip_address);
     const { session, evictedSessions } = await withAppDatabaseContext({
       scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
       callback: async (_databaseHandle) => {
@@ -237,6 +258,7 @@ export class AuthSessionService {
           user_id: user.id,
           refresh_token_hash: hashRefreshSecret(refreshSecret),
           ...data,
+          ...place,
         });
         return { session: created, evictedSessions: evicted };
       },
@@ -413,12 +435,15 @@ export class AuthSessionService {
     userPublicId,
     refreshSecret,
     nextAccessToken,
+    ipAddress,
   }: {
     sessionPublicId: string;
     /** The session's user — the refresh secrets' issuance MACs are bound to it. */
     userPublicId: string;
     refreshSecret: string;
     nextAccessToken: string;
+    /** The refreshing request's IP; when it differs from the session's, the address and its place move with it. */
+    ipAddress?: string | undefined;
   }): Promise<{ refresh_secret: string; organization_id: number | null }> {
     const currentRefreshHash = hashRefreshSecret(refreshSecret);
     const nextTokenHash = hashAccessToken(nextAccessToken);
@@ -431,11 +456,16 @@ export class AuthSessionService {
           return null;
         }
         const minted = generateRefreshSecret({ userPublicId });
+        const nextNetwork: AuthSessionNetworkUpdate | undefined =
+          ipAddress !== undefined && ipAddress !== existing.ip_address
+            ? { ip_address: ipAddress, ...this.placeOf(ipAddress) }
+            : undefined;
         const rotated = await this.sessionRepository.rotateSessionCredentials(
           sessionPublicId,
           currentRefreshHash,
           nextTokenHash,
           hashRefreshSecret(minted),
+          nextNetwork,
         );
         if (!rotated) {
           return null;

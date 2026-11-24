@@ -30,7 +30,7 @@ All paths below are under the `/api/v1` prefix. External ids are always the fiel
 | MFA confirm | `POST /auth/me/mfa/confirm` | `POST /auth/me/mfa/enroll/confirm` | Exists — re-path |
 | MFA status | expects `{ enabled }` | `GET /auth/me/mfa` → factor array | Derive `enabled = factors.length > 0` |
 | MFA enroll body | `400 Invalid values` | body must be `{ "method_type": "MFA_TOTP" }` | Fix request body |
-| Sessions | expects `device/browser/location/is_current` | `GET /auth/me/sessions` — **now enriched** | Provides `device`, `browser`, `is_current`, raw `ip_address`; no server `location` (geo-locate the IP client-side) |
+| Sessions | expects `device/browser/location/is_current` | `GET /auth/me/sessions` — **now enriched** | Provides `device`, `browser`, `place` (`{ city, country_code }` or null), `is_current`, raw `ip_address` |
 | Org logo | `PATCH /tenancy/organization { logo_url }` → 400 | upload flow → `PUT /tenancy/organization/logo { key }` | Exists — different flow |
 | Billing gate | `capabilities.canManageBilling` (object removed) | gate on `type === 'TEAM'` + `my_permissions` incl. `subscription:manage` | No capability object; use type + permission |
 
@@ -127,13 +127,20 @@ raw source fields:
   "user_agent": "Mozilla/5.0 (Macintosh …) Chrome/124.0 …",
   "device": "Mac",            // parsed from user_agent; null if unknown
   "browser": "Chrome",        // parsed from user_agent; null if unknown
+  "place": { "city": "Mumbai", "country_code": "IN" }, // where the IP is; null if unknown
   "is_current": true,         // the session this request is authenticated with
   "last_active_at": "…", "expires_at": "…", "created_at": "…"
 }
 ```
 
 - `device` / `browser` are best-effort heuristics from the UA string; `null` when unrecognised.
-- `ip_address` is the raw source IP; there is **no** server-derived `location` field — geo-locate the IP client-side if you need an approximate region.
+- `place` is where the session's IP is, looked up on the server in a local IP-to-place file (DB-IP
+  "IP to City Lite"; no IP ever leaves the server): `city` is the file's English city name,
+  `country_code` the ISO 3166-1 alpha-2 code — show the country's name with `Intl.DisplayNames`
+  ("Chrome on Mac · Mumbai, India"). Either inner field can be `null`; the whole `place` is `null`
+  when nothing is known (no file in that deployment, or a private address). It is set at sign-in and
+  moves when a refresh comes from a new IP. The data is CC BY 4.0: show the attribution "IP
+  geolocation by DB-IP" (linking to <https://db-ip.com>) on the sessions screen or the legal page.
 - Use `is_current` to badge the active session and to avoid offering "revoke" on it
   (`DELETE /auth/me/sessions/:session_id` refuses the current session with `409` — use logout instead).
 

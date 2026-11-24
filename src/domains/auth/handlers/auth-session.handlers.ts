@@ -7,6 +7,7 @@ import { recordScopedAuditEvent } from '@/shared/utils/infrastructure/audit-requ
 import { verifyAccessToken } from '@/shared/utils/security/jwt.util.js';
 import {
   clearSessionCookie,
+  getIpAddress,
   parseSessionCookieValue,
   SESSION_COOKIE_NAME,
   setSessionCookie,
@@ -116,6 +117,7 @@ export function createAuthSessionHandlers({
       const data = await authService.refreshToken({
         sessionPublicId: parsedSession.sessionPublicId,
         refreshSecret: parsedSession.refreshSecret,
+        ipAddress: getIpAddress(request),
       });
       setSessionCookie({
         reply,

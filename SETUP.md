@@ -89,7 +89,7 @@ pnpm compose:wait               # exits non-zero if Postgres never becomes healt
 #    (DATABASE_URL → meepzo_be_app, maintenance, operator), then seed — one step
 pnpm db:migrate                 # no seed
 pnpm db:seed                    # or: minimal seed
-pnpm db:seed:full               # or: full demo (demo@example.com / DemoPassword123!)
+pnpm db:seed:full               # or: full demo (demo@example.com — sign in by email code)
 
 # 4. (Re)start from an empty local database: any of the three with --reset
 pnpm db:seed:full --reset

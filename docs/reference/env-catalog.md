@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**19 / 249** variables migrated to an explicit `{ allowed, description }` entry.
+**19 / 250** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -210,6 +210,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `SENTRY_TRACES_SAMPLE_RATE` | — | — *(optional)* |  | — |
 | `SERVER_TIMING_COARSE` | — | `true` |  | — |
 | `SESSION_ORIGIN_CSRF_REQUIRED` | — | `true` |  | — |
+| `SESSION_PLACE_DATABASE_PATH` | — | — *(optional)* |  | — |
 | `SHUTDOWN_DRAIN_ENABLED` | — | `true` |  | — |
 | `SHUTDOWN_SKIP_SHARED_TEARDOWN` | — | `false` |  | — |
 | `SHUTDOWN_TIMEOUT_MS` | — | — *(optional)* |  | — |

@@ -5,8 +5,8 @@ export const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
 export const API_PREFIX = `${BASE_URL}/api/v1`;
 
 /**
- * Headers for the public auth forms (login, email send-code / login, MFA login, password
- * forgot / reset). `X-Captcha-Bypass` lets a load run through when the API enforces CAPTCHA
+ * Headers for the public auth forms (email send-code / login, OAuth, MFA login — there are no
+ * password forms, P84). `X-Captcha-Bypass` lets a load run through when the API enforces CAPTCHA
  * locally (`pnpm setup:local --with-captcha`, which also sets CAPTCHA_BYPASS_ALLOWED=true); every
  * other configuration ignores it — CAPTCHA off, CAPTCHA_BYPASS_ALLOWED unset, and production,
  * whose env refine rejects the bypass.

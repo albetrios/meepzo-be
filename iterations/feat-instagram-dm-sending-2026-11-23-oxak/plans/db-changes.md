@@ -1960,6 +1960,9 @@ erDiagram
 - **Added:** `place_city`, `place_country` (the ISO 3166-1 two-letter code; AT18, routes-final § 10).
 - **Replaced:** none.
 - **Open:** none — the IP-to-place file and its licence are DB-IP Lite (P86).
+- **Built R33** ([AS-BUILT](../AS-BUILT.md), [P208](decisions.md)): migration `20261124120000_auth_sessions_place.sql` —
+  `auth.sessions.place_city` `varchar(100)`, `place_country` `varchar(2)` with `chk_sessions_place_country` (`^[A-Z]{2}$`);
+  both null without a file or a match.
 
 ```mermaid
 erDiagram

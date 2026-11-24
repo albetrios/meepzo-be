@@ -64,6 +64,22 @@ RUN pnpm build && pnpm build:check \
        pnpm routes:catalog && pnpm docs:generate:multilang; \
      fi
 
+# Session places (routes-final § 10.D AT18, P86): the DB-IP "IP to City Lite" file (CC BY 4.0,
+# https://db-ip.com) that gives each session its city and country. Fetched here, at image build,
+# never at runtime: build with SESSION_PLACE_DATABASE_URL set to the month's file
+# (https://download.db-ip.com/free/dbip-city-lite-<YYYY-MM>.mmdb.gz) — the monthly build refreshes
+# it — and run with SESSION_PLACE_DATABASE_PATH=/app/data/session-place.mmdb. Unset → no file, and
+# every session's place stays empty (never an error). A set URL that fails to download fails the
+# build loudly. Only the API image carries it (the worker never creates a session).
+FROM node:${NODE_VERSION}-alpine AS session-place
+ARG SESSION_PLACE_DATABASE_URL=
+RUN mkdir -p /out \
+  && if [ -n "${SESSION_PLACE_DATABASE_URL}" ]; then \
+    wget -qO /tmp/session-place.mmdb.gz "${SESSION_PLACE_DATABASE_URL}" \
+    && gunzip -c /tmp/session-place.mmdb.gz > /out/session-place.mmdb \
+    && rm /tmp/session-place.mmdb.gz; \
+  fi
+
 FROM node:${NODE_VERSION}-alpine AS runtime
 ARG PNPM_VERSION
 ARG INSTALL_MCP_OPTIONAL
@@ -137,6 +153,7 @@ LABEL org.opencontainers.image.revision="${BUILD_REVISION}"
 
 COPY --from=build /app/docs/routes.txt ./docs/routes.txt
 COPY --from=build /app/docs/openapi ./docs/openapi
+COPY --from=session-place /out/ ./data/
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||'3000')+'/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

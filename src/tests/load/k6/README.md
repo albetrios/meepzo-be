@@ -7,8 +7,8 @@ Load tests for the meepzo-be API. Keep this doc in sync with [docs/reference/tes
 - **Server**: `RATE_LIMIT_MAX=10000 pnpm dev` — raises the per-IP limit for load testing; plain `pnpm dev` 429s at high VU counts. The journeys that create webhooks (user-journey, fe-full-surface) also need `WEBHOOK_URL_ALLOWLIST=example.com`.
 - **Postgres + Redis**: Required for auth and organization-dependent scenarios (`docker compose up -d` or your own).
 - **Database**: one seed command prepares it (create, migrate, the database logins, the seed — `src/scripts/ops/db-prepare.ts`); choose the tier:
-  - Single-user scenarios (`api-stress`, `daily-ops`, etc.): `pnpm db:seed:full` (demo user `demo@example.com` / `DemoPassword123!`)
-  - Per-VU multi-user scenario (`user-journey`): `pnpm db:seed:loadtest` — seeds 12 organizations × 10 users with full domain data and writes `src/tests/load/k6/data/credential-pool.json` (gitignored; contains passwords)
+  - Single-user scenarios (`api-stress`, `daily-ops`, etc.): `pnpm db:seed:full` (demo user `demo@example.com`, signed in by email code — the API echoes the code under `TEST_MODE`; there are no passwords, P84)
+  - Per-VU multi-user scenario (`user-journey`): `pnpm db:seed:loadtest` — seeds 12 organizations × 10 users with full domain data and writes `src/tests/load/k6/data/credential-pool.json` (gitignored; the pool's emails — each VU signs in by email code)
 - **k6**: [Install k6](https://k6.io/docs/get-started/installation/).
 
 ## Organization scoping (flat routes)
@@ -16,7 +16,7 @@ Load tests for the meepzo-be API. Keep this doc in sync with [docs/reference/tes
 Org-scoped routes are flat — they carry **no** `/organizations/{organization_id}` path segment and **no** organization id header. The active organization rides the access token's signed `org` claim.
 
 - To run an organization-scoped scenario, `TEST_TOKEN` must be scoped to `TEST_ORG_ID`: either mint it already-scoped, or the scenario calls `switchToOrganization(token, TEST_ORG_ID)` for you (the tenancy/billing/permission/idempotency scenarios do this in-flow).
-- `helpers/auth.js` exposes the scoping helpers: `switchToOrganization(token, organizationPublicId)`, `switchToPersonal(token)`, and `loginScopedToOrganization(email, password, organizationPublicId)` (login + switch in one call). `authHeaders(token)` returns `Authorization` + `Content-Type` only — no organization header.
+- `helpers/auth.js` exposes the scoping helpers: `switchToOrganization(token, organizationPublicId)`, `switchToPersonal(token)`, and `loginScopedToOrganization(email, organizationPublicId)` (email-code sign-in + switch in one call). `authHeaders(token)` returns `Authorization` + `Content-Type` only — no organization header.
 
 ## Quick runs (no auth)
 
@@ -41,7 +41,7 @@ Org-scoped routes are flat — they carry **no** `/organizations/{organization_i
 | Health stress   | `scenarios/health-stress.js`   | (optional `BASE_URL`)                                    | `pnpm load:stress`                                |
 | Health breakpoint | `scenarios/health-breakpoint.js` | (optional `BASE_URL`)                                | `pnpm load:breakpoint`                            |
 | API stress      | `scenarios/api-stress.js`      | `TEST_TOKEN`, `TEST_ORG_ID`                              | `pnpm load:stress:api`                            |
-| Auth onboarding | `scenarios/auth-onboarding.js` | `DEMO_EMAIL`, `DEMO_PASSWORD` (required)          | `pnpm load:auth`                                  |
+| Auth onboarding | `scenarios/auth-onboarding.js` | `DEMO_EMAIL` (default `demo@example.com`); API with `TEST_MODE=true` (echoes the code) | `pnpm load:auth`                                  |
 | Passwordless signup | `scenarios/passwordless-signup.js` | API started with `TEST_MODE=true` (echoes the code); no creds — unique user per run | `pnpm load:signup`                |
 | Daily ops       | `scenarios/daily-ops.js`       | `TEST_TOKEN`, `TEST_ORG_ID`                              | `pnpm load:daily-ops`                             |
 | Billing         | `scenarios/billing.js`         | `TEST_TOKEN`, `TEST_ORG_ID` (optional for authed routes) | `pnpm load:billing`                               |
@@ -51,7 +51,7 @@ Org-scoped routes are flat — they carry **no** `/organizations/{organization_i
 | **User journey** | `scenarios/user-journey.js`  | credential pool (see below) + API started with `WEBHOOK_URL_ALLOWLIST=example.com` | `pnpm load:user-journey`                          |
 | **meepzo-fe journey** | `scenarios/fe-login-to-organization.js` | credential pool + API on `TEST_MODE=true` (logins present the echoed code) | `VUS=50 POOL=50 k6 run src/tests/load/k6/scenarios/fe-login-to-organization.js` — the full front-end journey, one pass per VU (VUs are users). Knobs: `VUS`, `POOL`, `AUTH` (`code`\|`otp`), `STAGGER`, `RESULT_TAG` |
 | **meepzo-fe full surface** | `scenarios/fe-full-surface.js` | credential pool + API on `TEST_MODE=true` (logins present the echoed code) and `WEBHOOK_URL_ALLOWLIST=example.com` | `VUS=20 k6 run src/tests/load/k6/scenarios/fe-full-surface.js` — every call meepzo-fe makes, one pass per VU, nightly. `STEP_UP=true` adds the step-up cluster; `SUBSCRIBE=true` (an API with no `STRIPE_SECRET_KEY`) subscribes each new organization to a plan with a second seat so the member steps run — see [Seats for the member steps](../../../../docs/reference/testing/load-testing.md#seats-for-the-member-steps) |
-| **Session journey** | `scenarios/session-refresh-journey.js` | `DEMO_EMAIL`, `DEMO_PASSWORD` (required) | `pnpm load:session-journey` — login → Bearer read → cookie+CSRF refresh → rotated-token read → logout → refresh 401 |
+| **Session journey** | `scenarios/session-refresh-journey.js` | `DEMO_EMAIL` (default `demo@example.com`); API with `TEST_MODE=true` (echoes the code) | `pnpm load:session-journey` — login → Bearer read → cookie+CSRF refresh → rotated-token read → logout → refresh 401 |
 | **Comprehensive journey** | `scenarios/comprehensive-journey.js` | none — `setup-loadtest.sh` seeds the pool and starts a cluster on `:3001` with its settings in the gitignored `data/loadtest-overrides.env` (your env files are never edited) | `pnpm load:journey` (setup + run), `pnpm load:journey:down`, `pnpm load:reset` (leaked journey rows + this namespace's rate-limit counters, local database only). `RARE=true` adds the once-per-VU flows, including the member invite chain in an organization of the VU's own (subscribed with no payment provider — the overrides blank `STRIPE_SECRET_KEY`). See [COMPREHENSIVE-JOURNEY.md](COMPREHENSIVE-JOURNEY.md) |
 | Login burst (rate limit) | `scenarios/login-burst-rate-limit.js` | none (dedicated non-existent identity; optional `BURST_EMAIL`) | `pnpm load:login-burst` — brute-force burst must yield only 401/429 and ≥1 429 proves a limiter engaged. Holds locally too: the per-IP failed-login throttle (50 failures / 15 min) is not relaxed by `RATE_LIMIT_RELAXED_CAPS`. Kept OUT of the nightly gate: that throttle then refuses every login from the IP for the rest of its window |
 

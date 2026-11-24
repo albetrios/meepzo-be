@@ -12,6 +12,9 @@ import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import enErrors from '@/shared/locales/en/errors.json' with { type: 'json' };
 import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { database } from '@/infrastructure/database/connection.js';
+import { sessions } from '@/domains/auth/sub-domains/auth-session/auth-session.schema.js';
 
 describe('Auth Session Sub-Domain — Integration', () => {
   let app: FastifyInstance;
@@ -75,6 +78,44 @@ describe('Auth Session Sub-Domain — Integration', () => {
       expect(other).toBeDefined();
       expect(other?.is_current).toBe(false);
       expect(body.data.filter((session) => session.is_current === true)).toHaveLength(1);
+    });
+  });
+
+  describe('GET /api/v1/auth/me/sessions — the place (AC-13.12, routes-final § 10.D AT18)', () => {
+    it("answers each session's city and country code, and null where none is known", async () => {
+      const user = await createTestUser();
+      const { token, sessionPublicId } = await generateTestTokenAndSession({
+        userId: user.public_id,
+      });
+      const { sessionPublicId: placedSessionPublicId } = await generateTestTokenAndSession({
+        userId: user.public_id,
+      });
+      const { sessionPublicId: countryOnlySessionPublicId } = await generateTestTokenAndSession({
+        userId: user.public_id,
+      });
+      await database
+        .update(sessions)
+        .set({ place_city: 'Mumbai', place_country: 'IN' })
+        .where(eq(sessions.public_id, placedSessionPublicId));
+      await database
+        .update(sessions)
+        .set({ place_country: 'DE' })
+        .where(eq(sessions.public_id, countryOnlySessionPublicId));
+
+      const response = await injectAuthenticated(app, {
+        method: 'GET',
+        url: testApiPath('/auth/me/sessions'),
+        token,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { data: Array<{ id: string; place: unknown }> };
+      const placeOf = (id: string) => body.data.find((session) => session.id === id)?.place;
+      expect(placeOf(placedSessionPublicId)).toEqual({ city: 'Mumbai', country_code: 'IN' });
+      expect(placeOf(countryOnlySessionPublicId)).toEqual({ city: null, country_code: 'DE' });
+      // The harness configures no place file: a session signed in here has no place, and the
+      // list still answers (nothing fails without the file).
+      expect(placeOf(sessionPublicId)).toBeNull();
     });
   });
 
@@ -197,7 +238,7 @@ describe('Auth Session Sub-Domain — Integration', () => {
       );
     });
 
-    it('allows DELETE /me/sessions with a strong (password) step-up', async () => {
+    it('allows DELETE /me/sessions with a strong (2FA) step-up', async () => {
       const user = await createTestUser();
       const { token, sessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,

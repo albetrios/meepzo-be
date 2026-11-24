@@ -409,7 +409,7 @@ sequenceDiagram
   participant Service as ChannelConnectionService
   participant Redis as Redis (one-use login state)
   participant Meta as meta-graph.client / meta-login (graph.facebook.com)
-  participant Accounts as ChannelConnectionAccountPort (InstagramAccountConnectionService until R5)
+  participant Accounts as ChannelConnectionAccountPort (ChannelAccountService, R5)
   participant DB as Postgres (organization scope)
 
   Client->>Gate: POST /app/social/channel-connections/meta/start

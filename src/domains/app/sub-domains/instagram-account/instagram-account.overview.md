@@ -6,15 +6,14 @@ Parent: [app](../../app.overview.md)
 
 ## Purpose
 
-The team organization's connected Instagram professional accounts: read one (route 2,
-`GET /api/v1/app/social/instagram/account` — the oldest connected until ROUTE row R5 of
-`iterations/feat-instagram-dm-sending-2026-11-23-oxak/` names the account in the path) and disconnect
-it (route 4, `DELETE /api/v1/app/social/instagram/account`). Accounts come in through a channel
-connection's pick (`../channel-connection/`, feat-instagram-dm-sending R3 — the launch's connect
-route 1 and its Instagram Login are gone, RC-6): each account names the connection it came
-through (`channel_connection_id`, P111) and the token is that connection's
-(`app.channel_connection_tokens`). `InstagramAccountConnectionService` is the connection's account
-port over this table until R5 builds `app.channel_accounts`. The later sub-domains read the
+The Instagram part of the team organization's connected accounts. Since ROUTE row R5 of
+`iterations/feat-instagram-dm-sending-2026-11-23-oxak/` every row extends one channel account
+(`../channel-account/`, `app.channel_accounts`, 1:1 through `channel_account_id`): the account's routes
+(read, disconnect — the launch's `GET` / `DELETE /api/v1/app/social/instagram/account`) moved there as
+routes 7 and 8, and the connection the account came through is the channel account's (P111, P116); the
+token is that connection's (`app.channel_connection_tokens`). Until ROUTE row R6 reshapes this table into
+the 1:1 extension (2.A), it keeps a mirrored copy of the status, public id and connection columns, which
+its revoke and guarded break write together with the channel account's (P116). The later sub-domains read the
 account through this sub-domain's services: its status and settings on every webhook event, the
 guarded status change on a token error, and the two resolvers that find an organization before
 one is known.
@@ -37,10 +36,6 @@ data-deletion callbacks, routes 7–8, R6).
   change, revoke, the profile erase (once), the locked accounts of one app-scoped id (Meta's
   callbacks) and of the whole organization (its delete), the webhook-subscription stamp, the daily check's sweep page, expiry copy and profile refresh, the
   two SECURITY DEFINER resolvers; worker and retention factories
-- `instagram-account-connection.service.ts` — the channel connection's account port
-  (`ChannelConnectionAccountPort`): the accounts of a connection, the plan's count, the reconnect
-  (attach and `connected`), the pick's write with default settings, the revoke of "Disconnect
-  business", the subscribe / unsubscribe steps (P111; replaced at R5)
 - `instagram-account.constants.ts` — the four connection statuses, the live-row unique index a pick
   race maps to 409, the audit resource type (shared with route 3), the frontend's Instagram page
 - `queues/` — `instagram-account-daily-check` (one check per account per UTC day, and the sweep's
@@ -49,8 +44,8 @@ data-deletion callbacks, routes 7–8, R6).
 - `workers/` — the daily check (`createProviderPausableWorker`, provider `instagram`; the 04:00 UTC
   sweep rides the same queue) and the reconnect notice; registered in
   `worker-registration.registry.ts`, the sweep in `scheduler.ts`
-- `instagram-account.service.ts` / `.controller.ts` / `.routes.ts` / `.dto.ts` / `.validator.ts` /
-  `.serializer.ts` / `.types.ts` — routes 1, 2 and 4 (connect, read, disconnect), the guarded
+- `instagram-account.service.ts` / `.validator.ts` / `.types.ts` — no route of its own since R5 (the
+  channel account serves routes 7 and 8): the webhook subscribe / unsubscribe steps, the guarded
   `markConnectionBroken`, and for Meta's callbacks the resolver pass-through and
   `disconnectForMeta` (revoke, token and — on a data deletion — profile erase, in the caller's
   verified scope), for the organization's delete the best-effort unsubscribe and

@@ -310,8 +310,16 @@ describe('app tables: updated_at when the row was created after this transaction
 
     async function readChannelConnectionId(instagramAccountId: number): Promise<number> {
       const rows = await operatorQuery<Array<{ channel_connection_id: string }>>`
-        SELECT channel_connection_id FROM app.instagram_accounts WHERE id = ${instagramAccountId}`;
+        SELECT c.channel_connection_id FROM app.instagram_accounts AS a
+        INNER JOIN app.channel_accounts AS c ON c.id = a.channel_account_id
+        WHERE a.id = ${instagramAccountId}`;
       return Number(rows[0]?.channel_connection_id);
+    }
+
+    async function readChannelAccountId(instagramAccountId: number): Promise<number> {
+      const rows = await operatorQuery<Array<{ channel_account_id: string }>>`
+        SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${instagramAccountId}`;
+      return Number(rows[0]?.channel_account_id);
     }
 
     async function readInstagramUserId(instagramAccountId: number): Promise<string> {
@@ -325,6 +333,7 @@ describe('app tables: updated_at when the row was created after this transaction
         insert: insertNew,
         change: async (key) =>
           accountRepository.upsertConnected({
+            channelAccountId: await readChannelAccountId(key.instagramAccountId),
             organizationId: organization.id,
             channelConnectionId: await readChannelConnectionId(key.instagramAccountId),
             instagramUserId: await readInstagramUserId(key.instagramAccountId),

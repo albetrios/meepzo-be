@@ -52,15 +52,37 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: null,
     example: null,
   },
-  // ── Instagram account ──
-  'GET /api/v1/app/social/instagram/account': {
+  // ── Channel account (feat-instagram-dm-sending § 1B) ──
+  'GET /api/v1/app/social/channel-accounts': {
     statusCode: 200,
-    schema: wrapSuccess(schemas.instagramAccountSchema, schemas.instagramAccountExample),
+    schema: wrapSuccess({ type: 'array', items: schemas.channelAccountSummarySchema }, [
+      schemas.channelAccountSummaryExample,
+    ]),
     example: null,
   },
-  'DELETE /api/v1/app/social/instagram/account': {
+  'GET /api/v1/app/social/channel-accounts/{channel_account_id}': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelAccountSchema, schemas.channelAccountExample),
+    example: null,
+  },
+  'DELETE /api/v1/app/social/channel-accounts/{channel_account_id}': {
     statusCode: 204,
     schema: null,
+    example: null,
+  },
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/pause': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelAccountSchema, schemas.channelAccountExample),
+    example: null,
+  },
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/resume': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelAccountSchema, schemas.channelAccountExample),
+    example: null,
+  },
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/activate': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelAccountSchema, schemas.channelAccountExample),
     example: null,
   },
   // ── Instagram account settings ──

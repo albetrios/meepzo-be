@@ -1,3 +1,4 @@
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { Queue } from 'bullmq';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -117,6 +118,13 @@ describe('Instagram account daily check (IA8)', () => {
       scope: scopeOf(organization.public_id),
       callback: async () => {
         const { account } = await accountRepository.upsertConnected({
+          channelAccountId: (
+            await insertChannelAccount({
+              organizationId: organization.id,
+              providerAccountId: profile.user_id,
+              channelConnectionId: connection.id,
+            })
+          ).id,
           organizationId: organization.id,
           channelConnectionId: connection.id,
           instagramUserId: profile.user_id,

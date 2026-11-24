@@ -17,6 +17,7 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import { ChannelConnectionTokenRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.repository.js';
 import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { INSTAGRAM_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 
 /**
@@ -33,12 +34,21 @@ type TestOrganization = { id: number; public_id: string };
 /** Each test organization's channel connection (P111: every account names one). */
 const channelConnectionIds = new Map<number, number>();
 
+/**
+ * Each test organization's channel account per Instagram user id (R5: every Instagram row extends
+ * one). Inserted `revoked`, so the channel account's live index never decides these repository
+ * tests — the Instagram row's own indexes do.
+ */
+const channelAccountIds = new Map<string, number>();
+
 function connectValues(
   organization: TestOrganization,
   overrides: Partial<InstagramAccountConnectValues> = {},
 ): InstagramAccountConnectValues {
+  const instagramUserId = overrides.instagramUserId ?? INSTAGRAM_USER_ID;
   return {
     organizationId: organization.id,
+    channelAccountId: channelAccountIds.get(`${organization.id}:${instagramUserId}`) as number,
     channelConnectionId: channelConnectionIds.get(organization.id) as number,
     instagramUserId: INSTAGRAM_USER_ID,
     instagramAppUserId: `9${INSTAGRAM_USER_ID}`,
@@ -88,6 +98,19 @@ describe('InstagramAccountRepository (database)', () => {
     for (const each of [organization, otherOrganization]) {
       const connection = await insertChannelConnection({ organizationId: each.id });
       channelConnectionIds.set(each.id, connection.id);
+      for (const instagramUserId of [
+        INSTAGRAM_USER_ID,
+        OTHER_INSTAGRAM_USER_ID,
+        '17841400000000003',
+      ]) {
+        const channelAccount = await insertChannelAccount({
+          organizationId: each.id,
+          providerAccountId: instagramUserId,
+          channelConnectionId: connection.id,
+          connectionStatus: 'revoked',
+        });
+        channelAccountIds.set(`${each.id}:${instagramUserId}`, channelAccount.id);
+      }
     }
   });
 
@@ -188,7 +211,7 @@ describe('InstagramAccountRepository (database)', () => {
     ).resolves.toBe(2);
   });
 
-  it('attaches a not-revoked account to another connection and leaves a revoked one (MC6)', async () => {
+  it('marks a not-revoked account connected again and leaves a revoked one (MC6)', async () => {
     const { account } = await inOrganization(organization, () =>
       repository.upsertConnected(connectValues(organization)),
     );
@@ -199,16 +222,11 @@ describe('InstagramAccountRepository (database)', () => {
         connectionStatus: 'error',
       }),
     );
-    const moved = await insertChannelConnection({ organizationId: organization.id });
-    const attached = await inOrganization(organization, () =>
-      repository.attachToConnection({
-        organizationId: organization.id,
-        instagramAccountId: account.id,
-        channelConnectionId: moved.id,
-      }),
+    const marked = await inOrganization(organization, () =>
+      repository.markConnected({ organizationId: organization.id, instagramAccountId: account.id }),
     );
-    expect(attached).toMatchObject({
-      channel_connection_id: moved.id,
+    expect(marked).toMatchObject({
+      channel_connection_id: channelConnectionIds.get(organization.id),
       connection_status: 'connected',
     });
     await inOrganization(organization, () =>
@@ -216,10 +234,9 @@ describe('InstagramAccountRepository (database)', () => {
     );
     await expect(
       inOrganization(organization, () =>
-        repository.attachToConnection({
+        repository.markConnected({
           organizationId: organization.id,
           instagramAccountId: account.id,
-          channelConnectionId: moved.id,
         }),
       ),
     ).resolves.toBeNull();

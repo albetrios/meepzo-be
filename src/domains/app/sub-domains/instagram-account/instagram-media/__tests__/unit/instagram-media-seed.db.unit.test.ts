@@ -17,10 +17,12 @@ import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { instagramAccountSeedContribution as accountOnlySeedContribution } from '@/domains/app/sub-domains/instagram-account/seed/index.js';
 import { channelConnectionSeedContribution } from '@/domains/app/sub-domains/channel-connection/seed/index.js';
+import { channelAccountSeedContribution } from '@/domains/app/sub-domains/channel-account/seed/index.js';
 
 /** The connection seed first — every account comes in through one (feat-instagram-dm-sending R3). */
 const instagramAccountSeedContribution = composeContributions(
   channelConnectionSeedContribution,
+  channelAccountSeedContribution,
   accountOnlySeedContribution,
 );
 

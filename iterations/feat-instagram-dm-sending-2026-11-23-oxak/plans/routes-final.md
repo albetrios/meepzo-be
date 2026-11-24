@@ -886,6 +886,15 @@ holds most lanes, or null — the banners read sub-domain 6's sending status, RC
 | CAC5 | CAQ1: the pick writes `provider_account_id` and the extension's `instagram_user_id` in one commit; a DB test that the two stay equal and that a second live row of one account in another organization is refused |
 | CAC6 | CA11, CAQ2: `channel-account-capabilities.constants.ts` (`CHANNEL_CAPABILITIES`, `CHANNEL_FEATURES`, checked by `validate:constants`); `canChannelAccountUseFeature` and `listChannelAccountFeatureProblems` in the channel-account service, exposed to 2, 4, 6 and 7 through `app.container.ts`; reasons `channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature` (renamed from `plan_feature_required`), `feature_not_offered` with their `errors:` keys and `response-codes.md` rows; unit tests — each reason alone, the order when several fail, a channel without the entry, a connection without the scope, Free vs Creator on each PRO switch (P83), segments refused on Free (P76), an untested feature |
 
+**As built at ROUTE row R5** ([P116–P119](decisions.md)): `app.channel_accounts` as 1B.3, plus the unique
+`idx_channel_accounts_organization_provider_account` `(organization_id, channel, provider_account_id)` (the pick's upsert
+target, AC-2.5) and `chk_channel_accounts_display_name`; `app.instagram_accounts` gains `channel_account_id` and loses
+`channel_connection_id`, and keeps a mirrored copy of the moved columns until R6 (2.A IAC6). The feature check is
+`canChannelAccountUseFeature({ scope, organizationId, channelAccountId, feature })`; `CHANNEL_FEATURES` = billing's
+`PLAN_FEATURE_KEYS`, `APP_UNTESTED_META_FEATURES` = `mark_seen` (in the capabilities file until R18). The lane steps of
+routes 8–11 and the plan stop an activated account takes are behind `ChannelAccountLanePort` (R18) and
+`ChannelAccountPlanStopPort` (R18, R24). Audit metadata carries `old_value` / `new_value` (AC-2.11).
+
 ### 1B.12 Nested sub-domains
 
 None — one table, no persistence parts.

@@ -129,6 +129,33 @@ src/
     │   │   │   ├── automation.service.ts
     │   │   │   ├── automation.types.ts
     │   │   │   └── automation.validator.ts
+    │   │   ├── channel-account/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── channel-account.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── channel-account.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts
+    │   │   │   │   │   ├── channel-account-feature-check.service.unit.test.ts
+    │   │   │   │   │   ├── channel-account.serializer.unit.test.ts
+    │   │   │   │   │   └── channel-account.validator.unit.test.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── channel-account.bulk.seed.ts
+    │   │   │   │   └── index.ts
+    │   │   │   ├── channel-account-capabilities.constants.ts
+    │   │   │   ├── channel-account-error.util.ts
+    │   │   │   ├── channel-account.constants.ts
+    │   │   │   ├── channel-account.controller.ts
+    │   │   │   ├── channel-account.dto.ts
+    │   │   │   ├── channel-account.overview.md
+    │   │   │   ├── channel-account.repository.ts
+    │   │   │   ├── channel-account.routes.ts
+    │   │   │   ├── channel-account.schema.ts
+    │   │   │   ├── channel-account.serializer.ts
+    │   │   │   ├── channel-account.service.ts
+    │   │   │   ├── channel-account.types.ts
+    │   │   │   └── channel-account.validator.ts
     │   │   ├── channel-connection/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
@@ -225,9 +252,7 @@ src/
     │   │   │   │   │   ├── instagram-account-queues.unit.test.ts
     │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account-webhook-processing.service.db.unit.test.ts
-    │   │   │   │   │   ├── instagram-account.controller.unit.test.ts
     │   │   │   │   │   ├── instagram-account.repository.db.unit.test.ts
-    │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-account.service.unit.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
     │   │   │   ├── instagram-account-meta-callback/
@@ -316,17 +341,12 @@ src/
     │   │   │   │   ├── instagram-account-daily-check.worker.ts
     │   │   │   │   ├── instagram-reconnect-notice.processor.ts
     │   │   │   │   └── instagram-reconnect-notice.worker.ts
-    │   │   │   ├── instagram-account-connection.service.ts
     │   │   │   ├── instagram-account-erasure.service.ts
     │   │   │   ├── instagram-account-error.util.ts
     │   │   │   ├── instagram-account.constants.ts
-    │   │   │   ├── instagram-account.controller.ts
-    │   │   │   ├── instagram-account.dto.ts
     │   │   │   ├── instagram-account.overview.md
     │   │   │   ├── instagram-account.repository.ts
-    │   │   │   ├── instagram-account.routes.ts
     │   │   │   ├── instagram-account.schema.ts
-    │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
     │   │   │   └── instagram-account.types.ts
     │   │   └── instagram-webhook/

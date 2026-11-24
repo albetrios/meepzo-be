@@ -26,6 +26,7 @@ import { mfa_recovery_codes } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa
 import { mfa_methods } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-method.schema.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
 import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { channel_connection_usages } from '@/domains/app/sub-domains/channel-connection/channel-connection-usage.schema.js';
@@ -541,6 +542,7 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   const channelConnectionIds = { organizationA: 0, organizationB: 0 };
   const channelConnectionTokenIds = { organizationA: 0, organizationB: 0 };
   const channelConnectionUsageIds = { organizationA: 0, organizationB: 0 };
+  const channelAccountIds = { organizationA: 0, organizationB: 0 };
   const instagramAccountIds = { organizationA: 0, organizationB: 0 };
   const instagramSettingsIds = { organizationA: 0, organizationB: 0 };
   const instagramMediaIds = { organizationA: 0, organizationB: 0 };
@@ -578,12 +580,23 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
         read_at: new Date(),
       })
       .returning();
+    // The channel account (R5) the Instagram account extends, 1:1.
+    const [channelAccount] = await database
+      .insert(channel_accounts)
+      .values({
+        public_id: generatePublicId('channelAccount'),
+        organization_id: organization.id,
+        channel_connection_id: connection!.id,
+        provider_account_id: instagramUserId,
+        display_name: `@rls_${side.toLowerCase()}`,
+      })
+      .returning();
     const [account] = await database
       .insert(instagram_accounts)
       .values({
         public_id: generatePublicId('instagramAccount'),
         organization_id: organization.id,
-        channel_connection_id: connection!.id,
+        channel_account_id: channelAccount!.id,
         instagram_user_id: instagramUserId,
         instagram_app_user_id: `9${instagramUserId}`,
         username: `rls_${side.toLowerCase()}`,
@@ -620,11 +633,16 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     channelConnectionIds[side] = connection!.id;
     channelConnectionTokenIds[side] = token!.id;
     channelConnectionUsageIds[side] = usage!.id;
+    channelAccountIds[side] = channelAccount!.id;
     instagramAccountIds[side] = account!.id;
     instagramSettingsIds[side] = settings!.id;
     instagramMediaIds[side] = media!.id;
     instagramWebhookEventIds[side] = webhookEvent!.id;
   }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'channel_accounts' }),
+    channelAccountIds,
+  );
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_accounts' }),
     instagramAccountIds,

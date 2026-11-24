@@ -12,6 +12,7 @@ TableGroup app {
   app.automation_run_events
   app.automation_runs
   app.automations
+  app.channel_accounts
   app.channel_connection_tokens
   app.channel_connection_usages
   app.channel_connections
@@ -223,6 +224,33 @@ Note app.automations {
   'RLS: enabled\nPolicies: automations_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
+Table app.channel_accounts {
+  AND 
+  channel varchar(20) [not null]
+  channel_connection_id bigint [not null]
+  connected_at timestamptz [not null]
+  connected_by_user_id bigint
+  connection_status varchar(20) [not null]
+  created_at timestamptz [not null]
+  disconnected_at timestamptz
+  display_name varchar(100) [not null]
+  id bigint [pk, increment]
+  is_automation_enabled boolean [not null]
+  organization_id bigint [not null]
+  paused_at timestamptz
+  paused_by_user_id bigint
+  plan_stop_reason varchar(14)
+  plan_stopped_at timestamptz
+  provider_account_id varchar(64) [not null]
+  public_id varchar(28) [not null]
+  suspended_at timestamptz
+  updated_at timestamptz [not null]
+}
+
+Note app.channel_accounts {
+  'RLS: enabled\nPolicies: channel_accounts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
 Table app.channel_connection_tokens {
   channel_connection_id bigint [not null]
   created_at timestamptz [not null]
@@ -333,7 +361,7 @@ Note app.instagram_account_settings {
 
 Table app.instagram_accounts {
   biography text
-  channel_connection_id bigint [not null]
+  channel_account_id bigint [not null]
   connected_at timestamptz [not null]
   connected_by_user_id bigint
   connection_status varchar(20) [not null]

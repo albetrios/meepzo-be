@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -21,7 +22,6 @@ import {
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   TEST_INSTAGRAM_LONG_LIVED_TOKEN,
   buildInstagramProfile,
   createInstagramTeam,
@@ -324,7 +324,7 @@ describe('Instagram media routes (post and story pickers)', () => {
       mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
       const disconnected = await injectAuthenticated(app, {
         method: 'DELETE',
-        url: INSTAGRAM_ACCOUNT_PATH,
+        url: await organizationChannelAccountPath(team.organization.id),
         token: team.ownerToken,
       });
       expect(disconnected.statusCode).toBe(204);
@@ -370,12 +370,13 @@ describe('Instagram media routes (post and story pickers)', () => {
 
       // The account page now shows the reconnect card (IA13).
       const account = await injectAuthenticated(app, {
-        url: INSTAGRAM_ACCOUNT_PATH,
+        url: await organizationChannelAccountPath(team.organization.id),
         token: team.ownerToken,
       });
+      // The channel account has no `expired`: the connection's token never ends (CA4).
       expect(
         (account.json() as { data: { connection_status: string } }).data.connection_status,
-      ).toBe('expired');
+      ).toBe('error');
     });
 
     it('marks the account error on any other refused token', async () => {

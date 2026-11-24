@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -35,7 +36,6 @@ import {
   processInstagramWebhookAccountJob,
 } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
@@ -359,7 +359,10 @@ export class InstagramCommentFlow {
   /** Disconnects the team's account (route 4). */
   async disconnectAccount(): Promise<void> {
     mockInstagramUnsubscribe({ instagramAppUserId: this.account.instagramAppUserId });
-    const response = await this.request({ method: 'DELETE', url: INSTAGRAM_ACCOUNT_PATH });
+    const response = await this.request({
+      method: 'DELETE',
+      url: await organizationChannelAccountPath(this.team.organization.id),
+    });
     expect(response.statusCode, response.body).toBe(204);
     this.connectedAccount = null;
   }

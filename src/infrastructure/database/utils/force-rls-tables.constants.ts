@@ -21,6 +21,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'automation_run_events' },
   { schemaName: 'app', tableName: 'automation_runs' },
   { schemaName: 'app', tableName: 'automations' },
+  { schemaName: 'app', tableName: 'channel_accounts' },
   { schemaName: 'app', tableName: 'channel_connection_tokens' },
   { schemaName: 'app', tableName: 'channel_connection_usages' },
   { schemaName: 'app', tableName: 'channel_connections' },

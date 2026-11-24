@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -11,7 +12,6 @@ import {
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   createInstagramTeam,
   readStagedAuditRows,
   type InstagramTeamFixture,
@@ -320,7 +320,7 @@ describe('Automation runs through the routes', () => {
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',
-        url: INSTAGRAM_ACCOUNT_PATH,
+        url: await organizationChannelAccountPath(team.organization.id),
         token: team.ownerToken,
       });
 

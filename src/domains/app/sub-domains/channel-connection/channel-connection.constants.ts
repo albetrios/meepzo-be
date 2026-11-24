@@ -54,8 +54,5 @@ export const CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN = 1;
 /** Audit `resource_type` of the connection's entries (MC12). */
 export const CHANNEL_CONNECTION_AUDIT_RESOURCE_TYPE = 'channel_connection';
 
-/** Audit `resource_type` of a picked account's entry (`app.channel_account.connect`, MC12). */
-export const CHANNEL_ACCOUNT_AUDIT_RESOURCE_TYPE = 'channel_account';
-
 /** The idempotency-key prefix the frontend sends on the callback (`channel-connect:<state>`). */
 export const CHANNEL_CONNECT_IDEMPOTENCY_KEY_PREFIX = 'channel-connect:';

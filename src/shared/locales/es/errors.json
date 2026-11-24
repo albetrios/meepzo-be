@@ -213,6 +213,12 @@
   "channelConnectionBusinessMismatch": "Iniciaste sesión en un negocio distinto del que estás reconectando. No cambió nada.",
   "channelConnectionNotConnected": "Esta conexión de negocio necesita reconectarse antes de que puedas añadir cuentas.",
   "planAccountLimit": "Tu plan no tiene espacio para estas cuentas. Elige menos cuentas o mejora tu plan.",
+  "channelAccountAlreadyActive": "Esta cuenta ya está activa.",
+  "stopChannelAccountInvalid": "Elige otra cuenta activa de este espacio de trabajo para detenerla.",
+  "channelLacksFeature": "Este canal no puede usar esta función.",
+  "permissionNotGranted": "Esta conexión no ha permitido lo que necesita esta función. Vuelve a conectarla y permite todos los permisos.",
+  "planLacksFeature": "Tu plan no incluye esta función. Mejora tu plan para usarla.",
+  "featureNotOffered": "Esta función todavía no está disponible.",
   "instagramNotConfigured": "Instagram no está configurado",
   "instagramUnavailable": "Instagram no está disponible temporalmente. Vuelve a intentarlo más tarde.",
   "instagramAccountConnectedElsewhere": "Esta cuenta de Instagram está conectada a otra organización. Desconéctala allí primero.",
@@ -280,7 +286,8 @@
     "Instagram account": "la cuenta de Instagram",
     "Contact": "el contacto",
     "Automation": "Automatización",
-    "Channel connection": "Conexión de canal"
+    "Channel connection": "Conexión de canal",
+    "Channel account": "Cuenta de canal"
   },
   "emailCodeWrong": "Ese código no es correcto. Revisa el último correo que enviamos e inténtalo de nuevo.",
   "emailCodeExpired": "Ese código ha caducado. Pide un código nuevo.",

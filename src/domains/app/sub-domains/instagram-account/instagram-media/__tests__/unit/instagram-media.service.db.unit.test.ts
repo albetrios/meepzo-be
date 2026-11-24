@@ -1,3 +1,4 @@
+import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -67,10 +68,16 @@ describe('InstagramMediaService stored posts (database)', () => {
     scope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organization.public_id });
     otherScope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: otherOrganization.public_id });
     const channelConnection = await insertChannelConnection({ organizationId: organization.id });
+    const channelAccount = await insertChannelAccount({
+      organizationId: organization.id,
+      providerAccountId: '17841400000000001',
+      channelConnectionId: channelConnection.id,
+    });
     const { account } = await withAppDatabaseContext({
       scope,
       callback: () =>
         new InstagramAccountRepository().upsertConnected({
+          channelAccountId: channelAccount.id,
           organizationId: organization.id,
           instagramUserId: '17841400000000001',
           instagramAppUserId: '917841400000000001',

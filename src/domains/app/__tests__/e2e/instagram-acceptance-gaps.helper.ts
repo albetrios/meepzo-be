@@ -1,3 +1,4 @@
+import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { randomUUID } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -21,7 +22,6 @@ import {
   metaSignedRequestPayload,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/__tests__/factories/instagram-account-meta-callback.factory.js';
 import {
-  INSTAGRAM_ACCOUNT_PATH,
   buildInstagramProfile,
   connectInstagramAccount,
   readInstagramAccountRows,
@@ -42,7 +42,7 @@ export async function disconnectOverRoute({ app, flow }: FlowOfApp): Promise<voi
   mockInstagramUnsubscribe({ instagramAppUserId: flow.account.instagramAppUserId });
   const response = await injectAuthenticated(app, {
     method: 'DELETE',
-    url: INSTAGRAM_ACCOUNT_PATH,
+    url: await organizationChannelAccountPath(flow.team.organization.id),
     token: flow.team.ownerToken,
   });
   expect(response.statusCode, response.body).toBe(204);
@@ -79,9 +79,12 @@ export async function reconnectSameAccount({ app, flow }: FlowOfApp): Promise<{
     token: flow.team.ownerToken,
     profile: buildInstagramProfile({ user_id: instagramUserId, id: instagramAppUserId, username }),
   });
+  // The Instagram row's own public id (route 7 answers the channel account's `cha_` id since R5).
+  const after = await readInstagramAccountRows(flow.team.organization.id);
+  const row = after.find((candidate) => candidate.instagram_user_id === instagramUserId);
   return {
-    is_new_connection: !before.some((row) => row.instagram_user_id === instagramUserId),
-    instagram_account: { id: account.id, connection_status: account.connection_status },
+    is_new_connection: !before.some((candidate) => candidate.instagram_user_id === instagramUserId),
+    instagram_account: { id: row?.public_id ?? '', connection_status: account.connection_status },
   };
 }
 

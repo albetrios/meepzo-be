@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { channelConnectionRoutes } from './sub-domains/channel-connection/channel-connection.routes.js';
-import { instagramAccountRoutes } from './sub-domains/instagram-account/instagram-account.routes.js';
+import { channelAccountRoutes } from './sub-domains/channel-account/channel-account.routes.js';
 import { instagramAccountSettingsRoutes } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.routes.js';
 import { instagramMediaRoutes } from './sub-domains/instagram-account/instagram-media/instagram-media.routes.js';
 import { instagramAccountMetaCallbackRoutes } from './sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.routes.js';
@@ -13,7 +13,8 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
  * Top-level app domain plugin, mounted by `src/routes.ts` under `/api/v1/app`. It registers the
  * sub-domain route trees, each reading its services from `app.appDomain`: the channel connection
  * (`/social/channel-connections/…` — start, callback, reconnect, pick, list, one, disconnect
- * business), the Instagram account (`/social/instagram/account`), its nested settings
+ * business), the channel account (`/social/channel-accounts/…` — list, one, disconnect, pause,
+ * resume, choose active accounts), the Instagram account's settings
  * (`/social/instagram/account/settings`), its post and story pickers
  * (`/social/instagram/media`, `/social/instagram/stories`) and Meta's two PUBLIC callbacks
  * (`/social/instagram/deauthorize`, `/social/instagram/data-deletion` — form-encoded, in their own
@@ -28,7 +29,7 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
 export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
   const { appDomain } = app;
   await app.register(channelConnectionRoutes(appDomain.channelConnectionService));
-  await app.register(instagramAccountRoutes(appDomain.instagramAccountService));
+  await app.register(channelAccountRoutes(appDomain.channelAccountService));
   await app.register(instagramAccountSettingsRoutes(appDomain.instagramAccountSettingsService));
   await app.register(instagramMediaRoutes(appDomain.instagramMediaService));
   await app.register(

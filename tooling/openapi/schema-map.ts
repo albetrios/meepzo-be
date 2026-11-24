@@ -27,6 +27,10 @@ import {
   AdminUpdateUserDto,
   UploadAvatarDto,
 } from '@/domains/user/user.dto.js';
+import {
+  activateChannelAccountDto,
+  emptyChannelAccountBodyDto,
+} from '@/domains/app/sub-domains/channel-account/channel-account.dto.js';
 import { UpdateUserSettingsDto } from '@/domains/user/sub-domains/user-settings/user-settings.dto.js';
 import { PutNotificationPreferencesDto } from '@/domains/user/sub-domains/user-notification-preferences/user-notification-preferences.dto.js';
 import { exportUserDataBodyDto } from '@/domains/user/sub-domains/user-data-export/user-data-export.dto.js';
@@ -190,6 +194,12 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/app/social/channel-connections/{provider}/callback': channelConnectCallbackDto,
   'POST /api/v1/app/social/channel-connections/{channel_connection_id}/accounts':
     channelAccountPickDto,
+  // ── App: channel account ──
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/pause': emptyChannelAccountBodyDto,
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/resume':
+    emptyChannelAccountBodyDto,
+  'POST /api/v1/app/social/channel-accounts/{channel_account_id}/activate':
+    activateChannelAccountDto,
   // ── App: Instagram account ──
   'PATCH /api/v1/app/social/instagram/account/settings': UpdateInstagramAccountSettingsDto,
   // Meta's callbacks (routes 7–8): form-encoded, not JSON — see FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.

@@ -33,6 +33,7 @@ import {
   isPostgresUniqueViolation,
 } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { INSTAGRAM_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
+import { CHANNEL_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import {
   CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN,
   CHANNEL_CONNECTION_STATUS,
@@ -163,7 +164,8 @@ async function readWithinTime<TResult>({
 function toPickRaceError(error: unknown): unknown {
   if (
     isPostgresUniqueViolation(error) &&
-    getPostgresConstraintName(error) === INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.instagramUserLive
+    (getPostgresConstraintName(error) === CHANNEL_ACCOUNT_UNIQUE_INDEXES.providerAccountLive ||
+      getPostgresConstraintName(error) === INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.instagramUserLive)
   ) {
     return channelAccountConnectedElsewhereError();
   }

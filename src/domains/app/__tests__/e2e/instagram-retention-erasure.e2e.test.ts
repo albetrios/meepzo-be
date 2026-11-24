@@ -940,6 +940,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       const { waitingRun } = await writeHistory({ app, team, person: JORDAN, automations });
       const {
         instagram_accounts: _account,
+        channel_accounts: _channelAccounts,
         channel_connections: _connections,
         channel_connection_tokens: tokensBefore,
         instagram_media: postsBefore,
@@ -954,6 +955,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       const after = await readAppRowsOfOrganization(team.organization.id);
       const {
         instagram_accounts: accounts,
+        channel_accounts: channelAccounts,
         channel_connections: connections,
         channel_connection_tokens: tokens,
         instagram_media: posts,
@@ -962,6 +964,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(accounts).toEqual([
         expect.objectContaining({ connection_status: 'revoked', username: null, name: null }),
       ]);
+      // The channel account is revoked with its Instagram row (P116).
+      expect(channelAccounts).toEqual([expect.objectContaining({ connection_status: 'revoked' })]);
       // The connection's last account went, so the connection is revoked with its token (CA8).
       expect(connections).toEqual([expect.objectContaining({ status: 'revoked' })]);
       expect(tokens).toEqual([]);

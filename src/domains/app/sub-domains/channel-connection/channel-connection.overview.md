@@ -42,8 +42,8 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
 - `channel-connection-token.service.ts` — store, read and, with the connection, revoke the token (CA8: the account
   service revokes a connection with its last account).
 - `channel-connection.service.ts` — the routes' service. The accounts are reached through
-  `ChannelConnectionAccountPort` (`channel-connection.types.ts`) — the launch's `app.instagram_accounts` through
-  `InstagramAccountConnectionService` until ROUTE row R5 builds `app.channel_accounts` (P111); the lane steps through
+  `ChannelConnectionAccountPort` (`channel-connection.types.ts`) — implemented by the channel account service over
+  `app.channel_accounts` and its Instagram extension since ROUTE row R5 (P111, P116); the lane steps through
   `ChannelConnectionLanePort` (R18) and a trial pick through `ChannelConnectionTrialPort` (R24), both not wired yet.
 - `channel-connection.{controller,routes,dto,validator,serializer,constants,types}.ts`,
   `channel-connection-error.util.ts` — the route layer and its reasons (`provider_code_invalid`,

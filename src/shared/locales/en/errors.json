@@ -213,6 +213,12 @@
   "channelConnectionBusinessMismatch": "You logged in to a different business than the one you are reconnecting. Nothing changed.",
   "channelConnectionNotConnected": "This business connection needs a reconnect before you can add accounts.",
   "planAccountLimit": "Your plan has no room for these accounts. Pick fewer accounts or upgrade your plan.",
+  "channelAccountAlreadyActive": "This account is already active.",
+  "stopChannelAccountInvalid": "Choose another active account of this workspace to stop.",
+  "channelLacksFeature": "This channel cannot use this feature.",
+  "permissionNotGranted": "This connection has not allowed what this feature needs. Reconnect it and allow every permission.",
+  "planLacksFeature": "Your plan does not include this feature. Upgrade your plan to use it.",
+  "featureNotOffered": "This feature is not offered yet.",
   "instagramNotConfigured": "Instagram is not configured",
   "instagramUnavailable": "Instagram is temporarily unavailable. Please try again later.",
   "instagramAccountConnectedElsewhere": "This Instagram account is connected to another organization. Disconnect it there first.",
@@ -280,7 +286,8 @@
     "Instagram account": "Instagram account",
     "Contact": "Contact",
     "Automation": "Automation",
-    "Channel connection": "Channel connection"
+    "Channel connection": "Channel connection",
+    "Channel account": "Channel account"
   },
   "emailCodeWrong": "That code is not right. Check the latest email we sent and try again.",
   "emailCodeExpired": "That code has expired. Ask for a new code.",

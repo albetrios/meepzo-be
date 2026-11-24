@@ -38,6 +38,7 @@
     "Webhook": "Gestión de endpoints webhook e historial de envíos",
     "Upload": "Generación de URL pre-firmadas para subida de archivos",
     "Channel connection": "Los inicios de sesión de la organización con un proveedor — el inicio de sesión unificado de Meta para una cartera comercial: empezar, terminar, reconectar, elegir sus cuentas de Instagram dentro del límite del plan, listar, consultar y desconectar el negocio",
+    "Channel account": "Las cuentas conectadas de la organización, sea cual sea su canal (Instagram por ahora): listar, consultar, desconectar una, pausar y reanudar sus envíos, y elegir qué cuentas están activas dentro del plan",
     "Instagram account": "La cuenta profesional de Instagram conectada de la organización: consultar, cambiar su configuración, desconectar, ver sus publicaciones e historias, y las llamadas de Meta para retirar la app y borrar los datos",
     "Contact": "Las personas que interactuaron con las cuentas de Instagram de la organización: listar y borrar",
     "Instagram Webhook": "Eventos de Instagram que Meta entrega para la cuenta conectada, y la lista de lo que pasó con cada uno",

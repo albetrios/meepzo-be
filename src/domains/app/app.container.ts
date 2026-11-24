@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
+import { ChannelAccountRepository } from './sub-domains/channel-account/channel-account.repository.js';
+import { ChannelAccountService } from './sub-domains/channel-account/channel-account.service.js';
 import { ChannelConnectionRepository } from './sub-domains/channel-connection/channel-connection.repository.js';
 import {
   type ChannelConnectionPlanAccessService,
@@ -16,7 +18,6 @@ import {
 } from './sub-domains/channel-connection/channel-connection-usage.service.js';
 import { InstagramAccountRepository } from './sub-domains/instagram-account/instagram-account.repository.js';
 import { InstagramAccountService } from './sub-domains/instagram-account/instagram-account.service.js';
-import { InstagramAccountConnectionService } from './sub-domains/instagram-account/instagram-account-connection.service.js';
 import { InstagramAccountSettingsRepository } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
@@ -41,8 +42,9 @@ import { AutomationPublicReplySafetyService } from './sub-domains/automation/aut
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
  * sub-domain — the connection service (routes 1–5, 40, 42 of feat-instagram-dm-sending § 1), the
  * token service (the one token path, MC9) and the usage service (Meta's usage per connection, MC19)
- * — the Instagram account
- * sub-domain — the account service (routes 1, 2, 4 and the guarded status change), the settings
+ * — the channel account sub-domain (routes 6–11, the one feature check, ROUTE row R5) — the
+ * Instagram account sub-domain — the account service (the guarded status change, the webhook
+ * subscription steps), the settings
  * service (route 3), the media service (the post and story pickers, routes 5–6, and the stored
  * posts sub-domains 3–4 write through it, IA17), the erasure service (the one erase of an account's
  * data, which tenancy's organization delete calls through its offboarding port, D54) and the Meta
@@ -56,8 +58,9 @@ import { AutomationPublicReplySafetyService } from './sub-domains/automation/aut
  * @remarks
  * The connection's token service is exposed for the Instagram workers that call Meta with an
  * account's connection token; the daily check's processor reads it through the worker token
- * repository (MC9). The connection reaches accounts through its account port — the Instagram
- * account's `InstagramAccountConnectionService` until ROUTE row R5 (P111). The worker process builds
+ * repository (MC9). The connection reaches accounts through its account port — the channel
+ * account service (`ChannelAccountService`, ROUTE row R5), which also serves routes 6–11 and the one
+ * feature check the go-live, settings, broadcasts and the engine call (CA11). The worker process builds
  * this container too (`createDomainContainers` → `appDomain`), for the daily check's guarded status
  * change (IA8, IA9) and for Instagram webhook event processing (WH12–WH14), which drives the
  * account, events, contact, media, automation and run-engine services from it.
@@ -66,6 +69,7 @@ export type AppContainer = {
   channelConnectionService: ChannelConnectionService;
   channelConnectionTokenService: ChannelConnectionTokenService;
   channelConnectionUsageService: ChannelConnectionUsageService;
+  channelAccountService: ChannelAccountService;
   instagramAccountService: InstagramAccountService;
   instagramAccountSettingsService: InstagramAccountSettingsService;
   instagramMediaService: InstagramMediaService;
@@ -112,17 +116,26 @@ export function createAppContainer({
     instagramAccountSettingsService,
     organizationService,
   );
-  // The connection's account port (1B, 2): the launch account table until ROUTE row R5 (P111). The
-  // lane port (R18) and the trial port (R24) are not passed until their rows build them.
+  // The channel account (1B, ROUTE row R5): routes 6–11, the one feature check, and the
+  // connection's account port over `app.channel_accounts` with its Instagram extension. Its lane
+  // port (R18) and plan-stop port (R18, R24) are not passed until their rows build them.
+  const channelAccountService = new ChannelAccountService(
+    new ChannelAccountRepository(),
+    instagramAccountRepository,
+    instagramAccountService,
+    instagramAccountSettingsService,
+    channelConnectionRepository,
+    channelConnectionTokenService,
+    organizationService,
+    planAccessService,
+  );
+  // The connection reaches accounts through the channel account (P111 → R5). The lane port (R18)
+  // and the trial port (R24) are not passed until their rows build them.
   const channelConnectionService = new ChannelConnectionService(
     channelConnectionRepository,
     channelConnectionTokenService,
     channelConnectionUsageService,
-    new InstagramAccountConnectionService(
-      instagramAccountRepository,
-      instagramAccountSettingsService,
-      instagramAccountService,
-    ),
+    channelAccountService,
     organizationService,
     planAccessService,
     redisConnection,
@@ -189,6 +202,7 @@ export function createAppContainer({
     channelConnectionService,
     channelConnectionTokenService,
     channelConnectionUsageService,
+    channelAccountService,
     instagramAccountService,
     instagramAccountSettingsService,
     instagramMediaService,

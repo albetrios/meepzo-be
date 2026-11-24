@@ -60,7 +60,7 @@ export function daysBefore({ from, days }: { from: Date; days: number }): Date {
   return new Date(from.getTime() - days * MILLISECONDS_PER_DAY);
 }
 
-/** A team with its Owner, Admin and Member, and the Instagram account it connected over route 1. */
+/** A team with its Owner, Admin, Editor and Viewer, and the Instagram account it connected over route 1. */
 export interface ConnectedInstagramTeam extends InstagramTeamFixture {
   profile: TestInstagramProfile;
   account: { id: number; public_id: string };

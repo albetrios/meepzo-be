@@ -1,6 +1,6 @@
 import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/membership.constants.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
-import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import { APP_PERMISSIONS, type AppPermissionCode } from '@/domains/app/app.permissions.js';
 import { AUDIT_PERMISSIONS } from '@/domains/audit/audit.permissions.js';
 import { BILLING_PERMISSIONS } from '@/domains/billing/billing.permissions.js';
 import { NOTIFY_PERMISSIONS } from '@/domains/notify/notify.permissions.js';
@@ -8,7 +8,9 @@ import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
 import { UPLOAD_PERMISSIONS } from '@/domains/upload/upload.permissions.js';
 import {
   ADMIN_ROLE_NAME,
-  MEMBER_ROLE_NAME,
+  EDITOR_ROLE_NAME,
+  FORMER_EDITOR_ROLE_NAME,
+  VIEWER_ROLE_NAME,
 } from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
 import { MemberRoleRepository } from '@/domains/tenancy/sub-domains/member-roles/member-role.repository.js';
 import { roles } from '@/domains/tenancy/sub-domains/member-roles/member-role.schema.js';
@@ -82,7 +84,7 @@ const ALL_APP_PERMISSION_CODES: readonly string[] = Object.values(APP_PERMISSION
  * @remarks
  * Every owner receives the tenancy, audit and upload codes, plus **`subscription:read`**.
  * TEAM organizations additionally receive `subscription:manage` so the creator can use the
- * billing write routes, notify read/manage so they can use `/notify/webhooks/*`, and the nine app
+ * billing write routes, notify read/manage so they can use `/notify/webhooks/*`, and the app
  * codes (Instagram, automations, contacts — launch IA2). A PERSONAL owner holds none of the app
  * codes: the surface is team-only, so its permission gate answers 403 before the team-only check
  * (launch IA3).
@@ -136,11 +138,16 @@ export interface DefaultTeamRole {
   isLocked: boolean;
   /** The permission codes granted at provisioning. */
   permissionCodes: readonly string[];
+  /**
+   * Names this system role had before (Editor: the launch's Member): the reconcile renames a live
+   * system role of such a name to {@link DefaultTeamRole.name} instead of adding a second role.
+   */
+  formerNames?: readonly string[];
 }
 
 /**
  * Admin's codes: every team code but `organization:delete` (D8), billing, webhooks, audit logs,
- * uploads and the nine app codes (launch IA2).
+ * uploads and every app code (launch IA2).
  *
  * @remarks
  * Escalation to Owner stays closed on three independent paths —
@@ -173,28 +180,74 @@ const ADMIN_PERMISSION_CODES: readonly string[] = [
   ...ALL_APP_PERMISSION_CODES,
 ];
 
+/** A default team role below Admin that may hold app codes (feat-instagram-dm-sending TN1). */
+type AppGrantedDefaultTeamRole = 'EDITOR' | 'VIEWER';
+
 /**
- * Member's codes (launch D2, K4, D31): view the organization, view the Instagram account, view,
- * create and edit automations, view contacts — exactly these six. Connecting or managing Instagram,
- * deleting an automation or a contact and the Instagram webhook-event list stay with Owner and Admin.
+ * Which of Editor and Viewer hold each app code by default — Owner and Admin hold every one
+ * (feat-instagram-dm-sending TN1, D55, P20; plan:L7867–L7877).
+ *
+ * @remarks
+ * The table is the one place a default grant of an app code is decided: `satisfies Record<…>` makes
+ * a code added to `APP_PERMISSIONS` fail to compile until it names its roles here, so a new code
+ * (the `channel-account:*` pair of TN12 among them) reaches Editor and Viewer through provisioning
+ * and {@link reconcileDefaultTeamRoles} — the reconcile, run on every deploy after the migrations,
+ * adds each missing grant to every existing team. Connecting and managing Instagram, the Instagram
+ * webhook-event list and erasing a contact stay with Owner and Admin.
  */
-const MEMBER_PERMISSION_CODES: readonly string[] = [
+const APP_PERMISSION_DEFAULT_TEAM_GRANTS = {
+  [APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ]: ['EDITOR', 'VIEWER'],
+  [APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE]: [],
+  [APP_PERMISSIONS.INSTAGRAM_WEBHOOK_EVENT_READ]: [],
+  [APP_PERMISSIONS.AUTOMATION_READ]: ['EDITOR', 'VIEWER'],
+  [APP_PERMISSIONS.AUTOMATION_CREATE]: ['EDITOR'],
+  [APP_PERMISSIONS.AUTOMATION_UPDATE]: ['EDITOR'],
+  [APP_PERMISSIONS.AUTOMATION_DELETE]: ['EDITOR'],
+  [APP_PERMISSIONS.CONTACT_READ]: ['EDITOR', 'VIEWER'],
+  [APP_PERMISSIONS.CONTACT_UPDATE]: ['EDITOR'],
+  [APP_PERMISSIONS.CONTACT_DELETE]: [],
+} as const satisfies Record<AppPermissionCode, readonly AppGrantedDefaultTeamRole[]>;
+
+/** The app codes {@link APP_PERMISSION_DEFAULT_TEAM_GRANTS} gives `role`. */
+function appPermissionCodesHeldBy(role: AppGrantedDefaultTeamRole): AppPermissionCode[] {
+  return (
+    Object.entries(APP_PERMISSION_DEFAULT_TEAM_GRANTS) as Array<
+      [AppPermissionCode, readonly AppGrantedDefaultTeamRole[]]
+    >
+  )
+    .filter(([, holders]) => holders.includes(role))
+    .map(([code]) => code);
+}
+
+/**
+ * Editor's codes (feat-instagram-dm-sending TN1, D55 — the launch's Member, launch D2, K4, D31):
+ * view the organization, upload message files, and its app codes — view the Instagram account,
+ * make, edit, run and delete automations, view contacts and change their note, tags and pause.
+ */
+const EDITOR_PERMISSION_CODES: readonly string[] = [
   TENANCY_PERMISSIONS.ORGANIZATION_READ,
-  APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ,
-  APP_PERMISSIONS.AUTOMATION_READ,
-  APP_PERMISSIONS.AUTOMATION_CREATE,
-  APP_PERMISSIONS.AUTOMATION_UPDATE,
-  APP_PERMISSIONS.CONTACT_READ,
+  UPLOAD_PERMISSIONS.UPLOAD_MANAGE,
+  ...appPermissionCodesHeldBy('EDITOR'),
 ];
 
 /**
- * Non-owner system roles every TEAM organization holds — Admin and Member — so a new organization
- * can invite its team straight away.
+ * Viewer's codes (feat-instagram-dm-sending TN1, D55): view the organization and its app reads —
+ * the Instagram account, automations, contacts. No write.
+ */
+const VIEWER_PERMISSION_CODES: readonly string[] = [
+  TENANCY_PERMISSIONS.ORGANIZATION_READ,
+  ...appPermissionCodesHeldBy('VIEWER'),
+];
+
+/**
+ * Non-owner system roles every TEAM organization holds — Admin, Editor and Viewer
+ * (feat-instagram-dm-sending TN1, D55) — so a new organization can invite its team straight away.
  *
  * @remarks
- * - Every entry is `is_system: true`: its name is fixed and it cannot be deleted. Both are locked
- *   (Admin D40, Member launch D3): their codes never change through the API — the guards read the
- *   row's `is_system` / `is_locked` flags, not its name. The Owner role is locked as well (D81 (4)).
+ * - Every entry is `is_system: true`: its name is fixed and it cannot be deleted. All are locked
+ *   (Admin D40, Editor launch D3, Viewer TN1): their codes never change through the API — the guards
+ *   read the row's `is_system` / `is_locked` flags, not its name. The Owner role is locked as well
+ *   (D81 (4)).
  * - PERSONAL organizations are single-member and reject custom roles, so they receive only Owner;
  *   these defaults apply to TEAM organizations exclusively.
  * - The one definition both provisioning and {@link reconcileDefaultTeamRoles} apply, so a team
@@ -211,11 +264,19 @@ export const DEFAULT_TEAM_ROLES: readonly DefaultTeamRole[] = [
     permissionCodes: ADMIN_PERMISSION_CODES,
   },
   {
-    name: MEMBER_ROLE_NAME,
-    description: 'Does the daily work: Instagram content, automations and contacts.',
+    name: EDITOR_ROLE_NAME,
+    description: 'Makes and runs automations and keeps contacts tidy.',
     tone: CHIP_TONE.SAGE,
     isLocked: true,
-    permissionCodes: MEMBER_PERMISSION_CODES,
+    permissionCodes: EDITOR_PERMISSION_CODES,
+    formerNames: [FORMER_EDITOR_ROLE_NAME],
+  },
+  {
+    name: VIEWER_ROLE_NAME,
+    description: 'Sees automations, contacts and the Instagram account; changes nothing.',
+    tone: CHIP_TONE.SKY,
+    isLocked: true,
+    permissionCodes: VIEWER_PERMISSION_CODES,
   },
 ];
 
@@ -262,7 +323,7 @@ export interface ProvisionOrganizationResult {
  *   one-personal-per-owner index, missing permission reference rows). Callers map
  *   `unique_violation` to a 409.
  * - **Side effects:** table inserts (organizations, roles, role_permissions, memberships); TEAM
- *   organizations additionally insert the default team roles (Admin and Member, both locked) and
+ *   organizations additionally insert the default team roles (Admin, Editor and Viewer, all locked) and
  *   their grants.
  * - **Notes:** the owner and default roles are `is_system: true` so they cannot be deleted via the
  *   role API; the Owner role is also `is_locked` (launch D81 (4) — its codes never change through
@@ -361,7 +422,7 @@ async function provisionOrganization(
         })
         .returning();
 
-      // TEAM organizations also receive the default roles (Admin, Member) so the team can invite
+      // TEAM organizations also receive the default roles (Admin, Editor, Viewer) so the team can invite
       // straight away — through the same step the reconcile runs for teams that already exist.
       // PERSONAL organizations are single-member and reject custom roles, so they get Owner only.
       if (input.type === 'TEAM') {
@@ -393,11 +454,16 @@ export interface DefaultTeamRolesChange {
   addedRoleNames: string[];
   /** Custom roles it renamed because they held a default role's name (launch IQ5). */
   renamedRoles: Array<{ rolePublicId: string; fromName: string; toName: string }>;
+  /**
+   * System roles it renamed from a former name to their default role's (the launch's Member →
+   * Editor, feat-instagram-dm-sending TN1) — the same row, its people and codes kept.
+   */
+  renamedSystemRoles: Array<{ rolePublicId: string; fromName: string; toName: string }>;
   /** Permission grants it added to the Owner and the default roles. */
   grantedCodeCount: number;
 }
 
-/** The name a custom role moves to when a default role needs its name: "Member (custom)". */
+/** The name a custom role moves to when a default role needs its name: "Editor (custom)". */
 function customRoleNameFor({
   name,
   takenNames,
@@ -407,7 +473,7 @@ function customRoleNameFor({
 }): string {
   const preferred = `${name} (custom)`;
   if (!takenNames.has(preferred)) return preferred;
-  // The organization already has a "Member (custom)" too: count on until a name is free.
+  // The organization already has an "Editor (custom)" too: count on until a name is free.
   let counter = 2;
   while (takenNames.has(`${name} (custom ${counter})`)) counter += 1;
   return `${name} (custom ${counter})`;
@@ -421,12 +487,14 @@ function customRoleNameFor({
  * - **Algorithm:** inside the caller's organization-scoped unit of work: reads the live roles; for
  *   each {@link DEFAULT_TEAM_ROLES} entry with no live system role of its name, renames a live
  *   custom role holding that name to "<name> (custom)" — keeping its id, people and codes (launch
- *   IQ5) — and inserts the system role (tone, description, lock from the definition); then grants
- *   the TEAM Owner codes to the live `Owner` system role and each default role its codes, `ON
- *   CONFLICT DO NOTHING`, so only missing grants land. Owner, Admin and Member are all locked, so
- *   adding their missing codes never undoes an organization's own choice.
+ *   IQ5) — then renames a live system role under one of the entry's `formerNames` (the launch's
+ *   Member → Editor, with the new description) or else inserts the system role (tone, description,
+ *   lock from the definition); then grants the TEAM Owner codes to the live `Owner` system role and
+ *   each default role its codes, `ON CONFLICT DO NOTHING`, so only missing grants land. Owner,
+ *   Admin, Editor and Viewer are all locked, so adding their missing codes never undoes an
+ *   organization's own choice; no code is ever taken away.
  * - **Failure modes:** propagates database errors; the caller's transaction rolls back whole.
- * - **Side effects:** may update `tenancy.roles` (the rename), insert `tenancy.roles` and
+ * - **Side effects:** may update `tenancy.roles` (the renames), insert `tenancy.roles` and
  *   `tenancy.role_permissions`. Invalidating the permission cache is the caller's (after commit).
  */
 async function ensureDefaultTeamRoles({
@@ -444,6 +512,7 @@ async function ensureDefaultTeamRoles({
   const change: DefaultTeamRolesChange = {
     addedRoleNames: [],
     renamedRoles: [],
+    renamedSystemRoles: [],
     grantedCodeCount: 0,
   };
   const grants: Array<{ roleId: number; permissionCodes: readonly string[] }> = [];
@@ -476,6 +545,26 @@ async function ensureDefaultTeamRoles({
         fromName: holder.name,
         toName,
       });
+    }
+    // A system role under a former name (the launch's Member) becomes this role: renamed in place.
+    const formerHolder = liveRoles.find(
+      (role) => role.is_system && (defaultRole.formerNames ?? []).includes(role.name),
+    );
+    if (formerHolder) {
+      await memberRoleRepository.update(
+        formerHolder.public_id,
+        organizationId,
+        { name: defaultRole.name, description: defaultRole.description },
+        actorUserId,
+      );
+      takenNames.add(defaultRole.name);
+      change.renamedSystemRoles.push({
+        rolePublicId: formerHolder.public_id,
+        fromName: formerHolder.name,
+        toName: defaultRole.name,
+      });
+      grants.push({ roleId: formerHolder.id, permissionCodes: defaultRole.permissionCodes });
+      continue;
     }
     const [created] = await databaseHandle
       .insert(roles)
@@ -517,6 +606,7 @@ function hasDefaultTeamRolesChange(change: DefaultTeamRolesChange): boolean {
   return (
     change.addedRoleNames.length > 0 ||
     change.renamedRoles.length > 0 ||
+    change.renamedSystemRoles.length > 0 ||
     change.grantedCodeCount > 0
   );
 }
@@ -555,6 +645,12 @@ export async function reconcileTeamOrganizationDefaultRoles({
       });
     },
   });
+  for (const renamed of change?.renamedSystemRoles ?? []) {
+    logger.info(
+      { organizationPublicId, ...renamed },
+      'tenancy.default_team_roles.system_role_renamed',
+    );
+  }
   for (const renamed of change?.renamedRoles ?? []) {
     logger.info(
       { organizationPublicId, ...renamed },
@@ -574,13 +670,16 @@ export interface DefaultTeamRolesReconcileResult {
   addedRoles: number;
   /** Custom roles renamed to free a default role's name (launch IQ5). */
   renamedRoles: number;
+  /** System roles renamed from a former name (Member → Editor, feat-instagram-dm-sending TN1). */
+  renamedSystemRoles: number;
   /** Permission grants added. */
   grantedCodes: number;
 }
 
 /**
  * Gives every existing TEAM organization what provisioning gives a new one (launch IA2, D3, IQ5):
- * any missing default role (Member), the missing codes on Owner and the default roles, and a fresh
+ * any missing default role (Editor, Viewer — the launch's Member renamed Editor), the missing codes
+ * on Owner and the default roles, and a fresh
  * permission cache where something changed. Run by `prepareDatabase` right after the permission
  * catalog is seeded, so every deploy and test database gets it.
  *
@@ -610,6 +709,7 @@ export async function reconcileDefaultTeamRoles(): Promise<DefaultTeamRolesRecon
     changedOrganizations: 0,
     addedRoles: 0,
     renamedRoles: 0,
+    renamedSystemRoles: 0,
     grantedCodes: 0,
   };
   for (const organizationPublicId of teamOrganizationPublicIds) {
@@ -620,6 +720,7 @@ export async function reconcileDefaultTeamRoles(): Promise<DefaultTeamRolesRecon
     result.changedOrganizations += 1;
     result.addedRoles += change.addedRoleNames.length;
     result.renamedRoles += change.renamedRoles.length;
+    result.renamedSystemRoles += change.renamedSystemRoles.length;
     result.grantedCodes += change.grantedCodeCount;
   }
   return result;

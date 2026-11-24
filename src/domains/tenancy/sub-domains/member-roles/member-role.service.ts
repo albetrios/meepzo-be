@@ -12,6 +12,7 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { assertTeamOrganization } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
+import { assertCustomRolesEnabled } from './member-role-capability.js';
 import type { MemberRoleRepository } from './member-role.repository.js';
 import type { MemberRolePermissionRepository } from './member-role-permission/member-role-permission.repository.js';
 import type { MemberRoleOutput, MemberRoleRow } from './member-role.types.js';
@@ -278,6 +279,8 @@ export class MemberRoleService {
     body: unknown;
     created_by_user_public_id: string | undefined;
   }): Promise<MemberRoleOutput> {
+    // TN3: refused while custom roles are off — after the route's permission gate, before any read.
+    assertCustomRolesEnabled();
     const organization_public_id = scope.organizationPublicId;
     const parsed = validateCreateMemberRole(body);
     return withAppDatabaseContext({
@@ -403,6 +406,8 @@ export class MemberRoleService {
     body: unknown;
     updated_by_user_public_id: string | undefined;
   }): Promise<MemberRoleOutput> {
+    // TN3: refused while custom roles are off — after the route's permission gate, before any read.
+    assertCustomRolesEnabled();
     const organization_public_id = scope.organizationPublicId;
     const parsed = validateUpdateMemberRole(body);
     return withAppDatabaseContext({
@@ -480,6 +485,8 @@ export class MemberRoleService {
     query: unknown;
     deleted_by_user_public_id: string | undefined;
   }): Promise<void> {
+    // TN3: refused while custom roles are off — after the route's permission gate, before any read.
+    assertCustomRolesEnabled();
     const organization_public_id = scope.organizationPublicId;
     const removal = validateDeleteMemberRoleQuery(query);
     await withAppDatabaseContext({
@@ -542,6 +549,8 @@ export class MemberRoleService {
     role_public_id: string;
     restored_by_user_public_id: string | undefined;
   }): Promise<MemberRoleOutput> {
+    // TN3: refused while custom roles are off — after the route's permission gate, before any read.
+    assertCustomRolesEnabled();
     const organization_public_id = scope.organizationPublicId;
     return withAppDatabaseContext({
       scope,

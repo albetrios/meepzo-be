@@ -7,9 +7,11 @@ import { createTestUser } from '@/tests/factories/user.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import { UPLOAD_PERMISSIONS } from '@/domains/upload/upload.permissions.js';
 import {
   ADMIN_ROLE_NAME,
-  MEMBER_ROLE_NAME,
+  EDITOR_ROLE_NAME,
+  VIEWER_ROLE_NAME,
 } from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
 import {
   DEFAULT_TEAM_ROLES,
@@ -143,22 +145,22 @@ describe('team organization provisioning (database)', () => {
       expect(row.public_id.startsWith('rol_')).toBe(true);
     }
 
-    // Admin and Member carry organization:read so an assigned admin or member can load the
-    // organization (launch D31). Member's app codes are exactly its five, pinned below.
+    // Admin, Editor and Viewer carry organization:read so an assigned person can load the
+    // organization (launch D31). Editor's and Viewer's codes are pinned exactly below.
     const adminRow = roleRows.find((candidate) => candidate.name === ADMIN_ROLE_NAME)!;
     const adminGrants = await database
       .select({ code: role_permissions.permission_code })
       .from(role_permissions)
       .where(eq(role_permissions.role_id, adminRow.id));
     expect(adminGrants.map((grant) => grant.code)).toContain(TENANCY_PERMISSIONS.ORGANIZATION_READ);
-    const memberRow = roleRows.find((candidate) => candidate.name === MEMBER_ROLE_NAME)!;
-    const memberGrants = await database
-      .select({ code: role_permissions.permission_code })
-      .from(role_permissions)
-      .where(eq(role_permissions.role_id, memberRow.id));
-    expect(memberGrants.map((grant) => grant.code)).toContain(
-      TENANCY_PERMISSIONS.ORGANIZATION_READ,
-    );
+    for (const name of [EDITOR_ROLE_NAME, VIEWER_ROLE_NAME]) {
+      const row = roleRows.find((candidate) => candidate.name === name)!;
+      const grants = await database
+        .select({ code: role_permissions.permission_code })
+        .from(role_permissions)
+        .where(eq(role_permissions.role_id, row.id));
+      expect(grants.map((grant) => grant.code)).toContain(TENANCY_PERMISSIONS.ORGANIZATION_READ);
+    }
 
     // Each default role's granted codes match its catalog entry exactly.
     for (const defaultRole of DEFAULT_TEAM_ROLES) {
@@ -173,7 +175,7 @@ describe('team organization provisioning (database)', () => {
     }
   });
 
-  it('gives a new team Owner and Admin all nine app codes and Member exactly its five (launch IA2)', async () => {
+  it('gives a new team exactly the four roles and their codes: Owner and Admin every app code, Editor and Viewer theirs (launch IA2, TN1, AC-12.1)', async () => {
     const user = await createTestUser();
 
     const result = await provisionOrganizationWithOwner({
@@ -188,29 +190,45 @@ describe('team organization provisioning (database)', () => {
       .from(roles)
       .where(eq(roles.organization_id, result.organization.id));
     const appCodes = new Set<string>(Object.values(APP_PERMISSIONS));
-    const appGrantsOf = async (name: string): Promise<string[]> => {
+    const grantsOf = async (name: string): Promise<string[]> => {
       const row = roleRows.find((candidate) => candidate.name === name)!;
       const grants = await database
         .select({ code: role_permissions.permission_code })
         .from(role_permissions)
         .where(eq(role_permissions.role_id, row.id));
-      return grants
-        .map((grant) => grant.code)
-        .filter((code) => appCodes.has(code))
-        .sort();
+      return grants.map((grant) => grant.code).sort();
     };
+    const appGrantsOf = async (name: string): Promise<string[]> =>
+      (await grantsOf(name)).filter((code) => appCodes.has(code));
+
+    expect(roleRows.map((row) => row.name).sort()).toEqual(['Admin', 'Editor', 'Owner', 'Viewer']);
 
     expect(await appGrantsOf('Owner')).toEqual([...appCodes].sort());
     expect(await appGrantsOf(ADMIN_ROLE_NAME)).toEqual([...appCodes].sort());
-    expect(await appGrantsOf(MEMBER_ROLE_NAME)).toEqual(
+    // The plan's table (plan:L7867–L7877): Editor makes, runs and deletes automations, tags and
+    // notes contacts and uploads message files; Viewer only reads.
+    expect(await grantsOf(EDITOR_ROLE_NAME)).toEqual(
       [
+        TENANCY_PERMISSIONS.ORGANIZATION_READ,
+        UPLOAD_PERMISSIONS.UPLOAD_MANAGE,
         APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ,
         APP_PERMISSIONS.AUTOMATION_READ,
         APP_PERMISSIONS.AUTOMATION_CREATE,
         APP_PERMISSIONS.AUTOMATION_UPDATE,
+        APP_PERMISSIONS.AUTOMATION_DELETE,
+        APP_PERMISSIONS.CONTACT_READ,
+        APP_PERMISSIONS.CONTACT_UPDATE,
+      ].sort(),
+    );
+    expect(await grantsOf(VIEWER_ROLE_NAME)).toEqual(
+      [
+        TENANCY_PERMISSIONS.ORGANIZATION_READ,
+        APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ,
+        APP_PERMISSIONS.AUTOMATION_READ,
         APP_PERMISSIONS.CONTACT_READ,
       ].sort(),
     );
+    expect(await appGrantsOf(ADMIN_ROLE_NAME)).toContain(APP_PERMISSIONS.CONTACT_UPDATE);
   });
 
   it("locks the Owner role and gives every role the design's tone (D81 (4))", async () => {
@@ -237,7 +255,7 @@ describe('team organization provisioning (database)', () => {
         .filter((row) => row.is_locked)
         .map((row) => row.name)
         .sort(),
-    ).toEqual(['Admin', 'Member', 'Owner']);
+    ).toEqual(['Admin', 'Editor', 'Owner', 'Viewer']);
   });
 
   it('provisions only the Owner role for a PERSONAL organization (no default team roles)', async () => {

@@ -19,7 +19,10 @@ import {
   seedMembership,
   seedRolePermissions,
   seedMembershipInvitation,
+  findSeededSystemRoleId,
 } from '@/domains/tenancy/seed/tenancy.seed.js';
+import { reconcileTeamOrganizationDefaultRoles } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
+import { EDITOR_ROLE_NAME } from '@/domains/tenancy/sub-domains/member-roles/member-role.constants.js';
 import {
   initFakerSeed,
   generateUserPayload,
@@ -113,17 +116,18 @@ export async function runFullSeed(): Promise<void> {
       owner_user_id: demoUser.id,
     });
     if (extraOrg) {
-      const memberRole = await seedRole({
+      // The default team roles (Admin, Editor, Viewer — feat-instagram-dm-sending TN1); custom roles
+      // are off (TN3), so the extra user joins as an Editor.
+      await reconcileTeamOrganizationDefaultRoles({ organizationPublicId: extraOrg.public_id });
+      const editorRoleId = await findSeededSystemRoleId({
         organization_id: extraOrg.id,
-        name: 'Member',
-        is_system: false,
-        created_by_user_id: demoUser.id,
+        name: EDITOR_ROLE_NAME,
       });
-      if (memberRole) {
+      if (editorRoleId !== null) {
         await seedMembership({
           user_id: extraUser.id,
           organization_id: extraOrg.id,
-          role_id: memberRole.id,
+          role_id: editorRoleId,
           status: MEMBERSHIP_STATUS.ACTIVE,
           created_by_user_id: demoUser.id,
         });

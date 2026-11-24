@@ -25,8 +25,8 @@ and delivery receiver (routes 16–17) and its stored events (route 18 and the 3
 `app.instagram_webhook_events`, created by `migrations/20261121094626_app_instagram_webhook_events.sql`).
 The other sub-domains fill it in one ROUTE row at a time (`iterations/launch-2026-11-20-ujai/KICKOFF.md`).
 
-What it does not own: organizations, members, roles and the permission catalog (tenancy — the nine app
-codes and the locked Member role are seeded there), in-app notifications and email (notify, mail
+What it does not own: organizations, members, roles and the permission catalog (tenancy — the app
+codes and the locked Editor and Viewer roles are seeded there), in-app notifications and email (notify, mail
 outbox) and the audit log (audit). The one Meta client lives in the channel connection's adapter folder
 (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts` — the only code that
 calls Meta, and the only code that decrypts a Meta token).
@@ -41,8 +41,8 @@ calls Meta, and the only code that decrypts a Meta token).
 - **One mount point**: `src/routes.ts` registers `appRoutesPlugin` under `/api/v1/app`; each sub-domain's
   routes register under it (`__tests__/unit/app.domain-wiring.unit.test.ts`).
 - **Seeded after tenancy**: the seed module depends on `tenancy`, so organizations exist before any app row
-  (`src/tests/unit/scripts/seed/modules.unit.test.ts`); it has no reference data — the nine codes and the
-  Member role are tenancy's. Bulk: each demo team organization gets a connected Instagram account, a fake
+  (`src/tests/unit/scripts/seed/modules.unit.test.ts`); it has no reference data — the app codes and the
+  Editor and Viewer roles are tenancy's. Bulk: each demo team organization gets a connected Instagram account, a fake
   `encryptFieldSecret` token, the default settings and three stored posts, then contacts of that
   account, then its automations (every trigger and scope), then that account's demo webhook events
   (every kind and status).

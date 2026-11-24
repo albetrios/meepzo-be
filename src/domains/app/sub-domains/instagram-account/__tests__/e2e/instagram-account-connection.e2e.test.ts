@@ -30,7 +30,7 @@ interface ConnectAnswer {
 
 /**
  * The Instagram account's life over HTTP (routes-final § 1.A, IA11–IA14, ROUTE R3): connect, read
- * as a Member, disconnect, connect another account, reconnect the first — the row, its public id
+ * as an Editor, disconnect, connect another account, reconnect the first — the row, its public id
  * and its settings come back — and one Instagram account moving between two organizations.
  */
 describe('Instagram account connection flow (e2e)', () => {
@@ -74,7 +74,7 @@ describe('Instagram account connection flow (e2e)', () => {
     return injectAuthenticated(app, { url: INSTAGRAM_ACCOUNT_PATH, token });
   }
 
-  it('connect → read as a Member → disconnect → connect another → reconnect the first (its row and settings come back)', async () => {
+  it('connect → read as an Editor → disconnect → connect another → reconnect the first (its row and settings come back)', async () => {
     const team = await createInstagramTeam();
     const first = buildInstagramProfile();
     const second = buildInstagramProfile();
@@ -85,17 +85,17 @@ describe('Instagram account connection flow (e2e)', () => {
     expect(firstAnswer.is_new_connection).toBe(true);
     const [firstSettings] = await readInstagramSettingsRows(team.organization.id);
 
-    const memberRead = await read(team.memberToken);
-    expect(memberRead.statusCode).toBe(200);
-    expect((memberRead.json() as { data: { id: string } }).data.id).toBe(
+    const editorRead = await read(team.editorToken);
+    expect(editorRead.statusCode).toBe(200);
+    expect((editorRead.json() as { data: { id: string } }).data.id).toBe(
       firstAnswer.instagram_account.id,
     );
-    const memberDisconnect = await injectAuthenticated(app, {
+    const editorDisconnect = await injectAuthenticated(app, {
       method: 'DELETE',
       url: INSTAGRAM_ACCOUNT_PATH,
-      token: team.memberToken,
+      token: team.editorToken,
     });
-    expect(memberDisconnect.statusCode).toBe(403);
+    expect(editorDisconnect.statusCode).toBe(403);
 
     expect((await disconnect(team.ownerToken, first)).statusCode).toBe(204);
     expect((await read(team.ownerToken)).statusCode).toBe(404);
@@ -151,6 +151,6 @@ describe('Instagram account connection flow (e2e)', () => {
     // New for the second organization, even though the first had it.
     expect((moved.json() as { data: ConnectAnswer }).data.is_new_connection).toBe(true);
     expect((await read(firstTeam.ownerToken)).statusCode).toBe(404);
-    expect((await read(secondTeam.memberToken)).statusCode).toBe(200);
+    expect((await read(secondTeam.editorToken)).statusCode).toBe(200);
   });
 });

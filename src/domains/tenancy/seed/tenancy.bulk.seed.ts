@@ -2,7 +2,7 @@
  * Tenancy bulk seeder — gives every pool user the personal organization signup provisions, then
  * creates organizations (deterministic slugs `bulk-organization-<index>`), each with an Admin role +
  * full permission grant, a faker-sized set of ACTIVE memberships drawn from the user pool in the
- * registry, and the default team roles a provisioned team holds (the locked Member — launch IA2 —
+ * registry, and the default team roles a provisioned team holds (the locked Editor and Viewer — launch IA2, feat-instagram-dm-sending TN1 —
  * through `reconcileTeamOrganizationDefaultRoles`, the definition provisioning uses). Created organizations are appended to the registry for downstream domains (billing,
  * notify, upload, audit).
  *
@@ -51,7 +51,7 @@ async function seedPersonalOrganizations(pool: readonly SeededUser[]): Promise<v
  * user who has none (`provisionPersonalOrganization`, the signup path), so a seeded user's first
  * profile read does not self-heal one under load; then count existing bulk organizations, create
  * only the missing higher indices (each with an Admin role, full grant, owner membership, additional
- * members, then the missing default team roles — Member — from the shared provisioning definition),
+ * members, then the missing default team roles — Editor, Viewer — from the shared provisioning definition),
  * then re-select all bulk organizations into the registry. Side effects: inserts into organizations /
  * roles / role_permissions / memberships. Failure modes: warns and
  * returns early if the user pool is empty; otherwise propagates DB errors.
@@ -112,7 +112,7 @@ export async function seedOrganizationsBulk(context: SeedContext): Promise<void>
       });
     }
 
-    // The default team roles a provisioned team holds (Member, launch IA2), from the same
+    // The default team roles a provisioned team holds (Editor, Viewer — launch IA2, TN1), from the same
     // definition; a new organization has no cached permission set, so nothing to invalidate.
     await reconcileTeamOrganizationDefaultRoles({ organizationPublicId: organization.public_id });
   }

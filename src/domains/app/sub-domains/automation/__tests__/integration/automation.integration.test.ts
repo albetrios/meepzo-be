@@ -38,7 +38,7 @@ import {
  * once, never across two accounts), the account set at create (AU27) and kept by an edit, a copy
  * of an automation (Duplicate, 3.A.10), a stale save, a linked window, the delete's reason; the
  * list's filters, search and every sort in both directions across pages; the audit entries;
- * team-only (AU3), the Member role on route 15, the read-only plan on the three writes with the
+ * team-only (AU3), the Editor role on route 15, the read-only plan on the three writes with the
  * reads open (AQ8, D27), and another organization's automation (K1). The database, auth,
  * permissions, idempotency and audit are real.
  */
@@ -647,7 +647,7 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
       const connectedNow = await switchAccount();
       const body = await duplicateBody(original.public_id);
 
-      const response = await create({ body, token: team.memberToken });
+      const response = await create({ body, token: team.editorToken });
 
       expect(response.statusCode, response.body).toBe(200);
       const copy = dataOf(response);
@@ -656,8 +656,8 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
         instagram_account_id: connectedNow.public_id,
         completed_run_count: 0,
         last_triggered_at: null,
-        created_by_user_id: team.member.public_id,
-        updated_by_user_id: team.member.public_id,
+        created_by_user_id: team.editor.public_id,
+        updated_by_user_id: team.editor.public_id,
       });
       expect(copy.id).not.toBe(original.public_id);
       expect((await readAutomationRow(copy.id))?.instagram_account_id).toBe(connectedNow.id);
@@ -973,14 +973,23 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
       ).toBe(400);
     });
 
-    it("refuses a Member with 403 missing_permission and another organization's automation with 404 (AC-5.19)", async () => {
-      const automation = await automationOfTeam();
-      const memberResponse = await remove({
-        automationPublicId: automation.public_id,
-        token: team.memberToken,
+    it("lets an Editor delete (TN1, AC-12.2), refuses a Viewer with 403 missing_permission (AC-12.3) and another organization's automation with 404 (AC-5.19)", async () => {
+      const kept = await automationOfTeam();
+      const viewerResponse = await remove({
+        automationPublicId: kept.public_id,
+        token: team.viewerToken,
       });
-      expect(memberResponse.statusCode).toBe(403);
-      expect(errorOf(memberResponse).reason).toBe('missing_permission');
+      expect(viewerResponse.statusCode).toBe(403);
+      expect(errorOf(viewerResponse).reason).toBe('missing_permission');
+      expect((await readAutomationRow(kept.public_id))?.deleted_at).toBeNull();
+
+      const automation = await automationOfTeam();
+      const editorResponse = await remove({
+        automationPublicId: automation.public_id,
+        token: team.editorToken,
+      });
+      expect(editorResponse.statusCode).toBe(204);
+      expect((await readAutomationRow(automation.public_id))?.deleted_at).not.toBeNull();
 
       const otherTeam = await createInstagramTeam();
       const otherAccount = await insertInstagramAccount({
@@ -995,17 +1004,39 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
     });
   });
 
-  describe('a Member (AC-5.19)', () => {
-    it('lists, reads, creates and edits', async () => {
-      const created = await create({ body: commentAutomationBody(), token: team.memberToken });
-      expect(created.statusCode).toBe(200);
-      const automationPublicId = dataOf(created).id;
-      expect((await read({ automationPublicId, token: team.memberToken })).statusCode).toBe(200);
+  describe('a Viewer (feat-instagram-dm-sending TN1, AC-12.3)', () => {
+    it('lists and reads, and is refused create and edit with 403 missing_permission', async () => {
+      const automation = await automationOfTeam();
       expect(
-        (await edit({ automationPublicId, body: { status: 'live' }, token: team.memberToken }))
+        (await read({ automationPublicId: automation.public_id, token: team.viewerToken }))
           .statusCode,
       ).toBe(200);
-      expect(await listedIds('', team.memberToken)).toEqual([automationPublicId]);
+      expect(await listedIds('', team.viewerToken)).toEqual([automation.public_id]);
+      for (const response of [
+        await create({ body: commentAutomationBody(), token: team.viewerToken }),
+        await edit({
+          automationPublicId: automation.public_id,
+          body: { status: 'live' },
+          token: team.viewerToken,
+        }),
+      ]) {
+        expect(response.statusCode).toBe(403);
+        expect(errorOf(response).reason).toBe('missing_permission');
+      }
+    });
+  });
+
+  describe('an Editor (AC-5.19, AC-12.2)', () => {
+    it('lists, reads, creates and edits', async () => {
+      const created = await create({ body: commentAutomationBody(), token: team.editorToken });
+      expect(created.statusCode).toBe(200);
+      const automationPublicId = dataOf(created).id;
+      expect((await read({ automationPublicId, token: team.editorToken })).statusCode).toBe(200);
+      expect(
+        (await edit({ automationPublicId, body: { status: 'live' }, token: team.editorToken }))
+          .statusCode,
+      ).toBe(200);
+      expect(await listedIds('', team.editorToken)).toEqual([automationPublicId]);
     });
   });
 

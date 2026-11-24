@@ -63,6 +63,8 @@ export const SYSTEM_PERMISSIONS = [
   { code: 'automation:update', name: 'Update Automations', category: 'automations' },
   { code: 'automation:delete', name: 'Delete Automations', category: 'automations' },
   { code: 'contact:read', name: 'View Contacts', category: 'contacts' },
+  // feat-instagram-dm-sending P20 (TN2): a contact's note, tags and pause.
+  { code: 'contact:update', name: 'Update Contacts', category: 'contacts' },
   { code: 'contact:delete', name: 'Delete Contacts', category: 'contacts' },
 ] as const;
 

@@ -34,7 +34,7 @@ import {
 /**
  * Routes 9 and 10 of the contacts (routes-final § 2, ROUTE R8) over HTTP: every filter, every sort
  * in both directions across pages, the search, paging and the estimated total; the erase clearing
- * every personal column, its audit entry and a repeat; team-only (CT3), the Member role (D23), the
+ * every personal column, its audit entry and a repeat; team-only (CT3), the Editor role (D23), the
  * erase open on a read-only plan (D27) and another organization's contacts (K1). The database,
  * auth, permissions and audit are real.
  */
@@ -191,7 +191,7 @@ describe('Contact routes (list, erase)', () => {
       expect(body.meta.pagination.estimated_total).toBe(2);
     });
 
-    it('shows a Member the emails and phones (AC-4.15) and an Admin the same list', async () => {
+    it('shows an Editor the emails and phones (AC-4.15) and an Admin the same list', async () => {
       const contact = await contactOfTeam({
         email: 'member.view@example.com',
         email_collected_at: day(1),
@@ -199,7 +199,7 @@ describe('Contact routes (list, erase)', () => {
         phone_collected_at: day(1),
       });
 
-      for (const token of [team.memberToken, team.adminToken]) {
+      for (const token of [team.editorToken, team.adminToken]) {
         const response = await list({ token });
         expect(response.statusCode).toBe(200);
         expect(bodyOf(response).data).toEqual([
@@ -554,10 +554,10 @@ describe('Contact routes (list, erase)', () => {
       ).toBe(204);
     });
 
-    it('refuses a Member with 403 missing_permission and erases nothing (AC-4.12, D23)', async () => {
+    it('refuses an Editor with 403 missing_permission and erases nothing (AC-4.12, D23)', async () => {
       const contact = await contactOfTeam({ username: 'still.here' });
 
-      const response = await erase({ contactPublicId: contact.public_id, token: team.memberToken });
+      const response = await erase({ contactPublicId: contact.public_id, token: team.editorToken });
 
       expect(response.statusCode).toBe(403);
       expect(errorOf(response).reason).toBe('missing_permission');

@@ -4463,7 +4463,7 @@ As built (bodies unchanged; never reached while off).
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 111–115 | `403` · `custom_roles_off` | always, while `TENANCY_CUSTOM_ROLES_ENABLED` is false (before any body or role lookup beyond the gate) |
+| 111–115 | `403` · `custom_roles_off` | always, while `TENANCY_CUSTOM_ROLES_ENABLED` is false — after the permission gate, before the service's own body checks and role lookups (the route schema still answers a malformed body or query `400` first, as on every route; on a personal organization it comes before the team-only `422`) ([P203](decisions.md)) |
 
 #### 9.B.10 Rules worth knowing
 
@@ -4471,7 +4471,9 @@ As built (bodies unchanged; never reached while off).
 
 #### 9.B.11 Code changes
 
-TNC1, TNC2 (9.11).
+TNC1, TNC2 (9.11). As built (R28, [P203](decisions.md)): the guard is `assertCustomRolesEnabled` / `assertMembershipRolesAllowed`
+in `member-roles/member-role-capability.ts`; Editor's and Viewer's app codes are the typed table `APP_PERMISSION_DEFAULT_TEAM_GRANTS`
+(`organization-provisioning.ts`), and the reconcile also renames a system Member to Editor (`formerNames`).
 
 ---
 

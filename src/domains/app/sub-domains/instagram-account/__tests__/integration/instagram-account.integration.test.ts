@@ -53,7 +53,7 @@ import {
 
 /**
  * Routes 1, 2 and 4 of the Instagram account (routes-final § 1.A, ROUTE R3) over HTTP: every
- * success and every error of 1.A.9 and 1.5, team-only (K1), the Member role (AC-1.7), another
+ * success and every error of 1.A.9 and 1.5, team-only (K1), the Editor role (AC-1.7), another
  * organization's data, idempotency (K3), the D34 503 reasons, and a read-only plan leaving routes
  * 1, 3 and 4 open (D27). Instagram is mocked with nock; the database, Redis, auth, permissions and
  * idempotency are real.
@@ -286,10 +286,10 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('refuses a Member with 403 missing_permission and calls no Instagram (AC-1.7)', async () => {
+    it('refuses an Editor with 403 missing_permission and calls no Instagram (AC-1.7)', async () => {
       const scopes = mockInstagramConnect({ profile: buildInstagramProfile() });
 
-      const response = await connect({ token: team.memberToken });
+      const response = await connect({ token: team.editorToken });
 
       expect(response.statusCode).toBe(403);
       expect(errorOf(response).reason).toBe('missing_permission');
@@ -675,12 +675,12 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
       expect(data).toEqual(connected);
     });
 
-    it('lets a Member read it (AC-1.7)', async () => {
+    it('lets an Editor read it (AC-1.7)', async () => {
       const connected = await connectAccount(buildInstagramProfile());
 
       const response = await injectAuthenticated(app, {
         url: INSTAGRAM_ACCOUNT_PATH,
-        token: team.memberToken,
+        token: team.editorToken,
       });
 
       expect(response.statusCode).toBe(200);
@@ -854,13 +854,13 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
       expect(errorOf(again).reason).toBe('instagram_not_connected');
     });
 
-    it('refuses a Member with 403 missing_permission and leaves the account connected (AC-1.7)', async () => {
+    it('refuses an Editor with 403 missing_permission and leaves the account connected (AC-1.7)', async () => {
       await connectAccount(buildInstagramProfile());
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',
         url: INSTAGRAM_ACCOUNT_PATH,
-        token: team.memberToken,
+        token: team.editorToken,
       });
 
       expect(response.statusCode).toBe(403);

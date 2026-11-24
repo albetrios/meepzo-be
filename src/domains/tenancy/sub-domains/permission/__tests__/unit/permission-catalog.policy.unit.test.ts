@@ -30,7 +30,7 @@ describe('permission catalog (policy)', () => {
     expect([...seeded].sort()).toEqual([...new Set(DECLARED_CODES)].sort());
   });
 
-  // Launch IA2 / AC-1.1: the nine app codes sit in three Roles-matrix rows.
+  // Launch IA2 / AC-1.1, feat-instagram-dm-sending TN2: the app codes sit in three Roles-matrix rows.
   it('files the app codes under the Instagram, Automations and Contacts rows', () => {
     const categoryOf = new Map(
       SYSTEM_PERMISSIONS.map((permission) => [permission.code as string, permission.category]),
@@ -44,6 +44,7 @@ describe('permission catalog (policy)', () => {
       ['automation:update', 'automations'],
       ['automation:delete', 'automations'],
       ['contact:read', 'contacts'],
+      ['contact:update', 'contacts'],
       ['contact:delete', 'contacts'],
     ]);
   });

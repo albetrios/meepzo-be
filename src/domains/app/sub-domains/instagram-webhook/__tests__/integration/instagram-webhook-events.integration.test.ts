@@ -33,7 +33,7 @@ import {
 /**
  * Route 18, `GET /app/social/instagram/webhook-events` (routes-final § 4.B, ROUTE R12) over HTTP:
  * newest first, every filter, keyset pages with the cursor bound to the filters, the masked payload
- * (WH17), the gate (`instagram-webhook-event:read` — Owner and Admin, never Member, and never the
+ * (WH17), the gate (`instagram-webhook-event:read` — Owner and Admin, never Editor, and never the
  * outgoing webhooks' `webhook:read`, D4), team-only (`404 team_organization_required`, K1) and
  * another organization's events never listed. The database, auth and permissions are real.
  */
@@ -399,8 +399,8 @@ describe('GET /app/social/instagram/webhook-events (route 18)', () => {
       });
     }
 
-    it('refuses a Member with 403 missing_permission (D4, AC-6.4)', async () => {
-      const response = await list('', team.memberToken);
+    it('refuses an Editor with 403 missing_permission (D4, AC-6.4)', async () => {
+      const response = await list('', team.editorToken);
 
       expect(response.statusCode).toBe(403);
       expect(errorOf(response).reason).toBe('missing_permission');

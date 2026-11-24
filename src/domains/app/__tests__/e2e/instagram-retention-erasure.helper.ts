@@ -9,14 +9,12 @@ import {
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import {
-  INSTAGRAM_CONNECT_PATH,
   type InstagramTeamFixture,
   type TestInstagramProfile,
   buildInstagramProfile,
   createInstagramTeam,
-  mockInstagramConnect,
+  connectInstagramAccount,
   readInstagramAccountRows,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
@@ -74,18 +72,9 @@ export interface ConnectedInstagramTeam extends InstagramTeamFixture {
 export async function connectInstagramTeam(app: FastifyInstance): Promise<ConnectedInstagramTeam> {
   const team = await createInstagramTeam();
   const profile = buildInstagramProfile();
-  mockInstagramConnect({ profile });
-  const response = await injectAuthenticated(app, {
-    method: 'POST',
-    url: INSTAGRAM_CONNECT_PATH,
-    token: team.ownerToken,
-    payload: { code: 'AQB-retention-erasure-code#_' },
-    headers: { 'x-idempotency-key': `ig-retention-${generatePublicId('instagramAccount')}` },
-  });
+  await connectInstagramAccount({ app, token: team.ownerToken, profile });
   const [account] = await readInstagramAccountRows(team.organization.id);
-  if (response.statusCode !== 200 || account === undefined) {
-    throw new Error(`connect fixture failed with ${response.statusCode}`);
-  }
+  if (account === undefined) throw new Error('connect fixture stored no account');
   return { ...team, profile, account: { id: Number(account.id), public_id: account.public_id } };
 }
 

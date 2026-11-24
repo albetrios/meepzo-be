@@ -3,18 +3,19 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Policy (launch IA5, IAC5): the Instagram token stays ciphertext everywhere but the Instagram
- * client.
+ * Policy (launch IA5, IAC5; moved to the channel connection by feat-instagram-dm-sending MC9,
+ * MCC1, MCC11): the connection's token stays ciphertext everywhere but the Meta client.
  *
  * Three rules over the runtime code of `src/`, `tooling/` and `scripts/`:
  *
  * 1. Only {@link TOKEN_SCHEMA_IMPORTERS} import the token schema
- *    (`instagram-account-token.schema.ts`, the table `app.instagram_account_tokens`).
+ *    (`channel-connection-token.schema.ts`, the table `app.channel_connection_tokens` — its
+ *    `encrypted_access_token` and `encrypted_refresh_token`).
  * 2. Only {@link TOKEN_REPOSITORY_IMPORTERS} import the token repository
- *    (`instagram-account-token.repository.ts`, the only code that reads the table). Everything
- *    else — the account service included — reaches the token through `InstagramAccountTokenService`
- *    and holds `encrypted_access_token` only.
- * 3. Only {@link TOKEN_DECRYPTERS} — the Instagram client
+ *    (`channel-connection-token.repository.ts`, the only code that reads the table). Everything
+ *    else — the account and connection services included — reaches the token through
+ *    `ChannelConnectionTokenService` and holds ciphertext only.
+ * 3. Only {@link TOKEN_DECRYPTERS} — the Meta client
  *    (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`) and the secrets-key rotation script — call
  *    `decryptFieldSecret` on the token: no other file under the Instagram surface
  *    (`src/domains/app/`) references `decryptFieldSecret`, and no
@@ -25,9 +26,10 @@ import { describe, expect, it } from 'vitest';
  * resolvers' security test and the token's database tests write and read the table to prove these
  * rules, and the contract test decrypts to prove the client encrypts. They never ship.
  *
- * The allowlists are exact paths, each with its reason. The daily check's processor (launch R7,
- * IA8) is the one worker path in {@link TOKEN_REPOSITORY_IMPORTERS} — IA5's "only the token service
- * and the daily check"; any other addition is deliberate, never casual.
+ * The allowlists are exact paths, each with its reason. The daily account check's processor (launch
+ * R7, IA8) is the one worker path in {@link TOKEN_REPOSITORY_IMPORTERS} today — MC9's "the token
+ * service, the sender and the token check" (the sender lands at ROUTE row R42, the token check at
+ * R51); any other addition is deliberate, never casual.
  * The secrets-key rotation script (D37) is in {@link TOKEN_SCHEMA_IMPORTERS} and
  * {@link TOKEN_DECRYPTERS}: it re-encrypts the column onto the current key version.
  */
@@ -37,9 +39,10 @@ const SCAN_ROOTS = ['src', 'tooling', 'scripts'] as const;
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'dist', '__tests__']);
 
 const INSTAGRAM_ACCOUNT_FOLDER = 'src/domains/app/sub-domains/instagram-account';
-const TOKEN_SCHEMA_FILE = `${INSTAGRAM_ACCOUNT_FOLDER}/instagram-account-token.schema.ts`;
-const TOKEN_REPOSITORY_FILE = `${INSTAGRAM_ACCOUNT_FOLDER}/instagram-account-token.repository.ts`;
-const TOKEN_SERVICE_FILE = `${INSTAGRAM_ACCOUNT_FOLDER}/instagram-account-token.service.ts`;
+const CHANNEL_CONNECTION_FOLDER = 'src/domains/app/sub-domains/channel-connection';
+const TOKEN_SCHEMA_FILE = `${CHANNEL_CONNECTION_FOLDER}/channel-connection-token.schema.ts`;
+const TOKEN_REPOSITORY_FILE = `${CHANNEL_CONNECTION_FOLDER}/channel-connection-token.repository.ts`;
+const TOKEN_SERVICE_FILE = `${CHANNEL_CONNECTION_FOLDER}/channel-connection-token.service.ts`;
 const INSTAGRAM_CLIENT_FILE =
   'src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts';
 const SECRETS_KEY_ROTATION_FILE = 'src/scripts/ops/secrets-key-rotate.ts';
@@ -50,7 +53,7 @@ const SECRETS_KEY_ROTATION_REASON =
 const TOKEN_SCHEMA_IMPORTERS: ReadonlyArray<{ file: string; reason: string }> = [
   { file: TOKEN_REPOSITORY_FILE, reason: 'the only code that reads and writes the table' },
   {
-    file: `${INSTAGRAM_ACCOUNT_FOLDER}/seed/instagram-account.bulk.seed.ts`,
+    file: `${CHANNEL_CONNECTION_FOLDER}/seed/channel-connection.bulk.seed.ts`,
     reason: 'writes a fake encryptFieldSecret token for each demo team; never reads one back',
   },
   { file: SECRETS_KEY_ROTATION_FILE, reason: SECRETS_KEY_ROTATION_REASON },
@@ -66,7 +69,7 @@ const TOKEN_REPOSITORY_IMPORTERS: ReadonlyArray<{ file: string; reason: string }
   {
     file: `${INSTAGRAM_ACCOUNT_FOLDER}/workers/instagram-account-daily-check.processor.ts`,
     reason:
-      'the daily check (IA8): reads the ciphertext for the renewal, replaces it only while it is still the token renewed, and keeps a failed renewal error; it hands the ciphertext to the client and never decrypts it',
+      "the daily account check (IA8): reads the account's connection ciphertext for its Meta calls and hands it to the client; it never decrypts or writes it (no renewal since WC-35)",
   },
 ];
 
@@ -74,14 +77,14 @@ const TOKEN_REPOSITORY_IMPORTERS: ReadonlyArray<{ file: string; reason: string }
 const TOKEN_DECRYPTERS: ReadonlyArray<{ file: string; reason: string }> = [
   {
     file: INSTAGRAM_CLIENT_FILE,
-    reason: 'decrypts right before each Instagram call; the plain token never leaves it',
+    reason: 'decrypts right before each Meta call; the plain token never leaves it',
   },
   { file: SECRETS_KEY_ROTATION_FILE, reason: SECRETS_KEY_ROTATION_REASON },
 ];
 
-/** Names that mark a file as handling the Instagram token. */
+/** Names that mark a file as handling the connection's token. */
 const TOKEN_NAME_PATTERN =
-  /encrypted_access_token|encryptedAccessToken|instagram_account_tokens|instagram-account-token\./;
+  /encrypted_access_token|encryptedAccessToken|encrypted_refresh_token|encryptedRefreshToken|channel_connection_tokens|channel-connection-token\./;
 
 function isTestCode(file: string): boolean {
   return file.startsWith('src/tests/') || file.endsWith('.test.ts');
@@ -121,8 +124,8 @@ function importersOf(moduleName: string): string[] {
     .sort();
 }
 
-describe('Instagram token isolation (policy, IA5)', () => {
-  it('scans the token files and the Instagram client', () => {
+describe('Channel connection token isolation (policy, MC9)', () => {
+  it('scans the token files and the Meta client', () => {
     for (const file of [
       TOKEN_SCHEMA_FILE,
       TOKEN_REPOSITORY_FILE,
@@ -146,25 +149,25 @@ describe('Instagram token isolation (policy, IA5)', () => {
 
   it('only the allowlisted files import the token schema', () => {
     const allowed = new Set(TOKEN_SCHEMA_IMPORTERS.map(({ file }) => file));
-    const offenders = importersOf('instagram-account-token.schema').filter(
+    const offenders = importersOf('channel-connection-token.schema').filter(
       (file) => !allowed.has(file),
     );
     expect(
       offenders,
-      `the Instagram token schema is imported outside its allowlist: ${offenders.join(', ')}. ` +
-        'Reach the token through InstagramAccountTokenService (IA5).',
+      `the channel connection token schema is imported outside its allowlist: ${offenders.join(', ')}. ` +
+        'Reach the token through ChannelConnectionTokenService (MC9).',
     ).toEqual([]);
   });
 
   it('only the allowlisted files import the token repository', () => {
     const allowed = new Set(TOKEN_REPOSITORY_IMPORTERS.map(({ file }) => file));
-    const offenders = importersOf('instagram-account-token.repository').filter(
+    const offenders = importersOf('channel-connection-token.repository').filter(
       (file) => !allowed.has(file),
     );
     expect(
       offenders,
-      `the Instagram token repository is imported outside its allowlist: ${offenders.join(', ')}. ` +
-        'Reach the token through InstagramAccountTokenService (IA5).',
+      `the channel connection token repository is imported outside its allowlist: ${offenders.join(', ')}. ` +
+        'Reach the token through ChannelConnectionTokenService (MC9).',
     ).toEqual([]);
   });
 

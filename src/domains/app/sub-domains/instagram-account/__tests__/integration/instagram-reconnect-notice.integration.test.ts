@@ -8,7 +8,6 @@ import {
   getBullMQConnectionOptions,
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
-import { encryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/membership.constants.js';
 import {
@@ -31,7 +30,7 @@ import {
   type InstagramAccountKey,
   InstagramAccountRepository,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
-import { InstagramAccountTokenRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.repository.js';
+import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import {
   INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME,
   type InstagramReconnectNoticeJobData,
@@ -52,8 +51,6 @@ import {
  * organization's language to every active member holding `instagram-account:manage`, once; a new
  * break after a reconnect is told again.
  */
-
-const DAY_MS = 86_400_000;
 
 describe('Instagram reconnect notice (IA9)', () => {
   let containers: DomainContainers;
@@ -96,16 +93,20 @@ describe('Instagram reconnect notice (IA9)', () => {
   const scope = () =>
     PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: team.organization.public_id });
 
-  /** Connects `profile` (or a new one) the way route 1's transaction does — a reconnect reuses the row. */
+  /** Connects `profile` (or a new one) the way the pick does — a reconnect reuses the row. */
   async function connectAccount(
     profile: TestInstagramProfile = buildInstagramProfile(),
   ): Promise<{ key: InstagramAccountKey; profile: TestInstagramProfile }> {
-    const expiresAt = new Date(Date.now() + 60 * DAY_MS);
+    const connection = await insertChannelConnection({
+      organizationId: team.organization.id,
+      plainToken: 'EAAG-reconnect-notice-token',
+    });
     return withAppDatabaseContext({
       scope: scope(),
       callback: async () => {
         const { account } = await new InstagramAccountRepository().upsertConnected({
           organizationId: team.organization.id,
+          channelConnectionId: connection.id,
           instagramUserId: profile.user_id,
           instagramAppUserId: profile.id,
           username: profile.username,
@@ -117,15 +118,9 @@ describe('Instagram reconnect notice (IA9)', () => {
           followsCount: 0,
           mediaCount: 0,
           scopes: [],
-          tokenExpiresAt: expiresAt,
           connectedByUserId: null,
         });
         const key = { organizationId: team.organization.id, instagramAccountId: account.id };
-        await new InstagramAccountTokenRepository().upsert({
-          ...key,
-          encryptedAccessToken: encryptFieldSecret('IGAA-reconnect-notice-token'),
-          expiresAt,
-        });
         return { key, profile };
       },
     });

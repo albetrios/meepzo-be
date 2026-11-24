@@ -5,40 +5,25 @@ import { requireOrganizationPermission } from '@/shared/utils/auth/authorization
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import type { InstagramAccountService } from './instagram-account.service.js';
 import { createInstagramAccountController } from './instagram-account.controller.js';
-import { ConnectInstagramAccountDto } from './instagram-account.dto.js';
+import { InstagramAccountQueryDto } from './instagram-account.dto.js';
 
 /**
  * Returns the Fastify plugin that registers the Instagram account routes (routes-final § 1.A),
- * mounted under `/api/v1/app`: connect (route 1), read (route 2) and disconnect (route 4) at
- * `/social/instagram/…`. The account is one per organization, so no route carries a path id.
+ * mounted under `/api/v1/app`: read (route 2) and disconnect (route 4) at `/social/instagram/…`.
+ * The launch's connect (route 1, Instagram Login) is gone (feat-instagram-dm-sending RC-6) —
+ * accounts come in through a channel connection's pick. The two routes read the organization's
+ * oldest-connected account until ROUTE row R5 names the account in the path (CA2).
  *
  * @remarks
- * Gates: `instagram-account:manage` on 1 and 4, `instagram-account:read` on 2 (1.A.4). Route 1
- * requires `X-Idempotency-Key` (K3) — merged into its `config`, never a top-level preset spread,
- * which would drop the flag. The two writes carry the organization-scoped rate limit; the read
- * rides the global limiter, as every plain authenticated read does.
+ * Gates: `instagram-account:manage` on 4, `instagram-account:read` on 2 (1.A.4). The write carries
+ * the organization-scoped rate limit; the read rides the global limiter, as every plain
+ * authenticated read does.
  */
 export function instagramAccountRoutes(service: InstagramAccountService): FastifyPluginAsync {
   const controller = createInstagramAccountController(service);
 
   return async (app) => {
     const zodApplication = app.withTypeProvider<ZodTypeProvider>();
-    zodApplication.post(
-      '/social/instagram/connect',
-      {
-        onRequest: [app.authenticate],
-        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE)],
-        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
-        schema: {
-          summary: 'Connect Instagram',
-          description:
-            'Finishes "Connect Instagram": swaps the authorization code Instagram sent to the frontend\'s callback for a long-lived token, reads the professional account\'s profile, and stores the account (connected), its default settings and its encrypted token; then subscribes it to comment, message and button-click events (a failed subscription never fails the connect). Reconnecting an account this organization had before — revoked included — reuses it and keeps its settings (is_new_connection false). Refuses a personal Instagram account, a missing permission, a code Instagram rejects, another live account in this organization and an account live in another organization; nothing is stored then. Instagram down or throttling before it took the code answers 503 instagram_unavailable with Retry-After; once the one-time code is spent it answers 409 instagram_connect_restart_required without Retry-After — nothing is stored, and only a new "Connect Instagram" helps. Team organizations only. Requires X-Idempotency-Key and INSTAGRAM_ACCOUNT_MANAGE permission.',
-          tags: ['Instagram account'],
-          body: ConnectInstagramAccountDto,
-        },
-      },
-      controller.connectInstagramAccount,
-    );
     zodApplication.get(
       '/social/instagram/account',
       {
@@ -49,6 +34,7 @@ export function instagramAccountRoutes(service: InstagramAccountService): Fastif
           description:
             "Returns the organization's connected Instagram account — connected, expired or error (a reconnect is needed) — with its profile, when its token ends, whether its webhook events are subscribed, and its settings. Never the token. Reads the database only. 404 instagram_not_connected when no account is connected (a disconnected account is never shown). Team organizations only. Requires INSTAGRAM_ACCOUNT_READ permission.",
           tags: ['Instagram account'],
+          querystring: InstagramAccountQueryDto,
         },
       },
       controller.getInstagramAccount,

@@ -30,9 +30,8 @@ export interface ChannelConnectionUsageTarget {
  * port of routes-final § 1 MC19 / MCC12.
  *
  * @remarks
- * ROUTE row R3 implements it with the connection table (S13: one row per connection, asset and
- * type) and wires it into the usage service; until then no store is registered and nothing reads
- * or records usage. `writeConnectionUsageEntries` runs in its own unit of work (never inside a
+ * Implemented by `createChannelConnectionUsagePostgresStore` over `app.channel_connection_usages` (S13:
+ * one row per connection, asset and type). `writeConnectionUsageEntries` runs in its own unit of work (never inside a
  * send's transaction) and keeps the newer `readAt` per (asset, type) — an older reading never
  * overwrites a newer one.
  */

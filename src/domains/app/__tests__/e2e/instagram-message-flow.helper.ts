@@ -10,7 +10,6 @@ import type {
 import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { AutomationPublicReplySafetyService } from '@/domains/app/sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
 import {
   type AutomationInstagramClient,
@@ -43,11 +42,10 @@ import {
 import {
   INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-  INSTAGRAM_CONNECT_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
   createInstagramTeam,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
@@ -320,17 +318,13 @@ export class InstagramMessageFlow {
   /** Connects a new Instagram account (route 1; Instagram's connect calls are nocked). */
   async connect(): Promise<void> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await this.asOwner({
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
-      payload: { code: `AQB-${generatePublicId('instagramAccount')}#_` },
-      headers: { 'x-idempotency-key': `message-flow-${randomUUID()}` },
+    const { account } = await connectInstagramAccount({
+      app: this.app,
+      token: this.team.ownerToken,
+      profile,
     });
-    expect(response.statusCode).toBe(200);
     expect(nock.pendingMocks()).toEqual([]);
-    const answer = response.json() as { data: { instagram_account: { id: string } } };
-    const publicId = answer.data.instagram_account.id;
+    const publicId = account.id;
     const rows = await readInstagramAccountRows(this.team.organization.id);
     const row = rows.find((candidate) => candidate.public_id === publicId);
     this.connectedAccount = {

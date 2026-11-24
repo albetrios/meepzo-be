@@ -9,14 +9,19 @@ import {
 } from '@/infrastructure/queue/connection.js';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  INSTAGRAM_AUTHORIZATION_BASE_URL,
   META_GRAPH_VERSION,
-  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
-  INSTAGRAM_LOGIN_GRAPH_VERSION,
   META_GRAPH_BASE_URL,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import {
+  channelConnectCallbackPath,
+  channelConnectStartPath,
+  connectInstagramAccountsThroughRoutes,
+  mockMetaLogin,
+  nextClientBusinessId,
+  readStateFromLoginUrl,
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { env, getEnv } from '@/shared/config/env.config.js';
-import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
+import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { processInstagramAccountDailyCheckJob } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
@@ -31,14 +36,10 @@ import { nextInstagramObjectId } from '@/domains/app/sub-domains/automation/auto
 import { readAccountContactRows } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
   INSTAGRAM_ACCOUNT_PATH,
-  INSTAGRAM_CONNECT_PATH,
   TEST_INSTAGRAM_LONG_LIVED_TOKEN,
-  TEST_INSTAGRAM_SHORT_LIVED_TOKEN,
-  TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
   buildInstagramProfile,
   createInstagramTeam,
   endPaidPlanWithoutPaying,
-  mockInstagramConnect,
   readInstagramAccountRows,
   readInstagramTokenCiphertexts,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
@@ -449,8 +450,8 @@ describe('Instagram acceptance across features (e2e)', () => {
     });
   });
 
-  describe('no log line holds the token, the app secret or the code (AC-2.24)', () => {
-    /** Instagram's error answer, quoting what it was sent — as an error text may. */
+  describe('no log line holds the token, the app secret or the code (AC-2.24, AC-1.18)', () => {
+    /** Meta's error answer, quoting what it was sent — as an error text may. */
     function errorAnswerQuoting({ quoted, code }: { quoted: string; code: number }) {
       return {
         error: { message: `Cannot parse ${quoted}`, type: 'OAuthException', code },
@@ -459,35 +460,18 @@ describe('Instagram acceptance across features (e2e)', () => {
       };
     }
 
-    /** The code exchange answering the short-lived token, as every connect starts. */
+    /** The code exchange answering the system-user token, as every callback starts. */
     function mockCodeExchange(): void {
-      nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-        .post('/oauth/access_token')
-        .reply(200, {
-          data: [
-            {
-              access_token: TEST_INSTAGRAM_SHORT_LIVED_TOKEN,
-              user_id: '17841400000000001',
-              permissions:
-                'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments',
-            },
-          ],
-        });
+      nock(META_GRAPH_BASE_URL)
+        .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
+        .query(true)
+        .reply(200, { access_token: TEST_INSTAGRAM_LONG_LIVED_TOKEN, token_type: 'bearer' });
     }
 
-    /** The long-lived exchange answering the token. */
-    function mockLongLivedExchange(): void {
-      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL).get('/access_token').query(true).reply(200, {
-        access_token: TEST_INSTAGRAM_LONG_LIVED_TOKEN,
-        token_type: 'bearer',
-        expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
-      });
-    }
-
-    /** The app secret the Instagram calls and Meta's signatures use. */
+    /** The app secret the Meta calls and Meta's signatures use. */
     function appSecret(): string {
       const secret = getEnv().META_APP_SECRET;
-      if (!secret) throw new Error('the test harness sets no Instagram app secret');
+      if (!secret) throw new Error('the test harness sets no Meta app secret');
       return secret;
     }
 
@@ -510,34 +494,37 @@ describe('Instagram acceptance across features (e2e)', () => {
       }
       const written = captured.lines.join('\n');
       for (const message of expectedMessages) expect(written).toContain(message);
-      for (const secret of [
-        TEST_INSTAGRAM_SHORT_LIVED_TOKEN,
-        TEST_INSTAGRAM_LONG_LIVED_TOKEN,
-        appSecret(),
-        code,
-      ]) {
+      for (const secret of [TEST_INSTAGRAM_LONG_LIVED_TOKEN, appSecret(), code]) {
         expect(written).not.toContain(secret);
         expect(written).not.toContain(encodeURIComponent(secret));
         expect(written).not.toContain(Buffer.from(secret).toString('base64'));
       }
     }
 
-    /** Connects (route 1) with `code` as a fresh team's Owner. */
-    async function connect({
+    /** Finishes a channel connection (route 2) with `code`, after route 1 minted the state. */
+    async function callback({
       code,
       token,
-      payload = { code: `${code}#_` },
+      payload,
     }: {
       code: string;
       token: string;
-      payload?: unknown;
+      payload?: (state: string) => unknown;
     }): Promise<InjectHttpResult> {
+      const start = await injectAuthenticated(app, {
+        method: 'POST',
+        url: channelConnectStartPath(),
+        token,
+      });
+      const state = readStateFromLoginUrl(
+        (start.json() as { data: { login_url: string } }).data.login_url,
+      );
       return injectAuthenticated(app, {
         method: 'POST',
-        url: INSTAGRAM_CONNECT_PATH,
+        url: channelConnectCallbackPath(),
         token,
-        payload,
-        headers: { 'x-idempotency-key': `acceptance-gaps-${randomUUID()}` },
+        payload: payload === undefined ? { code: `${code}#_`, state } : payload(state),
+        headers: { 'x-idempotency-key': `channel-connect:${state}` },
       });
     }
 
@@ -545,90 +532,79 @@ describe('Instagram acceptance across features (e2e)', () => {
       outcome: string;
       mock: (input: { code: string }) => void;
       statusCode: number;
-      payload?: (input: { code: string }) => unknown;
+      payload?: (input: { code: string; state: string }) => unknown;
     }>([
       {
-        outcome: 'a connect that works',
-        mock: () => mockInstagramConnect({ profile: buildInstagramProfile() }),
-        statusCode: 200,
-      },
-      {
-        outcome: 'a connect whose webhook subscription fails',
+        outcome: 'a callback that works',
         mock: () =>
-          mockInstagramConnect({ profile: buildInstagramProfile(), subscription: 'failure' }),
+          mockMetaLogin({
+            clientBusinessId: nextClientBusinessId(),
+            assignedAccounts: [{ id: '17841400000000001', username: 'acme.shop' }],
+          }),
         statusCode: 200,
       },
       {
-        outcome: 'a code Instagram refuses, quoting it',
+        outcome: 'a code Meta refuses, quoting it and the secret',
         mock: ({ code }) =>
-          nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-            .post('/oauth/access_token')
-            .reply(400, errorAnswerQuoting({ quoted: `${code} ${appSecret()}`, code: 400 })),
+          nock(META_GRAPH_BASE_URL)
+            .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
+            .query(true)
+            .reply(400, errorAnswerQuoting({ quoted: `${code} ${appSecret()}`, code: 100 })),
         statusCode: 422,
       },
       {
         outcome: 'a code exchange that answers no JSON but the token',
         mock: () =>
-          nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-            .post('/oauth/access_token')
-            .reply(200, TEST_INSTAGRAM_SHORT_LIVED_TOKEN),
+          nock(META_GRAPH_BASE_URL)
+            .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
+            .query(true)
+            .reply(200, TEST_INSTAGRAM_LONG_LIVED_TOKEN),
         statusCode: 503,
       },
       {
-        outcome: 'a code exchange that breaks off, naming its request body',
+        outcome: 'a code exchange that breaks off, naming its address',
         mock: ({ code }) =>
-          nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-            .post('/oauth/access_token')
+          nock(META_GRAPH_BASE_URL)
+            .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
+            .query(true)
             .replyWithError(`socket hang up after client_secret=${appSecret()}&code=${code}`),
         statusCode: 503,
       },
       {
-        outcome: 'a long-lived exchange Instagram refuses, quoting the token',
+        outcome: 'a business read Meta refuses, quoting the token',
         mock: () => {
           mockCodeExchange();
-          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-            .get('/access_token')
+          nock(META_GRAPH_BASE_URL)
+            .get(`/${META_GRAPH_VERSION}/me`)
             .query(true)
             .reply(
               400,
               errorAnswerQuoting({
-                quoted: `${TEST_INSTAGRAM_SHORT_LIVED_TOKEN} ${appSecret()}`,
+                quoted: `${TEST_INSTAGRAM_LONG_LIVED_TOKEN} ${appSecret()}`,
                 code: 190,
               }),
-            );
-        },
-        statusCode: 422,
-      },
-      {
-        outcome: 'a long-lived exchange that breaks off, naming its address',
-        mock: () => {
-          mockCodeExchange();
-          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-            .get('/access_token')
-            .query(true)
-            .replyWithError(
-              `getaddrinfo failed for ${META_GRAPH_BASE_URL}/access_token?client_secret=${appSecret()}&access_token=${TEST_INSTAGRAM_SHORT_LIVED_TOKEN}`,
             );
         },
         // The one-time code is spent: restart, never retry (D56).
         statusCode: 409,
       },
       {
-        outcome: 'a profile read that fails, quoting the token',
+        outcome: 'a business read that breaks off, naming its address',
         mock: () => {
           mockCodeExchange();
-          mockLongLivedExchange();
-          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-            .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
+          nock(META_GRAPH_BASE_URL)
+            .get(`/${META_GRAPH_VERSION}/me`)
             .query(true)
-            .reply(500, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 2 }));
+            .replyWithError(
+              `getaddrinfo failed for ${META_GRAPH_BASE_URL}/me?appsecret_proof=x&access_token=${TEST_INSTAGRAM_LONG_LIVED_TOKEN}`,
+            );
         },
         statusCode: 409,
       },
       {
-        outcome: 'a connect body with an unknown field',
+        outcome: 'a callback body with an unknown field',
         mock: () => undefined,
-        payload: ({ code }) => ({ code, state: code }),
+        payload: ({ code, state }) => ({ code, state, extra: code }),
         statusCode: 400,
       },
     ])('$outcome ($statusCode)', async ({ mock, payload, statusCode }) => {
@@ -639,26 +615,31 @@ describe('Instagram acceptance across features (e2e)', () => {
       await expectNoSecretLogged({
         code,
         act: async () => {
-          const response = await connect({
+          const response = await callback({
             code,
             token: team.ownerToken,
-            ...(payload === undefined ? {} : { payload: payload({ code }) }),
+            ...(payload === undefined ? {} : { payload: (state) => payload({ code, state }) }),
           });
           expect(response.statusCode, response.body).toBe(statusCode);
         },
-        expectedMessages: ['request.complete', INSTAGRAM_CONNECT_PATH],
+        expectedMessages: [
+          'request.complete',
+          '/api/v1/app/social/channel-connections/:provider/callback',
+        ],
       });
       expect(nock.pendingMocks()).toEqual([]);
     });
 
-    it('the daily renewal, refused and then done, and the disconnect whose unsubscribe fails', async () => {
+    it('the daily check, refused and then done, and the disconnect whose unsubscribe fails', async () => {
       const team = await createInstagramTeam();
-      const code = `AQB-${randomUUID()}`;
       const profile = buildInstagramProfile();
-      mockInstagramConnect({ profile });
-      expect((await connect({ code, token: team.ownerToken })).statusCode).toBe(200);
+      await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [{ id: profile.user_id, username: profile.username }],
+      });
       const [account] = await readInstagramAccountRows(team.organization.id);
-      /** The account's daily check a day before its token ends — the renewal is due. */
+      /** The account's daily check (no renewal since WC-35: the connection's token never ends). */
       const checkDaily = () =>
         processInstagramAccountDailyCheckJob({
           jobData: {
@@ -667,33 +648,22 @@ describe('Instagram acceptance across features (e2e)', () => {
           },
           accountService: app.appDomain.instagramAccountService,
           requestId: 'acceptance-gaps-daily-check',
-          now: new Date((account?.token_expires_at?.getTime() ?? 0) - MILLISECONDS_PER_DAY),
         });
 
       await expectNoSecretLogged({
-        code,
+        code: 'no-code-in-this-test',
         act: async () => {
-          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-            .get('/refresh_access_token')
+          nock(META_GRAPH_BASE_URL)
+            .get(`/${META_GRAPH_VERSION}/${profile.user_id}`)
             .query(true)
-            .reply(400, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 100 }))
-            .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
-            .query(true)
-            .reply(200, profile);
-          expect(await checkDaily()).toMatchObject({ outcome: 'checked', renewal: 'refused' });
+            .reply(400, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 100 }));
+          expect(await checkDaily()).toMatchObject({ outcome: 'checked', profile: 'refused' });
 
-          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-            .get('/refresh_access_token')
-            .query(true)
-            .reply(200, {
-              access_token: TEST_INSTAGRAM_LONG_LIVED_TOKEN,
-              token_type: 'bearer',
-              expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
-            })
-            .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
+          nock(META_GRAPH_BASE_URL)
+            .get(`/${META_GRAPH_VERSION}/${profile.user_id}`)
             .query(true)
             .reply(200, profile);
-          expect(await checkDaily()).toMatchObject({ outcome: 'checked', renewal: 'renewed' });
+          expect(await checkDaily()).toMatchObject({ outcome: 'checked', profile: 'refreshed' });
 
           nock(META_GRAPH_BASE_URL)
             .delete(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)

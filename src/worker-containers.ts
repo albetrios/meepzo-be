@@ -75,7 +75,10 @@ export function createDomainContainers(
     objectStorage,
   });
   // Built after the domains it reads, as `domainContainersPlugin` does for the API.
-  const appDomain = createAppContainer({ organizationService: tenancyDomain.organizationService });
+  const appDomain = createAppContainer({
+    organizationService: tenancyDomain.organizationService,
+    planAccessService: billingDomain.subscriptionService,
+  });
 
   const userDataExportRepository = new UserDataExportRepository();
   const userDataExportService = new UserDataExportService(

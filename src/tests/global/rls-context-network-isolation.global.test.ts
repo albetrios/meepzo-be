@@ -169,7 +169,7 @@ function findViolations(content: string, relativePath: string): string[] {
 describe('RLS database context network isolation (production-readiness finding #5)', () => {
   it('reads the Instagram client calls it guards', () => {
     expect(INSTAGRAM_CLIENT_CALL_NAMES).toEqual(
-      expect.arrayContaining(['exchangeInstagramAuthorizationCode', 'sendInstagramMessage']),
+      expect.arrayContaining(['listMetaAssignedInstagramAccounts', 'sendInstagramMessage']),
     );
   });
 

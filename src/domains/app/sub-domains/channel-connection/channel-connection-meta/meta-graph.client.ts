@@ -13,13 +13,9 @@ import {
   outboundFetchJsonWithHeaders,
 } from '@/infrastructure/outbound/index.js';
 import { getEnv } from '@/shared/config/env.config.js';
-import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import {
-  decryptFieldSecret,
-  encryptFieldSecret,
-} from '@/shared/utils/security/field-secret-encryption.util.js';
+import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 
 /**
  * The pinned Graph API version (routes-final § 1 MC2) — a code constant like Stripe's API version,
@@ -29,18 +25,6 @@ import {
 export const META_GRAPH_VERSION = 'v27.0';
 /** The host of every Graph call: Unified Login's code exchange and every call with a stored token. */
 export const META_GRAPH_BASE_URL = 'https://graph.facebook.com';
-/**
- * The host of the launch's Instagram Login code exchange (`/oauth/access_token`) — used only by the
- * launch's connect route, which ROUTE row R3 retires with the Unified Login callback (RC-6).
- */
-export const INSTAGRAM_AUTHORIZATION_BASE_URL = 'https://api.instagram.com';
-/**
- * The host of the launch's Instagram Login token exchange, renewal and `/me` — used only by the
- * launch's connect route and daily renewal, which ROUTE row R3 retires (RC-6, WC-35).
- */
-export const INSTAGRAM_LOGIN_GRAPH_BASE_URL = 'https://graph.instagram.com';
-/** The Graph version the launch's Instagram Login `/me` read keeps until ROUTE row R3 retires it. */
-export const INSTAGRAM_LOGIN_GRAPH_VERSION = 'v24.0';
 /** The webhook fields every connected account is subscribed to (IA12). */
 export const INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS = [
   'comments',
@@ -48,9 +32,9 @@ export const INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS = [
   'messaging_postbacks',
 ] as const;
 
-/** `/me` fields the launch's connect and daily check read with an Instagram Login token (IA12). */
+/** An Instagram professional account's profile fields (the pick's read, the profile refresh). */
 const INSTAGRAM_ACCOUNT_PROFILE_FIELDS =
-  'user_id,id,username,name,account_type,profile_picture_url,followers_count,follows_count,media_count,biography,website';
+  'id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website';
 /** Post and reel fields (schema-routes §6.2, IA16). */
 const INSTAGRAM_MEDIA_FIELDS =
   'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,comments_count,like_count,children{id,media_type,media_url}';
@@ -59,8 +43,6 @@ const INSTAGRAM_STORY_FIELDS = 'id,media_type,media_url,thumbnail_url,permalink,
 /** A person's profile and follow status in one read (contacts CQ3, the follow check). */
 const INSTAGRAM_USER_PROFILE_FIELDS =
   'name,username,profile_pic,follower_count,is_user_follow_business';
-/** What Instagram appends to the code in the redirect, not part of it (IA12). */
-const INSTAGRAM_CODE_REDIRECT_SUFFIX = '#_';
 
 /**
  * Receives Meta's usage read from one answer's headers (MC19, S13) — the channel connection's usage
@@ -344,191 +326,12 @@ function readAnswerObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/** The granted permissions: a comma-separated string or a list (Instagram has sent both). */
-function readGrantedPermissions(value: unknown): string[] {
-  let permissions: string[] = [];
-  if (Array.isArray(value)) {
-    permissions = value.filter(
-      (permission): permission is string => typeof permission === 'string',
-    );
-  } else if (typeof value === 'string') {
-    permissions = value.split(',');
-  }
-  return permissions
-    .map((permission) => permission.trim())
-    .filter((permission) => permission.length > 0);
-}
-
-/** The short-lived token of {@link exchangeInstagramAuthorizationCode}, already encrypted (IA5). */
-export interface InstagramShortLivedAccessToken {
-  /** The short-lived token, encrypted with `encryptFieldSecret`. */
-  encryptedAccessToken: string;
-  /** The permissions the person granted on Instagram's consent screen. */
-  grantedPermissions: string[];
-}
-
-/**
- * Exchanges the authorization code Instagram sent to `META_REDIRECT_URI` for a short-lived
- * token and the permissions granted (IA12 step 1).
- *
- * @remarks
- * - **Algorithm:** strips a trailing `#_` from the code, then `POST
- *   https://api.instagram.com/oauth/access_token` (form: `client_id`, `client_secret`,
- *   `grant_type=authorization_code`, `redirect_uri`, `code`); the token comes back encrypted.
- * - **Failure modes:** a setting unset → 503 `instagram_not_configured`; a bad, used or expired
- *   code → `MetaGraphApiError` `refused`; an answer without a token → `outage`.
- * - **Side effects:** one Instagram call; the code and the secret travel in the body, not the URL.
- * - **Notes:** the answer's `user_id` is not read — `/me` gives the ids as exact strings. The
- *   launch's Instagram Login exchange, kept only for its connect route until ROUTE row R3 replaces
- *   it with the Unified Login callback ({@link exchangeMetaLoginCode} in `meta-login.ts`, RC-6).
- */
-export async function exchangeInstagramAuthorizationCode({
-  code,
-  requestId,
-}: { code: string } & MetaGraphCallTracing): Promise<InstagramShortLivedAccessToken> {
-  const { appId, appSecret, redirectUri } = readMetaAppSettings();
-  const authorizationCode = code.endsWith(INSTAGRAM_CODE_REDIRECT_SUFFIX)
-    ? code.slice(0, -INSTAGRAM_CODE_REDIRECT_SUFFIX.length)
-    : code;
-  const answer = await callMetaGraph<unknown>({
-    url: new URL('/oauth/access_token', INSTAGRAM_AUTHORIZATION_BASE_URL).toString(),
-    requestId,
-    init: {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: appId,
-        client_secret: appSecret,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-        code: authorizationCode,
-      }),
-    },
-  });
-  // Flat, or wrapped in `data[0]` as Meta documents it.
-  const grant = readInstagramAnswerRecord(answer);
-  const accessToken = readAnswerText(grant.access_token);
-  if (accessToken === null) {
-    throw buildMetaGraphMalformedAnswerError({
-      operation: 'the code exchange',
-      missing: 'access_token',
-    });
-  }
-  return {
-    encryptedAccessToken: encryptFieldSecret(accessToken),
-    grantedPermissions: readGrantedPermissions(grant.permissions),
-  };
-}
-
-/** A long-lived token (about 60 days), already encrypted, and when it ends (IA5, IA12). */
-export interface InstagramLongLivedAccessToken {
-  /** The long-lived token, encrypted with `encryptFieldSecret`. */
-  encryptedAccessToken: string;
-  /** When Instagram says the token ends (`expires_in` from now). */
-  expiresAt: Date;
-}
-
-/** The answer of the long-lived exchange and of the renewal. */
-type InstagramLongLivedTokenAnswer = { access_token?: unknown; expires_in?: unknown };
-
-/** Reads a long-lived token answer: the token encrypted, `expires_in` seconds from now. */
-function readLongLivedTokenAnswer({
-  answer,
-  operation,
-}: {
-  answer: InstagramLongLivedTokenAnswer;
-  operation: string;
-}): InstagramLongLivedAccessToken {
-  const accessToken = readAnswerText(answer.access_token);
-  if (accessToken === null) {
-    throw buildMetaGraphMalformedAnswerError({ operation, missing: 'access_token' });
-  }
-  const expiresInSeconds = answer.expires_in;
-  // Number.isFinite also turns away NaN, which a plain `<= 0` would let through.
-  if (
-    typeof expiresInSeconds !== 'number' ||
-    !Number.isFinite(expiresInSeconds) ||
-    expiresInSeconds <= 0
-  ) {
-    throw buildMetaGraphMalformedAnswerError({ operation, missing: 'expires_in' });
-  }
-  return {
-    encryptedAccessToken: encryptFieldSecret(accessToken),
-    expiresAt: new Date(Date.now() + expiresInSeconds * MILLISECONDS_PER_SECOND),
-  };
-}
-
-/**
- * Exchanges a short-lived token for a long-lived one (`ig_exchange_token`, about 60 days) (IA12).
- *
- * @remarks
- * - **Algorithm:** decrypts the short-lived token right before `GET
- *   https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=…&access_token=…`
- *   (Instagram takes both only in the query); returns the new token encrypted and `expiresAt`.
- * - **Failure modes:** a setting unset → 503 `instagram_not_configured`; Instagram refusing the
- *   token → `MetaGraphApiError` `auth`; an answer without a token or `expires_in` → `outage`.
- * - **Side effects:** one Instagram call.
- * - **Notes:** the URL carries the secret and the token; any log or Sentry breadcrumb of it goes
- *   through `redactSensitiveUrl` (`access_token`, `client_secret` are redacted). Instagram Login
- *   only — ROUTE row R3 retires it with the launch's connect route (RC-6).
- */
-export async function exchangeInstagramLongLivedAccessToken({
-  encryptedShortLivedAccessToken,
-  requestId,
-}: {
-  encryptedShortLivedAccessToken: string;
-} & MetaGraphCallTracing): Promise<InstagramLongLivedAccessToken> {
-  const { appSecret } = readMetaAppSettings();
-  const url = new URL('/access_token', INSTAGRAM_LOGIN_GRAPH_BASE_URL);
-  url.searchParams.set('grant_type', 'ig_exchange_token');
-  url.searchParams.set('client_secret', appSecret);
-  url.searchParams.set('access_token', decryptFieldSecret(encryptedShortLivedAccessToken));
-  const answer = await callMetaGraph<InstagramLongLivedTokenAnswer>({
-    url: url.toString(),
-    requestId,
-  });
-  return readLongLivedTokenAnswer({ answer, operation: 'the long-lived token exchange' });
-}
-
-/**
- * Renews a long-lived token for another ~60 days (`ig_refresh_token`) — the daily check (IA8).
- *
- * @remarks
- * - **Algorithm:** decrypts the token right before `GET
- *   https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=…`
- *   (Instagram takes it only in the query); returns the new token encrypted and `expiresAt`.
- * - **Failure modes:** a dead token → `MetaGraphApiError` `auth` (`expired` for 190 / 463);
- *   Instagram down → `outage`; an answer without a token or `expires_in` → `outage`.
- * - **Side effects:** one Instagram call.
- * - **Notes:** needs no app setting. The URL carries the token; logs redact it. Instagram Login
- *   only — ROUTE row R3 retires it with the launch's daily renewal (WC-35).
- */
-export async function refreshInstagramLongLivedAccessToken({
-  encryptedAccessToken,
-  requestId,
-}: {
-  encryptedAccessToken: string;
-} & MetaGraphCallTracing): Promise<InstagramLongLivedAccessToken> {
-  const url = new URL('/refresh_access_token', INSTAGRAM_LOGIN_GRAPH_BASE_URL);
-  url.searchParams.set('grant_type', 'ig_refresh_token');
-  url.searchParams.set('access_token', decryptFieldSecret(encryptedAccessToken));
-  const answer = await callMetaGraph<InstagramLongLivedTokenAnswer>({
-    url: url.toString(),
-    requestId,
-  });
-  return readLongLivedTokenAnswer({ answer, operation: 'the token renewal' });
-}
-
-/** The connected account as `/me` describes it (IA12); an absent field is `null`. */
+/** A connected Instagram professional account as the Graph API describes it; an absent field is `null`. */
 export interface InstagramAccountProfile {
-  /** `user_id` — the professional account's Instagram id (`instagram_user_id`, webhook `entry.id`). */
+  /** The Instagram user id (`instagram_user_id`, webhook `entry.id`, the Graph path id). */
   instagramUserId: string;
-  /** `id` — the app-scoped id the Graph calls take (`instagram_app_user_id`). */
-  instagramAppUserId: string;
   username: string | null;
   name: string | null;
-  /** `BUSINESS`, `MEDIA_CREATOR` or `PERSONAL`, as Instagram sends it. */
-  accountType: string | null;
   profilePictureUrl: string | null;
   followersCount: number | null;
   followsCount: number | null;
@@ -538,47 +341,46 @@ export interface InstagramAccountProfile {
 }
 
 /**
- * Reads the connected account's `/me` profile (IA12 — the connect and the daily refresh).
+ * Reads one Instagram professional account's profile with its connection's token
+ * (`GET /{instagram_user_id}`, routes-final § 1 MC7 — the pick's profile read; MC10 — the profile
+ * refresh, P17).
  *
  * @remarks
- * - **Algorithm:** `GET https://graph.instagram.com/v24.0/me?fields=user_id,id,username,name,account_type,profile_picture_url,
- *   followers_count,follows_count,media_count,biography,website` with the token in the
- *   `Authorization` header. The profile is read from `data[0]` when the answer wraps it in a
- *   non-empty `data` list, else from the flat body (D33 — Meta documents both).
- * - **Failure modes:** `MetaGraphApiError` (`auth` for a dead token); an answer without `user_id`
- *   or `id` → `outage`.
- * - **Side effects:** one Instagram call.
- * - **Notes:** the profile is the organization's business data, not a secret. An Instagram Login
- *   call of the launch's connect and daily check, on the Instagram Login host; ROUTE row R3 retires
- *   it with them (RC-6, WC-35) — the connection reads an account through `GET /{instagram_user_id}`.
+ * - **Algorithm:** one Graph read on `graph.facebook.com` with the token in `Authorization` and
+ *   `appsecret_proof`, fields `id,username,name,profile_picture_url,followers_count,follows_count,
+ *   media_count,biography,website`; the profile is read from the flat body or `data[0]` (D33).
+ * - **Failure modes:** `MetaGraphApiError` (`auth` for a dead token); an answer without `id` →
+ *   `outage`.
+ * - **Side effects:** one Meta call; its usage goes to `recordUsage`.
+ * - **Notes:** replaces the launch's Instagram Login `/me` read (RC-6, WC-35); the profile is the
+ *   organization's business data, not a secret.
  */
 export async function readInstagramAccountProfile({
   encryptedAccessToken,
+  instagramUserId,
   requestId,
-}: { encryptedAccessToken: string } & MetaGraphCallTracing): Promise<InstagramAccountProfile> {
+  recordUsage,
+}: {
+  encryptedAccessToken: string;
+  instagramUserId: string;
+} & MetaGraphCallTracing): Promise<InstagramAccountProfile> {
   const answer = readInstagramAnswerRecord(
-    await callMetaGraph<unknown>({
-      url: buildMetaGraphUrl({
-        path: 'me',
-        query: { fields: INSTAGRAM_ACCOUNT_PROFILE_FIELDS },
-        baseUrl: INSTAGRAM_LOGIN_GRAPH_BASE_URL,
-        version: INSTAGRAM_LOGIN_GRAPH_VERSION,
-      }),
-      init: { headers: { Authorization: `Bearer ${decryptFieldSecret(encryptedAccessToken)}` } },
+    await callMetaGraphWithToken<unknown>({
+      encryptedAccessToken,
+      path: encodeURIComponent(instagramUserId),
+      query: { fields: INSTAGRAM_ACCOUNT_PROFILE_FIELDS },
       requestId,
+      recordUsage,
     }),
   );
-  const instagramUserId = readAnswerId(answer.user_id);
-  const instagramAppUserId = readAnswerId(answer.id);
-  if (instagramUserId === null || instagramAppUserId === null) {
-    throw buildMetaGraphMalformedAnswerError({ operation: '/me', missing: 'user_id or id' });
+  const answeredUserId = readAnswerId(answer.id);
+  if (answeredUserId === null) {
+    throw buildMetaGraphMalformedAnswerError({ operation: '/{instagram_user_id}', missing: 'id' });
   }
   return {
-    instagramUserId,
-    instagramAppUserId,
+    instagramUserId: answeredUserId,
     username: readAnswerText(answer.username),
     name: readAnswerText(answer.name),
-    accountType: readAnswerText(answer.account_type),
     profilePictureUrl: readAnswerText(answer.profile_picture_url),
     followersCount: readAnswerCount(answer.followers_count),
     followsCount: readAnswerCount(answer.follows_count),

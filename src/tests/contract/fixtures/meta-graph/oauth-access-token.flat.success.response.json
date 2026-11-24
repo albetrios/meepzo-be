@@ -1,9 +1,0 @@
-{
-  "access_token": "IGAA-contract-fixture-short-lived-access-token",
-  "user_id": 8724123456789012,
-  "permissions": [
-    "instagram_business_basic",
-    "instagram_business_manage_messages",
-    "instagram_business_manage_comments"
-  ]
-}

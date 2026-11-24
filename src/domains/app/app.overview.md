@@ -13,10 +13,13 @@ What it owns today: the routes plugin (`app.routes.ts`, mounted by `src/routes.t
 (`app.container.ts`, decorated as `app.appDomain` by `domain-containers.plugin.ts`), the seed module
 (`seed/index.ts`, registered in `SEED_MODULES`), the permission codes (`app.permissions.ts`), the schema
 `app` (`appSchema` in `src/infrastructure/database/pg-schemas.ts`, created by
-`migrations/20261121050908_app_schema.sql`) and the first sub-domain, the Instagram account (routes 1–8,
-Meta's PUBLIC deauthorize and data-deletion callbacks included;
-the tables `app.instagram_accounts`, `app.instagram_account_tokens` and
-`app.instagram_account_settings`, created by `migrations/20261121064529_app_instagram_account.sql`, and
+`migrations/20261121050908_app_schema.sql`), the channel connection (feat-instagram-dm-sending routes
+1–5, 40 and 42 — start, callback, reconnect, pick, list, one, disconnect business; the tables
+`app.channel_connections`, `app.channel_connection_tokens` and `app.channel_connection_usages`) and the
+Instagram account (routes 2–8, Meta's PUBLIC deauthorize and data-deletion callbacks included; the
+launch's connect route 1 retired with Instagram Login, RC-6; the tables `app.instagram_accounts` and
+`app.instagram_account_settings` — the channel and Instagram tables created by
+`migrations/20261121064529_app_instagram_account.sql` — and
 `app.instagram_media`, created by `migrations/20261121094404_app_instagram_media.sql`), the contacts
 (routes 9 and 10; the table `app.contacts`, created by `migrations/20261121094503_app_contacts.sql`), the
 automations (routes 11–15 and the 15-minute "next post" expiry; the table `app.automations`, created by
@@ -63,8 +66,8 @@ calls Meta, and the only code that decrypts a Meta token).
 - **A read-only plan stops the automation writes only** (AQ8, D27): `app-plan-access.ts` builds the
   preHandler (`SubscriptionService.assertOrganizationWritable`, `403 organization_read_only`) that
   `app.routes.ts` attaches to routes 12, 14 and 15; the domain's other writes stay open.
-- **The Instagram token stays ciphertext** outside the Instagram client (IA5) — pinned by
-  `sub-domains/instagram-account/__tests__/unit/instagram-account-token-isolation.policy.unit.test.ts`.
+- **The channel connection's token stays ciphertext** outside the Meta client (IA5, MC9) — pinned by
+  `sub-domains/channel-connection/__tests__/unit/channel-connection-token-isolation.policy.unit.test.ts`.
 - **A deleted organization's Instagram account is erased at once** (D54): tenancy's organization
   delete calls `InstagramAccountErasureService.eraseForOrganizationOffboarding` through its
   offboarding port before the soft delete — unsubscribed (best effort), revoked, token, profile and

@@ -10,7 +10,6 @@ import {
 import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { resetEnvCacheForTests } from '@/shared/config/env.config.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
@@ -23,12 +22,11 @@ import {
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
   INSTAGRAM_ACCOUNT_PATH,
-  INSTAGRAM_CONNECT_PATH,
   TEST_INSTAGRAM_LONG_LIVED_TOKEN,
   buildInstagramProfile,
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
   type InstagramTeamFixture,
@@ -155,20 +153,12 @@ describe('Instagram media routes (post and story pickers)', () => {
     await metaGraphCircuit.reset();
   });
 
-  /** Connects a fresh Instagram account for `fixture` through route 1 and returns its profile. */
+  /** Connects a fresh Instagram account for `fixture` (start, callback, pick) and returns its profile. */
   async function connectAccount(
     fixture: InstagramTeamFixture = team,
   ): Promise<TestInstagramProfile> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await injectAuthenticated(app, {
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
-      token: fixture.ownerToken,
-      payload: { code: 'AQB-test-authorization-code#_' },
-      headers: { 'x-idempotency-key': `ig-connect-${generatePublicId('instagramAccount')}` },
-    });
-    expect(response.statusCode).toBe(200);
+    await connectInstagramAccount({ app, token: fixture.ownerToken, profile });
     return profile;
   }
 

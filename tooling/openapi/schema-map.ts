@@ -95,8 +95,12 @@ import {
   UpdateWebhookDto,
 } from '@/domains/notify/sub-domains/webhook/webhook.dto.js';
 
+// ─── App: channel connection ───────────────────────────────────────────
+import {
+  channelAccountPickDto,
+  channelConnectCallbackDto,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
 // ─── App: Instagram account ────────────────────────────────────────────
-import { ConnectInstagramAccountDto } from '@/domains/app/sub-domains/instagram-account/instagram-account.dto.js';
 import { UpdateInstagramAccountSettingsDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.dto.js';
 import { MetaSignedRequestDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.dto.js';
 
@@ -187,8 +191,11 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'PUT /api/v1/users/me/avatar': UploadAvatarDto,
   'POST /api/v1/users/me/data-export': exportUserDataBodyDto,
 
+  // ── App: channel connection ──
+  'POST /api/v1/app/social/channel-connections/{provider}/callback': channelConnectCallbackDto,
+  'POST /api/v1/app/social/channel-connections/{channel_connection_id}/accounts':
+    channelAccountPickDto,
   // ── App: Instagram account ──
-  'POST /api/v1/app/social/instagram/connect': ConnectInstagramAccountDto,
   'PATCH /api/v1/app/social/instagram/account/settings': UpdateInstagramAccountSettingsDto,
   // Meta's callbacks (routes 7–8): form-encoded, not JSON — see FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.
   'POST /api/v1/app/social/instagram/deauthorize': MetaSignedRequestDto,

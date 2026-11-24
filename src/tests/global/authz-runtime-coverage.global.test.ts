@@ -70,6 +70,22 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   'GET /api/v1/app/automations/:automation_id': 'cross-organization-resource: automation',
   'PATCH /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation PATCH',
   'DELETE /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation DELETE',
+  // feat-instagram-dm-sending R3: channel-connection.integration.test.ts reads, reconnects, picks
+  // and disconnects another organization's connection → 404 channel_connection_not_found with the
+  // row and token unchanged; a login state another organization started is refused (400) and
+  // nothing is saved; start mints a state bound to the caller's own organization only.
+  'GET /api/v1/app/social/channel-connections/:channel_connection_id':
+    'cross-organization-resource: channel connection',
+  'DELETE /api/v1/app/social/channel-connections/:channel_connection_id':
+    'cross-organization-mutation: channel connection DELETE',
+  'POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts':
+    'cross-organization-mutation: channel connection pick',
+  'POST /api/v1/app/social/channel-connections/:channel_connection_id/reconnect':
+    'cross-organization-mutation: channel connection reconnect',
+  'POST /api/v1/app/social/channel-connections/:provider/callback':
+    'cross-organization-mutation: channel connect state of another organization',
+  'POST /api/v1/app/social/channel-connections/:provider/start':
+    'cross-organization-resource: the state is bound to the caller organization',
   'PATCH /api/v1/tenancy/organization/notification-policies/:notification_policy_id':
     'cross-organization-mutation: notification policy PATCH',
   'DELETE /api/v1/tenancy/organization/notification-policies/:notification_policy_id':

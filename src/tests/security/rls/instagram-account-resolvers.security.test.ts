@@ -14,7 +14,8 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
-import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
+import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
+import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 
 /**
@@ -52,8 +53,28 @@ const INSTAGRAM_APP_USER = {
   unknown: '90000000000000099',
 } as const;
 
+/** One channel connection per organization, with a placeholder token (MC9). */
+async function insertConnection(organizationId: number): Promise<{ id: number }> {
+  const [connection] = await database
+    .insert(channel_connections)
+    .values({
+      public_id: generatePublicId('channelConnection'),
+      organization_id: organizationId,
+      client_business_id: `555${organizationId}`,
+      config_id: '1234567890',
+    })
+    .returning({ id: channel_connections.id });
+  await database.insert(channel_connection_tokens).values({
+    organization_id: organizationId,
+    channel_connection_id: connection!.id,
+    encrypted_access_token: `v1:security-test-placeholder-${organizationId}`,
+  });
+  return connection!;
+}
+
 async function insertAccount(options: {
   organizationId: number;
+  channelConnectionId: number;
   instagramUserId: string;
   instagramAppUserId: string;
   isRevoked: boolean;
@@ -63,6 +84,7 @@ async function insertAccount(options: {
     .values({
       public_id: generatePublicId('instagramAccount'),
       organization_id: options.organizationId,
+      channel_connection_id: options.channelConnectionId,
       instagram_user_id: options.instagramUserId,
       instagram_app_user_id: options.instagramAppUserId,
       username: `account_${options.instagramUserId.slice(-2)}`,
@@ -86,38 +108,31 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
     organizationA = await createTestOrganization({ ownerUserId: (await createTestUser()).id });
     organizationB = await createTestOrganization({ ownerUserId: (await createTestUser()).id });
 
+    const connectionInA = await insertConnection(organizationA.id);
+    const connectionInB = await insertConnection(organizationB.id);
     // A: one connected account, and a revoked row of the Instagram account B now holds.
-    const accountInA = await insertAccount({
+    await insertAccount({
       organizationId: organizationA.id,
+      channelConnectionId: connectionInA.id,
       instagramUserId: INSTAGRAM_USER.onlyInA,
       instagramAppUserId: INSTAGRAM_APP_USER.onlyInA,
       isRevoked: false,
     });
     await insertAccount({
       organizationId: organizationA.id,
+      channelConnectionId: connectionInA.id,
       instagramUserId: INSTAGRAM_USER.revokedInAConnectedInB,
       instagramAppUserId: INSTAGRAM_APP_USER.revokedInAConnectedInB,
       isRevoked: true,
     });
     // B: that Instagram account, connected.
-    const accountInB = await insertAccount({
+    await insertAccount({
       organizationId: organizationB.id,
+      channelConnectionId: connectionInB.id,
       instagramUserId: INSTAGRAM_USER.revokedInAConnectedInB,
       instagramAppUserId: INSTAGRAM_APP_USER.revokedInAConnectedInB,
       isRevoked: false,
     });
-    await database.insert(instagram_account_tokens).values([
-      {
-        organization_id: organizationA.id,
-        instagram_account_id: accountInA.id,
-        encrypted_access_token: 'v1:security-test-placeholder-a',
-      },
-      {
-        organization_id: organizationB.id,
-        instagram_account_id: accountInB.id,
-        encrypted_access_token: 'v1:security-test-placeholder-b',
-      },
-    ]);
   });
 
   it('control: a plain read under organization A sees none of B’s rows, and nothing without a context', async () => {
@@ -235,14 +250,14 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
     expect(functions.map((entry) => entry.returns_set)).toEqual([false, true]);
   });
 
-  it('IA5: the retention sweep context sees every account but no token', async () => {
+  it('MC9: the retention sweep context sees every account but no connection token', async () => {
     const counts = await withMaintenanceDatabaseContext({
       scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
       callback: async (databaseHandle) =>
         rowsOf<{ accounts: number; tokens: number }>(
           await databaseHandle.execute(drizzleSql`
             SELECT (SELECT count(*)::int FROM app.instagram_accounts) AS accounts,
-                   (SELECT count(*)::int FROM app.instagram_account_tokens) AS tokens
+                   (SELECT count(*)::int FROM app.channel_connection_tokens) AS tokens
           `),
         ),
       options: { useMaintenanceDatabaseRole: true },
@@ -255,7 +270,7 @@ describe('Security: Instagram account resolvers and token isolation (IA5, IA6) a
       async (transaction) =>
         rowsOf<{ organization_id: number }>(
           await transaction.execute(
-            drizzleSql`SELECT organization_id FROM app.instagram_account_tokens`,
+            drizzleSql`SELECT organization_id FROM app.channel_connection_tokens`,
           ),
         ),
     );

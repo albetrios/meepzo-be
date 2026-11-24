@@ -1,3 +1,4 @@
+import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
@@ -65,6 +66,7 @@ describe('InstagramMediaService stored posts (database)', () => {
     otherOrganizationId = otherOrganization.id;
     scope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organization.public_id });
     otherScope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: otherOrganization.public_id });
+    const channelConnection = await insertChannelConnection({ organizationId: organization.id });
     const { account } = await withAppDatabaseContext({
       scope,
       callback: () =>
@@ -81,7 +83,7 @@ describe('InstagramMediaService stored posts (database)', () => {
           followsCount: 0,
           mediaCount: 0,
           scopes: [],
-          tokenExpiresAt: new Date(),
+          channelConnectionId: channelConnection.id,
           connectedByUserId: null,
         }),
     });

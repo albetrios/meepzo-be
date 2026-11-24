@@ -54,25 +54,6 @@ export interface InstagramAccountOutput {
   updated_at: string;
 }
 
-/** The Instagram connect result (routes-final § 1.A.6) — route 1. */
-export interface InstagramConnectResultOutput {
-  /** `false` when this organization had this Instagram account before, in any status. */
-  is_new_connection: boolean;
-  instagram_account: InstagramAccountOutput;
-}
-
-/** Input of {@link InstagramAccountService.connect}. */
-export interface InstagramAccountConnectInput {
-  /** The caller's organization scope (the signed `org` claim). */
-  scope: OrganizationPrincipalDatabaseScope;
-  /** The validated authorization code (`#_` still on — the Instagram client strips it). */
-  code: string;
-  /** `usr_…` of the connecting user; `undefined` for an API-key principal. */
-  connectedByUserPublicId: string | undefined;
-  /** The request id, sent to Instagram as `X-Request-Id`. */
-  requestId: string;
-}
-
 /** Input of {@link InstagramAccountService.disconnect}. */
 export interface InstagramAccountDisconnectInput {
   scope: OrganizationPrincipalDatabaseScope;

@@ -40,7 +40,7 @@ export interface ChannelConnectStatePayload {
  *   state was not stored).
  * - **Side effects:** one Redis key.
  * - **Notes:** Redis only — short-lived login state, nothing lost if it goes (P26). A repeat mints
- *   another harmless state, so the routes need no idempotency key. ROUTE row R3 adds the routes.
+ *   another harmless state, so the routes need no idempotency key. Routes 1 and 40 call it.
  */
 export async function mintChannelConnectState({
   redis,
@@ -102,7 +102,7 @@ function parseStatePayload(raw: string): ChannelConnectStatePayload | null {
  *   `400 channel_connect_state_invalid`, nothing saved.
  * - **Side effects:** deletes the Redis key.
  * - **Notes:** the callback's network retry is answered by the idempotency replay
- *   (`channel-connect:<state>`), never by reading the state twice. ROUTE row R3 adds route 2.
+ *   (`channel-connect:<state>`), never by reading the state twice. Route 2 calls it.
  */
 export async function consumeChannelConnectState({
   redis,

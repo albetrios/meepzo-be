@@ -213,12 +213,13 @@
   "webhookUrlDnsFailed": "Could not resolve webhook URL hostname",
   "stripeNotConfigured": "Stripe is not configured",
   "channelConnectStateInvalid": "The connection could not be finished. Start connecting again.",
+  "providerCodeInvalid": "Meta did not accept this login code. It may have expired or been used already; connect again.",
+  "providerPermissionsMissing": "Some permissions Instagram needs were not granted. Connect again and allow every permission.",
+  "channelConnectionBusinessMismatch": "You logged in to a different business than the one you are reconnecting. Nothing changed.",
+  "channelConnectionNotConnected": "This business connection needs a reconnect before you can add accounts.",
+  "planAccountLimit": "Your plan has no room for these accounts. Pick fewer accounts or upgrade your plan.",
   "instagramNotConfigured": "Instagram is not configured",
   "instagramUnavailable": "Instagram is temporarily unavailable. Please try again later.",
-  "instagramCodeInvalid": "Instagram did not accept this connection code. It may have expired or been used already; connect Instagram again.",
-  "instagramAccountNotProfessional": "This Instagram account is a personal account. Switch it to a professional (business or creator) account, then connect it again.",
-  "instagramScopesMissing": "A permission Instagram automation needs was not granted. Connect Instagram again and allow every permission it asks for.",
-  "organizationAlreadyHasInstagramAccount": "This organization already has a connected Instagram account. Disconnect it before connecting another one.",
   "instagramAccountConnectedElsewhere": "This Instagram account is connected to another organization. Disconnect it there first.",
   "instagramConnectRestartRequired": "Instagram stopped answering while it was being connected, and nothing was connected. Start \"Connect Instagram\" again.",
   "instagramSignedRequestInvalid": "The Meta signed request is missing or invalid",
@@ -281,6 +282,7 @@
     "Team organization": "Team organization",
     "Instagram account": "Instagram account",
     "Contact": "Contact",
-    "Automation": "Automation"
+    "Automation": "Automation",
+    "Channel connection": "Channel connection"
   }
 }

@@ -33,15 +33,20 @@ const APP_PREFIX = `${buildPublicApiPrefix(PUBLIC_API_VERSION_SEGMENT_V1)}/app`;
  */
 describe('app domain wiring', () => {
   const organizationService = {} as OrganizationService;
+  const planAccessService = { getPlanAccess: vi.fn() };
 
   it('registerAppContainer decorates appDomain with the Instagram account, contact, automation, run engine and webhook services', async () => {
     const application = Fastify();
     application.decorate('tenancyDomain', { organizationService } as never);
+    application.decorate('billingDomain', { subscriptionService: planAccessService } as never);
     registerAppContainer(application);
 
     expect(Object.keys(application.appDomain).sort()).toEqual([
       'automationRunService',
       'automationService',
+      'channelConnectionService',
+      'channelConnectionTokenService',
+      'channelConnectionUsageService',
       'contactService',
       'instagramAccountErasureService',
       'instagramAccountMetaCallbackService',
@@ -60,7 +65,8 @@ describe('app domain wiring', () => {
     );
     expect(application.appDomain.instagramWebhookService).toBeInstanceOf(InstagramWebhookService);
     expect(
-      createAppContainer({ organizationService }).instagramAccountSettingsService,
+      createAppContainer({ organizationService, planAccessService })
+        .instagramAccountSettingsService,
     ).toBeInstanceOf(InstagramAccountSettingsService);
     expect(application.appDomain.instagramMediaService).toBeInstanceOf(InstagramMediaService);
     // Tenancy's organization delete calls it through its offboarding port (D54).
@@ -78,7 +84,10 @@ describe('app domain wiring', () => {
     application.setValidatorCompiler(validatorCompiler);
     application.setSerializerCompiler(serializerCompiler);
     application.decorate('authenticate', async () => undefined);
-    application.decorate('appDomain', createAppContainer({ organizationService }));
+    application.decorate(
+      'appDomain',
+      createAppContainer({ organizationService, planAccessService }),
+    );
     // The automation writes' read-only guard reads billing's subscription service (AQ8).
     application.decorate('billingDomain', {
       subscriptionService: { assertOrganizationWritable: vi.fn() },
@@ -94,10 +103,13 @@ describe('app domain wiring', () => {
     expect(registeredRoutes.sort()).toEqual([
       `DELETE ${APP_PREFIX}/automations/:automation_id`,
       `DELETE ${APP_PREFIX}/contacts/:contact_id`,
+      `DELETE ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
       `DELETE ${APP_PREFIX}/social/instagram/account`,
       `GET ${APP_PREFIX}/automations`,
       `GET ${APP_PREFIX}/automations/:automation_id`,
       `GET ${APP_PREFIX}/contacts`,
+      `GET ${APP_PREFIX}/social/channel-connections`,
+      `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
       `GET ${APP_PREFIX}/social/instagram/account`,
       `GET ${APP_PREFIX}/social/instagram/media`,
       `GET ${APP_PREFIX}/social/instagram/stories`,
@@ -106,7 +118,10 @@ describe('app domain wiring', () => {
       `PATCH ${APP_PREFIX}/automations/:automation_id`,
       `PATCH ${APP_PREFIX}/social/instagram/account/settings`,
       `POST ${APP_PREFIX}/automations`,
-      `POST ${APP_PREFIX}/social/instagram/connect`,
+      `POST ${APP_PREFIX}/social/channel-connections/:channel_connection_id/accounts`,
+      `POST ${APP_PREFIX}/social/channel-connections/:channel_connection_id/reconnect`,
+      `POST ${APP_PREFIX}/social/channel-connections/:provider/callback`,
+      `POST ${APP_PREFIX}/social/channel-connections/:provider/start`,
       `POST ${APP_PREFIX}/social/instagram/data-deletion`,
       `POST ${APP_PREFIX}/social/instagram/deauthorize`,
       `POST ${APP_PREFIX}/social/instagram/webhook`,
@@ -124,14 +139,14 @@ describe('app domain wiring', () => {
     expect(appSeedModule.name).toBe('app');
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
-    // Without organizations the Instagram account, settings, stored-posts, contact, automation,
-    // automation-run and webhook event seeders warn and write nothing.
+    // Without organizations the channel connection, Instagram account, settings, stored-posts,
+    // contact, automation, automation-run and webhook event seeders warn and write nothing.
     const warn = vi.fn();
     const context = {
       registry: createSeedRegistry(),
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(7);
+    expect(warn).toHaveBeenCalledTimes(8);
   });
 });

@@ -4,7 +4,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -15,11 +14,10 @@ import {
 import {
   INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-  INSTAGRAM_CONNECT_PATH,
   buildInstagramProfile,
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
   readStagedAuditRows,
@@ -100,19 +98,12 @@ describe('Instagram account settings route (change)', () => {
     fixture: InstagramTeamFixture = team,
   ): Promise<{ id: string; profile: TestInstagramProfile; settings: SettingsAnswer }> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await injectAuthenticated(app, {
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
+    const { account } = await connectInstagramAccount({
+      app,
       token: fixture.ownerToken,
-      payload: { code: 'AQB-test-authorization-code#_' },
-      headers: { 'x-idempotency-key': `ig-settings-${generatePublicId('instagramAccount')}` },
+      profile,
     });
-    expect(response.statusCode).toBe(200);
-    const account = (
-      response.json() as { data: { instagram_account: { id: string; settings: SettingsAnswer } } }
-    ).data.instagram_account;
-    return { id: account.id, profile, settings: account.settings };
+    return { id: account.id, profile, settings: account.settings as SettingsAnswer };
   }
 
   function patchSettings({

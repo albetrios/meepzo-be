@@ -345,6 +345,14 @@ fields stay in `instagram_account`, its 1:1 extension (P42).
   type) as S13 asks, behind `ChannelConnectionUsageStore`; R3 builds its Postgres store (recommended a child
   table `app.channel_connection_usages` instead of these three columns) and the Redis copy
   `app:meta_usage:<organization>:<connection>` is built (60 s, tombstoned).
+- **Built R3 ([AS-BUILT](../AS-BUILT.md), [P112](decisions.md)):** `app.channel_connections` (`public_id` prefix
+  `chc`; `provider`, `client_business_id`, `config_id`, `login_type`, `status`, `status_changed_at`, `scopes`,
+  `connected_by_user_id`, `connected_at`, `last_checked_at`, `last_check_error`, `disconnected_at`) — no
+  `usage_*` columns: the usage is the child table **`app.channel_connection_usages`** (`channel_connection_id`,
+  `asset_id`, `usage_type`, `usage_percent`, `wait_until`, `read_at`; unique per connection, asset and type, the newer
+  `read_at` wins; organization-arm RLS). Both in the account migration `20261121064529_app_instagram_account.sql`,
+  changed in place (P29). Until R5, `app.instagram_accounts.channel_connection_id` (composite FK, RESTRICT) is the
+  account → connection link ([P111](decisions.md)).
 - **Table:** `app.channel_connections` ([P41](decisions.md); was `app.meta_connections`, P38)
 - **Sources:** plan:L3517–L3553 (columns, rules), plan:L3998–L4013 (status), plan:L4528–L4575 (connect),
   plan:L876–L880 (ads picker), plan:L4695–L4705 (Meta's callbacks).
@@ -394,6 +402,9 @@ erDiagram
   `token_type`: `system_user` (Meta today) · `oauth_user` (P49). One per connection; deleted only when the
   connection is `revoked`. Read only on the provider client's path — never in a cache, a log or a job
   payload. No public id. Goes away with its connection.
+- **Built R3 ([AS-BUILT](../AS-BUILT.md)):** `app.channel_connection_tokens` as designed (`channel_connection_id`,
+  `encrypted_access_token`, `token_type` `system_user` · `oauth_user`, `encrypted_refresh_token`, `expires_at`);
+  organization-arm RLS only; the secrets-key rotation walks both encrypted columns.
 - **Table:** `app.channel_connection_tokens` ([P41](decisions.md); was `app.meta_connection_tokens`,
   P38)
 - **Sources:** plan:L3555–L3574; plan:L4577 (connect writes it), plan:L4236–L4251 (organization
@@ -626,7 +637,8 @@ erDiagram
 - **Holds (before):** the account's long-lived Instagram Login token, encrypted, renewed daily before
   its 60 days ran out. Removed with the daily renewal, the Instagram Login client and its app secret
   (plan:L2938).
-- **Table:** `app.instagram_account_tokens` (live) — removed
+- **Table:** `app.instagram_account_tokens` (live) — removed (**built R3**: dropped from the account migration in
+  place, with its schema, repository, service and tests)
 - **Sources:** plan:L2938, plan:L8458; current schema
   `src/domains/app/sub-domains/instagram-account/instagram-account-token.schema.ts`.
 - **Added:** none.

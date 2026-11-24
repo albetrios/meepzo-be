@@ -15,7 +15,8 @@ import {
   InstagramAccountRepository,
   type InstagramAccountConnectValues,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
-import { InstagramAccountTokenRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.repository.js';
+import { ChannelConnectionTokenRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.repository.js';
+import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { INSTAGRAM_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 
 /**
@@ -29,12 +30,16 @@ const OTHER_INSTAGRAM_USER_ID = '17841400000000002';
 
 type TestOrganization = { id: number; public_id: string };
 
+/** Each test organization's channel connection (P111: every account names one). */
+const channelConnectionIds = new Map<number, number>();
+
 function connectValues(
   organization: TestOrganization,
   overrides: Partial<InstagramAccountConnectValues> = {},
 ): InstagramAccountConnectValues {
   return {
     organizationId: organization.id,
+    channelConnectionId: channelConnectionIds.get(organization.id) as number,
     instagramUserId: INSTAGRAM_USER_ID,
     instagramAppUserId: `9${INSTAGRAM_USER_ID}`,
     username: 'meepzo_shop',
@@ -46,7 +51,6 @@ function connectValues(
     followsCount: 15,
     mediaCount: 42,
     scopes: ['instagram_business_basic', 'instagram_business_manage_messages'],
-    tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
     connectedByUserId: null,
     ...overrides,
   };
@@ -81,6 +85,10 @@ describe('InstagramAccountRepository (database)', () => {
     userId = user.id;
     organization = await createTestOrganization({ ownerUserId: user.id });
     otherOrganization = await createTestOrganization({ ownerUserId: (await createTestUser()).id });
+    for (const each of [organization, otherOrganization]) {
+      const connection = await insertChannelConnection({ organizationId: each.id });
+      channelConnectionIds.set(each.id, connection.id);
+    }
   });
 
   it('inserts a first connect as a new connection with an iga_ public id', async () => {
@@ -155,24 +163,66 @@ describe('InstagramAccountRepository (database)', () => {
     );
   });
 
-  it('refuses a second not-revoked account in one organization (D5)', async () => {
+  it('keeps several not-revoked accounts in one organization, counted by organization and connection (D26)', async () => {
     await inOrganization(organization, () =>
       repository.upsertConnected(connectValues(organization)),
     );
-    const error = await captureError(() =>
-      inOrganization(organization, () =>
-        repository.upsertConnected(
-          connectValues(organization, {
-            instagramUserId: OTHER_INSTAGRAM_USER_ID,
-            instagramAppUserId: `9${OTHER_INSTAGRAM_USER_ID}`,
-          }),
-        ),
+    await inOrganization(organization, () =>
+      repository.upsertConnected(
+        connectValues(organization, {
+          instagramUserId: OTHER_INSTAGRAM_USER_ID,
+          instagramAppUserId: OTHER_INSTAGRAM_USER_ID,
+        }),
       ),
     );
-    expect(getPostgresErrorCode(error)).toBe('23505');
-    expect(getPostgresConstraintName(error)).toBe(
-      INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.organizationLive,
+    await expect(
+      inOrganization(organization, () => repository.countLiveByOrganizationId(organization.id)),
+    ).resolves.toBe(2);
+    await expect(
+      inOrganization(organization, () =>
+        repository.countLiveByConnection({
+          organizationId: organization.id,
+          channelConnectionId: channelConnectionIds.get(organization.id) as number,
+        }),
+      ),
+    ).resolves.toBe(2);
+  });
+
+  it('attaches a not-revoked account to another connection and leaves a revoked one (MC6)', async () => {
+    const { account } = await inOrganization(organization, () =>
+      repository.upsertConnected(connectValues(organization)),
     );
+    await inOrganization(organization, () =>
+      repository.markConnectionBroken({
+        organizationId: organization.id,
+        instagramAccountId: account.id,
+        connectionStatus: 'error',
+      }),
+    );
+    const moved = await insertChannelConnection({ organizationId: organization.id });
+    const attached = await inOrganization(organization, () =>
+      repository.attachToConnection({
+        organizationId: organization.id,
+        instagramAccountId: account.id,
+        channelConnectionId: moved.id,
+      }),
+    );
+    expect(attached).toMatchObject({
+      channel_connection_id: moved.id,
+      connection_status: 'connected',
+    });
+    await inOrganization(organization, () =>
+      repository.revoke({ organizationId: organization.id, instagramAccountId: account.id }),
+    );
+    await expect(
+      inOrganization(organization, () =>
+        repository.attachToConnection({
+          organizationId: organization.id,
+          instagramAccountId: account.id,
+          channelConnectionId: moved.id,
+        }),
+      ),
+    ).resolves.toBeNull();
   });
 
   it('refuses an Instagram account that is not revoked in another organization', async () => {
@@ -387,22 +437,23 @@ describe('InstagramAccountRepository (database)', () => {
     ).resolves.toMatchObject({ connection_status: 'connected' });
   });
 
-  it('refuses a token that names another organization’s account (composite key)', async () => {
-    const { account } = await inOrganization(organization, () =>
-      repository.upsertConnected(connectValues(organization)),
-    );
-    const tokenRepository = new InstagramAccountTokenRepository();
+  it('refuses a token that names another organization’s connection (composite key)', async () => {
+    const tokenRepository = new ChannelConnectionTokenRepository();
     const error = await captureError(() =>
       inOrganization(otherOrganization, () =>
         tokenRepository.upsert({
           organizationId: otherOrganization.id,
-          instagramAccountId: account.id,
+          channelConnectionId: channelConnectionIds.get(organization.id) as number,
           encryptedAccessToken: 'v1:composite-key-placeholder',
-          expiresAt: new Date(),
+          encryptedRefreshToken: null,
+          tokenType: 'system_user',
+          expiresAt: null,
         }),
       ),
     );
     expect(getPostgresErrorCode(error)).toBe('23503');
-    expect(getPostgresConstraintName(error)).toBe('instagram_account_tokens_instagram_account_fk');
+    expect(getPostgresConstraintName(error)).toBe(
+      'channel_connection_tokens_channel_connection_fk',
+    );
   });
 });

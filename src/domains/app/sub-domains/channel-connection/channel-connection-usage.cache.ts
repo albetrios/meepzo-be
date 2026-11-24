@@ -158,7 +158,7 @@ export async function setCachedChannelConnectionUsage({
  *   minute out of date is not a security fault, so no Sentry report.
  * - **Side effects:** one short-lived Redis key.
  * - **Notes:** the one writer is the usage service's recorder (after each Meta answer). A
- *   connection's revoke (route 5, ROUTE row R3) leaves the entry to its TTL — nothing calls Meta on
+ *   connection's revoke (route 5) leaves the entry to its TTL — nothing calls Meta on
  *   a revoked connection.
  */
 export async function invalidateCachedChannelConnectionUsage(key: {

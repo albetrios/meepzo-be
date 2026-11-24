@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  serializeInstagramAccount,
-  serializeInstagramConnectResult,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account.serializer.js';
+import { serializeInstagramAccount } from '@/domains/app/sub-domains/instagram-account/instagram-account.serializer.js';
 import { serializeInstagramAccountSettings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.serializer.js';
-import { responseBodyContainsSecretFields } from '@/shared/utils/idempotency/idempotency-fingerprint.util.js';
 
 const timestamp = new Date('2026-11-21T09:00:00.000Z');
 
@@ -103,40 +99,5 @@ describe('serializeInstagramAccount', () => {
     expect(output).not.toHaveProperty('organization_id');
     expect(output).not.toHaveProperty('instagram_app_user_id');
     expect(output.id).toBe('iga_k7x9m2pqr4w8n1v3a1b2c');
-  });
-});
-
-describe('serializeInstagramConnectResult', () => {
-  it('wraps the account with whether it is a new connection', () => {
-    const instagramAccount = serializeInstagramAccount({
-      account: buildRow(),
-      settings,
-      connected_by_user_public_id: null,
-    });
-
-    expect(
-      serializeInstagramConnectResult({
-        is_new_connection: false,
-        instagram_account: instagramAccount,
-      }),
-    ).toEqual({ is_new_connection: false, instagram_account: instagramAccount });
-  });
-
-  it('names no token or secret, so the idempotency layer stores it and a repeated key replays it (K3, D35)', () => {
-    const connectResult = serializeInstagramConnectResult({
-      is_new_connection: true,
-      instagram_account: serializeInstagramAccount({
-        account: buildRow({ webhook_subscribed_at: timestamp }),
-        settings,
-        connected_by_user_public_id: 'usr_m7n2p5q8w1r4x9k3a1b2c',
-      }),
-    });
-
-    expect(connectResult.instagram_account).not.toHaveProperty('token_expires_at');
-    expect(
-      responseBodyContainsSecretFields(
-        JSON.stringify({ data: connectResult, meta: { request_id: 'req-test' } }),
-      ),
-    ).toBe(false);
   });
 });

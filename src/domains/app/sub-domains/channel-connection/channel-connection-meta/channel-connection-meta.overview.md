@@ -26,9 +26,10 @@ sibling folder (`channel-connection-<provider>/`).
 
 - **One version, pinned in code**: `META_GRAPH_VERSION = 'v27.0'` on `graph.facebook.com`, a code constant like
   Stripe's API version — it does not vary by environment, so it is not an env var (P4).
-- **The launch's Instagram Login stays until ROUTE row R3**: the launch's connect route and daily renewal still call
-  Instagram Login (`api.instagram.com` code exchange, `graph.instagram.com` token exchange, renewal and `/me` on
-  `v24.0`); those four calls keep their own hosts and leave with RC-6 and WC-35 in R3.
+- **No Instagram Login is left** (ROUTE row R3, RC-6, WC-35, AC-1.17): the launch's code exchange, token exchange,
+  renewal and `/me` on `api.instagram.com` / `graph.instagram.com` are gone with their hosts and contract fixtures. An
+  account's profile is read by its id on `graph.facebook.com` (`readInstagramAccountProfile`, the pick and the daily
+  refresh).
 - **On the outbound pattern**: every call is `outboundFetchJsonWithHeaders` on the `meta-graph` integration — a 10 s
   timeout per attempt and `metaGraphCircuit` (5 failures / 30 s), one circuit for the provider (MC2). The scale review's
   per-call-class backstop (S14) is ROUTE row R42's.

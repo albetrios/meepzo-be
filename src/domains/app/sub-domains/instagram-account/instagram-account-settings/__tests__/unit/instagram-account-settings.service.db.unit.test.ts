@@ -1,3 +1,4 @@
+import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -50,6 +51,7 @@ describe('InstagramAccountSettingsService (database)', () => {
     otherOrganizationId = otherOrganization.id;
     scope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: organization.public_id });
     otherScope = PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: otherOrganization.public_id });
+    const channelConnection = await insertChannelConnection({ organizationId: organization.id });
     const { account } = await withAppDatabaseContext({
       scope,
       callback: () =>
@@ -66,7 +68,7 @@ describe('InstagramAccountSettingsService (database)', () => {
           followsCount: 0,
           mediaCount: 0,
           scopes: [],
-          tokenExpiresAt: new Date(),
+          channelConnectionId: channelConnection.id,
           connectedByUserId: null,
         }),
     });

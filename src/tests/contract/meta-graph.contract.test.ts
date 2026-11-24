@@ -1,23 +1,24 @@
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  exchangeInstagramAuthorizationCode,
-  exchangeInstagramLongLivedAccessToken,
-  INSTAGRAM_AUTHORIZATION_BASE_URL,
   META_GRAPH_VERSION,
-  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
   META_GRAPH_BASE_URL,
   INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS,
   listInstagramMedia,
   listInstagramStories,
+  listMetaAdAccountAds,
+  listMetaAdAccounts,
+  listMetaAssignedInstagramAccounts,
   readInstagramAccountProfile,
   readInstagramMediaItem,
   readInstagramUserProfile,
-  refreshInstagramLongLivedAccessToken,
+  readMetaClientBusinessId,
+  readMetaGrantedPermissions,
   replyToInstagramComment,
   sendInstagramMessage,
   subscribeInstagramWebhookFields,
   unsubscribeInstagramWebhookFields,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { exchangeMetaLoginCode } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-login.js';
 import {
   INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
   INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
@@ -25,7 +26,6 @@ import {
   MetaGraphApiError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
-import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import {
   decryptFieldSecret,
@@ -39,7 +39,13 @@ import nock from 'nock';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
-import accessTokenSuccessFixture from './fixtures/meta-graph/access-token.success.response.json' with {
+import adAccountsSuccessFixture from './fixtures/meta-graph/ad-accounts.success.response.json' with {
+  type: 'json',
+};
+import adsSuccessFixture from './fixtures/meta-graph/ads.success.response.json' with {
+  type: 'json',
+};
+import assignedInstagramAccountsSuccessFixture from './fixtures/meta-graph/assigned-instagram-accounts.success.response.json' with {
   type: 'json',
 };
 import commentRepliesSuccessFixture from './fixtures/meta-graph/comment-replies.success.response.json' with {
@@ -69,8 +75,13 @@ import graphErrorTokenInvalidatedFixture from './fixtures/meta-graph/graph-error
 import graphErrorUnexpectedFixture from './fixtures/meta-graph/graph-error.unexpected.response.json' with {
   type: 'json',
 };
-import meSuccessFixture from './fixtures/meta-graph/me.success.response.json' with { type: 'json' };
-import meWrappedSuccessFixture from './fixtures/meta-graph/me.wrapped.success.response.json' with {
+import meSuccessFixture from './fixtures/meta-graph/instagram-account.success.response.json' with {
+  type: 'json',
+};
+import meWrappedSuccessFixture from './fixtures/meta-graph/instagram-account.wrapped.success.response.json' with {
+  type: 'json',
+};
+import meClientBusinessSuccessFixture from './fixtures/meta-graph/me-client-business.success.response.json' with {
   type: 'json',
 };
 import mediaFirstPageFixture from './fixtures/meta-graph/media.first-page.response.json' with {
@@ -88,19 +99,16 @@ import messagesSuccessFixture from './fixtures/meta-graph/messages.success.respo
 import oauthAccessTokenErrorFixture from './fixtures/meta-graph/oauth-access-token.error.response.json' with {
   type: 'json',
 };
-import oauthAccessTokenFlatSuccessFixture from './fixtures/meta-graph/oauth-access-token.flat.success.response.json' with {
-  type: 'json',
-};
-import oauthAccessTokenSuccessFixture from './fixtures/meta-graph/oauth-access-token.success.response.json' with {
-  type: 'json',
-};
-import refreshAccessTokenSuccessFixture from './fixtures/meta-graph/refresh-access-token.success.response.json' with {
+import permissionsSuccessFixture from './fixtures/meta-graph/permissions.success.response.json' with {
   type: 'json',
 };
 import storiesSuccessFixture from './fixtures/meta-graph/stories.success.response.json' with {
   type: 'json',
 };
 import subscribedAppsSuccessFixture from './fixtures/meta-graph/subscribed-apps.success.response.json' with {
+  type: 'json',
+};
+import unifiedLoginAccessTokenSuccessFixture from './fixtures/meta-graph/unified-login-access-token.success.response.json' with {
   type: 'json',
 };
 import userProfileSuccessFixture from './fixtures/meta-graph/user-profile.success.response.json' with {
@@ -111,20 +119,22 @@ import { registerThirdPartyContractTestIsolationHooks } from './helpers/register
 registerThirdPartyContractTestIsolationHooks();
 
 /**
- * The wire contract of the one Meta client (moved from the Instagram client, routes-final § 1 MC2; Graph calls on
- * `graph.facebook.com` with `appsecret_proof`, the launch's Instagram Login calls on their own hosts until ROUTE row R3) (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`,
- * IA4 / IAC4): what each call sends to `api.instagram.com` / `graph.instagram.com`, where the token
- * travels, and how Meta's real answers — success and error — are read.
+ * The wire contract of the one Meta client (routes-final § 1 MC2, re-recorded at
+ * feat-instagram-dm-sending ROUTE R3 — the Instagram Login calls, hosts and fixtures are gone, RC-6,
+ * WC-35) (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`
+ * and `meta-login.ts`): what each call sends to `graph.facebook.com`, where the token travels (only
+ * `Authorization`, with `appsecret_proof`), and how Meta's real answers — success and error — are read.
  *
  * Where each fixture's shape comes from (`fixtures/meta-graph/`):
  *
  * | Fixture | Source |
  * | --- | --- |
- * | `oauth-access-token.success` / `.error` | Business Login for Instagram, step 2 (the documented `data[0]` wrap; the error's `error_type` / `code` / `error_message`) — developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login |
- * | `oauth-access-token.flat.success` | the flat answer `api.instagram.com` sends live (numeric `user_id`, `permissions` as a list) — the reason the client reads both and never `user_id` |
- * | `access-token.success`, `refresh-access-token.success` | the same Business Login page (long-lived token, refresh) and docs/instagram-platform/reference/refresh_access_token |
- * | `me.success` | the IG User node fields (`user_id`, `id`, `username`, `account_type`, counts) — docs/instagram-platform/instagram-api-with-instagram-login/get-started; a node read answers flat |
- * | `me.wrapped.success` | the same account inside `data`, as Meta's get-started guide prints the `/me` answer — the client reads both (D33) until a test account confirms the live shape |
+ * | `unified-login-access-token.success`, `oauth-access-token.error` | Facebook Login for Business — the code exchange `GET /oauth/access_token` (`access_token`, `token_type`; a used code is Graph's `OAuthException` code 100) — developers.facebook.com/docs/facebook-login/facebook-login-for-business, docs/facebook-login/guides/advanced/manual-flow |
+ * | `me-client-business.success` | `GET /me?fields=client_business_id` of a business-integration system user token — docs/facebook-login/facebook-login-for-business (Business Integration System User access tokens) |
+ * | `assigned-instagram-accounts.success` | the system user's `assigned_instagram_accounts` edge (`id`, `username`, cursor paging) — docs/marketing-api/reference/system-user |
+ * | `permissions.success` | `GET /me/permissions` (`permission`, `status` granted / declined) — docs/graph-api/reference/user/permissions |
+ * | `ad-accounts.success`, `ads.success` | `GET /me/adaccounts` and an ad account's `/ads` with `creative{effective_instagram_media_id,thumbnail_url}` — docs/marketing-api/reference/ad-account, …/ad-account/ads, …/ad-creative |
+ * | `instagram-account.success` / `.wrapped.success` | the IG User node read by its id on `graph.facebook.com` (`id`, `username`, counts) — docs/instagram-platform/instagram-graph-api/reference/ig-user; flat, or inside `data` as Meta's guides print it (D33) |
  * | `media.first-page` / `.last-page`, `stories.success`, `media-item.success` | IG User `/media` and `/stories` edges and the IG Media node (ISO `+0000` timestamps, `children.data`) — docs/instagram-platform/instagram-graph-api/reference/ig-user/media, …/ig-user/stories; Graph's cursor paging (`paging.cursors`, `paging.next` carrying `access_token` as live answers do) — docs/graph-api/results |
  * | `subscribed-apps.success` | `POST` / `DELETE /{id}/subscribed_apps` → `{ success: true }` — docs/instagram-platform/webhooks |
  * | `messages.success` | Send Messages and Private Replies → `{ recipient_id, message_id }` — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api, docs/instagram-platform/private-replies |
@@ -133,16 +143,16 @@ registerThirdPartyContractTestIsolationHooks();
  * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `80002` (the Instagram business-use-case rate limit, subcode 2446079) — docs/graph-api/overview/rate-limiting; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the quick reply refused) — the intake's schema-routes § 6.5, no Meta page names it |
  */
 describe('Meta outbound contract (`meta-graph.client`)', () => {
-  /** The account's long-lived token in plain text — the value that must never reach a URL or a log. */
-  const ACCOUNT_ACCESS_TOKEN = 'IGAA-contract-fixture-account-access-token';
-  /** The account's app-scoped id, as `/me` `id` gives it. */
+  /** The connection's token in plain text — the value that must never reach a URL or a log. */
+  const ACCOUNT_ACCESS_TOKEN = 'EAAG-contract-fixture-account-access-token';
+  /** The account's Instagram user id — the id every Graph path takes under Unified Login. */
   const APP_USER_ID = meSuccessFixture.id;
   const GRAPH_VERSION_PATH = `/${META_GRAPH_VERSION}`;
   const MEDIA_FIELDS =
     'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,comments_count,like_count,children{id,media_type,media_url}';
   const STORY_FIELDS = 'id,media_type,media_url,thumbnail_url,permalink,timestamp';
   const ACCOUNT_PROFILE_FIELDS =
-    'user_id,id,username,name,account_type,profile_picture_url,followers_count,follows_count,media_count,biography,website';
+    'id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website';
   const LOGGER_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
 
   /** Meta's Graph error envelope (`docs/graph-api/guides/error-handling`). */
@@ -158,11 +168,10 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       })
       .loose(),
   });
-  /** Graph's long-lived token answer — the exchange and the renewal share it. */
-  const LongLivedTokenContractSchema = z.object({
+  /** The Unified Login code exchange's answer: a token that never ends (no `expires_in`, D24). */
+  const UnifiedLoginTokenContractSchema = z.object({
     access_token: z.string().min(1),
     token_type: z.literal('bearer'),
-    expires_in: z.number().int().positive(),
   });
   /** One page of an edge with Graph's cursor paging. */
   const GraphListPageContractSchema = z.object({
@@ -190,13 +199,6 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
   /** The Graph host, expecting the account's token in the `Authorization` header (IA4). */
   function graphWithAccountToken(): nock.Scope {
     return nock(META_GRAPH_BASE_URL).matchHeader('authorization', `Bearer ${ACCOUNT_ACCESS_TOKEN}`);
-  }
-
-  /** A form body as nock hands it to a matcher: already parsed, or the raw string. */
-  function readFormBody(body: unknown): Record<string, string> {
-    return typeof body === 'string'
-      ? Object.fromEntries(new URLSearchParams(body))
-      : { ...(body as Record<string, string>) };
   }
 
   /** The full URL that reached nock: a `Request` when the call used `fetch`, else a path string. */
@@ -249,187 +251,134 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
     expect(nock.pendingMocks()).toEqual([]);
   });
 
-  describe('the connect exchanges (IA12)', () => {
-    test('the code exchange posts the documented form to api.instagram.com — no token, no query, the answer encrypted', async () => {
+  describe('the Unified Login calls (MC2, MC5, MC13)', () => {
+    test('the code exchange sends the app id, secret, return page and code to graph.facebook.com and encrypts the answer', async () => {
       const environment = getEnv();
-      const shortLivedAccessToken = oauthAccessTokenSuccessFixture.data[0]?.access_token ?? '';
-      z.object({
-        data: z
-          .array(
-            z.object({
-              access_token: z.string().min(1),
-              user_id: z.string().regex(/^\d+$/),
-              permissions: z.string().min(1),
-            }),
-          )
-          .length(1),
-      }).parse(oauthAccessTokenSuccessFixture);
+      UnifiedLoginTokenContractSchema.parse(unifiedLoginAccessTokenSuccessFixture);
       let interceptedUrl = '';
-      nock(INSTAGRAM_AUTHORIZATION_BASE_URL, { badheaders: ['authorization'] })
-        .post('/oauth/access_token', (body) => {
-          expect(readFormBody(body)).toEqual({
-            client_id: environment.META_APP_ID,
-            client_secret: environment.META_APP_SECRET,
-            grant_type: 'authorization_code',
-            redirect_uri: environment.META_REDIRECT_URI,
-            code: 'AQBcontract-fixture-authorization-code',
-          });
-          return true;
+      nock(META_GRAPH_BASE_URL)
+        .get(`${GRAPH_VERSION_PATH}/oauth/access_token`)
+        .query({
+          client_id: String(environment.META_APP_ID),
+          client_secret: String(environment.META_APP_SECRET),
+          redirect_uri: String(environment.META_REDIRECT_URI),
+          code: 'AQB-contract-code',
         })
-        .matchHeader('content-type', /application\/x-www-form-urlencoded/)
         .reply(200, (interceptedUri: string) => {
-          interceptedUrl = readInterceptedUrl({
-            interceptedUri,
-            baseUrl: INSTAGRAM_AUTHORIZATION_BASE_URL,
-          });
-          return oauthAccessTokenSuccessFixture;
+          interceptedUrl = readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL });
+          return unifiedLoginAccessTokenSuccessFixture;
         });
+      const readLoggedText = recordLoggedText();
 
-      // Instagram appends `#_` to the code in the redirect; it is not part of the code.
-      const grant = await exchangeInstagramAuthorizationCode({
-        code: 'AQBcontract-fixture-authorization-code#_',
-      });
+      const token = await exchangeMetaLoginCode({ code: 'AQB-contract-code' });
 
-      // The code and the secret travel in the body only.
-      expect(new URL(interceptedUrl).search).toBe('');
-      expect(grant.encryptedAccessToken).not.toContain(shortLivedAccessToken);
-      expect(decryptFieldSecret(grant.encryptedAccessToken)).toBe(shortLivedAccessToken);
-      expect(grant.grantedPermissions).toEqual([
-        'instagram_business_basic',
-        'instagram_business_manage_messages',
-        'instagram_business_manage_comments',
-      ]);
-    });
-
-    test('the code exchange reads the flat answer Instagram sends live (numeric user_id, permission list)', async () => {
-      z.object({
-        access_token: z.string().min(1),
-        user_id: z.number().int(),
-        permissions: z.array(z.string().min(1)),
-      }).parse(oauthAccessTokenFlatSuccessFixture);
-      nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-        .post('/oauth/access_token')
-        .reply(200, oauthAccessTokenFlatSuccessFixture);
-
-      const grant = await exchangeInstagramAuthorizationCode({
-        code: 'AQBcontract-fixture-authorization-code',
-      });
-
-      expect(decryptFieldSecret(grant.encryptedAccessToken)).toBe(
-        oauthAccessTokenFlatSuccessFixture.access_token,
+      expect(token.encryptedAccessToken).not.toContain(
+        unifiedLoginAccessTokenSuccessFixture.access_token,
       );
-      expect(grant.grantedPermissions).toEqual(oauthAccessTokenFlatSuccessFixture.permissions);
+      expect(decryptFieldSecret(token.encryptedAccessToken)).toBe(
+        unifiedLoginAccessTokenSuccessFixture.access_token,
+      );
+      // The secret rides the query, as Meta documents the exchange; every logged URL is redacted.
+      expect(redactSensitiveUrl(interceptedUrl)).not.toContain(String(environment.META_APP_SECRET));
+      expect(redactSensitiveUrl(interceptedUrl)).toContain(SENSITIVE_REDACTION_PLACEHOLDER);
+      expect(readLoggedText()).not.toContain(String(environment.META_APP_SECRET));
     });
 
-    test("a used code is refused, read from the code exchange's own error shape", async () => {
-      z.object({
-        error_type: z.string().min(1),
-        code: z.number().int(),
-        error_message: z.string().min(1),
-      }).parse(oauthAccessTokenErrorFixture);
-      nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-        .post('/oauth/access_token')
+    test('a used code is refused — never an outage, never a circuit failure', async () => {
+      GraphErrorEnvelopeContractSchema.parse(oauthAccessTokenErrorFixture);
+      nock(META_GRAPH_BASE_URL)
+        .get(`${GRAPH_VERSION_PATH}/oauth/access_token`)
+        .query(true)
         .reply(400, oauthAccessTokenErrorFixture);
+      recordLoggedText();
 
-      const rejection = await exchangeInstagramAuthorizationCode({
-        code: 'AQBcontract-fixture-used-code',
-      }).catch((error: unknown) => error);
-
-      expect(rejection).toBeInstanceOf(MetaGraphApiError);
-      expect(rejection).toMatchObject({
-        integration: 'meta-graph',
+      await expect(exchangeMetaLoginCode({ code: 'AQB-used' })).rejects.toMatchObject({
         errorClass: 'refused',
-        connectionStatus: null,
-        status: 400,
-        instagramErrorType: 'OAuthException',
-        instagramErrorCode: 400,
+        instagramErrorCode: 100,
         countsAsCircuitFailure: false,
       });
-      // D53: Instagram's text is read by nobody — it can name a person or quote a token.
-      expect(describeRejection(rejection)).not.toContain(
-        oauthAccessTokenErrorFixture.error_message,
-      );
     });
 
-    test('the long-lived exchange carries the secret and the short-lived token in the query only — never a header', async () => {
-      const environment = getEnv();
-      const shortLivedAccessToken = 'IGAA-contract-fixture-short-lived-access-token';
-      LongLivedTokenContractSchema.parse(accessTokenSuccessFixture);
-      let interceptedUrl = '';
-      nock(META_GRAPH_BASE_URL, { badheaders: ['authorization'] })
-        .get('/access_token')
-        .query({
-          grant_type: 'ig_exchange_token',
-          client_secret: String(environment.META_APP_SECRET),
-          access_token: shortLivedAccessToken,
-        })
-        .reply(200, (interceptedUri: string) => {
-          interceptedUrl = readInterceptedUrl({
-            interceptedUri,
-            baseUrl: META_GRAPH_BASE_URL,
-          });
-          return accessTokenSuccessFixture;
-        });
-      const startedAt = Date.now();
+    test('the business, the assigned accounts and the granted permissions are read with the token in Authorization only', async () => {
+      const interceptedUrls: string[] = [];
+      const record = (body: unknown) => (interceptedUri: string) => {
+        interceptedUrls.push(readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL }));
+        return body;
+      };
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/me`)
+        .query((query) => query.fields === 'client_business_id' && Boolean(query.appsecret_proof))
+        .reply(200, record(meClientBusinessSuccessFixture))
+        .get(`${GRAPH_VERSION_PATH}/me/assigned_instagram_accounts`)
+        .query((query) => query.fields === 'id,username' && query.limit === '100')
+        .reply(200, record(assignedInstagramAccountsSuccessFixture))
+        .get(`${GRAPH_VERSION_PATH}/me/permissions`)
+        .query(true)
+        .reply(200, record(permissionsSuccessFixture));
 
-      const longLivedToken = await exchangeInstagramLongLivedAccessToken({
-        encryptedShortLivedAccessToken: encryptFieldSecret(shortLivedAccessToken),
-      });
-
-      expect(decryptFieldSecret(longLivedToken.encryptedAccessToken)).toBe(
-        accessTokenSuccessFixture.access_token,
+      await expect(
+        readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toBe(meClientBusinessSuccessFixture.client_business_id);
+      await expect(
+        listMetaAssignedInstagramAccounts({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toEqual(
+        assignedInstagramAccountsSuccessFixture.data.map((account) => ({
+          instagramUserId: account.id,
+          username: account.username,
+        })),
       );
-      expect(longLivedToken.encryptedAccessToken).not.toContain(
-        accessTokenSuccessFixture.access_token,
-      );
-      const expiresInMilliseconds = accessTokenSuccessFixture.expires_in * MILLISECONDS_PER_SECOND;
-      expect(longLivedToken.expiresAt.getTime()).toBeGreaterThanOrEqual(
-        startedAt + expiresInMilliseconds,
-      );
-      expect(longLivedToken.expiresAt.getTime()).toBeLessThanOrEqual(
-        Date.now() + expiresInMilliseconds,
-      );
-      // The one URL that carries the token and the secret is redacted wherever it is logged.
-      const loggedUrl = redactSensitiveUrl(interceptedUrl);
-      expect(loggedUrl).not.toContain(shortLivedAccessToken);
-      expect(loggedUrl).not.toContain(String(environment.META_APP_SECRET));
-      expect(loggedUrl).toContain(`access_token=${SENSITIVE_REDACTION_PLACEHOLDER}`);
-      expect(loggedUrl).toContain(`client_secret=${SENSITIVE_REDACTION_PLACEHOLDER}`);
+      // A declined permission is not granted.
+      await expect(
+        readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toEqual([
+        'instagram_basic',
+        'instagram_manage_messages',
+        'instagram_manage_comments',
+      ]);
+      for (const url of interceptedUrls) expectUrlWithoutToken(url);
     });
 
-    test('the renewal carries the token in the query only and returns the renewed token encrypted', async () => {
-      LongLivedTokenContractSchema.parse(refreshAccessTokenSuccessFixture);
-      let interceptedUrl = '';
-      nock(META_GRAPH_BASE_URL, { badheaders: ['authorization'] })
-        .get('/refresh_access_token')
-        .query({ grant_type: 'ig_refresh_token', access_token: ACCOUNT_ACCESS_TOKEN })
-        .reply(200, (interceptedUri: string) => {
-          interceptedUrl = readInterceptedUrl({
-            interceptedUri,
-            baseUrl: META_GRAPH_BASE_URL,
-          });
-          return refreshAccessTokenSuccessFixture;
-        });
+    test("the ad accounts, then one ad account's ads with their Instagram post and Meta's cursor", async () => {
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/me/adaccounts`)
+        .query(true)
+        .reply(200, adAccountsSuccessFixture)
+        .get(`${GRAPH_VERSION_PATH}/act_1234567890123/ads`)
+        .query((query) => query.limit === '25' && query.after === 'cursor-one')
+        .reply(200, adsSuccessFixture);
 
-      const renewedToken = await refreshInstagramLongLivedAccessToken({
+      await expect(
+        listMetaAdAccounts({ encryptedAccessToken: encryptedAccountAccessToken }),
+      ).resolves.toEqual([
+        { adAccountId: '1234567890123', name: 'Contract Fixture Ads', accountStatus: 1 },
+      ]);
+      const page = await listMetaAdAccountAds({
         encryptedAccessToken: encryptedAccountAccessToken,
+        adAccountId: '1234567890123',
+        limit: 25,
+        after: 'cursor-one',
       });
-
-      expect(decryptFieldSecret(renewedToken.encryptedAccessToken)).toBe(
-        refreshAccessTokenSuccessFixture.access_token,
-      );
-      expect(redactSensitiveUrl(interceptedUrl)).not.toContain(ACCOUNT_ACCESS_TOKEN);
+      expect(page.items).toEqual([
+        {
+          adId: '120200000000000001',
+          name: 'Winter sale',
+          status: 'ACTIVE',
+          instagramMediaId: '18030000000000001',
+          thumbnailUrl: 'https://scontent.cdninstagram.com/v/contract-fixture-ad.jpg',
+          createdAt: '2026-11-01T10:00:00+0000',
+        },
+      ]);
+      // The cursor, never paging.next (it carries a token).
+      expect(page.nextCursor).toBe(adsSuccessFixture.paging.cursors.after);
     });
   });
 
   describe('the Graph reads (the token in the Authorization header, never the URL)', () => {
-    /** The IG User node `/me` answers with: ids as digit strings, a professional account type, counts. */
+    /** The IG User node read by its id: the id as a digit string, counts. */
     const AccountProfileContractSchema = z
       .object({
-        user_id: z.string().regex(/^\d+$/),
         id: z.string().regex(/^\d+$/),
         username: z.string().min(1),
-        account_type: z.enum(['BUSINESS', 'MEDIA_CREATOR']),
         followers_count: z.number().int().nonnegative(),
         follows_count: z.number().int().nonnegative(),
         media_count: z.number().int().nonnegative(),
@@ -437,11 +386,9 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       .loose();
     /** The account both `/me` fixtures describe, as the client maps it. */
     const expectedAccountProfile = {
-      instagramUserId: meSuccessFixture.user_id,
-      instagramAppUserId: meSuccessFixture.id,
+      instagramUserId: meSuccessFixture.id,
       username: meSuccessFixture.username,
       name: meSuccessFixture.name,
-      accountType: meSuccessFixture.account_type,
       profilePictureUrl: meSuccessFixture.profile_picture_url,
       followersCount: meSuccessFixture.followers_count,
       followsCount: meSuccessFixture.follows_count,
@@ -450,13 +397,13 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       website: meSuccessFixture.website,
     };
 
-    test('/me asks for the connect fields and maps the account', async () => {
+    test('the account read asks for the profile fields by its id and maps the account', async () => {
       AccountProfileContractSchema.parse(meSuccessFixture);
       let interceptedUrl = '';
       graphWithAccountToken()
         .matchHeader('x-request-id', 'contract-instagram-request')
-        .get(`${GRAPH_VERSION_PATH}/me`)
-        .query({ fields: ACCOUNT_PROFILE_FIELDS })
+        .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}`)
+        .query((query) => query.fields === ACCOUNT_PROFILE_FIELDS)
         .reply(200, (interceptedUri: string) => {
           interceptedUrl = readInterceptedUrl({
             interceptedUri,
@@ -467,6 +414,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
 
       const accountProfile = await readInstagramAccountProfile({
         encryptedAccessToken: encryptedAccountAccessToken,
+        instagramUserId: APP_USER_ID,
         requestId: 'contract-instagram-request',
       });
 
@@ -474,18 +422,21 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       expect(accountProfile).toEqual(expectedAccountProfile);
     });
 
-    test("/me wrapped in data, as Meta's guide prints it, is read from data[0] — the same account as the flat answer (D33)", async () => {
+    test("the account wrapped in data, as Meta's guide prints it, is read from data[0] — the same account as the flat answer (D33)", async () => {
       z.object({ data: z.array(AccountProfileContractSchema).min(1) }).parse(
         meWrappedSuccessFixture,
       );
       expect(meWrappedSuccessFixture.data[0]).toEqual(meSuccessFixture);
       graphWithAccountToken()
-        .get(`${GRAPH_VERSION_PATH}/me`)
-        .query({ fields: ACCOUNT_PROFILE_FIELDS })
+        .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}`)
+        .query((query) => query.fields === ACCOUNT_PROFILE_FIELDS)
         .reply(200, meWrappedSuccessFixture);
 
       await expect(
-        readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountAccessToken }),
+        readInstagramAccountProfile({
+          encryptedAccessToken: encryptedAccountAccessToken,
+          instagramUserId: APP_USER_ID,
+        }),
       ).resolves.toEqual(expectedAccountProfile);
     });
 
@@ -678,16 +629,17 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
   });
 
   describe("Instagram's error answers (IA4 classes)", () => {
-    test('190 / 463 on the renewal is auth → expired, and the token reaches neither a log line nor the error', async () => {
+    test('190 / 463 is auth → expired, and the token reaches neither a log line nor the error', async () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorTokenExpiredFixture);
-      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-        .get('/refresh_access_token')
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}`)
         .query(true)
         .reply(400, graphErrorTokenExpiredFixture);
       const readLoggedText = recordLoggedText();
 
-      const rejection = await refreshInstagramLongLivedAccessToken({
+      const rejection = await readInstagramAccountProfile({
         encryptedAccessToken: encryptedAccountAccessToken,
+        instagramUserId: APP_USER_ID,
       }).catch((error: unknown) => error);
 
       expect(rejection).toBeInstanceOf(MetaGraphApiError);
@@ -708,16 +660,16 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
 
     test('190 with another subcode (460) is auth → error, and neither the token nor the secret is logged', async () => {
       const environment = getEnv();
-      const shortLivedAccessToken = 'IGAA-contract-fixture-short-lived-access-token';
+      const shortLivedAccessToken = ACCOUNT_ACCESS_TOKEN;
       GraphErrorEnvelopeContractSchema.parse(graphErrorTokenInvalidatedFixture);
-      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-        .get('/access_token')
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/me`)
         .query(true)
         .reply(400, graphErrorTokenInvalidatedFixture);
       const readLoggedText = recordLoggedText();
 
-      const rejection = await exchangeInstagramLongLivedAccessToken({
-        encryptedShortLivedAccessToken: encryptFieldSecret(shortLivedAccessToken),
+      const rejection = await readMetaClientBusinessId({
+        encryptedAccessToken: encryptedAccountAccessToken,
       }).catch((error: unknown) => error);
 
       expect(rejection).toMatchObject({
@@ -873,13 +825,16 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorUnexpectedFixture);
       const failureThreshold = 5;
       graphWithAccountToken()
-        .get(`${GRAPH_VERSION_PATH}/me`)
+        .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}`)
         .query(true)
         .times(failureThreshold)
         .reply(500, graphErrorUnexpectedFixture);
       recordLoggedText();
       const readProfile = () =>
-        readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountAccessToken });
+        readInstagramAccountProfile({
+          encryptedAccessToken: encryptedAccountAccessToken,
+          instagramUserId: APP_USER_ID,
+        });
 
       for (let attempt = 0; attempt < failureThreshold; attempt += 1) {
         await expect(readProfile()).rejects.toMatchObject({
@@ -910,7 +865,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       ];
       for (const refusalFixture of refusalFixtures) {
         graphWithAccountToken()
-          .get(`${GRAPH_VERSION_PATH}/me`)
+          .get(`${GRAPH_VERSION_PATH}/${APP_USER_ID}`)
           .query(true)
           .reply(400, refusalFixture);
       }
@@ -919,6 +874,7 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       for (let attempt = 0; attempt < refusalFixtures.length; attempt += 1) {
         const rejection = await readInstagramAccountProfile({
           encryptedAccessToken: encryptedAccountAccessToken,
+          instagramUserId: APP_USER_ID,
         }).catch((error: unknown) => error);
         expect(rejection).toBeInstanceOf(MetaGraphApiError);
         expect(rejection).toHaveProperty('countsAsCircuitFailure', false);

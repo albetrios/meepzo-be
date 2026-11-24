@@ -431,61 +431,69 @@ sequenceDiagram
 
 ### Trigger
 
-A team member holding `instagram-account:manage` clicks "Connect Instagram" in the frontend, approves the Instagram app on Instagram's consent screen, and lands on the frontend's `/auth/instagram/callback` (the `META_REDIRECT_URI`). The page drops a callback whose OAuth `state` differs from the one it sent (IQ6), then posts the code: `POST /api/v1/app/social/instagram/connect { code }` with `X-Idempotency-Key` (route 1). The same call reconnects an `expired` or `error` account, or a revoked one of the same organization. Built by ROUTE row R3 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA12).
+A team member holding `channel-account:manage` clicks "Connect Instagram" in the frontend: `POST /api/v1/app/social/channel-connections/meta/start` (route 1) answers Meta's Unified Login address with a one-use `state`; the person logs in to Meta, picks the business portfolio and its Instagram accounts, and lands on the frontend's return page (`META_REDIRECT_URI`), which posts `POST …/meta/callback { code, state }` with `X-Idempotency-Key: channel-connect:<state>` (route 2), shows the picker, then posts `POST …/{channel_connection_id}/accounts { channel, provider_account_ids }` with a key (route 3). The connections screen's Reconnect starts with `POST …/{channel_connection_id}/reconnect` (route 40) instead of route 1. Built by ROUTE row R3 of `iterations/feat-instagram-dm-sending-2026-11-23-oxak/` (routes-final § 1 MC4–MC7, MC17); the launch's Instagram Login connect (`POST /app/social/instagram/connect`) is gone (RC-6).
 
 ### Sequence
 
 ```mermaid
 sequenceDiagram
-  participant Client as Frontend (/auth/instagram/callback)
+  participant Client as Frontend
   participant Gate as auth + tenancy (permission, team check)
-  participant Service as InstagramAccountService
-  participant Instagram as meta-graph.client (Meta Graph API)
-  participant Resolver as app.resolve_organization_public_id_for_instagram_user
+  participant Service as ChannelConnectionService
+  participant Redis as Redis (one-use login state)
+  participant Meta as meta-graph.client / meta-login (graph.facebook.com)
+  participant Accounts as ChannelConnectionAccountPort (InstagramAccountConnectionService until R5)
   participant DB as Postgres (organization scope)
 
-  Client->>Gate: POST /app/social/instagram/connect {code} + X-Idempotency-Key
-  Gate->>Service: instagram-account:manage held, team organization
-  Service->>Instagram: exchange the code (trailing #_ stripped), then the long-lived token, then /me
-  Instagram-->>Service: profile, granted scopes, token already encrypted, expires_at
-  Service->>Service: refuse a personal Instagram account or a missing scope (422)
-  Service->>Resolver: who holds this instagram_user_id (not revoked)?
-  Resolver-->>Service: an organization public id, or none
-  Service->>DB: BEGIN — upsert the account (connected, profile, scopes, token_expires_at)
-  Service->>DB: default settings if none (InstagramAccountSettingsService)
-  Service->>DB: store the encrypted token (InstagramAccountTokenService); read what the answer names; COMMIT
-  Service->>Instagram: subscribe the webhook fields (only while webhook_subscribed_at is empty)
-  Service->>DB: stamp webhook_subscribed_at (on success)
-  Service->>DB: the controller stages the audit entry app.instagram_account.connect (after commit, best-effort)
-  Service-->>Client: 200 { is_new_connection, instagram_account }
+  Client->>Gate: POST /app/social/channel-connections/meta/start
+  Gate->>Service: channel-account:manage held, team organization
+  Service->>Redis: SET app:channel-connect-state:<state> EX 600
+  Service-->>Client: 200 { login_url, state_expires_at }
+  Client->>Gate: POST …/meta/callback {code, state} + X-Idempotency-Key
+  Service->>Redis: GETDEL the state — this user, organization and provider (else 400)
+  Service->>Meta: code exchange, then client_business_id, assigned Instagram accounts, granted permissions
+  Service->>Service: another business on a reconnect (409), a missing permission (422)
+  Service->>DB: BEGIN — upsert the connection (connected, scopes); store the encrypted token
+  Service->>Accounts: reconnect every not-revoked account of the organization still assigned (moved accounts too)
+  Service->>DB: revoke a connection a move left empty, with its token; COMMIT
+  Service-->>Client: 200 { is_reconnect, channel_connection, accounts (free / here / elsewhere), plan_room }
+  Client->>Gate: POST …/{channel_connection_id}/accounts {channel, provider_account_ids} + X-Idempotency-Key
+  Service->>Meta: re-read the assigned accounts; one profile read per pick (3 s, fails open)
+  Service->>DB: BEGIN — pg_advisory_xact_lock(organization); count the not-revoked accounts
+  Service->>Accounts: over channel_accounts_max → 409; else each pick a connected account with default settings
+  Service->>DB: COMMIT
+  Service->>Meta: subscribe each new account to the webhook fields (best effort)
+  Service-->>Client: 200 { results (connected / already_connected / connected_elsewhere / not_assigned), plan_room }
 ```
 
-No Instagram call runs inside the database context: Instagram first, then one transaction, then the subscription.
+No Meta call runs inside the database context: read, close the unit of work, call Meta, then write in a new one.
 
 ### Side effects
 
-- `app.instagram_accounts` — a new row, or this organization's existing row of the same Instagram account (any status, revoked included) set back to `connected`, with the profile, the granted scopes, `connected_at`, `connected_by_user_id` and the token's expiry copied to `token_expires_at`; `disconnected_at` and `profile_erased_at` cleared. `is_new_connection` is `false` when the organization had this account before.
-- `app.instagram_account_settings` — the default row on a first connect; a reconnect keeps the team's settings.
-- `app.instagram_account_tokens` — the long-lived token (about 60 days), stored only as `encryptFieldSecret` ciphertext; the plain token exists only inside the Instagram client (IA5).
-- Audit `app.instagram_account.connect` (WARNING, resource type `instagram_account`), recorded after the connect commits, best-effort — an audit failure never fails the connect (audit-emission, D36).
-- The account subscribed to the webhook fields `comments`, `messages` and `messaging_postbacks`, so its events start to arrive (sub-domain 4).
-- The idempotency layer stores the answer: a repeated key replays the first response without calling Instagram again (no key in it names a token — the expiry is `access_expires_at`, D35).
+- Redis `app:channel-connect-state:<state>` — 10 minutes, spent by the callback.
+- `app.channel_connections` — one row per organization, provider and business (a revoked one reused): `connected`, `config_id`, `scopes`, `connected_by_user_id`, `connected_at`, `last_checked_at`; `disconnected_at` cleared.
+- `app.channel_connection_tokens` — the business's system-user token, stored only as `encryptFieldSecret` ciphertext; never ends (`expires_at` empty); the plain token exists only inside the Meta client (MC9).
+- `app.instagram_accounts` — on the callback, every not-revoked account of the organization the business still assigns attached to this connection and `connected`; on the pick, a new row per picked account (or the organization's revoked row back) with the connection's scopes and `channel_connection_id`, `instagram_app_user_id` = the Instagram user id (P111).
+- `app.instagram_account_settings` — the default row for a new account; a returning account keeps the team's settings.
+- `app.channel_connection_usages` — Meta's usage of the pick's calls, per asset and type (MC19).
+- Audit `app.channel_connection.connect` (WARNING, `provider`, `is_reconnect`, `reconnected_account_count`) and one `app.channel_account.connect` (WARNING) per picked account, after commit, best-effort (D36).
+- The idempotency layer stores both answers: a repeated key replays the first response (no key in them names a token).
 
 ### Failure modes
 
-- **A bad, used or expired code, or another redirect address** → `422 instagram_code_invalid`; **a personal Instagram account** → `422 instagram_account_not_professional`; **a permission unticked on the consent screen** → `422 instagram_scopes_missing`. Nothing is stored.
-- **This Instagram account is live in another organization** → `409 instagram_account_connected_elsewhere`; **this organization holds another account that is not revoked** → `409 organization_already_has_instagram_account`. Two organizations racing for one account are decided by the unique indexes, the loser gets the same 409s.
-- **Instagram down, failing or throttling on the code exchange** → `503 instagram_unavailable` with `Retry-After`; **the Instagram app settings unset** → `503 instagram_not_configured`. Nothing is stored.
-- **Instagram down, failing or throttling once the one-time code is spent** (the long-lived exchange or `/me`) → `409 instagram_connect_restart_required`, without `Retry-After`: the same code could only be refused, so the person starts "Connect Instagram" again (D56). Nothing is stored, and an account connected before stays as it is. **A read the answer needs fails** → the transaction rolls back and nothing is connected.
-- **The webhook subscription fails after the commit** → logged (`app.instagram_account.webhook_subscription_failed`), never fails the connect; `webhook_subscribed_at` stays empty, route 2 shows `is_webhook_subscribed: false`, and the next connect (or the daily check, [instagram-account-health-flow](#instagram-account-health-flow)) retries it.
-- **No `instagram-account:manage`** → `403 missing_permission`; **a personal organization** → `422` (a personal organization's Owner never holds the code, so the 403 comes first).
-- **A missing or reused `X-Idempotency-Key`** → `422`; **the same key still running** → `409`.
+- **The state is missing, used, older than 10 minutes, or another person's, organization's or provider's** → `400 channel_connect_state_invalid`; nothing is saved.
+- **Meta refuses the code** → `422 provider_code_invalid`; **a required permission not granted** → `422 provider_permissions_missing`; **a reconnect from another business** → `409 channel_connection_business_mismatch`. Nothing is saved.
+- **Meta down or throttling on the code exchange** → `503 instagram_unavailable` with `Retry-After`; **once the one-time code is spent** → `409 instagram_connect_restart_required` (D56); **a `META_*` setting unset** → `503 instagram_not_configured`.
+- **The picks exceed the plan's `channel_accounts_max`** → `409 plan_account_limit`, nothing saved; two picks at once in one organization are serialized by the organization lock. **A pick live in another organization** → `connected_elsewhere` for that pick, the others connect; a race with another organization at the same moment → `409 instagram_account_connected_elsewhere`.
+- **The connection is `error` or `revoked`, or Meta refuses its token on the pick** → `409 channel_connection_not_connected`: reconnect first.
+- **The webhook subscription fails after the pick's commit** → logged (`app.instagram_account.webhook_subscription_failed`), never fails the pick; the daily check retries it.
+- **No `channel-account:manage`** → `403 missing_permission`; **a personal organization** → `422`; **a missing or reused `X-Idempotency-Key`** on the callback or the pick → `422`.
 
 ## instagram-account-health-flow
 
 ### Trigger
 
-Two background paths keep a connected Instagram account usable and tell the team when it is not. **The daily account check** (IA8, D9): the `instagram-account-daily-check` sweep at 04:00 UTC (`scheduler.ts`). **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the daily check, the post and story pickers (routes 5–6), and the senders and follow check of the automations and the Instagram webhook on a token error. Built by ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA8, IA9).
+Two background paths keep a connected Instagram account usable and tell the team when it is not. **The daily account check** (IA8, D9): the `instagram-account-daily-check` sweep at 04:00 UTC (`scheduler.ts`) — profile and subscription only since feat-instagram-dm-sending R3 took the token renewal out (WC-35; the connection's token never ends; the connection's own token check replaces this job at R51). **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the daily check, the post and story pickers (routes 5–6), and the senders and follow check of the automations and the Instagram webhook on a token error. Built by ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA8, IA9).
 
 ### Sequence
 
@@ -503,14 +511,8 @@ sequenceDiagram
   Scheduler->>Check: sweep job (sweep-connected-instagram-accounts)
   Check->>DB: page the connected accounts of live organizations (sweep arm, USING only)
   Check->>Check: add one check per account (job id = account + UTC day)
-  Check->>DB: organization scope — the account and its encrypted token
-  alt the token's end has passed
-    Check->>Account: markConnectionBroken(expired) — no Instagram call
-  else the token ends within 7 days
-    Check->>Instagram: ig_refresh_token (outside any database context)
-    Check->>DB: replace the token only if it is still the one renewed; copy the new end onto the account
-  end
-  Check->>Instagram: /me
+  Check->>DB: organization scope — the account and its connection's encrypted token
+  Check->>Instagram: GET /{instagram_user_id} (outside any database context)
   Check->>DB: profile, profile_synced_at
   Check->>Instagram: subscribed_apps (only while webhook_subscribed_at is empty)
   Check->>DB: stamp webhook_subscribed_at
@@ -526,13 +528,12 @@ No Instagram call runs inside a database context: every step reads, closes its u
 
 ### Side effects
 
-- `app.instagram_account_tokens` — a renewed token (about 60 days), stamped `last_refreshed_at`, its error cleared; or a failed renewal's `last_refresh_error` (Instagram's class, code, subcode and HTTP status — never its text, which can quote the token). A reconnect that saved a newer token while the renewal ran keeps it: the renewal writes only over the token it renewed.
-- `app.instagram_accounts` — `token_expires_at` (the renewed token's end, same transaction, IA5), the profile and `profile_synced_at`, `webhook_subscribed_at`; on a break `connection_status` `expired` / `error` and `connection_status_changed_at`.
+- `app.instagram_accounts` — the profile and `profile_synced_at`, `webhook_subscribed_at`; on a break `connection_status` `expired` / `error` and `connection_status_changed_at`.
 - `notify.notifications` — one `instagram.reconnect_required` notification per active `instagram-account:manage` holder, in the organization's language, linking to the frontend's Instagram page (`FRONTEND_URL` + `/instagram`), each also emailed through the mail outbox by the notification worker.
 
 ### Failure modes
 
-- **Instagram down or busy** → the daily-check queue pauses on every replica while the `instagram` circuit is open (a throttle: for Instagram's wait), the parked check spends no attempt; a failed renewal keeps its error and the account stays `connected`; the next day tries again — seven tries before a token ends.
+- **Instagram down or busy** → the daily-check queue pauses on every replica while the `instagram` circuit is open (a throttle: for Instagram's wait), the parked check spends no attempt; the account stays `connected`; the next day tries again.
 - **Instagram refuses the token** → `error` (`expired` for subcode 463) at once, and the notice. A code-10 "outside the messaging window" answer is a refusal of that one request, never a break (D32).
 - **Two callers break the account at once** → the guarded update lets one win; only the winner enqueues a notice. A break inside a unit of work that rolls back enqueues nothing.
 - **The notice job runs twice** (a stalled job) → the notifications carry the break's key, so nothing is sent twice; a break that is over by the time the job runs (reconnected, disconnected) is skipped.
@@ -581,7 +582,7 @@ No Instagram call: the app is already removed, so the disconnect skips the unsub
 ### Side effects
 
 - `app.instagram_accounts` — every row of that app-scoped id connected before Meta signed the request (`issued_at`; a request without it means every row, D53), in every organization: `revoked`, `disconnected_at`, `token_expires_at` and `webhook_subscribed_at` emptied (rows already revoked stay as they are). Data deletion also erases the profile — `username`, `name`, `biography`, `website`, `profile_picture_url` emptied, counts 0, `scopes` empty, `profile_erased_at` stamped — revoked rows of the same person too.
-- `app.instagram_account_tokens` — the token row deleted.
+- `app.channel_connections` / `app.channel_connection_tokens` — the connection revoked and its token deleted once no other not-revoked account uses it (CA8).
 - `app.instagram_media` — data deletion: the account's stored posts deleted (IQ4); automations, runs and comment logs keep naming a post by its Instagram media id.
 - Settings, contacts and webhook events stay (D22: a contact's own request is route 10). No automation run is cancelled and automations stay `live` (IQ1, D24).
 - Audit `app.instagram_account.deauthorize` / `app.instagram_account.data_deletion` (WARNING, anonymous actor, `metadata.source = 'meta'`, the accounts' public ids; on a data deletion the confirmation code — the request's only record, IQ2 — and the erased post count), one per organization changed.

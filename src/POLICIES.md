@@ -422,8 +422,8 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   | --- | --- |
   | Owner | every code |
   | Admin | every code but `organization:delete` |
-  | Editor | `organization:read`, `upload:manage`, `instagram-account:read`, `automation:read` / `:create` / `:update` / `:delete`, `contact:read`, `contact:update` |
-  | Viewer | `organization:read`, `instagram-account:read`, `automation:read`, `contact:read` |
+  | Editor | `organization:read`, `upload:manage`, `channel-account:read`, `instagram-account:read`, `automation:read` / `:create` / `:update` / `:delete`, `contact:read`, `contact:update` |
+  | Viewer | `organization:read`, `channel-account:read`, `instagram-account:read`, `automation:read`, `contact:read` |
 
 - **Source**: [src/domains/tenancy/sub-domains/organization/organization-provisioning.ts](src/domains/tenancy/sub-domains/organization/organization-provisioning.ts) (`DEFAULT_TEAM_ROLES`; which app codes Editor and Viewer hold is `APP_PERMISSION_DEFAULT_TEAM_GRANTS`, typed so a new app code does not compile until it names its roles) and [src/domains/tenancy/sub-domains/member-roles/member-role.constants.ts](src/domains/tenancy/sub-domains/member-roles/member-role.constants.ts) (`TENANCY_CUSTOM_ROLES_ENABLED`, checked by `member-role-capability.ts`).
 - **Rationale**: the Roles screen of the Instagram DM product is four fixed roles (feat-instagram-dm-sending TN1, D55); Editor is the launch's Member renamed in place (`tenancy_roles_editor_viewer`), so its people keep their access. Custom roles are a platform feature this product switches off (TN3): the five role writes answer `403 custom_roles_off` after the permission gate, and a membership's `role_ids` must be exactly one system role. Role names are never the guard — every check reads `is_system` / `is_locked` and the codes.

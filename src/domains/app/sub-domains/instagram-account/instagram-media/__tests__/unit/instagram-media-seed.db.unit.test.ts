@@ -7,11 +7,22 @@ import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { database } from '@/infrastructure/database/connection.js';
 import { PROFILES } from '@/scripts/seed/bulk-config.js';
-import type { SeedContext, SeededOrg } from '@/scripts/seed/seed-contract.js';
+import {
+  type SeedContext,
+  type SeededOrg,
+  composeContributions,
+} from '@/scripts/seed/seed-contract.js';
 import { createSeedRegistry } from '@/scripts/seed/seed-registry.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
-import { instagramAccountSeedContribution } from '@/domains/app/sub-domains/instagram-account/seed/index.js';
+import { instagramAccountSeedContribution as accountOnlySeedContribution } from '@/domains/app/sub-domains/instagram-account/seed/index.js';
+import { channelConnectionSeedContribution } from '@/domains/app/sub-domains/channel-connection/seed/index.js';
+
+/** The connection seed first — every account comes in through one (feat-instagram-dm-sending R3). */
+const instagramAccountSeedContribution = composeContributions(
+  channelConnectionSeedContribution,
+  accountOnlySeedContribution,
+);
 
 /**
  * The stored-posts bulk seed (launch IAC10, R5) against the real schema: every seeded connected

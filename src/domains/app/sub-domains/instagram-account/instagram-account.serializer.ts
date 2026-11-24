@@ -2,7 +2,6 @@ import type { InstagramAccountSettingsOutput } from '@/domains/app/sub-domains/i
 import type {
   InstagramAccountOutput,
   InstagramAccountVisibleConnectionStatus,
-  InstagramConnectResultOutput,
 } from './instagram-account.types.js';
 
 /** Where an Instagram profile lives: `https://instagram.com/{username}` (1.A.6 `profile_url`). */
@@ -80,18 +79,4 @@ export function serializeInstagramAccount({
     profile_synced_at: account.profile_synced_at?.toISOString() ?? null,
     updated_at: account.updated_at.toISOString(),
   };
-}
-
-/**
- * The connect result (routes-final § 1.A.6, route 1): whether the organization had this Instagram
- * account before, and the account object.
- */
-export function serializeInstagramConnectResult({
-  is_new_connection,
-  instagram_account,
-}: {
-  is_new_connection: boolean;
-  instagram_account: InstagramAccountOutput;
-}): InstagramConnectResultOutput {
-  return { is_new_connection, instagram_account };
 }

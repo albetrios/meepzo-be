@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 155
+  Total routes: 161
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 18
+  Routes: 24
 ================================================================================
 
   — Sub Domains —
@@ -24,10 +24,16 @@ Legend:
   DELETE /api/v1/app/automations/:automation_id                   204  -    team  PERM: automation:delete
   GET    /api/v1/app/contacts                                     200  -    team  PERM: contact:read
   DELETE /api/v1/app/contacts/:contact_id                         204  -    team  PERM: contact:delete
+  GET    /api/v1/app/social/channel-connections                   200  -    team  PERM: channel-account:read
+  GET    /api/v1/app/social/channel-connections/:channel_connection_id  200  -    team  PERM: channel-account:read
+  DELETE /api/v1/app/social/channel-connections/:channel_connection_id  204  -    team  PERM: channel-account:manage
+  POST   /api/v1/app/social/channel-connections/:channel_connection_id/accounts  200  req  team  PERM: channel-account:manage
+  POST   /api/v1/app/social/channel-connections/:channel_connection_id/reconnect  200  -    team  PERM: channel-account:manage
+  POST   /api/v1/app/social/channel-connections/:provider/callback  200  req  team  PERM: channel-account:manage
+  POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
   GET    /api/v1/app/social/instagram/account                     200  -    team  PERM: instagram-account:read
   DELETE /api/v1/app/social/instagram/account                     204  -    team  PERM: instagram-account:manage
   PATCH  /api/v1/app/social/instagram/account/settings            200  -    team  PERM: instagram-account:manage
-  POST   /api/v1/app/social/instagram/connect                     200  req  team  PERM: instagram-account:manage
   POST   /api/v1/app/social/instagram/data-deletion               200  -    both  PUBLIC
   POST   /api/v1/app/social/instagram/deauthorize                 200  -    both  PUBLIC
   GET    /api/v1/app/social/instagram/media                       200  -    team  PERM: instagram-account:read
@@ -246,23 +252,24 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 155
+  Total routes    : 161
   Public          : 20
   Authenticated   : 54
   Role-guarded    : 9
-  Perm-guarded    : 67
+  Perm-guarded    : 73
   Token-guarded   : 5
-  Team-only (O)   : 24
+  Team-only (O)   : 30
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (20) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (21) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
   accepts an optional key (24h Redis cache).
 
     POST /api/v1/app/automations
-    POST /api/v1/app/social/instagram/connect
+    POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts
+    POST /api/v1/app/social/channel-connections/:provider/callback
     POST /api/v1/billing/payment-methods/setup
     POST /api/v1/billing/subscriptions
     POST /api/v1/billing/subscriptions/:subscription_id/cancel
@@ -309,9 +316,9 @@ Legend:
 
   App:
     automation:create             automation:delete             automation:read
-    automation:update             contact:delete                contact:read
-    contact:update                instagram-account:manage      instagram-account:read
-    instagram-webhook-event:read
+    automation:update             channel-account:manage        channel-account:read
+    contact:delete                contact:read                  contact:update
+    instagram-account:manage      instagram-account:read        instagram-webhook-event:read
 
   Global Roles:
     super_admin                   user

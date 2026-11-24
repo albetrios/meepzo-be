@@ -22,9 +22,9 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/__tests__/factories/instagram-account-meta-callback.factory.js';
 import {
   INSTAGRAM_ACCOUNT_PATH,
-  INSTAGRAM_CONNECT_PATH,
   buildInstagramProfile,
-  mockInstagramConnect,
+  connectInstagramAccount,
+  readInstagramAccountRows,
   mockInstagramUnsubscribe,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -67,31 +67,22 @@ export async function deauthorizeOnInstagram({ app, flow }: FlowOfApp): Promise<
   expect(response.statusCode, response.body).toBe(200);
 }
 
-/** Connects the very same Instagram account again (route 1) — both its ids and its username. */
+/** Connects the very same Instagram account again (start, callback, pick) — its id and username. */
 export async function reconnectSameAccount({ app, flow }: FlowOfApp): Promise<{
   is_new_connection: boolean;
   instagram_account: { id: string; connection_status: string };
 }> {
   const { instagramUserId, instagramAppUserId, username } = flow.account;
-  mockInstagramConnect({
+  const before = await readInstagramAccountRows(flow.team.organization.id);
+  const { account } = await connectInstagramAccount({
+    app,
+    token: flow.team.ownerToken,
     profile: buildInstagramProfile({ user_id: instagramUserId, id: instagramAppUserId, username }),
   });
-  const response = await injectAuthenticated(app, {
-    method: 'POST',
-    url: INSTAGRAM_CONNECT_PATH,
-    token: flow.team.ownerToken,
-    payload: { code: `AQB-${randomUUID()}#_` },
-    headers: { 'x-idempotency-key': `acceptance-gaps-${randomUUID()}` },
-  });
-  expect(response.statusCode, response.body).toBe(200);
-  return (
-    response.json() as {
-      data: {
-        is_new_connection: boolean;
-        instagram_account: { id: string; connection_status: string };
-      };
-    }
-  ).data;
+  return {
+    is_new_connection: !before.some((row) => row.instagram_user_id === instagramUserId),
+    instagram_account: { id: account.id, connection_status: account.connection_status },
+  };
 }
 
 /** Everything of the team that a disconnect must leave exactly as it was. */

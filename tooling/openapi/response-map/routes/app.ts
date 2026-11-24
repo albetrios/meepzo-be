@@ -11,15 +11,48 @@ import {
 import * as schemas from '@tooling/openapi/response-map/resource-schemas.js';
 
 export const appRouteResponses: Record<string, ResponseDefinition> = {
-  // ── Instagram account ──
-  'POST /api/v1/app/social/instagram/connect': {
+  // ── Channel connection (feat-instagram-dm-sending § 1) ──
+  'POST /api/v1/app/social/channel-connections/{provider}/start': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelConnectStartSchema, schemas.channelConnectStartExample),
+    example: null,
+  },
+  'POST /api/v1/app/social/channel-connections/{provider}/callback': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelConnectResultSchema, schemas.channelConnectResultExample),
+    example: null,
+  },
+  'POST /api/v1/app/social/channel-connections/{channel_connection_id}/reconnect': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelConnectStartSchema, schemas.channelConnectStartExample),
+    example: null,
+  },
+  'POST /api/v1/app/social/channel-connections/{channel_connection_id}/accounts': {
     statusCode: 200,
     schema: wrapSuccess(
-      schemas.instagramConnectResultSchema,
-      schemas.instagramConnectResultExample,
+      schemas.channelAccountPickResultSchema,
+      schemas.channelAccountPickResultExample,
     ),
     example: null,
   },
+  'GET /api/v1/app/social/channel-connections': {
+    statusCode: 200,
+    schema: wrapSuccess({ type: 'array', items: schemas.channelConnectionSchema }, [
+      schemas.channelConnectionExample,
+    ]),
+    example: null,
+  },
+  'GET /api/v1/app/social/channel-connections/{channel_connection_id}': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.channelConnectionSchema, schemas.channelConnectionExample),
+    example: null,
+  },
+  'DELETE /api/v1/app/social/channel-connections/{channel_connection_id}': {
+    statusCode: 204,
+    schema: null,
+    example: null,
+  },
+  // ── Instagram account ──
   'GET /api/v1/app/social/instagram/account': {
     statusCode: 200,
     schema: wrapSuccess(schemas.instagramAccountSchema, schemas.instagramAccountExample),

@@ -1,3 +1,4 @@
+import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import {
@@ -17,16 +18,16 @@ import { createTestSubscription } from '@/domains/billing/__tests__/factories/su
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_AUTHORIZATION_BASE_URL,
-  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
-  INSTAGRAM_LOGIN_GRAPH_VERSION,
   META_GRAPH_VERSION,
   META_GRAPH_BASE_URL,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-
-/** `POST /app/social/instagram/connect` (route 1). */
-export const INSTAGRAM_CONNECT_PATH = testApiPath('/app/social/instagram/connect');
+import {
+  TEST_META_SYSTEM_USER_TOKEN,
+  connectInstagramAccountsThroughRoutes,
+  readChannelConnectionTokenCiphertexts,
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 /** `GET` / `DELETE /app/social/instagram/account` (routes 2 and 4). */
 export const INSTAGRAM_ACCOUNT_PATH = testApiPath('/app/social/instagram/account');
 /** `PATCH /app/social/instagram/account/settings` (route 3). */
@@ -34,20 +35,16 @@ export const INSTAGRAM_ACCOUNT_SETTINGS_PATH = testApiPath(
   '/app/social/instagram/account/settings',
 );
 
-/** The plain long-lived token every mocked connect issues — it must never reach a response. */
-export const TEST_INSTAGRAM_LONG_LIVED_TOKEN = 'IGAA-test-long-lived-token-never-returned';
-/** The plain short-lived token every mocked code exchange issues. */
-export const TEST_INSTAGRAM_SHORT_LIVED_TOKEN = 'IGAA-test-short-lived-token';
-/** About 60 days, as Instagram grants a long-lived token. */
-export const TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS = 5_184_000;
-/** The three permissions a connect needs (IA12). */
-export const TEST_INSTAGRAM_GRANTED_PERMISSIONS = [
-  'instagram_business_basic',
-  'instagram_business_manage_messages',
-  'instagram_business_manage_comments',
-];
+/**
+ * The plain token every mocked connect issues — the channel connection's system-user token
+ * (feat-instagram-dm-sending MC9); it must never reach a response.
+ */
+export const TEST_INSTAGRAM_LONG_LIVED_TOKEN = TEST_META_SYSTEM_USER_TOKEN;
 
-/** An Instagram `/me` answer, flat (D33). */
+/**
+ * An Instagram professional account's profile as the tests describe it. Under Unified Login the
+ * Graph id (`id`) is the Instagram user id (`user_id`) — the pick writes it as both (P111).
+ */
 export interface TestInstagramProfile {
   user_id: string;
   id: string;
@@ -72,7 +69,7 @@ export function buildInstagramProfile(
   const suffix = `${Date.now()}${instagramIdentifierSequence}`.slice(-12).padStart(12, '0');
   return {
     user_id: `1784${suffix}`,
-    id: `8724${suffix}`,
+    id: `1784${suffix}`,
     username: `shop.${suffix}`,
     name: 'Handmade Shop',
     account_type: 'BUSINESS',
@@ -83,65 +80,59 @@ export function buildInstagramProfile(
     biography: 'Handmade things, shipped weekly.',
     website: 'https://example.com/shop',
     ...overrides,
+    // One id under Unified Login: an override of either sets both.
+    ...(overrides.user_id !== undefined ? { id: overrides.user_id } : {}),
+    ...(overrides.id !== undefined && overrides.user_id === undefined
+      ? { user_id: overrides.id }
+      : {}),
   };
 }
 
 /** How the mocked `subscribed_apps` call answers after a connect. */
 export type TestSubscriptionOutcome = 'success' | 'failure' | 'none';
 
+/** The Instagram account object `GET /app/social/instagram/account` answers (route 2). */
+export type TestConnectedInstagramAccount = Record<string, unknown> & {
+  id: string;
+  connection_status: string;
+};
+
 /**
- * Mocks a whole connect against Instagram with nock: the code exchange, the long-lived exchange,
- * `/me` and (unless `subscription` is `none`) `subscribed_apps`. Returns the scopes so a test can
- * assert every call was made (`isDone()`).
+ * Connects one Instagram account for the team the way the frontend does now — start, callback and
+ * pick of a channel connection (feat-instagram-dm-sending routes 1–3), Meta mocked with nock — and
+ * answers the account as route 2 reads it, with the connection's public id. Replaces the launch's
+ * Instagram Login connect (RC-6).
  */
-export function mockInstagramConnect({
+export async function connectInstagramAccount({
+  app,
+  token,
   profile,
-  grantedPermissions = TEST_INSTAGRAM_GRANTED_PERMISSIONS,
   subscription = 'success',
+  clientBusinessId,
 }: {
+  app: FastifyInstance;
+  token: string;
   profile: TestInstagramProfile;
-  grantedPermissions?: string[];
   subscription?: TestSubscriptionOutcome;
-}): nock.Scope[] {
-  const codeExchange = nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-    .post('/oauth/access_token')
-    .reply(200, {
-      data: [
-        {
-          access_token: TEST_INSTAGRAM_SHORT_LIVED_TOKEN,
-          user_id: profile.user_id,
-          permissions: grantedPermissions.join(','),
-        },
-      ],
-    });
-  const instagramLogin = nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-    .get('/access_token')
-    .query(true)
-    .reply(200, {
-      access_token: TEST_INSTAGRAM_LONG_LIVED_TOKEN,
-      token_type: 'bearer',
-      expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
-    })
-    .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
-    .query(true)
-    .reply(200, profile);
-  const graph = nock(META_GRAPH_BASE_URL);
-  if (subscription === 'success') {
-    graph
-      .post(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)
-      .query(true)
-      .reply(200, { success: true });
-  } else if (subscription === 'failure') {
-    graph
-      .post(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)
-      .query(true)
-      .reply(400, {
-        error: { message: 'Unsupported request', type: 'OAuthException', code: 100 },
-      });
-  }
-  return subscription === 'none'
-    ? [codeExchange, instagramLogin]
-    : [codeExchange, instagramLogin, graph];
+  clientBusinessId?: string;
+}): Promise<{ account: TestConnectedInstagramAccount; channelConnectionPublicId: string }> {
+  const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+    app,
+    token,
+    accounts: [{ id: profile.user_id, username: profile.username }],
+    subscription,
+    ...(clientBusinessId !== undefined ? { clientBusinessId } : {}),
+  });
+  const read = await injectAuthenticated(app, {
+    method: 'GET',
+    url: INSTAGRAM_ACCOUNT_PATH,
+    token,
+  });
+  if (read.statusCode !== 200) throw new Error(`account read answered ${read.statusCode}`);
+  return {
+    account: (read.json() as { data: TestConnectedInstagramAccount }).data,
+    channelConnectionPublicId,
+  };
 }
 
 /** Mocks the disconnect's `DELETE subscribed_apps` for an account's app-scoped id. */
@@ -302,12 +293,11 @@ export async function readInstagramAccountRows(organizationId: number): Promise<
     FROM app.instagram_accounts WHERE organization_id = ${organizationId} ORDER BY id`;
 }
 
-/** How many token rows an organization has, and their ciphertexts — read as the operator. */
+/**
+ * The organization's token ciphertexts — its channel connections' (MC9), read as the operator.
+ */
 export async function readInstagramTokenCiphertexts(organizationId: number): Promise<string[]> {
-  const rows = await operatorQuery<Array<{ encrypted_access_token: string }>>`
-    SELECT encrypted_access_token FROM app.instagram_account_tokens
-    WHERE organization_id = ${organizationId}`;
-  return rows.map((row) => row.encrypted_access_token);
+  return readChannelConnectionTokenCiphertexts({ organizationId });
 }
 
 /** The settings rows of an organization — read as the operator. */

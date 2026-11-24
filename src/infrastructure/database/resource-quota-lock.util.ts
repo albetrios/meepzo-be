@@ -43,6 +43,13 @@ export const RESOURCE_QUOTA_LOCK_NAMESPACE = {
    * run under it, so two saves never both pass the check (launch routes-final § 3 AU9, AU15).
    */
   AUTOMATION_NEXT_POST: 0x41_4e_58_50,
+  /**
+   * Per-organization channel account limit, keyed by organization id. ASCII `CHAP`. The pick of
+   * a channel connection (feat-instagram-dm-sending routes-final § 1 MC7) counts the organization's
+   * not-revoked accounts and connects the picks under it, so two first connects never both pass
+   * the plan's `channel_accounts_max` (plan:L3553); route 11 takes it too (CA9, ROUTE row R5).
+   */
+  CHANNEL_ACCOUNT_LIMIT: 0x43_48_41_50,
 } as const;
 
 /**

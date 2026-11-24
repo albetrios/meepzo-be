@@ -37,11 +37,10 @@ import {
 import {
   INSTAGRAM_ACCOUNT_PATH,
   INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-  INSTAGRAM_CONNECT_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
   createInstagramTeam,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import {
@@ -333,16 +332,10 @@ export class InstagramCommentFlow {
     return this.connectedAccount;
   }
 
-  /** Connects a new Instagram account for the team (route 1). */
+  /** Connects a new Instagram account for the team (a channel connection's start, callback and pick). */
   async connectAccount(): Promise<TestConnectedAccount> {
     const profile = buildInstagramProfile();
-    mockInstagramConnect({ profile });
-    const response = await this.request({
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
-      payload: { code: `AQB-${randomUUID()}#_` },
-    });
-    expect(response.statusCode, response.body).toBe(200);
+    await connectInstagramAccount({ app: this.app, token: this.team.ownerToken, profile });
     const [account] = await getOperatorDatabase()
       .select()
       .from(instagram_accounts)

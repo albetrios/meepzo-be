@@ -1,9 +1,22 @@
 import type { FastifyInstance } from 'fastify';
+import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
+import { ChannelConnectionRepository } from './sub-domains/channel-connection/channel-connection.repository.js';
+import {
+  type ChannelConnectionPlanAccessService,
+  ChannelConnectionService,
+} from './sub-domains/channel-connection/channel-connection.service.js';
+import { ChannelConnectionTokenRepository } from './sub-domains/channel-connection/channel-connection-token.repository.js';
+import { ChannelConnectionTokenService } from './sub-domains/channel-connection/channel-connection-token.service.js';
+import { ChannelConnectionUsageRepository } from './sub-domains/channel-connection/channel-connection-usage.repository.js';
+import {
+  type ChannelConnectionUsageService,
+  createChannelConnectionUsagePostgresStore,
+  createChannelConnectionUsageService,
+} from './sub-domains/channel-connection/channel-connection-usage.service.js';
 import { InstagramAccountRepository } from './sub-domains/instagram-account/instagram-account.repository.js';
 import { InstagramAccountService } from './sub-domains/instagram-account/instagram-account.service.js';
-import { InstagramAccountTokenRepository } from './sub-domains/instagram-account/instagram-account-token.repository.js';
-import { InstagramAccountTokenService } from './sub-domains/instagram-account/instagram-account-token.service.js';
+import { InstagramAccountConnectionService } from './sub-domains/instagram-account/instagram-account-connection.service.js';
 import { InstagramAccountSettingsRepository } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
@@ -25,7 +38,10 @@ import { AutomationRunMessageService } from './sub-domains/automation/automation
 import { AutomationPublicReplySafetyService } from './sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
 
 /**
- * Services exposed by the app domain container (mounted on `app.appDomain`): the Instagram account
+ * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
+ * sub-domain — the connection service (routes 1–5, 40, 42 of feat-instagram-dm-sending § 1), the
+ * token service (the one token path, MC9) and the usage service (Meta's usage per connection, MC19)
+ * — the Instagram account
  * sub-domain — the account service (routes 1, 2, 4 and the guarded status change), the settings
  * service (route 3), the media service (the post and story pickers, routes 5–6, and the stored
  * posts sub-domains 3–4 write through it, IA17), the erasure service (the one erase of an account's
@@ -38,13 +54,18 @@ import { AutomationPublicReplySafetyService } from './sub-domains/automation/aut
  * event processing calls per comment, DM, story reply and button click).
  *
  * @remarks
- * The token service is not exposed: only the account service uses it, and the daily check's
- * processor reads the token through the worker token repository (IA5). The worker process builds
+ * The connection's token service is exposed for the Instagram workers that call Meta with an
+ * account's connection token; the daily check's processor reads it through the worker token
+ * repository (MC9). The connection reaches accounts through its account port — the Instagram
+ * account's `InstagramAccountConnectionService` until ROUTE row R5 (P111). The worker process builds
  * this container too (`createDomainContainers` → `appDomain`), for the daily check's guarded status
  * change (IA8, IA9) and for Instagram webhook event processing (WH12–WH14), which drives the
  * account, events, contact, media, automation and run-engine services from it.
  */
 export type AppContainer = {
+  channelConnectionService: ChannelConnectionService;
+  channelConnectionTokenService: ChannelConnectionTokenService;
+  channelConnectionUsageService: ChannelConnectionUsageService;
   instagramAccountService: InstagramAccountService;
   instagramAccountSettingsService: InstagramAccountSettingsService;
   instagramMediaService: InstagramMediaService;
@@ -60,17 +81,26 @@ export type AppContainer = {
 /**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
- * team check, user id resolution — for the account and the settings services).
+ * team check, user id resolution; billing's plan read: the channel account limit).
  */
 export function createAppContainer({
   organizationService,
+  planAccessService,
 }: {
   organizationService: OrganizationService;
+  /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
+  planAccessService: ChannelConnectionPlanAccessService;
 }): AppContainer {
-  const instagramAccountRepository = new InstagramAccountRepository();
-  const instagramAccountTokenService = new InstagramAccountTokenService(
-    new InstagramAccountTokenRepository(),
+  const channelConnectionRepository = new ChannelConnectionRepository();
+  const channelConnectionTokenService = new ChannelConnectionTokenService(
+    new ChannelConnectionTokenRepository(),
+    channelConnectionRepository,
   );
+  // Meta's usage per connection (MC19, S13): the Postgres store; the app-level store joins at R18.
+  const channelConnectionUsageService = createChannelConnectionUsageService({
+    usageStore: createChannelConnectionUsagePostgresStore(new ChannelConnectionUsageRepository()),
+  });
+  const instagramAccountRepository = new InstagramAccountRepository();
   const instagramAccountSettingsService = new InstagramAccountSettingsService(
     new InstagramAccountSettingsRepository(),
     instagramAccountRepository,
@@ -78,9 +108,24 @@ export function createAppContainer({
   );
   const instagramAccountService = new InstagramAccountService(
     instagramAccountRepository,
-    instagramAccountTokenService,
+    channelConnectionTokenService,
     instagramAccountSettingsService,
     organizationService,
+  );
+  // The connection's account port (1B, 2): the launch account table until ROUTE row R5 (P111). The
+  // lane port (R18) and the trial port (R24) are not passed until their rows build them.
+  const channelConnectionService = new ChannelConnectionService(
+    channelConnectionRepository,
+    channelConnectionTokenService,
+    channelConnectionUsageService,
+    new InstagramAccountConnectionService(
+      instagramAccountRepository,
+      instagramAccountSettingsService,
+      instagramAccountService,
+    ),
+    organizationService,
+    planAccessService,
+    redisConnection,
   );
   const instagramMediaService = new InstagramMediaService(
     new InstagramMediaRepository(),
@@ -141,6 +186,9 @@ export function createAppContainer({
   );
   contactErasureSteps.push((input) => automationRunService.eraseContactRunCopies(input));
   return {
+    channelConnectionService,
+    channelConnectionTokenService,
+    channelConnectionUsageService,
     instagramAccountService,
     instagramAccountSettingsService,
     instagramMediaService,
@@ -160,5 +208,11 @@ export function createAppContainer({
  */
 export function registerAppContainer(application: FastifyInstance): void {
   const { organizationService } = application.tenancyDomain;
-  application.decorate('appDomain', createAppContainer({ organizationService }));
+  application.decorate(
+    'appDomain',
+    createAppContainer({
+      organizationService,
+      planAccessService: application.billingDomain.subscriptionService,
+    }),
+  );
 }

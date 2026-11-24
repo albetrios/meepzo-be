@@ -58,7 +58,8 @@ async function addPerson({ organizationId, roleId }: { organizationId: number; r
 
 /**
  * A TEAM organization as the launch left it (launch IA2): Owner, Admin and the locked Member role
- * with its six codes, no Viewer, no `contact:update` anywhere — and one person holding Member.
+ * with its six codes, no Viewer, no `contact:update` and no `channel-account:*` anywhere — and one
+ * person holding Member.
  */
 async function provisionLaunchTeam(slug: string) {
   const owner = await createTestUser();
@@ -102,7 +103,11 @@ async function provisionLaunchTeam(slug: string) {
     .where(
       and(
         inArray(role_permissions.role_id, organizationRoleIds),
-        eq(role_permissions.permission_code, APP_PERMISSIONS.CONTACT_UPDATE),
+        inArray(role_permissions.permission_code, [
+          APP_PERMISSIONS.CONTACT_UPDATE,
+          APP_PERMISSIONS.CHANNEL_ACCOUNT_READ,
+          APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE,
+        ]),
       ),
     );
   const person = await addPerson({ organizationId, roleId: member!.id });
@@ -158,7 +163,8 @@ async function mainRoleOf(userId: number): Promise<number> {
 }
 
 /**
- * Applies the two R28 tenancy migrations' data steps again, in order, on the operator connection
+ * Applies the two R28 tenancy migrations' data steps and R3's `tenancy_permission_channel_account`
+ * again, in order, on the operator connection
  * (it bypasses row-level security; the files' NO FORCE / FORCE brackets are the table owner's and
  * are left out).
  */
@@ -166,6 +172,7 @@ async function applyRolesMigrations(): Promise<void> {
   for (const file of [
     '20261124072815_tenancy_permission_contact_update.sql',
     '20261124072816_tenancy_roles_editor_viewer.sql',
+    '20261124101530_tenancy_permission_channel_account.sql',
   ]) {
     const statements = readFileSync(resolve(process.cwd(), 'migrations', file), 'utf8')
       .split('--> statement-breakpoint')
@@ -311,7 +318,40 @@ describe('default team roles: Member → Editor, Viewer added (database)', () =>
     });
   });
 
-  describe('the migrations tenancy_permission_contact_update and tenancy_roles_editor_viewer', () => {
+  describe('the migrations tenancy_permission_contact_update, tenancy_roles_editor_viewer and tenancy_permission_channel_account', () => {
+    it('grant each channel-account code to every role holding its instagram-account twin, custom roles included (TN12, P115)', async () => {
+      const { team } = await provisionLaunchTeam('migration-channel-account');
+      const [custom] = await database
+        .insert(roles)
+        .values({
+          public_id: generatePublicId('memberRole'),
+          organization_id: team.organization.id,
+          name: 'Instagram reader',
+          is_system: false,
+        })
+        .returning({ id: roles.id });
+      await database
+        .insert(role_permissions)
+        .values({ role_id: custom!.id, permission_code: APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ });
+
+      await applyRolesMigrations();
+
+      for (const role of (await liveRolesOf(team.organization.id)).values()) {
+        expect(role.codes.includes(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ), role.name).toBe(
+          role.codes.includes(APP_PERMISSIONS.INSTAGRAM_ACCOUNT_READ),
+        );
+        expect(role.codes.includes(APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE), role.name).toBe(
+          role.codes.includes(APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE),
+        );
+      }
+      const after = await liveRolesOf(team.organization.id);
+      expect(after.get(VIEWER_ROLE_NAME)!.codes).toContain(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ);
+      expect(after.get(EDITOR_ROLE_NAME)!.codes).not.toContain(
+        APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE,
+      );
+      expect(after.get('Instagram reader')!.codes).toContain(APP_PERMISSIONS.CHANNEL_ACCOUNT_READ);
+    });
+
     it('bring a launch team to the shape of a team provisioned today; the reconcile then finds nothing to do', async () => {
       const { team, member, person } = await provisionLaunchTeam('migration-launch-team');
       const owner = await createTestUser();

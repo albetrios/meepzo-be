@@ -213,12 +213,13 @@
   "webhookUrlDnsFailed": "No se pudo resolver el nombre de host de la URL del webhook",
   "stripeNotConfigured": "Stripe no está configurado",
   "channelConnectStateInvalid": "No se pudo terminar la conexión. Vuelve a empezar a conectar.",
+  "providerCodeInvalid": "Meta no aceptó este código de inicio de sesión. Puede haber caducado o ya se usó; conéctate de nuevo.",
+  "providerPermissionsMissing": "No se concedieron algunos permisos que Instagram necesita. Conéctate de nuevo y permite todos los permisos.",
+  "channelConnectionBusinessMismatch": "Iniciaste sesión en un negocio distinto del que estás reconectando. No cambió nada.",
+  "channelConnectionNotConnected": "Esta conexión de negocio necesita reconectarse antes de que puedas añadir cuentas.",
+  "planAccountLimit": "Tu plan no tiene espacio para estas cuentas. Elige menos cuentas o mejora tu plan.",
   "instagramNotConfigured": "Instagram no está configurado",
   "instagramUnavailable": "Instagram no está disponible temporalmente. Vuelve a intentarlo más tarde.",
-  "instagramCodeInvalid": "Instagram no aceptó este código de conexión. Puede haber caducado o ya haberse usado; vuelve a conectar Instagram.",
-  "instagramAccountNotProfessional": "Esta cuenta de Instagram es personal. Cámbiala a una cuenta profesional (de empresa o de creador) y vuelve a conectarla.",
-  "instagramScopesMissing": "No se concedió un permiso que necesita la automatización de Instagram. Vuelve a conectar Instagram y acepta todos los permisos que solicita.",
-  "organizationAlreadyHasInstagramAccount": "Esta organización ya tiene una cuenta de Instagram conectada. Desconéctala antes de conectar otra.",
   "instagramAccountConnectedElsewhere": "Esta cuenta de Instagram está conectada a otra organización. Desconéctala allí primero.",
   "instagramConnectRestartRequired": "Instagram dejó de responder mientras se conectaba y no se conectó nada. Vuelve a empezar \"Conectar Instagram\".",
   "instagramSignedRequestInvalid": "La solicitud firmada de Meta falta o no es válida",
@@ -281,6 +282,7 @@
     "Team organization": "la organización de equipo",
     "Instagram account": "la cuenta de Instagram",
     "Contact": "el contacto",
-    "Automation": "Automatización"
+    "Automation": "Automatización",
+    "Channel connection": "Conexión de canal"
   }
 }

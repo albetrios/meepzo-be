@@ -16,9 +16,9 @@ import { createTestWebhook } from '@/tests/factories/webhook.factory.js';
 import { database } from '@/infrastructure/database/connection.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
-import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
-import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
+import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
+import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
 
 /**
@@ -161,34 +161,45 @@ describe('Security: sensitive-field leakage sweep', () => {
     expectNoSensitiveFields(response.body);
   });
 
-  it('GET the connected Instagram account does not leak its encrypted token (launch IA5)', async () => {
+  it('GET the connected Instagram account and the channel connections do not leak the encrypted token (MC9)', async () => {
     const { user } = await userWithToken();
-    const organization = await createTestOrganization({ ownerUserId: user.id });
+    const organization = await createTestOrganization({
+      ownerUserId: user.id,
+      type: 'TEAM',
+    });
     const role = await createRoleWithPermissions({
       organizationId: organization.id,
-      permissionCodes: ['instagram-account:read'],
+      permissionCodes: ['instagram-account:read', 'channel-account:read'],
     });
     await createMembership({ userId: user.id, organizationId: organization.id, roleId: role.id });
+    const [connection] = await database
+      .insert(channel_connections)
+      .values({
+        public_id: generatePublicId('channelConnection'),
+        organization_id: organization.id,
+        client_business_id: '5550000000099',
+        config_id: '1234567890',
+      })
+      .returning({ id: channel_connections.id });
+    await database.insert(channel_connection_tokens).values({
+      organization_id: organization.id,
+      channel_connection_id: connection!.id,
+      encrypted_access_token: 'v1:leaked-instagram-token-ciphertext',
+    });
     const [account] = await database
       .insert(instagram_accounts)
       .values({
         public_id: generatePublicId('instagramAccount'),
         organization_id: organization.id,
+        channel_connection_id: connection!.id,
         instagram_user_id: '17841400000000099',
-        instagram_app_user_id: '917841400000000099',
+        instagram_app_user_id: '17841400000000099',
         username: 'leak_probe',
-        token_expires_at: new Date(Date.now() + MILLISECONDS_PER_DAY),
       })
       .returning({ id: instagram_accounts.id });
     await database.insert(instagram_account_settings).values({
       organization_id: organization.id,
       instagram_account_id: account!.id,
-    });
-    await database.insert(instagram_account_tokens).values({
-      organization_id: organization.id,
-      instagram_account_id: account!.id,
-      encrypted_access_token: 'v1:leaked-instagram-token-ciphertext',
-      expires_at: new Date(Date.now() + MILLISECONDS_PER_DAY),
     });
 
     const token = await generateTestToken({
@@ -206,6 +217,16 @@ describe('Security: sensitive-field leakage sweep', () => {
     expect(response.body).not.toContain('leaked-instagram-token-ciphertext');
     // Sanity: the account itself is returned (not an empty/over-stripped response).
     expect(response.body).toContain('leak_probe');
+
+    const connections = await injectAuthenticated(app, {
+      method: 'GET',
+      url: testApiPath('/app/social/channel-connections'),
+      token,
+    });
+    expect(connections.statusCode).toBe(200);
+    expectNoSensitiveFields(connections.body);
+    expect(connections.body).not.toContain('leaked-instagram-token-ciphertext');
+    expect(connections.body).toContain('@leak_probe');
   });
 
   it('GET /uploads/:publicId does not leak the internal storage key or bucket', async () => {

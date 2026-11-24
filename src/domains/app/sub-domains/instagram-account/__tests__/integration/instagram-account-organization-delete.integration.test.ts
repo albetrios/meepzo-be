@@ -4,7 +4,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { getEnv } from '@/shared/config/env.config.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { OrganizationRepository } from '@/domains/tenancy/sub-domains/organization/organization.repository.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import {
@@ -21,10 +20,9 @@ import {
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 import {
   INSTAGRAM_ACCOUNT_PATH,
-  INSTAGRAM_CONNECT_PATH,
   buildInstagramProfile,
   createInstagramTeam,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
   readInstagramTokenCiphertexts,
@@ -129,14 +127,7 @@ describe('Instagram account — the organization is deleted', () => {
     profile: TestInstagramProfile;
     fixture?: InstagramTeamFixture;
   }) {
-    mockInstagramConnect({ profile });
-    return injectAuthenticated(app, {
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
-      token: fixture.ownerToken,
-      payload: { code: 'AQB-test-authorization-code#_' },
-      headers: { 'x-idempotency-key': `ig-connect-${generatePublicId('instagramAccount')}` },
-    });
+    return connectInstagramAccount({ app, token: fixture.ownerToken, profile });
   }
 
   /** Connects `profile` for the team and stores `postCount` posts; returns the account's ids. */
@@ -147,7 +138,7 @@ describe('Instagram account — the organization is deleted', () => {
     profile: TestInstagramProfile;
     postCount?: number;
   }): Promise<{ id: number; publicId: string }> {
-    expect((await connect({ profile })).statusCode).toBe(200);
+    await connect({ profile });
     const account = (await readInstagramAccountRows(team.organization.id)).at(-1);
     if (account === undefined) throw new Error('no account to store a post under');
     for (let index = 0; index < postCount; index += 1) {
@@ -239,12 +230,9 @@ describe('Instagram account — the organization is deleted', () => {
     await deleteTeam();
     const otherTeam = await createInstagramTeam();
 
-    const response = await connect({ profile, fixture: otherTeam });
+    const { account } = await connect({ profile, fixture: otherTeam });
 
-    expect(response.statusCode).toBe(200);
-    expect((response.json() as { data: { is_new_connection: boolean } }).data).toMatchObject({
-      is_new_connection: true,
-    });
+    expect(account.connection_status).toBe('connected');
     const [row] = await readInstagramAccountRows(otherTeam.organization.id);
     expect(row?.connection_status).toBe('connected');
   });

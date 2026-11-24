@@ -3,7 +3,7 @@
  * (pnpm ops:secrets:rotate).
  *
  * Walks every encrypted field-secret column ({@link FIELD_SECRET_ROTATION_COLUMNS}: MFA TOTP
- * seeds, webhook signing keys, the Instagram access token), decrypts each value using the key for
+ * seeds, webhook signing keys, the channel connection token), decrypts each value using the key for
  * its OWN stored version prefix, and re-encrypts it with `SECRETS_ENCRYPTION_CURRENT_VERSION`.
  * Pair with a `SECRETS_ENCRYPTION_KEYS` keyring that holds both the old and new versions so
  * decryption of in-place rows keeps working during the cutover.
@@ -13,7 +13,7 @@
  *
  * Connection: it reads every row on the `DATABASE_URL` pool outside any database context, so it
  * must connect as a role that bypasses RLS (`rolsuper` or `rolbypassrls`) — all three tables are
- * FORCE RLS, and the Instagram token table has no maintenance arm at all (launch IA5). As any other
+ * FORCE RLS, and the channel connection token table has no maintenance arm at all (MC9). As any other
  * role it would find no rows and report zero, as if every row were rotated; so it refuses to run —
  * dry run included — with a non-zero exit (launch D56).
  *
@@ -35,7 +35,7 @@ import { eq, isNotNull, sql as drizzleSql } from 'drizzle-orm';
 import { database, closeDatabase } from '@/infrastructure/database/connection.js';
 import { mfa_methods } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa-method.schema.js';
 import { webhooks } from '@/domains/notify/sub-domains/webhook/webhook.schema.js';
-import { instagram_account_tokens } from '@/domains/app/sub-domains/instagram-account/instagram-account-token.schema.js';
+import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { ConfigurationError } from '@/shared/errors/index.js';
 import {
@@ -107,9 +107,9 @@ interface FieldSecretRotationColumn {
  *
  * @remarks
  * Each entry reads and writes its table directly on the `DATABASE_URL` pool (see the file header
- * for the role this needs). The Instagram access token (launch D37) is ciphertext everywhere but
- * the Instagram client (IA5); this script is the one other runtime file that decrypts it, pinned
- * by `instagram-account-token-isolation.policy.unit.test.ts`.
+ * for the role this needs). The channel connection's tokens (launch D37, routes-final § 1 MC9,
+ * MC18) are ciphertext everywhere but the provider client; this script is the one other runtime file that decrypts it, pinned
+ * by `channel-connection-token-isolation.policy.unit.test.ts`.
  */
 export const FIELD_SECRET_ROTATION_COLUMNS: readonly FieldSecretRotationColumn[] = [
   {
@@ -135,19 +135,36 @@ export const FIELD_SECRET_ROTATION_COLUMNS: readonly FieldSecretRotationColumn[]
     },
   },
   {
-    column: 'app.instagram_account_tokens.encrypted_access_token',
+    column: 'app.channel_connection_tokens.encrypted_access_token',
     readStoredValues: async () =>
       database
         .select({
-          id: instagram_account_tokens.id,
-          stored: instagram_account_tokens.encrypted_access_token,
+          id: channel_connection_tokens.id,
+          stored: channel_connection_tokens.encrypted_access_token,
         })
-        .from(instagram_account_tokens),
+        .from(channel_connection_tokens),
     writeStoredValue: async ({ id, next }) => {
       await database
-        .update(instagram_account_tokens)
+        .update(channel_connection_tokens)
         .set({ encrypted_access_token: next })
-        .where(eq(instagram_account_tokens.id, id));
+        .where(eq(channel_connection_tokens.id, id));
+    },
+  },
+  {
+    column: 'app.channel_connection_tokens.encrypted_refresh_token',
+    readStoredValues: async () =>
+      database
+        .select({
+          id: channel_connection_tokens.id,
+          stored: drizzleSql<string>`${channel_connection_tokens.encrypted_refresh_token}`,
+        })
+        .from(channel_connection_tokens)
+        .where(isNotNull(channel_connection_tokens.encrypted_refresh_token)),
+    writeStoredValue: async ({ id, next }) => {
+      await database
+        .update(channel_connection_tokens)
+        .set({ encrypted_refresh_token: next })
+        .where(eq(channel_connection_tokens.id, id));
     },
   },
 ];

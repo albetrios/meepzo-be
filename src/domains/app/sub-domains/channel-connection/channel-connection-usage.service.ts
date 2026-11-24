@@ -15,6 +15,8 @@ import {
   type MetaUsageDecision,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-usage.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { withAppDatabaseContext } from '@/infrastructure/database/contexts/database-context.js';
+import type { ChannelConnectionUsageRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-usage.repository.js';
 
 /**
  * Which entries of a connection a pace is read from: one asset and/or type, else all of them.
@@ -48,8 +50,8 @@ export interface ConnectionUsage extends MetaUsageDecision {
  * The usage service of the channel connection (routes-final § 1 MC19, MCC12).
  *
  * @remarks
- * Built by {@link createChannelConnectionUsageService}; ROUTE row R3 wires it into the app
- * container over the Postgres store.
+ * Built by {@link createChannelConnectionUsageService}; the app container wires it over the
+ * Postgres store (`channel-connection-usage.repository.ts`).
  */
 export interface ChannelConnectionUsageService {
   /**
@@ -97,8 +99,8 @@ function stricterDecision({
  *   propagates (the caller decides — a sender retries); a recorder failure is logged and swallowed
  *   (the Meta client never fails a call on it).
  * - **Side effects:** Redis reads/writes; the store's writes.
- * - **Notes:** ROUTE row R3 builds the Postgres store on the connection table and wires this
- *   service into the app container; R18 adds the app-level store on `sending_states`; R20 and R42
+ * - **Notes:** the Postgres store is `app.channel_connection_usages` (one row per connection,
+ *   asset and type); the app container wires this service; R18 adds the app-level store on `sending_states`; R20 and R42
  *   pass a recorder to every send and call `readConnectionUsage` at each lane turn (SN23).
  */
 export function createChannelConnectionUsageService({
@@ -177,6 +179,41 @@ export function createChannelConnectionUsageService({
           );
         }
       };
+    },
+  };
+}
+
+/**
+ * The Postgres {@link ChannelConnectionUsageStore} (P32: Postgres holds the usage) — each call one
+ * unit of work in the target's organization scope over `ChannelConnectionUsageRepository`.
+ *
+ * @remarks
+ * - **Algorithm:** `withAppDatabaseContext` with the target's scope; a caller already inside a unit
+ *   for that organization joins it (the recorder runs after a Meta call, outside any unit, so it
+ *   opens its own — never a send's transaction).
+ * - **Failure modes:** a database failure propagates to the usage service (which logs a write
+ *   failure and lets a read failure through).
+ * - **Side effects:** the repository's writes.
+ * - **Notes:** the one store the app container gives {@link createChannelConnectionUsageService}.
+ */
+export function createChannelConnectionUsagePostgresStore(
+  repository: ChannelConnectionUsageRepository,
+): ChannelConnectionUsageStore {
+  return {
+    readConnectionUsageEntries: (target) =>
+      withAppDatabaseContext({
+        scope: target.scope,
+        callback: () => repository.listEntries(target.channelConnectionPublicId),
+      }),
+    writeConnectionUsageEntries: async ({ entries, ...target }) => {
+      await withAppDatabaseContext({
+        scope: target.scope,
+        callback: () =>
+          repository.upsertEntries({
+            channelConnectionPublicId: target.channelConnectionPublicId,
+            entries,
+          }),
+      });
     },
   };
 }

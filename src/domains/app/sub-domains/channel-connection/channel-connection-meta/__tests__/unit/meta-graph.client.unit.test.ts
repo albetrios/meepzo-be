@@ -19,11 +19,6 @@ vi.mock('@/infrastructure/resilience/circuit-breaker.js', async (importOriginal)
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   assertInstagramConfigured,
-  exchangeInstagramAuthorizationCode,
-  exchangeInstagramLongLivedAccessToken,
-  INSTAGRAM_AUTHORIZATION_BASE_URL,
-  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
-  INSTAGRAM_LOGIN_GRAPH_VERSION,
   META_GRAPH_VERSION,
   META_GRAPH_BASE_URL,
   isInstagramConfigured,
@@ -38,7 +33,6 @@ import {
   readMetaAppSecret,
   readInstagramMediaItem,
   readInstagramUserProfile,
-  refreshInstagramLongLivedAccessToken,
   replyToInstagramComment,
   sendInstagramMessage,
   subscribeInstagramWebhookFields,
@@ -47,17 +41,9 @@ import {
 import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv, resetEnvCacheForTests } from '@/shared/config/env.config.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
-import {
-  decryptFieldSecret,
-  encryptFieldSecret,
-} from '@/shared/utils/security/field-secret-encryption.util.js';
-import {
-  SENSITIVE_REDACTION_PLACEHOLDER,
-  redactSensitiveUrl,
-} from '@/shared/utils/security/sensitive-redaction.util.js';
+import { encryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 
 const VERSION_PATH = `/${META_GRAPH_VERSION}`;
-const LOGIN_VERSION_PATH = `/${INSTAGRAM_LOGIN_GRAPH_VERSION}`;
 const ACCOUNT_TOKEN = 'IGAA-long-lived-plain-token';
 const APP_USER_ID = '9876543210';
 const MEDIA_FIELDS =
@@ -83,14 +69,6 @@ function graphWithAccountToken(): nock.Scope {
   return nock(META_GRAPH_BASE_URL).matchHeader('authorization', `Bearer ${ACCOUNT_TOKEN}`);
 }
 
-/** The launch's Instagram Login host (`/me`, until ROUTE row R3 retires it). */
-function instagramLoginWithAccountToken(): nock.Scope {
-  return nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL).matchHeader(
-    'authorization',
-    `Bearer ${ACCOUNT_TOKEN}`,
-  );
-}
-
 /** A Graph query plus the `appsecret_proof` of the account token (MC2). */
 function withProof(query: Record<string, string> = {}): Record<string, string> {
   const appSecret = getEnv().META_APP_SECRET ?? '';
@@ -98,13 +76,6 @@ function withProof(query: Record<string, string> = {}): Record<string, string> {
     ...query,
     appsecret_proof: createHmac('sha256', appSecret).update(ACCOUNT_TOKEN).digest('hex'),
   };
-}
-
-/** A form body as nock hands it to a matcher: already parsed, or the raw string. */
-function readFormBody(body: unknown): Record<string, string> {
-  return typeof body === 'string'
-    ? Object.fromEntries(new URLSearchParams(body))
-    : { ...(body as Record<string, string>) };
 }
 
 beforeEach(async () => {
@@ -118,11 +89,14 @@ afterEach(() => {
 });
 
 describe('Instagram client settings', () => {
-  it('pins Graph API v27.0 on graph.facebook.com, and keeps the Instagram Login hosts until R3', () => {
+  it('pins Graph API v27.0 on graph.facebook.com — no Instagram Login host is left (AC-1.17)', async () => {
     expect(META_GRAPH_VERSION).toBe('v27.0');
     expect(META_GRAPH_BASE_URL).toBe('https://graph.facebook.com');
-    expect(INSTAGRAM_AUTHORIZATION_BASE_URL).toBe('https://api.instagram.com');
-    expect(INSTAGRAM_LOGIN_GRAPH_BASE_URL).toBe('https://graph.instagram.com');
+    const client = await import(
+      '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js'
+    );
+    expect(Object.keys(client)).not.toContain('INSTAGRAM_LOGIN_GRAPH_BASE_URL');
+    expect(Object.keys(client)).not.toContain('refreshInstagramLongLivedAccessToken');
   });
 
   describe('with an app setting unset', () => {
@@ -138,21 +112,8 @@ describe('Instagram client settings', () => {
       resetEnvCacheForTests();
     });
 
-    it('is not configured, and both exchanges answer 503 without calling Instagram', async () => {
+    it('is not configured', () => {
       expect(isInstagramConfigured()).toBe(false);
-
-      const exchange = exchangeInstagramAuthorizationCode({ code: 'any-code' });
-      await expect(exchange).rejects.toBeInstanceOf(ServiceUnavailableError);
-      await expect(exchange).rejects.toMatchObject({
-        statusCode: 503,
-        messageKey: 'errors:instagramNotConfigured',
-        reason: 'instagram_not_configured',
-      });
-      await expect(
-        exchangeInstagramLongLivedAccessToken({
-          encryptedShortLivedAccessToken: encryptedAccountToken,
-        }),
-      ).rejects.toBeInstanceOf(ServiceUnavailableError);
     });
 
     it('fails the configured check with 503 instagram_not_configured (the pickers, IA16)', () => {
@@ -208,177 +169,20 @@ describe('Instagram client settings', () => {
   });
 });
 
-describe('exchangeInstagramAuthorizationCode', () => {
-  it('posts the documented form, strips the trailing #_, and returns the token encrypted', async () => {
-    const environment = getEnv();
-    nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-      .post('/oauth/access_token', (body) => {
-        expect(readFormBody(body)).toEqual({
-          client_id: environment.META_APP_ID,
-          client_secret: environment.META_APP_SECRET,
-          grant_type: 'authorization_code',
-          redirect_uri: environment.META_REDIRECT_URI,
-          code: 'AQB-authorization-code',
-        });
-        return true;
-      })
-      .matchHeader('content-type', /application\/x-www-form-urlencoded/)
-      .reply(200, {
-        data: [
-          {
-            access_token: 'IGAA-short-lived-plain-token',
-            user_id: '17841400000000000',
-            permissions:
-              'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments',
-          },
-        ],
-      });
-
-    const token = await exchangeInstagramAuthorizationCode({ code: 'AQB-authorization-code#_' });
-
-    expect(token.encryptedAccessToken).not.toContain('IGAA-short-lived-plain-token');
-    expect(decryptFieldSecret(token.encryptedAccessToken)).toBe('IGAA-short-lived-plain-token');
-    expect(token.grantedPermissions).toEqual([
-      'instagram_business_basic',
-      'instagram_business_manage_messages',
-      'instagram_business_manage_comments',
-    ]);
-  });
-
-  it('reads the flat answer with a permission list too', async () => {
-    nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
-      .post('/oauth/access_token')
-      .reply(200, {
-        access_token: 'IGAA-short',
-        user_id: 17841400000000000,
-        permissions: ['instagram_business_basic', ' instagram_business_manage_comments '],
-      });
-
-    const token = await exchangeInstagramAuthorizationCode({ code: 'code' });
-
-    expect(decryptFieldSecret(token.encryptedAccessToken)).toBe('IGAA-short');
-    expect(token.grantedPermissions).toEqual([
-      'instagram_business_basic',
-      'instagram_business_manage_comments',
-    ]);
-  });
-
-  it('a used or expired code is refused — not an outage', async () => {
-    nock(INSTAGRAM_AUTHORIZATION_BASE_URL).post('/oauth/access_token').reply(400, {
-      error_type: 'OAuthException',
-      code: 400,
-      error_message: 'This authorization code has been used',
-    });
-
-    await expect(exchangeInstagramAuthorizationCode({ code: 'used' })).rejects.toMatchObject({
-      errorClass: 'refused',
-      status: 400,
-      countsAsCircuitFailure: false,
-    });
-  });
-
-  it('an answer without a token is an outage', async () => {
-    nock(INSTAGRAM_AUTHORIZATION_BASE_URL).post('/oauth/access_token').reply(200, { data: [] });
-
-    await expect(exchangeInstagramAuthorizationCode({ code: 'code' })).rejects.toMatchObject({
-      errorClass: 'outage',
-    });
-  });
-});
-
-describe('the token exchange and renewal (token in the query, URL redacted)', () => {
-  it('exchanges the short-lived token for a long-lived one, encrypted, with expiresAt', async () => {
-    const environment = getEnv();
-    const encryptedShortLivedAccessToken = encryptFieldSecret('IGAA-short-lived-plain-token');
-    let requestedUrl = '';
-    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-      .get('/access_token')
-      .query({
-        grant_type: 'ig_exchange_token',
-        client_secret: String(environment.META_APP_SECRET),
-        access_token: 'IGAA-short-lived-plain-token',
-      })
-      .reply(200, (uri: string) => {
-        // nock hands `fetch` requests over as a Request; a path string otherwise.
-        const request = uri as unknown as string | { url: string };
-        requestedUrl =
-          typeof request === 'string' ? `${META_GRAPH_BASE_URL}${request}` : request.url;
-        return { access_token: 'IGAA-long-lived', token_type: 'bearer', expires_in: 5_183_944 };
-      });
-    const before = Date.now();
-
-    const token = await exchangeInstagramLongLivedAccessToken({ encryptedShortLivedAccessToken });
-
-    expect(decryptFieldSecret(token.encryptedAccessToken)).toBe('IGAA-long-lived');
-    expect(token.encryptedAccessToken).not.toContain('IGAA-long-lived');
-    expect(token.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 5_183_944_000);
-    expect(token.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 5_183_944_000);
-
-    // Whatever logs this URL (a Sentry breadcrumb, an error) sees neither the secret nor the token.
-    const loggedUrl = redactSensitiveUrl(requestedUrl);
-    expect(loggedUrl).not.toContain('IGAA-short-lived-plain-token');
-    expect(loggedUrl).not.toContain(String(environment.META_APP_SECRET));
-    expect(loggedUrl).toContain(`access_token=${SENSITIVE_REDACTION_PLACEHOLDER}`);
-    expect(loggedUrl).toContain(`client_secret=${SENSITIVE_REDACTION_PLACEHOLDER}`);
-  });
-
-  it('renews a long-lived token', async () => {
-    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-      .get('/refresh_access_token')
-      .query({ grant_type: 'ig_refresh_token', access_token: ACCOUNT_TOKEN })
-      .reply(200, { access_token: 'IGAA-renewed', token_type: 'bearer', expires_in: 5_184_000 });
-
-    const token = await refreshInstagramLongLivedAccessToken({
-      encryptedAccessToken: encryptedAccountToken,
-    });
-
-    expect(decryptFieldSecret(token.encryptedAccessToken)).toBe('IGAA-renewed');
-  });
-
-  it('a dead token on renewal is auth — expired for 190 / 463', async () => {
-    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-      .get('/refresh_access_token')
-      .query(true)
-      .reply(400, graphError(190, 463));
-
-    await expect(
-      refreshInstagramLongLivedAccessToken({ encryptedAccessToken: encryptedAccountToken }),
-    ).rejects.toMatchObject({ errorClass: 'auth', connectionStatus: 'expired' });
-  });
-
-  it('an answer without expires_in is an outage', async () => {
-    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
-      .get('/refresh_access_token')
-      .query(true)
-      .reply(200, { access_token: 'IGAA-renewed' });
-
-    await expect(
-      refreshInstagramLongLivedAccessToken({ encryptedAccessToken: encryptedAccountToken }),
-    ).rejects.toMatchObject({ errorClass: 'outage', category: 'unknown' });
-  });
-
-  it('a token that does not decrypt is our failure: it stays a plain error and nothing is sent', async () => {
-    const rejection = refreshInstagramLongLivedAccessToken({ encryptedAccessToken: 'plain-token' });
-
-    await expect(rejection).rejects.not.toBeInstanceOf(MetaGraphApiError);
-    await expect(rejection).rejects.toThrow(/not encrypted/);
-  });
-});
-
 describe('Graph reads (token in the Authorization header, never the URL)', () => {
-  it('reads /me with the IA12 fields', async () => {
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
-      .query({
-        fields:
-          'user_id,id,username,name,account_type,profile_picture_url,followers_count,follows_count,media_count,biography,website',
-      })
+  it('reads an account profile on graph.facebook.com by its Instagram user id (MC7, P17)', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
+      .query(
+        withProof({
+          fields:
+            'id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website',
+        }),
+      )
       .reply(200, {
-        user_id: '17841400000000000',
         id: APP_USER_ID,
         username: 'meepzo.shop',
         name: 'Acme Shop',
-        account_type: 'BUSINESS',
         profile_picture_url: 'https://scontent.cdninstagram.com/picture.jpg',
         followers_count: 1200,
         follows_count: 80,
@@ -387,13 +191,14 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
       });
 
     await expect(
-      readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken }),
+      readInstagramAccountProfile({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramUserId: APP_USER_ID,
+      }),
     ).resolves.toEqual({
-      instagramUserId: '17841400000000000',
-      instagramAppUserId: APP_USER_ID,
+      instagramUserId: APP_USER_ID,
       username: 'meepzo.shop',
       name: 'Acme Shop',
-      accountType: 'BUSINESS',
       profilePictureUrl: 'https://scontent.cdninstagram.com/picture.jpg',
       followersCount: 1200,
       followsCount: 80,
@@ -403,51 +208,43 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
     });
   });
 
-  it('reads a /me answer wrapped in data from data[0] (D33)', async () => {
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
+  it('reads a profile answer wrapped in data from data[0] (D33)', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
       .query(true)
-      .reply(200, {
-        data: [
-          {
-            user_id: '17841400000000000',
-            id: APP_USER_ID,
-            username: 'meepzo.shop',
-            account_type: 'MEDIA_CREATOR',
-            followers_count: 12,
-          },
-        ],
-      });
+      .reply(200, { data: [{ id: APP_USER_ID, username: 'meepzo.shop', followers_count: 12 }] });
 
     await expect(
-      readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken }),
-    ).resolves.toEqual({
-      instagramUserId: '17841400000000000',
-      instagramAppUserId: APP_USER_ID,
-      username: 'meepzo.shop',
-      name: null,
-      accountType: 'MEDIA_CREATOR',
-      profilePictureUrl: null,
-      followersCount: 12,
-      followsCount: null,
-      mediaCount: null,
-      biography: null,
-      website: null,
-    });
+      readInstagramAccountProfile({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramUserId: APP_USER_ID,
+      }),
+    ).resolves.toMatchObject({ instagramUserId: APP_USER_ID, followersCount: 12, name: null });
   });
 
   it.each([
-    ['without the ids', { username: 'x' }],
-    ['with an empty data list and no flat ids', { data: [] }],
-    ['with data[0] that is not an object', { data: ['17841400000000000'] }],
-    ['with data[0] lacking the ids', { data: [{ username: 'x' }] }],
-    ['that is not an object', [{ user_id: '1', id: '2' }]],
-  ])('a /me answer %s is an outage', async (_shape, body) => {
-    instagramLoginWithAccountToken().get(`${LOGIN_VERSION_PATH}/me`).query(true).reply(200, body);
+    ['without the id', { username: 'x' }],
+    ['with an empty data list and no flat id', { data: [] }],
+    ['that is not an object', [{ id: '1' }]],
+  ])('a profile answer %s is an outage', async (_shape, body) => {
+    graphWithAccountToken().get(`${VERSION_PATH}/${APP_USER_ID}`).query(true).reply(200, body);
 
     await expect(
-      readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken }),
+      readInstagramAccountProfile({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramUserId: APP_USER_ID,
+      }),
     ).rejects.toMatchObject({ errorClass: 'outage' });
+  });
+
+  it('a token that does not decrypt is our failure: it stays a plain error and nothing is sent', async () => {
+    const rejection = readInstagramAccountProfile({
+      encryptedAccessToken: 'plain-token',
+      instagramUserId: APP_USER_ID,
+    });
+
+    await expect(rejection).rejects.not.toBeInstanceOf(MetaGraphApiError);
+    await expect(rejection).rejects.toThrow(/not encrypted/);
   });
 
   it("lists media with Instagram's cursor and returns the next cursor only when there is a next page", async () => {
@@ -667,24 +464,30 @@ describe('sends', () => {
 
 describe('failures and the instagram circuit', () => {
   it('a throttle carries the wait Instagram named', async () => {
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
       .query(true)
       .reply(429, graphError(4), { 'Retry-After': '90' });
 
     await expect(
-      readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken }),
+      readInstagramAccountProfile({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramUserId: APP_USER_ID,
+      }),
     ).rejects.toMatchObject({ errorClass: 'throttled', retryAfterMs: 90_000 });
   });
 
   it('a network failure is an outage', async () => {
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
       .query(true)
       .replyWithError(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
 
     await expect(
-      readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken }),
+      readInstagramAccountProfile({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramUserId: APP_USER_ID,
+      }),
     ).rejects.toMatchObject({
       errorClass: 'outage',
       category: 'network',
@@ -694,19 +497,22 @@ describe('failures and the instagram circuit', () => {
 
   it('refusals never open the circuit; outages do, and then nothing is sent', async () => {
     const readProfile = () =>
-      readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken });
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
+      readInstagramAccountProfile({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramUserId: APP_USER_ID,
+      });
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
       .query(true)
       .times(2)
       .reply(400, graphError(190));
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
       .query(true)
       .times(2)
       .reply(400, graphError(100));
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
       .query(true)
       .times(2)
       .reply(400, graphError(17));
@@ -716,8 +522,8 @@ describe('failures and the instagram circuit', () => {
     }
     expect(await metaGraphCircuit.getState()).toBe('CLOSED');
 
-    instagramLoginWithAccountToken()
-      .get(`${LOGIN_VERSION_PATH}/me`)
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}`)
       .query(true)
       .times(3)
       .reply(503, 'down');

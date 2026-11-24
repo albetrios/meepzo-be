@@ -19,8 +19,9 @@ Meta's two callbacks about the person who connected an Instagram account (routes
   the audit entry is the record).
 
 Both are PUBLIC: Meta's form-encoded `signed_request` proves the caller. This folder owns no table;
-it writes `app.instagram_accounts`, `app.instagram_account_tokens` and `app.instagram_media`
-through their services. Built by ROUTE row R6 of the launch iteration
+it writes `app.instagram_accounts`, `app.instagram_media` and — with a connection's last account —
+`app.channel_connections` / `app.channel_connection_tokens` through their services (feat-instagram-dm-sending
+R3; Meta's callbacks move to the channel connection at R9). Built by ROUTE row R6 of the launch iteration
 (`iterations/launch-2026-11-20-ujai/`).
 
 ## Layout

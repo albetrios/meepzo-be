@@ -940,7 +940,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       const { waitingRun } = await writeHistory({ app, team, person: JORDAN, automations });
       const {
         instagram_accounts: _account,
-        instagram_account_tokens: tokensBefore,
+        channel_connections: _connections,
+        channel_connection_tokens: tokensBefore,
         instagram_media: postsBefore,
         ...before
       } = await readAppRowsOfOrganization(team.organization.id);
@@ -953,13 +954,16 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       const after = await readAppRowsOfOrganization(team.organization.id);
       const {
         instagram_accounts: accounts,
-        instagram_account_tokens: tokens,
+        channel_connections: connections,
+        channel_connection_tokens: tokens,
         instagram_media: posts,
         ...untouched
       } = after;
       expect(accounts).toEqual([
         expect.objectContaining({ connection_status: 'revoked', username: null, name: null }),
       ]);
+      // The connection's last account went, so the connection is revoked with its token (CA8).
+      expect(connections).toEqual([expect.objectContaining({ status: 'revoked' })]);
       expect(tokens).toEqual([]);
       expect(posts).toEqual([]);
       expect(untouched).toEqual(before);
@@ -986,9 +990,14 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       }
       const [team, otherTeam] = teams as [ConnectedInstagramTeam, ConnectedInstagramTeam];
       const counts = await countAppRowsOfOrganization(team.organization.id);
-      // Every table of the schema that holds an organization's rows has some to lose.
+      // Every table of the schema that holds an organization's rows has some to lose — but Meta's
+      // usage, which only answers carrying the usage headers write (the mocks send none).
       expect(Object.keys(counts).length).toBeGreaterThanOrEqual(10);
-      expect(Object.entries(counts).filter(([, count]) => count === 0)).toEqual([]);
+      expect(
+        Object.entries(counts).filter(
+          ([table, count]) => count === 0 && table !== 'channel_connection_usages',
+        ),
+      ).toEqual([]);
       const otherBefore = await readAppRowsOfOrganization(otherTeam.organization.id);
       const token = await generateTestToken({
         userId: team.owner.public_id,
@@ -1024,7 +1033,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(await purge()).toMatchObject({ deletedCount: 0 });
       expect(await countAppRowsOfOrganization(team.organization.id)).toEqual({
         ...counts,
-        instagram_account_tokens: 0,
+        channel_connection_tokens: 0,
         instagram_media: 0,
       });
       const pastTheWindow = daysBefore({

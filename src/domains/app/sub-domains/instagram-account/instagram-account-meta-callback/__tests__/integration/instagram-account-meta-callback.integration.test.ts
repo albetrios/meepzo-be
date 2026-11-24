@@ -6,7 +6,6 @@ import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js
 import { getEnv, resetEnvCacheForTests } from '@/shared/config/env.config.js';
 import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
 import { META_CALLBACK_BODY_LIMIT_BYTES } from '@/shared/constants/limits.constants.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import {
   insertContact,
@@ -23,10 +22,9 @@ import {
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
   INSTAGRAM_ACCOUNT_PATH,
-  INSTAGRAM_CONNECT_PATH,
   buildInstagramProfile,
   createInstagramTeam,
-  mockInstagramConnect,
+  connectInstagramAccount,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
   readInstagramSettingsRows,
@@ -131,17 +129,12 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     profile: TestInstagramProfile;
     fixture?: InstagramTeamFixture;
   }): Promise<string> {
-    mockInstagramConnect({ profile });
-    const response = await injectAuthenticated(app, {
-      method: 'POST',
-      url: INSTAGRAM_CONNECT_PATH,
+    const { account } = await connectInstagramAccount({
+      app,
       token: fixture.ownerToken,
-      payload: { code: 'AQB-test-authorization-code#_' },
-      headers: { 'x-idempotency-key': `ig-connect-${generatePublicId('instagramAccount')}` },
+      profile,
     });
-    expect(response.statusCode).toBe(200);
-    return (response.json() as { data: { instagram_account: { id: string } } }).data
-      .instagram_account.id;
+    return account.id;
   }
 
   /** Disconnects `fixture`'s account through route 4. */
@@ -283,10 +276,15 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       const otherTeam = await createInstagramTeam();
       const firstProfile = buildInstagramProfile();
       // The same person's app-scoped id in a second organization (a distinct Instagram user id, so
-      // both rows can be live at once): the resolver names both organizations (IA6).
-      const secondProfile = buildInstagramProfile({ id: firstProfile.id });
+      // both rows can be live at once): the resolver names both organizations (IA6). Under Unified
+      // Login the pick writes the Instagram user id as the app-scoped id (P111), so the second row's
+      // is set by hand — the resolver itself is replaced at ROUTE row R9 (MC15).
+      const secondProfile = buildInstagramProfile();
       await connectAccount({ profile: firstProfile });
       await connectAccount({ profile: secondProfile, fixture: otherTeam });
+      await operatorQuery`
+        UPDATE app.instagram_accounts SET instagram_app_user_id = ${firstProfile.id}
+        WHERE organization_id = ${otherTeam.organization.id}`;
 
       const response = await postCallback({
         url: INSTAGRAM_DEAUTHORIZE_PATH,

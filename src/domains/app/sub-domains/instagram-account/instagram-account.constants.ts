@@ -21,36 +21,14 @@ export type InstagramAccountBrokenConnectionStatus = Extract<
 >;
 
 /**
- * The unique indexes on `app.instagram_accounts` whose violation decides a connect race (IA12
- * step 4): another not-revoked account in this organization (D5), or this Instagram account
- * not revoked in another organization. The constraint name on the Postgres error is one of these.
+ * The unique index on `app.instagram_accounts` whose violation decides a pick race between two
+ * organizations (MC7): this Instagram account not revoked in another organization. The constraint
+ * name on the Postgres error is this one.
  */
 export const INSTAGRAM_ACCOUNT_UNIQUE_INDEXES = {
-  /** At most one not-revoked account per organization → `organization_already_has_instagram_account`. */
-  organizationLive: 'idx_instagram_accounts_organization_live',
-  /** One organization at a time per Instagram account → `instagram_account_connected_elsewhere`. */
+  /** One organization at a time per Instagram account → `connected_elsewhere`. */
   instagramUserLive: 'idx_instagram_accounts_instagram_user_live',
 } as const;
-
-/** The only `app.instagram_account_tokens.token_type` (Instagram's long-lived token, IA5). */
-export const INSTAGRAM_ACCOUNT_TOKEN_TYPE = 'long_lived';
-
-/**
- * The permissions a connect needs granted on Instagram's consent screen (IA12 step 2): reading the
- * account, its messages and its comments. A connect missing any answers
- * `422 instagram_scopes_missing` and stores nothing.
- */
-export const INSTAGRAM_ACCOUNT_REQUIRED_SCOPES = [
-  'instagram_business_basic',
-  'instagram_business_manage_messages',
-  'instagram_business_manage_comments',
-] as const;
-
-/**
- * The `/me` `account_type` values of a professional account (IA12 step 2); any other (a
- * `PERSONAL` account) answers `422 instagram_account_not_professional`.
- */
-export const INSTAGRAM_PROFESSIONAL_ACCOUNT_TYPES = ['BUSINESS', 'MEDIA_CREATOR'] as const;
 
 /**
  * The audit resource type of every Instagram account action (IA7): connect, disconnect, the
@@ -59,14 +37,8 @@ export const INSTAGRAM_PROFESSIONAL_ACCOUNT_TYPES = ['BUSINESS', 'MEDIA_CREATOR'
 export const INSTAGRAM_ACCOUNT_AUDIT_RESOURCE_TYPE = 'instagram_account';
 
 /**
- * How close to its end the daily account check renews a token (IA8, D9): a token that ends within
- * 7 days is renewed, one try a day — seven tries before it ends. A token lasts about 60 days.
- */
-export const INSTAGRAM_ACCESS_TOKEN_RENEWAL_WINDOW_DAYS = 7;
-
-/**
- * Longest `app.instagram_account_tokens.last_refresh_error` — the column's `varchar(500)`; the
- * daily check cuts Instagram's class, code, subcode and HTTP status to it.
+ * Longest error text the daily account check logs — Meta's class, code, subcode and HTTP status cut
+ * to it (the `varchar(500)` of `app.channel_connections.last_check_error`).
  */
 export const INSTAGRAM_ACCOUNT_REFRESH_ERROR_MAX_LENGTH = 500;
 

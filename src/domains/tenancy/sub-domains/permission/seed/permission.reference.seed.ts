@@ -51,6 +51,8 @@ export const SYSTEM_PERMISSIONS = [
   // Upload
   { code: 'upload:manage', name: 'Manage Uploads', category: 'upload' },
   // App (APP_PERMISSIONS, launch IA2): the Instagram, Automations and Contacts rows of the Roles matrix.
+  { code: 'channel-account:read', name: 'View Channel Accounts', category: 'instagram' },
+  { code: 'channel-account:manage', name: 'Manage Channel Accounts', category: 'instagram' },
   { code: 'instagram-account:read', name: 'View Instagram Account', category: 'instagram' },
   { code: 'instagram-account:manage', name: 'Manage Instagram Account', category: 'instagram' },
   {

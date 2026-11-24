@@ -4,40 +4,145 @@
 -- migration-safety: allow create_index_without_concurrently reason="new empty tables created in this file"
 --
 -- launch-2026-11-20-ujai, ROUTE R3 (routes-final.md § 1.3, 1.A.3, 1.B.3 — IA5, IA6, IA11, IAC5,
--- IAC6): the organization's connected Instagram professional account, its encrypted token and
--- its automation settings, in the `app` schema R1 created (20261121050908_app_schema.sql).
+-- IAC6), changed in place by feat-instagram-dm-sending-2026-11-23-oxak ROUTE R3 (P29; routes-final
+-- § 1.3 MC1, MC9, MC18, MC19 / S13, P107, P111): the provider login an organization connects its
+-- accounts through, its encrypted token and Meta's usage per connection; the organization's
+-- connected Instagram professional accounts and their automation settings, in the `app` schema R1
+-- created (20261121050908_app_schema.sql).
 --
---   app.instagram_accounts          one row per organization and Instagram account; at most one
---                                   not-revoked row per organization (D5) and one per Instagram
---                                   account across all organizations (IA11). No soft delete:
---                                   `revoked` stands in, and the row stays until the organization
---                                   is deleted.
---   app.instagram_account_tokens    the long-lived token, ciphertext only (IA5), one per account.
+--   app.channel_connections         one provider login of an organization for one business (Meta's
+--                                   Unified Login: one business portfolio). One row per organization,
+--                                   provider and business, a revoked one reused. No soft delete:
+--                                   `revoked` stands in.
+--   app.channel_connection_tokens   its token, ciphertext only (MC9), one per connection; deleted
+--                                   when the connection is revoked.
+--   app.channel_connection_usages   Meta's usage per connection, asset and use-case type (S13, P107):
+--                                   the newest reading wins. Postgres holds it; Redis keeps a copy.
+--   app.instagram_accounts          one row per organization and Instagram account; many per
+--                                   organization up to the plan's limit (D26, checked at the pick
+--                                   under the organization lock) and one not-revoked row per
+--                                   Instagram account across all organizations (IA11). Each names the
+--                                   connection it came through (`channel_connection_id`, P111 — moves
+--                                   to app.channel_accounts at ROUTE row R5). No soft delete:
+--                                   `revoked` stands in, and the row stays until the organization is
+--                                   deleted.
 --   app.instagram_account_settings  the automation switch and public reply safety, one per account.
 --
+-- The launch's app.instagram_account_tokens (the Instagram Login token, renewed daily) is gone: the
+-- token lives on the connection (D24); no data moves (plan:L2924).
+--
 -- New, empty tables: the keys, CHECKs and indexes are created with them, inside this file's
--- transaction — nothing to lock against, nothing to validate. The children reference the account
--- through the composite key (organization_id, instagram_account_id) -> (organization_id, id), so a
--- row cannot name another organization's account (B2-5, named `<table>_<parent>_fk` as
+-- transaction — nothing to lock against, nothing to validate. The children reference their parent
+-- through the composite key (organization_id, <parent>_id) -> (organization_id, id), so a row cannot
+-- name another organization's parent (B2-5, named `<table>_<parent>_fk` as
 -- 20261101101100_tenant_composite_foreign_keys.sql names them).
 --
--- Row-level security: ENABLE + FORCE on all three, one `<table>_tenant_isolation` policy FOR ALL —
+-- Row-level security: ENABLE + FORCE on all five, one `<table>_tenant_isolation` policy FOR ALL —
 -- USING the organization arm, plus the retention sweep arm bound to the maintenance role on the
--- account and the settings (the daily sweep, IA8), WITH CHECK the organization arm only. The token
--- table has NO sweep arm (IA5): no maintenance process reads a token; the expiry the sweep needs is
--- copied onto app.instagram_accounts.token_expires_at in the same transaction.
+-- connection (the daily token check's sweep, MC10), the account and the settings (the daily sweep,
+-- IA8), WITH CHECK the organization arm only. The token and usage tables have NO sweep arm (MC9): no
+-- maintenance process reads a token or a connection's usage.
 --
 -- Two SECURITY DEFINER resolvers (IA6) answer "which organization" before the organization is
--- known — connect's "connected elsewhere" check and webhook routing; Meta's callbacks — and return
+-- known — the pick's "connected elsewhere" check and webhook routing; Meta's callbacks — and return
 -- organization public ids only. Like billing.resolve_organization_public_id_for_stripe_subscription,
 -- they stay owned by the migration-executing role (role taxonomy, 20260827050000: a definer owned by
 -- meepzo_be_owner would be subject to FORCE RLS and return nothing), pin search_path, and are
 -- executable by the two runtime roles only (20261010135529).
 
+CREATE TABLE IF NOT EXISTS app.channel_connections (
+  id BIGSERIAL PRIMARY KEY,
+  public_id VARCHAR(28) NOT NULL,
+  organization_id BIGINT NOT NULL,
+  provider VARCHAR(20) NOT NULL DEFAULT 'meta',
+  client_business_id VARCHAR(64) NOT NULL,
+  config_id VARCHAR(64) NOT NULL,
+  login_type VARCHAR(20) NOT NULL DEFAULT 'unified',
+  status VARCHAR(10) NOT NULL DEFAULT 'connected',
+  status_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  scopes TEXT[] NOT NULL DEFAULT '{}',
+  connected_by_user_id BIGINT,
+  connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_checked_at TIMESTAMPTZ,
+  last_check_error VARCHAR(500),
+  disconnected_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT channel_connections_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
+  CONSTRAINT channel_connections_connected_by_user_id_users_id_fk FOREIGN KEY (connected_by_user_id) REFERENCES auth.users (id) ON DELETE SET NULL,
+  CONSTRAINT chk_channel_connections_provider CHECK (provider IN ('meta')),
+  CONSTRAINT chk_channel_connections_status CHECK (status IN ('connected', 'error', 'revoked')),
+  CONSTRAINT chk_channel_connections_login_type CHECK (login_type IN ('unified')),
+  CONSTRAINT chk_channel_connections_client_business_id CHECK (client_business_id ~ '^[0-9]{1,64}$'),
+  CONSTRAINT chk_channel_connections_disconnected CHECK ((status = 'revoked') = (disconnected_at IS NOT NULL)),
+  CONSTRAINT chk_channel_connections_scopes CHECK (cardinality(scopes) <= 20),
+  CONSTRAINT chk_channel_connections_updated CHECK (updated_at >= created_at)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_connections_public_id ON app.channel_connections USING btree (public_id);
+--> statement-breakpoint
+-- The children's composite key (organization_id, channel_connection_id) -> (organization_id, id).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_connections_organization_id_id ON app.channel_connections USING btree (organization_id, id);
+--> statement-breakpoint
+-- One row per organization, provider and business: a reconnect reuses it, revoked included (MC5).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_connections_organization_business ON app.channel_connections USING btree (organization_id, provider, client_business_id);
+--> statement-breakpoint
+-- Meta's callbacks matched by business across organizations (MC15, P56).
+CREATE INDEX IF NOT EXISTS idx_channel_connections_provider_business ON app.channel_connections USING btree (provider, client_business_id);
+--> statement-breakpoint
+-- The daily token check's sweep across organizations (MC10).
+CREATE INDEX IF NOT EXISTS idx_channel_connections_check_due ON app.channel_connections USING btree (last_checked_at) WHERE status = 'connected';
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS idx_channel_connections_connected_by_user_id ON app.channel_connections USING btree (connected_by_user_id) WHERE connected_by_user_id IS NOT NULL;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS app.channel_connection_tokens (
+  id BIGSERIAL PRIMARY KEY,
+  organization_id BIGINT NOT NULL,
+  channel_connection_id BIGINT NOT NULL,
+  encrypted_access_token TEXT NOT NULL,
+  token_type VARCHAR(20) NOT NULL DEFAULT 'system_user',
+  encrypted_refresh_token TEXT,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT channel_connection_tokens_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
+  CONSTRAINT channel_connection_tokens_channel_connection_fk FOREIGN KEY (organization_id, channel_connection_id) REFERENCES app.channel_connections (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT chk_channel_connection_tokens_token_type CHECK (token_type IN ('system_user', 'oauth_user')),
+  CONSTRAINT chk_channel_connection_tokens_encrypted_access_token_not_empty CHECK (length(encrypted_access_token) > 0),
+  CONSTRAINT chk_channel_connection_tokens_encrypted_refresh_token_not_empty CHECK (encrypted_refresh_token IS NULL OR length(encrypted_refresh_token) > 0),
+  CONSTRAINT chk_channel_connection_tokens_updated CHECK (updated_at >= created_at)
+);
+--> statement-breakpoint
+-- One token per connection, and the composite key's index.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_connection_tokens_organization_connection ON app.channel_connection_tokens USING btree (organization_id, channel_connection_id);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS app.channel_connection_usages (
+  id BIGSERIAL PRIMARY KEY,
+  organization_id BIGINT NOT NULL,
+  channel_connection_id BIGINT NOT NULL,
+  asset_id VARCHAR(64) NOT NULL,
+  usage_type VARCHAR(64) NOT NULL,
+  usage_percent SMALLINT NOT NULL,
+  wait_until TIMESTAMPTZ,
+  read_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT channel_connection_usages_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
+  CONSTRAINT channel_connection_usages_channel_connection_fk FOREIGN KEY (organization_id, channel_connection_id) REFERENCES app.channel_connections (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT chk_channel_connection_usages_usage_percent CHECK (usage_percent BETWEEN 0 AND 100),
+  CONSTRAINT chk_channel_connection_usages_asset_id CHECK (length(asset_id) > 0),
+  CONSTRAINT chk_channel_connection_usages_usage_type CHECK (length(usage_type) > 0),
+  CONSTRAINT chk_channel_connection_usages_updated CHECK (updated_at >= created_at)
+);
+--> statement-breakpoint
+-- One reading per connection, asset and use-case type (S13), and the composite key's index.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_connection_usages_connection_asset_type ON app.channel_connection_usages USING btree (organization_id, channel_connection_id, asset_id, usage_type);
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS app.instagram_accounts (
   id BIGSERIAL PRIMARY KEY,
   public_id VARCHAR(28) NOT NULL,
   organization_id BIGINT NOT NULL,
+  channel_connection_id BIGINT NOT NULL,
   instagram_user_id VARCHAR(64) NOT NULL,
   instagram_app_user_id VARCHAR(64) NOT NULL,
   username VARCHAR(64),
@@ -62,6 +167,7 @@ CREATE TABLE IF NOT EXISTS app.instagram_accounts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT instagram_accounts_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
   CONSTRAINT instagram_accounts_connected_by_user_id_users_id_fk FOREIGN KEY (connected_by_user_id) REFERENCES auth.users (id) ON DELETE SET NULL,
+  CONSTRAINT instagram_accounts_channel_connection_fk FOREIGN KEY (organization_id, channel_connection_id) REFERENCES app.channel_connections (organization_id, id) ON DELETE RESTRICT,
   CONSTRAINT chk_instagram_accounts_connection_status CHECK (connection_status IN ('connected', 'expired', 'error', 'revoked')),
   CONSTRAINT chk_instagram_accounts_instagram_user_id CHECK (instagram_user_id ~ '^[0-9]{1,64}$'),
   CONSTRAINT chk_instagram_accounts_instagram_app_user_id CHECK (instagram_app_user_id ~ '^[0-9]{1,64}$'),
@@ -81,8 +187,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_organization_id_id ON a
 -- One row per Instagram account per organization: a reconnect reuses it, revoked included (IA11).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_organization_instagram_user ON app.instagram_accounts USING btree (organization_id, instagram_user_id);
 --> statement-breakpoint
--- At most one not-revoked account per organization (D5).
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_organization_live ON app.instagram_accounts USING btree (organization_id) WHERE connection_status <> 'revoked';
+-- The composite key's index and "the accounts of a connection" (reconnect, disconnect business).
+CREATE INDEX IF NOT EXISTS idx_instagram_accounts_connection ON app.instagram_accounts USING btree (organization_id, channel_connection_id);
+--> statement-breakpoint
+-- The organization's not-revoked accounts, oldest connected first (the pick's count, the reads).
+CREATE INDEX IF NOT EXISTS idx_instagram_accounts_organization_live ON app.instagram_accounts USING btree (organization_id, connected_at) WHERE connection_status <> 'revoked';
 --> statement-breakpoint
 -- One organization at a time per Instagram account — decides a race between two organizations.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_instagram_user_live ON app.instagram_accounts USING btree (instagram_user_id) WHERE connection_status <> 'revoked';
@@ -91,27 +200,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_instagram_user_live ON 
 CREATE INDEX IF NOT EXISTS idx_instagram_accounts_instagram_app_user_id ON app.instagram_accounts USING btree (instagram_app_user_id);
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_instagram_accounts_connected_by_user_id ON app.instagram_accounts USING btree (connected_by_user_id) WHERE connected_by_user_id IS NOT NULL;
---> statement-breakpoint
-CREATE TABLE IF NOT EXISTS app.instagram_account_tokens (
-  id BIGSERIAL PRIMARY KEY,
-  organization_id BIGINT NOT NULL,
-  instagram_account_id BIGINT NOT NULL,
-  encrypted_access_token TEXT NOT NULL,
-  token_type VARCHAR(20) NOT NULL DEFAULT 'long_lived',
-  expires_at TIMESTAMPTZ,
-  last_refreshed_at TIMESTAMPTZ,
-  last_refresh_error VARCHAR(500),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT instagram_account_tokens_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
-  CONSTRAINT instagram_account_tokens_instagram_account_fk FOREIGN KEY (organization_id, instagram_account_id) REFERENCES app.instagram_accounts (organization_id, id) ON DELETE CASCADE,
-  CONSTRAINT chk_instagram_account_tokens_token_type CHECK (token_type IN ('long_lived')),
-  CONSTRAINT chk_instagram_account_tokens_encrypted_access_token_not_empty CHECK (length(encrypted_access_token) > 0),
-  CONSTRAINT chk_instagram_account_tokens_updated CHECK (updated_at >= created_at)
-);
---> statement-breakpoint
--- One token per account, and the composite key's index.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_account_tokens_organization_account ON app.instagram_account_tokens USING btree (organization_id, instagram_account_id);
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS app.instagram_account_settings (
   id BIGSERIAL PRIMARY KEY,
@@ -142,31 +230,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_account_settings_organization_ac
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_instagram_account_settings_updated_by_user_id ON app.instagram_account_settings USING btree (updated_by_user_id) WHERE updated_by_user_id IS NOT NULL;
 --> statement-breakpoint
-ALTER TABLE app.instagram_accounts OWNER TO meepzo_be_owner;
+ALTER TABLE app.channel_connections OWNER TO meepzo_be_owner;
 --> statement-breakpoint
-ALTER TABLE app.instagram_account_tokens OWNER TO meepzo_be_owner;
+ALTER TABLE app.channel_connection_tokens OWNER TO meepzo_be_owner;
+--> statement-breakpoint
+ALTER TABLE app.channel_connection_usages OWNER TO meepzo_be_owner;
+--> statement-breakpoint
+ALTER TABLE app.instagram_accounts OWNER TO meepzo_be_owner;
 --> statement-breakpoint
 ALTER TABLE app.instagram_account_settings OWNER TO meepzo_be_owner;
 --> statement-breakpoint
-GRANT SELECT, INSERT, UPDATE, DELETE ON app.instagram_accounts, app.instagram_account_tokens, app.instagram_account_settings TO meepzo_be_app, meepzo_be_maintenance;
+GRANT SELECT, INSERT, UPDATE, DELETE ON app.channel_connections, app.channel_connection_tokens, app.channel_connection_usages, app.instagram_accounts, app.instagram_account_settings TO meepzo_be_app, meepzo_be_maintenance;
 --> statement-breakpoint
-GRANT USAGE, SELECT ON SEQUENCE app.instagram_accounts_id_seq, app.instagram_account_tokens_id_seq, app.instagram_account_settings_id_seq TO meepzo_be_app, meepzo_be_maintenance;
+GRANT USAGE, SELECT ON SEQUENCE app.channel_connections_id_seq, app.channel_connection_tokens_id_seq, app.channel_connection_usages_id_seq, app.instagram_accounts_id_seq, app.instagram_account_settings_id_seq TO meepzo_be_app, meepzo_be_maintenance;
+--> statement-breakpoint
+ALTER TABLE app.channel_connections ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE app.channel_connections FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE app.channel_connection_tokens ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE app.channel_connection_tokens FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE app.channel_connection_usages ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE app.channel_connection_usages FORCE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.instagram_accounts ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.instagram_accounts FORCE ROW LEVEL SECURITY;
 --> statement-breakpoint
-ALTER TABLE app.instagram_account_tokens ENABLE ROW LEVEL SECURITY;
---> statement-breakpoint
-ALTER TABLE app.instagram_account_tokens FORCE ROW LEVEL SECURITY;
---> statement-breakpoint
 ALTER TABLE app.instagram_account_settings ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint
 ALTER TABLE app.instagram_account_settings FORCE ROW LEVEL SECURITY;
 --> statement-breakpoint
-DROP POLICY IF EXISTS instagram_accounts_tenant_isolation ON app.instagram_accounts;
+-- MC10: the connection's sweep arm (USING only) for the daily token check's sweep.
+DROP POLICY IF EXISTS channel_connections_tenant_isolation ON app.channel_connections;
 --> statement-breakpoint
-CREATE POLICY instagram_accounts_tenant_isolation ON app.instagram_accounts
+CREATE POLICY channel_connections_tenant_isolation ON app.channel_connections
   AS PERMISSIVE
   FOR ALL
   TO PUBLIC
@@ -187,10 +288,10 @@ CREATE POLICY instagram_accounts_tenant_isolation ON app.instagram_accounts
     )
   );
 --> statement-breakpoint
--- IA5: the organization arm only, in USING and WITH CHECK — no sweep arm on the token table.
-DROP POLICY IF EXISTS instagram_account_tokens_tenant_isolation ON app.instagram_account_tokens;
+-- MC9: the organization arm only, in USING and WITH CHECK — no sweep arm on the token table.
+DROP POLICY IF EXISTS channel_connection_tokens_tenant_isolation ON app.channel_connection_tokens;
 --> statement-breakpoint
-CREATE POLICY instagram_account_tokens_tenant_isolation ON app.instagram_account_tokens
+CREATE POLICY channel_connection_tokens_tenant_isolation ON app.channel_connection_tokens
   AS PERMISSIVE
   FOR ALL
   TO PUBLIC
@@ -198,6 +299,49 @@ CREATE POLICY instagram_account_tokens_tenant_isolation ON app.instagram_account
     organization_id = (
       SELECT organizations.id FROM tenancy.organizations
       WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+  )
+  WITH CHECK (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+  );
+--> statement-breakpoint
+-- S13: the organization arm only — usage is read and written inside an organization's scope.
+DROP POLICY IF EXISTS channel_connection_usages_tenant_isolation ON app.channel_connection_usages;
+--> statement-breakpoint
+CREATE POLICY channel_connection_usages_tenant_isolation ON app.channel_connection_usages
+  AS PERMISSIVE
+  FOR ALL
+  TO PUBLIC
+  USING (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+  )
+  WITH CHECK (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+  );
+--> statement-breakpoint
+DROP POLICY IF EXISTS instagram_accounts_tenant_isolation ON app.instagram_accounts;
+--> statement-breakpoint
+CREATE POLICY instagram_accounts_tenant_isolation ON app.instagram_accounts
+  AS PERMISSIVE
+  FOR ALL
+  TO PUBLIC
+  USING (
+    organization_id = (
+      SELECT organizations.id FROM tenancy.organizations
+      WHERE organizations.public_id = (SELECT current_setting('app.current_organization_public_id', true))
+    )
+    OR (
+      (SELECT current_setting('app.global_retention_cleanup', true)) = 'true'
+      AND (SELECT current_user) = 'meepzo_be_maintenance'
     )
   )
   WITH CHECK (
@@ -230,8 +374,8 @@ CREATE POLICY instagram_account_settings_tenant_isolation ON app.instagram_accou
     )
   );
 --> statement-breakpoint
--- IA6 (1): the organization whose NOT-revoked account has this Instagram user id (`/me` user_id,
--- the webhook entry.id) — connect's "connected elsewhere" check; webhook routing (sub-domain 4).
+-- IA6 (1): the organization whose NOT-revoked account has this Instagram user id (the webhook
+-- entry.id) — the pick's "connected elsewhere" check (MC7); webhook routing (sub-domain 4).
 -- At most one row matches (idx_instagram_accounts_instagram_user_live); NULL when none.
 CREATE OR REPLACE FUNCTION app.resolve_organization_public_id_for_instagram_user (
   instagram_user_id_param TEXT

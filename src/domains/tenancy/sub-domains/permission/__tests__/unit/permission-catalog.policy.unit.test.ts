@@ -36,6 +36,8 @@ describe('permission catalog (policy)', () => {
       SYSTEM_PERMISSIONS.map((permission) => [permission.code as string, permission.category]),
     );
     expect(Object.values(APP_PERMISSIONS).map((code) => [code, categoryOf.get(code)])).toEqual([
+      ['channel-account:read', 'instagram'],
+      ['channel-account:manage', 'instagram'],
       ['instagram-account:read', 'instagram'],
       ['instagram-account:manage', 'instagram'],
       ['instagram-webhook-event:read', 'instagram'],

@@ -87,17 +87,33 @@ export interface InstagramAccountReadAccess {
 export interface InstagramAccountMetaRequest {
   /** That organization's verified scope, minted by the Meta callback service (ledgered there). */
   scope: OrganizationPrincipalDatabaseScope;
-  /**
-   * The id Meta signed (`user_id`, IQ3) — under Unified Login the Instagram user id (P111); the
-   * field keeps its name until ROUTE row R9 moves the callbacks (MC15).
-   */
-  instagramAppUserId: string;
+  /** Which accounts of that organization Meta's signed id reaches (MC15, P56). */
+  match: InstagramAccountMetaMatch;
   /**
    * When Meta signed the request (`issued_at`, Unix seconds), or `null` when it sent none: an account
    * connected after it is left alone (D53).
    */
   issuedAt: number | null;
 }
+
+/**
+ * Which accounts of one organization a Meta callback reaches (routes-final § 1 MC15, P56): the
+ * account whose `provider_account_id` is the signed id (any status), or — when no account anywhere
+ * carries that id — every not-revoked account of the organization's connections of that business.
+ */
+export type InstagramAccountMetaMatch =
+  | {
+      /** The signed id is an account's `provider_account_id` (for Meta: the Instagram user id). */
+      kind: 'provider_account';
+      /** The signed id. */
+      providerAccountId: string;
+    }
+  | {
+      /** The signed id is a connection's `client_business_id`. */
+      kind: 'provider_business';
+      /** `app.channel_connections.id` of the organization's connections of that business. */
+      channelConnectionIds: readonly number[];
+    };
 
 /**
  * Input of {@link InstagramAccountService.disconnectForMeta} — Meta's deauthorize (IA19) or data

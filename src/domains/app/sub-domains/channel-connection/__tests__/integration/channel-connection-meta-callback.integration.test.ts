@@ -12,15 +12,23 @@ import {
   insertContact,
   readContactRow,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
-import { deriveMetaDataDeletionConfirmationCode } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback-confirmation-code.util.js';
+import { deriveMetaDataDeletionConfirmationCode } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback-confirmation-code.util.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
+import { createTestPlan } from '@/tests/factories/plan.factory.js';
+import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
+import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import {
   injectAuthenticated,
   injectRoute,
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
+import {
+  connectInstagramAccountsThroughRoutes,
+  nextClientBusinessId,
+  readChannelConnectionRows,
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import {
   buildInstagramProfile,
   createInstagramTeam,
@@ -35,16 +43,16 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import {
   FORM_CONTENT_TYPE,
-  INSTAGRAM_DATA_DELETION_PATH,
-  INSTAGRAM_DEAUTHORIZE_PATH,
+  META_DATA_DELETION_PATH,
+  META_DEAUTHORIZE_PATH,
   buildMetaSignedRequest,
   metaCallbackFormBody,
   metaIssuedAtAfterConnections,
   metaSignedRequestPayload,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/__tests__/factories/instagram-account-meta-callback.factory.js';
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection-meta-callback.factory.js';
 
-const DEAUTHORIZE_ACTION = 'app.instagram_account.deauthorize';
-const DATA_DELETION_ACTION = 'app.instagram_account.data_deletion';
+const DEAUTHORIZE_ACTION = 'app.channel_connection.deauthorize';
+const DATA_DELETION_ACTION = 'app.channel_connection.data_deletion';
 /** Meta signs after the connections of a test, unless the test says otherwise (D53). */
 const ISSUED_AT = metaIssuedAtAfterConnections() + 60 * 60;
 
@@ -89,12 +97,15 @@ async function countAuditRows(action: string): Promise<number> {
 }
 
 /**
- * Routes 7–8 — Meta's deauthorize and data-deletion callbacks (routes-final § 1.D, ROUTE R6) over
- * HTTP: the signed request (IA18), every matching organization changed in its own scope (IA19),
- * the profile, token and stored posts erased (IA20, IQ4), Meta's answer shape and stable code,
- * the unknown person and the repeat both answered 200 with nothing changed, contacts and another
- * account untouched, the anonymous audit entries (IA7). Instagram is mocked with nock for the
- * connects; the database, Redis and the audit outbox are real.
+ * Routes 16–17 — Meta's deauthorize and data-deletion callbacks with the connection
+ * (feat-instagram-dm-sending routes-final § 1 MC14–MC16, ROUTE row R9) over HTTP: the signed
+ * request (MC14), the account id matched first and else the business id (P56) — every matching
+ * organization changed in its own scope, a business match reaching every not-revoked account of its
+ * connection —, a connection's token deleted with its last account only, the profile and stored
+ * posts erased, Meta's answer shape and stable code, an unmatched id and a repeat both answered 200
+ * with nothing changed, contacts and another organization's account untouched, the anonymous audit
+ * entries (MC12). Meta is mocked with nock for the connects; the database, Redis and the audit
+ * outbox are real.
  */
 describe('Meta callbacks (deauthorize, data deletion)', () => {
   let app: FastifyInstance;
@@ -121,6 +132,20 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     nock.cleanAll();
     await metaGraphCircuit.reset();
   });
+
+  /** Gives the team the Creator plan (3 accounts), for a connection of two accounts. */
+  async function useCreatorPlan(): Promise<void> {
+    const plan = await createTestPlan({
+      features: CREATOR_PLAN_FEATURES,
+      priceMonthly: '29.00',
+      priceYearly: '276.00',
+    });
+    await createTestSubscription({
+      organizationId: team.organization.id,
+      planId: plan.id,
+      status: 'ACTIVE',
+    });
+  }
 
   /** Connects `profile` for `fixture` through route 1 and returns the account's public id. */
   async function connectAccount({
@@ -235,13 +260,13 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     return (response.json() as { error: Record<string, never> }).error;
   }
 
-  describe('POST /app/social/instagram/deauthorize (route 7)', () => {
+  describe('POST /app/social/channel-connections/{provider}/deauthorize (route 16)', () => {
     it('revokes the account and erases its token, keeps profile and settings, answers { data: null }, audits anonymously', async () => {
       const profile = buildInstagramProfile();
       const accountPublicId = await connectAccount({ profile });
 
       const response = await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: signedBody({ userId: profile.id }),
       });
 
@@ -264,46 +289,98 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(audit).toHaveLength(1);
       expect(audit[0]).toMatchObject({
         severity: 'WARNING',
-        resource_type: 'instagram_account',
+        resource_type: 'channel_connection',
         metadata: {
           source: 'meta',
           actor_kind: 'anonymous',
-          instagram_account_public_ids: [accountPublicId],
+          match: 'provider_account',
+          channel_account_public_ids: [accountPublicId],
         },
       });
     });
 
-    it('revokes the account in every organization holding that app-scoped id, each with its own audit entry', async () => {
+    it('keeps the connection’s token while another account uses it, and deletes it with the last one (CA8)', async () => {
+      const first = buildInstagramProfile();
+      const second = buildInstagramProfile();
+      await useCreatorPlan();
+      const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [
+          { id: first.user_id, username: first.username },
+          { id: second.user_id, username: second.username },
+        ],
+      });
+
+      await postCallback({ url: META_DEAUTHORIZE_PATH, body: signedBody({ userId: first.id }) });
+
+      expect(
+        (await readInstagramAccountRows(team.organization.id)).map((row) => row.connection_status),
+      ).toEqual(['revoked', 'connected']);
+      expect(await readInstagramTokenCiphertexts(team.organization.id)).toHaveLength(1);
+
+      await postCallback({ url: META_DEAUTHORIZE_PATH, body: signedBody({ userId: second.id }) });
+
+      expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual([]);
+      const [connection] = await readChannelConnectionRows(team.organization.id);
+      expect(connection).toMatchObject({ public_id: channelConnectionPublicId, status: 'revoked' });
+    });
+
+    it('matches the business id when no account carries the signed id: every not-revoked account of that business’s connection, its token deleted (P56)', async () => {
       const otherTeam = await createInstagramTeam();
-      const firstProfile = buildInstagramProfile();
-      // The same Instagram id in a second organization's extension (its channel account keeps a
-      // distinct provider id, so both rows can be live at once): the resolver names both
-      // organizations (IA6). Since R6 Meta's signed id is matched on `instagram_user_id` (P111),
-      // so the second row's is set by hand — the resolver itself is replaced at ROUTE row R9 (MC15).
-      const secondProfile = buildInstagramProfile();
-      await connectAccount({ profile: firstProfile });
-      await connectAccount({ profile: secondProfile, fixture: otherTeam });
-      await operatorQuery`
-        UPDATE app.instagram_accounts SET instagram_user_id = ${firstProfile.id}
-        WHERE organization_id = ${otherTeam.organization.id}`;
+      const clientBusinessId = nextClientBusinessId();
+      const first = buildInstagramProfile();
+      const second = buildInstagramProfile();
+      await useCreatorPlan();
+      const { channelConnectionPublicId } = await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [
+          { id: first.user_id, username: first.username },
+          { id: second.user_id, username: second.username },
+        ],
+        clientBusinessId,
+      });
+      // Another organization's live account of another business is untouched.
+      await connectAccount({ profile: buildInstagramProfile(), fixture: otherTeam });
 
       const response = await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
-        body: signedBody({ userId: firstProfile.id }),
+        url: META_DEAUTHORIZE_PATH,
+        body: signedBody({ userId: clientBusinessId }),
       });
 
       expect(response.statusCode).toBe(200);
-      for (const fixture of [team, otherTeam]) {
-        const [row] = await readInstagramAccountRows(fixture.organization.id);
-        expect(row?.connection_status).toBe('revoked');
-        expect(await readInstagramTokenCiphertexts(fixture.organization.id)).toEqual([]);
-        expect(
-          await readStagedAuditRows({
-            organizationPublicId: fixture.organization.public_id,
-            action: DEAUTHORIZE_ACTION,
-          }),
-        ).toHaveLength(1);
-      }
+      const rows = await readInstagramAccountRows(team.organization.id);
+      expect(rows.map((row) => row.connection_status)).toEqual(['revoked', 'revoked']);
+      expect(await readInstagramTokenCiphertexts(team.organization.id)).toEqual([]);
+      expect((await readChannelConnectionRows(team.organization.id))[0]?.status).toBe('revoked');
+      const audit = await readStagedAuditRows({
+        organizationPublicId: team.organization.public_id,
+        action: DEAUTHORIZE_ACTION,
+      });
+      expect(audit).toHaveLength(1);
+      expect(audit[0]?.metadata).toMatchObject({
+        match: 'provider_business',
+        channel_account_public_ids: rows.map((row) => row.public_id),
+        revoked_channel_connection_public_ids: [channelConnectionPublicId],
+      });
+      const [otherRow] = await readInstagramAccountRows(otherTeam.organization.id);
+      expect(otherRow?.connection_status).toBe('connected');
+      expect(await readInstagramTokenCiphertexts(otherTeam.organization.id)).toHaveLength(1);
+    });
+
+    it('400 provider for any provider but meta', async () => {
+      const profile = buildInstagramProfile();
+      await connectAccount({ profile });
+
+      const response = await postCallback({
+        url: META_DEAUTHORIZE_PATH.replace('/meta/', '/google/'),
+        body: signedBody({ userId: profile.id }),
+      });
+
+      expect(response.statusCode).toBe(400);
+      const [row] = await readInstagramAccountRows(team.organization.id);
+      expect(row?.connection_status).toBe('connected');
     });
 
     it('leaves another organization’s account (another Instagram account) untouched', async () => {
@@ -313,7 +390,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       await connectAccount({ profile: buildInstagramProfile(), fixture: otherTeam });
 
       await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: signedBody({ userId: profile.id }),
       });
 
@@ -332,10 +409,10 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       const profile = buildInstagramProfile();
       await connectAccount({ profile });
       const body = signedBody({ userId: profile.id });
-      await postCallback({ url: INSTAGRAM_DEAUTHORIZE_PATH, body });
+      await postCallback({ url: META_DEAUTHORIZE_PATH, body });
       const [before] = await readAccountProfiles(team.organization.id);
 
-      const repeat = await postCallback({ url: INSTAGRAM_DEAUTHORIZE_PATH, body });
+      const repeat = await postCallback({ url: META_DEAUTHORIZE_PATH, body });
 
       expect(repeat.statusCode).toBe(200);
       const [after] = await readAccountProfiles(team.organization.id);
@@ -349,14 +426,14 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       const accountPublicId = await connectAccount({ profile });
       await backdateConnection();
       const body = signedBody({ userId: profile.id, issuedAt: anHourAgo() });
-      const first = await postCallback({ url: INSTAGRAM_DEAUTHORIZE_PATH, body });
+      const first = await postCallback({ url: META_DEAUTHORIZE_PATH, body });
       expect(first.statusCode).toBe(200);
       expect((await readAccountProfiles(team.organization.id))[0]?.connection_status).toBe(
         'revoked',
       );
       expect(await connectAccount({ profile })).toBe(accountPublicId);
 
-      const retried = await postCallback({ url: INSTAGRAM_DEAUTHORIZE_PATH, body });
+      const retried = await postCallback({ url: META_DEAUTHORIZE_PATH, body });
 
       expect(retried.statusCode).toBe(200);
       const [row] = await readAccountProfiles(team.organization.id);
@@ -365,7 +442,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(await countAuditRows(DEAUTHORIZE_ACTION)).toBe(1);
       // A request Meta signs after the reconnect still disconnects it.
       await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: signedBody({ userId: profile.id }),
       });
       expect((await readAccountProfiles(team.organization.id))[0]?.connection_status).toBe(
@@ -379,7 +456,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       await connectAccount({ profile });
 
       const response = await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: metaCallbackFormBody(
           buildMetaSignedRequest({
             payload: { algorithm: 'HMAC-SHA256', user_id: profile.id },
@@ -393,12 +470,12 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(row?.connection_status).toBe('revoked');
     });
 
-    it('answers 200 for a person never stored, changing and auditing nothing', async () => {
+    it('answers 200 for an id that matches neither account nor business, changing and auditing nothing (MC16)', async () => {
       const profile = buildInstagramProfile();
       await connectAccount({ profile });
 
       const response = await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: signedBody({ userId: '99999999999999999' }),
       });
 
@@ -413,7 +490,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       await connectAccount({ profile });
 
       const response = await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: signedBody({ userId: profile.id, secret: 'not-the-instagram-app-secret' }),
       });
 
@@ -426,7 +503,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     });
 
     it('refuses a missing signed_request with 400 instagram_signed_request_invalid', async () => {
-      const response = await postCallback({ url: INSTAGRAM_DEAUTHORIZE_PATH, body: 'other=1' });
+      const response = await postCallback({ url: META_DEAUTHORIZE_PATH, body: 'other=1' });
 
       expect(response.statusCode).toBe(400);
       expect(errorOf(response).reason).toBe('instagram_signed_request_invalid');
@@ -437,7 +514,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       await connectAccount({ profile });
 
       const response = await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: JSON.stringify({ signed_request: 'abc.def' }),
         contentType: 'application/json',
       });
@@ -448,8 +525,8 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     });
 
     it.each([
-      ['deauthorize', INSTAGRAM_DEAUTHORIZE_PATH],
-      ['data deletion', INSTAGRAM_DATA_DELETION_PATH],
+      ['deauthorize', META_DEAUTHORIZE_PATH],
+      ['data deletion', META_DATA_DELETION_PATH],
     ])(
       'refuses a body over 16 KB with 413, and one of repeated fields at the limit with 400 (%s)',
       async (_route, url) => {
@@ -485,7 +562,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       resetEnvCacheForTests();
       try {
         const response = await postCallback({
-          url: INSTAGRAM_DEAUTHORIZE_PATH,
+          url: META_DEAUTHORIZE_PATH,
           body: signedBody({ userId: '17841400000000001' }),
         });
 
@@ -498,7 +575,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
     });
   });
 
-  describe('POST /app/social/instagram/data-deletion (route 8)', () => {
+  describe('POST /app/social/channel-connections/{provider}/data-deletion (route 17)', () => {
     it('disconnects, erases the token, profile and stored posts, keeps contacts and settings, answers Meta’s shape', async () => {
       const profile = buildInstagramProfile();
       const accountPublicId = await connectAccount({ profile });
@@ -513,7 +590,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       });
 
       const response = await postCallback({
-        url: INSTAGRAM_DATA_DELETION_PATH,
+        url: META_DATA_DELETION_PATH,
         body: signedBody({ userId: profile.id }),
       });
 
@@ -559,11 +636,12 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(audit).toHaveLength(1);
       expect(audit[0]).toMatchObject({
         severity: 'WARNING',
-        resource_type: 'instagram_account',
+        resource_type: 'channel_connection',
         metadata: {
           source: 'meta',
           actor_kind: 'anonymous',
-          instagram_account_public_ids: [accountPublicId],
+          match: 'provider_account',
+          channel_account_public_ids: [accountPublicId],
           confirmation_code: code,
           erased_post_count: 2,
         },
@@ -584,7 +662,7 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       await storePost({ fixture: bystanderTeam, instagramMediaId: '18030000000000004' });
 
       const response = await postCallback({
-        url: INSTAGRAM_DATA_DELETION_PATH,
+        url: META_DATA_DELETION_PATH,
         body: signedBody({ userId: profile.id }),
       });
 
@@ -612,12 +690,12 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       const profile = buildInstagramProfile();
       await connectAccount({ profile });
       await postCallback({
-        url: INSTAGRAM_DEAUTHORIZE_PATH,
+        url: META_DEAUTHORIZE_PATH,
         body: signedBody({ userId: profile.id }),
       });
 
       const response = await postCallback({
-        url: INSTAGRAM_DATA_DELETION_PATH,
+        url: META_DATA_DELETION_PATH,
         body: signedBody({ userId: profile.id }),
       });
 
@@ -631,10 +709,10 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       const profile = buildInstagramProfile();
       await connectAccount({ profile });
       const body = signedBody({ userId: profile.id });
-      const first = await postCallback({ url: INSTAGRAM_DATA_DELETION_PATH, body });
+      const first = await postCallback({ url: META_DATA_DELETION_PATH, body });
       const [before] = await readAccountProfiles(team.organization.id);
 
-      const repeat = await postCallback({ url: INSTAGRAM_DATA_DELETION_PATH, body });
+      const repeat = await postCallback({ url: META_DATA_DELETION_PATH, body });
 
       expect(repeat.statusCode).toBe(200);
       expect(repeat.json()).toEqual(first.json());
@@ -649,12 +727,12 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       await connectAccount({ profile });
       await backdateConnection();
       const body = signedBody({ userId: profile.id, issuedAt: anHourAgo() });
-      const first = await postCallback({ url: INSTAGRAM_DATA_DELETION_PATH, body });
+      const first = await postCallback({ url: META_DATA_DELETION_PATH, body });
       expect((await readAccountProfiles(team.organization.id))[0]?.username).toBeNull();
       await connectAccount({ profile });
       await storePost({ fixture: team, instagramMediaId: '18030000000000006' });
 
-      const retried = await postCallback({ url: INSTAGRAM_DATA_DELETION_PATH, body });
+      const retried = await postCallback({ url: META_DATA_DELETION_PATH, body });
 
       expect(retried.statusCode).toBe(200);
       expect(retried.json()).toEqual(first.json());
@@ -669,9 +747,9 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(await countAuditRows(DATA_DELETION_ACTION)).toBe(1);
     });
 
-    it('answers 200 with a code for a person never stored, changing and auditing nothing', async () => {
+    it('answers 200 with a code for an id that matches neither account nor business, changing and auditing nothing (MC16)', async () => {
       const response = await postCallback({
-        url: INSTAGRAM_DATA_DELETION_PATH,
+        url: META_DATA_DELETION_PATH,
         body: signedBody({ userId: '99999999999999999' }),
       });
 
@@ -682,13 +760,43 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(await countAuditRows(DATA_DELETION_ACTION)).toBe(0);
     });
 
+    it('a business-id match erases the profile and posts of every not-revoked account of that connection (P56)', async () => {
+      const clientBusinessId = nextClientBusinessId();
+      const profile = buildInstagramProfile();
+      await connectInstagramAccountsThroughRoutes({
+        app,
+        token: team.ownerToken,
+        accounts: [{ id: profile.user_id, username: profile.username }],
+        clientBusinessId,
+      });
+      await storePost({ fixture: team, instagramMediaId: '18030000000000007' });
+
+      const response = await postCallback({
+        url: META_DATA_DELETION_PATH,
+        body: signedBody({ userId: clientBusinessId }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      const [row] = await readAccountProfiles(team.organization.id);
+      expect(row).toMatchObject({ connection_status: 'revoked', username: null });
+      expect(await countStoredPosts(team.organization.id)).toBe(0);
+      const audit = await readStagedAuditRows({
+        organizationPublicId: team.organization.public_id,
+        action: DATA_DELETION_ACTION,
+      });
+      expect(audit[0]?.metadata).toMatchObject({
+        match: 'provider_business',
+        erased_post_count: 1,
+      });
+    });
+
     it('refuses a bad signed request with 400 instagram_signed_request_invalid and erases nothing', async () => {
       const profile = buildInstagramProfile();
       await connectAccount({ profile });
       await storePost({ fixture: team, instagramMediaId: '18030000000000005' });
 
       const response = await postCallback({
-        url: INSTAGRAM_DATA_DELETION_PATH,
+        url: META_DATA_DELETION_PATH,
         body: signedBody({ userId: profile.id, secret: 'not-the-instagram-app-secret' }),
       });
 

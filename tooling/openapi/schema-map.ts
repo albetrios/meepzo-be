@@ -104,7 +104,7 @@ import {
 } from '@/domains/app/sub-domains/channel-connection/channel-connection.dto.js';
 // ─── App: Instagram account ────────────────────────────────────────────
 import { UpdateInstagramAccountSettingsDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.dto.js';
-import { MetaSignedRequestDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.dto.js';
+import { MetaSignedRequestDto } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback.dto.js';
 
 // ─── App: automations ──────────────────────────────────────────────────
 import {
@@ -206,8 +206,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── App: Instagram account ──
   'PATCH /api/v1/app/social/instagram/account/settings': UpdateInstagramAccountSettingsDto,
   // Meta's callbacks (routes 7–8): form-encoded, not JSON — see FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.
-  'POST /api/v1/app/social/instagram/deauthorize': MetaSignedRequestDto,
-  'POST /api/v1/app/social/instagram/data-deletion': MetaSignedRequestDto,
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize': MetaSignedRequestDto,
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion': MetaSignedRequestDto,
 
   // ── App: automations ──
   'POST /api/v1/app/automations': createAutomationDto,

@@ -55,7 +55,7 @@ export class InstagramAccountErasureService {
    */
   async eraseForMeta({
     scope,
-    instagramAppUserId,
+    match,
     issuedAt,
     shouldEraseData,
   }: InstagramAccountMetaErasureInput): Promise<InstagramAccountErasure | null> {
@@ -64,7 +64,7 @@ export class InstagramAccountErasureService {
       callback: async () => {
         const accounts = await this.accountService.disconnectForMeta({
           scope,
-          instagramAppUserId,
+          match,
           issuedAt,
           shouldEraseProfile: shouldEraseData,
         });

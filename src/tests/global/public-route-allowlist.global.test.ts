@@ -42,9 +42,9 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   'POST /api/v1/billing/webhook',
   // App — Meta's Instagram deauthorize and data-deletion callbacks (launch routes 7–8): no JWT,
   // Meta's form-encoded `signed_request` is HMAC-verified with the Instagram app secret before the
-  // handler (instagram-account-meta-callback-ingress.plugin.ts).
-  'POST /api/v1/app/social/instagram/data-deletion',
-  'POST /api/v1/app/social/instagram/deauthorize',
+  // handler (channel-connection-meta-callback-ingress.plugin.ts).
+  'POST /api/v1/app/social/channel-connections/:provider/data-deletion',
+  'POST /api/v1/app/social/channel-connections/:provider/deauthorize',
   // App — Meta's Instagram webhook (routes-final § 4.A): the subscription check is proved by the
   // verify token (constant time), the delivery by `X-Hub-Signature-256` over the raw body
   // (instagramWebhookIngressPlugin, before anything is parsed); see instagram-webhook.routes.ts.

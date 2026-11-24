@@ -1,5 +1,10 @@
 import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
-import { ConflictError, NotFoundError, UnprocessableEntityError } from '@/shared/errors/index.js';
+import {
+  ConflictError,
+  NotFoundError,
+  UnprocessableEntityError,
+  ValidationError,
+} from '@/shared/errors/index.js';
 import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import {
   instagramConnectRestartRequiredError,
@@ -12,6 +17,19 @@ import {
  * 42 answer alike. Meta outages reuse the Instagram account's `503 instagram_unavailable` and
  * `409 instagram_connect_restart_required` (the frontend already branches on them, MC3).
  */
+
+/**
+ * `400 instagram_signed_request_invalid` — Meta's `signed_request` on the deauthorize or
+ * data-deletion callback (routes 16–17, MC14) is missing, doubled, malformed or wrongly signed,
+ * names another algorithm, or carries no `user_id`; a bad provider signature is a 400, as the
+ * Stripe webhook's. The reason keeps its launch name (routes-final § 1.9 "as built"). Detail
+ * `errors:instagramSignedRequestInvalid`.
+ */
+export function instagramSignedRequestInvalidError(): ValidationError {
+  return new ValidationError('errors:instagramSignedRequestInvalid').withReason(
+    'instagram_signed_request_invalid',
+  );
+}
 
 /** `404 channel_connection_not_found` — not this organization's, or a revoked one on 5 and 40. */
 export function channelConnectionNotFoundError(): NotFoundError {

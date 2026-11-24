@@ -11,7 +11,7 @@ import { InstagramAccountErasureService } from '@/domains/app/sub-domains/instag
 import { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
-import { InstagramAccountMetaCallbackService } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.service.js';
+import { ChannelConnectionMetaCallbackService } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback.service.js';
 import { InstagramWebhookEventService } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import { InstagramWebhookService } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
@@ -45,12 +45,12 @@ describe('app domain wiring', () => {
       'automationRunService',
       'automationService',
       'channelAccountService',
+      'channelConnectionMetaCallbackService',
       'channelConnectionService',
       'channelConnectionTokenService',
       'channelConnectionUsageService',
       'contactService',
       'instagramAccountErasureService',
-      'instagramAccountMetaCallbackService',
       'instagramAccountService',
       'instagramAccountSettingsService',
       'instagramMediaService',
@@ -74,8 +74,8 @@ describe('app domain wiring', () => {
     expect(application.appDomain.instagramAccountErasureService).toBeInstanceOf(
       InstagramAccountErasureService,
     );
-    expect(application.appDomain.instagramAccountMetaCallbackService).toBeInstanceOf(
-      InstagramAccountMetaCallbackService,
+    expect(application.appDomain.channelConnectionMetaCallbackService).toBeInstanceOf(
+      ChannelConnectionMetaCallbackService,
     );
     await application.close();
   });
@@ -126,9 +126,9 @@ describe('app domain wiring', () => {
       `POST ${APP_PREFIX}/social/channel-connections/:channel_connection_id/accounts`,
       `POST ${APP_PREFIX}/social/channel-connections/:channel_connection_id/reconnect`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/callback`,
+      `POST ${APP_PREFIX}/social/channel-connections/:provider/data-deletion`,
+      `POST ${APP_PREFIX}/social/channel-connections/:provider/deauthorize`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/start`,
-      `POST ${APP_PREFIX}/social/instagram/data-deletion`,
-      `POST ${APP_PREFIX}/social/instagram/deauthorize`,
       `POST ${APP_PREFIX}/social/instagram/webhook`,
     ]);
     // Runs have no route (D13).

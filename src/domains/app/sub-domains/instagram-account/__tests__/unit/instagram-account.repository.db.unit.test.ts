@@ -14,6 +14,7 @@ import {
 import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { ChannelConnectionRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 import { ChannelConnectionTokenRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.repository.js';
 import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
@@ -324,19 +325,41 @@ describe('InstagramAccountRepository (database)', () => {
     ).resolves.toBe(false);
   });
 
-  it("locks the organization's rows of one Instagram id, any status (Meta's callbacks, IA19)", async () => {
+  it("locks the organization's rows of one provider account id, any status (Meta's callbacks, MC15)", async () => {
     const own = await pickAccount({ connectionStatus: 'revoked' });
     await pickAccount({ instagramUserId: OTHER_INSTAGRAM_USER_ID });
     await pickAccount({ owner: otherOrganization });
 
     const locked = await inOrganization(organization, () =>
-      repository.lockByInstagramUserInOrganization({
+      repository.lockByProviderAccountInOrganization({
         organizationPublicId: organization.public_id,
-        instagramUserId: INSTAGRAM_USER_ID,
+        providerAccountId: INSTAGRAM_USER_ID,
       }),
     );
     expect(locked.map((row) => row.id)).toEqual([own.account.id]);
     expect(locked[0]?.connection_status).toBe('revoked');
+  });
+
+  it("locks the not-revoked rows of the organization's named connections (Meta's business match, MC15)", async () => {
+    const live = await pickAccount();
+    await pickAccount({ instagramUserId: OTHER_INSTAGRAM_USER_ID, connectionStatus: 'revoked' });
+    await pickAccount({ owner: otherOrganization, connectionStatus: 'revoked' });
+
+    const locked = await inOrganization(organization, () =>
+      repository.lockLiveByConnections({
+        organizationId: organization.id,
+        channelConnectionIds: [live.channelAccount.channel_connection_id],
+      }),
+    );
+    expect(locked.map((row) => row.id)).toEqual([live.account.id]);
+    await expect(
+      inOrganization(organization, () =>
+        repository.lockLiveByConnections({
+          organizationId: organization.id,
+          channelConnectionIds: [],
+        }),
+      ),
+    ).resolves.toEqual([]);
   });
 
   it('locks every row of the organization for its delete (D54, IAC5)', async () => {
@@ -406,7 +429,10 @@ describe('InstagramAccountRepository (database)', () => {
       repository.resolveOrganizationPublicIdForInstagramUser(OTHER_INSTAGRAM_USER_ID),
     ).resolves.toBeNull();
     await expect(
-      repository.resolveOrganizationPublicIdsForInstagramAppUser(OTHER_INSTAGRAM_USER_ID),
+      new ChannelConnectionRepository().resolveOrganizationPublicIdsForProviderAccount({
+        provider: 'meta',
+        providerAccountId: OTHER_INSTAGRAM_USER_ID,
+      }),
     ).resolves.toEqual([otherOrganization.public_id]);
   });
 

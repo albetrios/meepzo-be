@@ -27,7 +27,7 @@ const ALLOWED_IMPORTERS = [
   'src/domains/audit/audit.service.ts',
   // Meta's Instagram deauthorize / data-deletion callbacks (launch IA18–IA20): each organization is
   // named by the SECURITY DEFINER resolver for the app-scoped id in Meta's verified signed request.
-  'src/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.service.ts',
+  'src/domains/app/sub-domains/channel-connection/channel-connection-meta-callback.service.ts',
   // Stripe-webhook–driven billing mutations (organization resolved from the Stripe event).
   'src/domains/billing/sub-domains/subscription/subscription.service.ts',
   // Instagram webhook ingress (routes-final WH3): the organization resolved from the signed Meta

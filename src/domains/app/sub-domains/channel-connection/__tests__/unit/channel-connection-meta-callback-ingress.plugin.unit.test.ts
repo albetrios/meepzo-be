@@ -29,16 +29,16 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
 }));
 
 import {
-  instagramAccountMetaCallbackIngressPlugin,
+  channelConnectionMetaCallbackIngressPlugin,
   parseMetaCallbackFormBody,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback-ingress.plugin.js';
-import { MetaSignedRequestDto } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.dto.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback-ingress.plugin.js';
+import { MetaSignedRequestDto } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback.dto.js';
 import {
   FORM_CONTENT_TYPE,
   buildMetaSignedRequest,
   metaCallbackFormBody,
   metaSignedRequestPayload,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/__tests__/factories/instagram-account-meta-callback.factory.js';
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection-meta-callback.factory.js';
 
 const APP_SECRET = 'meta-callback-unit-test-app-secret';
 const USER_ID = '17841400000000001';
@@ -131,7 +131,7 @@ async function buildIngressApplication(): Promise<{
   });
   const seen: MetaSignedRequestPayload[] = [];
   await application.register(async (child) => {
-    await instagramAccountMetaCallbackIngressPlugin(child, {});
+    await channelConnectionMetaCallbackIngressPlugin(child, {});
     child.withTypeProvider<ZodTypeProvider>().post(
       '/callback',
       {
@@ -149,7 +149,7 @@ async function buildIngressApplication(): Promise<{
   return { application, seen };
 }
 
-describe('instagramAccountMetaCallbackIngressPlugin — Meta’s signed request (IA18)', () => {
+describe('channelConnectionMetaCallbackIngressPlugin — Meta’s signed request (IA18)', () => {
   let application: FastifyInstance;
   let seen: MetaSignedRequestPayload[];
 

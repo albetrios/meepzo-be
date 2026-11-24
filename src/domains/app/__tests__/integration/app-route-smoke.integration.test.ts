@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 
 /**
  * Meta's provider routes, as `METHOD path`: PUBLIC, and each proved by what only Meta sends — the
- * deauthorize and data-deletion callbacks (routes 7–8) by a form-encoded `signed_request`, the
+ * deauthorize and data-deletion callbacks (routes 16–17 of the DM-sending iteration) by a form-encoded `signed_request`, the
  * webhook delivery (route 17) by `X-Hub-Signature-256` over the raw body, and the webhook's
  * subscription check (route 16) by `hub.mode`, `hub.verify_token` and `hub.challenge` in the query.
  * An empty anonymous request is not their contract (it answers `400` or `415`, never the declared
@@ -22,8 +22,8 @@ import type { FastifyInstance } from 'fastify';
  * `instagram-webhook.integration.test.ts`.
  */
 const META_PROVIDER_ROUTE_KEYS: ReadonlySet<string> = new Set([
-  'POST /api/v1/app/social/instagram/deauthorize',
-  'POST /api/v1/app/social/instagram/data-deletion',
+  'POST /api/v1/app/social/channel-connections/:provider/deauthorize',
+  'POST /api/v1/app/social/channel-connections/:provider/data-deletion',
   'GET /api/v1/app/social/instagram/webhook',
   'POST /api/v1/app/social/instagram/webhook',
 ]);

@@ -133,7 +133,7 @@ describe('InstagramAccountErasureService (no database)', () => {
     });
   });
 
-  describe('eraseForMeta (IA19, IA20)', () => {
+  describe('eraseForMeta (MC15, MC16)', () => {
     it('a deauthorize keeps the profile and the posts', async () => {
       disconnectForMeta.mockResolvedValue([
         accountChange({ wasRevoked: true, wasTokenErased: true }),
@@ -141,14 +141,14 @@ describe('InstagramAccountErasureService (no database)', () => {
 
       const erasure = await service.eraseForMeta({
         scope,
-        instagramAppUserId: '8724000000000001',
+        match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
         issuedAt: 1_763_740_000,
         shouldEraseData: false,
       });
 
       expect(disconnectForMeta).toHaveBeenCalledWith({
         scope,
-        instagramAppUserId: '8724000000000001',
+        match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
         issuedAt: 1_763_740_000,
         shouldEraseProfile: false,
       });
@@ -166,7 +166,7 @@ describe('InstagramAccountErasureService (no database)', () => {
 
       const erasure = await service.eraseForMeta({
         scope,
-        instagramAppUserId: '8724000000000001',
+        match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
         issuedAt: null,
         shouldEraseData: true,
       });
@@ -189,7 +189,7 @@ describe('InstagramAccountErasureService (no database)', () => {
       await expect(
         service.eraseForMeta({
           scope,
-          instagramAppUserId: '8724000000000001',
+          match: { kind: 'provider_account', providerAccountId: '8724000000000001' },
           issuedAt: 1_763_740_000,
           shouldEraseData: true,
         }),

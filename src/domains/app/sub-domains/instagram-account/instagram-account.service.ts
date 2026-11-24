@@ -379,56 +379,36 @@ export class InstagramAccountService {
   }
 
   /**
-   * The public ids of every organization holding a row of this app-scoped Instagram id, any status
-   * — the first step of Meta's deauthorize and data-deletion callbacks (IA6, IA19, IA20; IQ3: Meta
-   * signs the app-scoped id).
-   *
-   * @remarks
-   * Algorithm: the SECURITY DEFINER resolver
-   * `app.resolve_organization_public_ids_for_instagram_app_user`, outside any database context —
-   * it returns public ids only and reads no other column of another organization's row. Failure
-   * modes: none of its own; empty when no organization ever stored this id. Side effects: none.
-   */
-  async resolveOrganizationPublicIdsForInstagramAppUser(
-    instagramAppUserId: string,
-  ): Promise<string[]> {
-    return this.accountRepository.resolveOrganizationPublicIdsForInstagramAppUser(
-      instagramAppUserId,
-    );
-  }
-
-  /**
-   * Meta's deauthorize (IA19) or data deletion (IA20) in one organization: every account there with
-   * this app-scoped id, connected before Meta signed the request, is disconnected as route 4 does
-   * (IA14) — without the unsubscribe call, the app is already removed — and, for a data deletion,
-   * its profile erased.
+   * Meta's deauthorize (IA19) or data deletion (IA20) in one organization the resolver named
+   * (routes-final § 1 MC15, MC16): every account the match reaches there, connected before Meta
+   * signed the request, is disconnected as route 8 does (CA8) — without the unsubscribe call, the
+   * app is already removed — and, for a data deletion, its profile erased.
    *
    * @remarks
    * Algorithm: one unit of work in the given scope (joining the caller's, so the erasure service can
-   * erase the stored posts in the same transaction): list and lock the organization's accounts of
-   * this app-scoped id (any status — a revoked row of the same person is erased too); leave out one
-   * connected (or connected again) after `issuedAt` — Meta retries a request it got no answer for,
-   * and a new connection was never part of it (D53) — and {@link disconnectAccounts} the rest.
+   * erase the stored posts in the same transaction): list and lock the reached accounts — by account,
+   * every account of the signed provider account id, any status (a revoked row of the same person is
+   * erased too); by business, every not-revoked account of the named connections (P56) — leave out
+   * one connected (or connected again) after `issuedAt` — Meta retries a request it got no answer
+   * for, and a new connection was never part of it (D53) — and {@link disconnectAccounts} the rest.
    * Failure modes: none of its own — an organization with no such account answers an empty list.
-   * Side effects: revokes the channel accounts, clears their extensions' webhook stamp and, with a connection's last account, revokes the connection and deletes its token
-   * (through {@link ChannelConnectionTokenService}); settings stay. No Instagram call. Notes: a
-   * disconnect cancels no automation run (IQ1, D24); safe to repeat — an account already changed
-   * answers every flag `false`, one connected since is not in the answer. The row lock makes a
-   * connect racing this one wait and then connect again on top of it.
+   * Side effects: revokes the channel accounts, clears their extensions' webhook stamp and, with a
+   * connection's last account, revokes the connection and deletes its token (through
+   * {@link ChannelConnectionTokenService}); settings stay. No Instagram call. Notes: a disconnect
+   * cancels no automation run (IQ1, D24); safe to repeat — an account already changed answers every
+   * flag `false`, one connected since is not in the answer. The row lock makes a connect racing this
+   * one wait and then connect again on top of it.
    */
   async disconnectForMeta({
     scope,
-    instagramAppUserId,
+    match,
     issuedAt,
     shouldEraseProfile,
   }: InstagramAccountMetaDisconnectInput): Promise<InstagramAccountDisconnectChange[]> {
     return withAppDatabaseContext({
       scope,
       callback: async () => {
-        const accounts = await this.accountRepository.lockByInstagramUserInOrganization({
-          organizationPublicId: scope.organizationPublicId,
-          instagramUserId: instagramAppUserId,
-        });
+        const accounts = await this.lockAccountsForMeta({ scope, match });
         return this.disconnectAccounts({
           scope,
           accounts: accounts.filter(
@@ -437,6 +417,27 @@ export class InstagramAccountService {
           shouldEraseProfile,
         });
       },
+    });
+  }
+
+  /** The accounts a Meta callback's match reaches in the scope's organization, locked (MC15). */
+  private async lockAccountsForMeta({
+    scope,
+    match,
+  }: Pick<InstagramAccountMetaDisconnectInput, 'scope' | 'match'>): Promise<InstagramAccountRow[]> {
+    if (match.kind === 'provider_account') {
+      return this.accountRepository.lockByProviderAccountInOrganization({
+        organizationPublicId: scope.organizationPublicId,
+        providerAccountId: match.providerAccountId,
+      });
+    }
+    const organization = await this.organizationService.findOrganizationByPublicId(
+      scope.organizationPublicId,
+    );
+    if (organization === null) return [];
+    return this.accountRepository.lockLiveByConnections({
+      organizationId: organization.id,
+      channelConnectionIds: match.channelConnectionIds,
     });
   }
 

@@ -29,8 +29,9 @@ notice that follows every break.
 The nested folders carry the rest of § 1: `instagram-account-settings/` (route 3,
 `PATCH /api/v1/app/social/instagram/account/settings`, ROUTE row R4), `instagram-media/` (the
 launch's routes 5–6 and the stored posts, R5 — routes 13–14 under the named account since
-feat-instagram-dm-sending R8) and `instagram-account-meta-callback/` (Meta's deauthorize and
-data-deletion callbacks, routes 7–8, R6).
+feat-instagram-dm-sending R8). Meta's deauthorize and data-deletion callbacks (the launch's
+`instagram-account-meta-callback/`) moved to the channel connection at feat-instagram-dm-sending R9
+(routes 16–17, P46); their per-organization erase stays here (`InstagramAccountErasureService`).
 
 ## Layout
 
@@ -38,8 +39,9 @@ data-deletion callbacks, routes 7–8, R6).
   one row per organization and Instagram account, so a pick brings a revoked one back with its settings
 - `instagram-account.repository.ts` — the live accounts (joined to the channel account), the pick's
   upsert, the webhook stamp and its clearing, the profile erase (once), the locked accounts of one
-  Instagram id (Meta's callbacks) and of the whole organization (its delete), the daily check's sweep
-  page and profile refresh, the two SECURITY DEFINER resolvers; worker and retention factories
+  provider account id or of named connections (Meta's callbacks, MC15) and of the whole organization
+  (its delete), the daily check's sweep page and profile refresh, the webhook's SECURITY DEFINER
+  resolver; worker and retention factories
 - `instagram-account-extension.service.ts` — the extension's one writer (2.A.10): create at the pick,
   the webhook stamp, the revoke's stamp clear, the profile erase
 - `instagram-account.serializer.ts` — the `instagram` object of the channel account (2.A.6)
@@ -53,8 +55,8 @@ data-deletion callbacks, routes 7–8, R6).
   `worker-registration.registry.ts`, the sweep in `scheduler.ts`
 - `instagram-account.service.ts` / `.validator.ts` / `.types.ts` — no route of its own since R5 (the
   channel account serves routes 7 and 8): the webhook subscribe / unsubscribe steps, the guarded
-  `markConnectionBroken`, and for Meta's callbacks the resolver pass-through and
-  `disconnectForMeta` (revoke, token and — on a data deletion — profile erase, in the caller's
+  `markConnectionBroken`, and for Meta's callbacks `disconnectForMeta` (an account match or a
+  business match's connections) (revoke, token and — on a data deletion — profile erase, in the caller's
   verified scope), for the organization's delete the best-effort unsubscribe and
   `disconnectForOrganizationOffboarding` (D54), and for the run engine `findAutomationAccountAccess` (the event's account with
   its encrypted token and reply-safety settings, read in the job's scope — sub-domain 3.B)
@@ -67,12 +69,8 @@ data-deletion callbacks, routes 7–8, R6).
 - `instagram-media/` — nested: the post and story pickers of one named account (routes 13–14, read
   live through the connection's token) and the stored posts with their missed-comment watch and a
   Live's end, which sub-domains 4–6 write through its service ([overview](instagram-media/instagram-media.overview.md))
-- `instagram-account-meta-callback/` — nested, PUBLIC: Meta's deauthorize and data-deletion
-  callbacks (routes 7–8), proved by Meta's form-encoded `signed_request`; no table of its own
-  ([overview](instagram-account-meta-callback/instagram-account-meta-callback.overview.md))
 - `instagram-account-error.util.ts` — the shared route errors (`instagram_not_connected`,
-  `instagram_reconnect_required`, `instagram_unavailable` with `Retry-After`,
-  `instagram_signed_request_invalid`), built once for the account routes, route 3, the pickers and
+  `instagram_reconnect_required`, `instagram_unavailable` with `Retry-After`), built once for the account routes, route 3, the pickers and
   Meta's callbacks
 - `seed/` — bulk: a connected account with a fake encrypted token per demo team organization; the
   nested settings and stored-posts contributions follow it
@@ -125,11 +123,11 @@ data-deletion callbacks, routes 7–8, R6).
 - **No Instagram call inside a database context**: the pick calls Meta, then writes in one
   transaction, then subscribes the webhook after the commit; disconnect unsubscribes before its
   transaction (`rls-context-network-isolation.global.test.ts`).
-- **Lookups before the organization is known go through two resolvers** that return only
-  organization public ids — `app.resolve_organization_public_id_for_instagram_user` (the
-  not-revoked channel account of an Instagram user id; webhook routing) and
-  `app.resolve_organization_public_ids_for_instagram_app_user` (every row of the Instagram id Meta
-  signs, any status — the Instagram user id under Unified Login since R6; R9 replaces it) — then work in that organization's `PRINCIPAL_SCOPE.VERIFIED` scope (IA6;
+- **Lookups before the organization is known go through SECURITY DEFINER resolvers** that return
+  only organization public ids — `app.resolve_organization_public_id_for_instagram_user` (the
+  not-revoked channel account of an Instagram user id; webhook routing) here, and Meta's callbacks'
+  two (by provider account, else by business — the channel connection's, R9) — then work in that
+  organization's `PRINCIPAL_SCOPE.VERIFIED` scope (IA6;
   `src/tests/security/rls/instagram-account-resolvers.security.test.ts`).
 - **Team-only.** Disconnect answers `422` on a personal organization; the read answers
   `404 team_organization_required`. Before either, the permission gate answers `403`: a personal
@@ -194,8 +192,8 @@ None emitted on the event bus. Connect and disconnect write the audit entries
 `app.instagram_account.connect` and `app.instagram_account.disconnect` (WARNING, resource type
 `instagram_account`, IA7) through `recordScopedAuditEvent`, after the write commits and
 best-effort — an audit failure never fails the request (audit-emission, D36). Meta's callbacks
-write `app.instagram_account.deauthorize` and `app.instagram_account.data_deletion` the same way,
-with an anonymous actor and `metadata.source = 'meta'`, one per organization changed. The erase of
+(the channel connection's since R9) write `app.channel_connection.deauthorize` and
+`.data_deletion`. The erase of
 an organization's delete (D54) is named on tenancy's `tenancy.organization.delete` entry.
 
 Background jobs (BullMQ, pull-based, K8): `instagram-reconnect-notice` — enqueued by the guarded
@@ -230,6 +228,4 @@ The Instagram app's settings and scopes:
 - **The unsubscribe fails before a disconnect or an organization's delete** → logged, never blocks
   it; a revoked account's events are not stored (sub-domain 4).
 - **No live account** → route 2 and route 4 answer `404 instagram_not_connected`.
-- **Meta's callbacks** (routes 7–8) → `400 instagram_signed_request_invalid` on a bad signed
-  request, `413` on a body over 16 KB, `415` on one that is not form-encoded,
-  `503 instagram_not_configured` without the app secret; once verified always `200`, also for a person never stored or a repeat.
+- **Meta's callbacks** — the channel connection's since R9 (routes 16–17, see its overview).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { deriveMetaDataDeletionConfirmationCode } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback-confirmation-code.util.js';
-import { serializeMetaDataDeletionAnswer } from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.serializer.js';
+import { deriveMetaDataDeletionConfirmationCode } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback-confirmation-code.util.js';
+import { serializeMetaDataDeletionAnswer } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta-callback.serializer.js';
 
 const APP_SECRET = 'meta-callback-unit-test-app-secret';
 const CONFIRMATION_CODE_PATTERN = /^[a-z0-9]{21}$/;

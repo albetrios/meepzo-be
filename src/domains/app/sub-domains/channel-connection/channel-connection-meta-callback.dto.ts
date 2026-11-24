@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Body of Meta's deauthorize and data-deletion callbacks (routes 7–8, routes-final § 1.D.8): the
+ * Body of Meta's deauthorize and data-deletion callbacks (routes 16–17, routes-final § 1.8): the
  * one form field Meta posts, `signed_request` = `<signature>.<payload>` (both base64url).
  *
  * @remarks
@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const MetaSignedRequestDto = z.object({
   signed_request: z.string().min(1).meta({
     description:
-      'Set by Meta: `<signature>.<payload>`, both base64url — the HMAC-SHA256 of the payload with the Instagram app secret, and a JSON payload with `algorithm` (`HMAC-SHA256`), `issued_at` and `user_id` (the app-scoped id).',
+      'Set by Meta: `<signature>.<payload>`, both base64url — the HMAC-SHA256 of the payload with the Meta app secret, and a JSON payload with `algorithm` (`HMAC-SHA256`), `issued_at` and `user_id` (the app-scoped id).',
     example:
       'aW49tm4qivgbua-FvTvgWmy4lR65zMoF8kOA8Dkv8AQ.eyJhbGdvcml0aG0iOiJITUFDLVNIQTI1NiIsImlzc3VlZF9hdCI6MTc2Mzc0MDAwMCwidXNlcl9pZCI6IjE3ODQxNDAwMDAwMDAwMDAxIn0',
   }),

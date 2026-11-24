@@ -2,12 +2,7 @@ import {
   type CircuitBreakerOpenError,
   META_GRAPH_CIRCUIT_RESET_TIMEOUT_MS,
 } from '@/infrastructure/resilience/circuit-breaker.js';
-import {
-  ConflictError,
-  NotFoundError,
-  ServiceUnavailableError,
-  ValidationError,
-} from '@/shared/errors/index.js';
+import { ConflictError, NotFoundError, ServiceUnavailableError } from '@/shared/errors/index.js';
 import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 
 /**
@@ -54,18 +49,6 @@ export function instagramNotConnectedConflictError(): ConflictError {
  */
 export function instagramReconnectRequiredError(): NotFoundError {
   return new NotFoundError('Instagram account').withReason('instagram_reconnect_required');
-}
-
-/**
- * `400 instagram_signed_request_invalid` — Meta's `signed_request` on the deauthorize or
- * data-deletion callback (routes 7–8, IA18) is missing, doubled, malformed or wrongly signed,
- * names another algorithm, or carries no `user_id`; a bad provider signature is a 400, as the
- * Stripe webhook's (IA10). Detail `errors:instagramSignedRequestInvalid`.
- */
-export function instagramSignedRequestInvalidError(): ValidationError {
-  return new ValidationError('errors:instagramSignedRequestInvalid').withReason(
-    'instagram_signed_request_invalid',
-  );
 }
 
 /**

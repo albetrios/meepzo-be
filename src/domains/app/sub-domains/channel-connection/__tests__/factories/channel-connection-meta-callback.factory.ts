@@ -1,10 +1,14 @@
 import { createHmac } from 'node:crypto';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 
-/** `POST /app/social/instagram/deauthorize` (route 7). */
-export const INSTAGRAM_DEAUTHORIZE_PATH = testApiPath('/app/social/instagram/deauthorize');
-/** `POST /app/social/instagram/data-deletion` (route 8). */
-export const INSTAGRAM_DATA_DELETION_PATH = testApiPath('/app/social/instagram/data-deletion');
+/** `POST /app/social/channel-connections/{provider}/deauthorize` (route 16). */
+export const META_DEAUTHORIZE_PATH = testApiPath(
+  '/app/social/channel-connections/meta/deauthorize',
+);
+/** `POST /app/social/channel-connections/{provider}/data-deletion` (route 17). */
+export const META_DATA_DELETION_PATH = testApiPath(
+  '/app/social/channel-connections/meta/data-deletion',
+);
 
 /** The form media type Meta posts both callbacks with. */
 export const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';

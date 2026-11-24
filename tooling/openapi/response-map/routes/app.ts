@@ -107,13 +107,13 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: wrapUncountedPaginated(schemas.instagramStorySchema, [schemas.instagramStoryExample]),
     example: null,
   },
-  // ── Meta callbacks (PUBLIC, signed_request; route 8 outside the envelope, IA20) ──
-  'POST /api/v1/app/social/instagram/deauthorize': {
+  // ── Meta callbacks (PUBLIC, signed_request; route 17 outside the envelope, MC16) ──
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize': {
     statusCode: 200,
     schema: wrapSuccess(schemas.metaDeauthorizeAcknowledgementSchema, null),
     example: null,
   },
-  'POST /api/v1/app/social/instagram/data-deletion': {
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion': {
     statusCode: 200,
     schema: schemas.metaDataDeletionAnswerSchema,
     example: null,

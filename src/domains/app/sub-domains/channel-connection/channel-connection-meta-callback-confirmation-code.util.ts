@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import { PUBLIC_ID_LENGTH } from '@/shared/utils/identity/public-id.util.js';
 
-/** The code's length: 21 characters, as a public id's tail (IA20). */
+/** The code's length: 21 characters, as a public id's tail (MC16). */
 const META_DATA_DELETION_CONFIRMATION_CODE_LENGTH = PUBLIC_ID_LENGTH;
 /** Separates the purpose from the signed values, so the code never equals another HMAC we make. */
 const CONFIRMATION_CODE_PURPOSE = 'meta-data-deletion-confirmation';
@@ -10,7 +10,7 @@ const CONFIRMATION_CODE_PURPOSE = 'meta-data-deletion-confirmation';
 const CONFIRMATION_CODE_RADIX = 36;
 
 /**
- * The confirmation code of Meta's data-deletion request (route 8, IA20): 21 characters
+ * The confirmation code of Meta's data-deletion request (route 17, MC16): 21 characters
  * `[a-z0-9]`, derived from the signed request so Meta repeating one request gets the same code.
  *
  * @remarks

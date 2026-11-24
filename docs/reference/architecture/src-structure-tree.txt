@@ -159,10 +159,15 @@ src/
     │   │   ├── channel-connection/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
+    │   │   │   │   │   ├── channel-connection-meta-callback.factory.ts
     │   │   │   │   │   └── channel-connection.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── channel-connection-meta-callback.integration.test.ts
     │   │   │   │   │   └── channel-connection.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-connection-meta-callback-ingress.plugin.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-meta-callback.serializer.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-meta-callback.service.unit.test.ts
     │   │   │   │   │   ├── channel-connection-state.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token-isolation.policy.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token.service.db.unit.test.ts
@@ -188,6 +193,15 @@ src/
     │   │   │   │   ├── channel-connection.bulk.seed.ts
     │   │   │   │   └── index.ts
     │   │   │   ├── channel-connection-error.util.ts
+    │   │   │   ├── channel-connection-meta-callback-confirmation-code.util.ts
+    │   │   │   ├── channel-connection-meta-callback-ingress.plugin.ts
+    │   │   │   ├── channel-connection-meta-callback.constants.ts
+    │   │   │   ├── channel-connection-meta-callback.controller.ts
+    │   │   │   ├── channel-connection-meta-callback.dto.ts
+    │   │   │   ├── channel-connection-meta-callback.routes.ts
+    │   │   │   ├── channel-connection-meta-callback.serializer.ts
+    │   │   │   ├── channel-connection-meta-callback.service.ts
+    │   │   │   ├── channel-connection-meta-callback.types.ts
     │   │   │   ├── channel-connection-state.ts
     │   │   │   ├── channel-connection-token.repository.ts
     │   │   │   ├── channel-connection-token.schema.ts
@@ -256,26 +270,6 @@ src/
     │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-account.service.unit.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
-    │   │   │   ├── instagram-account-meta-callback/
-    │   │   │   │   ├── __tests__/
-    │   │   │   │   │   ├── factories/
-    │   │   │   │   │   │   └── instagram-account-meta-callback.factory.ts
-    │   │   │   │   │   ├── integration/
-    │   │   │   │   │   │   └── instagram-account-meta-callback.integration.test.ts
-    │   │   │   │   │   └── unit/
-    │   │   │   │   │   │   ├── instagram-account-meta-callback-ingress.plugin.unit.test.ts
-    │   │   │   │   │   │   ├── instagram-account-meta-callback.serializer.unit.test.ts
-    │   │   │   │   │   │   └── instagram-account-meta-callback.service.unit.test.ts
-    │   │   │   │   ├── instagram-account-meta-callback-confirmation-code.util.ts
-    │   │   │   │   ├── instagram-account-meta-callback-ingress.plugin.ts
-    │   │   │   │   ├── instagram-account-meta-callback.constants.ts
-    │   │   │   │   ├── instagram-account-meta-callback.controller.ts
-    │   │   │   │   ├── instagram-account-meta-callback.dto.ts
-    │   │   │   │   ├── instagram-account-meta-callback.overview.md
-    │   │   │   │   ├── instagram-account-meta-callback.routes.ts
-    │   │   │   │   ├── instagram-account-meta-callback.serializer.ts
-    │   │   │   │   ├── instagram-account-meta-callback.service.ts
-    │   │   │   │   └── instagram-account-meta-callback.types.ts
     │   │   │   ├── instagram-account-settings/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── integration/

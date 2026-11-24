@@ -56,3 +56,6 @@ export const CHANNEL_CONNECTION_AUDIT_RESOURCE_TYPE = 'channel_connection';
 
 /** The idempotency-key prefix the frontend sends on the callback (`channel-connect:<state>`). */
 export const CHANNEL_CONNECT_IDEMPOTENCY_KEY_PREFIX = 'channel-connect:';
+
+/** The OpenAPI tag of every channel connection route (MC1) — routes 1–5, 15–17, 40–42. */
+export const CHANNEL_CONNECTION_TAG = 'Channel connection';

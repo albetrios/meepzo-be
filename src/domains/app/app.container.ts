@@ -24,7 +24,7 @@ import { InstagramAccountSettingsService } from './sub-domains/instagram-account
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
 import { InstagramMediaRepository } from './sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramMediaService } from './sub-domains/instagram-account/instagram-media/instagram-media.service.js';
-import { InstagramAccountMetaCallbackService } from './sub-domains/instagram-account/instagram-account-meta-callback/instagram-account-meta-callback.service.js';
+import { ChannelConnectionMetaCallbackService } from './sub-domains/channel-connection/channel-connection-meta-callback.service.js';
 import { InstagramWebhookEventRepository } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
 import { InstagramWebhookEventService } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import { InstagramWebhookService } from './sub-domains/instagram-webhook/instagram-webhook.service.js';
@@ -75,7 +75,7 @@ export type AppContainer = {
   instagramAccountSettingsService: InstagramAccountSettingsService;
   instagramMediaService: InstagramMediaService;
   instagramAccountErasureService: InstagramAccountErasureService;
-  instagramAccountMetaCallbackService: InstagramAccountMetaCallbackService;
+  channelConnectionMetaCallbackService: ChannelConnectionMetaCallbackService;
   contactService: ContactService;
   instagramWebhookEventService: InstagramWebhookEventService;
   instagramWebhookService: InstagramWebhookService;
@@ -152,9 +152,8 @@ export function createAppContainer({
     instagramAccountSettingsService,
     instagramAccountService,
   } = createInstagramAccountServices({ organizationService, channelConnectionTokenService });
-  // The channel account (1B, ROUTE row R5): routes 6–11, the one feature check, and the
-  // connection's account port over `app.channel_accounts` with its Instagram extension. Its lane
-  // port (R18) and plan-stop port (R18, R24) are not passed until their rows build them.
+  // The channel account (1B, R5): routes 6–11, the feature check, the connection's account port.
+  // Its lane port (R18) and plan-stop port (R18, R24) are not passed until their rows build them.
   const channelAccountService = new ChannelAccountService(
     channelAccountRepository,
     instagramAccountExtensionService,
@@ -194,13 +193,16 @@ export function createAppContainer({
       },
     },
   );
-  // Meta's callbacks and the organization's delete (every account and connection, IAC5) erase here.
+  // Meta's callbacks (MC14–MC16) and the organization's delete (IAC5) erase here; R53 adds the
+  // callbacks' team-alert port as the fifth argument below.
   const instagramAccountErasureService = new InstagramAccountErasureService(
     instagramAccountService,
     instagramMediaService,
   );
-  const instagramAccountMetaCallbackService = new InstagramAccountMetaCallbackService(
-    instagramAccountService,
+  const channelConnectionMetaCallbackService = new ChannelConnectionMetaCallbackService(
+    channelConnectionRepository,
+    channelConnectionTokenService,
+    channelAccountService,
     instagramAccountErasureService,
   );
   // The automation delete's hook (routes-final § 3.A AU12): every step registered here runs inside
@@ -257,7 +259,7 @@ export function createAppContainer({
     instagramAccountSettingsService,
     instagramMediaService,
     instagramAccountErasureService,
-    instagramAccountMetaCallbackService,
+    channelConnectionMetaCallbackService,
     contactService,
     instagramWebhookEventService,
     instagramWebhookService,

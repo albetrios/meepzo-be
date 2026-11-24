@@ -3,6 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { requireOrganizationPermission } from '@/shared/utils/auth/authorization.util.js';
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
+import { CHANNEL_CONNECTION_TAG } from './channel-connection.constants.js';
 import type { ChannelConnectionService } from './channel-connection.service.js';
 import { createChannelConnectionController } from './channel-connection.controller.js';
 import {
@@ -12,9 +13,6 @@ import {
   channelConnectionProviderParamsDto,
   listChannelConnectionsQueryDto,
 } from './channel-connection.dto.js';
-
-/** The OpenAPI tag of every channel connection route (MC1). */
-const CHANNEL_CONNECTION_TAG = 'Channel connection';
 
 /**
  * Returns the Fastify plugin that registers the channel connection routes (routes-final § 1.7),

@@ -55,7 +55,7 @@ declare module 'fastify' {
     /** Set by stripe webhook ingress plugin after signature verification. */
     stripeWebhookEvent?: Stripe.Event;
     /**
-     * Set by the Meta callback ingress plugin (`instagram-account-meta-callback-ingress.plugin.ts`)
+     * Set by the Meta callback ingress plugin (`channel-connection-meta-callback-ingress.plugin.ts`)
      * once Meta's `signed_request` verified — routes 7–8 (IA18).
      */
     metaSignedRequest?: MetaSignedRequestPayload;

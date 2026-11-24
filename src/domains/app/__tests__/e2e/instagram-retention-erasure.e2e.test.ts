@@ -52,12 +52,12 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import {
   FORM_CONTENT_TYPE,
-  INSTAGRAM_DATA_DELETION_PATH,
+  META_DATA_DELETION_PATH,
   buildMetaSignedRequest,
   metaCallbackFormBody,
   metaIssuedAtAfterConnections,
   metaSignedRequestPayload,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/__tests__/factories/instagram-account-meta-callback.factory.js';
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection-meta-callback.factory.js';
 import { INSTAGRAM_WEBHOOK_EVENTS_PATH } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
@@ -918,7 +918,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
   function requestMetaDataDeletion(team: ConnectedInstagramTeam): Promise<InjectHttpResult> {
     return injectRoute(app, {
       method: 'POST',
-      url: INSTAGRAM_DATA_DELETION_PATH,
+      url: META_DATA_DELETION_PATH,
       headers: { 'content-type': FORM_CONTENT_TYPE },
       payload: metaCallbackFormBody(
         buildMetaSignedRequest({

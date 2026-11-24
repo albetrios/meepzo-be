@@ -23,15 +23,15 @@ export function getQueryParameters(method: string, openapiPath: string): object[
 }
 
 /**
- * Routes whose request body is `application/x-www-form-urlencoded`, not JSON — Meta's Instagram
- * deauthorize and data-deletion callbacks (launch routes 7–8, IA18), which post one form field,
+ * Routes whose request body is `application/x-www-form-urlencoded`, not JSON — Meta's
+ * deauthorize and data-deletion callbacks (feat-instagram-dm-sending routes 16–17, MC14), which post one form field,
  * `signed_request` — and Apple's sign-in form callback (feat-instagram-dm-sending route 124). Their
  * body schema still comes from {@link routeSchemaMap}; only the media type of the documented
  * request body changes.
  */
 const FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS = new Set<string>([
-  'POST /api/v1/app/social/instagram/deauthorize',
-  'POST /api/v1/app/social/instagram/data-deletion',
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize',
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion',
   'POST /api/v1/auth/oauth/apple/callback',
 ]);
 
@@ -79,8 +79,8 @@ const PUBLIC_ROUTE_KEYS = new Set<string>([
   // Apple's form callback (feat-instagram-dm-sending route 124): Apple posts it; answers 303.
   'POST /api/v1/auth/oauth/apple/callback',
   'POST /api/v1/billing/webhook',
-  'POST /api/v1/app/social/instagram/deauthorize',
-  'POST /api/v1/app/social/instagram/data-deletion',
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize',
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion',
   // Meta's Instagram webhook: proved by the verify token (GET) and X-Hub-Signature-256 (POST).
   'GET /api/v1/app/social/instagram/webhook',
   'POST /api/v1/app/social/instagram/webhook',

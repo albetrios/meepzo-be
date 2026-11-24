@@ -1,9 +1,9 @@
 import { withoutTrailingSlashes } from '@/shared/utils/text/trailing-slash.util.js';
-import { INSTAGRAM_DATA_DELETION_FRONTEND_PATH } from './instagram-account-meta-callback.constants.js';
-import type { MetaDataDeletionAnswerOutput } from './instagram-account-meta-callback.types.js';
+import { INSTAGRAM_DATA_DELETION_FRONTEND_PATH } from './channel-connection-meta-callback.constants.js';
+import type { MetaDataDeletionAnswerOutput } from './channel-connection-meta-callback.types.js';
 
 /**
- * Meta's data-deletion answer (route 8, routes-final § 1.D.6, IA20): the frontend's status page
+ * Meta's data-deletion answer (route 17, routes-final § 1.6, MC16): the frontend's status page
  * with the code, and the code — Meta's documented shape, sent outside the `{ data, meta }`
  * envelope.
  *

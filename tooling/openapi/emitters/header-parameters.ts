@@ -71,8 +71,8 @@ const WEBHOOK_SIGNATURE_HEADERS: Readonly<Record<string, object>> = {
  * repeat (K3).
  */
 const META_SIGNED_REQUEST_ROUTE_KEYS = new Set([
-  'POST /api/v1/app/social/instagram/deauthorize',
-  'POST /api/v1/app/social/instagram/data-deletion',
+  'POST /api/v1/app/social/channel-connections/{provider}/deauthorize',
+  'POST /api/v1/app/social/channel-connections/{provider}/data-deletion',
 ]);
 
 /** Builds the documented request-header parameters for one operation. */

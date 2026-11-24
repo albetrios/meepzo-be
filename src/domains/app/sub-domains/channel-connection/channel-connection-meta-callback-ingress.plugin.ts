@@ -2,12 +2,12 @@ import type { FastifyPluginAsync } from 'fastify';
 import { readMetaAppSecret } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { parseMetaSignedRequest } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import { instagramSignedRequestInvalidError } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
-import { META_CALLBACK_FORM_CONTENT_TYPE } from './instagram-account-meta-callback.constants.js';
+import { instagramSignedRequestInvalidError } from './channel-connection-error.util.js';
+import { META_CALLBACK_FORM_CONTENT_TYPE } from './channel-connection-meta-callback.constants.js';
 import {
   MetaSignedRequestDto,
   type MetaSignedRequestInput,
-} from './instagram-account-meta-callback.dto.js';
+} from './channel-connection-meta-callback.dto.js';
 
 /**
  * One `signed_request` field of a form body, its value still encoded — at the start of the text or
@@ -42,7 +42,7 @@ export function parseMetaCallbackFormBody(body: string): Partial<MetaSignedReque
 }
 
 /**
- * The ingress of Meta's two callbacks (routes 7–8, IA18), registered inside their routes plugin
+ * The ingress of Meta's two callbacks (routes 16–17, MC14), registered inside their routes plugin
  * before the routes — the `stripeWebhookIngressPlugin` pattern: the routes' only body parser, and
  * the signed-request check every request passes before its handler.
  *
@@ -61,12 +61,12 @@ export function parseMetaCallbackFormBody(body: string): Partial<MetaSignedReque
  *   `400 instagram_signed_request_invalid` for a missing, doubled, malformed or wrongly signed
  *   request, another algorithm, or no `user_id`; `503 instagram_not_configured` without an app
  *   secret. A refused request changes nothing.
- * - **Side effects:** one log line per refused request (`app.instagram_account.meta_callback.
+ * - **Side effects:** one log line per refused request (`app.channel_connection.meta_callback.
  *   signed_request_invalid`, the route only — never the request or a secret).
  * - **Notes:** no authentication, no idempotency key, no CSRF check (K3) — the signature is the
  *   proof. Controllers read `request.metaSignedRequest` and never parse the body themselves.
  */
-export const instagramAccountMetaCallbackIngressPlugin: FastifyPluginAsync = async (
+export const channelConnectionMetaCallbackIngressPlugin: FastifyPluginAsync = async (
   application,
 ) => {
   application.removeAllContentTypeParsers();
@@ -87,7 +87,7 @@ export const instagramAccountMetaCallbackIngressPlugin: FastifyPluginAsync = asy
     if (signedRequest === null) {
       logger.warn(
         { route: request.routeOptions.url },
-        'app.instagram_account.meta_callback.signed_request_invalid',
+        'app.channel_connection.meta_callback.signed_request_invalid',
       );
       throw instagramSignedRequestInvalidError();
     }

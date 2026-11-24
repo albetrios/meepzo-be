@@ -530,7 +530,7 @@ No Instagram call runs inside a database context: every step reads, closes its u
 
 ### Trigger
 
-The owner of a connected Instagram account removes the app in Instagram's settings, or asks Meta to delete their data. Meta posts a form with one field, `signed_request`, to the Instagram app's **Deauthorize callback URL** — `POST /api/v1/app/social/instagram/deauthorize` (route 7) — or its **Data deletion request URL** — `POST /api/v1/app/social/instagram/data-deletion` (route 8). Both PUBLIC: no sign-in, no idempotency key (K3). Built by ROUTE row R6 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA18–IA20).
+The person who connected a business removes the app, or asks Meta to delete their data. Meta posts a form with one field, `signed_request`, to the Meta app's **Deauthorize callback URL** — `POST /api/v1/app/social/channel-connections/meta/deauthorize` (route 16) — or its **Data deletion request URL** — `POST /api/v1/app/social/channel-connections/meta/data-deletion` (route 17). Both PUBLIC: no sign-in, no idempotency key (K3). Built by the launch's ROUTE row R6 (`iterations/launch-2026-11-20-ujai/`, IA18–IA20); moved to the channel connection with the account-then-business match by feat-instagram-dm-sending ROUTE row R9 (`iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/routes-final.md` § 1 MC14–MC16, P46, P56).
 
 ### Sequence
 
@@ -539,46 +539,48 @@ sequenceDiagram
   participant Meta
   participant Ingress as Meta callback ingress plugin
   participant Controller as Meta callback controller
-  participant Service as InstagramAccountMetaCallbackService
-  participant Resolver as app.resolve_organization_public_ids_for_instagram_app_user
+  participant Service as ChannelConnectionMetaCallbackService
+  participant Resolvers as app.resolve_organization_public_ids_for_provider_account / _business
   participant Erasure as InstagramAccountErasureService
   participant Account as InstagramAccountService (+ token service)
   participant Media as InstagramMediaService
   participant DB as Postgres (each organization's VERIFIED scope)
 
-  Meta->>Ingress: POST …/deauthorize or …/data-deletion (form: signed_request)
+  Meta->>Ingress: POST …/meta/deauthorize or …/meta/data-deletion (form: signed_request)
   Ingress->>Ingress: form body only (else 415); app secret set (else 503); HMAC-SHA256 of the payload, constant time; algorithm HMAC-SHA256; user_id digits (else 400)
   Ingress->>Controller: request.metaSignedRequest
-  Controller->>Service: the signed user_id (the app-scoped id, IQ3) and issued_at
+  Controller->>Service: the provider, the signed user_id and issued_at
   Service->>Service: data deletion: the confirmation code = HMAC(app secret, user_id, issued_at), 21 [a-z0-9]
-  Service->>Resolver: which organizations hold a row of this app-scoped id (any status)?
-  Resolver-->>Service: organization public ids only
+  Service->>Resolvers: which organizations hold a channel account of this provider account id (any status)? none → which hold a connection of this business id?
+  Resolvers-->>Service: organization public ids only
   loop each organization, one transaction in its PRINCIPAL_SCOPE.VERIFIED scope
-    Service->>Erasure: eraseForMeta (the app-scoped id, issued_at)
-    Erasure->>Account: disconnectForMeta — lock the accounts, leave out one connected after issued_at (D53), revoke (unless revoked), erase the token; data deletion: erase the profile (once)
+    Service->>Erasure: eraseForMeta (account match: that account id; business match: the organization's connections of that business)
+    Erasure->>Account: disconnectForMeta — lock the accounts reached, leave out one connected after issued_at (D53), revoke (unless revoked), the connection and its token with its last account; data deletion: erase the profile (once)
     Erasure->>Media: data deletion: delete the accounts' stored posts
-    Erasure->>DB: COMMIT (this organization's changes together)
+    Service->>DB: business match: a connection of that business left with no account revoked with its token
+    Service->>DB: COMMIT (this organization's changes together)
   end
-  Service-->>Controller: the organizations changed (and route 8's answer)
+  Service->>Service: no organization matched → error-level log and the team-alert port (the team email, R53)
+  Service-->>Controller: the match kind, the organizations changed (and route 17's answer)
   Controller->>DB: one audit entry per organization changed (anonymous actor, source meta) — after commit, best-effort
-  Controller-->>Meta: 200 { data: null, meta } — or, route 8, { url, confirmation_code } outside the envelope
+  Controller-->>Meta: 200 { data: null, meta } — or, route 17, { url, confirmation_code } outside the envelope
 ```
 
-No Instagram call: the app is already removed, so the disconnect skips the unsubscribe route 4 makes.
+No Meta call: the app is already removed, so the disconnect skips the unsubscribe route 8 makes.
 
 ### Side effects
 
-- `app.channel_accounts` / `app.instagram_accounts` — every account of that Instagram id (Meta signs the Instagram user id under Unified Login, P111) connected before Meta signed the request (`issued_at`; a request without it means every row, D53), in every organization: the channel account `revoked` with `disconnected_at`, the extension's `webhook_subscribed_at` emptied (accounts already revoked stay as they are). Data deletion also erases the extension's profile — `username`, `biography`, `website`, `profile_picture_url`, `account_type` emptied, counts 0, `profile_erased_at` stamped — revoked rows of the same person too.
-- `app.channel_connections` / `app.channel_connection_tokens` — the connection revoked and its token deleted once no other not-revoked account uses it (CA8).
-- `app.instagram_media` — data deletion: the account's stored posts deleted (IQ4); automations, runs and comment logs keep naming a post by its Instagram media id.
-- Settings, contacts and webhook events stay (D22: a contact's own request is route 10). No automation run is cancelled and automations stay `live` (IQ1, D24).
-- Audit `app.instagram_account.deauthorize` / `app.instagram_account.data_deletion` (WARNING, anonymous actor, `metadata.source = 'meta'`, the accounts' public ids; on a data deletion the confirmation code — the request's only record, IQ2 — and the erased post count), one per organization changed.
-- Route 8's link opens the frontend's `/instagram/data-deletion?code=…` page (meepzo-fe), which says the data is deleted and shows the code — no status route, no request table (IQ2).
+- `app.channel_accounts` / `app.instagram_accounts` — an account match: every account of that provider account id (Meta's signed id tried as the Instagram user id first, P56), in every organization, any status; a business match: every not-revoked account of that business's connections. Only those connected before Meta signed the request (`issued_at`; a request without it means every row, D53): the channel account `revoked` with `disconnected_at`, the extension's `webhook_subscribed_at` emptied (accounts already revoked stay as they are). Data deletion also erases the extension's profile — `username`, `biography`, `website`, `profile_picture_url`, `account_type` emptied, counts 0, `profile_erased_at` stamped — on an account match revoked rows of the same account too.
+- `app.channel_connections` / `app.channel_connection_tokens` — the connection revoked and its token deleted once no other not-revoked account uses it (CA8); on a business match also a connection of that business left with no account (a login never picked).
+- `app.instagram_media` — data deletion: the accounts' stored posts deleted (IQ4); automations, runs and comment logs keep naming a post by its Instagram media id.
+- Settings, contacts and webhook events stay (D22: a contact's own request is route 10). No automation run is cancelled and automations stay `live` (IQ1, D24). The lanes of a reached account stop with sub-domain 6 (R18), as route 8's do.
+- Audit `app.channel_connection.deauthorize` / `app.channel_connection.data_deletion` (WARNING, anonymous actor, `metadata.source = 'meta'`, `match`, the accounts' and the revoked connections' public ids; on a data deletion the confirmation code — the request's only record, IQ2 — and the erased post count), one per organization changed.
+- Route 17's link opens the frontend's `/instagram/data-deletion?code=…` page (meepzo-fe), which says the data is deleted and shows the code — no status route, no request table (IQ2).
 
 ### Failure modes
 
-- **A missing, doubled, malformed or wrongly signed `signed_request`, another algorithm, or no `user_id`** → `400 instagram_signed_request_invalid`; nothing changes. **A body over 16 KB** → `413`; **one that is not form-encoded** → `415`. **No `META_APP_SECRET`** → `503 instagram_not_configured`. **Over the webhook rate limit** → `429`.
-- **A person we never stored, or whose organization was deleted** (its delete erased the account, D54) → still `200` (route 8 with its code), so Meta does not retry; no audit entry.
+- **A missing, doubled, malformed or wrongly signed `signed_request`, another algorithm, or no `user_id`** → `400 instagram_signed_request_invalid`; nothing changes. **A body over 16 KB** → `413`; **one that is not form-encoded** → `415`. **No `META_APP_SECRET`** → `503 instagram_not_configured`. **Over the webhook rate limit** → `429`. **A provider other than `meta`** → `400`.
+- **An id that matches neither an account nor a business, or whose organization was deleted** (its delete erased the account, D54) → still `200` (route 17 with its code), so Meta does not retry; no audit entry. An unmatched id is logged at error level (`app.channel_connection.meta_callback.unmatched`) and handed to the team-alert port, whose email the team handles by hand (MC16 — wired at R53).
 - **Meta repeats a request** → nothing is left to do: `200` again, the same confirmation code, no new audit entry. **The account was connected again in between** → that connection is newer than the request and is left alone (D53); the same `200`, no new audit entry. A reconnect that races the request waits for its row lock and connects on top.
 - **A database failure in one organization** → the request fails and Meta retries it; the organizations already done find nothing left to do the second time.
 
@@ -586,7 +588,7 @@ No Instagram call: the app is already removed, so the disconnect skips the unsub
 
 ### Trigger
 
-How Instagram, contact, automation and webhook-event data leaves (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 2 CT7–CT9, § 3.B AU25–AU26, § 4.B WH18–WH19; proved end to end by ROUTE row R18, `src/domains/app/__tests__/e2e/instagram-retention-erasure.e2e.test.ts`). Four triggers: **the timers** (`scheduler.ts`, UTC); **a contact delete** — `DELETE /api/v1/app/contacts/{contact_id}` (route 10), the team honouring the person's own request (D22); **Meta's data deletion** (route 8, [instagram-meta-callback-flow](#instagram-meta-callback-flow)) — the account owner's data, never a contact's; **an organization delete** — `DELETE /api/v1/tenancy/organization`, which erases its Instagram account at once (D54), then its purge after `TOMBSTONE_RETENTION_DAYS`.
+How Instagram, contact, automation and webhook-event data leaves (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 2 CT7–CT9, § 3.B AU25–AU26, § 4.B WH18–WH19; proved end to end by ROUTE row R18, `src/domains/app/__tests__/e2e/instagram-retention-erasure.e2e.test.ts`). Four triggers: **the timers** (`scheduler.ts`, UTC); **a contact delete** — `DELETE /api/v1/app/contacts/{contact_id}` (route 10), the team honouring the person's own request (D22); **Meta's data deletion** (route 17, [instagram-meta-callback-flow](#instagram-meta-callback-flow)) — the account owner's data, never a contact's; **an organization delete** — `DELETE /api/v1/tenancy/organization`, which erases its Instagram account at once (D54), then its purge after `TOMBSTONE_RETENTION_DAYS`.
 
 ### Sequence
 

@@ -36,12 +36,12 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import {
   FORM_CONTENT_TYPE,
-  INSTAGRAM_DATA_DELETION_PATH,
+  META_DATA_DELETION_PATH,
   buildMetaSignedRequest,
   metaCallbackFormBody,
   metaIssuedAtAfterConnections,
   metaSignedRequestPayload,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account-meta-callback/__tests__/factories/instagram-account-meta-callback.factory.js';
+} from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection-meta-callback.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
@@ -50,7 +50,7 @@ import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { injectAuthenticated, injectRoute } from '@/tests/helpers/test-http-inject.helper.js';
 
 const ORGANIZATION_PATH = testApiPath('/tenancy/organization');
-const DATA_DELETION_ACTION = 'app.instagram_account.data_deletion';
+const DATA_DELETION_ACTION = 'app.channel_connection.data_deletion';
 
 /** One account row with what a delete erases, read as the operator (any status). */
 interface AccountErasureRow {
@@ -398,7 +398,7 @@ describe('Instagram account — the organization is deleted', () => {
 
     const response = await injectRoute(app, {
       method: 'POST',
-      url: INSTAGRAM_DATA_DELETION_PATH,
+      url: META_DATA_DELETION_PATH,
       headers: { 'content-type': FORM_CONTENT_TYPE },
       payload: metaCallbackFormBody(
         buildMetaSignedRequest({

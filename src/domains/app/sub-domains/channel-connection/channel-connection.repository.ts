@@ -3,6 +3,7 @@ import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime
 import {
   type RequestScopedPostgresDatabase,
   assertWorkerDatabaseContext,
+  getContextFreeDatabase,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import {
@@ -15,8 +16,17 @@ import {
 } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
+import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_connections } from './channel-connection.schema.js';
 import type { ChannelConnectionProvider } from './channel-connection-state.js';
+
+/** The public ids one of the two organization resolvers (MC15) answered. */
+function readOrganizationPublicIds(result: unknown): string[] {
+  const rows = ((result as { rows?: unknown[] }).rows ?? result) as Array<{
+    organization_public_id: string;
+  }>;
+  return rows.map((row) => row.organization_public_id);
+}
 
 /** `updated_at` for every change of a connection — never before the row's `created_at`. */
 const connectionUpdatedAtTimestamp = databaseUpdatedAtTimestamp(channel_connections.created_at);
@@ -215,6 +225,75 @@ export class ChannelConnectionRepository {
       )
       .returning();
     return rows[0] ?? null;
+  }
+
+  /**
+   * The connections of this provider's business of the organization with this public id, any status,
+   * oldest first — Meta's callbacks matched by business (MC15, P56), which know the organization only
+   * by the public id the resolver returned; run inside that organization's verified scope.
+   */
+  async listByBusiness({
+    organizationPublicId,
+    provider,
+    clientBusinessId,
+  }: {
+    organizationPublicId: string;
+    provider: ChannelConnectionProvider;
+    clientBusinessId: string;
+  }): Promise<ChannelConnectionRow[]> {
+    const organizationId = this.db()
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.public_id, organizationPublicId));
+    return this.db()
+      .select()
+      .from(channel_connections)
+      .where(
+        and(
+          inArray(channel_connections.organization_id, organizationId),
+          eq(channel_connections.provider, provider),
+          eq(channel_connections.client_business_id, clientBusinessId),
+        ),
+      )
+      .orderBy(asc(channel_connections.id));
+  }
+
+  /**
+   * The public ids of every organization with a channel account of this provider's channels and
+   * provider account id, any status (MC15 (1), P56 — the SECURITY DEFINER
+   * `app.resolve_organization_public_ids_for_provider_account`); empty when none. Context-free: it
+   * returns public ids only and reads no other column of another organization's row.
+   */
+  async resolveOrganizationPublicIdsForProviderAccount({
+    provider,
+    providerAccountId,
+  }: {
+    provider: ChannelConnectionProvider;
+    providerAccountId: string;
+  }): Promise<string[]> {
+    const result = await getContextFreeDatabase().execute(
+      sql`SELECT organization_public_id FROM app.resolve_organization_public_ids_for_provider_account(${provider}, ${providerAccountId}) AS organization_public_id`,
+    );
+    return readOrganizationPublicIds(result);
+  }
+
+  /**
+   * The public ids of every organization with a connection of this provider and
+   * `client_business_id`, any status (MC15 (2), P56 — the SECURITY DEFINER
+   * `app.resolve_organization_public_ids_for_provider_business`, over
+   * `idx_channel_connections_provider_business`); empty when none. Context-free, public ids only.
+   */
+  async resolveOrganizationPublicIdsForProviderBusiness({
+    provider,
+    clientBusinessId,
+  }: {
+    provider: ChannelConnectionProvider;
+    clientBusinessId: string;
+  }): Promise<string[]> {
+    const result = await getContextFreeDatabase().execute(
+      sql`SELECT organization_public_id FROM app.resolve_organization_public_ids_for_provider_business(${provider}, ${clientBusinessId}) AS organization_public_id`,
+    );
+    return readOrganizationPublicIds(result);
   }
 
   /**

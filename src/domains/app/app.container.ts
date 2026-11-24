@@ -237,8 +237,9 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only. Meta's 190 on a media
- * read breaks the account's connection through the connection (MC11, R4's `markConnectionBroken`);
- * R53 adds the callbacks' team-alert port as the fifth argument of the callback service.
+ * read breaks the account's connection through the connection (MC11, R4's `markConnectionBroken`).
+ * The callback service's lane port is 6's lane service (R18), so Meta's callbacks stop the reached
+ * accounts' lanes as route 8 does; R53 adds the callbacks' team-alert port as its sixth argument.
  */
 function createInstagramMediaAndErasureServices(options: {
   instagramAccountService: InstagramAccountService;
@@ -246,6 +247,7 @@ function createInstagramMediaAndErasureServices(options: {
   channelConnectionRepository: ChannelConnectionRepository;
   channelConnectionTokenService: ChannelConnectionTokenService;
   channelAccountService: ChannelAccountService;
+  lanePort: ChannelConnectionLanePort;
 }) {
   const instagramMediaService = new InstagramMediaService(
     new InstagramMediaRepository(),
@@ -261,6 +263,7 @@ function createInstagramMediaAndErasureServices(options: {
     options.channelConnectionTokenService,
     options.channelAccountService,
     instagramAccountErasureService,
+    options.lanePort,
   );
   return {
     instagramMediaService,
@@ -442,6 +445,7 @@ export function createAppContainer({
     channelConnectionRepository,
     channelConnectionTokenService,
     channelAccountService,
+    lanePort: sending.instagramSendLaneService,
   });
   const { automationService, contactService, automationRunService } = createAutomationServices({
     instagramAccountService,

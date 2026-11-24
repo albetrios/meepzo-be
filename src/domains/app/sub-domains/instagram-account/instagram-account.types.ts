@@ -145,6 +145,11 @@ export interface InstagramAccountErasure {
   instagramAccountPublicIds: string[];
   /** Stored posts erased (`0` on a deauthorize). */
   erasedPostCount: number;
+  /**
+   * The channel accounts this erase moved to `revoked` — the ones whose sending lanes Meta's
+   * callbacks stop in the same unit of work, as route 8 does (CA8).
+   */
+  revokedChannelAccounts: ChannelAccountKey[];
 }
 
 /**

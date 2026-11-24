@@ -95,6 +95,7 @@ describe('ChannelConnectionMetaCallbackService (no database)', () => {
   const revokeConnection = vi.fn();
   const countLiveAccountsOfConnection = vi.fn();
   const alertUnmatchedMetaCallback = vi.fn();
+  const stopLanes = vi.fn();
   const accountService = { disconnectForMeta } as unknown as InstagramAccountService;
   const service = new ChannelConnectionMetaCallbackService(
     {
@@ -107,6 +108,7 @@ describe('ChannelConnectionMetaCallbackService (no database)', () => {
     new InstagramAccountErasureService(accountService, {
       deleteForAccount,
     } as unknown as InstagramMediaService),
+    { stopLanes },
     { alertUnmatchedMetaCallback },
   );
 
@@ -134,8 +136,11 @@ describe('ChannelConnectionMetaCallbackService (no database)', () => {
       providerAccountId: signedRequest.userId,
     });
     expect(resolveOrganizationPublicIdsForProviderBusiness).not.toHaveBeenCalled();
+    // Each organization's unit (the callback's, joined by the erase's) in its own verified scope.
     expect(contextSpy.scopes.map((scope) => [scope.organizationPublicId, scope.source])).toEqual([
       ['org_a', 'verified'],
+      ['org_a', 'verified'],
+      ['org_b', 'verified'],
       ['org_b', 'verified'],
     ]);
     // The account service compares when Meta signed with when the account was connected (D53).
@@ -159,6 +164,10 @@ describe('ChannelConnectionMetaCallbackService (no database)', () => {
     });
     expect(deleteForAccount).not.toHaveBeenCalled();
     expect(alertUnmatchedMetaCallback).not.toHaveBeenCalled();
+    // The account it revoked has its lanes stopped, as route 8 does (CA8); org_b's was revoked earlier.
+    expect(stopLanes.mock.calls).toEqual([
+      [{ scope: contextSpy.scopes[0], organizationId: 1, channelAccountId: 20 }],
+    ]);
   });
 
   it('deauthorize: with no account match, a business match reaches every not-revoked account of that business’s connections and revokes an emptied one (P56)', async () => {
@@ -200,6 +209,7 @@ describe('ChannelConnectionMetaCallbackService (no database)', () => {
       { organizationId: 1, channelConnectionId: 30 },
       { organizationId: 1, channelConnectionId: 31 },
     ]);
+    expect(stopLanes.mock.calls.map(([input]) => input.channelAccountId)).toEqual([20]);
     expect(result).toEqual({
       matchKind: 'provider_business',
       changes: [
@@ -312,6 +322,7 @@ describe('ChannelConnectionMetaCallbackService (no database)', () => {
 
     expect(first.changes).toEqual([]);
     expect(repeat).toEqual(first);
+    expect(stopLanes).not.toHaveBeenCalled();
   });
 
   it('data deletion without an app secret answers 503 before any lookup or write', async () => {

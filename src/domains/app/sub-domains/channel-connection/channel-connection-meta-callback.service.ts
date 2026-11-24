@@ -26,7 +26,10 @@ import type {
   ChannelConnectionRepository,
   ChannelConnectionRow,
 } from './channel-connection.repository.js';
-import type { ChannelConnectionAccountPort } from './channel-connection.types.js';
+import type {
+  ChannelConnectionAccountPort,
+  ChannelConnectionLanePort,
+} from './channel-connection.types.js';
 import type { ChannelConnectionTokenService } from './channel-connection-token.service.js';
 import type { ChannelConnectionProvider } from './channel-connection-state.js';
 
@@ -75,7 +78,9 @@ interface MetaCallbackResolution {
  *   connection revoked) with its last account. Data deletion: the same, plus each account's profile
  *   erased and its stored posts deleted (MC16). Contacts are not touched (launch D22).
  * - Both through {@link InstagramAccountErasureService.eraseForMeta}, the erase an organization's
- *   delete shares (D54). An account or connection connected — or connected again — after Meta signed
+ *   delete shares (D54); in the same unit of work each account it revoked has its sending lanes
+ *   stopped through {@link ChannelConnectionLanePort.stopLanes} (sub-domain 6's lane service, ROUTE
+ *   row R18), exactly as route 8 does (CA8). An account or connection connected — or connected again — after Meta signed
  *   the request (`issued_at`) is left alone (D53).
  * - An id that matches neither is answered all the same (route 17 with its code), logged and the
  *   team alerted (MC16) through {@link ChannelConnectionMetaCallbackTeamAlertPort}.
@@ -86,15 +91,15 @@ interface MetaCallbackResolution {
  *   failed team alert is logged and never fails the request.
  *
  * Side effects:
- * - Writes `app.channel_accounts`, `app.instagram_accounts`, `app.channel_connections`, deletes
+ * - Writes `app.channel_accounts`, `app.instagram_accounts`, `app.channel_connections`,
+ *   `app.instagram_send_lanes` (the revoked accounts' lanes stopped), deletes
  *   `app.channel_connection_tokens` and `app.instagram_media` rows through the owners' services. No
  *   Meta call. The audit entries are the controller's, after the commits (D36).
  *
  * Notes:
  * - Safe to repeat: a second call finds what the first changed already done, leaves a connection
  *   made since alone (D53), lists no change and still answers — data deletion with the same code.
- * - No run is cancelled and automations stay `live` (launch IQ1, D24). The lanes of a reached
- *   account stop with sub-domain 6 (ROUTE row R18), as route 8's do.
+ * - No run is cancelled and automations stay `live` (launch IQ1, D24).
  */
 export class ChannelConnectionMetaCallbackService {
   constructor(
@@ -105,6 +110,7 @@ export class ChannelConnectionMetaCallbackService {
       'countLiveAccountsOfConnection'
     >,
     private readonly erasureService: InstagramAccountErasureService,
+    private readonly lanePort: Pick<ChannelConnectionLanePort, 'stopLanes'>,
     private readonly teamAlertPort?: ChannelConnectionMetaCallbackTeamAlertPort | undefined,
   ) {}
 
@@ -251,7 +257,10 @@ export class ChannelConnectionMetaCallbackService {
     return { matchKind, changes };
   }
 
-  /** One organization's erase for an account match (or a business match's accounts). */
+  /**
+   * One organization's erase for an account match (or a business match's accounts), and the lanes
+   * of each account it revoked stopped — one unit of work, as route 8's revoke and lane stop (CA8).
+   */
   private async erase({
     scope,
     match,
@@ -263,11 +272,20 @@ export class ChannelConnectionMetaCallbackService {
     issuedAt: number | null;
     shouldEraseData: boolean;
   }): Promise<MetaCallbackOrganizationChange | null> {
-    const erasure = await this.erasureService.eraseForMeta({
+    const erasure = await withAppDatabaseContext({
       scope,
-      match,
-      issuedAt,
-      shouldEraseData,
+      callback: async () => {
+        const erased = await this.erasureService.eraseForMeta({
+          scope,
+          match,
+          issuedAt,
+          shouldEraseData,
+        });
+        for (const channelAccount of erased?.revokedChannelAccounts ?? []) {
+          await this.lanePort.stopLanes({ scope, ...channelAccount });
+        }
+        return erased;
+      },
     });
     if (erasure === null) return null;
     return {

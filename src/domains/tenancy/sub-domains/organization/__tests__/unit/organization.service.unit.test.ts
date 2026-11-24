@@ -198,18 +198,16 @@ describe('OrganizationService', () => {
     expect(result.slug).toBe('acme');
   });
 
-  it('update throws conflict when slug taken', async () => {
-    vi.mocked(repository.findBySlug).mockResolvedValue({
-      ...organizationRow,
-      public_id: 'other_org',
-    } as never);
+  it('update refuses a slug with 422 slug_read_only before any read (TN7)', async () => {
     await expect(
       service.update({
         scope: asScope(organizationRow.public_id),
         body: { slug: 'taken' },
         updated_by_user_public_id: 'owner_public',
       }),
-    ).rejects.toBeInstanceOf(ConflictError);
+    ).rejects.toMatchObject({ statusCode: 422, reason: 'slug_read_only' });
+    expect(repository.findByPublicId).not.toHaveBeenCalled();
+    expect(repository.update).not.toHaveBeenCalled();
   });
 
   it('delete runs offboarding when dependencies attached', async () => {
@@ -511,6 +509,28 @@ describe('OrganizationService', () => {
         owner_user_public_id: 'owner_public',
       }),
     ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('create without a slug makes one from the name and moves to a suffixed one when taken (TN7)', async () => {
+    provisionOrganizationWithOwnerMock.mockRejectedValueOnce(
+      Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint: 'idx_organizations_slug',
+      }),
+    );
+    await service.create({
+      body: { name: 'Acme Studio', logo_color: 'sage' },
+      owner_user_public_id: 'owner_public',
+    });
+    const slugs = provisionOrganizationWithOwnerMock.mock.calls.map(
+      ([input]) => (input as { slug: string }).slug,
+    );
+    expect(slugs[0]).toBe('acme-studio');
+    expect(slugs[1]).toMatch(/^acme-studio-[a-z0-9]{6}$/);
+    expect(provisionOrganizationWithOwnerMock.mock.calls[1]![0]).toMatchObject({
+      logoColor: 'sage',
+    });
+    expect(repository.findBySlug).not.toHaveBeenCalled();
   });
 
   it('TEN-02/R12: create takes the owned-organization quota advisory lock before counting', async () => {
@@ -839,14 +859,17 @@ describe('OrganizationService', () => {
     );
   });
 
-  it('update allows keeping the same slug for the same organization', async () => {
-    vi.mocked(repository.findBySlug).mockResolvedValue(organizationRow as never);
+  it('update writes a chosen tile colour (TN8)', async () => {
     await service.update({
       scope: asScope(organizationRow.public_id),
-      body: { slug: organizationRow.slug },
+      body: { logo_color: 'lavender' },
       updated_by_user_public_id: 'owner_public',
     });
-    expect(repository.update).toHaveBeenCalled();
+    expect(repository.update).toHaveBeenCalledWith(
+      organizationRow.public_id,
+      { logo_color: 'lavender' },
+      expect.anything(),
+    );
   });
 
   it('route-audit L1: deleteLogo reclaims the stored logo key before clearing the column', async () => {

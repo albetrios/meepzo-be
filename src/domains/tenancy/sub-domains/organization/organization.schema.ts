@@ -11,7 +11,12 @@ import {
 } from 'drizzle-orm/pg-core';
 import { maintenanceBypassArm, tenancySchema } from '@/infrastructure/database/pg-schemas.js';
 import { users } from '@/domains/user/user.schema.js';
-import { ORGANIZATION_CURRENCY, ORGANIZATION_DEFAULT_TIMEZONE } from './organization.constants.js';
+import {
+  ORGANIZATION_CURRENCY,
+  ORGANIZATION_DEFAULT_TIMEZONE,
+  ORGANIZATION_LOGO_COLORS,
+  type OrganizationLogoColor,
+} from './organization.constants.js';
 
 /**
  * Drizzle table for `tenancy.organizations` — the per-tenant root entity.
@@ -40,6 +45,10 @@ export const organizations = tenancySchema
         .references(() => users.id),
       status: varchar('status', { length: 20 }).notNull().default('ACTIVE'),
       logo_url: varchar('logo_url', { length: 512 }),
+      // The tile colour (feat-instagram-dm-sending TN8): one of ORGANIZATION_LOGO_COLORS. No column
+      // default — a writer that names none gets the name's colour from the BEFORE INSERT trigger
+      // `trg_organizations_logo_color` (tenancy.fn_organization_logo_color, migration 20261124062835).
+      logo_color: varchar('logo_color', { length: 10 }).$type<OrganizationLogoColor>().notNull(),
       stripe_customer_id: varchar('stripe_customer_id', { length: 255 }),
       // The organization profile (launch D7): the timezone its timed work runs in, and its one currency (server-set). Defaults cover personal organizations, which never
       // show them.
@@ -102,6 +111,13 @@ export const organizations = tenancySchema
         sql`${table.status} IN ('ACTIVE', 'SUSPENDED', 'ARCHIVED')`,
       ),
       check('chk_organizations_type', sql`${table.type} IN ('PERSONAL', 'TEAM')`),
+      check(
+        'chk_organizations_logo_color',
+        sql`${table.logo_color} IN (${sql.join(
+          ORGANIZATION_LOGO_COLORS.map((color) => sql`${color}`),
+          sql`, `,
+        )})`,
+      ),
       // CHECK passes when the expression is NULL, so personal organizations (slug NULL)
       // are allowed; team slugs must match the kebab pattern.
       check('chk_organizations_slug', sql`${table.slug} ~ '^[a-z0-9-]+$'`),

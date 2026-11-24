@@ -13,7 +13,8 @@ The top-level tenancy aggregate. Owns the `organizations` table (id, public id, 
 - **Slug is unique among LIVE teams only**: `idx_organizations_slug` is a **partial** unique index (`WHERE deleted_at IS NULL`), so a soft-deleted team releases its slug immediately for reuse instead of burning it until tombstone-retention. Matches `SLUG_REGEX`, lowercased, no leading/trailing/consecutive hyphens. Personal organizations carry a NULL slug and are not constrained here.
 - **Single-organization access**: the repository reads the organization and checks owner or active membership in one query under the caller's user RLS context. An explicit access predicate also prevents an unrelated user with an organization GUC from passing the gate.
 - **Public id is the API contract**: 21-char URL-safe; the internal numeric id never appears in URLs or JSON.
-- **Slug change is rare and audited**: changing the slug rewrites organization-scoped URLs for clients; recorded with `WARNING` severity in audit.
+- **The slug is made once and never changes** (feat-instagram-dm-sending TN7): `POST /tenancy/organizations` takes the name alone — the slug is the name in kebab form (`slugFromText`), or that form with a short random suffix when the live-slug index refuses it; a chosen `slug` is still accepted at create. `PATCH /tenancy/organization` with a `slug` answers `422 slug_read_only`.
+- **The tile colour `logo_color`** (TN8): one of five chip tones (`ORGANIZATION_LOGO_COLORS` — sky, lavender, sage, peach, slate). Without a chosen one it is the name's colour — `tenancy.fn_organization_logo_color(name)`, the one definition shared by the insert (`organizationLogoColorFromName`), the backfill and the `trg_organizations_logo_color` fill of a row written without one; `PATCH` may change it.
 - **Organization profile (launch D7)**: `timezone` (IANA, default `Asia/Kolkata`; IANA validity is the validator's job), `currency` (fixed `INR`, server-set). CHECK: `chk_organizations_currency`.
 - **The owner is named (launch D81 (4))**: every organization object (`GET /tenancy/organization`, the
   list, `/auth/me/context`'s `active_organization`, the switch answers) carries `owner_user_id` — the
@@ -21,7 +22,7 @@ The top-level tenancy aggregate. Owns the `organizations` table (id, public id, 
   null only if the login is gone). Provisioning makes the `Owner` role `is_system`, `is_locked` and
   slate (`organization-provisioning.ts`).
 - **A TEAM organization's default roles are one definition (launch IA2)**: `DEFAULT_TEAM_ROLES` —
-  Admin (lav) and Member (sage), both `is_system` and `is_locked` — plus the TEAM Owner codes. A new
+  Admin (lavender) and Member (sage), both `is_system` and `is_locked` — plus the TEAM Owner codes. A new
   team gets them at provisioning; a team that already exists gets anything missing from
   `reconcileDefaultTeamRoles`, which `prepareDatabase` runs after every seed: it lists the live TEAM
   organizations under the retention arm (read only), then in each organization's own scope adds a
@@ -36,7 +37,7 @@ The top-level tenancy aggregate. Owns the `organizations` table (id, public id, 
 ```mermaid
 stateDiagram-v2
   [*] --> active: organization created
-  active --> active: slug change, settings update, API key issuance
+  active --> active: name / tile colour change, settings update, API key issuance
   active --> tombstoned: soft delete
   tombstoned --> [*]: retention worker purges children + organization after window
 ```

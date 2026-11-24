@@ -67,4 +67,60 @@ describe('file-magic.util', () => {
       verifyFileMagicBytes({ buffer: webpBuffer().subarray(0, 11), contentType: 'image/webp' }),
     ).toBe(false);
   });
+
+  describe('audio signatures (message files)', () => {
+    function withPrefix(bytes: number[], length = 16): Buffer {
+      const buffer = Buffer.alloc(length);
+      Buffer.from(bytes).copy(buffer, 0);
+      return buffer;
+    }
+
+    it.each([0xf1, 0xf9, 0xf0, 0xf8])('accepts an AAC ADTS frame start FF %s', (secondByte) => {
+      expect(
+        verifyFileMagicBytes({ buffer: withPrefix([0xff, secondByte]), contentType: 'audio/aac' }),
+      ).toBe(true);
+    });
+
+    it('accepts an AAC ADIF header', () => {
+      expect(
+        verifyFileMagicBytes({
+          buffer: withPrefix([0x41, 0x44, 0x49, 0x46]),
+          contentType: 'audio/aac',
+        }),
+      ).toBe(true);
+    });
+
+    it.each(['audio/mp4', 'audio/x-m4a'])('accepts an ftyp box at offset 4 for %s', (type) => {
+      const buffer = withPrefix([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]);
+      expect(verifyFileMagicBytes({ buffer, contentType: type })).toBe(true);
+    });
+
+    it('accepts a WAV (RIFF … WAVE) and refuses it as a WebP', () => {
+      const buffer = Buffer.alloc(16);
+      Buffer.from([0x52, 0x49, 0x46, 0x46]).copy(buffer, 0);
+      Buffer.from([0x57, 0x41, 0x56, 0x45]).copy(buffer, 8);
+      expect(verifyFileMagicBytes({ buffer, contentType: 'audio/wav' })).toBe(true);
+      expect(verifyFileMagicBytes({ buffer, contentType: 'image/webp' })).toBe(false);
+      expect(verifyFileMagicBytes({ buffer: webpBuffer(), contentType: 'audio/wav' })).toBe(false);
+    });
+
+    it('refuses a fake .m4a (a PNG or text declared as audio)', () => {
+      const text = Buffer.from('<html><script>alert(1)</script></html>');
+      for (const contentType of ['audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/wav']) {
+        expect(verifyFileMagicBytes({ buffer: text, contentType })).toBe(false);
+        expect(
+          verifyFileMagicBytes({
+            buffer: Buffer.concat([PNG_SIGNATURE, Buffer.alloc(8)]),
+            contentType,
+          }),
+        ).toBe(false);
+      }
+    });
+
+    it('refuses an AAC sync word with a non-ADTS second byte', () => {
+      expect(
+        verifyFileMagicBytes({ buffer: withPrefix([0xff, 0xfb]), contentType: 'audio/aac' }),
+      ).toBe(false);
+    });
+  });
 });

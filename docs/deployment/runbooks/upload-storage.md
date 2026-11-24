@@ -31,10 +31,10 @@ Applied in [src/domains/upload/upload.validator.ts](../../../src/domains/upload/
 
 | Check                  | Behavior                                                                                                                                                                                                                              |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purpose                | Must be one of the four `UPLOAD_PURPOSES` values (avatar, organization-logo, user-file, organization-file).                                                                                                                           |
+| Purpose                | Must be one of the five `UPLOAD_PURPOSES` values (avatar, organization-logo, user-file, organization-file, message-media).                                                                                                                           |
 | Content type           | Must be in the purpose allowlist (`UPLOAD_PURPOSE_CONFIG[purpose].allowedTypes`). `image/svg+xml` is gated by `UPLOAD_ALLOW_SVG`.                                                                                                     |
 | Filename extension     | Must match the declared content type via `CONTENT_TYPE_TO_EXTENSIONS` (e.g. `image/png` → `.png`). Filenames without an extension are allowed. Prevents misleading filenames such as `evil.exe` paired with `content_type: image/png`. |
-| File size              | Must be `> 0` and `<= UPLOAD_PURPOSE_CONFIG[purpose].maxSize`.                                                                                                                                                                        |
+| File size              | Must be `> 0` and `<=` the type's cap: `UPLOAD_PURPOSE_CONFIG[purpose].maxSizeByContentType[type]`, else `.maxSize`.                                                                                                                                                                        |
 | Ownership              | `for: 'user'` rejects `organization_id`; `for: 'organization'` requires `organization_id` and `upload:manage` permission on that organization.                                                                                          |
 | Per-user PENDING quota | Enforced **atomically** in `UploadService.reservePendingUploadSlot`: inside one user-scoped `withAppDatabaseContext` transaction it takes a per-user `pg_advisory_xact_lock` (namespace `UPLOAD_PENDING_QUOTA_ADVISORY_LOCK_NAMESPACE` + user internal id), checks `countPendingByUserId(user.id) < UPLOAD_MAX_PENDING_PER_USER` (default 100), then inserts the PENDING row. The presigned URL is minted **only after** the slot commits, so concurrent create-upload requests can never over-provision presigned slots beyond the quota. Stops a single authed user from looping create-without-confirm and exhausting storage. Reconciled by the sweeper (see below). |
 
@@ -127,6 +127,7 @@ Prefix:          avatars/
                  organization-logos/
                  user-files/
                  organization-files/
+                 message-media/
 Action:          Expire current versions after N days (suggested: 7)
 Filter:          Object Tag "confirmed" != "true"  (when supported by the bucket configuration)
 ```
@@ -142,7 +143,7 @@ Additional bucket hardening:
 ### Every object is private — reads are presigned
 
 The bucket holds avatars (`avatars/`), organization logos (`organization-logos/`) and files
-(`user-files/`, `organization-files/`), and **none of them is public**. The database stores the
+(`user-files/`, `organization-files/`), message files (`message-media/`), and **none of them is public**. The database stores the
 object KEY (an avatar or logo column never holds a URL); every read mints a short-lived presigned
 GET URL from that key (`resolveStoredMediaReadUrl`, TTL 1 hour), so the bucket keeps "Block all
 public access" on and needs no CDN or public distribution. **Do not** disable the public-access

@@ -4355,6 +4355,12 @@ Migration `tenancy_organizations_logo_color`: add nullable, backfill from the na
 big table would batch the backfill — tenancy organizations are few). Indexes and RLS unchanged (organization policy, enabled and
 forced).
 
+**As built R27** ([P202](decisions.md), [AS-BUILT](../AS-BUILT.md)): the name's colour is one SQL rule,
+`tenancy.fn_organization_logo_color(name)` (the first 32 bits of the SHA-256 of the lower-cased name, mod 5) — the insert
+names it, the backfill uses it, and the BEFORE INSERT trigger `trg_organizations_logo_color` fills a row written without a
+colour (the previous release keeps inserting while the file applies). The `lav` → `lavender` rename is its own migration,
+`tenancy_chip_tone_lavender`, with an expand-phase trigger storing a written `lav` as `lavender` (contract next release).
+
 #### 9.A.4 Permissions
 
 | Code | Routes |
@@ -4383,8 +4389,8 @@ As 9.5.
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 110 | — | optional: `name` (1–255), `logo_color` (the five values), and the other fields as built; `slug` → `422` | Organization |
-| 141 | — | `name*` (1–255); optional `slug` (made from the name when absent — TN7) and `logo_color` (else from the name — TN8); the other fields as built | Organization |
+| 110 | — | optional: `name` (1–255), `logo_color` (the five values), and the other fields as built; `slug` (any string) → `422` | Organization |
+| 141 | — | `name*` (1–255); optional `slug` (made from the name when absent — TN7: kebab, accents folded, `organization` for a name with no Latin letter or digit, a 6-character suffix when taken, [P202](decisions.md)) and `logo_color` (else from the name — TN8); the other fields as built | Organization |
 | 142 | — | — | Organization (+ `logo_color`) |
 
 #### 9.A.9 Errors
@@ -5497,7 +5503,7 @@ Taken on your standing answer "go with the recommendation", then confirmed with 
 | UP2 | **Types and sizes per type (plan:L8445).** Today: one `maxSize` per purpose. After: `UploadPurposeConfig` gains an optional `maxSizeByContentType` (the validator and the presigned `content-length-range` read it before `maxSize`): `image/png`, `image/jpeg` ≤ 8 MB (`MESSAGE_IMAGE_MAX_BYTES`); `audio/aac`, `audio/mp4` (`.m4a`, `.mp4`), `audio/x-m4a` (`.m4a` — what Safari and macOS send), `audio/wav` ≤ 25 MB (`MESSAGE_AUDIO_MAX_BYTES`); `application/pdf` ≤ 25 MB (`MESSAGE_FILE_MAX_BYTES`) — the plan's `_MB` names in full-name byte form (P6). No webp (Instagram's attachment types, plan:L8445) and **no SVG** even when `UPLOAD_ALLOW_SVG` is on (`getAllowedContentTypesForPurpose` skips this purpose — SVG has no magic bytes and Instagram does not take it). |
 | UP3 | **The upload ceiling 10 → 25 MB (plan:L8445).** `UPLOAD_DTO_FILE_SIZE_MAX_BYTES` = 25 MB (the highest per-type cap, as its comment requires); every other purpose keeps its own smaller cap (as built). |
 | UP4 | **Type and magic-byte checks only — no scan (P34, a D58 deviation).** Today: confirm checks the object's length and content type, and the first 32 bytes against `MAGIC_SIGNATURES` — **only for the types that have a signature** (png, jpeg, webp, pdf); an unknown type would pass unchecked. After: `file-magic.util.ts` gains the audio signatures — AAC ADTS (`FF F1`, `FF F9`, `FF F0`, `FF F8`) and ADIF (`ADIF`), MP4 / M4A (`ftyp` at offset 4), WAV (`RIFF` at 0 and `WAVE` at 8, the webp form) — and the `message-media` purpose **requires** every one of its types to be verifiable (a unit test pins it), so a message file is used only after confirm's type and content checks pass. No `scan_status` column, no scanner, no scan step (P34); D58's "scanned clean" reads "confirmed (type and magic bytes)" for this iteration. Other option: build the scan now — P34 moved it to a later iteration. |
-| UP5 | **One read for the sending engine (P25).** `UploadService.findUsableMessageFile({ scope, uploadPublicId })` → `{ upload_public_id, content_type, file_size, download_url }` when the upload is this organization's, purpose `message-media`, status `UPLOADED` and not deleted — else `null`. `download_url` is a presigned GET (`PRESIGNED_URL_EXPIRY_SECONDS`, as built) for the attachment-upload task to hand to Meta (sub-domain 6). Called by the automation's go-live check (a message names a file — P2 #15) and by the attachment task; the app keeps only the public id (no cross-domain foreign key, P25). |
+| UP5 | **One read for the sending engine (P25).** `UploadService.findUsableMessageFile({ scope, uploadPublicId })` → `{ upload_public_id, content_type, file_size, download_url }` when the upload is this organization's, purpose `message-media` (its key under `message-media/<organization public id>/`, [P201](decisions.md)), status `UPLOADED` and not deleted — else `null`. `download_url` is a presigned GET (`PRESIGNED_URL_EXPIRY_SECONDS`, as built) for the attachment-upload task to hand to Meta (sub-domain 6). Called by the automation's go-live check (a message names a file — P2 #15) and by the attachment task; the app keeps only the public id (no cross-domain foreign key, P25). |
 
 ### 12.2 Open questions
 
@@ -5505,8 +5511,8 @@ None — P34 settled the scan; the purpose name is a value in the code's existin
 
 ### 12.3 Tables and relations
 
-`upload.uploads` — **not changed** (EXISTING, P34): `purpose` holds the new value (a `varchar` without a database list — the list
-is the code constant, as built); no `scan_status`. Indexes and RLS unchanged (organization policy for organization uploads, as
+`upload.uploads` — **not changed** (EXISTING, P34): the table has no `purpose` column — the purpose is the object key's prefix
+(`message-media/<organization public id>/…`, as every purpose is built; the list is the code constant) — [P201](decisions.md), as built R12; no `scan_status`. Indexes and RLS unchanged (organization policy for organization uploads, as
 built).
 
 ```text
@@ -5558,7 +5564,7 @@ not match (UP4). Unchanged (RC-62, RC-63 out of scope, P34): `GET /uploads/{uplo
 | Route | Status · reason | When |
 | --- | --- | --- |
 | 140 | `400` · `content_type` | not one of the purpose's types (webp, SVG, ogg … for `message-media`) |
-| 140 | `400` · `file_size` | over 25 MB, or over the type's cap (8 MB for an image) |
+| 140 | `400` · `file_size` | over 25 MB (the route schema answers, field `body.file_size` — [P201](decisions.md)), or over the type's cap (8 MB for an image) |
 | 140 | `400` · `for` | `user` with `message-media` |
 | 140 | `403` · `missing_permission` | no `upload:manage` in the organization (a Viewer) |
 | 150 | `400` · `uploadVerificationFailed` | the bytes do not start like the declared type (as built, now for audio too) |

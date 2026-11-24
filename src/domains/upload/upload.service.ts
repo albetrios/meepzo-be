@@ -12,6 +12,7 @@ import {
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { UserService } from '@/domains/user/user.service.js';
 import {
+  getUploadMaxSizeForContentType,
   UPLOAD_PURPOSE_CONFIG,
   UPLOAD_PURPOSE_REQUIRED_TARGET,
   UPLOAD_PURPOSES,
@@ -46,6 +47,7 @@ import type {
   UploadCreateOutput,
   UploadDetailOutput,
   UploadPrincipal,
+  UsableMessageFile,
 } from './upload.types.js';
 import type { UploadRepository, UploadRow } from './upload.repository.js';
 import { serializeUploadCreate, serializeUploadDetail } from './upload.serializer.js';
@@ -237,7 +239,11 @@ export class UploadService {
         key: pendingKey,
         contentType: input.content_type,
         minContentLength: 1,
-        maxContentLength: config.maxSize,
+        // The declared type's own cap when the purpose names one (a message picture: 8 MB).
+        maxContentLength: getUploadMaxSizeForContentType({
+          purpose: input.purpose,
+          contentType: input.content_type,
+        }),
         expiresInSeconds: PRESIGNED_URL_EXPIRY_SECONDS,
         metadata: {
           purpose: input.purpose,
@@ -496,6 +502,58 @@ export class UploadService {
       });
     }
     return links;
+  }
+
+  /**
+   * The organization's message file by its upload public id, ready to send — or `null` when it is
+   * not usable: another organization's, another purpose, not confirmed (pending or failed), or
+   * deleted. The one read the automation go-live check (R13) and the Instagram attachment task
+   * (R20) make; the app keeps only the upload public id (no cross-domain key, P25).
+   *
+   * @remarks
+   * - **Algorithm:** in the caller's organization context, resolve the organization and read the
+   *   live upload by public id within it; usable only when its status is `UPLOADED` and its key sits
+   *   under `message-media/<organization public id>/` (the purpose is encoded in the key prefix —
+   *   the row has no purpose column). Then a presigned GET valid
+   *   {@link PRESIGNED_URL_EXPIRY_SECONDS} for the attachment task to hand to Meta.
+   * - **Failure modes:** `null` for every "not usable" case, never a throw; a storage presign
+   *   error propagates (signing is local — no request).
+   * - **Side effects:** none.
+   */
+  async findUsableMessageFile(options: {
+    scope: OrganizationPrincipalDatabaseScope;
+    uploadPublicId: string;
+  }): Promise<UsableMessageFile | null> {
+    const { scope, uploadPublicId } = options;
+    const row = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.findOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        if (!organization) return null;
+        return this.repository.findByPublicId(uploadPublicId, organization.id);
+      },
+    });
+    const messageMediaPrefix = `${UPLOAD_PURPOSE_CONFIG[UPLOAD_PURPOSES.MESSAGE_MEDIA].keyPrefix}/${scope.organizationPublicId}/`;
+    if (
+      !row ||
+      row.status !== UPLOAD_STATUS.UPLOADED ||
+      !row.file_key.startsWith(messageMediaPrefix) ||
+      row.file_key.includes('..')
+    ) {
+      return null;
+    }
+    return {
+      upload_public_id: row.public_id,
+      content_type: row.mime_type,
+      file_size: row.file_size,
+      download_url: await this.objectStorage.createPresignedDownloadUrl({
+        key: row.file_key,
+        expiresInSeconds: PRESIGNED_URL_EXPIRY_SECONDS,
+        fileName: row.file_name,
+      }),
+    };
   }
 
   /**

@@ -2,6 +2,7 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  UnprocessableEntityError,
   ValidationError,
 } from '@/shared/errors/index.js';
 import { assertTeamOrganization } from './organization-capability.js';
@@ -40,7 +41,18 @@ import { buildOrganizationLogoKeyPrefix } from '@/domains/upload/upload.constant
 import { isSvgContentType } from '@/domains/upload/utils/upload-svg.util.js';
 import type { ObjectStoragePort } from '@/infrastructure/storage/object-storage.port.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import { isPostgresUniqueViolation } from '@/shared/utils/infrastructure/postgres-error.util.js';
+import {
+  getPostgresConstraintName,
+  isPostgresUniqueViolation,
+} from '@/shared/utils/infrastructure/postgres-error.util.js';
+import { generateRandomLowercaseAlphanumeric } from '@/shared/utils/identity/public-id.util.js';
+import { slugFromText } from '@/shared/utils/validation/validation.util.js';
+import {
+  ORGANIZATION_SLUG_FALLBACK,
+  ORGANIZATION_SLUG_MAX_ATTEMPTS,
+  ORGANIZATION_SLUG_MAX_LENGTH,
+  ORGANIZATION_SLUG_SUFFIX_LENGTH,
+} from './organization.constants.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
 import type { UploadService } from '@/domains/upload/upload.service.js';
 
@@ -51,6 +63,36 @@ type OrganizationOutputRow = Omit<
 > & {
   owner_user_id: number;
 };
+
+/** The live-slug unique index a taken team slug collides with. */
+const ORGANIZATION_SLUG_UNIQUE_INDEX = 'idx_organizations_slug';
+
+/**
+ * The slugs a create tries when the body names none (TN7): the name in kebab form first, then that
+ * form with a short random suffix (`acme-x7k2p9`), up to {@link ORGANIZATION_SLUG_MAX_ATTEMPTS}.
+ */
+function madeOrganizationSlugCandidates(name: string): string[] {
+  const suffixLength = ORGANIZATION_SLUG_SUFFIX_LENGTH + 1;
+  const base =
+    slugFromText({ text: name, maxLength: ORGANIZATION_SLUG_MAX_LENGTH - suffixLength }) ||
+    ORGANIZATION_SLUG_FALLBACK;
+  return [
+    base,
+    ...Array.from(
+      { length: ORGANIZATION_SLUG_MAX_ATTEMPTS - 1 },
+      () => `${base}-${generateRandomLowercaseAlphanumeric(ORGANIZATION_SLUG_SUFFIX_LENGTH)}`,
+    ),
+  ];
+}
+
+/** `409 organization_slug_exists` for a taken slug. */
+function organizationSlugExistsError(slug: string): ConflictError {
+  return new ConflictError(
+    'errors:organizationSlugExists',
+    { slug },
+    `Organization with slug "${slug}" already exists`,
+  ).withReason('organization_slug_exists');
+}
 
 /**
  * Structural port for the billing side of organization offboarding (route-audit-#2).
@@ -632,37 +674,40 @@ export class OrganizationService {
             `Maximum number of team organizations (${env.MAX_TEAM_ORGANIZATIONS_PER_OWNER}) reached for this account`,
           );
         }
-        const existing = await this.repository.findBySlug(parsed.slug);
-        if (existing)
-          throw new ConflictError(
-            'errors:organizationSlugExists',
-            { slug: parsed.slug },
-            `Organization with slug "${parsed.slug}" already exists`,
-          ).withReason('organization_slug_exists');
-        try {
-          // Atomically create the organization AND bootstrap the owner's role + full
-          // permissions + membership — without this the creator resolves zero permissions
-          // on their own organization (the permission path is a strict role→membership join).
-          const { organization } = await provisionOrganizationWithOwner({
-            name: parsed.name,
-            slug: parsed.slug,
-            type: 'TEAM',
-            ownerUserId: ownerId,
-          });
-          return await this.toOrganizationOutput(organization);
-        } catch (error) {
-          // Two concurrent creates can both pass the findBySlug pre-check; the
-          // loser hits the `idx_organizations_slug` unique index. Map the
-          // Postgres unique_violation to a 409 instead of a 500.
-          if (isPostgresUniqueViolation(error)) {
-            throw new ConflictError(
-              'errors:organizationSlugExists',
-              { slug: parsed.slug },
-              `Organization with slug "${parsed.slug}" already exists`,
-            ).withReason('organization_slug_exists');
-          }
-          throw error;
+        // A chosen slug is checked and kept (a clash is 409, as built); without one the slug is made
+        // from the name (TN7) and a clash moves on to a suffixed candidate. Only the caller's own
+        // organizations are visible here (`organizations_user_discovery`), so the live-slug unique
+        // index is the real arbiter: provisioning runs in its own transaction, so a collision there
+        // leaves this context usable for the next candidate.
+        const candidates =
+          parsed.slug === undefined ? madeOrganizationSlugCandidates(parsed.name) : [parsed.slug];
+        if (parsed.slug !== undefined && (await this.repository.findBySlug(parsed.slug))) {
+          throw organizationSlugExistsError(parsed.slug);
         }
+        for (const [attempt, slug] of candidates.entries()) {
+          try {
+            // Atomically create the organization AND bootstrap the owner's role + full
+            // permissions + membership — without this the creator resolves zero permissions
+            // on their own organization (the permission path is a strict role→membership join).
+            const { organization } = await provisionOrganizationWithOwner({
+              name: parsed.name,
+              slug,
+              type: 'TEAM',
+              ownerUserId: ownerId,
+              logoColor: parsed.logo_color,
+            });
+            return await this.toOrganizationOutput(organization);
+          } catch (error) {
+            // Two concurrent creates can both pass the findBySlug pre-check; the loser hits the
+            // `idx_organizations_slug` unique index. Map the Postgres unique_violation to a 409
+            // instead of a 500 — or, for a made slug, try the next candidate.
+            if (!isPostgresUniqueViolation(error)) throw error;
+            const slugTaken = getPostgresConstraintName(error) === ORGANIZATION_SLUG_UNIQUE_INDEX;
+            if (slugTaken && attempt < candidates.length - 1) continue;
+            throw organizationSlugExistsError(slug);
+          }
+        }
+        throw organizationSlugExistsError(candidates.at(-1) ?? parsed.name);
       },
     });
     // After the create's own context: provisioning committed the organization in its own
@@ -674,18 +719,19 @@ export class OrganizationService {
   }
 
   /**
-   * Changes the organization (`PATCH /tenancy/organization`): name, slug, time zone —
-   * and `status`, which only its owner may change (B2-3).
+   * Changes the organization (`PATCH /tenancy/organization`): name, tile colour, time zone —
+   * and `status`, which only its owner may change (B2-3). The slug is read only (TN7).
    *
    * @remarks
-   * - **Algorithm:** inside the organization context — a body carrying `status` is refused unless
-   *   the caller is the owner (the route also demands a fresh step-up for it); the slug is checked
-   *   free; the row is written and `organization.updated` emitted. After commit, a status change
-   *   purges the organization's cached permissions, so suspending it stops every member at once
-   *   (the owner keeps what reactivating it takes — see the permission repository).
-   * - **Failure modes:** `NotFoundError('Organization')`; `ForbiddenError` (`owner_only`) for a
-   *   `status` from anyone but the owner, an API key included; `ConflictError`
-   *   (`organization_slug_exists`).
+   * - **Algorithm:** a body carrying `slug` is refused before anything is read; then, inside the
+   *   organization context, a body carrying `status` is refused unless the caller is the owner (the
+   *   route also demands a fresh step-up for it); the row is written and `organization.updated`
+   *   emitted. After commit, a status change purges the organization's cached permissions, so
+   *   suspending it stops every member at once (the owner keeps what reactivating it takes — see
+   *   the permission repository).
+   * - **Failure modes:** `UnprocessableEntityError` (`slug_read_only`) for a body with `slug`;
+   *   `NotFoundError('Organization')`; `ForbiddenError` (`owner_only`) for a `status` from anyone
+   *   but the owner, an API key included.
    * - **Side effects:** one `tenancy.organizations` write; one event; a permission-cache purge on a
    *   status change.
    */
@@ -699,14 +745,18 @@ export class OrganizationService {
     updated_by_user_public_id: string | undefined;
   }): Promise<OrganizationOutput> {
     const public_id = scope.organizationPublicId;
-    const parsed = validateUpdateOrganization(body);
+    const { slug, ...changes } = validateUpdateOrganization(body);
+    if (slug !== undefined) {
+      // TN7: the slug is made once at create and never changes.
+      throw new UnprocessableEntityError('errors:slugReadOnly').withReason('slug_read_only');
+    }
     let statusChanged = false;
     const result = await withAppDatabaseContext({
       scope,
       callback: async () => {
         const organization = await this.repository.findByPublicId(public_id);
         if (!organization) throw new NotFoundError('Organization');
-        if (parsed.status !== undefined) {
+        if (changes.status !== undefined) {
           // B2-3: suspending or archiving decides whether anyone can use the organization — the owner's
           // call alone, never an Admin's (who could otherwise lock the owner out).
           await this.assertCallerOwnsOrganization({
@@ -716,33 +766,11 @@ export class OrganizationService {
           });
         }
         const userId = await this.repository.resolveUserIdByPublicId(updated_by_user_public_id);
-        if (parsed.slug) {
-          const existing = await this.repository.findBySlug(parsed.slug);
-          if (existing && existing.public_id !== public_id) {
-            throw new ConflictError(
-              'errors:organizationSlugExists',
-              { slug: parsed.slug },
-              `Organization with slug "${parsed.slug}" already exists`,
-            ).withReason('organization_slug_exists');
-          }
-        }
-        let updated: Awaited<ReturnType<typeof this.repository.update>>;
-        try {
-          updated = await this.repository.update(public_id, omitUndefined(parsed), userId ?? null);
-        } catch (error) {
-          // Two concurrent slug updates (on different organizations, to the same new slug) can both pass
-          // the findBySlug pre-check above; the loser hits the `idx_organizations_slug` unique
-          // index. Map the unique_violation to a 409 instead of letting it surface as a 500 —
-          // mirroring the create path.
-          if (parsed.slug && isPostgresUniqueViolation(error)) {
-            throw new ConflictError(
-              'errors:organizationSlugExists',
-              { slug: parsed.slug },
-              `Organization with slug "${parsed.slug}" already exists`,
-            ).withReason('organization_slug_exists');
-          }
-          throw error;
-        }
+        const updated = await this.repository.update(
+          public_id,
+          omitUndefined(changes),
+          userId ?? null,
+        );
         if (!updated) throw new NotFoundError('Organization');
         statusChanged = updated.status !== organization.status;
         const output = await this.toOrganizationOutput(updated);

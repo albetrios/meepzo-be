@@ -26,7 +26,7 @@ What it does not own: identity proof (lives in [auth](src/domains/auth/)), user 
 
 | Sub-domain | Purpose |
 | --- | --- |
-| [organization](src/domains/tenancy/sub-domains/organization/) | Organization lifecycle (create, slug change, delete) and child resources: `organization-settings`, `organization-notification-policy`, `organization-api-key`. |
+| [organization](src/domains/tenancy/sub-domains/organization/) | Organization lifecycle (create — the slug made from the name, read only after; the tile colour — delete) and child resources: `organization-settings`, `organization-notification-policy`, `organization-api-key`. |
 | [membership](src/domains/tenancy/sub-domains/membership/) | Member lifecycle: who is in which organization with which role. Includes nested `membership-invitation` resource (token issuance + accept). |
 | [member-roles](src/domains/tenancy/sub-domains/member-roles/) | Per-organization role definitions and the join table `member-role-permission`. |
 | [permission](src/domains/tenancy/sub-domains/permission/) | Permission resolution: `authorization.service.ts` (Redis-cached) + `permission-cache.service.ts`. The single resolver consulted by `requireOrganizationPermission`. |
@@ -56,7 +56,7 @@ Organization lifecycle:
 ```mermaid
 stateDiagram-v2
   [*] --> active: organization created
-  active --> active: slug change, settings update
+  active --> active: name / tile colour change, settings update
   active --> tombstoned: soft delete
   tombstoned --> [*]: retention worker purges after window
 ```

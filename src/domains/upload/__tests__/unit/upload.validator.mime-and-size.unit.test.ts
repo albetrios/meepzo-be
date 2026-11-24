@@ -30,7 +30,7 @@ describe('validateCreateUpload — MIME, size, and ownership', () => {
 
   // sec-r4-I4: DTO-level cap rejects absurd values before the per-purpose
   // policy check runs. UPLOAD_DTO_FILE_SIZE_MAX_BYTES is the highest realistic
-  // upload size (10 MB today, matching user_file / organization_file).
+  // upload size (25 MB today, matching the message-media voice note and PDF caps).
   it('rejects file_size above the DTO-level ceiling (sec-r4-I4)', () => {
     expect(() =>
       validateCreateUpload({ ...baseUserUpload, file_size: UPLOAD_DTO_FILE_SIZE_MAX_BYTES + 1 }),

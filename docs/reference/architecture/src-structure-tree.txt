@@ -1177,11 +1177,13 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   ├── organization-audit-logs.integration.test.ts
     │   │   │   │   │   ├── organization-profile-fields.integration.test.ts
+    │   │   │   │   │   ├── organization-slug-logo-color.integration.test.ts
     │   │   │   │   │   ├── organization-status.integration.test.ts
     │   │   │   │   │   └── organization.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── default-active-organization.db.unit.test.ts
     │   │   │   │   │   ├── organization-capability.unit.test.ts
+    │   │   │   │   │   ├── organization-logo-color.db.unit.test.ts
     │   │   │   │   │   ├── organization-membership-lookups.db.unit.test.ts
     │   │   │   │   │   ├── organization-offboarding-reconcile.processor.unit.test.ts
     │   │   │   │   │   ├── organization-routes-rate-limit.policy.unit.test.ts
@@ -1342,6 +1344,7 @@ src/
     ├── upload/
     │   ├── __tests__/
     │   │   ├── integration/
+    │   │   │   ├── upload-message-media.integration.test.ts
     │   │   │   ├── upload-route-smoke.integration.test.ts
     │   │   │   └── upload.integration.test.ts
     │   │   ├── unit/
@@ -1349,6 +1352,7 @@ src/
     │   │   │   ├── upload-content-type.util.unit.test.ts
     │   │   │   ├── upload-key-builders.unit.test.ts
     │   │   │   ├── upload-key-rules.property.unit.test.ts
+    │   │   │   ├── upload-message-media.unit.test.ts
     │   │   │   ├── upload-pending-sweep.processor.unit.test.ts
     │   │   │   ├── upload-routes-rate-limit.policy.unit.test.ts
     │   │   │   ├── upload-svg.util.unit.test.ts
@@ -1362,6 +1366,7 @@ src/
     │   │   │   ├── upload.repository.user-isolation.db.unit.test.ts
     │   │   │   ├── upload.serializer.unit.test.ts
     │   │   │   ├── upload.service.assert-key-confirmed.unit.test.ts
+    │   │   │   ├── upload.service.find-usable-message-file.db.unit.test.ts
     │   │   │   ├── upload.service.organization-quota-concurrency.db.unit.test.ts
     │   │   │   ├── upload.service.quota-concurrency.db.unit.test.ts
     │   │   │   ├── upload.service.remove-image-location.unit.test.ts
@@ -3025,6 +3030,7 @@ src/
     │   │   │   └── trailing-slash.util.unit.test.ts
     │   │   └── validation/
     │   │   │   ├── bullmq-job-validation.unit.test.ts
+    │   │   │   ├── file-magic.util.property.unit.test.ts
     │   │   │   ├── file-magic.util.unit.test.ts
     │   │   │   ├── parse-with-schema.util.unit.test.ts
     │   │   │   ├── record-fields.known-time-zone.unit.test.ts

@@ -145,7 +145,7 @@ describe('AuthMeContextService.getContext', () => {
     };
     const roles = [
       { id: 'rol_front', name: 'Front desk', tone: 'sky', is_system: true },
-      { id: 'rol_extra', name: 'Billing help', tone: 'lav', is_system: false },
+      { id: 'rol_extra', name: 'Billing help', tone: 'lavender', is_system: false },
     ];
     const membershipService = {
       getCallerMembershipContext: vi.fn().mockResolvedValue({ membership_id: 'mem_1', roles }),

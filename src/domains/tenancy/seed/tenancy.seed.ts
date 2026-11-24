@@ -10,6 +10,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
+import { organizationLogoColorFromName } from '@/domains/tenancy/sub-domains/organization/organization.repository.js';
 import { roles } from '@/domains/tenancy/sub-domains/member-roles/member-role.schema.js';
 import { memberships } from '@/domains/tenancy/sub-domains/membership/membership.schema.js';
 import { role_permissions } from '@/domains/tenancy/sub-domains/member-roles/member-role-permission/member-role-permission.schema.js';
@@ -36,6 +37,7 @@ export async function seedOrganization(payload: SeedOrganizationPayload) {
       public_id: generatePublicId('organization'),
       name: payload.name,
       slug: payload.slug,
+      logo_color: organizationLogoColorFromName(payload.name),
       owner_user_id: payload.owner_user_id,
       status: 'ACTIVE',
       created_by_user_id: payload.owner_user_id,

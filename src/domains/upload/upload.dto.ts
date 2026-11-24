@@ -24,6 +24,7 @@ export const createUploadDto = z
       UPLOAD_PURPOSES.ORGANIZATION_LOGO,
       UPLOAD_PURPOSES.USER_FILE,
       UPLOAD_PURPOSES.ORGANIZATION_FILE,
+      UPLOAD_PURPOSES.MESSAGE_MEDIA,
     ]),
     for: z.enum([UPLOAD_TARGETS.USER, UPLOAD_TARGETS.ORGANIZATION]),
     organization_id: trimmedStringMinMax({ min: 1, max: 255 }).optional(),

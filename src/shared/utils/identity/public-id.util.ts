@@ -68,16 +68,23 @@ export function publicIdPatternFor(entity: PublicIdEntity): RegExp {
 const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const ALPHABET_SIZE = ALPHABET.length; // 36
 
-function generatePublicIdCore(): string {
+/**
+ * Cryptographically random `[a-z0-9]` text of `length` characters — the public-id core, and a short
+ * unique-ish suffix (an organization slug made from a taken name, `acme-x7k2p9`).
+ *
+ * @remarks
+ * Rejection sampling removes modulo bias: floor(256 / 36) * 36 = 252, so bytes >= 252 are dropped.
+ */
+export function generateRandomLowercaseAlphanumeric(length: number): string {
   const maxByte = Math.floor(256 / ALPHABET_SIZE) * ALPHABET_SIZE; // 252
   const result: string[] = [];
 
-  while (result.length < PUBLIC_ID_LENGTH) {
-    const bytes = randomBytes(PUBLIC_ID_LENGTH - result.length + 4); // extra buffer
+  while (result.length < length) {
+    const bytes = randomBytes(length - result.length + 4); // extra buffer
     for (const byte of bytes) {
       if (byte >= maxByte) continue; // reject biased bytes
       result.push(ALPHABET[byte % ALPHABET_SIZE]!);
-      if (result.length === PUBLIC_ID_LENGTH) break;
+      if (result.length === length) break;
     }
   }
 
@@ -90,7 +97,7 @@ function generatePublicIdCore(): string {
  * floor(256 / 36) * 36 = 252, so bytes >= 252 are rejected.
  */
 export function generatePublicId(entity: PublicIdEntity): string {
-  return `${PUBLIC_ID_PREFIXES[entity]}_${generatePublicIdCore()}`;
+  return `${PUBLIC_ID_PREFIXES[entity]}_${generateRandomLowercaseAlphanumeric(PUBLIC_ID_LENGTH)}`;
 }
 
 /**

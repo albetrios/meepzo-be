@@ -945,6 +945,7 @@ Table tenancy.organizations {
   deleted_at timestamptz
   deletion_started_at timestamptz
   id bigint [pk, increment, not null]
+  logo_color varchar(10) [not null]
   logo_url varchar(512)
   name varchar(255) [not null]
   owner_user_id bigint [not null]

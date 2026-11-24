@@ -4,7 +4,7 @@ import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.uti
 import { createUploadDto, uploadPublicIdParamDto } from './upload.dto.js';
 import { validatePublicIdParam } from '@/shared/utils/identity/public-id-param.util.js';
 import {
-  UPLOAD_PURPOSE_CONFIG,
+  getUploadMaxSizeForContentType,
   UPLOAD_PURPOSE_REQUIRED_TARGET,
   UPLOAD_TARGETS,
 } from './upload.constants.js';
@@ -19,8 +19,8 @@ import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js'
  * Validates the request body for `POST /api/v1/uploads`: structure via
  * {@link createUploadDto}, then policy checks for `organization_id`
  * presence/absence per target, allowed content type for the purpose, declared
- * filename extension matching the content type, and size against
- * {@link UPLOAD_PURPOSE_CONFIG}. Throws {@link ValidationError} on any failure.
+ * filename extension matching the content type, and size against the purpose's cap for the
+ * declared type ({@link getUploadMaxSizeForContentType}). Throws {@link ValidationError} on any failure.
  */
 export function validateCreateUpload(data: unknown): CreateUploadInput {
   const input = parseWithSchema({
@@ -28,7 +28,6 @@ export function validateCreateUpload(data: unknown): CreateUploadInput {
     data,
     errorKey: 'errors:invalidUploadInput',
   });
-  const config = UPLOAD_PURPOSE_CONFIG[input.purpose];
   const allowedTypes = getAllowedContentTypesForPurpose(input.purpose);
 
   // route-audit L3: the purpose must match its required target BEFORE the organization-id checks and key
@@ -133,11 +132,16 @@ export function validateCreateUpload(data: unknown): CreateUploadInput {
     );
   }
 
-  // File size validation
-  if (input.file_size > config.maxSize) {
+  // File size validation — the type's own cap when the purpose names one (a message picture is
+  // capped lower than a voice note), else the purpose's cap.
+  const maxSize = getUploadMaxSizeForContentType({
+    purpose: input.purpose,
+    contentType: input.content_type,
+  });
+  if (input.file_size > maxSize) {
     throw new ValidationError(
       'errors:uploadFileSizeExceeded',
-      { fileSize: input.file_size, maxSize: config.maxSize, purpose: input.purpose },
+      { fileSize: input.file_size, maxSize, purpose: input.purpose },
       undefined,
       [
         {
@@ -145,7 +149,7 @@ export function validateCreateUpload(data: unknown): CreateUploadInput {
           messageKey: 'errors:uploadFileSizeExceeded',
           messageParams: {
             fileSize: input.file_size,
-            maxSize: config.maxSize,
+            maxSize,
             purpose: input.purpose,
           },
         },

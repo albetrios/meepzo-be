@@ -63,3 +63,15 @@ export interface UploadDetailOutput {
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * A confirmed message file the sending engine may use — returned by
+ * `UploadService.findUsableMessageFile`. `download_url` is a short-lived presigned GET for the
+ * Instagram attachment task to hand to Meta.
+ */
+export interface UsableMessageFile {
+  upload_public_id: string;
+  content_type: string;
+  file_size: number;
+  download_url: string;
+}

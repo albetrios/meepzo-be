@@ -3,6 +3,7 @@
  * Reproducible via SEED env or default 12345.
  */
 import { faker } from '@faker-js/faker';
+import { slugFromText } from '@/shared/utils/validation/validation.util.js';
 
 const SEED = Number(process.env.SEED) || 12_345;
 
@@ -38,12 +39,8 @@ export interface FakerOrganizationPayload {
 
 const usedSlugs = new Set<string>();
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(?:^-)|(?:-$)/g, '');
-}
+/** The seed's organization slug length budget (the column holds 100). */
+const SEED_ORGANIZATION_SLUG_MAX_LENGTH = 80;
 
 /**
  * Builds a fake organization payload with a slug that is unique within the
@@ -53,7 +50,8 @@ export function generateOrganizationPayload(
   overrides?: Partial<FakerOrganizationPayload>,
 ): FakerOrganizationPayload {
   const name = overrides?.name ?? faker.company.name();
-  let slug = overrides?.slug ?? slugify(name);
+  let slug =
+    overrides?.slug ?? slugFromText({ text: name, maxLength: SEED_ORGANIZATION_SLUG_MAX_LENGTH });
   while (usedSlugs.has(slug)) {
     slug = `${slug}-${faker.string.alphanumeric(5).toLowerCase()}`;
   }

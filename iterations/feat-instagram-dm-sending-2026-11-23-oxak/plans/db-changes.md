@@ -91,7 +91,7 @@ switched-off Starter, Growth and Pro rows carry Free's features and limits** (P8
 mapping up). **Reference data:** the shared connection and account routes take `channel-account:read` /
 `channel-account:manage` (P59), a tenancy migration renames their grants; the password rows go (P84);
 notification preferences stay one row per type, saved per kind (P87); an email's dedupe key is the
-caller's, in the mail outbox as built (P88). **Opens answered:** one live account per provider account
+caller's, in the mail outbox as built (P88). **Built R36** ([AS-BUILT](../AS-BUILT.md), [P301](decisions.md)): no table or column; `auth.user_notification_preferences` rows keyed `(user_id, notification_type, channel)` written per kind by upsert; migration `20261124100553_user_resolve_notification_choices.sql` adds the SECURITY DEFINER reader `auth.resolve_notification_choices_by_user_ids(user_ids, notification_types)` the dispatch uses; the email key is `auth.mail_outbox.dedupe_key` = `notification:<type>:<dedupe_key>:<user_public_id>`. **Opens answered:** one live account per provider account
 held on `channel_account` (P60); Meta's callbacks match `provider_account_id`, else
 `client_business_id` (P56); a reconnect moves an account's row at the callback (P54) and the pick
 re-reads Meta (P55); our own echoes and the flood guard are read from Postgres (P62, P63); no open-run

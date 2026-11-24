@@ -41,6 +41,8 @@ export interface MembershipInvitationEmailPayload {
 export interface MembershipInvitationAcceptedPayload {
   /** Internal user ids to notify — the organization's `membership:create` holders, excluding the invitee. */
   recipient_user_ids: number[];
+  /** The invitation's public id — the notification's once key (`dedupe_key`, UN11). */
+  invitation_public_id: string;
   /** Internal id of the organization the invitee joined (the notification's `organization_id`). */
   organization_id: number;
   /** Display name of the organization, for the notification copy. */
@@ -60,6 +62,8 @@ export interface MembershipInvitationAcceptedPayload {
 export interface MembershipInvitationDeclinedPayload {
   /** Internal user ids to notify. */
   recipient_user_ids: number[];
+  /** The invitation's public id — the notification's once key (`dedupe_key`, UN11). */
+  invitation_public_id: string;
   /** Internal id of the organization the invitee turned down (the notification's `organization_id`). */
   organization_id: number;
   /** Display name of the organization, for the notification copy. */

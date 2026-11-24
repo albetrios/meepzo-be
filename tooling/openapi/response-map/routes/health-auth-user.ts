@@ -436,16 +436,16 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
   'GET /api/v1/users/me/notification-preferences': {
     statusCode: 200,
     schema: wrapSuccess(
-      { type: 'array', items: schemas.notificationPreferenceSchema },
-      schemas.notificationPreferenceExamples,
+      schemas.notificationPreferencesSchema,
+      schemas.notificationPreferencesExample,
     ),
     example: null,
   },
   'PUT /api/v1/users/me/notification-preferences': {
     statusCode: 200,
     schema: wrapSuccess(
-      { type: 'array', items: schemas.notificationPreferenceSchema },
-      schemas.notificationPreferenceExamples,
+      schemas.notificationPreferencesSchema,
+      schemas.notificationPreferencesExample,
     ),
     example: null,
   },

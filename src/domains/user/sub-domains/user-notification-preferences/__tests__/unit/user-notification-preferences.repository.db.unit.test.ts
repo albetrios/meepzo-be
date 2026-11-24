@@ -14,108 +14,72 @@ describe('UserNotificationPreferencesRepository (database)', () => {
     await cleanupDatabase();
   });
 
-  it('lists and replaces notification preferences for user', async () => {
+  /** Runs `callback` in the person's own RLS scope, as the routes do. */
+  function asUser(userPublicId: string, callback: () => Promise<unknown>) {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId }),
+      callback,
+    });
+  }
+
+  it('upserts on (user, type, channel): a second save of the same pair updates the row', async () => {
     const user = await createTestUser();
 
-    const initial = await repository.listByUserId(user.id);
-    expect(initial).toHaveLength(0);
-
-    const inserted = await repository.replaceAll(
-      user.id,
-      [
-        {
-          notification_type: 'SUBSCRIPTION_UPDATED',
-          channel: 'EMAIL',
-          is_enabled: true,
-        },
-        {
-          notification_type: 'INVITATION',
-          channel: 'IN_APP',
-          is_enabled: false,
-        },
-      ],
-      user.id,
+    await asUser(user.public_id, () =>
+      repository.upsertMany(
+        user.id,
+        [
+          { notification_type: 'broadcast.done', channel: 'EMAIL', is_enabled: true },
+          { notification_type: 'automation.backfill_done', channel: 'EMAIL', is_enabled: true },
+        ],
+        user.id,
+      ),
     );
-    expect(inserted).toHaveLength(2);
-
-    const listed = await repository.listByUserId(user.id);
-    expect(listed).toHaveLength(2);
-
-    const replaced = await repository.replaceAll(user.id, [
-      {
-        notification_type: 'SUBSCRIPTION_UPDATED',
-        channel: 'EMAIL',
-        is_enabled: false,
-      },
-    ]);
-    expect(replaced).toHaveLength(1);
-
-    const cleared = await repository.replaceAll(user.id, []);
-    expect(cleared).toHaveLength(0);
-  });
-
-  it('audit-#11: replaceAll dedupes duplicate (type, channel) tuples — last wins — so the unique index holds', async () => {
-    const user = await createTestUser();
-
-    // A payload that repeats the same (notification_type, channel) tuple would
-    // previously insert two conflicting rows (and now would violate the new
-    // idx_user_notif_prefs_user_type_channel_unique). The repository collapses it.
-    const rows = await repository.replaceAll(user.id, [
-      {
-        notification_type: 'SUBSCRIPTION_UPDATED',
-        channel: 'EMAIL',
-        is_enabled: true,
-      },
-      {
-        notification_type: 'SUBSCRIPTION_UPDATED',
-        channel: 'EMAIL',
-        is_enabled: false,
-      },
-    ]);
-
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.is_enabled).toBe(false); // last occurrence wins
-    const listed = await repository.listByUserId(user.id);
-    expect(listed).toHaveLength(1);
-  });
-
-  // load-test regression: PUT /users/me/notification-preferences returned HTTP 500 under
-  // concurrency — Postgres 23505 on idx_user_notif_prefs_user_type_channel_unique (plus the
-  // odd 40001) because replaceAll's delete-then-insert raced when the same user was written by
-  // two requests at once (surfaced at 150 VU > the 120-user load pool). The per-user advisory
-  // lock serializes them: concurrent replaces must all succeed and converge to one full set.
-  it('serializes concurrent replaceAll for one user — no 23505/500 under the unique index', async () => {
-    const user = await createTestUser();
-    const payload = (enabled: boolean) => [
-      {
-        notification_type: 'SUBSCRIPTION_UPDATED',
-        channel: 'EMAIL',
-        is_enabled: enabled,
-      },
-      {
-        notification_type: 'INVITATION',
-        channel: 'IN_APP',
-        is_enabled: enabled,
-      },
-    ];
-
-    // Fire many simultaneous full-replaces for the SAME user, each in its own request
-    // transaction (mirrors concurrent PUTs). Before the advisory lock these raced the unique
-    // index and at least one rejected with 23505; the lock makes them all resolve.
-    const CONCURRENT_REPLACES = 8;
-    const settled = await Promise.allSettled(
-      Array.from({ length: CONCURRENT_REPLACES }, (_, index) =>
-        withAppDatabaseContext({
-          scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: user.public_id }),
-          callback: () => repository.replaceAll(user.id, payload(index % 2 === 0), user.id),
-        }),
+    await asUser(user.public_id, () =>
+      repository.upsertMany(
+        user.id,
+        [{ notification_type: 'broadcast.done', channel: 'EMAIL', is_enabled: false }],
+        user.id,
       ),
     );
 
-    expect(settled.filter((result) => result.status === 'rejected')).toHaveLength(0);
+    const listed = (await asUser(user.public_id, () =>
+      repository.listByUserId(user.id),
+    )) as Awaited<ReturnType<UserNotificationPreferencesRepository['listByUserId']>>;
+    expect(listed).toHaveLength(2);
+    const byType = new Map(listed.map((row) => [row.notification_type, row.is_enabled]));
+    expect(byType.get('broadcast.done')).toBe(false);
+    expect(byType.get('automation.backfill_done')).toBe(true);
+  });
 
-    // Exactly one full replace won — deterministic end state, no duplicate tuples.
-    const listed = await repository.listByUserId(user.id);
+  it('concurrent saves for one person all succeed on the natural key — no 23505', async () => {
+    const user = await createTestUser();
+    const settled = await Promise.allSettled(
+      Array.from({ length: 8 }, (_, index) =>
+        asUser(user.public_id, () =>
+          repository.upsertMany(
+            user.id,
+            [
+              {
+                notification_type: 'broadcast.done',
+                channel: 'IN_APP',
+                is_enabled: index % 2 === 0,
+              },
+              {
+                notification_type: 'automation.backfill_done',
+                channel: 'IN_APP',
+                is_enabled: index % 2 === 0,
+              },
+            ],
+            user.id,
+          ),
+        ),
+      ),
+    );
+    expect(settled.filter((result) => result.status === 'rejected')).toHaveLength(0);
+    const listed = (await asUser(user.public_id, () =>
+      repository.listByUserId(user.id),
+    )) as unknown[];
     expect(listed).toHaveLength(2);
   });
 });

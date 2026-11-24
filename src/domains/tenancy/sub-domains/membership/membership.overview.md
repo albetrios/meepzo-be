@@ -124,7 +124,12 @@ stateDiagram-v2
 - Emits: `MEMBERSHIP_INVITATION_EVENT.CREATED`, `MEMBERSHIP_INVITATION_EVENT.RESENT` (each handler
   enqueues mail, written in the organization's language and naming the inviter — `inviter_name`,
   `locale`), `MEMBERSHIP_INVITATION_EVENT.ACCEPTED` and `.DECLINED` (each notifies the
-  `membership:create` holders).
+  `membership:create` holders; the payload carries `invitation_public_id`, the notification's once key).
+- Emits `MEMBERSHIP_NOTICE_EVENT.ROLE_CHANGED` (a joined member's main role changed — PATCH or an
+  ownership transfer — with the previous and the new role names) and `.REMOVED` (a manager removed a
+  joined member): internal, recipients resolved here (`membership:update` holders + the member, minus
+  whoever made the change); notify turns them into `membership.role_changed` / `membership.removed`
+  (feat-instagram-dm-sending UN8). Kept apart from the webhook resource events below.
 - Emits `MEMBERSHIP_EVENT.CREATED` (a member added), `.UPDATED` (status or roles changed, an invite
   accepted, a member suspended to fit the seat ceiling) and `.DELETED` (the leave step, a revoked
   invite included) with the membership's public JSON — the notify domain fans each out to the

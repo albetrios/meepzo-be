@@ -104,6 +104,7 @@ function dispatch(options: {
     notificationPublicId: NOTIFICATION_PUBLIC_ID,
     organizationPublicId:
       options.organizationPublicId === undefined ? 'org_public_id' : options.organizationPublicId,
+    userPublicId: 'usr_recipient00000000001',
     jobContext: options.jobContext ?? { id: 'job-1' },
     notificationRepository: options.notificationRepository,
   });
@@ -334,7 +335,21 @@ describe('notification.worker', () => {
     expect(recordOutboxEmailMock).not.toHaveBeenCalled();
   });
 
-  it('dedupes the outbox row on the notification public id, never the bigserial', async () => {
+  it("keys the outbox row by type, the emitter's dedupe key and the recipient (UN11, P88)", async () => {
+    const repository = createNotificationRepository(
+      buildNotificationRow({ data: { channels: ['email'], dedupe_key: 'inv_once' } }),
+    );
+
+    await dispatch({ notificationRepository: repository });
+
+    expect(recordOutboxEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dedupeKey: 'notification:billing.invoice_ready:inv_once:usr_recipient00000000001',
+      }),
+    );
+  });
+
+  it('a row written before UN11 (no dedupe_key) keeps the per-row key, never the bigserial', async () => {
     const repository = createNotificationRepository(
       buildNotificationRow({ data: { channels: ['email'] } }),
     );

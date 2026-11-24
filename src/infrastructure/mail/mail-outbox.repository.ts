@@ -3,6 +3,7 @@ import {
   assertWorkerDatabaseContext,
   isWorkerRuntime,
   resolveRepositoryDatabaseHandle,
+  type WorkerDatabaseContextKind,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { mail_outbox } from '@/infrastructure/mail/mail-outbox.schema.js';
 import type { MailEnqueueInput } from '@/infrastructure/mail/queues/mail.queue.js';
@@ -21,12 +22,26 @@ export type MailOutboxClaimResult =
   | 'failed'
   | 'not_found';
 
-function mailOutboxDatabase() {
+function mailOutboxDatabase(
+  allowedWorkerContextKinds: readonly WorkerDatabaseContextKind[] = ['system_table'],
+) {
   if (isWorkerRuntime()) {
-    assertWorkerDatabaseContext(['system_table']);
+    assertWorkerDatabaseContext(allowedWorkerContextKinds);
   }
   return resolveRepositoryDatabaseHandle(undefined);
 }
+
+/**
+ * Worker contexts that may RECORD an outbox row: the maintenance worker scope, and — the
+ * transactional outbox of an organization- or user-scoped job — the job's own unit, so a
+ * notification email commits with the job's write (feat-instagram-dm-sending UN11). Reading,
+ * claiming and updating rows stays maintenance-only.
+ */
+const MAIL_OUTBOX_RECORD_WORKER_CONTEXT_KINDS: readonly WorkerDatabaseContextKind[] = [
+  'system_table',
+  'organization',
+  'user',
+];
 
 /**
  * Inserts a `pending` row into `auth.mail_outbox` (transactional outbox pattern) —
@@ -44,16 +59,18 @@ function mailOutboxDatabase() {
  */
 export async function insertMailOutbox(data: MailEnqueueInput): Promise<string> {
   const toAddresses = Array.isArray(data.to) ? data.to : [data.to];
-  const insertQuery = mailOutboxDatabase().insert(mail_outbox).values({
-    to_addresses: toAddresses,
-    subject: data.subject,
-    html: data.html,
-    text_body: data.text,
-    reply_to: data.replyTo,
-    tags: data.tags,
-    status: 'pending',
-    dedupe_key: data.dedupeKey,
-  });
+  const insertQuery = mailOutboxDatabase(MAIL_OUTBOX_RECORD_WORKER_CONTEXT_KINDS)
+    .insert(mail_outbox)
+    .values({
+      to_addresses: toAddresses,
+      subject: data.subject,
+      html: data.html,
+      text_body: data.text,
+      reply_to: data.replyTo,
+      tags: data.tags,
+      status: 'pending',
+      dedupe_key: data.dedupeKey,
+    });
   const rows = data.dedupeKey
     ? await insertQuery
         .onConflictDoNothing({
@@ -67,7 +84,7 @@ export async function insertMailOutbox(data: MailEnqueueInput): Promise<string> 
   if (mailOutboxToken === undefined && data.dedupeKey) {
     // Conflict — another producer already recorded this dedupe_key. Resolve to that row's token
     // so the caller dispatches the SAME (idempotent) outbox row rather than failing.
-    const existing = await mailOutboxDatabase()
+    const existing = await mailOutboxDatabase(MAIL_OUTBOX_RECORD_WORKER_CONTEXT_KINDS)
       .select({ token: mail_outbox.resend_idempotency_token })
       .from(mail_outbox)
       .where(eq(mail_outbox.dedupe_key, data.dedupeKey))

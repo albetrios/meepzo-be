@@ -547,6 +547,7 @@ export class MembershipInvitationService {
                 type: MEMBERSHIP_INVITATION_EVENT.ACCEPTED,
                 payload: {
                   recipient_user_ids: recipientUserIds,
+                  invitation_public_id,
                   organization_id: lookup.organization_id,
                   organization_name: organization?.name ?? '',
                   invitee_name: memberDisplayName(actingUser),
@@ -698,6 +699,7 @@ export class MembershipInvitationService {
           type: MEMBERSHIP_INVITATION_EVENT.DECLINED,
           payload: {
             recipient_user_ids: recipientUserIds,
+            invitation_public_id: options.invitation.public_id,
             organization_id: options.organizationId,
             organization_name: organization?.name ?? '',
             invitee_name: options.inviteeName,

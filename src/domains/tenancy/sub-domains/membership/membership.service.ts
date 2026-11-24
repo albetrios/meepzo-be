@@ -65,6 +65,13 @@ import { serializeMembership } from './membership.serializer.js';
 import { buildDomainEvent, eventBus } from '@/core/events/event-bus.js';
 import type { OrganizationResourceEventPayload } from '@/core/events/organization-resource-event.js';
 import { MEMBERSHIP_EVENT, type MembershipEventType } from './events/membership.events.js';
+import {
+  MEMBERSHIP_NOTICE_EVENT,
+  type MembershipRemovedPayload,
+  type MembershipRoleChangedPayload,
+} from './events/membership-notice.events.js';
+import { TENANCY_PERMISSIONS } from '@/domains/tenancy/tenancy.permissions.js';
+import { DEFAULT_LANGUAGE } from '@/shared/constants/i18n.constants.js';
 import { resolveStoredMediaReadUrl } from '@/shared/utils/infrastructure/media-url.util.js';
 import type { ObjectStoragePort } from '@/infrastructure/storage/object-storage.port.js';
 import type { UserService } from '@/domains/user/user.service.js';
@@ -821,6 +828,113 @@ export class MembershipService {
     return outputs;
   }
 
+  /** {@link emitMembershipNotice} for a role change — only when the main role moved on a joined member. */
+  private async emitMainRoleChangedNotice(options: {
+    before: MembershipRow;
+    after: MembershipRow;
+    organization: SerializingOrganization & { id: number; name: string };
+    actingUserId: number | null;
+  }): Promise<void> {
+    if (
+      options.after.role_id === options.before.role_id ||
+      options.after.status === MEMBERSHIP_STATUS.INVITED
+    ) {
+      return;
+    }
+    await this.emitMembershipNotice({
+      notice: { type: 'role_changed', previousRoleId: options.before.role_id },
+      membership: options.after,
+      organization: options.organization,
+      actingUserId: options.actingUserId,
+    });
+  }
+
+  /**
+   * Tells the people concerned that a live member's main role changed or that a manager removed
+   * them (feat-instagram-dm-sending UN8, UNC6) — the notify domain sends `membership.role_changed` /
+   * `membership.removed` to the `membership:update` holders and the member, minus `actingUserId`.
+   *
+   * @remarks
+   * - **Algorithm:** inside the write's organization context: the recipients, the role names (a
+   *   role change), the organization's language; one {@link MEMBERSHIP_NOTICE_EVENT} emitted with
+   *   them. The once key is the membership's public id with its `updated_at` (a role change) or
+   *   `removed` (a removal).
+   * - **Failure modes:** none escape — a failure is logged and the write stands (the bus swallows
+   *   handler errors; the reads here are wrapped).
+   * - **Side effects:** one in-process event; the notify handler writes the notifications in this
+   *   unit.
+   * - **Notes:** an invited member (never joined) gets no notice. The kind's recipients resolver
+   *   (`resolveNotificationRecipients`, ROUTE R34) may take this over later.
+   */
+  private async emitMembershipNotice(options: {
+    notice: { type: 'role_changed'; previousRoleId: number } | { type: 'removed' };
+    membership: MembershipRow;
+    organization: SerializingOrganization & { id: number; name: string };
+    actingUserId: number | null;
+  }): Promise<void> {
+    const { membership, organization } = options;
+    try {
+      const managerUserIds = await this.membershipRepository.findUserIdsWithPermission(
+        organization.id,
+        TENANCY_PERMISSIONS.MEMBERSHIP_UPDATE,
+      );
+      const recipientUserIds = [...new Set([...managerUserIds, membership.user_id])].filter(
+        (userId) => userId !== options.actingUserId,
+      );
+      if (recipientUserIds.length === 0) return;
+      const [output] = await this.serializeMemberships({ rows: [membership], organization });
+      const base = {
+        recipient_user_ids: recipientUserIds,
+        organization_id: organization.id,
+        organization_name: organization.name,
+        membership_public_id: membership.public_id,
+        member_name: output?.display_name ?? '',
+        locale:
+          (await this.organizationSettingsService?.resolveDefaultLocaleForOrganization(
+            organization.public_id,
+          )) ?? DEFAULT_LANGUAGE,
+      };
+      if (options.notice.type === 'removed') {
+        await eventBus.emit(
+          buildDomainEvent({
+            type: MEMBERSHIP_NOTICE_EVENT.REMOVED,
+            payload: {
+              ...base,
+              dedupe_key: `${membership.public_id}:removed`,
+            } satisfies MembershipRemovedPayload,
+          }),
+        );
+        return;
+      }
+      const [role, previousRole] = await Promise.all([
+        this.memberRoleService.findRoleRecordByInternalId({
+          organization_id: organization.id,
+          role_internal_id: membership.role_id,
+        }),
+        this.memberRoleService.findRoleRecordByInternalId({
+          organization_id: organization.id,
+          role_internal_id: options.notice.previousRoleId,
+        }),
+      ]);
+      await eventBus.emit(
+        buildDomainEvent({
+          type: MEMBERSHIP_NOTICE_EVENT.ROLE_CHANGED,
+          payload: {
+            ...base,
+            role_name: role?.name ?? '',
+            previous_role_name: previousRole?.name ?? '',
+            dedupe_key: `${membership.public_id}:${membership.updated_at.toISOString()}`,
+          } satisfies MembershipRoleChangedPayload,
+        }),
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, membershipPublicId: membership.public_id, notice: options.notice.type },
+        'membership.notice.failed',
+      );
+    }
+  }
+
   /**
    * Turns a role named by public id into the list filter; `null` when it is not of this
    * organization — the list is then empty, never a 400 (a filter, not a write).
@@ -1511,6 +1625,12 @@ export class MembershipService {
           memberships: [updated],
           organization,
         });
+        await this.emitMainRoleChangedNotice({
+          before: membership,
+          after: updated,
+          organization,
+          actingUserId: userId ?? null,
+        });
         return output!;
       },
     });
@@ -1620,6 +1740,16 @@ export class MembershipService {
             throw ownerMembershipFixedError('errors:ownerCannotBeRemoved');
           }
           throw new NotFoundError('Membership');
+        }
+        if (membership.status !== MEMBERSHIP_STATUS.INVITED) {
+          await this.emitMembershipNotice({
+            notice: { type: 'removed' },
+            membership: deleted,
+            organization,
+            actingUserId: await this.organizationService.resolveUserInternalIdByPublicId(
+              scope.userPublicId,
+            ),
+          });
         }
         affectedUserInternalId = deleted.user_id;
       },
@@ -2268,6 +2398,17 @@ export class MembershipService {
           memberships: [newOwnerUpdated, formerOwnerUpdated],
           organization: transferred,
         });
+        for (const [before, after] of [
+          [newOwnerMembership, newOwnerUpdated],
+          [formerOwnerMembership, formerOwnerUpdated],
+        ] as const) {
+          await this.emitMainRoleChangedNotice({
+            before,
+            after,
+            organization: { ...transferred, id: organization.id },
+            actingUserId: currentUserId,
+          });
+        }
         return output!;
       },
     });

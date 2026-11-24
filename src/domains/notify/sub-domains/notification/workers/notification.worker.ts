@@ -23,6 +23,7 @@ import {
 import { dispatchOutboxEmail, recordOutboxEmail } from '@/infrastructure/mail/queues/mail.queue.js';
 import { isMailConfigured } from '@/infrastructure/mail/mail.service.js';
 import { buildNotificationEmailHtml } from './notification-email-content.js';
+import { buildNotificationEmailDedupeKey } from '@/domains/notify/sub-domains/notification/notification-dispatch.service.js';
 import {
   isNotificationEmailDispatched,
   markNotificationEmailDispatched,
@@ -42,6 +43,8 @@ type NotificationDispatchData = {
   email?: string;
   /** The language the notification was written in — the email's own copy follows it. */
   locale?: string;
+  /** The emitter's once key (UN11, P88) — names the email's outbox dedupe key. */
+  dedupe_key?: string;
 };
 
 /**
@@ -62,6 +65,8 @@ type NotificationDispatchData = {
  */
 async function dispatchNotificationEmail(options: {
   notificationPublicId: string;
+  /** The mail-outbox dedupe key (`buildNotificationEmailDedupeKey`, or the legacy per-row key). */
+  outboxDedupeKey: string;
   type: string;
   email: string | undefined;
   title: string;
@@ -70,8 +75,17 @@ async function dispatchNotificationEmail(options: {
   requestId: string | undefined;
   locale: SupportedLanguage;
 }): Promise<string | null> {
-  const { notificationPublicId, type, email, title, message, actionUrl, requestId, locale } =
-    options;
+  const {
+    notificationPublicId,
+    outboxDedupeKey,
+    type,
+    email,
+    title,
+    message,
+    actionUrl,
+    requestId,
+    locale,
+  } = options;
   if (!(isMailConfigured() && email)) {
     logger.warn({ channel: 'email', notificationPublicId }, 'notification.worker.channel_skipped');
     return null;
@@ -109,7 +123,7 @@ async function dispatchNotificationEmail(options: {
         subject,
         html,
         tags: [{ name: 'category', value: `notification-${type}` }],
-        dedupeKey: `notification:${notificationPublicId}:email:${email.toLowerCase()}`,
+        dedupeKey: outboxDedupeKey,
       }),
   });
 
@@ -181,6 +195,8 @@ export type NotificationDispatchJobResult =
 export async function processNotificationDispatchJob(options: {
   notificationPublicId: string;
   organizationPublicId: string | null;
+  /** The recipient — names the email's outbox dedupe key with the row's `data.dedupe_key`. */
+  userPublicId: string;
   jobContext: { id?: string; requestId?: string };
   notificationRepository: NotificationRepository;
 }): Promise<NotificationDispatchJobResult> {
@@ -226,6 +242,15 @@ export async function processNotificationDispatchJob(options: {
       case 'email': {
         const emailResult = await dispatchNotificationEmail({
           notificationPublicId,
+          outboxDedupeKey:
+            dispatchData.dedupe_key === undefined
+              ? // A row written before UN11 (no `dedupe_key`) keeps its per-row key.
+                `notification:${notificationPublicId}:email:${email?.toLowerCase() ?? ''}`
+              : buildNotificationEmailDedupeKey({
+                  type,
+                  dedupeKey: dispatchData.dedupe_key,
+                  userPublicId: options.userPublicId,
+                }),
           type,
           email,
           title,
@@ -274,6 +299,7 @@ export async function processNotificationJob(options: {
     processNotificationDispatchJob({
       notificationPublicId,
       organizationPublicId,
+      userPublicId,
       jobContext: omitUndefined({ id: options.jobId, requestId }),
       notificationRepository: createWorkerNotificationRepository(databaseHandle),
     });

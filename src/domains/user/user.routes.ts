@@ -301,7 +301,7 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Get my notification preferences',
         description:
-          "Returns the authenticated user's notification preferences per type and channel.",
+          "Returns the authenticated user's notification choices as the seven kinds (automation problem, direct message limit, contact details left, team change, billing, weekly summary, broadcast or past comments done), each with its types and its EMAIL, IN_APP and WEB_PUSH channels — the effective value, `is_default` while never chosen, and `is_locked` for billing email, which is always sent.",
         tags: ['Notification Preferences'],
       },
     },
@@ -311,14 +311,13 @@ export const userRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/notification-preferences',
     {
       onRequest: [app.authenticate],
-      // sec-r4-I1: cap notification-preference replacement at the moderate-authed
-      // tier — a PUT replaces the full set per call and could otherwise be looped
-      // to churn rows or trigger downstream cache invalidation storms.
+      // sec-r4-I1: cap notification-preference saves at the moderate-authed tier — a PUT
+      // upserts up to 21 kind × channel items per call and could otherwise be looped to churn rows.
       ...MODERATE_AUTHED_RATE_LIMIT,
       schema: {
-        summary: 'Replace notification preferences',
+        summary: 'Save notification preferences',
         description:
-          'Replaces all notification preferences for the authenticated user. Sends a complete set of preferences.',
+          'Saves 1–21 `{ kind, channel, is_enabled }` choices (no kind × channel twice; channels EMAIL, IN_APP, WEB_PUSH) — only the items sent change, each written for every type of its kind — and returns the whole preferences object. Setting billing email off is 422 with reason `notification_preference_locked`.',
         tags: ['Notification Preferences'],
         body: PutNotificationPreferencesDto,
       },

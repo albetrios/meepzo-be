@@ -26,76 +26,67 @@ describe('User Notification Preferences Sub-Domain — Integration', () => {
     await cleanupDatabase();
   });
 
-  describe('PUT /api/v1/users/me/notification-preferences', () => {
+  /** One kind × channel of a preferences response. */
+  function channelOf(body: unknown, kind: string, channel: string) {
+    const data = (
+      body as { data: { kinds: Array<{ kind: string; channels: Array<{ channel: string }> }> } }
+    ).data;
+    const channels = data.kinds.find((entry) => entry.kind === kind)?.channels ?? [];
+    return channels.find((entry) => entry.channel === channel);
+  }
+
+  describe('PUT /api/v1/users/me/notification-preferences (route 136)', () => {
     it('returns 401 without authentication', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'PUT',
         url: testApiPath('/users/me/notification-preferences'),
-        payload: { preferences: [] },
+        payload: { kinds: [] },
       });
       expect(response.statusCode).toBe(401);
     });
 
-    it('returns 400 or 422 for invalid preferences payload', async () => {
-      const user = await createTestUser();
-      const token = await generateTestToken({ userId: user.public_id });
-      const response = await injectAuthenticated(app, {
-        method: 'PUT',
-        url: testApiPath('/users/me/notification-preferences'),
-        token,
-        payload: { unknown_field: true },
-      });
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('returns 400 (not 500) for a channel outside the allowed set', async () => {
-      const user = await createTestUser();
-      const token = await generateTestToken({ userId: user.public_id });
-      // An unknown channel must be rejected by the DTO, not slip through to the
-      // chk_user_notif_prefs_channel database check and surface as a 500.
-      const response = await injectAuthenticated(app, {
-        method: 'PUT',
-        url: testApiPath('/users/me/notification-preferences'),
-        token,
-        payload: {
-          preferences: [
-            {
-              notification_type: 'billing.usage_threshold',
-              channel: 'TELEPATHY',
-              is_enabled: true,
-            },
+    it.each([
+      ['an unknown field', { unknown_field: true }],
+      ['an empty list', { kinds: [] }],
+      ['the SMS channel', { kinds: [{ kind: 'billing', channel: 'SMS', is_enabled: true }] }],
+      ['an unknown kind', { kinds: [{ kind: 'security', channel: 'EMAIL', is_enabled: false }] }],
+      [
+        'a repeated kind × channel',
+        {
+          kinds: [
+            { kind: 'team_change', channel: 'EMAIL', is_enabled: true },
+            { kind: 'team_change', channel: 'EMAIL', is_enabled: false },
           ],
         },
-      });
-      // Unknown enum value is a request-SHAPE failure → 400 per the response-codes contract
-      // (a DTO rejection, not a business-rule 422); it must not reach the DB channel check as a 500.
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('returns 400 for an organization_id field — preferences are global, the field does not exist', async () => {
+      ],
+    ])('returns 400 (never 500) for %s', async (_label, payload) => {
       const user = await createTestUser();
       const token = await generateTestToken({ userId: user.public_id });
-      // Organization-scoped preferences are tenancy notification policies; the strict body schema
-      // refuses the unknown key.
       const response = await injectAuthenticated(app, {
         method: 'PUT',
         url: testApiPath('/users/me/notification-preferences'),
         token,
-        payload: {
-          preferences: [
-            {
-              notification_type: 'billing.usage_threshold',
-              channel: 'EMAIL',
-              organization_id: 12345,
-              is_enabled: true,
-            },
-          ],
-        },
+        payload,
       });
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode, response.body).toBe(400);
     });
 
-    it('accepts a valid uppercase channel', async () => {
+    it('returns 422 notification_preference_locked for billing email off (AC-14.6)', async () => {
+      const user = await createTestUser();
+      const token = await generateTestToken({ userId: user.public_id });
+      const response = await injectAuthenticated(app, {
+        method: 'PUT',
+        url: testApiPath('/users/me/notification-preferences'),
+        token,
+        payload: { kinds: [{ kind: 'billing', channel: 'EMAIL', is_enabled: false }] },
+      });
+      expect(response.statusCode, response.body).toBe(422);
+      expect((response.json() as { error: { reason: string } }).error.reason).toBe(
+        'notification_preference_locked',
+      );
+    });
+
+    it('saves one kind × channel for every type of the kind and answers the whole object', async () => {
       const user = await createTestUser();
       const token = await generateTestToken({ userId: user.public_id });
       const response = await injectAuthenticated(app, {
@@ -103,16 +94,25 @@ describe('User Notification Preferences Sub-Domain — Integration', () => {
         url: testApiPath('/users/me/notification-preferences'),
         token,
         payload: {
-          preferences: [
-            { notification_type: 'billing.usage_threshold', channel: 'EMAIL', is_enabled: true },
-          ],
+          kinds: [{ kind: 'broadcast_or_past_comments_done', channel: 'EMAIL', is_enabled: true }],
         },
       });
-      expect(response.statusCode).toBe(200);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(channelOf(response.json(), 'broadcast_or_past_comments_done', 'EMAIL')).toEqual({
+        channel: 'EMAIL',
+        is_enabled: true,
+        is_default: false,
+        is_locked: false,
+      });
+      // The others keep their defaults (only the items sent change).
+      expect(channelOf(response.json(), 'contact_details_left', 'EMAIL')).toMatchObject({
+        is_enabled: false,
+        is_default: true,
+      });
     });
   });
 
-  describe('GET /api/v1/users/me/notification-preferences', () => {
+  describe('GET /api/v1/users/me/notification-preferences (route 135)', () => {
     it('returns 401 without authentication', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'GET',
@@ -121,10 +121,7 @@ describe('User Notification Preferences Sub-Domain — Integration', () => {
       expect(response.statusCode).toBe(401);
     });
 
-    // Previously only asserted as `[200, 404]` in the two domain route suites. The service throws
-    // NotFoundError only for an unknown user, so an authenticated caller with no rows yet gets
-    // 200 and an empty list.
-    it('returns 200 with an empty list before any preference is set', async () => {
+    it('answers the seven kinds with their defaults before any choice (AC-14.5)', async () => {
       const user = await createTestUser();
       const token = await generateTestToken({ userId: user.public_id });
 
@@ -135,10 +132,20 @@ describe('User Notification Preferences Sub-Domain — Integration', () => {
       });
 
       expect(response.statusCode, response.body).toBe(200);
-      expect((response.json() as { data: unknown[] }).data).toEqual([]);
+      const body = response.json() as { data: { kinds: unknown[] } };
+      expect(body.data.kinds).toHaveLength(7);
+      expect(channelOf(body, 'contact_details_left', 'EMAIL')).toMatchObject({ is_enabled: false });
+      expect(channelOf(body, 'broadcast_or_past_comments_done', 'EMAIL')).toMatchObject({
+        is_enabled: false,
+      });
+      expect(channelOf(body, 'weekly_summary', 'IN_APP')).toMatchObject({ is_enabled: false });
+      expect(channelOf(body, 'billing', 'EMAIL')).toMatchObject({
+        is_enabled: true,
+        is_locked: true,
+      });
     });
 
-    it('reads back the preference set written by PUT', async () => {
+    it('reads back the choice written by PUT', async () => {
       const user = await createTestUser();
       const token = await generateTestToken({ userId: user.public_id });
 
@@ -147,9 +154,7 @@ describe('User Notification Preferences Sub-Domain — Integration', () => {
         url: testApiPath('/users/me/notification-preferences'),
         token,
         payload: {
-          preferences: [
-            { notification_type: 'billing.usage_threshold', channel: 'EMAIL', is_enabled: false },
-          ],
+          kinds: [{ kind: 'direct_message_limit', channel: 'IN_APP', is_enabled: false }],
         },
       });
       expect(put.statusCode, put.body).toBe(200);
@@ -160,13 +165,10 @@ describe('User Notification Preferences Sub-Domain — Integration', () => {
         token,
       });
       expect(read.statusCode, read.body).toBe(200);
-      expect((read.json() as { data: Array<Record<string, unknown>> }).data).toContainEqual(
-        expect.objectContaining({
-          notification_type: 'billing.usage_threshold',
-          channel: 'EMAIL',
-          is_enabled: false,
-        }),
-      );
+      expect(channelOf(read.json(), 'direct_message_limit', 'IN_APP')).toMatchObject({
+        is_enabled: false,
+        is_default: false,
+      });
     });
   });
 });

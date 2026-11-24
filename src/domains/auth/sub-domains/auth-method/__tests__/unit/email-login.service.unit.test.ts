@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Redis } from 'ioredis';
 import { UnauthorizedError } from '@/shared/errors/index.js';
@@ -108,6 +109,11 @@ const user = {
   deleted_at: null,
 };
 
+/** SHA-256 hex of the normalised email — how the per-email Redis keys name an address. */
+function emailKeyHash(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
+
 describe('EmailLoginService', () => {
   const userService = {
     findByEmail: vi.fn(),
@@ -138,6 +144,7 @@ describe('EmailLoginService', () => {
     consumeOtpForUser: vi.fn(),
     findValidByTokenHash: vi.fn(),
     invalidateAllForUser: vi.fn().mockResolvedValue(undefined),
+    findNewestForUser: vi.fn().mockResolvedValue(null),
   } as unknown as VerificationTokenRepository;
 
   // incrementWithExpiryOnFirst (real util) calls redis.eval and returns the attempt count;
@@ -147,6 +154,9 @@ describe('EmailLoginService', () => {
     eval: vi.fn().mockResolvedValue(1),
     del: vi.fn().mockResolvedValue(0),
     set: vi.fn().mockResolvedValue('OK'),
+    // The per-email wrong-code day counter (null = no wrong try today) and a key's remaining TTL.
+    get: vi.fn().mockResolvedValue(null),
+    ttl: vi.fn().mockResolvedValue(42),
   } as unknown as Redis;
 
   const service = new EmailLoginService(
@@ -162,6 +172,9 @@ describe('EmailLoginService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(redis.eval).mockResolvedValue(1);
+    vi.mocked(redis.get).mockResolvedValue(null);
+    vi.mocked(redis.ttl).mockResolvedValue(42);
+    vi.mocked(verificationTokenRepository.findNewestForUser).mockResolvedValue(null);
     mockedRedisSet(redis.set).mockResolvedValue('OK');
   });
 
@@ -230,16 +243,7 @@ describe('EmailLoginService', () => {
       verification_code: string;
     };
     expect(result.debug_verification_code).toBe(emittedPayload.verification_code);
-    expect(result.debug_verification_code).toMatch(/^[A-Z0-9]{6}$/);
-  });
-
-  it('sendCode omits debug_verification_code when no code is issued (cooldown held) even under TEST_MODE', async () => {
-    mockedRedisSet(redis.set).mockResolvedValueOnce(null); // cooldown already held → no issue, no code
-    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
-
-    const result = await service.sendCode({ body: { email: user.email } });
-
-    expect(result).not.toHaveProperty('debug_verification_code');
+    expect(result.debug_verification_code).toMatch(/^\d{6}$/);
   });
 
   it('sendCode NEVER exposes debug_verification_code when TEST_MODE is off (even though a code is issued)', async () => {
@@ -265,24 +269,11 @@ describe('EmailLoginService', () => {
 
     await service.sendCode({ body: { email: user.email } });
 
-    // A-8: one budget per flow — a fresh code restores both.
+    // A-8: one budget per flow — a fresh code restores both (the sign-in's keyed by the email).
     expect(redis.del).toHaveBeenCalledWith(
-      `auth:email_code_verify_attempts:login:${user.public_id}`,
+      `auth:email_code_verify_attempts:login:${emailKeyHash(user.email)}`,
       `auth:email_code_verify_attempts:step_up:${user.public_id}`,
     );
-  });
-
-  it('sendCode skips issuing (no signup, no email) when the per-email cooldown is already held', async () => {
-    mockedRedisSet(redis.set).mockResolvedValueOnce(null);
-    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
-
-    const result = await service.sendCode({ body: { email: user.email } });
-
-    expect(result.messageKey).toBe('success:verificationCodeSent');
-    expect(userService.findByEmail).not.toHaveBeenCalled();
-    expect(userService.createForEmailCode).not.toHaveBeenCalled();
-    expect(verificationTokenRepository.create).not.toHaveBeenCalled();
-    expect(vi.mocked(eventBus.emitStrict)).not.toHaveBeenCalled();
   });
 
   // Local-only opt-out (allowlisted to local/development by the env schema): with the spacing off
@@ -352,7 +343,7 @@ describe('EmailLoginService', () => {
     } as never);
 
     const result = await service.login({
-      body: { email: user.email, code: 'ABCDEF' },
+      body: { email: user.email, code: '123456' },
       ipAddress: '127.0.0.1',
       userAgent: 'vitest',
     });
@@ -385,7 +376,7 @@ describe('EmailLoginService', () => {
 
     await expect(
       service.login({
-        body: { email: user.email, code: 'ABCDEF' },
+        body: { email: user.email, code: '123456' },
         ipAddress: '127.0.0.1',
         userAgent: 'vitest',
       }),
@@ -393,11 +384,122 @@ describe('EmailLoginService', () => {
     expect(authSessionService.createSessionForUser).not.toHaveBeenCalled();
   });
 
+  // ─── AT7 / AT8 (routes-final § 10.A, AC-13.2, AC-13.3) ─────────────────────────────────────
+
+  it('AC-13.2: sendCode answers resend_after_seconds 60 and expires_in_seconds 900', async () => {
+    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
+    const result = await service.sendCode({ body: { email: user.email } });
+    expect(result).toMatchObject({ resend_after_seconds: 60, expires_in_seconds: 900 });
+    expect(result).not.toHaveProperty('expires_in_minutes');
+  });
+
+  it('AC-13.2: a resend under 60 s is refused with 429 code_resend_too_soon and the wait, before any lookup', async () => {
+    mockedRedisSet(redis.set).mockResolvedValueOnce(null);
+    vi.mocked(redis.ttl).mockResolvedValueOnce(37);
+    await expect(service.sendCode({ body: { email: user.email } })).rejects.toMatchObject({
+      statusCode: 429,
+      reason: 'code_resend_too_soon',
+      retryAfterSeconds: 37,
+      fields: { retry_after_seconds: 37 },
+    });
+    expect(userService.findByEmail).not.toHaveBeenCalled();
+    expect(verificationTokenRepository.create).not.toHaveBeenCalled();
+    expect(vi.mocked(eventBus.emitStrict)).not.toHaveBeenCalled();
+  });
+
+  it('AC-13.3: a wrong code answers 401 code_wrong with the tries left', async () => {
+    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
+    vi.mocked(redis.eval).mockResolvedValueOnce(2); // the 2nd try on this code
+    vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null);
+    await expect(
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
+    ).rejects.toMatchObject({ statusCode: 401, reason: 'code_wrong', fields: { tries_left: 3 } });
+  });
+
+  it('AC-13.3: an unknown email answers code_wrong exactly like a wrong code (counted by email)', async () => {
+    vi.mocked(userService.findByEmail).mockResolvedValue(null);
+    vi.mocked(redis.eval).mockResolvedValueOnce(2);
+    await expect(
+      service.login({
+        body: { email: 'missing@example.com', code: '999999' },
+        ipAddress: '1.1.1.1',
+      }),
+    ).rejects.toMatchObject({ statusCode: 401, reason: 'code_wrong', fields: { tries_left: 3 } });
+    const countedKeys = vi.mocked(redis.eval).mock.calls.map((call) => call[2]);
+    expect(countedKeys[0]).toBe(
+      `auth:email_code_verify_attempts:login:${emailKeyHash('missing@example.com')}`,
+    );
+  });
+
+  it('AC-13.3: the newest code over 15 minutes old answers 401 code_expired', async () => {
+    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
+    vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null);
+    vi.mocked(verificationTokenRepository.findNewestForUser).mockResolvedValue({
+      expires_at: new Date(Date.now() - 1_000),
+      used_at: null,
+    } as never);
+    await expect(
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
+    ).rejects.toMatchObject({ statusCode: 401, reason: 'code_expired' });
+  });
+
+  it('AC-13.3: a used newest code is code_wrong, not code_expired', async () => {
+    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
+    vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null);
+    vi.mocked(verificationTokenRepository.findNewestForUser).mockResolvedValue({
+      expires_at: new Date(Date.now() - 1_000),
+      used_at: new Date(),
+    } as never);
+    await expect(
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
+    ).rejects.toMatchObject({ reason: 'code_wrong' });
+  });
+
+  it('AC-13.3: the 5th wrong try answers 401 code_used_up, and later tries too without a lookup', async () => {
+    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
+    vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null);
+    vi.mocked(redis.eval).mockResolvedValueOnce(5);
+    await expect(
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
+    ).rejects.toMatchObject({ statusCode: 401, reason: 'code_used_up' });
+
+    vi.mocked(userService.findByEmail).mockClear();
+    vi.mocked(redis.eval).mockResolvedValueOnce(6);
+    await expect(
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
+    ).rejects.toMatchObject({ statusCode: 401, reason: 'code_used_up' });
+    expect(userService.findByEmail).not.toHaveBeenCalled();
+  });
+
+  it('AC-13.3: 20 wrong tries for the email today answer 429 code_day_limit with the wait', async () => {
+    vi.mocked(redis.get).mockResolvedValueOnce('20');
+    vi.mocked(redis.ttl).mockResolvedValueOnce(3_600);
+    await expect(
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      reason: 'code_day_limit',
+      retryAfterSeconds: 3_600,
+      fields: { retry_after_seconds: 3_600 },
+    });
+    expect(userService.findByEmail).not.toHaveBeenCalled();
+  });
+
+  it('a wrong try counts toward the day limit; a success clears the try and day counters', async () => {
+    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
+    vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValueOnce(null);
+    await expect(
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
+    ).rejects.toMatchObject({ reason: 'code_wrong' });
+    const countedKeys = vi.mocked(redis.eval).mock.calls.map((call) => call[2]);
+    expect(countedKeys).toContain(`auth:email_code_wrong_tries_day:${emailKeyHash(user.email)}`);
+  });
+
   it('login rejects an unknown email without consuming a code', async () => {
     vi.mocked(userService.findByEmail).mockResolvedValue(null);
     await expect(
       service.login({
-        body: { email: 'missing@example.com', code: 'ABCDEF' },
+        body: { email: 'missing@example.com', code: '123456' },
         ipAddress: '127.0.0.1',
       }),
     ).rejects.toThrow();
@@ -408,7 +510,7 @@ describe('EmailLoginService', () => {
     vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
     vi.mocked(redis.eval).mockResolvedValueOnce(99);
     await expect(
-      service.login({ body: { email: user.email, code: 'ABCDEF' }, ipAddress: '127.0.0.1' }),
+      service.login({ body: { email: user.email, code: '123456' }, ipAddress: '127.0.0.1' }),
     ).rejects.toThrow();
     expect(verificationTokenRepository.consumeOtpForUser).not.toHaveBeenCalled();
   });
@@ -423,7 +525,7 @@ describe('EmailLoginService', () => {
     vi.mocked(userService.findByEmail).mockResolvedValueOnce(null);
     await expect(
       service.login({
-        body: { email: 'missing@example.com', code: 'ABCDEF' },
+        body: { email: 'missing@example.com', code: '123456' },
         ipAddress: '127.0.0.1',
       }),
     ).rejects.toThrow();
@@ -435,7 +537,7 @@ describe('EmailLoginService', () => {
     vi.mocked(userService.findByEmail).mockResolvedValueOnce(user as never);
     vi.mocked(redis.eval).mockResolvedValueOnce(99);
     await expect(
-      service.login({ body: { email: user.email, code: 'ABCDEF' }, ipAddress: '127.0.0.1' }),
+      service.login({ body: { email: user.email, code: '123456' }, ipAddress: '127.0.0.1' }),
     ).rejects.toThrow();
 
     expect(enforceMinimumDuration).toHaveBeenCalledTimes(1);
@@ -445,7 +547,7 @@ describe('EmailLoginService', () => {
     vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
     vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null);
     await expect(
-      service.login({ body: { email: user.email, code: 'ZZZZZZ' }, ipAddress: '127.0.0.1' }),
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
     ).rejects.toThrow();
   });
 
@@ -457,7 +559,7 @@ describe('EmailLoginService', () => {
     vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null);
 
     await expect(
-      service.login({ body: { email: user.email, code: 'TEST24' }, ipAddress: '127.0.0.1' }),
+      service.login({ body: { email: user.email, code: '240000' }, ipAddress: '127.0.0.1' }),
     ).rejects.toThrow(UnauthorizedError);
     expect(verificationTokenRepository.consumeOtpForUser).toHaveBeenCalled();
   });
@@ -473,7 +575,7 @@ describe('EmailLoginService', () => {
     vi.mocked(redis.eval).mockResolvedValue(1);
     vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null);
     await expect(
-      service.login({ body: { email: user.email, code: 'ZZZZZZ' }, ipAddress: '127.0.0.1' }),
+      service.login({ body: { email: user.email, code: '999999' }, ipAddress: '127.0.0.1' }),
     ).rejects.toThrow();
     expect(vi.mocked(enforceMinimumDuration)).toHaveBeenCalledTimes(1);
   });
@@ -487,7 +589,7 @@ describe('EmailLoginService', () => {
     vi.mocked(completeFirstFactorAuth).mockRejectedValueOnce(new Error('session insert failed'));
 
     await expect(
-      service.login({ body: { email: user.email, code: 'ABCDEF' }, ipAddress: '127.0.0.1' }),
+      service.login({ body: { email: user.email, code: '123456' }, ipAddress: '127.0.0.1' }),
     ).rejects.toThrow('session insert failed');
     expect(verificationTokenRepository.consumeOtpForUser).toHaveBeenCalled();
     // The success-only attempt-counter clear must NOT run when login throws.
@@ -507,7 +609,7 @@ describe('EmailLoginService', () => {
       } as never);
 
       await service.login({
-        body: { email: user.email, code: 'ABCDEF' },
+        body: { email: user.email, code: '123456' },
         ipAddress: '127.0.0.1',
         userAgent: 'vitest',
       });
@@ -533,7 +635,7 @@ describe('EmailLoginService', () => {
       } as never);
 
       await service.login({
-        body: { email: user.email, code: 'ABCDEF' },
+        body: { email: user.email, code: '123456' },
         ipAddress: '127.0.0.1',
         userAgent: 'vitest',
       });
@@ -563,7 +665,7 @@ describe('EmailLoginService', () => {
       } as never);
 
       await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: 'ABC123' }),
+        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
       ).resolves.toBeUndefined();
 
       expect(verificationTokenRepository.consumeOtpForUser).toHaveBeenCalled();
@@ -581,19 +683,8 @@ describe('EmailLoginService', () => {
         is_mfa_enabled: true,
       } as never);
       await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: 'ABC123' }),
+        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
       ).rejects.toMatchObject({ messageKey: 'errors:mfaStepUpRequired' });
-      expect(verificationTokenRepository.consumeOtpForUser).not.toHaveBeenCalled();
-    });
-
-    it('rejects an account that has a password (email-code step-up is passwordless-only)', async () => {
-      vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue({
-        ...passwordlessUser,
-        password_hash: 'argon2-hash',
-      } as never);
-      await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: 'ABC123' }),
-      ).rejects.toMatchObject({ messageKey: 'errors:passwordStepUpRequired' });
       expect(verificationTokenRepository.consumeOtpForUser).not.toHaveBeenCalled();
     });
 
@@ -603,7 +694,7 @@ describe('EmailLoginService', () => {
       );
       vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null as never);
       await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: 'ABC123' }),
+        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
       ).rejects.toMatchObject({ messageKey: 'errors:invalidOrExpiredVerificationCode' });
       expect(verificationTokenRepository.invalidateAllForUser).not.toHaveBeenCalled();
     });
@@ -615,7 +706,7 @@ describe('EmailLoginService', () => {
       // Over the step-up's own attempt cap → reject before touching the token store.
       vi.mocked(redis.eval).mockResolvedValueOnce(99);
       await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: 'ABC123' }),
+        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
       ).rejects.toMatchObject({ messageKey: 'errors:invalidOrExpiredVerificationCode' });
       expect(verificationTokenRepository.consumeOtpForUser).not.toHaveBeenCalled();
     });
@@ -630,7 +721,7 @@ describe('EmailLoginService', () => {
       vi.mocked(redis.eval).mockClear();
       await service.verifyCodeForStepUp({
         userPublicId: passwordlessUser.public_id,
-        code: 'ABC123',
+        code: '135790',
       });
       const countedKeys = vi.mocked(redis.eval).mock.calls.map((call) => call[2]);
       expect(countedKeys).toEqual([

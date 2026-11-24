@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NotFoundError, ValidationError } from '@/shared/errors/index.js';
+import { NotFoundError, UnprocessableEntityError, ValidationError } from '@/shared/errors/index.js';
 import { UserNotificationPreferencesService } from '@/domains/user/sub-domains/user-notification-preferences/user-notification-preferences.service.js';
 import type { UserService } from '@/domains/user/user.service.js';
 import type { UserNotificationPreferencesRepository } from '@/domains/user/sub-domains/user-notification-preferences/user-notification-preferences.repository.js';
@@ -46,7 +46,7 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
 const user = { id: 1, public_id: 'user_public', email: 'user@example.com' };
 const preferenceRow = {
   id: 2,
-  notification_type: 'subscription.updated',
+  notification_type: 'contact.details_left',
   channel: 'EMAIL',
   is_enabled: true,
 };
@@ -66,7 +66,7 @@ describe('UserNotificationPreferencesService', () => {
 
   const preferencesRepository = {
     listByUserId: vi.fn().mockResolvedValue([preferenceRow]),
-    replaceAll: vi.fn().mockResolvedValue([preferenceRow]),
+    upsertMany: vi.fn().mockResolvedValue(undefined),
   } as unknown as UserNotificationPreferencesRepository;
 
   const service = new UserNotificationPreferencesService(userService, preferencesRepository);
@@ -74,14 +74,19 @@ describe('UserNotificationPreferencesService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(userService.resolveInternalIdByPublicId).mockResolvedValue(user.id);
-    vi.mocked(preferencesRepository.replaceAll).mockResolvedValue([preferenceRow] as never);
     vi.mocked(preferencesRepository.listByUserId).mockResolvedValue([preferenceRow] as never);
   });
 
-  it('get returns preferences for user', async () => {
+  it('get folds the stored rows into the seven kinds', async () => {
     const result = await service.get(asUserScope('user_public'));
-    expect(result).toHaveLength(1);
-    expect(result[0]?.notification_type).toBe('subscription.updated');
+    expect(result.kinds).toHaveLength(7);
+    const contactDetails = result.kinds.find((entry) => entry.kind === 'contact_details_left');
+    expect(contactDetails?.channels[0]).toEqual({
+      channel: 'EMAIL',
+      is_enabled: true,
+      is_default: false,
+      is_locked: false,
+    });
   });
 
   it('get throws when user missing', async () => {
@@ -94,88 +99,69 @@ describe('UserNotificationPreferencesService', () => {
     await expect(
       service.put({
         scope: asUserScope('missing'),
+        body: { kinds: [{ kind: 'weekly_summary', channel: 'EMAIL', is_enabled: true }] },
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('put writes one row per type of the kind (AC-14.5, P87)', async () => {
+    await service.put({
+      scope: asUserScope('user_public'),
+      body: { kinds: [{ kind: 'team_change', channel: 'EMAIL', is_enabled: false }] },
+    });
+    expect(preferencesRepository.upsertMany).toHaveBeenCalledWith(
+      user.id,
+      [
+        'membership.invite_accepted',
+        'membership.invite_declined',
+        'membership.role_changed',
+        'membership.removed',
+      ].map((notification_type) => ({ notification_type, channel: 'EMAIL', is_enabled: false })),
+      user.id,
+    );
+  });
+
+  it('put refuses billing email off with 422 notification_preference_locked and writes nothing (AC-14.6)', async () => {
+    const attempt = service.put({
+      scope: asUserScope('user_public'),
+      body: {
+        kinds: [
+          { kind: 'weekly_summary', channel: 'EMAIL', is_enabled: false },
+          { kind: 'billing', channel: 'EMAIL', is_enabled: false },
+        ],
+      },
+    });
+    await expect(attempt).rejects.toBeInstanceOf(UnprocessableEntityError);
+    await expect(attempt).rejects.toMatchObject({ reason: 'notification_preference_locked' });
+    expect(preferencesRepository.upsertMany).not.toHaveBeenCalled();
+  });
+
+  it('put accepts billing email on as a no-op (it is always on) and billing in-app off', async () => {
+    await service.put({
+      scope: asUserScope('user_public'),
+      body: {
+        kinds: [
+          { kind: 'billing', channel: 'EMAIL', is_enabled: true },
+          { kind: 'billing', channel: 'IN_APP', is_enabled: false },
+        ],
+      },
+    });
+    const rows = vi.mocked(preferencesRepository.upsertMany).mock.calls[0]?.[1] ?? [];
+    expect(rows).toHaveLength(5);
+    expect(rows.every((row) => row.channel === 'IN_APP' && !row.is_enabled)).toBe(true);
+  });
+
+  it('put refuses the old per-type body before the repository is reached', async () => {
+    await expect(
+      service.put({
+        scope: asUserScope('user_public'),
         body: {
           preferences: [
             { notification_type: 'subscription.updated', channel: 'EMAIL', is_enabled: true },
           ],
         },
       }),
-    ).rejects.toBeInstanceOf(NotFoundError);
-  });
-
-  it('put rejects an organization_id field — preferences are global, the field does not exist', async () => {
-    // Organization-scoped preferences are tenancy notification policies; the strict body schema
-    // refuses the unknown key before the repository is reached.
-    await expect(
-      service.put({
-        scope: asUserScope('user_public'),
-        body: {
-          preferences: [
-            {
-              notification_type: 'subscription.updated',
-              channel: 'EMAIL',
-              organization_id: 1,
-              is_enabled: true,
-            },
-          ],
-        },
-      }),
     ).rejects.toBeInstanceOf(ValidationError);
-
-    expect(preferencesRepository.replaceAll).not.toHaveBeenCalled();
-  });
-
-  it('put persists the user-wide preferences', async () => {
-    await service.put({
-      scope: asUserScope('user_public'),
-      body: {
-        preferences: [
-          { notification_type: 'subscription.updated', channel: 'EMAIL', is_enabled: true },
-        ],
-      },
-    });
-
-    expect(preferencesRepository.replaceAll).toHaveBeenCalledWith(
-      user.id,
-      [
-        {
-          notification_type: 'subscription.updated',
-          channel: 'EMAIL',
-          is_enabled: true,
-        },
-      ],
-      user.id,
-    );
-  });
-
-  it('put returns empty list when replaceAll returns no rows', async () => {
-    vi.mocked(preferencesRepository.replaceAll).mockResolvedValue([]);
-    const result = await service.put({
-      scope: asUserScope('user_public'),
-      body: {
-        preferences: [
-          { notification_type: 'subscription.updated', channel: 'EMAIL', is_enabled: false },
-        ],
-      },
-    });
-    expect(result).toEqual([]);
-  });
-
-  it('put replaces preferences for user', async () => {
-    const result = await service.put({
-      scope: asUserScope('user_public'),
-      body: {
-        preferences: [
-          {
-            notification_type: 'subscription.updated',
-            channel: 'EMAIL',
-            is_enabled: false,
-          },
-        ],
-      },
-    });
-    expect(preferencesRepository.replaceAll).toHaveBeenCalled();
-    expect(result).toHaveLength(1);
-    expect(result[0]?.is_enabled).toBe(true);
+    expect(preferencesRepository.upsertMany).not.toHaveBeenCalled();
   });
 });

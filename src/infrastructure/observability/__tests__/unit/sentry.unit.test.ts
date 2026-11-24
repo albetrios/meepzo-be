@@ -95,7 +95,7 @@ describe('resolveTracesSampleRate (head / tracesSampler)', () => {
     expect(
       resolveTracesSampleRate({
         samplingContext: {
-          name: 'POST /api/v1/auth/login',
+          name: 'POST /api/v1/auth/email/login',
           attributes: { 'http.response.status_code': 503 },
         },
         defaultTracesSampleRate: BASELINE,
@@ -189,7 +189,7 @@ describe('resolveTailTransactionDecision (tail / beforeSendTransaction)', () => 
     expect(
       resolveTailTransactionDecision({
         input: {
-          transaction: 'POST /api/v1/auth/login',
+          transaction: 'POST /api/v1/auth/email/login',
           tags: { 'http.response.status_code': 503 },
           start_timestamp: 1,
           timestamp: 2,

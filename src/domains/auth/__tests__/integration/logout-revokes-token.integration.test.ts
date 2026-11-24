@@ -1,13 +1,11 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import type { FastifyInstance } from 'fastify';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import {
-  injectAuthenticated,
-  injectUnauthenticated,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 
 describe('logout revokes access token (session binding)', () => {
   let application: FastifyInstance;
@@ -26,13 +24,9 @@ describe('logout revokes access token (session binding)', () => {
   });
 
   it('login → GET /users/me → logout → GET /users/me with same bearer returns 401', async () => {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
 
-    const loginResponse = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const loginResponse = await signInWithEmailCode(application, { email: user.email });
     expect(loginResponse.statusCode).toBe(200);
     const accessToken = (loginResponse.json() as { data: { access_token: string } }).data
       .access_token;

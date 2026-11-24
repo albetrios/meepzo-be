@@ -1,4 +1,5 @@
 import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.util.js';
+import { trimmedEmail } from '@/shared/utils/validation/validation.util.js';
 import {
   createMembershipDto,
   updateMembershipDto,
@@ -21,6 +22,17 @@ import type {
  */
 export function validateCreateMembership(data: unknown): CreateMembershipInput {
   return parseWithSchema({ schema: createMembershipDto, data });
+}
+
+/** The email check one invite address must pass (route 117, TN10) — else its line is `invalid_email`. */
+const invitableEmail = trimmedEmail();
+
+/**
+ * Whether one invite address is an email we accept (the sign-in email rules, `trimmedEmail`):
+ * the invite answers `invalid_email` for that address and goes on with the rest.
+ */
+export function isInvitableEmail(email: string): boolean {
+  return invitableEmail.safeParse(email).success;
 }
 
 /**

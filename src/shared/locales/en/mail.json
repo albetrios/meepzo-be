@@ -1,7 +1,5 @@
 {
   "verificationCodeSubject": "Sign in to your account",
-  "passwordResetSubject": "Reset your password",
-  "passwordResetHtml": "Click <a href=\"{{resetUrl}}\">here</a> to reset your password. This link expires in {{expiresInMinutes}} minutes.",
   "verificationCodeHeading": "Sign in to your account",
   "verificationCodePreheader": "Your sign-in code is {{code}} — expires in {{expiresInMinutes}} minutes.",
   "verificationCodeBody": "Enter the code below to securely sign in. This code expires in {{expiresInMinutes}} minutes.",
@@ -22,7 +20,5 @@
   "securityNoticeFactorEnrolledHtml": "<p>A new authenticator app or passkey was just added to your account.</p>",
   "securityNoticeSessionsRevokedSubject": "Your other sessions were signed out",
   "securityNoticeSessionsRevokedHtml": "<p>Every other session on your account was just signed out.</p>",
-  "securityNoticePasswordChangedSubject": "Your password was changed",
-  "securityNoticePasswordChangedHtml": "<p>The password on your account was just changed.</p>",
   "securityNoticeNotYouHtml": "<p><strong>This wasn't me?</strong> Someone else may have access to your account or your email inbox. Contact support right away and review your account's sign-in methods and sessions.</p>"
 }

@@ -11,6 +11,9 @@ export const commitDispatchTaskSchema = z.discriminatedUnion('type', [
     // The outbox row's token (`resend_idempotency_token`) — the mail job's handle.
     mailOutboxToken: z.uuid(),
     requestId: z.string().optional(),
+    // The mail lane; absent is `transactional`. Notification emails without an inbox row ride
+    // `bulk` (feat-instagram-dm-sending UN11), like the notification worker's.
+    lane: z.enum(['transactional', 'bulk']).optional(),
   }),
   z.object({
     type: z.literal('notification'),

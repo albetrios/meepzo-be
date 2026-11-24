@@ -1,20 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  ConflictError,
-  NotFoundError,
-  UnauthorizedError,
-  ValidationError,
-} from '@/shared/errors/index.js';
+import { ConflictError, NotFoundError, ValidationError } from '@/shared/errors/index.js';
 import { MAX_LINKED_AUTH_METHODS_PER_USER } from '@/shared/constants/security.constants.js';
 import { AuthMethodService } from '@/domains/auth/sub-domains/auth-method/auth-method.service.js';
 import type { UserService } from '@/domains/user/user.service.js';
 import type { AuthMethodRepository } from '@/domains/auth/sub-domains/auth-method/auth-method.repository.js';
-import type { Redis } from 'ioredis';
-import { mockedRedisSet } from '@/tests/helpers/redis-mock.helper.js';
 import type { VerificationTokenRepository } from '@/domains/auth/sub-domains/auth-method/verification-token/verification-token.repository.js';
-import type { AuthSessionService } from '@/domains/auth/sub-domains/auth-session/auth-session.service.js';
 import type * as EventBusModule from '@/core/events/event-bus.js';
-import { eventBus } from '@/core/events/event-bus.js';
 
 vi.mock('@/core/events/event-bus.js', async (importOriginal) => {
   const original = await importOriginal<typeof EventBusModule>();
@@ -132,20 +123,6 @@ describe('AuthMethodService', () => {
     markUsed: vi.fn(),
   } as unknown as VerificationTokenRepository;
 
-  const authSessionService = {
-    revokeAllSessions: vi.fn().mockResolvedValue(undefined),
-    revokeAllSessionsExceptCurrent: vi.fn().mockResolvedValue(undefined),
-  } as unknown as AuthSessionService;
-
-  // OTP verify uses a per-user attempt cap: `eval` (incrementWithExpiryOnFirst) returns the attempt
-  // count (1 = under the cap by default), `del` clears it on success. `set` is the SET NX EX resend
-  // cooldown claim: 'OK' (default) = slot claimed → issue proceeds; null = on cooldown → skipped.
-  const redis = {
-    eval: vi.fn().mockResolvedValue(1),
-    del: vi.fn().mockResolvedValue(0),
-    set: vi.fn().mockResolvedValue('OK'),
-  } as unknown as Redis;
-
   const webauthnCredentialRepository = {
     listActiveByUserId: vi.fn().mockResolvedValue([]),
   };
@@ -154,15 +131,12 @@ describe('AuthMethodService', () => {
     userService,
     authMethodRepository,
     verificationTokenRepository,
-    authSessionService,
-    redis,
     webauthnCredentialRepository as never,
   );
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue(user as never);
-    mockedRedisSet(redis.set).mockResolvedValue('OK');
   });
 
   it('throws NotFoundError when user record is missing', async () => {
@@ -185,10 +159,10 @@ describe('AuthMethodService', () => {
   });
 
   describe('hasLoginCapableMethod (sec-r5-M3)', () => {
-    it('returns true when the user holds a login-capable method (PASSWORD/OAUTH/EMAIL_CODE)', async () => {
+    it('returns true when the user holds a login-capable method (OAUTH/EMAIL_CODE)', async () => {
       vi.mocked(authMethodRepository.listByUserId).mockResolvedValue([
         { id: 4, user_id: 1, method_type: 'MFA_TOTP' },
-        { id: 5, user_id: 1, method_type: 'PASSWORD' },
+        { id: 5, user_id: 1, method_type: 'OAUTH' },
       ] as never);
       await expect(service.hasLoginCapableMethod('user_public')).resolves.toBe(true);
     });
@@ -249,7 +223,7 @@ describe('AuthMethodService', () => {
   describe('hasActiveLoginCredential (counts passkeys — bare-account guard)', () => {
     it('returns true on a login-capable method and does not even query passkeys (short-circuit)', async () => {
       vi.mocked(authMethodRepository.listByUserId).mockResolvedValue([
-        { id: 5, user_id: 1, method_type: 'PASSWORD' },
+        { id: 5, user_id: 1, method_type: 'OAUTH' },
       ] as never);
       await expect(service.hasActiveLoginCredential('user_public')).resolves.toBe(true);
       expect(webauthnCredentialRepository.listActiveByUserId).not.toHaveBeenCalled();
@@ -318,7 +292,7 @@ describe('AuthMethodService', () => {
     } as never);
     vi.mocked(authMethodRepository.listByUserId).mockResolvedValue([
       { id: 2, public_id: 'testpublicmid000000a', user_id: 1, method_type: 'OAUTH' },
-      { id: 3, public_id: 'testpublicmid000000b', user_id: 1, method_type: 'PASSWORD' },
+      { id: 3, public_id: 'testpublicmid000000b', user_id: 1, method_type: 'EMAIL_CODE' },
     ] as never);
     await service.list('user_public');
     await service.create({
@@ -331,6 +305,19 @@ describe('AuthMethodService', () => {
     await service.delete({ userPublicId: 'user_public', methodPublicId: 'testpublicmid000000a' });
     await service.revokeAllForUser('user_public');
     expect(authMethodRepository.create).toHaveBeenCalled();
+  });
+
+  it('AC-13.4: refuses to remove the email-code way with 409 email_code_always_on, before any revoke', async () => {
+    vi.mocked(authMethodRepository.findByPublicIdForUser).mockResolvedValue({
+      id: 4,
+      public_id: 'testpublicmid000000c',
+      user_id: 1,
+      method_type: 'EMAIL_CODE',
+    } as never);
+    await expect(
+      service.delete({ userPublicId: 'user_public', methodPublicId: 'testpublicmid000000c' }),
+    ).rejects.toMatchObject({ statusCode: 409, reason: 'email_code_always_on' });
+    expect(authMethodRepository.revokeUnlessLastLoginCapable).not.toHaveBeenCalled();
   });
 
   it('does not persist user-supplied provider identity fields on manual create', async () => {
@@ -372,149 +359,6 @@ describe('AuthMethodService', () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('forgotPassword creates reset token when user exists', async () => {
-    const result = await service.forgotPassword({ body: { email: user.email } });
-    expect(result.messageKey).toBe('success:passwordResetEmailSent');
-    expect(verificationTokenRepository.create).toHaveBeenCalled();
-  });
-
-  it('forgotPassword returns success when user unknown', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue(null);
-    const result = await service.forgotPassword({ body: { email: 'missing@example.com' } });
-    expect(result.messageKey).toBe('success:passwordResetEmailSent');
-    expect(verificationTokenRepository.create).not.toHaveBeenCalled();
-  });
-
-  it('forgotPassword skips issuing a reset when the per-email cooldown is already held', async () => {
-    mockedRedisSet(redis.set).mockResolvedValueOnce(null);
-    const result = await service.forgotPassword({ body: { email: user.email } });
-    expect(result.messageKey).toBe('success:passwordResetEmailSent');
-    // On cooldown the user is never looked up and no token is issued (no email), but the uniform
-    // success is preserved so the cooldown is not an account-existence oracle.
-    expect(userService.findByEmail).not.toHaveBeenCalled();
-    expect(verificationTokenRepository.create).not.toHaveBeenCalled();
-  });
-
-  it('forgotPassword answers a failed issue for a known account exactly like an unknown one', async () => {
-    // The mail outbox insert fails: the atomic issue rolls back. A 503 here (an unknown email
-    // still gets 200) would tell an attacker which emails have accounts.
-    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
-    vi.mocked(eventBus.emitStrict).mockRejectedValueOnce(new Error('outbox unavailable'));
-    const result = await service.forgotPassword({ body: { email: user.email } });
-    expect(result.messageKey).toBe('success:passwordResetEmailSent');
-    // The cooldown is released so the user's retry is not refused.
-    expect(redis.del).toHaveBeenCalledWith(expect.stringMatching(/^auth:password_reset_cooldown:/));
-  });
-
-  it('forgotPassword enforces a constant-time floor on both account-existence branches', async () => {
-    const { enforceMinimumDuration } = await import(
-      '@/shared/utils/security/anti-enumeration.util.js'
-    );
-    vi.mocked(enforceMinimumDuration).mockClear();
-    await service.forgotPassword({ body: { email: user.email } });
-    expect(enforceMinimumDuration).toHaveBeenCalledTimes(1);
-    vi.mocked(enforceMinimumDuration).mockClear();
-    vi.mocked(userService.findByEmail).mockResolvedValue(null);
-    await service.forgotPassword({ body: { email: 'missing@example.com' } });
-    expect(enforceMinimumDuration).toHaveBeenCalledTimes(1);
-  });
-
-  it('resetPassword updates password for valid token', async () => {
-    vi.mocked(verificationTokenRepository.consumeIfValid).mockResolvedValue({
-      token_type: 'PASSWORD_RESET',
-      user_id: user.id,
-    } as never);
-    await service.resetPassword({ token: 'reset-token', password: 'NewPassword123!' });
-    expect(userService.updatePassword).toHaveBeenCalled();
-    // The reset token proves email control → mark verified; and the password changed → clear the
-    // failed-login lockout so the owner is not held out of the next sign-in.
-    expect(userService.updateEmailVerified).toHaveBeenCalledWith(user.public_id);
-    expect(userService.updateLoginAttempt).toHaveBeenCalledWith({
-      public_id: user.public_id,
-      failed_login_count: 0,
-      account_locked_until: null,
-    });
-    expect(authSessionService.revokeAllSessions).toHaveBeenCalledWith(user.public_id);
-  });
-
-  it('resetPassword rejects invalid token', async () => {
-    vi.mocked(verificationTokenRepository.consumeIfValid).mockResolvedValue(null);
-    await expect(
-      service.resetPassword({ token: 'bad', password: 'NewPassword123!' }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
-  it('changePassword verifies current password and revokes other sessions', async () => {
-    await service.changePassword({
-      userPublicId: 'user_public',
-      body: {
-        current_password: 'old',
-        new_password: 'NewPassword123!',
-      },
-      options: { currentAccessToken: 'current-bearer-token' },
-    });
-    expect(userService.updatePassword).toHaveBeenCalled();
-    expect(authSessionService.revokeAllSessionsExceptCurrent).toHaveBeenCalledWith({
-      userPublicId: user.public_id,
-      currentAccessToken: 'current-bearer-token',
-    });
-    expect(authSessionService.revokeAllSessions).not.toHaveBeenCalled();
-  });
-
-  it('changePassword revokes all sessions when no current token is supplied', async () => {
-    await service.changePassword({
-      userPublicId: 'user_public',
-      body: {
-        current_password: 'old',
-        new_password: 'NewPassword123!',
-      },
-    });
-    expect(authSessionService.revokeAllSessionsExceptCurrent).not.toHaveBeenCalled();
-    expect(authSessionService.revokeAllSessions).toHaveBeenCalledWith(user.public_id);
-  });
-
-  it('AUTH-17: changePassword propagates a session-revocation failure so the tx rolls back', async () => {
-    // The new hash and the session revocation run in ONE transaction. If revocation
-    // fails, the error must propagate (rolling the password change back) instead of
-    // leaving a changed password with a still-live, possibly-compromised session.
-    vi.mocked(authSessionService.revokeAllSessionsExceptCurrent).mockRejectedValueOnce(
-      new Error('redis down'),
-    );
-    await expect(
-      service.changePassword({
-        userPublicId: 'user_public',
-        body: { current_password: 'old', new_password: 'NewPassword123!' },
-        options: { currentAccessToken: 'current-bearer-token' },
-      }),
-    ).rejects.toThrow('redis down');
-    // updatePassword ran inside the same transaction callback, so a real DB rolls it back.
-    expect(userService.updatePassword).toHaveBeenCalled();
-  });
-
-  it('changePassword rejects when password auth disabled', async () => {
-    vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue({
-      ...user,
-      password_hash: null,
-    } as never);
-    await expect(
-      service.changePassword({
-        userPublicId: 'user_public',
-        body: {
-          current_password: 'old',
-          new_password: 'NewPassword123!',
-        },
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
-  it('forgotPassword rejects disposable email', async () => {
-    const emailUtil = await import('@/shared/utils/text/email.util.js');
-    vi.mocked(emailUtil.isDisposableEmailBlocked).mockReturnValueOnce(true);
-    await expect(
-      service.forgotPassword({ body: { email: 'bad@temp.com' } }),
-    ).rejects.toBeInstanceOf(ValidationError);
-  });
-
   it('delete throws when auth method is not found', async () => {
     // sec-new-B4: delete() accepts a publicId string; findByPublicIdForUser returning null triggers NotFoundError.
     vi.mocked(authMethodRepository.findByPublicIdForUser).mockResolvedValue(null);
@@ -523,70 +367,11 @@ describe('AuthMethodService', () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it('resetPassword rejects wrong token type and missing user', async () => {
-    // sec-r5-L2: a wrong-flow token never matches the PASSWORD_RESET-scoped consume, so the
-    // repository returns null and the service surfaces UnauthorizedError.
-    vi.mocked(verificationTokenRepository.consumeIfValid).mockResolvedValue(null);
-    await expect(
-      service.resetPassword({ token: 'reset-token', password: 'NewPassword123!' }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(verificationTokenRepository.consumeIfValid).toHaveBeenCalledWith(
-      expect.any(String),
-      'PASSWORD_RESET',
-    );
-
-    vi.mocked(verificationTokenRepository.consumeIfValid).mockResolvedValue({
-      token_type: 'PASSWORD_RESET',
-      user_id: user.id,
-    } as never);
-    vi.mocked(userService.findById).mockResolvedValue(null);
-    await expect(
-      service.resetPassword({ token: 'reset-token', password: 'NewPassword123!' }),
-    ).rejects.toBeInstanceOf(NotFoundError);
-  });
-
-  it('changePassword rejects incorrect current password', async () => {
-    const passwordUtil = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(passwordUtil.verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-    await expect(
-      service.changePassword({
-        userPublicId: 'user_public',
-        body: {
-          current_password: 'wrong',
-          new_password: 'NewPassword123!',
-        },
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
   it('delete throws NotFoundError when user record is missing', async () => {
     vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue(null as never);
     await expect(
       service.delete({ userPublicId: 'missing', methodPublicId: 'testpublicmid000000y' }),
     ).rejects.toBeInstanceOf(NotFoundError);
-  });
-
-  it('changePassword throws NotFoundError when user record is missing', async () => {
-    vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue(null as never);
-    await expect(
-      service.changePassword({
-        userPublicId: 'missing',
-        body: {
-          current_password: 'old',
-          new_password: 'NewPassword123!',
-        },
-      }),
-    ).rejects.toBeInstanceOf(NotFoundError);
-  });
-
-  it('resetPassword rejects when token record is missing', async () => {
-    vi.mocked(verificationTokenRepository.consumeIfValid).mockResolvedValue(null);
-    await expect(
-      service.resetPassword({ token: 'missing', password: 'NewPassword123!' }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
   it('delegates repository helpers and links OAuth when missing', async () => {

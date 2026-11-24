@@ -167,7 +167,7 @@ export const STRICT_PUBLIC_RATE_LIMIT = {
 
 /**
  * Per-identity cap (5 requests / 15 min per normalized email in production) for unauthenticated
- * credential and outbound-email endpoints (login, email-code request, password-reset request).
+ * credential and outbound-email endpoints (email-code request, passkey options).
  * The IP-only {@link STRICT_PUBLIC_RATE_LIMIT} is spoofable, so this complements it by binding the
  * limit to the targeted account/email — blunting credential stuffing, account enumeration, and
  * mailbomb abuse on public auth routes. Lifted when RATE_LIMIT_RELAXED_CAPS is set (development/test)
@@ -199,7 +199,7 @@ const MODERATE_AUTHED_MAX_REQUESTS_PER_WINDOW = RATE_LIMIT_CAPS_RELAXED ? 5000 :
 /**
  * Authenticated credential / abuse-sensitive mutations (10 req / 60s in production), keyed by
  * user when possible. The cap is lifted when RATE_LIMIT_RELAXED_CAPS is set (development/test) so
- * suites that loop through password change / MFA flows from a single loopback IP do not produce flaky 429s.
+ * suites that loop through step-up / MFA flows from a single loopback IP do not produce flaky 429s.
  */
 export const STRICT_AUTHED_RATE_LIMIT = {
   config: {
@@ -236,6 +236,26 @@ export const REFRESH_RATE_LIMIT = {
   config: {
     rateLimit: {
       max: RATE_LIMIT_CAPS_RELAXED ? 5000 : 30,
+      timeWindow: MILLISECONDS_PER_MINUTE,
+      keyGenerator: buildRateLimitKeyFromIpAddress,
+      onExceeded: recordRouteRateLimitExceeded,
+    },
+  },
+} as const;
+
+/** Invitation page reads one IP may make a minute (feat-instagram-dm-sending TN11, route 118). */
+const INVITATION_PREVIEW_PER_MINUTE = 30;
+
+/**
+ * The invitation preview — `POST /tenancy/membership-invitations/{membership_invitation_id}/preview`
+ * (route 118): {@link INVITATION_PREVIEW_PER_MINUTE} req / 60s per IP, on the default hook
+ * (onRequest — the route is PUBLIC). No captcha: it answers nothing without the emailed token.
+ * Lifted when RATE_LIMIT_RELAXED_CAPS is set (development/test), like its siblings.
+ */
+export const INVITATION_PREVIEW_RATE_LIMIT = {
+  config: {
+    rateLimit: {
+      max: RATE_LIMIT_CAPS_RELAXED ? 5000 : INVITATION_PREVIEW_PER_MINUTE,
       timeWindow: MILLISECONDS_PER_MINUTE,
       keyGenerator: buildRateLimitKeyFromIpAddress,
       onExceeded: recordRouteRateLimitExceeded,

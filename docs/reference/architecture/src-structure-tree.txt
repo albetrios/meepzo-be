@@ -481,7 +481,6 @@ src/
     │   │   │   ├── auth-audit-trail.integration.test.ts
     │   │   │   ├── auth-cached-payload.integration.test.ts
     │   │   │   ├── auth-me-context.integration.test.ts
-    │   │   │   ├── auth-recovery-atomicity.integration.test.ts
     │   │   │   ├── auth-route-smoke.integration.test.ts
     │   │   │   ├── auth.integration.test.ts
     │   │   │   ├── login-restores-last-organization.integration.test.ts
@@ -512,7 +511,6 @@ src/
     │   ├── handlers/
     │   │   ├── auth-auth-method.handlers.ts
     │   │   ├── auth-email-login.handlers.ts
-    │   │   ├── auth-login.handlers.ts
     │   │   ├── auth-me-context.handlers.ts
     │   │   ├── auth-mfa.handlers.ts
     │   │   ├── auth-oauth.handlers.ts
@@ -535,11 +533,9 @@ src/
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
     │   │   │   │   │       └── auth-method.event-handlers.unit.test.ts
-    │   │   │   │   │   ├── auth-method.change-password.db.unit.test.ts
     │   │   │   │   │   ├── auth-method.repository.db.unit.test.ts
     │   │   │   │   │   ├── auth-method.repository.unit.test.ts
     │   │   │   │   │   ├── auth-method.service.last-method-guard.unit.test.ts
-    │   │   │   │   │   ├── auth-method.service.step-up-mfa.unit.test.ts
     │   │   │   │   │   ├── auth-method.service.unit.test.ts
     │   │   │   │   │   ├── auth-method.validator.unit.test.ts
     │   │   │   │   │   ├── email-login.service.unit.test.ts
@@ -895,6 +891,7 @@ src/
     │   │   ├── notification/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── notification-check-before-send.integration.test.ts
     │   │   │   │   │   ├── notification-detail.integration.test.ts
     │   │   │   │   │   ├── notification-unread-count-cache.integration.test.ts
     │   │   │   │   │   └── notification.integration.test.ts
@@ -902,7 +899,8 @@ src/
     │   │   │   │   │   ├── events/
     │   │   │   │   │       ├── worker/
     │   │   │   │   │       │   └── notification-retention.worker.unit.test.ts
-    │   │   │   │   │       └── membership-invitation.event-handlers.unit.test.ts
+    │   │   │   │   │       ├── membership-invitation.event-handlers.unit.test.ts
+    │   │   │   │   │       └── membership-notice.event-handlers.unit.test.ts
     │   │   │   │   │   ├── notification-dispatch.service.unit.test.ts
     │   │   │   │   │   ├── notification-email-content.unit.test.ts
     │   │   │   │   │   ├── notification-email-idempotency.unit.test.ts
@@ -920,7 +918,8 @@ src/
     │   │   │   │   │   ├── notification.validator.unit.test.ts
     │   │   │   │   │   └── notification.worker.unit.test.ts
     │   │   │   ├── events/
-    │   │   │   │   └── membership-invitation.event-handlers.ts
+    │   │   │   │   ├── membership-invitation.event-handlers.ts
+    │   │   │   │   └── membership-notice.event-handlers.ts
     │   │   │   ├── queues/
     │   │   │   │   ├── notification.job.schema.ts
     │   │   │   │   └── notification.queue.ts
@@ -1144,6 +1143,7 @@ src/
     │   │   ├── membership/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── membership-invite-preview.integration.test.ts
     │   │   │   │   │   ├── membership-lifecycle-guards.integration.test.ts
     │   │   │   │   │   ├── membership-ownership-transfer.integration.test.ts
     │   │   │   │   │   └── membership.integration.test.ts
@@ -1164,6 +1164,7 @@ src/
     │   │   │   │   │   ├── membership.service.unit.test.ts
     │   │   │   │   │   └── membership.validator.unit.test.ts
     │   │   │   ├── events/
+    │   │   │   │   ├── membership-notice.events.ts
     │   │   │   │   └── membership.events.ts
     │   │   │   ├── membership-additional-roles/
     │   │   │   │   ├── membership-additional-roles.overview.md
@@ -2169,7 +2170,6 @@ src/
     │   │   ├── field-secret-encryption.util.ts
     │   │   ├── image-location.util.ts
     │   │   ├── jwt.util.ts
-    │   │   ├── password.util.ts
     │   │   ├── response-encryption-keyring.util.ts
     │   │   ├── safe-webhook-url-for-logs.util.ts
     │   │   ├── secrets-sub-key.util.ts
@@ -2401,6 +2401,7 @@ src/
     │   ├── iteration-repository.helper.ts
     │   ├── json-query.helper.ts
     │   ├── local-test-database.ts
+    │   ├── membership-invite.helper.ts
     │   ├── object-storage-mock.helper.ts
     │   ├── operator-database.ts
     │   ├── organization-filter-audit.allowlist.ts
@@ -2636,6 +2637,7 @@ src/
     │   │   ├── billing-mutation-rate-limit.security.test.ts
     │   │   ├── cross-tenant-rate-limit.security.test.ts
     │   │   ├── failed-authentication-rate-limit.security.test.ts
+    │   │   ├── invitation-preview-rate-limit.security.test.ts
     │   │   ├── notify-mutation-rate-limit.security.test.ts
     │   │   ├── preset-authed-burst.security.test.ts
     │   │   ├── rate-limit-burst.security.test.ts
@@ -3060,7 +3062,6 @@ src/
     │   │   │   ├── image-location.util.unit.test.ts
     │   │   │   ├── jwt-key-material.unit.test.ts
     │   │   │   ├── jwt.util.unit.test.ts
-    │   │   │   ├── password.util.unit.test.ts
     │   │   │   ├── response-encryption-keyring.util.unit.test.ts
     │   │   │   ├── secrets-sub-key.util.unit.test.ts
     │   │   │   ├── sensitive-redaction.util.unit.test.ts

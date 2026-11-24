@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/shared/errors/index.js';
 import {
+  isInvitableEmail,
   validateCreateMembership,
   validateListMembershipsQuery,
   validateTransferOwnership,
@@ -8,28 +9,48 @@ import {
 } from '@/domains/tenancy/sub-domains/membership/membership.validator.js';
 
 describe('membership validators', () => {
-  it('validateCreateMembership accepts email + role_ids, normalizes the email, and defaults expires_in_days', () => {
+  it('validateCreateMembership accepts emails + role_ids, trims and lower-cases each, and defaults expires_in_days', () => {
     const result = validateCreateMembership({
-      email: '  Invitee@Example.com ',
+      emails: ['  Invitee@Example.com ', 'second@example.com'],
       role_ids: ['rolepublicid1234567'],
     });
-    expect(result.email).toBe('invitee@example.com');
+    expect(result.emails).toEqual(['invitee@example.com', 'second@example.com']);
     expect(result.role_ids).toEqual(['rolepublicid1234567']);
     expect(result.expires_in_days).toBe(7);
   });
 
-  it('validateCreateMembership rejects a malformed email', () => {
+  it('validateCreateMembership leaves a malformed address to its own line (isInvitableEmail)', () => {
+    const result = validateCreateMembership({
+      emails: ['not-an-email'],
+      role_ids: ['rolepublicid1234567'],
+    });
+    expect(result.emails).toEqual(['not-an-email']);
+    expect(isInvitableEmail('not-an-email')).toBe(false);
+    expect(isInvitableEmail('invitee@example.com')).toBe(true);
+  });
+
+  it('validateCreateMembership refuses no address, more than 20, no role, and the staff fields', () => {
+    const role_ids = ['rolepublicid1234567'];
+    expect(() => validateCreateMembership({ emails: [], role_ids })).toThrow(ValidationError);
+    const twentyOne = Array.from({ length: 21 }, (_, index) => `invitee-${index}@example.com`);
+    expect(() => validateCreateMembership({ emails: twentyOne, role_ids })).toThrow(
+      ValidationError,
+    );
     expect(() =>
-      validateCreateMembership({ email: 'not-an-email', role_ids: ['rolepublicid1234567'] }),
+      validateCreateMembership({ emails: ['invitee@example.com'], role_ids: [] }),
+    ).toThrow(ValidationError);
+    expect(() =>
+      validateCreateMembership({
+        emails: ['invitee@example.com'],
+        role_ids,
+        phone: '+15555550100',
+      }),
     ).toThrow(ValidationError);
   });
 
-  it('validateCreateMembership rejects the legacy user_id field (REQ-1: body is now email-based)', () => {
+  it('validateCreateMembership rejects the single email field (route 117 takes emails)', () => {
     expect(() =>
-      validateCreateMembership({
-        user_id: 'userpublicid1234567',
-        role_ids: ['rolepublicid1234567'],
-      }),
+      validateCreateMembership({ email: 'invitee@example.com', role_ids: ['rolepublicid1234567'] }),
     ).toThrow(ValidationError);
   });
 

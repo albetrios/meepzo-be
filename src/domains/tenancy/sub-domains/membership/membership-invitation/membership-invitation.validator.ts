@@ -2,9 +2,11 @@ import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.uti
 import {
   acceptMembershipInvitationDto,
   listMyMembershipInvitationsQueryDto,
+  previewMembershipInvitationDto,
   resendMembershipInvitationDto,
   type AcceptMembershipInvitationInput,
   type ListMyMembershipInvitationsQueryInput,
+  type PreviewMembershipInvitationInput,
   type ResendMembershipInvitationInput,
 } from './membership-invitation.dto.js';
 
@@ -33,4 +35,14 @@ export function validateListMyMembershipInvitationsQuery(
   data: unknown,
 ): ListMyMembershipInvitationsQueryInput {
   return parseWithSchema({ schema: listMyMembershipInvitationsQueryDto, data });
+}
+
+/**
+ * Validates a `POST /membership-invitations/:membership_invitation_id/preview` body against
+ * {@link previewMembershipInvitationDto} (route 118): the token is required.
+ */
+export function validatePreviewMembershipInvitation(
+  data: unknown,
+): PreviewMembershipInvitationInput {
+  return parseWithSchema({ schema: previewMembershipInvitationDto, data });
 }

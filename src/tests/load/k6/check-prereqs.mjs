@@ -113,12 +113,20 @@ if (serverUp && pool.length) {
   let mfaBlocked = 0;
   for (const c of pool.slice(0, Math.min(30, pool.length))) {
     try {
-      const lr = await fetch(`${API}/auth/login`, {
+      // The dev-only CAPTCHA bypass (honored only with CAPTCHA_BYPASS_ALLOWED=true, never in
+      // production) — the same header the k6 scenarios send on public auth forms. Passwords are
+      // off (P84): sign in by email code, which the target echoes under TEST_MODE.
+      const formHeaders = { 'Content-Type': 'application/json', 'X-Captcha-Bypass': 'true' };
+      const sent = await fetch(`${API}/auth/email/send-code`, {
         method: 'POST',
-        // The dev-only CAPTCHA bypass (honored only with CAPTCHA_BYPASS_ALLOWED=true, never in
-        // production) — the same header the k6 scenarios send on public auth forms.
-        headers: { 'Content-Type': 'application/json', 'X-Captcha-Bypass': 'true' },
-        body: JSON.stringify({ email: c.email, password: c.password }),
+        headers: formHeaders,
+        body: JSON.stringify({ email: c.email }),
+      });
+      const code = (await sent.json())?.data?.debug_verification_code;
+      const lr = await fetch(`${API}/auth/email/login`, {
+        method: 'POST',
+        headers: formHeaders,
+        body: JSON.stringify({ email: c.email, code }),
       });
       const j = await lr.json();
       if (lr.status === 401 && /captcha/i.test(JSON.stringify(j))) {
@@ -159,7 +167,7 @@ if (serverUp && pool.length) {
       : fail(
           'captcha fail-open + login',
           'no sampled user got a token',
-          'Check CAPTCHA_PROVIDER=disabled + RATE_LIMIT_RELAXED_CAPS=true + credential pool passwords',
+          'Check CAPTCHA_PROVIDER=disabled + RATE_LIMIT_RELAXED_CAPS=true + TEST_MODE (the email-code echo)',
         );
     scopedReadOk
       ? ok('org-scoped read', 'GET /tenancy/organization/memberships → 200')

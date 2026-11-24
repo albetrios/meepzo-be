@@ -141,7 +141,9 @@ export const tenancyRouteResponses: Record<string, ResponseDefinition> = {
   // ── Membership ──
   'GET /api/v1/tenancy/organization/memberships': {
     statusCode: 200,
-    schema: wrapPaginated(schemas.membershipSchema, [schemas.membershipExample]),
+    schema: wrapPaginated(schemas.membershipSchema, [schemas.membershipExample], {
+      counts_by_role: schemas.membershipCountsByRoleProperty,
+    }),
     example: null,
   },
   'GET /api/v1/tenancy/organization/memberships/{membership_id}': {
@@ -161,24 +163,10 @@ export const tenancyRouteResponses: Record<string, ResponseDefinition> = {
     example: null,
   },
   'POST /api/v1/tenancy/organization/memberships': {
+    // Route 117 (TN10): one line per email; an invited line may carry the dev-only
+    // `debug_invitation_token` (ROUTE #164).
     statusCode: 200,
-    // ROUTE #164: the embedded invitation may carry the dev-only `debug_invitation_token`.
-    schema: wrapSuccess(
-      {
-        ...schemas.membershipSchema,
-        properties: {
-          ...schemas.membershipSchema.properties,
-          invitation: {
-            ...schemas.membershipSchema.properties.invitation,
-            properties: {
-              ...schemas.membershipSchema.properties.invitation.properties,
-              debug_invitation_token: schemas.debugInvitationTokenProperty,
-            },
-          },
-        },
-      },
-      schemas.membershipExample,
-    ),
+    schema: wrapSuccess(schemas.membershipInviteSchema, schemas.membershipInviteExample),
     example: null,
   },
   'PATCH /api/v1/tenancy/organization/memberships/{membership_id}': {
@@ -230,6 +218,12 @@ export const tenancyRouteResponses: Record<string, ResponseDefinition> = {
         organization_id: 'org_k7x9m2pqr4w8n1v3a1b2c',
       },
     ),
+    example: null,
+  },
+  'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/preview': {
+    // Route 118 (TN11): PUBLIC, the token in the body; the invitee's email never returned.
+    statusCode: 200,
+    schema: wrapSuccess(schemas.invitationPreviewSchema, schemas.invitationPreviewExample),
     example: null,
   },
   'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/decline': {

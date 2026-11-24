@@ -1,4 +1,15 @@
-import { getTableColumns, and, count, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import {
+  getTableColumns,
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { finishKeysetPage } from '@/shared/utils/http/list-query.util.js';
 import { countWithCap } from '@/infrastructure/database/utils/capped-count.util.js';
 import { NOTIFICATION_MARK_ALL_READ_BATCH_SIZE } from '@/shared/constants/notification.constants.js';
@@ -11,6 +22,7 @@ import {
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { notifications } from '@/domains/notify/sub-domains/notification/notification.schema.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
+import { organization_notification_policies } from '@/domains/tenancy/sub-domains/organization/organization-notification-policy/organization-notification-policy.schema.js';
 import { users } from '@/domains/user/user.schema.js';
 import {
   buildDescendingCreatedAtIdCursorCondition,
@@ -43,6 +55,34 @@ export interface CreateNotificationInput {
   data?: Record<string, unknown>;
   action_url?: string;
   action_label?: string;
+}
+
+/** One recipient as the dispatch needs them: internal id, public id and the address emails go to. */
+export interface NotificationRecipientRow {
+  id: number;
+  publicId: string;
+  email: string | null;
+}
+
+/** One stored notification choice of a recipient (`auth.user_notification_preferences`). */
+export interface NotificationChoiceRow {
+  user_id: number;
+  notification_type: string;
+  channel: string;
+  is_enabled: boolean;
+}
+
+/** The rows of a raw `execute` (postgres-js answers an array, node-postgres `{ rows }`). */
+function executedRows<T>(result: unknown): T[] {
+  return (Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])) as T[];
+}
+
+/** `ARRAY[...]` of bound values for a SECURITY DEFINER resolver's array parameter. */
+function sqlValueList(values: readonly (number | string)[]): SQL {
+  return sql.join(
+    values.map((value) => sql`${value}`),
+    sql`, `,
+  );
 }
 
 /**
@@ -286,17 +326,74 @@ export class NotificationRepository {
    */
   async resolveUserPublicIdsByInternalIds(userInternalIds: readonly number[]): Promise<string[]> {
     if (userInternalIds.length === 0) return [];
-    const userIdValues = sql.join(
-      userInternalIds.map((userInternalId) => sql`${userInternalId}`),
-      sql`, `,
-    );
     const result = await this.db().execute(
-      sql`SELECT public_id FROM auth.resolve_user_public_ids_by_ids(ARRAY[${userIdValues}]::bigint[])`,
+      sql`SELECT public_id FROM auth.resolve_user_public_ids_by_ids(ARRAY[${sqlValueList(userInternalIds)}]::bigint[])`,
     );
-    const rows = (
-      Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
-    ) as { public_id: string }[];
-    return rows.map((row) => row.public_id);
+    return executedRows<{ public_id: string }>(result).map((row) => row.public_id);
+  }
+
+  /**
+   * The recipients' public ids and email addresses, by internal id, through the SECURITY DEFINER
+   * `auth.resolve_user_summaries_by_ids` — `auth.users` is owner-only under RLS and the dispatch
+   * runs in the organization's context. A missing id is left out.
+   */
+  async resolveRecipientsForDispatch(
+    userInternalIds: readonly number[],
+  ): Promise<NotificationRecipientRow[]> {
+    if (userInternalIds.length === 0) return [];
+    const result = await this.db().execute(
+      sql`SELECT id, public_id, email FROM auth.resolve_user_summaries_by_ids(ARRAY[${sqlValueList(userInternalIds)}]::bigint[])`,
+    );
+    return executedRows<{ id: number | string; public_id: string; email: string | null }>(
+      result,
+    ).map((row) => ({ id: Number(row.id), publicId: row.public_id, email: row.email }));
+  }
+
+  /**
+   * Every stored choice of these recipients for these types — ONE query per notification (UN11),
+   * through the SECURITY DEFINER `auth.resolve_notification_choices_by_user_ids` (the preferences
+   * are owner-only under RLS). A missing row is the kind's default.
+   */
+  async listNotificationChoices({
+    userInternalIds,
+    types,
+  }: {
+    userInternalIds: readonly number[];
+    types: readonly string[];
+  }): Promise<NotificationChoiceRow[]> {
+    if (userInternalIds.length === 0 || types.length === 0) return [];
+    const result = await this.db().execute(
+      sql`SELECT user_id, notification_type, channel, is_enabled FROM auth.resolve_notification_choices_by_user_ids(ARRAY[${sqlValueList(userInternalIds)}]::bigint[], ARRAY[${sqlValueList(types)}]::text[])`,
+    );
+    return executedRows<NotificationChoiceRow & { user_id: number | string }>(result).map(
+      (row) => ({ ...row, user_id: Number(row.user_id) }),
+    );
+  }
+
+  /**
+   * The channels the organization muted for this type right now
+   * (`tenancy.organization_notification_policies.muted_until` in the future) — read in the
+   * organization's own RLS context. The mute wins over a person's choice (plan:L8182).
+   */
+  async listMutedNotificationChannels({
+    organization_id,
+    type,
+  }: {
+    organization_id: number;
+    type: string;
+  }): Promise<string[]> {
+    const rows = await this.db()
+      .select({ channel: organization_notification_policies.channel })
+      .from(organization_notification_policies)
+      .where(
+        and(
+          eq(organization_notification_policies.organization_id, organization_id),
+          eq(organization_notification_policies.notification_type, type),
+          isNull(organization_notification_policies.deleted_at),
+          gt(organization_notification_policies.muted_until, sql`now()`),
+        ),
+      );
+    return rows.map((row) => row.channel);
   }
 
   async countUnreadForUser(user_id: number): Promise<number> {

@@ -107,7 +107,7 @@ function payloadForPermissionRoute(
   // The tenancy team writes: the smallest body each schema accepts.
   if (route.method === 'POST' && route.path.endsWith('/tenancy/organization/memberships')) {
     return {
-      email: 'matrix-member@example.test',
+      emails: ['matrix-member@example.test'],
       role_ids: [publicIdPlaceholderFor('memberRole')],
     };
   }

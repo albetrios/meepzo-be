@@ -20,20 +20,20 @@ describe('Security: Input Validation', () => {
     await app.close();
   });
 
-  describe('Login endpoint validation', () => {
+  describe('Email-code login endpoint validation', () => {
     it('should reject missing email field', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: { password: 'test' },
+        url: testApiPath('/auth/email/login'),
+        payload: { code: '482913' },
       });
       expect([400, 422]).toContain(response.statusCode);
     });
 
-    it('should reject missing password field', async () => {
+    it('should reject missing code field', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
+        url: testApiPath('/auth/email/login'),
         payload: { email: 'test@test.com' },
       });
       expect([400, 422]).toContain(response.statusCode);
@@ -42,7 +42,7 @@ describe('Security: Input Validation', () => {
     it('should reject empty body', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
+        url: testApiPath('/auth/email/login'),
         payload: {},
       });
       expect([400, 422]).toContain(response.statusCode);
@@ -51,11 +51,8 @@ describe('Security: Input Validation', () => {
     it('should reject SQL injection in email', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: "' OR 1=1 --",
-          password: 'test',
-        },
+        url: testApiPath('/auth/email/login'),
+        payload: { email: "' OR 1=1 --", code: '482913' },
       });
       expect([400, 401, 422]).toContain(response.statusCode);
     });
@@ -63,11 +60,8 @@ describe('Security: Input Validation', () => {
     it('should reject XSS in email', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: '<script>alert("xss")</script>',
-          password: 'test',
-        },
+        url: testApiPath('/auth/email/login'),
+        payload: { email: '<script>alert("xss")</script>', code: '482913' },
       });
       expect([400, 401, 422]).toContain(response.statusCode);
     });
@@ -103,25 +97,14 @@ describe('Security: Input Validation', () => {
     });
   });
 
-  describe('Password reset validation', () => {
-    it('should reject empty body', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/reset'),
-        payload: {},
-      });
-      expect([400, 422]).toContain(response.statusCode);
-    });
-  });
-
   describe('Organization creation validation', () => {
     it('should handle excessively long name', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
+        url: testApiPath('/auth/email/login'),
         payload: {
           email: `${'a'.repeat(500)}@test.com`,
-          password: 'a'.repeat(500),
+          code: '1'.repeat(500),
         },
       });
       expect([400, 401, 422]).toContain(response.statusCode);
@@ -132,9 +115,9 @@ describe('Security: Input Validation', () => {
     it('should reject non-JSON content type on JSON endpoints', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
+        url: testApiPath('/auth/email/login'),
         headers: { 'content-type': 'text/plain' },
-        payload: 'email=test@test.com&password=test',
+        payload: 'email=test@test.com&code=482913',
       });
       expect([400, 415, 422]).toContain(response.statusCode);
     });
@@ -144,23 +127,17 @@ describe('Security: Input Validation', () => {
     it('should accept email with leading and trailing spaces (trimmed)', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: '  valid-format@example.com  ',
-          password: 'somepassword',
-        },
+        url: testApiPath('/auth/email/login'),
+        payload: { email: '  valid-format@example.com  ', code: '482913' },
       });
       expect(response.statusCode).not.toBe(400);
     });
 
-    it('should reject password that is only whitespace', async () => {
+    it('should reject a code that is only whitespace', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: 'user@example.com',
-          password: '   \t  ',
-        },
+        url: testApiPath('/auth/email/login'),
+        payload: { email: 'user@example.com', code: '      ' },
       });
       expect([400, 422]).toContain(response.statusCode);
     });
@@ -195,15 +172,6 @@ describe('Security: Input Validation', () => {
         method: 'POST',
         url: testApiPath('/auth/email/send-code'),
         payload: { email: 'test@yopmail.com' },
-      });
-      expect(response.statusCode).toBe(200);
-    });
-
-    it('when switch is off, password forgot accepts disposable email', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/forgot'),
-        payload: { email: 'user@mailinator.com' },
       });
       expect(response.statusCode).toBe(200);
     });

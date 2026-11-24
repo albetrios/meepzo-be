@@ -329,6 +329,7 @@ describe('MembershipInvitationService — the invitee flows (launch D84) and the
           type: MEMBERSHIP_INVITATION_EVENT.ACCEPTED,
           payload: {
             recipient_user_ids: [7],
+            invitation_public_id: 'inv_public_123',
             organization_id: 1,
             organization_name: 'Test Org',
             invitee_name: 'Ira Nair',
@@ -712,6 +713,7 @@ describe('MembershipInvitationService — the invitee flows (launch D84) and the
           type: MEMBERSHIP_INVITATION_EVENT.DECLINED,
           payload: {
             recipient_user_ids: [2],
+            invitation_public_id: declineInput.invitation.public_id,
             organization_id: 1,
             organization_name: 'Test Org',
             invitee_name: 'Ira Nair',

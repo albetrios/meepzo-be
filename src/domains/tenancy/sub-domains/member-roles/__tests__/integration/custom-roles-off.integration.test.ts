@@ -183,7 +183,7 @@ describe('Custom roles off and the four system roles (integration)', () => {
           method: 'POST',
           url: testApiPath('/tenancy/organization/memberships'),
           token: ownerToken,
-          payload: { email, role_ids: roleIds },
+          payload: { emails: [email], role_ids: roleIds },
           headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
         });
 

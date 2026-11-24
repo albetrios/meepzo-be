@@ -11,8 +11,8 @@
  *   pnpm test:bench --duration 30         # longer runs
  *   pnpm test:bench --json                # machine-readable summary
  *
- * Authenticated endpoints log in with `DEMO_EMAIL` / `DEMO_PASSWORD` (the same
- * defaults as smoke and k6); when login fails they are SKIPPED with a notice so
+ * Authenticated endpoints sign `DEMO_EMAIL` in by email code (the TEST_MODE echo — the same
+ * default as smoke and k6); when login fails they are SKIPPED with a notice so
  * the public benches still run on an unseeded server.
  *
  * Autocannon is spawned via `npx --yes autocannon` (downloaded on demand) to keep
@@ -168,15 +168,26 @@ export function parseBenchCliOptions(argv: readonly string[]): BenchCliOptions {
   return options;
 }
 
-/** Logs in with the demo credentials and returns a Bearer token, or null. */
+/**
+ * Signs the demo user in by email code (passwords are off, P84 — the server echoes the code under
+ * TEST_MODE) and returns a Bearer token, or null.
+ */
 async function loginForBearerToken(): Promise<string | null> {
   const email = process.env.DEMO_EMAIL ?? 'demo@example.com';
-  const password = process.env.DEMO_PASSWORD ?? 'DemoPassword123!';
   try {
-    const response = await fetch(`${API_PREFIX}/auth/login`, {
+    const sent = await fetch(`${API_PREFIX}/auth/email/send-code`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email }),
+    });
+    if (!sent.ok) return null;
+    const code = ((await sent.json()) as { data?: { debug_verification_code?: string } }).data
+      ?.debug_verification_code;
+    if (!code) return null;
+    const response = await fetch(`${API_PREFIX}/auth/email/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, code }),
     });
     if (!response.ok) return null;
     const body = (await response.json()) as { data?: { access_token?: string } };

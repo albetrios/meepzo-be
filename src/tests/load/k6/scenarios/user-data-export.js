@@ -25,12 +25,18 @@ export function setup() {
   const token = __ENV.TEST_TOKEN;
   if (!token) return { dataExportId: null };
   // The export carries every piece of personal data, so it needs a recent step-up on this session:
-  // re-authenticate as the demo user (TEST_TOKEN's) first, as the client does.
-  const stepUp = http.post(
-    `${API_PREFIX}/auth/step-up`,
-    JSON.stringify({ password: __ENV.DEMO_PASSWORD || 'DemoPassword123!' }),
-    { ...authHeaders(token), tags: { name: 'user-data-export-step-up' } },
-  );
+  // re-authenticate as the demo user (TEST_TOKEN's) first, as the client does — by email code
+  // (passwords are off, P84; the target echoes the code under TEST_MODE).
+  const email = __ENV.DEMO_EMAIL || 'demo@example.com';
+  const sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
+    headers: { 'Content-Type': 'application/json', 'X-Captcha-Bypass': 'true' },
+    tags: { name: 'user-data-export-send-code' },
+  });
+  const code = sent.status === 200 ? JSON.parse(sent.body).data?.debug_verification_code : null;
+  const stepUp = http.post(`${API_PREFIX}/auth/step-up`, JSON.stringify({ code }), {
+    ...authHeaders(token),
+    tags: { name: 'user-data-export-step-up' },
+  });
   if (stepUp.status !== 200) return { dataExportId: null };
   const response = http.post(`${API_PREFIX}/users/me/data-export`, JSON.stringify({}), {
     ...authHeaders(token),

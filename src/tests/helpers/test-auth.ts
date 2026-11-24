@@ -1,6 +1,8 @@
 import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper.js';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import { emailCodeSendCooldownKey } from '@/domains/auth/sub-domains/auth-method/email-login.service.js';
 import { env } from '@/shared/config/env.config.js';
 import { sessionExpiresAtFromNow } from '@/domains/auth/sub-domains/auth-session/session-lifetime.js';
 import { MFA_AUTHENTICATION_METHOD, signAccessToken } from '@/shared/utils/security/jwt.util.js';
@@ -13,7 +15,10 @@ import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { users } from '@/domains/user/user.schema.js';
 import { and, eq, ne } from 'drizzle-orm';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
-import { injectUnauthenticated } from '@/tests/helpers/test-http-inject.helper.js';
+import {
+  injectUnauthenticated,
+  type InjectHttpResult,
+} from '@/tests/helpers/test-http-inject.helper.js';
 
 async function persistActiveSessionForToken(
   userPublicId: string,
@@ -232,20 +237,49 @@ export async function generateTestTokenWithActiveSession(
 }
 
 /**
- * Log in via the API and return a bearer token backed by an active auth session row.
+ * Signs `email` in over the API by email code — `POST /auth/email/send-code`, then
+ * `POST /auth/email/login` with the code the harness echoes (`TEST_MODE`) — and returns the
+ * `email/login` response (a session with its cookie, or an `mfa_required` challenge). Passwords are
+ * off (P84), so this is how a test signs a person in. An unknown email is signed up on the spot.
+ *
+ * @remarks Clears the email's send spacing first, so a test may sign the same person in more than
+ * once. `options.headers` go on the `email/login` request (e.g. a `user-agent`).
  */
-export async function loginAndGetAccessToken(
+export async function signInWithEmailCode(
   application: FastifyInstance,
-  credentials: { email: string; password: string },
-): Promise<string> {
-  const response = await injectUnauthenticated(application, {
+  options: { email: string; headers?: Record<string, string> },
+): Promise<InjectHttpResult> {
+  await redisConnection.del(emailCodeSendCooldownKey(options.email));
+  const sent = await injectUnauthenticated(application, {
     method: 'POST',
-    url: testApiPath('/auth/login'),
-    payload: credentials,
+    url: testApiPath('/auth/email/send-code'),
+    payload: { email: options.email },
   });
-  if (response.statusCode !== 200) {
-    throw new Error(`login failed with status ${response.statusCode}: ${response.body}`);
+  const code = (sent.json() as { data?: { debug_verification_code?: string } }).data
+    ?.debug_verification_code;
+  if (sent.statusCode !== 200 || !code) {
+    throw new Error(`send-code failed with status ${sent.statusCode}: ${sent.body}`);
   }
-  const body = response.json() as { data: { access_token: string } };
-  return body.data.access_token;
+  return injectUnauthenticated(application, {
+    method: 'POST',
+    url: testApiPath('/auth/email/login'),
+    payload: { email: options.email, code },
+    ...(options.headers ? { headers: options.headers } : {}),
+  });
+}
+
+/**
+ * Signs `email` in by email code ({@link signInWithEmailCode}) and returns the bearer token of the
+ * session it opened; throws when the sign-in did not open one (e.g. an MFA challenge).
+ */
+export async function signInAndGetAccessToken(
+  application: FastifyInstance,
+  email: string,
+): Promise<string> {
+  const response = await signInWithEmailCode(application, { email });
+  const token = (response.json() as { data?: { access_token?: string } }).data?.access_token;
+  if (response.statusCode !== 200 || !token) {
+    throw new Error(`sign-in failed with status ${response.statusCode}: ${response.body}`);
+  }
+  return token;
 }

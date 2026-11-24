@@ -1,3 +1,4 @@
+import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
 import { dispatchOutboxEmail } from '@/infrastructure/mail/queues/mail.queue.js';
 import {
   discardUndispatchedNotification,
@@ -21,16 +22,15 @@ import type { CommitDispatchTask } from '@/infrastructure/queue/commit-dispatch/
  */
 export async function executeCommitDispatchTask(task: CommitDispatchTask): Promise<void> {
   switch (task.type) {
-    case 'mail_outbox':
-      if (task.requestId !== undefined) {
-        await dispatchOutboxEmail({
-          mailOutboxToken: task.mailOutboxToken,
-          options: { requestId: task.requestId },
-        });
-      } else {
-        await dispatchOutboxEmail({ mailOutboxToken: task.mailOutboxToken });
-      }
+    case 'mail_outbox': {
+      const options = omitUndefined({ requestId: task.requestId, lane: task.lane });
+      await dispatchOutboxEmail(
+        Object.keys(options).length === 0
+          ? { mailOutboxToken: task.mailOutboxToken }
+          : { mailOutboxToken: task.mailOutboxToken, options },
+      );
       return;
+    }
     case 'notification':
       try {
         await enqueueNotification({

@@ -105,7 +105,6 @@
   "POST /api/v1/app/automations": 200,
   "POST /api/v1/auth/email/login": 200,
   "POST /api/v1/auth/email/send-code": 200,
-  "POST /api/v1/auth/login": 200,
   "POST /api/v1/auth/logout": 200,
   "POST /api/v1/auth/me/auth-methods": 200,
   "POST /api/v1/auth/me/mfa/enroll": 200,
@@ -114,9 +113,6 @@
   "POST /api/v1/auth/me/webauthn/register/options": 200,
   "POST /api/v1/auth/me/webauthn/register/verify": 200,
   "POST /api/v1/auth/mfa/login": 200,
-  "POST /api/v1/auth/password/change": 200,
-  "POST /api/v1/auth/password/forgot": 200,
-  "POST /api/v1/auth/password/reset": 200,
   "POST /api/v1/auth/refresh": 200,
   "POST /api/v1/auth/step-up": 200,
   "POST /api/v1/auth/switch-to-organization": 200,
@@ -159,5 +155,6 @@
   "PUT /api/v1/users/me/presence": 200,
   "POST /api/v1/tenancy/organization/roles/:role_id/restore": 200,
   "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/decline": 200,
+  "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview": 200,
   "GET /api/v1/users/me/membership-invitations": 200
 }

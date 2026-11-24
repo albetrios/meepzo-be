@@ -2,14 +2,10 @@ import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.uti
 import { ValidationError } from '@/shared/errors/index.js';
 import { validatePublicIdParam } from '@/shared/utils/identity/public-id-param.util.js';
 import type {
-  LoginInput,
   EmailSendCodeInput,
   EmailLoginInput,
   MfaVerifyInput,
   CreateAuthMethodInput,
-  ForgotPasswordInput,
-  ResetPasswordInput,
-  ChangePasswordInput,
   StepUpVerifyInput,
   MfaEnrollInput,
   MfaEnrollConfirmInput,
@@ -17,25 +13,16 @@ import type {
   OauthCallbackQueryInput,
 } from './auth.dto.js';
 import {
-  LoginDto,
   EmailSendCodeDto,
   EmailLoginDto,
   MfaVerifyDto,
   CreateAuthMethodDto,
-  ForgotPasswordDto,
-  ResetPasswordDto,
-  ChangePasswordDto,
   StepUpVerifyDto,
   MfaEnrollDto,
   MfaEnrollConfirmDto,
   MfaLoginVerifyDto,
   OauthCallbackQueryDto,
 } from './auth.dto.js';
-
-/** Validates the `POST /api/v1/auth/login` request body against {@link LoginDto}; throws {@link ValidationError} with field errors on failure. */
-export function validateLogin(body: unknown): LoginInput {
-  return parseWithSchema({ schema: LoginDto, data: body });
-}
 
 /** Validates the `POST /api/v1/auth/email/send-code` request body against {@link EmailSendCodeDto}. */
 export function validateEmailSendCode(body: unknown): EmailSendCodeInput {
@@ -55,21 +42,6 @@ export function validateMfaVerify(body: unknown): MfaVerifyInput {
 /** Validates the `POST /api/v1/auth/me/auth-methods` request body against {@link CreateAuthMethodDto}. */
 export function validateCreateAuthMethod(body: unknown): CreateAuthMethodInput {
   return parseWithSchema({ schema: CreateAuthMethodDto, data: body });
-}
-
-/** Validates the `POST /api/v1/auth/password/forgot` request body against {@link ForgotPasswordDto}. */
-export function validateForgotPassword(body: unknown): ForgotPasswordInput {
-  return parseWithSchema({ schema: ForgotPasswordDto, data: body });
-}
-
-/** Validates the `POST /api/v1/auth/password/reset` request body against {@link ResetPasswordDto}. */
-export function validateResetPassword(body: unknown): ResetPasswordInput {
-  return parseWithSchema({ schema: ResetPasswordDto, data: body });
-}
-
-/** Validates the authenticated `POST /api/v1/auth/password/change` request body against {@link ChangePasswordDto}. */
-export function validateChangePassword(body: unknown): ChangePasswordInput {
-  return parseWithSchema({ schema: ChangePasswordDto, data: body });
 }
 
 /** Validates the authenticated `POST /api/v1/auth/step-up` request body against {@link StepUpVerifyDto}. */

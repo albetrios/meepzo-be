@@ -2,17 +2,9 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 
 const createAndDispatchNotificationMock = vi.fn();
-const resolveRecipientPublicIdsMock = vi.fn();
-// No Postgres in the unit lane: each recipient's savepoint runs its callback directly.
-vi.mock('@/infrastructure/database/transaction.js', () => ({
-  withSavepoint: vi.fn(async (callback: () => Promise<unknown>) => callback()),
-}));
-
 vi.mock('@/domains/notify/sub-domains/notification/notification-dispatch.service.js', () => ({
   createAndDispatchNotification: (...arguments_: unknown[]) =>
     createAndDispatchNotificationMock(...arguments_),
-  resolveNotificationRecipientPublicIds: (...arguments_: unknown[]) =>
-    resolveRecipientPublicIdsMock(...arguments_),
 }));
 
 const invalidateUnreadCountsMock = vi.fn();
@@ -26,7 +18,18 @@ beforeAll(async () => {
   await initializeI18nextForBackgroundWork();
 });
 
-describe('membership-invitation notification handlers (item #10, launch D84)', () => {
+/** A dispatch result where these recipients got an inbox row. */
+function dispatched(inAppUserPublicIds: string[]) {
+  return {
+    inAppUserIds: inAppUserPublicIds.map((_, index) => index + 1),
+    inAppUserPublicIds,
+    emailOnlyUserIds: [],
+    skippedCount: 0,
+    failedCount: 0,
+  };
+}
+
+describe('membership-invitation notification handlers (item #10, launch D84, UN11)', () => {
   let emitAccepted: (payload: unknown) => Promise<void>;
   let emitDeclined: (payload: unknown) => Promise<void>;
 
@@ -59,41 +62,40 @@ describe('membership-invitation notification handlers (item #10, launch D84)', (
 
   beforeEach(() => {
     createAndDispatchNotificationMock.mockReset();
-    createAndDispatchNotificationMock.mockResolvedValue(undefined);
-    resolveRecipientPublicIdsMock.mockReset();
-    resolveRecipientPublicIdsMock.mockResolvedValue([]);
+    createAndDispatchNotificationMock.mockResolvedValue(dispatched([]));
     invalidateUnreadCountsMock.mockReset();
     invalidateUnreadCountsMock.mockResolvedValue(undefined);
   });
 
-  it('fans out one in-app+email notification per manager recipient', async () => {
+  it('sends one in-app+email notification to every manager, once per invitation', async () => {
     await emitAccepted({
       recipient_user_ids: [11, 22],
+      invitation_public_id: 'inv_accepted000000000001',
       organization_id: 7,
       organization_name: 'Acme',
       invitee_name: 'Dana Scully',
+      locale: 'en',
     });
 
-    expect(createAndDispatchNotificationMock).toHaveBeenCalledTimes(2);
-    expect(createAndDispatchNotificationMock).toHaveBeenCalledWith({
-      input: expect.objectContaining({
-        user_id: 11,
+    expect(createAndDispatchNotificationMock).toHaveBeenCalledExactlyOnceWith({
+      input: {
+        recipientUserIds: [11, 22],
         organization_id: 7,
         type: 'membership.invite_accepted',
         title: 'Invitation accepted',
         message: 'Dana Scully accepted your invitation to join Acme.',
         action_url: '/settings/members',
-        data: { channels: ['in_app', 'email'] },
-      }),
-    });
-    expect(createAndDispatchNotificationMock).toHaveBeenCalledWith({
-      input: expect.objectContaining({ user_id: 22 }),
+        channels: ['in_app', 'email'],
+        locale: 'en',
+        dedupe_key: 'inv_accepted000000000001',
+      },
     });
   });
 
-  it("writes the notification in the organization's language and carries it to the email", async () => {
+  it("writes the notification in the organization's language", async () => {
     await emitAccepted({
       recipient_user_ids: [11],
+      invitation_public_id: 'inv_accepted000000000002',
       organization_id: 7,
       organization_name: 'Acme & Co',
       invitee_name: 'Dana Scully',
@@ -104,16 +106,17 @@ describe('membership-invitation notification handlers (item #10, launch D84)', (
       input: expect.objectContaining({
         title: 'Invitación aceptada',
         message: 'Dana Scully aceptó tu invitación para unirse a Acme & Co.',
-        data: { channels: ['in_app', 'email'], locale: 'es' },
+        locale: 'es',
       }),
     });
   });
 
   it('tells the inviter in the app only when an invitation is declined (D84)', async () => {
-    resolveRecipientPublicIdsMock.mockResolvedValue(['usr_inviter']);
+    createAndDispatchNotificationMock.mockResolvedValue(dispatched(['usr_inviter']));
 
     await emitDeclined({
       recipient_user_ids: [11],
+      invitation_public_id: 'inv_declined000000000001',
       organization_id: 7,
       organization_name: 'Acme',
       invitee_name: 'Dana Scully',
@@ -122,68 +125,45 @@ describe('membership-invitation notification handlers (item #10, launch D84)', (
 
     expect(createAndDispatchNotificationMock).toHaveBeenCalledExactlyOnceWith({
       input: expect.objectContaining({
-        user_id: 11,
-        organization_id: 7,
+        recipientUserIds: [11],
         type: 'membership.invite_declined',
         title: 'Invitation declined',
         message: 'Dana Scully declined your invitation to join Acme.',
-        action_url: '/settings/members',
-        data: { channels: ['in_app'], locale: 'en' },
+        channels: ['in_app'],
+        dedupe_key: 'inv_declined000000000001',
       }),
     });
     expect(invalidateUnreadCountsMock).toHaveBeenCalledWith(['usr_inviter']);
   });
 
-  it('one failed dispatch does not drop the rest and never throws out of the handler', async () => {
-    createAndDispatchNotificationMock
-      .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValue(undefined);
+  it('drops the cached unread count of each recipient that got an inbox row', async () => {
+    createAndDispatchNotificationMock.mockResolvedValue(dispatched(['usr_first', 'usr_second']));
+
+    await emitAccepted({
+      recipient_user_ids: [11, 22, 33],
+      invitation_public_id: 'inv_accepted000000000003',
+      organization_id: 7,
+      organization_name: 'Acme',
+      invitee_name: 'Dana Scully',
+      locale: 'en',
+    });
+
+    expect(invalidateUnreadCountsMock).toHaveBeenCalledWith(['usr_first', 'usr_second']);
+  });
+
+  it('a failed dispatch never throws out of the handler (the accept stands)', async () => {
+    createAndDispatchNotificationMock.mockRejectedValue(new Error('boom'));
 
     await expect(
       emitAccepted({
         recipient_user_ids: [1, 2],
+        invitation_public_id: 'inv_accepted000000000004',
         organization_id: 7,
         organization_name: 'Acme',
         invitee_name: 'X',
+        locale: 'en',
       }),
     ).resolves.not.toThrow();
-
-    expect(createAndDispatchNotificationMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('drops each recipient cached unread count, keyed on the public id', async () => {
-    // The event carries internal ids; the cache is keyed on public ids. Resolving between the two
-    // is the only reason this handler touches the dispatch a second time — if that resolve is
-    // skipped or the wrong ids are forwarded, the badge silently lags a whole TTL behind a
-    // notification the user was just sent.
-    resolveRecipientPublicIdsMock.mockResolvedValue(['usr_first', 'usr_second']);
-
-    await emitAccepted({
-      recipient_user_ids: [11, 22],
-      organization_id: 7,
-      organization_name: 'Acme',
-      invitee_name: 'Dana Scully',
-    });
-
-    expect(resolveRecipientPublicIdsMock).toHaveBeenCalledWith([11, 22]);
-    expect(invalidateUnreadCountsMock).toHaveBeenCalledWith(['usr_first', 'usr_second']);
-  });
-
-  it('a failed cache invalidation never escapes the handler', async () => {
-    // Accepting an invitation must not fail because Redis did. The cost of swallowing is a badge
-    // that stays low until the TTL expires, which the cache module documents as the bounded error.
-    resolveRecipientPublicIdsMock.mockRejectedValue(new Error('redis down'));
-
-    await expect(
-      emitAccepted({
-        recipient_user_ids: [11],
-        organization_id: 7,
-        organization_name: 'Acme',
-        invitee_name: 'X',
-      }),
-    ).resolves.not.toThrow();
-
-    expect(createAndDispatchNotificationMock).toHaveBeenCalledTimes(1);
     expect(invalidateUnreadCountsMock).not.toHaveBeenCalled();
   });
 });

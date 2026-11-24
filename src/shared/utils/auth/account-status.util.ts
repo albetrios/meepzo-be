@@ -18,7 +18,7 @@ export type AccountActiveInput = {
  * Rejects any account that is not eligible to mint or refresh an authenticated session.
  *
  * Centralises the suspended/locked/deleted guard shared by every session-issuance path
- * (password login, email verification-code login, OAuth completion, WebAuthn verify, and MFA
+ * (email verification-code login, OAuth completion, WebAuthn verify, and MFA
  * login completion) so a non-active user can never obtain a fresh access token. Throws
  * `UnauthorizedError('errors:accountNotActive')` when the account is not `ACTIVE` OR
  * when the row carries `deleted_at !== null` (sec-U1 — defense in depth against a
@@ -31,10 +31,10 @@ export type AccountActiveInput = {
  */
 export function assertUserAccountActive(input: AccountActiveInput): void {
   if (input.status !== ACTIVE_USER_STATUS) {
-    throw new UnauthorizedError('errors:accountNotActive');
+    throw new UnauthorizedError('errors:accountNotActive').withReason('account_not_active');
   }
   if (input.deleted_at !== undefined && input.deleted_at !== null) {
-    throw new UnauthorizedError('errors:accountNotActive');
+    throw new UnauthorizedError('errors:accountNotActive').withReason('account_not_active');
   }
 }
 

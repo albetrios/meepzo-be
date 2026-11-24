@@ -211,7 +211,7 @@ describe('Membership Sub-Domain — Integration', () => {
         token: adminToken,
         headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
         payload: {
-          email: newMember.email,
+          emails: [newMember.email],
           role_ids: [memberRole.public_id],
         },
       });
@@ -261,18 +261,20 @@ describe('Membership Sub-Domain — Integration', () => {
         token: adminToken,
         headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
         payload: {
-          email: `invited-only-${randomUUID()}@test.com`,
+          emails: [`invited-only-${randomUUID()}@test.com`],
           role_ids: [memberRole.public_id],
         },
       });
       expect(response.statusCode).toBe(200);
-      const created = (response.json() as { data: { id: string; status: string } }).data;
-      expect(created.status).toBe('invited');
+      const created = (
+        response.json() as { data: { results: { result: string; membership_id: string }[] } }
+      ).data.results[0]!;
+      expect(created.result).toBe('invited');
 
       const [row] = await getOperatorDatabase()
         .select()
         .from(memberships)
-        .where(eq(memberships.public_id, created.id));
+        .where(eq(memberships.public_id, created.membership_id));
       expect(row!.status).toBe('invited');
       expect(row!.joined_at).toBeNull();
     });
@@ -325,7 +327,7 @@ describe('Membership Sub-Domain — Integration', () => {
         url: testApiPath('/tenancy/organization/memberships'),
         token: adminToken,
         headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
-        payload: { email: `seat-${randomUUID()}@test.com`, role_ids: [memberRolePublicId] },
+        payload: { emails: [`seat-${randomUUID()}@test.com`], role_ids: [memberRolePublicId] },
       });
     }
 
@@ -361,7 +363,8 @@ describe('Membership Sub-Domain — Integration', () => {
         .where(eq(subscriptions.organization_id, organization.id));
       const allowed = await inviteMember(adminToken, memberRole.public_id);
       expect(allowed.statusCode).toBe(200);
-      const createdId = (allowed.json() as { data: { id: string } }).data.id;
+      const createdId = (allowed.json() as { data: { results: { membership_id: string }[] } }).data
+        .results[0]!.membership_id;
       const [created] = await getOperatorDatabase()
         .select()
         .from(memberships)
@@ -1666,7 +1669,7 @@ describe('Membership Sub-Domain — Integration', () => {
         token,
         headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
         payload: {
-          email: newMemberEmail,
+          emails: [newMemberEmail],
           role_ids: [ownerRolePublicId],
         },
       });
@@ -1694,8 +1697,14 @@ describe('Membership Sub-Domain — Integration', () => {
         organizationPublicId: team.organization.public_id,
       });
       const newMemberEmail = `team-member-${randomUUID()}@test.com`;
-      // Reuse the owner role (full permission set) so the privilege-escalation guard also passes.
-      const ownerRolePublicId = await rolePublicId(team.roleId);
+      // The team's Admin role: the owner holds every code it grants (the escalation guard passes);
+      // the Owner role itself is never given by an invite (§ 9.C.9 — a 400).
+      const [adminRole] = await getOperatorDatabase()
+        .select()
+        .from(roles)
+        .where(and(eq(roles.organization_id, team.organization.id), eq(roles.name, 'Admin')))
+        .limit(1);
+      const ownerRolePublicId = adminRole!.public_id;
 
       const response = await injectAuthenticated(app, {
         method: 'POST',
@@ -1703,7 +1712,7 @@ describe('Membership Sub-Domain — Integration', () => {
         token,
         headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
         payload: {
-          email: newMemberEmail,
+          emails: [newMemberEmail],
           role_ids: [ownerRolePublicId],
         },
       });

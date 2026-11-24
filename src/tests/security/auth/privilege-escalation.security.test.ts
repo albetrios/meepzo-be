@@ -234,7 +234,7 @@ describe('Security: Privilege escalation', () => {
       // request reaches the membership:create permission preHandler (the role/email need not exist —
       // authorization runs before any lookup).
       payload: {
-        email: 'escalation-attempt@example.test',
+        emails: ['escalation-attempt@example.test'],
         role_ids: ['rol_000000000000000000000'],
       },
     });

@@ -18,7 +18,7 @@ describe('i18n.middleware (via application stack)', () => {
   it('translates validation errors using default locale', async () => {
     const response = await application.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
     });
     expect(response.statusCode).toBe(400);
@@ -28,7 +28,7 @@ describe('i18n.middleware (via application stack)', () => {
   it('accepts Accept-Language header without failing the request', async () => {
     const response = await application.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
       headers: { 'accept-language': 'es-ES,es;q=0.9' },
     });
@@ -50,13 +50,13 @@ describe('i18n.middleware (via application stack)', () => {
   it('translates validation errors when Accept-Language prefers Spanish', async () => {
     const englishResponse = await application.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
       headers: { 'accept-language': 'en-US,en;q=0.9' },
     });
     const spanishResponse = await application.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
       headers: { 'accept-language': 'es-ES,es;q=0.9' },
     });
@@ -71,19 +71,19 @@ describe('i18n.middleware (via application stack)', () => {
   it('returns validation errors for unsupported and supported Accept-Language', async () => {
     const english = await application.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
       headers: { 'accept-language': 'en-US,en;q=0.9' },
     });
     const spanish = await application.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
       headers: { 'accept-language': 'es-ES,es;q=0.9' },
     });
     const fallback = await application.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
       headers: { 'accept-language': 'fr-FR,fr;q=0.9' },
     });

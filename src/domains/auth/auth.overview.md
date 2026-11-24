@@ -4,12 +4,12 @@
 
 ## Purpose
 
-Owns identity proof and session establishment for the platform. Supports five primary credential types — passwords (argon2id), email verification-code login, OAuth, MFA (TOTP), and WebAuthn — and issues short-lived JWTs (RS256) backed by refreshable session rows. The domain is the source of truth for "who is making this request"; everything authorization-related (organization permissions) lives in [tenancy](src/domains/tenancy/).
+Owns identity proof and session establishment for the platform. Supports four credential types — email verification-code login, OAuth, MFA (TOTP), and WebAuthn; passwords are off everywhere (feat-instagram-dm-sending P84: no password route, no password code path, every `password_hash` emptied and every `PASSWORD` auth method revoked by the `auth_passwords_off` migration) — and issues short-lived JWTs (RS256) backed by refreshable session rows. The domain is the source of truth for "who is making this request"; everything authorization-related (organization permissions) lives in [tenancy](src/domains/tenancy/).
 
 What it owns:
 
 - The `auth_*` tables (auth methods, sessions, MFA secrets, WebAuthn credentials, verification tokens).
-- All credential verification logic and the failed-attempt + lockout counters.
+- All credential verification logic and the email-code try counters (per code, per email per day).
 - JWT issuance + verification (via [src/shared/utils/security/jwt.util.ts](src/shared/utils/security/jwt.util.ts)).
 - Origin-checked session cookies (`session_id`) and the refresh path; CSRF model in [docs/reference/security/csrf-and-session-cookies.md](docs/reference/security/csrf-and-session-cookies.md). Frontend client integration — SPA login across every entry flow, reactive refresh, organization switching, and how many calls each flow takes to reach the dashboard — in [docs/reference/api/frontend-auth-guide.md](docs/reference/api/frontend-auth-guide.md).
 
@@ -17,18 +17,18 @@ What it does not own: user profile (lives in [user](src/domains/user/)), organiz
 
 ## Key invariants
 
-- **Anti-enumeration**: email verification-code send, password-reset, and login responses are identical for unknown emails as for known ones (silent success for sends, generic-401 for login).
+- **Anti-enumeration**: email verification-code send answers the same for unknown and known emails (and its `429 code_resend_too_soon` is decided before any lookup); `POST /auth/email/login` answers an unknown email exactly like a wrong code (`401 code_wrong` with the same `tries_left` — the try counter is keyed by the email).
 - **One-shot tokens**: every `verification_tokens` row has a single use. Verifies use atomic `UPDATE ... RETURNING` so two concurrent verifies cannot both produce a session. The short-lived Redis handles (MFA session, WebAuthn challenge, OAuth state) are consumed with an atomic `GETDEL` for the same single-use guarantee against a GET-then-DEL race.
-- **Active-account gate**: a session is issued only for an `ACTIVE` user. Every issuance path (password login, email verification-code verify, OAuth completion, WebAuthn verify, MFA login completion) rejects a non-active account with `errors:accountNotActive` before a JWT or session row is created.
-- **Session revocation on state change**: suspending a user (or any admin status change away from `ACTIVE`) revokes all of their sessions; a password reset revokes all sessions; an authenticated password change revokes every session except the caller's current one. Each revoke invalidates the Redis token-validity cache so it takes effect immediately.
-- **Hashed-at-rest secrets**: passwords use argon2id; email verification-code rows use a keyed, user-scoped HMAC; password-reset tokens, MFA backup codes, and session JWT hashes are stored as `sha256(raw)` (passwords use argon2id). Raw secrets leave the platform only via outbound email or to the client at issuance time.
+- **Active-account gate**: a session is issued only for an `ACTIVE` user. Every issuance path (email verification-code verify, OAuth completion, WebAuthn verify, MFA login completion) rejects a non-active account with `errors:accountNotActive` before a JWT or session row is created.
+- **Session revocation on state change**: suspending a user (or any admin status change away from `ACTIVE`) revokes all of their sessions. Each revoke invalidates the Redis token-validity cache so it takes effect immediately.
+- **Hashed-at-rest secrets**: email verification-code rows use a keyed, user-scoped HMAC; MFA backup codes and session JWT hashes are stored as `sha256(raw)`. Raw secrets leave the platform only via outbound email or to the client at issuance time.
 - **MFA assurance is per session**: a session that proved a second factor (MFA login challenge, authenticated `POST /auth/me/mfa/verify`, or MFA enrollment confirmation) records `auth.sessions.mfa_verified_at`; every token minted for it (login, switch, refresh) carries the RFC 8176 `amr: ['mfa']` claim, read by the auth middleware as `request.auth.mfaVerified`. Organizations whose security policy sets `mfa_required` admit only such sessions — at switch (403 `mfa_required`), at refresh (the organization is dropped from the token) and on every organization-permission check — so joining an organization or an organization turning MFA on after login cannot bypass the policy.
-- **Platform admin needs MFA** (A-2): `super_admin` is minted only for an allowlisted (`GLOBAL_ADMIN_EMAILS`), ACTIVE, verified account with an enrolled MFA factor, re-derived per request (an account whose factor is gone is downgraded to `user`), and `requireRole` admits it only on an MFA-verified session (403 `errors:superAdminRequiresMfa`, reason `mfa_required`). Admin delete, suspend and a `status` edit also need a recent password or MFA step-up on the session.
+- **Platform admin needs MFA** (A-2): `super_admin` is minted only for an allowlisted (`GLOBAL_ADMIN_EMAILS`), ACTIVE, verified account with an enrolled MFA factor, re-derived per request (an account whose factor is gone is downgraded to `user`), and `requireRole` admits it only on an MFA-verified session (403 `errors:superAdminRequiresMfa`, reason `mfa_required`). Admin delete, suspend and a `status` edit also need a recent MFA step-up on the session.
 - **Login default organization**: every issuance path (and the refresh fallback when a session's organization is no longer valid) mints the token for `resolveDefaultActiveOrganizationPublicId` — the organization the user pinned (`auth.user_settings.default_organization_id`, through `PATCH /users/me/settings`), else the organization they last switched to (`auth.users.last_active_organization_id`, remembered by `POST /auth/switch-to-organization`, best-effort and only when it changes) while that membership is active, else the most recently joined organization, else the personal organization. With TEAM organizations disabled the personal organization stays first. An organization beats the personal workspace because the frontend answers a personal workspace with the organization picker.
 - **Short JWT lifetime**: `ACCESS_TOKEN_EXPIRY_SECONDS = 900` (15 min). Refresh requires the Origin-checked session cookie.
-- **Lockout**: `MAX_FAILED_LOGIN_ATTEMPTS = 10` per account; locks for `ACCOUNT_LOCKOUT_MINUTES = 30`. The lock is checked after password verification, so a correct password always bypasses it (no victim-account DoS); it only rejects further wrong attempts. Online brute force is bounded by the per-IP + per-email rate limits and CAPTCHA on `/login`.
-- **Provisional factor + owner notices** (A-1): a TOTP factor enrolled under an email-code step-up window (all a passwordless account without MFA can open — and all brief mailbox access opens) is stored with `provisional_until` (+`PROVISIONAL_FACTOR_PERIOD_SECONDS`, 72 h) and `enrolled_on_session_public_id`; until then, and always on the enrolling session, `POST /auth/me/mfa/verify` with it records a weak `provisional_mfa` window that cannot pass the strong step-up gate (revoke sessions, delete a credential). The owner is emailed (`AuthMethodService.sendAccountSecurityNotice`, `mail:securityNotice*`, en + es, with a "this wasn't me" line) on TOTP enrollment, passkey registration, `DELETE /auth/me/sessions`, password change and password reset.
-- **Password step-up budget** (A-3): `POST /auth/step-up` with a password is counted up front against `MAX_PASSWORD_STEP_UP_ATTEMPTS = 5` per user per `PASSWORD_STEP_UP_ATTEMPT_WINDOW_SECONDS` (15 min); each wrong password also counts toward the login lockout above, and the session that spends the budget is revoked (`errors:stepUpAttemptsExhausted`). A correct password clears the budget.
+- **Email-code guessing bounds** (AT6–AT8): six digits, 15 minutes, 5 wrong tries per code (`401 code_wrong` + `tries_left`, then `code_used_up`), 20 wrong tries per email per 24 hours (`429 code_day_limit`, `EMAIL_CODE_WRONG_TRIES_PER_DAY`), 60 s between sends (`429 code_resend_too_soon`); plus the per-IP + per-email rate limits and CAPTCHA.
+- **Provisional factor + owner notices** (A-1): a TOTP factor enrolled under an email-code step-up window (all a passwordless account without MFA can open — and all brief mailbox access opens) is stored with `provisional_until` (+`PROVISIONAL_FACTOR_PERIOD_SECONDS`, 72 h) and `enrolled_on_session_public_id`; until then, and always on the enrolling session, `POST /auth/me/mfa/verify` with it records a weak `provisional_mfa` window that cannot pass the strong step-up gate (revoke sessions, delete a credential). The owner is emailed (`AuthMethodService.sendAccountSecurityNotice`, `mail:securityNotice*`, en + es, with a "this wasn't me" line) on TOTP enrollment, passkey registration and `DELETE /auth/me/sessions`.
+- **Email code always on** (AT13): the `EMAIL_CODE` way can never be removed — `DELETE /auth/me/auth-methods/{auth_method_id}` on it answers `409 email_code_always_on`.
 - **Removed login methods stay closed** (A-5): email-code login and the OAuth callback refuse (`errors:loginMethodTurnedOff`, 403) a method the owner revoked (`AuthMethodService.isLoginMethodTurnedOff`); OAuth no longer re-links a fresh row over the removal.
 - **No manual OAuth identity binding**: `POST` auth-method create rejects `provider: manual` with a client-supplied provider identity — only OAuth completion paths may attach provider subjects, preventing account takeover via forged provider linkage.
 
@@ -46,15 +46,15 @@ What it does not own: user profile (lives in [user](src/domains/user/)), organiz
 
 This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERNS.md):
 
-- `audit-emission` — every credential add/remove, every login (a success attributed to the user; a failure as an anonymous `auth.login_failure` that never names the account tried), every completed password reset, every MFA recovery-code use, and every session revoke records a row.
-- `idempotency` — email verification-code send, password reset, and OAuth callback accept `X-Idempotency-Key`.
-- `transactional-outbox` — auth emails (email verification-code, password reset) flow through `event-bus` → mail outbox → `mail.processor`.
+- `audit-emission` — every credential add/remove, every login (a success attributed to the user; a failure as an anonymous `auth.login_failure` that never names the account tried), every MFA recovery-code use, and every session revoke records a row.
+- `idempotency` — sign-in and step-up take no `X-Idempotency-Key` (a repeat is a new attempt).
+- `transactional-outbox` — auth emails (email verification-code, account security notices) flow through `event-bus` → mail outbox → `mail.processor`.
 - `tenant-isolation` does **not** apply at the auth layer — auth is global. Organization scope is layered on later by `tenancy`.
 
 ## Cross-domain flows
 
 - `signup-flow` — email verification-code path issuing the user's first session.
-- `login-flow` — password (with optional MFA) issuing a session.
+- `login-flow` — a first factor (email code, OAuth, passkey; with optional MFA) issuing a session.
 - `organization-invitation-flow` — invitee may need to complete `signup-flow` first.
 
 ## Lifecycle
@@ -62,29 +62,28 @@ This domain implements the contracts documented in [src/PATTERNS.md](src/PATTERN
 ```mermaid
 stateDiagram-v2
   [*] --> anonymous
-  anonymous --> credential_proven: email verification-code verify, password ok, OAuth callback ok
+  anonymous --> credential_proven: email verification-code verify, OAuth callback ok, passkey ok
   credential_proven --> mfa_required: account has MFA
   credential_proven --> session: account has no MFA
   mfa_required --> session: TOTP / WebAuthn ok
   session --> session: refresh (Origin-checked)
-  session --> revoked: explicit logout, admin revoke, expiry, lockout
+  session --> revoked: explicit logout, admin revoke, expiry
   revoked --> [*]
 ```
 
 ## Events
 
-- Emits: `AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED`, `AUTH_EVENT.PASSWORD_RESET_REQUESTED` (each handler enqueues mail). Both mail paths fail closed with `503` / `errors:mailNotConfigured` when outbound mail is unavailable.
+- Emits: `AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED`, `AUTH_EVENT.ACCOUNT_SECURITY_NOTICE_REQUESTED` (each handler enqueues mail). The code email fails closed with `503` / `errors:mailNotConfigured` when outbound mail is unavailable.
 - Consumes: nothing — auth is upstream.
 
 ## External integrations
 
 - **OAuth providers** (Google + others, configured via `OAUTH_*` env). State + PKCE bound by Redis with `OAUTH_STATE_TTL_SECONDS = 600`.
-- **Resend** — outbound mail for email verification-code, password-reset (via `notify` → mail outbox).
+- **Resend** — outbound mail for email verification-code and account security notices (via `notify` → mail outbox).
 
 ## Failure modes
 
-- **Lockout exceeded** → 423; clears after `ACCOUNT_LOCKOUT_MINUTES`.
-- **Per-IP failed-login throttle** (50 failures within 15 minutes of the IP's first) → 429 `rate_limited` + `Retry-After`; fails open on Redis errors.
+- **Email code refused** → 401 `code_wrong` (+ `tries_left`) / `code_expired` / `code_used_up`, 429 `code_day_limit` / `code_resend_too_soon` (+ `retry_after_seconds`, `Retry-After`); the Redis counters fail open.
 - **Disposable email blocked** → 400 on send; user gets actionable message.
 - **MFA challenge expired** (5 min) → 401, client must restart login.
 - **OAuth state mismatch** → 400; CSRF defence engaged.
@@ -95,13 +94,10 @@ stateDiagram-v2
 See [src/POLICIES.md](src/POLICIES.md) for the full rationale of each:
 
 - `VERIFICATION_CODE_TTL_MINUTES = 15`
-- `PASSWORD_RESET_EXPIRES_IN_MINUTES = 60`
 - `ACCESS_TOKEN_EXPIRY_SECONDS = 900`
 - `MFA_SESSION_TTL_SECONDS = 300`
 - `WEBAUTHN_CHALLENGE_TTL_SECONDS = 300`
 - `OAUTH_STATE_TTL_SECONDS = 600`
 - `SESSION_TOKEN_CACHE_TTL_SECONDS = 60`
-- `MAX_FAILED_LOGIN_ATTEMPTS = 10`
-- `ACCOUNT_LOCKOUT_MINUTES = 30`
-- `MAX_PASSWORD_STEP_UP_ATTEMPTS = 5`
-- `PASSWORD_STEP_UP_ATTEMPT_WINDOW_SECONDS = 900`
+- `VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS = 5`
+- `EMAIL_CODE_WRONG_TRIES_PER_DAY = 20`

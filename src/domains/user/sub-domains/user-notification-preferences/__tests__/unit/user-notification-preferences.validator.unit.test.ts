@@ -1,48 +1,61 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/shared/errors/index.js';
 import { validatePutUserNotificationPreferences } from '@/domains/user/sub-domains/user-notification-preferences/user-notification-preferences.validator.js';
+import { NOTIFICATION_KINDS } from '@/shared/constants/index.js';
 
-describe('user-notification-preferences.validator', () => {
-  it('validatePutUserNotificationPreferences accepts preferences array', () => {
+describe('user-notification-preferences.validator (route 136, UN10)', () => {
+  it('accepts kind × channel items', () => {
     const input = {
-      preferences: [
-        {
-          notification_type: 'billing.usage_threshold',
-          channel: 'EMAIL',
-          is_enabled: true,
-        },
+      kinds: [
+        { kind: 'contact_details_left', channel: 'EMAIL', is_enabled: true },
+        { kind: 'weekly_summary', channel: 'WEB_PUSH', is_enabled: false },
       ],
     };
     expect(validatePutUserNotificationPreferences(input)).toEqual(input);
   });
 
-  it('validatePutUserNotificationPreferences rejects invalid preferences shape', () => {
-    expect(() =>
-      validatePutUserNotificationPreferences({
-        preferences: [{ notification_type: 'security.alert' }],
-      }),
-    ).toThrow(ValidationError);
+  it('accepts all 21 items (7 kinds × 3 channels)', () => {
+    const kinds = NOTIFICATION_KINDS.flatMap((definition) =>
+      (['EMAIL', 'IN_APP', 'WEB_PUSH'] as const).map((channel) => ({
+        kind: definition.kind,
+        channel,
+        is_enabled: true,
+      })),
+    );
+    expect(kinds).toHaveLength(21);
+    expect(validatePutUserNotificationPreferences({ kinds }).kinds).toHaveLength(21);
   });
 
-  it('validatePutUserNotificationPreferences rejects a channel outside the allowed set', () => {
-    // An unknown channel must be rejected at the edge (422), not slip through to the
-    // chk_user_notif_prefs_channel database check and surface as a 500.
-    expect(() =>
-      validatePutUserNotificationPreferences({
-        preferences: [
-          { notification_type: 'billing.usage_threshold', channel: 'TELEPATHY', is_enabled: true },
+  it.each([
+    ['an empty list', { kinds: [] }],
+    [
+      'over 21 items',
+      {
+        kinds: Array.from({ length: 22 }, () => ({
+          kind: 'billing',
+          channel: 'IN_APP',
+          is_enabled: true,
+        })),
+      },
+    ],
+    [
+      'a repeated kind × channel',
+      {
+        kinds: [
+          { kind: 'billing', channel: 'IN_APP', is_enabled: true },
+          { kind: 'billing', channel: 'IN_APP', is_enabled: false },
         ],
-      }),
-    ).toThrow(ValidationError);
-  });
-
-  it('validatePutUserNotificationPreferences rejects a notification_type outside the canonical set', () => {
-    expect(() =>
-      validatePutUserNotificationPreferences({
-        preferences: [
-          { notification_type: 'not.a.canonical.type', channel: 'EMAIL', is_enabled: true },
-        ],
-      }),
-    ).toThrow(ValidationError);
+      },
+    ],
+    ['an unknown kind', { kinds: [{ kind: 'security', channel: 'EMAIL', is_enabled: false }] }],
+    ['the SMS channel', { kinds: [{ kind: 'billing', channel: 'SMS', is_enabled: true }] }],
+    [
+      'the old per-type body',
+      {
+        preferences: [{ notification_type: 'broadcast.done', channel: 'EMAIL', is_enabled: true }],
+      },
+    ],
+  ])('refuses %s with a ValidationError (400)', (_label, body) => {
+    expect(() => validatePutUserNotificationPreferences(body)).toThrow(ValidationError);
   });
 });

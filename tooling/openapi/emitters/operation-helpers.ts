@@ -56,7 +56,7 @@ export function getRequestBodySchema(
  *
  * @remarks
  * These carry no `app.authenticate` onRequest hook (route-catalog access `PUBLIC`): the public auth
- * forms (login/email-login/oauth/webauthn-authenticate/password/mfa-login; refresh is NOT here —
+ * forms (email-login/oauth/webauthn-authenticate/mfa-login; refresh is NOT here —
  * it authenticates via the session cookie and advertises `sessionCookie`) and
  * the Stripe-signed webhooks (verified via `Stripe-Signature`, not a JWT), and Meta's Instagram
  * callbacks (verified via the form's `signed_request`). The `Health` and
@@ -66,12 +66,9 @@ export function getRequestBodySchema(
 const PUBLIC_ROUTE_KEYS = new Set<string>([
   'GET /livez',
   'GET /readyz',
-  'POST /api/v1/auth/login',
   'POST /api/v1/auth/mfa/login',
   'POST /api/v1/auth/email/send-code',
   'POST /api/v1/auth/email/login',
-  'POST /api/v1/auth/password/forgot',
-  'POST /api/v1/auth/password/reset',
   'POST /api/v1/auth/webauthn/authenticate/options',
   'POST /api/v1/auth/webauthn/authenticate/verify',
   'GET /api/v1/auth/oauth/{provider}',
@@ -83,6 +80,9 @@ const PUBLIC_ROUTE_KEYS = new Set<string>([
   // Meta's Instagram webhook: proved by the verify token (GET) and X-Hub-Signature-256 (POST).
   'GET /api/v1/app/social/instagram/webhook',
   'POST /api/v1/app/social/instagram/webhook',
+  // The invitation page (feat-instagram-dm-sending route 118): the emailed token is the key; a
+  // bearer is optional (read when sent, never required), so no scheme is advertised.
+  'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/preview',
 ]);
 
 export function getRouteSecurity(tags: string[], routeKey: string): object[] | undefined {

@@ -28,7 +28,7 @@ What it does not own: credentials (lives in [auth](src/domains/auth/)), organiza
 | Sub-domain | Purpose |
 | --- | --- |
 | [user-settings](src/domains/user/sub-domains/user-settings/) | Per-user feature toggles and presentation preferences. |
-| [user-notification-preferences](src/domains/user/sub-domains/user-notification-preferences/) | Per-user opt-in/opt-out for the notification + email channels. |
+| [user-notification-preferences](src/domains/user/sub-domains/user-notification-preferences/) | A person's choices per notification kind × channel (seven kinds; email, in-app, push), read by the notify dispatch before each send. |
 | [user-data-export](src/domains/user/sub-domains/user-data-export/) | GDPR export: bundle every row this user owns into an S3 object, presign a 15-minute download URL (sec-U6), deliver via email. |
 | [user-bug-report](src/domains/user/sub-domains/user-bug-report/) | Bug reports from the frontend's "Report a bug" (textbox + native voice); the reporter's id, name and email are stamped from the session. |
 

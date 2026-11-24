@@ -10,7 +10,10 @@
  */
 export interface EmailSendCodeResult {
   messageKey: string;
-  expires_in_minutes: number;
+  /** Seconds before a new code may be asked for this email (60; 0 where the resend spacing is off). */
+  resend_after_seconds: number;
+  /** Seconds the sent code stays valid (900 — the 15-minute code lifetime). */
+  expires_in_seconds: number;
   /**
    * TEST_MODE-only affordance: the plaintext verification code, echoed so an out-of-process client
    * (a k6 load test; meepzo-fe's code screen on a dev box) can complete the passwordless flow without

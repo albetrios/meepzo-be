@@ -13,6 +13,7 @@ vi.mock(
 
 import type { FastifyInstance } from 'fastify';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import { firstInviteLine } from '@/tests/helpers/membership-invite.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -171,42 +172,46 @@ describe('Security: unique-violation conflict handling', () => {
       };
     }
 
-    // REQ-1: "Add member" is invite-by-email. It provisions/finds the invitee, creates an invited
-    // membership, and emails a token (raw token never returned). Re-adding the same email collides on
-    // the (user_id, organization_id) unique index (the email resolves to the same user) — the service
-    // maps that unique_violation to a clean 409 (errors:membershipAlreadyExists), not a raw 500.
+    // Route 117 (feat-instagram-dm-sending TN10): "Invite" takes emails and answers one line each.
+    // Re-inviting the same email answers its line `already_invited`; concurrent invites collide on
+    // the (user_id, organization_id) unique index, which the service maps (membership_already_exists)
+    // and reads again — a line, never a raw 500.
     function addMember(token: string, email: string, rolePublicId: string) {
       return injectAuthenticated(app, {
         method: 'POST',
         url: testApiPath('/tenancy/organization/memberships'),
         token,
         extraHeaders: { 'x-idempotency-key': randomUUID() },
-        payload: { email, role_ids: [rolePublicId] },
+        payload: { emails: [email], role_ids: [rolePublicId] },
       });
     }
 
-    it('adding the same email twice is a clean 409 (not 500)', async () => {
+    it('inviting the same email twice answers already_invited (not a 409 or 500)', async () => {
       const { token, memberRolePublicId, inviteeEmail } = await membershipAdminContext();
 
       const first = await addMember(token, inviteeEmail, memberRolePublicId);
       expect(first.statusCode).toBe(200);
+      expect(firstInviteLine(first).result).toBe('invited');
 
       const second = await addMember(token, inviteeEmail, memberRolePublicId);
-      expect(second.statusCode).toBe(409);
+      expect(second.statusCode).toBe(200);
+      expect(firstInviteLine(second)).toMatchObject({
+        result: 'already_invited',
+        membership_id: null,
+      });
     });
 
-    it('concurrent adds of the same email: exactly one 201, rest 409, no 5xx', async () => {
+    it('concurrent invites of the same email: exactly one invited, the rest already_invited, no 5xx', async () => {
       const { token, memberRolePublicId, inviteeEmail } = await membershipAdminContext();
 
-      const statuses = await Promise.all(
-        Array.from({ length: 4 }, () =>
-          addMember(token, inviteeEmail, memberRolePublicId).then((r) => r.statusCode),
-        ),
+      const responses = await Promise.all(
+        Array.from({ length: 4 }, () => addMember(token, inviteeEmail, memberRolePublicId)),
       );
-      const result = tally(statuses);
+      const result = tally(responses.map((response) => response.statusCode));
       expect(result.serverError).toBe(0);
-      expect(result.created).toBe(1);
-      expect(result.conflict).toBe(3);
+      expect(responses.every((response) => response.statusCode === 200)).toBe(true);
+      const lines = responses.map((response) => firstInviteLine(response).result).sort();
+      expect(lines).toEqual(['already_invited', 'already_invited', 'already_invited', 'invited']);
     });
   });
 });

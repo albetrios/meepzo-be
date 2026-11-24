@@ -1,13 +1,11 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import {
-  injectAuthenticated,
-  injectUnauthenticated,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 
 const ALLOWED_ORIGIN = 'http://localhost:3000';
 
@@ -37,12 +35,8 @@ describe('refresh-token reuse detection only acts on issued secrets', () => {
     await cleanupDatabase();
   });
 
-  async function login(email: string, password: string) {
-    const response = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email, password },
-    });
+  async function login(email: string) {
+    const response = await signInWithEmailCode(application, { email });
     expect(response.statusCode).toBe(200);
     return {
       accessToken: (response.json() as { data: { access_token: string } }).data.access_token,
@@ -60,9 +54,9 @@ describe('refresh-token reuse detection only acts on issued secrets', () => {
   }
 
   it('a stolen bearer cannot log the user out everywhere with a made-up secret', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const attackerHeld = await login(user.email, password);
-    const victimDevice = await login(user.email, password);
+    const user = await createTestUser();
+    const attackerHeld = await login(user.email);
+    const victimDevice = await login(user.email);
 
     // The stolen bearer can list session ids — but holds no refresh secret.
     const sessionsResponse = await injectAuthenticated(application, {
@@ -92,9 +86,9 @@ describe('refresh-token reuse detection only acts on issued secrets', () => {
   });
 
   it('replaying an issued, retired secret still revokes the whole session family', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const device = await login(user.email, password);
-    const otherDevice = await login(user.email, password);
+    const user = await createTestUser();
+    const device = await login(user.email);
+    const otherDevice = await login(user.email);
 
     // Rotate twice: the first secret is now neither current nor the grace-window previous one.
     const firstRotation = await refresh(device.cookie);

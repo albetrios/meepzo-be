@@ -6,7 +6,7 @@
  * first and drains the pool after.
  */
 import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/membership.constants.js';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   seedPermissions,
   SYSTEM_PERMISSIONS,
@@ -34,16 +34,6 @@ import { assertBulkSeedAllowed } from './production-guard.js';
 
 const DEMO_EMAIL = 'demo@example.com';
 
-function getDemoPassword(): string {
-  const fromEnv = process.env.DEMO_PASSWORD;
-  if (fromEnv && fromEnv.length >= 8) return fromEnv;
-  const random = randomBytes(16).toString('base64url');
-  const generated = `Demo${random}!`;
-  logger.info(
-    'seed.full: using generated demo password — set DEMO_PASSWORD in .env for a fixed password',
-  );
-  return generated;
-}
 const ADMIN_PERMISSION_CODES = SYSTEM_PERMISSIONS.map((permission) => permission.code);
 
 /**
@@ -55,7 +45,7 @@ const ADMIN_PERMISSION_CODES = SYSTEM_PERMISSIONS.map((permission) => permission
  * resolves, so a test may call it directly.
  */
 export async function runFullSeed(): Promise<void> {
-  // Demo users with known or logged passwords and faker organizations: local databases only, as
+  // Demo users and faker organizations: local databases only, as
   // the bulk seed (H-11). `pnpm db:seed` (the reference rows every deploy needs) never gets here.
   assertBulkSeedAllowed(process.env);
   logger.info('seed.full: starting');
@@ -67,8 +57,7 @@ export async function runFullSeed(): Promise<void> {
   await seedPlans();
   logger.info('seed.full: plans seeded');
 
-  const demoPassword = getDemoPassword();
-  const demoUser = await seedDemoUser({ email: DEMO_EMAIL, password: demoPassword });
+  const demoUser = await seedDemoUser({ email: DEMO_EMAIL });
   if (!demoUser) throw new Error('seed.full: failed to create demo user');
   logger.info({ userId: demoUser.public_id }, 'seed.full: demo user created');
 

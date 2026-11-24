@@ -7,8 +7,6 @@ import {
 } from '@/infrastructure/mail/queues/mail.queue.js';
 import { verificationCodeTemplate } from '@/infrastructure/mail/templates/verification-code.template.js';
 import { isMailConfigured } from '@/infrastructure/mail/mail.service.js';
-import { env } from '@/shared/config/env.config.js';
-import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import {
   ACCOUNT_SECURITY_NOTICE,
@@ -16,7 +14,6 @@ import {
   type AccountSecurityNotice,
   type AccountSecurityNoticePayload,
   type EmailVerificationCodePayload,
-  type PasswordResetEmailPayload,
 } from './auth.events.js';
 
 async function recordAndScheduleOutboxEmail({
@@ -66,35 +63,6 @@ async function handleVerificationCodeEmail({
   });
 }
 
-async function handlePasswordResetEmail({
-  payload,
-  requestId,
-}: {
-  payload: PasswordResetEmailPayload;
-  requestId?: string | undefined;
-}): Promise<void> {
-  if (!isMailConfigured()) {
-    throw new ServiceUnavailableError('errors:mailNotConfigured');
-  }
-
-  const frontendUrl = env.FRONTEND_URL ?? DEFAULT_FRONTEND_URL;
-  const resetUrl = `${frontendUrl}/auth/password/reset?token=${payload.reset_token}`;
-
-  await recordAndScheduleOutboxEmail({
-    data: {
-      to: payload.email,
-      subject: i18next.t('mail:passwordResetSubject', { lng: payload.locale }),
-      html: i18next.t('mail:passwordResetHtml', {
-        lng: payload.locale,
-        resetUrl,
-        expiresInMinutes: payload.expires_in_minutes,
-      }),
-      tags: [{ name: 'category', value: 'password-reset' }],
-    },
-    options: requestId !== undefined ? { requestId } : undefined,
-  });
-}
-
 /** The `mail:` keys of each account security notice's subject and opening paragraph. */
 const ACCOUNT_SECURITY_NOTICE_MAIL_KEYS: Record<
   AccountSecurityNotice,
@@ -107,10 +75,6 @@ const ACCOUNT_SECURITY_NOTICE_MAIL_KEYS: Record<
   [ACCOUNT_SECURITY_NOTICE.SESSIONS_REVOKED]: {
     subject: 'mail:securityNoticeSessionsRevokedSubject',
     html: 'mail:securityNoticeSessionsRevokedHtml',
-  },
-  [ACCOUNT_SECURITY_NOTICE.PASSWORD_CHANGED]: {
-    subject: 'mail:securityNoticePasswordChangedSubject',
-    html: 'mail:securityNoticePasswordChangedHtml',
   },
 };
 
@@ -172,19 +136,6 @@ async function onVerificationCodeEmailEvent(event: DomainEvent): Promise<void> {
   }
 }
 
-async function onPasswordResetEmailEvent(event: DomainEvent): Promise<void> {
-  const payload = event.payload as PasswordResetEmailPayload;
-  try {
-    await handlePasswordResetEmail({ payload, requestId: event.requestId });
-  } catch (error) {
-    logger.warn(
-      { error, eventType: event.type, email: payload.email },
-      'auth.password_reset.email.enqueue.failed',
-    );
-    throw error;
-  }
-}
-
 let authEventHandlersRegistered = false;
 
 function registerAuthMethodEmailEventHandlers(): void {
@@ -193,16 +144,12 @@ function registerAuthMethodEmailEventHandlers(): void {
     handler: onVerificationCodeEmailEvent,
   });
   eventBus.on({
-    eventType: AUTH_EVENT.PASSWORD_RESET_REQUESTED,
-    handler: onPasswordResetEmailEvent,
-  });
-  eventBus.on({
     eventType: AUTH_EVENT.ACCOUNT_SECURITY_NOTICE_REQUESTED,
     handler: onAccountSecurityNoticeEvent,
   });
 }
 
-/** Subscribes the auth-method side-effect handlers to the in-process event bus (email verification code, password reset and account security notice emails). Idempotent: subsequent calls are no-ops. */
+/** Subscribes the auth-method side-effect handlers to the in-process event bus (email verification code and account security notice emails). Idempotent: subsequent calls are no-ops. */
 export function registerAuthMethodEventHandlers(): void {
   if (authEventHandlersRegistered) return;
   authEventHandlersRegistered = true;

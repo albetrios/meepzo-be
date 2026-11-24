@@ -33,7 +33,7 @@ describe('Auth - Email verification-code login', () => {
     const response = await injectUnauthenticated(app, {
       method: 'POST',
       url: testApiPath('/auth/email/login'),
-      payload: { email: 'nobody-email-login@example.com', code: 'ZZZZZZ' },
+      payload: { email: 'nobody-email-login@example.com', code: '000000' },
     });
 
     // 401 for an unknown email / wrong code; 400 on a malformed body.

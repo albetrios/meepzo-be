@@ -61,12 +61,12 @@ describe('VerificationTokenRepository', () => {
   });
 
   it('consumeIfValid returns consumed row or null', async () => {
-    const consumed = { id: 3, token_type: 'PASSWORD_RESET' };
+    const consumed = { id: 3, token_type: 'EMAIL_CHANGE' };
     mockReturning.mockResolvedValueOnce([consumed]);
-    expect(await repository.consumeIfValid('hash', 'PASSWORD_RESET')).toEqual(consumed);
+    expect(await repository.consumeIfValid('hash', 'EMAIL_CHANGE')).toEqual(consumed);
 
     mockReturning.mockResolvedValueOnce([]);
-    expect(await repository.consumeIfValid('missing', 'PASSWORD_RESET')).toBeNull();
+    expect(await repository.consumeIfValid('missing', 'EMAIL_CHANGE')).toBeNull();
   });
 
   // audit #19: the unguarded `markUsed` was removed (dead code that bypassed the expiry/used-once

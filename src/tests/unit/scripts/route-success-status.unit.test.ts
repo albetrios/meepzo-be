@@ -51,7 +51,7 @@ describe('route success-status map', () => {
   });
 
   it('pins documented happy paths per the method-status policy', () => {
-    expect(successStatusMap['POST /api/v1/auth/login']).toBe(200);
+    expect(successStatusMap['POST /api/v1/auth/email/login']).toBe(200);
     expect(successStatusMap['GET /api/v1/users/me']).toBe(200);
     expect(successStatusMap['GET /readyz']).toBe(200);
   });

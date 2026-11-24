@@ -202,7 +202,7 @@ describe('Auth Session Sub-Domain — Integration', () => {
       const { token, sessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'password');
+      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'mfa');
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',
@@ -228,7 +228,7 @@ describe('Auth Session Sub-Domain — Integration', () => {
       const { sessionPublicId: thirdSessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      await seedRecentStepUpForTestUser(user.public_id, callerSessionPublicId, 'password');
+      await seedRecentStepUpForTestUser(user.public_id, callerSessionPublicId, 'mfa');
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',

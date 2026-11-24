@@ -59,3 +59,26 @@ export const MEMBERSHIP_DELETE_REASON_VALUES = Object.values(
 
 /** Longest name an organization keeps for a member (`tenancy.memberships.display_name`, K3). */
 export const MEMBERSHIP_DISPLAY_NAME_MAX_LENGTH = RECORD_SHORT_TEXT_MAX;
+
+/** Most addresses one invite takes (feat-instagram-dm-sending TN10, route 117). */
+export const INVITE_EMAILS_MAX = 20;
+
+/** Longest address an invite line accepts before its own email check (`auth.users.email` is 255). */
+export const MEMBERSHIP_INVITE_EMAIL_MAX_LENGTH = 320;
+
+/**
+ * What one address of an invite came to (route 117, routes-final § 9.C.6): `invited` (a new invited
+ * membership and its emailed invitation), `already_member` (a live member has the email),
+ * `already_invited` (an invited membership exists for it), `invalid_email` (not an email we accept —
+ * the rest still go).
+ */
+export const MEMBERSHIP_INVITE_RESULT = {
+  INVITED: 'invited',
+  ALREADY_MEMBER: 'already_member',
+  ALREADY_INVITED: 'already_invited',
+  INVALID_EMAIL: 'invalid_email',
+} as const;
+
+/** Literal union of {@link MEMBERSHIP_INVITE_RESULT} values. */
+export type MembershipInviteResult =
+  (typeof MEMBERSHIP_INVITE_RESULT)[keyof typeof MEMBERSHIP_INVITE_RESULT];

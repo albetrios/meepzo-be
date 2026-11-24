@@ -14,6 +14,10 @@ vi.mock(
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
+import {
+  invitedMembershipPublicId,
+  pendingInvitationPublicId,
+} from '@/tests/helpers/membership-invite.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -110,11 +114,14 @@ describe('An invited person signs in (launch D84)', () => {
       url: testApiPath('/tenancy/organization/memberships'),
       token: clinic.adminToken,
       headers: { 'x-idempotency-key': `idem-${randomUUID()}` },
-      payload: { email, role_ids: [clinic.memberRole.public_id] },
+      payload: { emails: [email], role_ids: [clinic.memberRole.public_id] },
     });
     expect(response.statusCode).toBe(200);
-    const body = response.json() as { data: { id: string; invitation: { id: string } } };
-    return { membershipPublicId: body.data.id, invitationPublicId: body.data.invitation.id };
+    const membershipPublicId = invitedMembershipPublicId(response);
+    return {
+      membershipPublicId,
+      invitationPublicId: await pendingInvitationPublicId(membershipPublicId),
+    };
   }
 
   async function listMine(inviteeToken: string, query = '') {

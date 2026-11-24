@@ -105,7 +105,6 @@
   "POST /api/v1/app/automations": "team",
   "POST /api/v1/auth/email/login": "both",
   "POST /api/v1/auth/email/send-code": "both",
-  "POST /api/v1/auth/login": "both",
   "POST /api/v1/auth/logout": "both",
   "POST /api/v1/auth/me/auth-methods": "both",
   "POST /api/v1/auth/me/mfa/enroll": "both",
@@ -114,9 +113,6 @@
   "POST /api/v1/auth/me/webauthn/register/options": "both",
   "POST /api/v1/auth/me/webauthn/register/verify": "both",
   "POST /api/v1/auth/mfa/login": "both",
-  "POST /api/v1/auth/password/change": "both",
-  "POST /api/v1/auth/password/forgot": "both",
-  "POST /api/v1/auth/password/reset": "both",
   "POST /api/v1/auth/refresh": "both",
   "POST /api/v1/auth/step-up": "both",
   "POST /api/v1/auth/switch-to-organization": "both",
@@ -159,5 +155,6 @@
   "PUT /api/v1/users/me/presence": "both",
   "POST /api/v1/tenancy/organization/roles/:role_id/restore": "both",
   "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/decline": "both",
+  "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview": "both",
   "GET /api/v1/users/me/membership-invitations": "both"
 }

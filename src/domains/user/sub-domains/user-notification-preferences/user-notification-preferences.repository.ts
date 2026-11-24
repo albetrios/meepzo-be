@@ -4,19 +4,7 @@ import { DEFAULT_REPOSITORY_LIST_LIMIT } from '@/shared/constants/query-limits.c
 import { capListWithWarning } from '@/shared/utils/infrastructure/list-cap.util.js';
 import { user_notification_preferences } from '@/domains/user/sub-domains/user-notification-preferences/user-notification-preferences.schema.js';
 
-/**
- * Two-key `pg_advisory_xact_lock` classid (objid = `user_id`) that serializes concurrent
- * {@link UserNotificationPreferencesRepository.replaceAll} for one user. The replace is a
- * non-atomic delete-then-insert, so without this lock two simultaneous
- * `PUT /users/me/notification-preferences` for the same user both delete then re-insert the
- * same `(user_id, notification_type, channel)` tuples and the loser trips
- * `idx_user_notif_prefs_user_type_channel_unique` (Postgres `23505`) or a serialization
- * failure (`40001`) → HTTP 500. Distinct from every classid in
- * `RESOURCE_CAP_ADVISORY_LOCK_NAMESPACES` (resource-cap-lock.ts) so the lock domains never collide.
- */
-const USER_NOTIFICATION_PREFERENCES_REPLACE_LOCK_NAMESPACE = 0x55_4e_50_46; // 'UNPF'
-
-/** Insert payload accepted by {@link UserNotificationPreferencesRepository.replaceAll}. */
+/** One row {@link UserNotificationPreferencesRepository.upsertMany} writes. */
 export type PreferenceRow = {
   notification_type: string;
   channel: string;
@@ -24,11 +12,10 @@ export type PreferenceRow = {
 };
 
 /**
- * Drizzle data-access for `auth.user_notification_preferences`. Implements the replace-all cascade:
- * `replaceAll` deletes every row for the user and re-inserts the supplied list within the request's
- * (RLS-bound) database scope so the user can only mutate their own preferences. Concurrent replaces
- * for the same user are serialized by a per-user advisory lock so the delete-then-insert cannot race
- * the natural-key unique index (see {@link USER_NOTIFICATION_PREFERENCES_REPLACE_LOCK_NAMESPACE}).
+ * Drizzle data-access for `auth.user_notification_preferences`, inside the request's RLS-bound
+ * user scope so a person reads and writes only their own rows. `upsertMany` writes the rows of a
+ * per-kind save (one per type of the kind, UN10) on the natural key
+ * `(user_id, notification_type, channel)` — concurrent saves for one person converge, last wins.
  */
 export class UserNotificationPreferencesRepository {
   async listByUserId(user_id: number) {
@@ -47,44 +34,31 @@ export class UserNotificationPreferencesRepository {
     });
   }
 
-  async replaceAll(user_id: number, preferences: PreferenceRow[], created_by_user_id?: number) {
-    const requestDatabase = getRequestDatabase();
-    // Serialize concurrent replaces for this user. The delete-then-insert below is not atomic
-    // against other writers, so two simultaneous PUTs for the same user would both delete then
-    // re-insert the same (user_id, type, channel) tuples and the loser would hit the unique
-    // index (23505) or a serialization failure (40001) → HTTP 500. This transaction-scoped
-    // advisory lock (released at COMMIT/ROLLBACK of the surrounding withAppDatabaseContext (user scope)
-    // transaction) makes the replace strict per user.
-    await requestDatabase.execute(
-      drizzleSql`SELECT pg_advisory_xact_lock(${USER_NOTIFICATION_PREFERENCES_REPLACE_LOCK_NAMESPACE}::int, ${user_id}::int)`,
-    );
-    await requestDatabase
-      .delete(user_notification_preferences)
-      .where(eq(user_notification_preferences.user_id, user_id));
-    if (preferences.length === 0) return [];
-    // audit-#11: collapse duplicate (notification_type, channel) tuples — last
-    // occurrence wins — so the idx_user_notif_prefs_user_type_channel_unique index
-    // cannot be tripped by a payload that repeats a tuple.
-    const deduplicatedPreferences = Array.from(
-      new Map(
-        preferences.map((preference) => [
-          `${preference.notification_type} ${preference.channel}`,
-          preference,
-        ]),
-      ).values(),
-    );
-    const rows = await requestDatabase
+  async upsertMany(user_id: number, preferences: PreferenceRow[], acting_user_id: number) {
+    if (preferences.length === 0) return;
+    await getRequestDatabase()
       .insert(user_notification_preferences)
       .values(
-        deduplicatedPreferences.map((preference) => ({
+        preferences.map((preference) => ({
           user_id,
           notification_type: preference.notification_type,
           channel: preference.channel,
           is_enabled: preference.is_enabled,
-          created_by_user_id: created_by_user_id ?? undefined,
+          created_by_user_id: acting_user_id,
+          updated_by_user_id: acting_user_id,
         })),
       )
-      .returning();
-    return rows;
+      .onConflictDoUpdate({
+        target: [
+          user_notification_preferences.user_id,
+          user_notification_preferences.notification_type,
+          user_notification_preferences.channel,
+        ],
+        set: {
+          is_enabled: drizzleSql`excluded.is_enabled`,
+          updated_at: drizzleSql`now()`,
+          updated_by_user_id: drizzleSql`excluded.updated_by_user_id`,
+        },
+      });
   }
 }

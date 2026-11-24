@@ -129,7 +129,7 @@ describe('Tenancy idempotency contract — Integration', () => {
       path: '/tenancy/organization/memberships',
       // `role_ids` is required by the DTO; any well-formed id parses, and the claim preHandler
       // rejects before the handler would resolve it.
-      payload: { email: 'invitee@example.com', role_ids: ['rol_aaaaaaaaaaaaaaaaaaaaa'] },
+      payload: { emails: ['invitee@example.com'], role_ids: ['rol_aaaaaaaaaaaaaaaaaaaaa'] },
     },
     {
       name: 'POST /organization/notification-policies',

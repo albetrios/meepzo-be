@@ -1,17 +1,15 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import {
-  injectUnauthenticated,
-  injectAuthenticated,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import {
   seedPermissions,
   createRoleWithPermissions,
   createMembership,
 } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import type { FastifyInstance } from 'fastify';
@@ -36,12 +34,8 @@ describe('Cross-domain e2e: billing onboarding', () => {
   });
 
   it('login → organization → billing plans and subscriptions', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const loginResponse = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const user = await createTestUser();
+    const loginResponse = await signInWithEmailCode(app, { email: user.email });
     expect(loginResponse.statusCode).toBe(200);
     const token =
       (loginResponse.json() as { data?: { access_token?: string } }).data?.access_token ??

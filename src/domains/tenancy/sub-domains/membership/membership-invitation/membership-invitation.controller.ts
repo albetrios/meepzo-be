@@ -15,8 +15,9 @@ import type { MembershipService } from '@/domains/tenancy/sub-domains/membership
 import type { MembershipInvitationService } from './membership-invitation.service.js';
 
 /**
- * Builds the HTTP handler map for the invitation routes (launch §2.C, D84): the invitee-facing
- * `/membership-invitations/:membership_invitation_id/accept` and `…/decline` (declining ends the
+ * Builds the HTTP handler map for the invitation routes (launch §2.C, D84): the PUBLIC invitation
+ * page `/membership-invitations/:membership_invitation_id/preview` (feat-instagram-dm-sending route
+ * 118), the invitee-facing `…/accept` and `…/decline` (declining ends the
  * invited membership, so it runs through the membership service) and the organization-scoped resend under
  * `/organization/memberships/:membership_id/invitation/resend`. Revoking lives on the membership
  * controller — it ends the invited membership too. Each handler records a scoped audit event — an
@@ -30,6 +31,21 @@ export function createMembershipInvitationController({
   membershipService: MembershipService;
 }) {
   return {
+    previewMembershipInvitation: async (request: FastifyRequest, _reply: FastifyReply) => {
+      // Route 118 (TN11): PUBLIC — the token is the key; a valid bearer, when one came, only says
+      // whether the signed-in email is the invited one. Nothing is stored, no audit entry.
+      const params = (request.params as { membership_invitation_id?: string }) ?? {};
+      const invitationId = validatePublicIdParam({
+        value: params.membership_invitation_id ?? '',
+        fieldName: 'membership_invitation_id',
+      });
+      const data = await service.preview({
+        invitation_public_id: invitationId,
+        body: request.body,
+        signedInUserPublicId: request.auth?.kind === 'user' ? request.auth.userId : null,
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
     acceptMembershipInvitation: async (request: FastifyRequest, _reply: FastifyReply) => {
       // sec-T4: route is `app.authenticate`-gated; the service binds the invitee email to the acting
       // user's email. API-key principals cannot accept invitations (no user identity to bind to).

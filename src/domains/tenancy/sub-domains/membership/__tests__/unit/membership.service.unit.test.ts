@@ -140,6 +140,7 @@ describe('MembershipService', () => {
     resolveLiveInvitationsByMembershipIds: vi.fn(async () => new Map()),
     // REQ-4 seat enforcement: consulted only when the seat-enforcement port is wired.
     countActiveByOrganization: vi.fn().mockResolvedValue(0),
+    countLiveByMainRole: vi.fn().mockResolvedValue([]),
   } as unknown as MembershipRepository;
 
   const authorizationService = {
@@ -150,6 +151,7 @@ describe('MembershipService', () => {
   } as never;
 
   const userService = {
+    findByEmail: vi.fn().mockResolvedValue(null),
     findOrCreateInvitedByEmail: vi.fn().mockResolvedValue({
       id: 10,
       public_id: 'user_public',
@@ -262,6 +264,110 @@ describe('MembershipService', () => {
     ).rejects.toBeInstanceOf(ValidationError);
     expect(userService.findOrCreateInvitedByEmail).not.toHaveBeenCalled();
     expect(membershipRepository.create).not.toHaveBeenCalled();
+  });
+
+  describe('invite (route 117, TN10)', () => {
+    /** The owner (user 99) holds role 1; user 20 is an active member, user 30 an invited one. */
+    function useTeamMemberships(ownerRoleId = 1) {
+      vi.mocked(membershipRepository.findByUserAndOrganization).mockImplementation(
+        async (userId: number) => {
+          if (userId === organization.owner_user_id) {
+            return { ...membershipRow, user_id: 99, role_id: ownerRoleId } as never;
+          }
+          if (userId === 20) {
+            return { ...membershipRow, user_id: 20, public_id: 'mem_member' } as never;
+          }
+          if (userId === 30) {
+            return { ...membershipRow, user_id: 30, status: 'invited' } as never;
+          }
+          return null as never;
+        },
+      );
+      vi.mocked(userService.findByEmail).mockImplementation(async (email: string) => {
+        if (email === 'member@example.com') return { id: 20, deleted_at: null } as never;
+        if (email === 'pending@example.com') return { id: 30, deleted_at: null } as never;
+        return null;
+      });
+    }
+
+    it('answers one line per email, in order — invited, already_member, already_invited, invalid_email — and folds repeats', async () => {
+      useTeamMemberships();
+      const { output, invited } = await service.invite({
+        scope: asScope('org_public'),
+        body: {
+          emails: [
+            'New@Example.com',
+            'member@example.com',
+            'pending@example.com',
+            'not-an-email',
+            'new@example.com',
+          ],
+          role_ids: ['role_public'],
+        },
+        invited_by_user_public_id: 'inviter_public',
+      });
+      expect(output).toEqual({
+        results: [
+          { email: 'new@example.com', result: 'invited', membership_id: 'mem_public' },
+          { email: 'member@example.com', result: 'already_member', membership_id: 'mem_member' },
+          { email: 'pending@example.com', result: 'already_invited', membership_id: null },
+          { email: 'not-an-email', result: 'invalid_email', membership_id: null },
+        ],
+        invited_count: 1,
+      });
+      expect(invited).toHaveLength(1);
+      expect(userService.findOrCreateInvitedByEmail).toHaveBeenCalledTimes(1);
+      expect(membershipRepository.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers a disposable address invalid_email and goes on', async () => {
+      useTeamMemberships();
+      vi.mocked(isDisposableEmailBlocked).mockImplementation(
+        (email: string) => email === 'throwaway@mailinator.com',
+      );
+      const { output } = await service.invite({
+        scope: asScope('org_public'),
+        body: {
+          emails: ['throwaway@mailinator.com', 'new@example.com'],
+          role_ids: ['role_public'],
+        },
+        invited_by_user_public_id: 'inviter_public',
+      });
+      vi.mocked(isDisposableEmailBlocked).mockReset();
+      vi.mocked(isDisposableEmailBlocked).mockReturnValue(false);
+      expect(output.results.map((line) => line.result)).toEqual(['invalid_email', 'invited']);
+    });
+
+    it('refuses the Owner role for the whole invite (400 on role_ids) before any address', async () => {
+      useTeamMemberships(role.id);
+      await expect(
+        service.invite({
+          scope: asScope('org_public'),
+          body: { emails: ['new@example.com'], role_ids: ['role_public'] },
+          invited_by_user_public_id: 'inviter_public',
+        }),
+      ).rejects.toMatchObject({ messageKey: 'errors:validation.inviteOwnerRole' });
+      expect(userService.findOrCreateInvitedByEmail).not.toHaveBeenCalled();
+    });
+
+    it('reads a membership a concurrent invite created again and answers already_invited', async () => {
+      useTeamMemberships();
+      vi.mocked(membershipRepository.create).mockRejectedValueOnce(
+        Object.assign(new Error('duplicate key'), { code: '23505' }),
+      );
+      vi.mocked(userService.findByEmail)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 30, deleted_at: null } as never);
+      const { output } = await service.invite({
+        scope: asScope('org_public'),
+        body: { emails: ['racing@example.com'], role_ids: ['role_public'] },
+        invited_by_user_public_id: 'inviter_public',
+      });
+      expect(output.results).toEqual([
+        { email: 'racing@example.com', result: 'already_invited', membership_id: null },
+      ]);
+      expect(output.invited_count).toBe(0);
+    });
   });
 
   it('create rejects a PERSONAL organization (single-member invariant; no side-door members)', async () => {

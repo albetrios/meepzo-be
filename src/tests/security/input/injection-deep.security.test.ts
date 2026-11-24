@@ -14,7 +14,7 @@ import { injectUnauthenticated } from '@/tests/helpers/test-http-inject.helper.j
  * Type-confusion payloads (an object/array where a string is expected, NoSQL-style
  * operators) must be rejected cleanly (4xx), never crash the handler (5xx).
  */
-const LOGIN = '/auth/login';
+const LOGIN = '/auth/email/login';
 
 /** Asserts no global prototype pollution leaked from the request. */
 function expectNoPrototypePollution(): void {
@@ -52,7 +52,7 @@ describe('Security: deep injection (prototype pollution / type confusion)', () =
     it('neutralizes a top-level __proto__ payload (no crash, no global pollution)', async () => {
       const status = await postLogin({
         email: 'attacker@example.com',
-        password: 'whatever',
+        code: '482913',
         __proto__: { polluted: 'yes', isAdmin: true },
       });
       expect(status).toBeLessThan(500);
@@ -62,7 +62,7 @@ describe('Security: deep injection (prototype pollution / type confusion)', () =
     it('neutralizes a constructor.prototype payload', async () => {
       const status = await postLogin({
         email: 'attacker@example.com',
-        password: 'whatever',
+        code: '482913',
         constructor: { prototype: { polluted: 'yes', role: 'super_admin' } },
       });
       expect(status).toBeLessThan(500);
@@ -72,7 +72,7 @@ describe('Security: deep injection (prototype pollution / type confusion)', () =
     it('neutralizes a nested __proto__ inside a field', async () => {
       const status = await postLogin({
         email: { __proto__: { polluted: 'yes' } },
-        password: 'whatever',
+        code: '482913',
       });
       expect(status).toBeLessThan(500);
       expectNoPrototypePollution();
@@ -85,7 +85,8 @@ describe('Security: deep injection (prototype pollution / type confusion)', () =
         method: 'POST',
         url: testApiPath(LOGIN),
         headers: { 'content-type': 'application/json' },
-        payload: '{"email":"a@b.com","password":"x","__proto__":{"polluted":"yes","isAdmin":true}}',
+        payload:
+          '{"email":"a@b.com","code":"482913","__proto__":{"polluted":"yes","isAdmin":true}}',
       });
       expect(response.statusCode).toBeLessThan(500);
       expectNoPrototypePollution();
@@ -98,7 +99,7 @@ describe('Security: deep injection (prototype pollution / type confusion)', () =
     it('rejects an object where a string is expected (NoSQL-style operator)', async () => {
       const status = await postLogin({
         email: { $gt: '' },
-        password: { $ne: null },
+        code: { $ne: null },
       });
       expect([400, 422]).toContain(status);
     });
@@ -106,14 +107,14 @@ describe('Security: deep injection (prototype pollution / type confusion)', () =
     it('rejects an array where a string is expected', async () => {
       const status = await postLogin({
         email: ['a@b.com', 'c@d.com'],
-        password: 'whatever',
+        code: '482913',
       });
       expect([400, 422]).toContain(status);
     });
 
     it('rejects a numeric/boolean where a string is expected', async () => {
       for (const email of [12345, true, null]) {
-        const status = await postLogin({ email, password: 'whatever' });
+        const status = await postLogin({ email, code: '482913' });
         expect([400, 422]).toContain(status);
       }
     });

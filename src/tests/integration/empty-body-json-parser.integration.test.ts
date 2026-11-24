@@ -76,17 +76,17 @@ describe('Integration: JSON content-type parser (empty + malformed bodies)', () 
     expect(response.statusCode).toBe(401);
   });
 
-  it('POST /auth/login with valid JSON body still parses (regression sanity)', async () => {
+  it('POST /auth/email/login with valid JSON body still parses (regression sanity)', async () => {
     const user = await createTestUser({ email: 'parser-sanity@example.com' });
 
     const response = await injectUnauthenticated(app, {
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       headers: { 'content-type': 'application/json' },
-      payload: { email: user.email, password: 'wrong-password' },
+      payload: { email: user.email, code: '000000' },
     });
 
-    // Wrong password → 401 from the auth service, which means the parser
+    // Wrong code → 401 from the auth service, which means the parser
     // correctly parsed the body and routed to the controller.
     expect([400, 401, 403]).toContain(response.statusCode);
   });
@@ -99,10 +99,10 @@ describe('Integration: JSON content-type parser (empty + malformed bodies)', () 
     ['truncated JSON', '{"email":'],
     ['non-JSON text', 'not-json-at-all'],
     ['trailing comma', '{"email":"a@b.com",}'],
-  ])('POST /auth/login with %s body returns 400 (not 500)', async (_label, body) => {
+  ])('POST /auth/email/login with %s body returns 400 (not 500)', async (_label, body) => {
     const response = await app.inject({
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       headers: { 'content-type': 'application/json' },
       payload: body,
     });

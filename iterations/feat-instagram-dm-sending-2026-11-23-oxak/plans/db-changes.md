@@ -91,7 +91,7 @@ switched-off Starter, Growth and Pro rows carry Free's features and limits** (P8
 mapping up). **Reference data:** the shared connection and account routes take `channel-account:read` /
 `channel-account:manage` (P59), a tenancy migration renames their grants; the password rows go (P84);
 notification preferences stay one row per type, saved per kind (P87); an email's dedupe key is the
-caller's, in the mail outbox as built (P88). **Opens answered:** one live account per provider account
+caller's, in the mail outbox as built (P88). **Built R36** ([AS-BUILT](../AS-BUILT.md), [P301](decisions.md)): no table or column; `auth.user_notification_preferences` rows keyed `(user_id, notification_type, channel)` written per kind by upsert; migration `20261124100553_user_resolve_notification_choices.sql` adds the SECURITY DEFINER reader `auth.resolve_notification_choices_by_user_ids(user_ids, notification_types)` the dispatch uses; the email key is `auth.mail_outbox.dedupe_key` = `notification:<type>:<dedupe_key>:<user_public_id>`. **Opens answered:** one live account per provider account
 held on `channel_account` (P60); Meta's callbacks match `provider_account_id`, else
 `client_business_id` (P56); a reconnect moves an account's row at the callback (P54) and the pick
 re-reads Meta (P55); our own echoes and the flood guard are read from Postgres (P62, P63); no open-run
@@ -1879,6 +1879,12 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   `Viewer` row, tone `sky`, with `organization:read`, `instagram-account:read`, `automation:read`, `contact:read`).
   Viewer's `channel-account:read` and Editor's come with R3's `channel-account:*` codes (TN12), granted through
   `APP_PERMISSION_DEFAULT_TEAM_GRANTS` and the default-role reconcile.
+- The invitation page's read (routes-final § 9.C.3, TN11): no table or column change.
+  **Built R29** ([AS-BUILT](../AS-BUILT.md), [P204](decisions.md)): `20261124091500_tenancy_membership_invitation_preview.sql`
+  — the SECURITY DEFINER `tenancy.resolve_membership_invitation_preview(invitation_public_id, token_hash)` over
+  `tenancy.membership_invitations`, `tenancy.memberships`, `tenancy.roles`, `tenancy.organizations` and `auth.users`
+  (`state`, `organization_name`, `organization_logo_color`, `role_name`, `inviter_first_name`, `expires_at`,
+  `invitee_email`); EXECUTE for `meepzo_be_app` and `meepzo_be_maintenance` only.
 - The shared chip tone `lav` → `lavender` everywhere — the roles' and memberships' `tone` rows and
   checks and the organization's `logo_color` — so one tone list serves them ([P81](decisions.md), TNQ1;
   a tenancy migration; meepzo-fe follows).
@@ -1889,6 +1895,11 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   every row's features rewritten to the typed shape of P83 (Stage 7, `plan`).
 - `auth.auth_methods`: every `PASSWORD` row revoked, and every `auth.users.password_hash` emptied, by the
   passwords-off migration; the column stays ([P84](decisions.md), AT1, ATQ1; routes-final § 10).
+  **Built R30** ([AS-BUILT](../AS-BUILT.md), [P205](decisions.md)): `20261124100000_auth_passwords_off.sql`
+  (`auth.users.password_hash` → NULL, live `auth.auth_methods` `PASSWORD` rows `revoked_at = now()`; NO FORCE /
+  FORCE bracket). No column change; `failed_login_count` / `account_locked_until` stay with no writer.
+  `PASSWORD_RESET` is gone from `VerificationTokenType` (existing rows untouched); the per-email wrong-code day
+  counter lives in Redis only.
 - `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
   goes with the password routes (UN6, UN7, P84; routes-final § 11).
 - Notification preferences keep their stored form — one row per type — and the routes speak kinds:

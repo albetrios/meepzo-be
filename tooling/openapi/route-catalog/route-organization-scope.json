@@ -85,6 +85,8 @@
   "GET /api/v1/users/me/membership-invitations": "both",
   "GET /api/v1/app/social/channel-accounts": "team",
   "GET /api/v1/app/social/channel-accounts/:channel_account_id": "team",
+  "GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status": "team",
+  "GET /api/v1/app/usage": "team",
   "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": "team",
   "PATCH /api/v1/app/automations/:automation_id": "team",
   "PATCH /api/v1/notify/notifications/:notification_id/read": "both",

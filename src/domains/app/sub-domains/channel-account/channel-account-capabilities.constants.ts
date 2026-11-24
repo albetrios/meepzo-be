@@ -83,7 +83,7 @@ export interface ChannelFeatureRequirement {
   readonly permission: string | null;
   /** The plan switch it reads (P83) — one of billing's `PLAN_FEATURE_KEYS`. */
   readonly planSwitch: PlanFeatureKey;
-  /** Whether Meta's test must have passed first (P36) — checked against {@link APP_UNTESTED_META_FEATURES}. */
+  /** Whether Meta's test must have passed first (P36) — checked against the sending settings file's `APP_UNTESTED_META_FEATURES` (P36). */
   readonly isMetaTestRequired: boolean;
 }
 
@@ -137,13 +137,6 @@ export const CHANNEL_FEATURES: Readonly<Record<ChannelFeature, ChannelFeatureReq
     isMetaTestRequired: true,
   },
 };
-
-/**
- * The features whose Meta test has not passed yet (P36, K12) — `feature_not_offered` until they
- * leave this list. Mark as seen is the one feature of {@link CHANNEL_FEATURE_KEYS} on P36's list; the
- * ways to start and message kinds on it join with the sending settings (sub-domain 6, ROUTE row R18).
- */
-export const APP_UNTESTED_META_FEATURES: readonly ChannelFeature[] = ['mark_seen'];
 
 /** The four reasons the one feature check refuses with, in its order (CA11 (2), P61). */
 export const CHANNEL_FEATURE_REFUSAL_REASONS = [

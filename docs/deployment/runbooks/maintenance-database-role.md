@@ -14,7 +14,9 @@ connection-level property: every bypass policy arm requires BOTH its `app.*` GUC
   `app.system_audit_insert`, `app.audit_outbox_drain`) to the role. A `meepzo_be_app` connection
   that sets a bypass GUC opens nothing — a compromised request connection cannot read or purge
   across tenants. The Drizzle schemas declare the same arms through `maintenanceBypassArm`
-  ([`pg-schemas.ts`](../../../src/infrastructure/database/pg-schemas.ts)).
+  ([`pg-schemas.ts`](../../../src/infrastructure/database/pg-schemas.ts)). A later arm,
+  `app.sending_state_access` (the global sending row `app.sending_states`, migration
+  `20261124143012_app_instagram_sending.sql`), is born bound to the role the same way.
 - `DATABASE_MAINTENANCE_URL` is **required** (env schema). Maintenance contexts always use its
   lazily created pool ([`connection.ts`](../../../src/infrastructure/database/connection.ts) →
   `getMaintenanceDatabase()`), built with the same tuned options as `DATABASE_URL`.

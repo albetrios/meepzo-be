@@ -7,6 +7,7 @@ import { instagramAccountMetaCallbackRoutes } from './sub-domains/instagram-acco
 import { contactRoutes } from './sub-domains/contact/contact.routes.js';
 import { instagramWebhookRoutes } from './sub-domains/instagram-webhook/instagram-webhook.routes.js';
 import { automationRoutes } from './sub-domains/automation/automation.routes.js';
+import { instagramSendingRoutes } from './sub-domains/instagram-sending/instagram-sending.routes.js';
 import { createAppPlanAccessPreHandler } from './app-plan-access.js';
 
 /**
@@ -15,7 +16,9 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
  * (`/social/channel-connections/…` — start, callback, reconnect, pick, list, one, disconnect
  * business), the channel account (`/social/channel-accounts/…` — list, one, disconnect, pause,
  * resume, choose active accounts), the Instagram account's settings
- * (`/social/instagram/accounts/{channel_account_id}/settings`), its post and story pickers
+ * (`/social/instagram/accounts/{channel_account_id}/settings`), its sending status
+ * (`/social/instagram/accounts/{channel_account_id}/sending-status`) and the organization's DM meter
+ * (`/usage`) — the sending sub-domain's two reads — its post and story pickers
  * (`/social/instagram/media`, `/social/instagram/stories`) and Meta's two PUBLIC callbacks
  * (`/social/instagram/deauthorize`, `/social/instagram/data-deletion` — form-encoded, in their own
  * encapsulated plugin so their body parser reaches no other route), contacts (`/contacts`), the
@@ -32,6 +35,7 @@ export const appRoutesPlugin: FastifyPluginAsync = async (app) => {
   await app.register(channelAccountRoutes(appDomain.channelAccountService));
   await app.register(instagramAccountSettingsRoutes(appDomain.instagramAccountSettingsService));
   await app.register(instagramMediaRoutes(appDomain.instagramMediaService));
+  await app.register(instagramSendingRoutes(appDomain.instagramSendingService));
   await app.register(
     instagramAccountMetaCallbackRoutes(appDomain.instagramAccountMetaCallbackService),
   );

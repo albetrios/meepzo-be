@@ -239,6 +239,7 @@ switches** whose authority is the frozen scope singleton + per-file allowlist.
 | `app.global_admin` | Maintenance | `'true'` | admin user reads/suspend/soft-delete, admin audit listing, drain user resolution, DLQ-replay actor lookup |
 | `app.system_audit_insert` | Maintenance | `'true'` | tenantless `audit.outbox`/`audit.logs` INSERTs |
 | `app.audit_outbox_drain` | Maintenance | `'true'` | audit-outbox drain worker (exclusive SELECT/UPDATE/DELETE on `audit.outbox`) |
+| `app.sending_state_access` | Maintenance | `'true'` | the one tenantless sending row `app.sending_states` (P16): `prepareDatabase`'s create, the may-send check, the rollback's minimum, Meta's app-level usage — `SendingStateService` only |
 | *(none)* — `system_table_retention` / `system_table_worker` | Maintenance (`guc: null`) | — | non-RLS system tables (mail outbox, Stripe ledger, DLQ ledger); the kinds exist for ALS pinning + transaction/timeout tuning only |
 
 Removed: `app.current_session_refresh_token_hash` — a policy arm no code ever set (dead
@@ -287,6 +288,7 @@ Authoritative, live-verified map: `rls-table-scope-map.db.unit.test.ts` (asserts
 | `auth.sessions` | `app.current_user_public_id`, `app.current_session_public_id`, `app.current_session_token_hash`, `app.session_retention_cleanup` |
 | `audit.logs` | organization arm, `app.current_user_public_id` (own-actions export), `app.global_admin`, `app.global_retention_cleanup`, `app.system_audit_insert` |
 | `audit.outbox` | organization arm + `app.system_audit_insert` (INSERT); `app.audit_outbox_drain` (SELECT/UPDATE/DELETE — drain-exclusive) |
+| `app.sending_states` | `app.sending_state_access` only, in USING and WITH CHECK — no organization (documented exemption, P16); no grant to `meepzo_be_app` |
 | System tables (`auth.mail_outbox`, `billing.stripe_webhook_events`, `billing.plans`, tombstones, `audit.dead_letter_jobs`, `tenancy.permissions`, `auth.verification_tokens`) | no GUC — role-scoped `*_app_access` policies (`meepzo_be_app`, `meepzo_be_maintenance`) or `USING (true)` |
 
 † `tenancy.organizations` / `tenancy.api_keys` deliberately have **no** `global_admin`
@@ -302,7 +304,7 @@ functions (`audit.resolve_*_ids_for_public_ids`) instead of widening the bypass.
 | Principal | `OrganizationPrincipalDatabaseScope` (organization required, user optional) | `PRINCIPAL_SCOPE.REQUEST` (middleware) · `PRINCIPAL_SCOPE.JOB({ organizationPublicId })` · `PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId })` | `withAppDatabaseContext` |
 | Principal | `UserPrincipalDatabaseScope` (user required, organization optional — self-heal surface) | `requireUserScope(request)` · `PRINCIPAL_SCOPE.JOB({ userPublicId })` · `PRINCIPAL_SCOPE.VERIFIED({ userPublicId })` | `withAppDatabaseContext` |
 | Session | `SessionDatabaseScope` — kinds `session_public_id` \| `session_token_hash` | `SESSION_SCOPE.<kind>(value)` factories (auth domain only; token values are pre-hashed) | `withAppDatabaseContext` |
-| Maintenance | `MaintenanceDatabaseScope` — 7 frozen singletons: `global_retention_cleanup`, `session_retention_cleanup`, `global_admin`, `system_audit_insert`, `audit_outbox_drain`, `system_table_retention`, `system_table_worker` | nothing to mint — `MAINTENANCE_SCOPE.<kind>` | `withMaintenanceDatabaseContext` |
+| Maintenance | `MaintenanceDatabaseScope` — 8 frozen singletons: `global_retention_cleanup`, `session_retention_cleanup`, `global_admin`, `system_audit_insert`, `audit_outbox_drain`, `sending_state`, `system_table_retention`, `system_table_worker` | nothing to mint — `MAINTENANCE_SCOPE.<kind>` | `withMaintenanceDatabaseContext` |
 
 Provenance (`scope.source`): `request` = authenticated HTTP request (JWT or API key) · `job` = validated
 BullMQ payload · `verified` = the caller itself verified the id (invite flow,

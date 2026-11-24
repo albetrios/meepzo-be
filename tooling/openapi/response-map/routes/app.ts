@@ -94,6 +94,20 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     ),
     example: null,
   },
+  // ── Instagram sending (feat-instagram-dm-sending § 6.A — routes 63–64) ──
+  'GET /api/v1/app/social/instagram/accounts/{channel_account_id}/sending-status': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.instagramSendingStatusSchema,
+      schemas.instagramSendingStatusExample,
+    ),
+    example: null,
+  },
+  'GET /api/v1/app/usage': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.appUsageSchema, schemas.appUsageExample),
+    example: null,
+  },
   // ── Instagram media (the pickers, Instagram's cursor — no estimated_total, IA16) ──
   'GET /api/v1/app/social/instagram/media': {
     statusCode: 200,

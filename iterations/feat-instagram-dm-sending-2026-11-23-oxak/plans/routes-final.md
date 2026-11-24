@@ -3072,6 +3072,19 @@ of a paused, stopped or deleted automation, an opted-out or excluded contact, or
 | SNC11 | SN14, SN15: routes 63–64 — controller, serializer, the read service and its cache file; the route schemas (summary, description, tag); `pnpm routes:catalog` (O column `team`), success statuses, `docs:generate`; integration tests: every banner field from seeded rows, a personal organization `404`, another organization's account `404` (and as `meepzo_be_app`) |
 | SNC12 | Seeds: `instagram-sending/seed/` — four lanes per seeded account, stops, minute and month counts for the meter; no reference seed |
 
+**As built (ROUTE row R18, [P305](decisions.md)–[P308](decisions.md)).** The five root tables plus S8's
+`app.instagram_send_day_counts` (an account's results of its organization's day) in
+`20261124143012_app_instagram_sending.sql`; S29's estimate as `estimate_*` columns on the slow lane row; S13's
+app-level usage as `app_usage_percent` / `app_usage_read_at` on `app.sending_states`, whose policy arms
+`app.sending_state_access` (`MAINTENANCE_SCOPE.SENDING_STATE`). SN11 builds one Redis copy — the month count; route
+63 has none (be-read-cache-guard: too many writers) and the estimate is read from Postgres. The lane steps: a wake gives
+`stopped` / `sleeping` lanes without an error stop a new turn (no ticket — R37, R47); `stopLanes` records a plan stop
+in the history; the break's stop is the lane port's `startBrokenAccountStop`. The sending settings file is
+`instagram-sending.constants.ts`. The environment-id and settings-version check is `SendingStateService.mayTakeTickets`
+(the workers that ask it are R37, R42, R47); `prepareDatabase`'s `sending state` step runs `pnpm ops:sending-state`
+(`--minimum <n>` is the rollback command). SNC9's readiness part is `sending` in the verbose body; repair age, late
+tickets and clock skew come with R47–R48, the Redis watch (SN10) with R48.
+
 ---
 
 ### 6.B Instagram messages — `instagram-sending/instagram-message/` — final (rev 5, confirmed 2026-11-24)

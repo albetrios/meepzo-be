@@ -48,6 +48,9 @@ const ALLOWED_PATH_FRAGMENTS: Record<MaintenanceContextKind, readonly string[]> 
     'queue/dlq/', // DLQ replay audit entries
   ],
   AUDIT_OUTBOX_DRAIN: ['audit/audit-outbox.repository.ts', 'audit/workers/'],
+  // The one tenantless sending row (feat-instagram-dm-sending § 6.A.3, P16): its service only —
+  // prepareDatabase's create, the may-send check, the rollback's minimum and the app-level usage.
+  SENDING_STATE: ['instagram-sending/sending-state.'],
   SYSTEM_TABLE_RETENTION: [
     'stripe-webhook/workers/', // stripe_webhook_events ledger retention (non-RLS table)
   ],

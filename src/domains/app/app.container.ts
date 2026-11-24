@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import { registerHealthSendingProbe } from '@/shared/utils/infrastructure/health-operational-metrics.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { ChannelAccountRepository } from './sub-domains/channel-account/channel-account.repository.js';
 import { ChannelAccountService } from './sub-domains/channel-account/channel-account.service.js';
@@ -39,6 +40,15 @@ import type { AutomationOpenRunCancelStep } from './sub-domains/automation/autom
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
 import { AutomationRunMessageService } from './sub-domains/automation/automation-run/automation-run-message.service.js';
 import { AutomationPublicReplySafetyService } from './sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
+import { InstagramSendLaneRepository } from './sub-domains/instagram-sending/instagram-send-lane.repository.js';
+import { InstagramSendLaneService } from './sub-domains/instagram-sending/instagram-send-lane.service.js';
+import { InstagramSendStopRepository } from './sub-domains/instagram-sending/instagram-send-stop.repository.js';
+import { InstagramSendDayCountRepository } from './sub-domains/instagram-sending/instagram-send-day-count.repository.js';
+import { MessageMonthCountRepository } from './sub-domains/instagram-sending/message-month-count.repository.js';
+import { MessageMonthCountService } from './sub-domains/instagram-sending/message-month-count.service.js';
+import { SendingStateService } from './sub-domains/instagram-sending/sending-state.service.js';
+import { InstagramSendingService } from './sub-domains/instagram-sending/instagram-sending.service.js';
+import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
@@ -54,8 +64,12 @@ import { AutomationPublicReplySafetyService } from './sub-domains/automation/aut
  * operations event processing writes contacts through), the Instagram webhook events service
  * (route 18; the one write path for the events table the receiver and processing use), the
  * Instagram webhook receiver (Meta's routes 16–17), the automation service (routes 11–15 and
- * "next post" linking for event processing), and the run engine (sub-domain 3.B — the entry points
- * event processing calls per comment, DM, story reply and button click).
+ * "next post" linking for event processing), the run engine (sub-domain 3.B — the entry points
+ * event processing calls per comment, DM, story reply and button click), and the sending
+ * sub-domain's root (feat-instagram-dm-sending § 6.A, ROUTE row R18) — the lane service (the lane
+ * port of the connection, the channel account and route 12), the month count (the plan-stop port,
+ * route 64's meter), the global sending state (`SENDING_ENABLED` and the environment id, the app-level
+ * Meta usage) and the read service of routes 63–64.
  *
  * @remarks
  * The connection's token service is exposed for the Instagram workers that call Meta with an
@@ -82,6 +96,10 @@ export type AppContainer = {
   instagramWebhookService: InstagramWebhookService;
   automationService: AutomationService;
   automationRunService: AutomationRunService;
+  instagramSendLaneService: InstagramSendLaneService;
+  messageMonthCountService: MessageMonthCountService;
+  sendingStateService: SendingStateService;
+  instagramSendingService: InstagramSendingService;
 };
 
 /**
@@ -96,22 +114,26 @@ function createInstagramAccountServices({
   organizationService,
   channelConnectionTokenService,
   settingsChannelAccountPort,
+  settingsLanePort,
 }: {
   organizationService: OrganizationService;
   channelConnectionTokenService: ChannelConnectionTokenService;
   /** Route 12's channel account steps (P42, CA11) — the channel account service, built after. */
   settingsChannelAccountPort: InstagramAccountSettingsChannelAccountPort;
+  /** Route 12's lane wake after a limit change (IA14) — sub-domain 6's lane service (R18). */
+  settingsLanePort: InstagramAccountSettingsLanePort;
 }) {
   const instagramAccountRepository = new InstagramAccountRepository();
   const channelAccountRepository = new ChannelAccountRepository();
   const instagramAccountExtensionService = new InstagramAccountExtensionService(
     instagramAccountRepository,
   );
-  // The lane wake after a limit change (IA14) is sub-domain 6's — not passed until ROUTE row R18.
+  // The lane wake after a limit change (IA14) is sub-domain 6's lane service (ROUTE row R18).
   const instagramAccountSettingsService = new InstagramAccountSettingsService(
     new InstagramAccountSettingsRepository(),
     settingsChannelAccountPort,
     organizationService,
+    settingsLanePort,
   );
   const instagramAccountService = new InstagramAccountService(
     instagramAccountRepository,
@@ -127,6 +149,108 @@ function createInstagramAccountServices({
     instagramAccountSettingsService,
     instagramAccountService,
   };
+}
+
+/**
+ * The sending sub-domain's root services (routes-final § 6.A, ROUTE row R18): the lanes and their
+ * stops, the global sending row (registered as the readiness body's sending check, SNC9), the
+ * month count (the channel account's plan-stop port, route 64's meter) — and the connection's usage
+ * service, whose app-level usage that row holds (S13, P107).
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only, plus the health
+ * probe's registration.
+ */
+function createInstagramSendingServices(planAccessService: ChannelConnectionPlanAccessService) {
+  const instagramSendLaneService = new InstagramSendLaneService(
+    new InstagramSendLaneRepository(),
+    new InstagramSendStopRepository(),
+  );
+  const sendingStateService = new SendingStateService();
+  // The readiness body's sending part (SNC9): may this deployment send, and why not.
+  registerHealthSendingProbe(async () => {
+    const check = await sendingStateService.checkSending();
+    return {
+      may_send: check.maySend,
+      reason: check.reason,
+      settings_version: check.settingsVersion,
+      minimum_compatible_settings_version: check.minimumCompatibleSettingsVersion,
+      server_settings_version: check.serverSettingsVersion,
+    };
+  });
+  const messageMonthCountService = new MessageMonthCountService(
+    new MessageMonthCountRepository(),
+    planAccessService,
+  );
+  // Meta's usage per connection (MC19, S13): the Postgres store; the app-level usage once, on the
+  // global sending row (P107).
+  const channelConnectionUsageService = createChannelConnectionUsageService({
+    usageStore: createChannelConnectionUsagePostgresStore(new ChannelConnectionUsageRepository()),
+    appUsageStore: sendingStateService,
+  });
+  return {
+    instagramSendLaneService,
+    sendingStateService,
+    messageMonthCountService,
+    channelConnectionUsageService,
+  };
+}
+
+/**
+ * The Instagram account's media, erasure and Meta-callback services (routes-final § 2): the post and
+ * story pickers, the one erase of an account's data (which the organization's delete and Meta's
+ * callbacks call, IAC5) and Meta's deauthorize / data-deletion callbacks.
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
+ */
+function createInstagramMediaAndErasureServices(instagramAccountService: InstagramAccountService) {
+  const instagramMediaService = new InstagramMediaService(
+    new InstagramMediaRepository(),
+    instagramAccountService,
+  );
+  // Meta's callbacks and the organization's delete (every account and connection, IAC5) erase here.
+  const instagramAccountErasureService = new InstagramAccountErasureService(
+    instagramAccountService,
+    instagramMediaService,
+  );
+  const instagramAccountMetaCallbackService = new InstagramAccountMetaCallbackService(
+    instagramAccountService,
+    instagramAccountErasureService,
+  );
+  return {
+    instagramMediaService,
+    instagramAccountErasureService,
+    instagramAccountMetaCallbackService,
+  };
+}
+
+/**
+ * The Instagram webhook's services (routes-final § 5): the events service (route 62, the one write
+ * path of the events table) and the receiver (Meta's routes 60–61).
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
+ */
+function createInstagramWebhookServices({
+  instagramAccountService,
+  organizationService,
+}: {
+  instagramAccountService: InstagramAccountService;
+  organizationService: OrganizationService;
+}) {
+  const instagramWebhookEventService = new InstagramWebhookEventService(
+    new InstagramWebhookEventRepository(),
+    organizationService,
+  );
+  // The receiver stores through the events service (WH1), then adds the account's processing job
+  // after each entry's commit and turns the stored `received` rows `queued` (WH5, WH10).
+  const instagramWebhookService = new InstagramWebhookService(
+    instagramAccountService,
+    instagramWebhookEventService,
+    enqueueInstagramWebhookAccountProcessing,
+  );
+  return { instagramWebhookEventService, instagramWebhookService };
 }
 
 /**
@@ -147,10 +271,8 @@ export function createAppContainer({
     new ChannelConnectionTokenRepository(),
     channelConnectionRepository,
   );
-  // Meta's usage per connection (MC19, S13): the Postgres store; the app-level store joins at R18.
-  const channelConnectionUsageService = createChannelConnectionUsageService({
-    usageStore: createChannelConnectionUsagePostgresStore(new ChannelConnectionUsageRepository()),
-  });
+  // The sending sub-domain's root (§ 6.A, ROUTE row R18).
+  const sending = createInstagramSendingServices(planAccessService);
   const {
     channelAccountRepository,
     instagramAccountExtensionService,
@@ -168,10 +290,10 @@ export function createAppContainer({
       canChannelAccountUseFeature: (input) =>
         channelAccountService.canChannelAccountUseFeature(input),
     },
+    settingsLanePort: sending.instagramSendLaneService,
   });
-  // The channel account (1B, ROUTE row R5): routes 6–11, the one feature check, and the
-  // connection's account port over `app.channel_accounts` with its Instagram extension. Its lane
-  // port (R18) and plan-stop port (R18, R24) are not passed until their rows build them.
+  // The channel account (1B, R5): routes 6–11, the feature check, the connection's account port;
+  // its lane port is 6's lane service, its plan-stop port the month count (R18; `plan_ended`: R24).
   const channelAccountService = new ChannelAccountService(
     channelAccountRepository,
     instagramAccountExtensionService,
@@ -181,31 +303,34 @@ export function createAppContainer({
     channelConnectionTokenService,
     organizationService,
     planAccessService,
+    sending.instagramSendLaneService,
+    sending.messageMonthCountService,
   );
-  // The connection reaches accounts through the channel account (P111 → R5). The lane port (R18)
-  // and the trial port (R24) are not passed until their rows build them.
+  // The connection reaches accounts through the channel account (R5), lanes through 6 (R18); the
+  // trial port (R24) is not passed until its row builds it.
   const channelConnectionService = new ChannelConnectionService(
     channelConnectionRepository,
     channelConnectionTokenService,
-    channelConnectionUsageService,
+    sending.channelConnectionUsageService,
     channelAccountService,
     organizationService,
     planAccessService,
     redisConnection,
+    sending.instagramSendLaneService,
   );
-  const instagramMediaService = new InstagramMediaService(
-    new InstagramMediaRepository(),
-    instagramAccountService,
-  );
-  // Meta's callbacks and the organization's delete (every account and connection, IAC5) erase here.
-  const instagramAccountErasureService = new InstagramAccountErasureService(
-    instagramAccountService,
+  // Routes 63–64 (§ 6.A); route 63's later parts (R19 on) join through its sources argument.
+  const instagramSendingService = new InstagramSendingService({
+    organizationService,
+    channelAccountService,
+    planAccessService,
+    ...sending,
+    dayCountRepository: new InstagramSendDayCountRepository(),
+  });
+  const {
     instagramMediaService,
-  );
-  const instagramAccountMetaCallbackService = new InstagramAccountMetaCallbackService(
-    instagramAccountService,
     instagramAccountErasureService,
-  );
+    instagramAccountMetaCallbackService,
+  } = createInstagramMediaAndErasureServices(instagramAccountService);
   // The automation delete's hook (routes-final § 3.A AU12): every step registered here runs inside
   // route 15's transaction, after the soft delete, and answers how many open runs it cancelled.
   // Sub-domain 3.B registers `cancelAutomationOpenRuns` below, once the run engine is built.
@@ -228,17 +353,10 @@ export function createAppContainer({
     contactErasureSteps,
     (input) => automationService.findAutomationIdForFilter(input),
   );
-  const instagramWebhookEventService = new InstagramWebhookEventService(
-    new InstagramWebhookEventRepository(),
-    organizationService,
-  );
-  // The receiver stores through the events service (WH1), then adds the account's processing job
-  // after each entry's commit and turns the stored `received` rows `queued` (WH5, WH10).
-  const instagramWebhookService = new InstagramWebhookService(
+  const { instagramWebhookEventService, instagramWebhookService } = createInstagramWebhookServices({
     instagramAccountService,
-    instagramWebhookEventService,
-    enqueueInstagramWebhookAccountProcessing,
-  );
+    organizationService,
+  });
   // The run engine (sub-domain 3.B): sub-domain 4's event processing calls its entry points; it
   // sends through sub-domain 1 and writes contacts through sub-domain 2 (AU5).
   const automationRunService = new AutomationRunService(
@@ -254,7 +372,7 @@ export function createAppContainer({
   return {
     channelConnectionService,
     channelConnectionTokenService,
-    channelConnectionUsageService,
+    channelConnectionUsageService: sending.channelConnectionUsageService,
     channelAccountService,
     instagramAccountService,
     instagramAccountSettingsService,
@@ -266,6 +384,10 @@ export function createAppContainer({
     instagramWebhookService,
     automationService,
     automationRunService,
+    instagramSendLaneService: sending.instagramSendLaneService,
+    messageMonthCountService: sending.messageMonthCountService,
+    sendingStateService: sending.sendingStateService,
+    instagramSendingService,
   };
 }
 

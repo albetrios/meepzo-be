@@ -211,6 +211,7 @@
     "verify:base": "tsx src/scripts/ops/verify-base.ts",
     "ops:probe-live-api": "tsx src/scripts/ops/probe-live-api.ts",
     "ops:secrets:rotate": "tsx src/scripts/ops/secrets-key-rotate.ts",
+    "ops:sending-state": "tsx src/scripts/ops/sending-state.ts",
     "ops:stripe:reconcile": "tsx src/scripts/ops/stripe-subscription-reconcile.ts",
     "ops:worker:drain": "tsx src/scripts/ops/worker-drain.ts",
     "setup:local": "tsx tooling/dev/setup-local.ts",

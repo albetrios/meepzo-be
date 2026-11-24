@@ -56,7 +56,12 @@ export type WorkerDatabaseContextKind =
    * Per-row, the worker temporarily layers `app.current_organization_public_id` (or
    * `app.system_audit_insert`) for the eventual `audit.logs` INSERT.
    */
-  | 'audit_outbox_drain';
+  | 'audit_outbox_drain'
+  /**
+   * The global sending state (`app.sending_states`, feat-instagram-dm-sending § 6.A.3, P16). Pins
+   * `app.sending_state_access = 'true'` — the one context that can read or write that tenantless row.
+   */
+  | 'sending_state';
 
 /**
  * ALS payload describing the pinned database context for a worker job: the
@@ -88,6 +93,8 @@ const FORCE_RLS_ALLOWED_KINDS: ReadonlySet<WorkerDatabaseContextKind> = new Set(
   // the kind here only lets the (currently advisory) pinned-context assertion recognise the drain as
   // a valid FORCE-RLS accessor rather than rejecting it. Required now that audit.outbox is FORCE RLS.
   'audit_outbox_drain',
+  // The sending state's one row is FORCE RLS behind its own maintenance arm (P16).
+  'sending_state',
 ]);
 
 /**
@@ -503,6 +510,7 @@ const GUC_BY_CONTEXT_KIND: Record<
     label: 'session retention cleanup',
   },
   audit_outbox_drain: { key: 'app.audit_outbox_drain', label: 'audit outbox drain' },
+  sending_state: { key: 'app.sending_state_access', label: 'sending state' },
 };
 
 /**

@@ -53,6 +53,9 @@ const GLOBAL_LIMITER_ONLY_ALLOWLIST = new Set<string>([
   'src/domains/user/user.routes.ts → GET /me/notification-preferences',
   // The channel account reads (feat-instagram-dm-sending R5, routes 6, 7): plain authenticated reads.
   'src/domains/app/sub-domains/channel-account/channel-account.routes.ts → GET /social/channel-accounts',
+  // The DM meter (feat-instagram-dm-sending R18, route 64): a plain authenticated read behind a
+  // 10-second Redis copy.
+  'src/domains/app/sub-domains/instagram-sending/instagram-sending.routes.ts → GET /usage',
   // The post and story pickers (launch R5): plain authenticated reads, one Instagram call each.
   'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/media',
   'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/stories',

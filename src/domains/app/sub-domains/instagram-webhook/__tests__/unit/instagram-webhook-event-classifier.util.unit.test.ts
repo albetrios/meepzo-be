@@ -19,7 +19,6 @@ import {
 
 const ACCOUNT_IDS: InstagramWebhookAccountIds = {
   instagramUserId: '17841400000000001',
-  instagramAppUserId: '9000000000000001',
 };
 const CONTACT_ID = '17841400000000777';
 const OTHER_ACCOUNT_ID = '17841400000000555';
@@ -86,10 +85,7 @@ describe('classifyInstagramWebhookItem — changes[] (5.A.10)', () => {
     });
   });
 
-  it.each([
-    ['webhook user id', ACCOUNT_IDS.instagramUserId],
-    ['app-scoped id', ACCOUNT_IDS.instagramAppUserId],
-  ])(
+  it.each([['Instagram user id', ACCOUNT_IDS.instagramUserId]])(
     'a comment by the account itself (its %s) is skipped `own_comment` (P24), naming nobody',
     (_label, id) => {
       const event = classifyChange({
@@ -294,9 +290,9 @@ describe('classifyInstagramWebhookItem — messaging[] (5.A.10)', () => {
     );
   });
 
-  it('a message sent by the account itself (its app-scoped id) is an echo even without `is_echo`', () => {
+  it('a message sent by the account itself (its Instagram user id) is an echo even without `is_echo`', () => {
     const event = classifyMessaging({
-      sender: { id: ACCOUNT_IDS.instagramAppUserId },
+      sender: { id: ACCOUNT_IDS.instagramUserId },
       recipient: { id: CONTACT_ID },
       message: { mid: 'm_own' },
     });
@@ -317,7 +313,6 @@ describe('classifyInstagramWebhookItem — messaging[] (5.A.10)', () => {
     };
     const otherAccountIds: InstagramWebhookAccountIds = {
       instagramUserId: OTHER_ACCOUNT_ID,
-      instagramAppUserId: '9000000000000555',
     };
 
     const onSender = classifyMessaging(delivered);

@@ -164,6 +164,16 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → not allowed past 60 s (be-read-cache-guard); a missed tombstone would hold an old pace longer.
 - **Last reviewed**: 2026-11-24
 
+## MESSAGE_MONTH_COUNT_CACHE_TTL_SECONDS
+
+- **Value**: 10 seconds
+- **Source**: [src/shared/constants/ttl.constants.ts](src/shared/constants/ttl.constants.ts)
+- **Rationale**: The Redis copy of an organization's month count of sent messages (`app:message_month_count:<organization>`, routes-final § 6 SN11, P5), read by route 64's DM meter. Postgres holds the count in 16 slots (`app.message_month_counts`); each add tombstones the copy after its commit, and the send's claim always reads the slots, never the copy. Its own literal, not an alias of another cache's TTL.
+- **Consequences of change**:
+  - Decreasing → more slot sums on a meter every screen shows.
+  - Increasing → a meter a little further behind on a quiet organization; not allowed past 60 s (be-read-cache-guard).
+- **Last reviewed**: 2026-11-24
+
 ## API_KEY_LAST_USED_THROTTLE_TTL_SECONDS
 
 - **Value**: 60 seconds

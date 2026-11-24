@@ -8,7 +8,7 @@ import {
   NEW_ACCOUNT_HOUR_LIMIT,
   OPENING_HOUR_LIMIT_DEFAULT,
   PERSON_HOUR_LIMIT_DEFAULT,
-} from './instagram-account-settings.constants.js';
+} from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type { InstagramAccountSettingsRow } from './instagram-account-settings.repository.js';
 import type {
   InstagramAccountEffectiveLimitsOutput,

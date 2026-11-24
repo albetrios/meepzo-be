@@ -44,7 +44,8 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
 - `channel-connection.service.ts` — the routes' service. The accounts are reached through
   `ChannelConnectionAccountPort` (`channel-connection.types.ts`) — implemented by the channel account service over
   `app.channel_accounts` and its Instagram extension since ROUTE row R5 (P111, P116); the lane steps through
-  `ChannelConnectionLanePort` (R18) and a trial pick through `ChannelConnectionTrialPort` (R24), both not wired yet.
+  `ChannelConnectionLanePort` (sub-domain 6's lane service, wired at R18) and a trial pick through
+  `ChannelConnectionTrialPort` (R24, not wired yet).
 - `channel-connection.{controller,routes,dto,validator,serializer,constants,types}.ts`,
   `channel-connection-error.util.ts` — the route layer and its reasons (`provider_code_invalid`,
   `provider_permissions_missing`, `channel_connection_business_mismatch`, `plan_account_limit`,
@@ -59,7 +60,8 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
   used, expired, another user's, organization's or provider's state → `400 channel_connect_state_invalid`.
 - `channel-connection-usage.types.ts` — the usage ports: `ChannelConnectionUsageStore` (Postgres —
   `createChannelConnectionUsagePostgresStore` over `app.channel_connection_usages`, per connection, asset and type,
-  S13) and `MetaAppUsageStore` (the app-level usage once, on `sending_states`, R18).
+  S13) and `MetaAppUsageStore` (the app-level usage once, on `app.sending_states` — sub-domain 6's
+  `SendingStateService`, wired at R18).
 - `channel-connection-usage.service.ts` — `readConnectionUsage` (the pace before a Meta call: the strictest matching
   entry — slow at 80 %, wait at 95 % until Meta's time or 15 minutes) and `buildUsageRecorder` (what the Meta client
   calls with each answer's usage: the store write in its own unit, then the cache tombstone).

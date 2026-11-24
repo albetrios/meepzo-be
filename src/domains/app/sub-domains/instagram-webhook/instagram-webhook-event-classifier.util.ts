@@ -18,12 +18,12 @@ type MetaObject = Record<string, unknown>;
 const META_MILLISECOND_TIME_THRESHOLD = 100_000_000_000;
 
 /**
- * The two Instagram ids of the account a delivery entry is for (WH9): the webhook user id (the
- * entry's `id`) and the app-scoped id used in send URLs. Activity by either is the account's own.
+ * The Instagram id of the account a delivery entry is for (WH9): the Instagram user id — the entry's
+ * `id` and, under Unified Login, the id send URLs take too (2.A IA8), so activity by it is the
+ * account's own.
  */
 export interface InstagramWebhookAccountIds {
   instagramUserId: string;
-  instagramAppUserId: string;
 }
 
 /** Where an item sat in its entry: a `changes[]` item or a `messaging[]` item. */
@@ -152,7 +152,7 @@ export function listInstagramWebhookEntryItems({
   return { items, droppedItemCount };
 }
 
-/** Whether an Instagram id is either of the account's own (WH9). */
+/** Whether an Instagram id is the account's own (WH9). */
 function isAccountItself({
   instagramId,
   accountIds,
@@ -160,10 +160,7 @@ function isAccountItself({
   instagramId: string | null;
   accountIds: InstagramWebhookAccountIds;
 }): boolean {
-  return (
-    instagramId !== null &&
-    (instagramId === accountIds.instagramUserId || instagramId === accountIds.instagramAppUserId)
-  );
+  return instagramId !== null && instagramId === accountIds.instagramUserId;
 }
 
 /** The `id` of a nested `{ id }` object (`sender`, `recipient`, `from`) as an Instagram id. */

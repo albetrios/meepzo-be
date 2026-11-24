@@ -1436,6 +1436,7 @@ counts, the stop history, the two global rows and the Meta file ids. Intake neve
   claim and the fast lane's sends on their way. The owner's pause, the team's suspend and the **plan
   stop** are the account's, on `channel_account` ([P42](decisions.md)), read by every lane — so the
   error stop here and the plan stop there still hold at once (SN12). No public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md), [P305](decisions.md), [P307](decisions.md)): `app.instagram_send_lanes` as designed (`lane`, `state`, `next_run_at`, `lease_until`, `box_start`, `last_sent_at`, `half_speed_until`, `wait_reason`, `turn_number`, `working_turn`, `pick_count`, `day_date`, `day_count`, `stop_reason` (nine groups — no `app_limit`), `stop_until`, `stop_count`, `stop_error_code`, `stop_error_subcode`, `stop_cleared_at`, `testing_lane`, `testing_until`, `sending_count`) **plus** S29's `estimate_waiting_count`, `estimate_will_go_count`, `estimate_may_expire_count`, `estimate_done_at`, `estimated_at` (slow row only) and `created_at`; fillfactor 80; migration `20261124143012_app_instagram_sending.sql`.
 - **Table:** `app.instagram_send_lanes` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3385–L3419, plan:L3943–L3970; D3, D4, D5, D11, D19, D34, D35, D57, D62;
   routes-final § 6, 6.A.3.
@@ -1595,6 +1596,7 @@ erDiagram
 - **Holds:** messages sent per account, count group (`open` · `reply` · `fast` · `broadcast`) and
   minute — gate 2, raised in the same commit that marks a message `sending` (D18). Kept 2 hours. No
   public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md)): as designed (`count_group`, `minute_start`, `count`; primary key organization, account, group, minute); fillfactor 80.
 - **Table:** `app.instagram_send_minute_counts` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3421–L3451; D18.
 - **Added:** new.
@@ -1623,6 +1625,7 @@ erDiagram
   slots by channel account so accounts never wait on each other (D34). Every message into her chat
   counts, broadcast ones too (D68). Feeds the month meter (A14, [P14](decisions.md)) and the `plan_limit` stop of the
   slow, fast and broadcast lanes (A3, [P3](decisions.md)). Kept 13 months. No public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md)): as designed (`month_start` — CHECK the 1st, `slot` 0–15 = channel account id mod 16, `count`, `updated_at`); fillfactor 80; Redis copy `app:message_month_count:<organization>` (10 s, [P305](decisions.md)).
 - **Table:** `app.message_month_counts` (common, [P43](decisions.md): the plan limit spans channels;
   plan name `app.dm_month_counts`, `app.direct_message_month_counts` under A6)
 - **Sources:** plan:L3642–L3682; D34, D62, D68.
@@ -1649,6 +1652,7 @@ erDiagram
   (`time` · `test` · `owner` · `team`). A plan stop is recorded here with lane `all`, though it now
   sits on `channel_account` ([P42](decisions.md)). Kept 90 days — a plain table, emptied hourly within a
   time budget ([P92](decisions.md)). No public id.
+- **Built R18** ([AS-BUILT](../AS-BUILT.md)): as designed (`lane` incl. `all`, `reason` — the nine groups and the three plan stops, `error_code`, `error_subcode`, `started_at`, `stop_until`, `ended_at`, `ended_by`).
 - **Table:** `app.instagram_send_stops` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3482–L3494; D19, D34, D35, D57.
 - **Added:** new.
@@ -1685,6 +1689,7 @@ erDiagram
   keeps sending ([P95](decisions.md), S16) — the stop for all accounts and its count, and the one test for
   all accounts after it. No organization — a
   documented exemption, maintenance login only (A16).
+- **Built R18** ([AS-BUILT](../AS-BUILT.md), [P306](decisions.md)): as designed **plus** S13's `app_usage_percent`, `app_usage_read_at`; policy `sending_states_maintenance_access` on `app.sending_state_access` (`MAINTENANCE_SCOPE.SENDING_STATE`), granted to `meepzo_be_maintenance` only. **New with it (S8):** `app.instagram_send_day_counts` — `organization_id`, `channel_account_id`, `day_date` (organization time zone), `sent_count`, `unknown_count`, `skipped_count`, `skipped_window_closed_count`, `expired_count`, `updated_at`; primary key organization, account, day; FORCE RLS with the sweep arm; fillfactor 80.
 - **Table:** `app.sending_states` (common, [P43](decisions.md): the global send switch; the plan names
   it in the singular, `app.sending_state`)
 - **Sources:** plan:L3496–L3505, plan:L6980–L6994; D20, D21; [P95](decisions.md).

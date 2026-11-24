@@ -189,8 +189,8 @@ export interface ChannelConnectionAccountPort {
 
 /**
  * The lane steps of a pick, a reconnect and "Disconnect business" (routes-final § 1 MC6–MC8, CA5) —
- * the port of sub-domain 6's lane service, built with the lanes at ROUTE row R18. Until then the app
- * container passes none and the steps are skipped (no lane table exists).
+ * the port of sub-domain 6's lane service (`InstagramSendLaneService`, ROUTE row R18), which the app
+ * container passes as the connection service's eighth constructor argument.
  */
 export interface ChannelConnectionLanePort {
   /** A new account's four `ready` lanes (MC7), in the caller's unit. */

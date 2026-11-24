@@ -90,6 +90,10 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   // is 404 channel_account_not_found and unchanged (channel-account.integration.test.ts).
   'GET /api/v1/app/social/channel-accounts/:channel_account_id':
     'cross-organization-resource: channel account',
+  'GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status':
+    "cross-organization-resource: Instagram sending status (route 63 — another organization's account answers 404 instagram_not_connected, instagram-sending.integration.test.ts)",
+  'GET /api/v1/app/usage':
+    'organization-scoped read: the DM meter of the token organization only (route 64 — keyed on the verified org claim, instagram-sending.integration.test.ts)',
   'DELETE /api/v1/app/social/channel-accounts/:channel_account_id':
     'cross-organization-mutation: channel account DELETE',
   'PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings':

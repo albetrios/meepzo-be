@@ -85,6 +85,8 @@
   "GET /api/v1/users/me/membership-invitations": 200,
   "GET /api/v1/app/social/channel-accounts": 200,
   "GET /api/v1/app/social/channel-accounts/:channel_account_id": 200,
+  "GET /api/v1/app/social/instagram/accounts/:channel_account_id/sending-status": 200,
+  "GET /api/v1/app/usage": 200,
   "PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings": 200,
   "PATCH /api/v1/app/automations/:automation_id": 200,
   "PATCH /api/v1/notify/notifications/:notification_id/read": 200,

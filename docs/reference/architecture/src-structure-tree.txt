@@ -293,7 +293,6 @@ src/
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── index.ts
     │   │   │   │   │   └── instagram-account-settings.bulk.seed.ts
-    │   │   │   │   ├── instagram-account-settings.constants.ts
     │   │   │   │   ├── instagram-account-settings.controller.ts
     │   │   │   │   ├── instagram-account-settings.dto.ts
     │   │   │   │   ├── instagram-account-settings.overview.md
@@ -355,6 +354,45 @@ src/
     │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
     │   │   │   └── instagram-account.types.ts
+    │   │   ├── instagram-sending/
+    │   │   │   ├── __tests__/
+    │   │   │   │   ├── factories/
+    │   │   │   │   │   └── instagram-sending.factory.ts
+    │   │   │   │   ├── integration/
+    │   │   │   │   │   └── instagram-sending.integration.test.ts
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
+    │   │   │   │   │   ├── sending-state.decide.unit.test.ts
+    │   │   │   │   │   └── sending-state.service.db.unit.test.ts
+    │   │   │   ├── seed/
+    │   │   │   │   ├── index.ts
+    │   │   │   │   └── instagram-sending.bulk.seed.ts
+    │   │   │   ├── instagram-send-day-count.repository.ts
+    │   │   │   ├── instagram-send-day-count.schema.ts
+    │   │   │   ├── instagram-send-lane.repository.ts
+    │   │   │   ├── instagram-send-lane.schema.ts
+    │   │   │   ├── instagram-send-lane.service.ts
+    │   │   │   ├── instagram-send-lane.util.ts
+    │   │   │   ├── instagram-send-minute-count.repository.ts
+    │   │   │   ├── instagram-send-minute-count.schema.ts
+    │   │   │   ├── instagram-send-stop.repository.ts
+    │   │   │   ├── instagram-send-stop.schema.ts
+    │   │   │   ├── instagram-sending.constants.ts
+    │   │   │   ├── instagram-sending.controller.ts
+    │   │   │   ├── instagram-sending.overview.md
+    │   │   │   ├── instagram-sending.routes.ts
+    │   │   │   ├── instagram-sending.serializer.ts
+    │   │   │   ├── instagram-sending.service.ts
+    │   │   │   ├── instagram-sending.types.ts
+    │   │   │   ├── message-month-count.cache.ts
+    │   │   │   ├── message-month-count.repository.ts
+    │   │   │   ├── message-month-count.schema.ts
+    │   │   │   ├── message-month-count.service.ts
+    │   │   │   ├── sending-state.repository.ts
+    │   │   │   ├── sending-state.schema.ts
+    │   │   │   └── sending-state.service.ts
     │   │   └── instagram-webhook/
     │   │   │   ├── __tests__/
     │   │   │       ├── integration/
@@ -1993,6 +2031,7 @@ src/
     │   ├── process-tree.util.ts
     │   ├── route-coverage-audit.ts
     │   ├── secrets-key-rotate.ts
+    │   ├── sending-state.ts
     │   ├── settle-check.config.ts
     │   ├── settle-check.evaluate.ts
     │   ├── settle-check.ts
@@ -2703,6 +2742,7 @@ src/
     │   │   ├── contact-rls.security.test.ts
     │   │   ├── force-rls-policies-restrict.security.test.ts
     │   │   ├── instagram-account-resolvers.security.test.ts
+    │   │   ├── instagram-sending-rls.security.test.ts
     │   │   ├── instagram-webhook-events-rls.security.test.ts
     │   │   ├── meepzo-be-app-role-privileges.security.test.ts
     │   │   ├── membership-name-sort.security.test.ts

@@ -20,8 +20,14 @@ TableGroup app {
   app.instagram_account_settings
   app.instagram_accounts
   app.instagram_media
+  app.instagram_send_day_counts
+  app.instagram_send_lanes
+  app.instagram_send_minute_counts
+  app.instagram_send_stops
   app.instagram_webhook_event_keys
   app.instagram_webhook_events
+  app.message_month_counts
+  app.sending_states
 }
 
 TableGroup audit {
@@ -419,6 +425,97 @@ Note app.instagram_media {
   'RLS: enabled\nPolicies: instagram_media_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
+Table app.instagram_send_day_counts {
+  channel_account_id bigint [not null]
+  day_date date [not null]
+  expired_count int [not null]
+  organization_id bigint [not null]
+  sent_count int [not null]
+  skipped_count int [not null]
+  skipped_window_closed_count int [not null]
+  unknown_count int [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (organization_id, channel_account_id, day_date) [pk]
+  }
+}
+
+Note app.instagram_send_day_counts {
+  'RLS: enabled\nPolicies: instagram_send_day_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_send_lanes {
+  box_start timestamptz
+  channel_account_id bigint [not null]
+  created_at timestamptz [not null]
+  day_count int
+  day_date date
+  estimate_done_at timestamptz
+  estimate_may_expire_count int
+  estimate_waiting_count int
+  estimate_will_go_count int
+  estimated_at timestamptz
+  half_speed_until timestamptz
+  id bigint [pk, increment]
+  lane varchar(9) [not null]
+  last_sent_at timestamptz
+  lease_until timestamptz
+  next_run_at timestamptz
+  organization_id bigint [not null]
+  pick_count smallint [not null]
+  sending_count smallint [not null]
+  state varchar(8) [not null]
+  stop_cleared_at timestamptz
+  stop_count smallint [not null]
+  stop_error_code int
+  stop_error_subcode int
+  stop_reason varchar(24)
+  stop_until timestamptz
+  testing_lane varchar(9)
+  testing_until timestamptz
+  turn_number bigint [not null]
+  updated_at timestamptz [not null]
+  wait_reason varchar(12)
+  working_turn bigint
+}
+
+Note app.instagram_send_lanes {
+  'RLS: enabled\nPolicies: instagram_send_lanes_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_send_minute_counts {
+  channel_account_id bigint [not null]
+  count int [not null]
+  count_group varchar(9) [not null]
+  minute_start timestamptz [not null]
+  organization_id bigint [not null]
+  indexes {
+    (organization_id, channel_account_id, count_group, minute_start) [pk]
+  }
+}
+
+Note app.instagram_send_minute_counts {
+  'RLS: enabled\nPolicies: instagram_send_minute_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_send_stops {
+  channel_account_id bigint [not null]
+  ended_at timestamptz
+  ended_by varchar(5)
+  error_code int
+  error_subcode int
+  id bigint [pk, increment]
+  lane varchar(9) [not null]
+  organization_id bigint [not null]
+  reason varchar(24) [not null]
+  started_at timestamptz [not null]
+  stop_until timestamptz
+}
+
+Note app.instagram_send_stops {
+  'RLS: enabled\nPolicies: instagram_send_stops_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
 Table app.instagram_webhook_event_keys {
   channel_account_id bigint [not null]
   event_day date [not null]
@@ -464,6 +561,41 @@ Table app.instagram_webhook_events {
 
 Note app.instagram_webhook_events {
   'Partitioned BY RANGE (created_at)\nRLS: enabled\nPolicies: instagram_webhook_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.message_month_counts {
+  count int [not null]
+  month_start date [not null]
+  organization_id bigint [not null]
+  slot smallint [not null]
+  updated_at timestamptz [not null]
+  indexes {
+    (organization_id, month_start, slot) [pk]
+  }
+}
+
+Note app.message_month_counts {
+  'RLS: enabled\nPolicies: message_month_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.sending_states {
+  all_stop_count smallint [not null]
+  all_stop_reason varchar(14)
+  all_stop_until timestamptz
+  app_usage_percent smallint
+  app_usage_read_at timestamptz
+  environment_id varchar(64) [not null]
+  id smallint [pk]
+  minimum_compatible_settings_version varchar(32) [not null]
+  settings_version varchar(32) [not null]
+  settings_version_since timestamptz [not null]
+  testing_lane varchar(9)
+  testing_until timestamptz
+  updated_at timestamptz [not null]
+}
+
+Note app.sending_states {
+  'RLS: enabled\nPolicies: sending_states_maintenance_access\nFORCE ROW LEVEL SECURITY'
 }
 
 Table audit.dead_letter_jobs {

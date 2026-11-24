@@ -362,11 +362,8 @@ export class InstagramWebhookService {
           organizationId: account.instagramAccount.organizationId,
           channelAccountId: account.channelAccountId,
         };
-        const accountIds = {
-          instagramUserId: account.instagramUserId,
-          // Under Unified Login the id send URLs take is the Instagram user id (2.A IA8).
-          instagramAppUserId: account.instagramUserId,
-        };
+        // Under Unified Login the id send URLs take is the Instagram user id (2.A IA8).
+        const accountIds = { instagramUserId: account.instagramUserId };
         const classified = items.flatMap((entryItem) => {
           const event = classifyInstagramWebhookItem({ ...entryItem, accountIds, entryTime });
           return event === null ? [] : [event];

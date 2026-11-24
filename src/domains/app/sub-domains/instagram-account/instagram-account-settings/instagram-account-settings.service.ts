@@ -125,7 +125,7 @@ function featuresTurnedOn({
  * - The settings row is written through this service only, never by the account's repository
  *   (2.B.10). The channel account is reached through {@link InstagramAccountSettingsChannelAccountPort}
  *   (the channel account service depends on this one, so it cannot be a constructor service here);
- *   the lane wake through {@link InstagramAccountSettingsLanePort} (ROUTE row R18) — none until then.
+ *   the lane wake through {@link InstagramAccountSettingsLanePort} (sub-domain 6's lane service, R18).
  *   No cache (IA14).
  */
 export class InstagramAccountSettingsService {

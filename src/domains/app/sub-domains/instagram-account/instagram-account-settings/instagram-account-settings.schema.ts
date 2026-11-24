@@ -26,7 +26,7 @@ import { channel_accounts } from '@/domains/app/sub-domains/channel-account/chan
  *
  * @remarks
  * Every limit is nullable — empty means the settings file's value
- * (`instagram-account-settings.constants.ts`, D22, P4). The automation switch lives on
+ * (the sending settings file `instagram-sending.constants.ts`, D22, P4). The automation switch lives on
  * `app.channel_accounts` (P42); public reply safety is per automation (D32).
  */
 export const instagram_account_settings = appSchema

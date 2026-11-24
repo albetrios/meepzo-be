@@ -161,6 +161,17 @@ export const NOTIFICATION_UNREAD_COUNT_CACHE_TTL_SECONDS = 60;
 export const CHANNEL_CONNECTION_USAGE_CACHE_TTL_SECONDS = 60;
 
 /**
+ * How long an organization's month count of sent messages is served from Redis, in seconds
+ * (feat-instagram-dm-sending routes-final § 6 SN11, P5 — route 64's DM meter).
+ *
+ * @remarks
+ * Short on purpose: every message the organization sends moves the count, and each add tombstones
+ * the entry after its commit, so on a busy organization the copy mostly saves the meter's repeat
+ * reads within a few seconds. Its own literal, under the 60 s ceiling of be-read-cache-guard.
+ */
+export const MESSAGE_MONTH_COUNT_CACHE_TTL_SECONDS = 10;
+
+/**
  * How long a FRESHNESS invalidation tombstone blocks repopulation, in seconds.
  *
  * @remarks

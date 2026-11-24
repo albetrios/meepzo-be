@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**20 / 251** variables migrated to an explicit `{ allowed, description }` entry.
+**22 / 253** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -202,6 +202,8 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `SECRETS_ENCRYPTION_CURRENT_VERSION` | — | `v1` |  | — |
 | `SECRETS_ENCRYPTION_KEY` | — | — *(required)* |  | — |
 | `SECRETS_ENCRYPTION_KEYS` | — | — *(optional)* |  | — |
+| `SENDING_ENABLED` | true \| false (or 1 \| 0) | `false` | ✓ | Whether this deployment may send Instagram messages: off, no send worker, Meta-calling task or repair duty runs (webhooks are still saved). Also needs SENDING_ENVIRONMENT_ID to match the database. |
+| `SENDING_ENVIRONMENT_ID` | string, 1–64 characters (e.g. production, development, local) | — *(optional)* | ✓ | This deployment's sending environment id: must equal the database's app.sending_states.environment_id, which prepareDatabase writes when the row is missing — so a restored or copied database never sends from another server. Required in production while SENDING_ENABLED is on. |
 | `SENTRY_DEBUG` | — | `false` |  | — |
 | `SENTRY_DSN` | — | — *(optional)* |  | — |
 | `SENTRY_ENVIRONMENT` | — | — *(optional)* |  | — |

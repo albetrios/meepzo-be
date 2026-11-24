@@ -36,7 +36,6 @@ import {
   getPostgresConstraintName,
   isPostgresUniqueViolation,
 } from '@/shared/utils/infrastructure/postgres-error.util.js';
-import { INSTAGRAM_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 import { CHANNEL_ACCOUNT_UNIQUE_INDEXES } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import { instagramReconnectRequiredError } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
 import {
@@ -187,8 +186,7 @@ async function readWithinTime<TResult>({
 function toPickRaceError(error: unknown): unknown {
   if (
     isPostgresUniqueViolation(error) &&
-    (getPostgresConstraintName(error) === CHANNEL_ACCOUNT_UNIQUE_INDEXES.providerAccountLive ||
-      getPostgresConstraintName(error) === INSTAGRAM_ACCOUNT_UNIQUE_INDEXES.instagramUserLive)
+    getPostgresConstraintName(error) === CHANNEL_ACCOUNT_UNIQUE_INDEXES.providerAccountLive
   ) {
     return channelAccountConnectedElsewhereError();
   }
@@ -958,7 +956,6 @@ export class ChannelConnectionService {
             providerAccountId: identifier,
             profile: profiles.get(identifier) ?? null,
             username: assignedById.get(identifier)?.username ?? null,
-            scopes: connection.scopes,
             connectedByUserId: caller.userId,
           });
           await this.lanePort?.createLanesForAccount({

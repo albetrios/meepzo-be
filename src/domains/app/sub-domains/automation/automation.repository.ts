@@ -45,6 +45,7 @@ import {
 import type { RecordDeleteReason } from '@/shared/constants/record-fields.constants.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { automations } from './automation.schema.js';
 import type { AutomationMergedFields, AutomationRepositoryListQuery } from './automation.types.js';
 
@@ -54,7 +55,7 @@ const automationUpdatedAtTimestamp = databaseUpdatedAtTimestamp(automations.crea
 /** One `app.automations` row as Drizzle reads it. */
 export type AutomationRow = typeof automations.$inferSelect;
 
-/** An automation row with its Instagram account's public id (`iga_…`, AU27). */
+/** An automation row with its Instagram account's public id (`cha_…`, AU27). */
 export type AutomationWithAccountRow = AutomationRow & {
   instagram_account_public_id: string;
 };
@@ -121,6 +122,15 @@ const OWN_INSTAGRAM_ACCOUNT = and(
 );
 
 /**
+ * The account's channel account (1:1): its public id is the account's one id (`cha_…`, P47) since
+ * ROUTE row R6 — `instagram_account_id` keeps its name until ROUTE row R13 repoints the table.
+ */
+const ACCOUNT_CHANNEL_ACCOUNT = and(
+  eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+  eq(channel_accounts.id, instagram_accounts.channel_account_id),
+);
+
+/**
  * The internal id of the organization's Instagram account with this public id — `NULL` when there
  * is none, so a condition on it matches nothing (an unknown filter value is an empty page, AU13).
  */
@@ -132,8 +142,9 @@ function instagramAccountIdByPublicId({
   instagramAccountPublicId: string;
 }): SQL {
   return sql`(SELECT ${instagram_accounts.id} FROM ${instagram_accounts}
+    INNER JOIN ${channel_accounts} ON ${ACCOUNT_CHANNEL_ACCOUNT}
     WHERE ${instagram_accounts.organization_id} = ${organizationId}
-      AND ${instagram_accounts.public_id} = ${instagramAccountPublicId})`;
+      AND ${channel_accounts.public_id} = ${instagramAccountPublicId})`;
 }
 
 /** The columns a save writes from the merged automation (AU7) — never the counters or the account. */
@@ -183,8 +194,8 @@ function toWrittenColumns(fields: AutomationMergedFields) {
  *   `UPDATE` each (`next_post_status = 'waiting'`), so repeating them changes nothing.
  * - **Failure modes:** a value that breaks a `chk_automations_*` CHECK throws Postgres 23514 — the
  *   service checks every rule first.
- * - **Side effects:** reads `app.instagram_accounts` (the account's public id — a join-only use of
- *   sub-domain 1's schema inside the same domain) and `tenancy.organizations` (the expiry scan's
+ * - **Side effects:** reads `app.instagram_accounts` and `app.channel_accounts` (the account's public
+ *   id — a join-only use of sub-domains 1B and 2's schemas inside the same domain) and `tenancy.organizations` (the expiry scan's
  *   organization public ids); writes `app.automations` only.
  * - **Notes:** HTTP paths run inside the caller's `withAppDatabaseContext`; the expiry's
  *   per-organization change binds a job handle ({@link createWorkerAutomationRepository}); its
@@ -250,7 +261,7 @@ export class AutomationRepository {
     const rows = (await this.db()
       .select({
         ...getTableColumns(automations),
-        instagram_account_public_id: instagram_accounts.public_id,
+        instagram_account_public_id: channel_accounts.public_id,
         // The created_at sort keysets on its own column; every other sort on sort_value.
         cursor_created_at: cursorTimestampSelection(automations.created_at),
         // NULL for a never-triggered automation — the nulls-last sort's value-less rows.
@@ -260,6 +271,7 @@ export class AutomationRepository {
       })
       .from(automations)
       .innerJoin(instagram_accounts, OWN_INSTAGRAM_ACCOUNT)
+      .innerJoin(channel_accounts, ACCOUNT_CHANNEL_ACCOUNT)
       .where(and(where, cursorCondition))
       .orderBy(...orderBy)
       .limit(query.limit + 1)) as AutomationListRow[];
@@ -317,10 +329,11 @@ export class AutomationRepository {
     const rows = await this.db()
       .select({
         ...getTableColumns(automations),
-        instagram_account_public_id: instagram_accounts.public_id,
+        instagram_account_public_id: channel_accounts.public_id,
       })
       .from(automations)
       .innerJoin(instagram_accounts, OWN_INSTAGRAM_ACCOUNT)
+      .innerJoin(channel_accounts, ACCOUNT_CHANNEL_ACCOUNT)
       .where(
         and(
           eq(automations.organization_id, organizationId),
@@ -353,8 +366,9 @@ export class AutomationRepository {
       .select({
         ...getTableColumns(automations),
         instagram_account_public_id: sql<string>`(${this.db()
-          .select({ public_id: instagram_accounts.public_id })
+          .select({ public_id: channel_accounts.public_id })
           .from(instagram_accounts)
+          .innerJoin(channel_accounts, ACCOUNT_CHANNEL_ACCOUNT)
           .where(OWN_INSTAGRAM_ACCOUNT)})`,
       })
       .from(automations)

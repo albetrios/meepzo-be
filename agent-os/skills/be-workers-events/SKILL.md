@@ -120,7 +120,7 @@ tenancy/sub-domains/membership/membership-invitation/events/*.ts  →  recordOut
 tenancy/events/index.ts  →  registerTenancyEventHandlers()
 ```
 
-**Auth — transactional email** (email verification-code, password reset)
+**Auth — transactional email** (email verification-code, account-security notices)
 
 ```text
 email-login.service.ts / auth-method.service.ts  →  eventBus.emit(auth.*.requested)

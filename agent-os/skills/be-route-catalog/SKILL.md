@@ -33,7 +33,7 @@ For every `app.<method>(path, ...)` call, extract:
 | ----------------- | ----------------------------------------------------------- |
 | **Method**        | `app.get`, `app.post`, `app.patch`, `app.put`, `app.delete` |
 | **Relative path** | First string argument (e.g. `'/organizations/:id'`)         |
-| **S** (status)    | Declared happy-path status from `route-success-statuses.json` (success 200 for every method except DELETE 204; no exemptions) |
+| **S** (status)    | Declared happy-path status from `route-success-statuses.json` (success 200 for every method except DELETE 204; the one named exception: the Apple form callback, 303) |
 | **I** (idempotency) | `req` if the route is one of the 8 `idempotencyRequired` writes (`X-Idempotency-Key` mandatory), else `-` |
 | **O** (organization scope) | `both` if the route works for personal **and** team organizations; `team` if it is team-only (rejects a personal organization with 422). Backed by `tooling/openapi/route-catalog/route-organization-scope.json` |
 | **Access**        | Inspect the `preHandler` array in the options object        |

@@ -961,10 +961,11 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         instagram_media: posts,
         ...untouched
       } = after;
+      // The extension's profile is erased; its status is the channel account's (R6).
       expect(accounts).toEqual([
-        expect.objectContaining({ connection_status: 'revoked', username: null, name: null }),
+        expect.objectContaining({ username: null, profile_erased_at: expect.any(String) }),
       ]);
-      // The channel account is revoked with its Instagram row (P116).
+      // The channel account is revoked.
       expect(channelAccounts).toEqual([expect.objectContaining({ connection_status: 'revoked' })]);
       // The connection's last account went, so the connection is revoked with its token (CA8).
       expect(connections).toEqual([expect.objectContaining({ status: 'revoked' })]);
@@ -1008,7 +1009,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         organizationPublicId: team.organization.public_id,
         stepUp: true,
       });
-      mockInstagramUnsubscribe({ instagramAppUserId: team.profile.id });
+      mockInstagramUnsubscribe({ instagramUserId: team.profile.id });
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',
@@ -1022,8 +1023,12 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         team.organization.id,
       );
       expect(accounts).toEqual([
-        expect.objectContaining({ connection_status: 'revoked', username: null, name: null }),
+        expect.objectContaining({ username: null, profile_erased_at: expect.any(String) }),
       ]);
+      const { channel_accounts: channelAccounts } = await readAppRowsOfOrganization(
+        team.organization.id,
+      );
+      expect(channelAccounts).toEqual([expect.objectContaining({ connection_status: 'revoked' })]);
       const list = await injectAuthenticated(app, { url: CONTACTS_PATH, token });
       expect(list.statusCode).toBeGreaterThanOrEqual(400);
       expect(list.body).not.toContain(JORDAN.email);

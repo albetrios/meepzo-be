@@ -61,14 +61,18 @@ export async function insertChannelAccount({
       plan_stop_reason: planStopReason,
       plan_stopped_at: planStopReason === null ? null : new Date(),
     })
-    // A repeat for the same provider account (a reconnect in a test) reuses the row, as the pick does.
+    // A repeat for the same provider account (a reconnect in a test) brings the row back, as the pick does.
     .onConflictDoUpdate({
       target: [
         channel_accounts.organization_id,
         channel_accounts.channel,
         channel_accounts.provider_account_id,
       ],
-      set: { channel_connection_id: connectionId },
+      set: {
+        channel_connection_id: connectionId,
+        connection_status: connectionStatus,
+        disconnected_at: connectionStatus === 'revoked' ? new Date() : null,
+      },
     })
     .returning({
       id: channel_accounts.id,

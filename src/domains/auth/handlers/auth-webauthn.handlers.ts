@@ -6,6 +6,7 @@ import {
   getIpAddress,
   readRequestOrigin,
   setSessionCookie,
+  readTrustedDeviceCookie,
 } from '@/domains/auth/auth.http.util.js';
 import { getUserAgent } from '@/shared/utils/http/user-agent.util.js';
 import { AuthSerializer } from '@/domains/auth/auth.serializer.js';
@@ -94,6 +95,7 @@ export function createAuthWebauthnHandlers({
           ipAddress: getIpAddress(request),
           requestOrigin: readRequestOrigin(request),
           userAgent: getUserAgent(request) ?? undefined,
+          trustedDeviceToken: readTrustedDeviceCookie(request),
         });
       } catch (error) {
         // sec-A8 follow-up: record the failure side of the auth.overview.md invariant.

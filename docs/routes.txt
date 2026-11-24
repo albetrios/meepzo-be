@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 166
+  Total routes: 167
 ================================================================================
 
 Legend:
@@ -39,7 +39,7 @@ Legend:
   POST   /api/v1/app/social/channel-connections/:channel_connection_id/reconnect  200  -    team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/callback  200  req  team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
-  PATCH  /api/v1/app/social/instagram/account/settings            200  -    team  PERM: instagram-account:manage
+  PATCH  /api/v1/app/social/instagram/accounts/:channel_account_id/settings  200  -    team  PERM: instagram-account:manage
   POST   /api/v1/app/social/instagram/data-deletion               200  -    both  PUBLIC
   POST   /api/v1/app/social/instagram/deauthorize                 200  -    both  PUBLIC
   GET    /api/v1/app/social/instagram/media                       200  -    team  PERM: instagram-account:read
@@ -57,7 +57,7 @@ Legend:
 
 ================================================================================
   DOMAIN: AUTH (/api/v1/auth)
-  Routes: 29
+  Routes: 30
 ================================================================================
 
   POST   /api/v1/auth/email/login                                 200  -    both  PUBLIC
@@ -82,6 +82,7 @@ Legend:
   POST   /api/v1/auth/mfa/login                                   200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/:provider                             200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/:provider/callback                    200  -    both  PUBLIC
+  POST   /api/v1/auth/oauth/apple/callback                        303  -    both  PUBLIC
   GET    /api/v1/auth/oauth/providers                             200  -    both  PUBLIC
   POST   /api/v1/auth/refresh                                     200  -    both  TOKEN: session-cookie
   POST   /api/v1/auth/step-up                                     200  -    both  AUTH
@@ -257,8 +258,8 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 166
-  Public          : 18
+  Total routes    : 167
+  Public          : 19
   Authenticated   : 53
   Role-guarded    : 9
   Perm-guarded    : 81

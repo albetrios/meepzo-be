@@ -46,18 +46,15 @@ export async function insertInstagramAccount({
   const [account] = await getOperatorDatabase()
     .insert(instagram_accounts)
     .values({
-      public_id: generatePublicId('instagramAccount'),
       organization_id: organizationId,
       channel_account_id: channelAccount.id,
       instagram_user_id: instagramUserId,
-      instagram_app_user_id: instagramUserId,
       username: `acme.shop.${instagramUserId.slice(-6)}`,
-      connection_status: connectionStatus,
-      disconnected_at: connectionStatus === 'revoked' ? new Date() : null,
     })
-    .returning({ id: instagram_accounts.id, public_id: instagram_accounts.public_id });
+    .returning({ id: instagram_accounts.id });
   if (account === undefined) throw new Error('instagram account fixture insert returned no row');
-  return account;
+  // The account's one id is its channel account's (`cha_…`, P47, R6).
+  return { id: account.id, public_id: channelAccount.public_id };
 }
 
 /**

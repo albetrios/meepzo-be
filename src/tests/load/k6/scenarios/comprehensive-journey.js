@@ -26,8 +26,9 @@
  *       VUS=100 DURATION=90s k6 run comprehensive-journey.js  (load)
  */
 import http from 'k6/http';
-import { DELETE_REASON_QUERY, PUBLIC_AUTH_FORM_HEADERS } from '../helpers/config.js';
+import { DELETE_REASON_QUERY } from '../helpers/config.js';
 import { idempotencyKey } from '../helpers/idempotency.js';
+import { login, stepUpByEmailCode } from '../helpers/auth.js';
 import { sleep } from 'k6';
 import { SharedArray } from 'k6/data';
 import { Trend, Counter, Rate } from 'k6/metrics';
@@ -89,18 +90,12 @@ export function setup() {
   const tokens = [];
   let mfaSkipped = 0;
   for (const c of pool) {
-    const lr = http.post(
-      `${API}/auth/login`,
-      JSON.stringify({ email: c.email, password: c.password }),
-      {
-        headers: PUBLIC_AUTH_FORM_HEADERS,
-        tags: { name: 'login' },
-      },
-    );
-    // Skip users whose organization requires MFA (login returns mfa_required, no access_token) — that was
-    // the 25% failure source. Only token-bearing users ride.
-    let t = lr.json('data.access_token');
-    if (!t) {
+    // Email-code sign-in (passwords are off, P84). Skip users whose organization requires MFA (the
+    // sign-in answers mfa_required, no access_token) — only token-bearing users ride.
+    let t;
+    try {
+      t = login(c.email);
+    } catch {
       mfaSkipped += 1;
       continue;
     }
@@ -131,7 +126,6 @@ export function setup() {
     tokens.push({
       token: t,
       email: c.email,
-      password: c.password,
       organizationPublicId: c.organizationPublicId,
       userPublicId: c.userPublicId,
     });
@@ -261,16 +255,12 @@ function record(name, res) {
 
 function doLogin() {
   cred = pick();
-  const lr = http.post(
-    `${API}/auth/login`,
-    JSON.stringify({ email: cred.email, password: cred.password }),
-    {
-      headers: PUBLIC_AUTH_FORM_HEADERS,
-      tags: { name: 'login' },
-    },
-  );
-  record('login', lr);
-  let t = lr.json('data.access_token');
+  let t = null;
+  try {
+    t = login(cred.email);
+  } catch {
+    unexpectedFailures.add(true);
+  }
   if (t && cred.organizationPublicId) {
     const sr = http.post(
       `${API}/auth/switch-to-organization`,
@@ -451,7 +441,7 @@ function phaseOrgAdminMisc() {
 // Rare/heavy flows — once per VU (first iteration) to cover them without bloat / rate caps.
 function phaseRareOnce(uniq) {
   // data-export (EXPENSIVE_AUTHED_RATE_LIMIT 5/5min) — needs a recent step-up on this session.
-  req('step-up', 'POST', '/auth/step-up', { password: cred.password });
+  record('step-up', stepUpByEmailCode(token, cred.email));
   req('data-export', 'POST', '/users/me/data-export', {});
 
   // avatar upload presign — then delete the pending upload so it never fills the per-user quota.
@@ -529,7 +519,7 @@ function memberInviteChain(uniq) {
   }
 
   // Deleting an organization needs a recent step-up on this session.
-  req('step-up', 'POST', '/auth/step-up', { password: cred.password });
+  record('step-up', stepUpByEmailCode(token, cred.email));
   req('delete-org', 'DELETE', '/tenancy/organization');
   if (home) switchOrganization(home);
 }
@@ -604,7 +594,6 @@ export default function (tokenPool) {
     cred = e
       ? {
           email: e.email,
-          password: e.password,
           organizationPublicId: e.organizationPublicId,
           userPublicId: e.userPublicId,
         }

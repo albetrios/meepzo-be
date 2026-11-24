@@ -60,7 +60,7 @@ worker cluster exceed 12 cores. The cluster has spare capacity; it just can't ge
 6. **Credential pool** with enough **usable** users — `data/credential-pool.json`; ~20% are MFA-blocked,
    so seed `≈ VUS / 0.8` (`pnpm db:seed:loadtest`).
 7. **Loadtest server reachable** on `:3001` (`/livez` → 200).
-8. **Captcha off + login** — a password login returns a token (proves `CAPTCHA_PROVIDER=disabled` + `RATE_LIMIT_RELAXED_CAPS=true`, §1) and an
+8. **Captcha off + login** — an email-code sign-in returns a token (proves `CAPTCHA_PROVIDER=disabled` + `RATE_LIMIT_RELAXED_CAPS=true`, §1) and an
    organization-scoped read returns 200. The login (like every public auth form the scenarios
    call) sends the dev-only `X-Captcha-Bypass` header (`PUBLIC_AUTH_FORM_HEADERS` in
    `helpers/config.js`), so it also passes against an API that enforces CAPTCHA with
@@ -124,7 +124,7 @@ pnpm db:seed:loadtest   # 12 organizations x 10 users (override BULK_ORGS/BULK_U
 BULK_PROFILE=demo BULK_ORGS=20 BULK_USERS_PER_ORG=12 pnpm db:seed:bulk && pnpm tool:load-test-credential-pool
 ```
 
-- **~20% of bulk users are unusable** — their organization has an MFA-required policy, so password login
+- **~20% of bulk users are unusable** — their organization has an MFA-required policy, so the email-code sign-in
   returns `mfa_required` (no token). `setup()` filters these out (e.g. 174 of 216 usable).
 - **Data hygiene before a run** (leaks from prior runs slow every query → 403/p99 inflation):
   `pnpm load:reset` — setup runs it with the load-test environment. It deletes the journey's leaked

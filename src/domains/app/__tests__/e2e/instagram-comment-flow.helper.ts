@@ -27,6 +27,7 @@ import {
 import { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
 import {
@@ -36,7 +37,6 @@ import {
   processInstagramWebhookAccountJob,
 } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
 import {
-  INSTAGRAM_ACCOUNT_SETTINGS_PATH,
   type InstagramTeamFixture,
   buildInstagramProfile,
   createInstagramTeam,
@@ -337,8 +337,15 @@ export class InstagramCommentFlow {
     const profile = buildInstagramProfile();
     await connectInstagramAccount({ app: this.app, token: this.team.ownerToken, profile });
     const [account] = await getOperatorDatabase()
-      .select()
+      .select({ id: instagram_accounts.id, public_id: channel_accounts.public_id })
       .from(instagram_accounts)
+      .innerJoin(
+        channel_accounts,
+        and(
+          eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+          eq(channel_accounts.id, instagram_accounts.channel_account_id),
+        ),
+      )
       .where(
         and(
           eq(instagram_accounts.organization_id, this.team.organization.id),
@@ -358,23 +365,13 @@ export class InstagramCommentFlow {
 
   /** Disconnects the team's account (route 4). */
   async disconnectAccount(): Promise<void> {
-    mockInstagramUnsubscribe({ instagramAppUserId: this.account.instagramAppUserId });
+    mockInstagramUnsubscribe({ instagramUserId: this.account.instagramAppUserId });
     const response = await this.request({
       method: 'DELETE',
       url: await organizationChannelAccountPath(this.team.organization.id),
     });
     expect(response.statusCode, response.body).toBe(204);
     this.connectedAccount = null;
-  }
-
-  /** Changes the account's settings (route 3). */
-  async changeSettings(payload: Record<string, unknown>): Promise<void> {
-    const response = await this.request({
-      method: 'PATCH',
-      url: INSTAGRAM_ACCOUNT_SETTINGS_PATH,
-      payload,
-    });
-    expect(response.statusCode, response.body).toBe(200);
   }
 
   /** Creates a live comment automation (route 12); any field may be overridden. */
@@ -697,8 +694,15 @@ export class InstagramCommentFlow {
   /** The connected account's connection status. */
   async connectionStatus(): Promise<string | undefined> {
     const [account] = await getOperatorDatabase()
-      .select({ connection_status: instagram_accounts.connection_status })
+      .select({ connection_status: channel_accounts.connection_status })
       .from(instagram_accounts)
+      .innerJoin(
+        channel_accounts,
+        and(
+          eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+          eq(channel_accounts.id, instagram_accounts.channel_account_id),
+        ),
+      )
       .where(eq(instagram_accounts.id, this.account.id));
     return account?.connection_status;
   }

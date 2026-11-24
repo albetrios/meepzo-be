@@ -199,14 +199,9 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
   );
   const [account] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(
-      `INSERT INTO app.instagram_accounts (public_id, organization_id, channel_account_id, instagram_user_id, instagram_app_user_id, username)
-       VALUES ($1, $2, $3, $4, $4, 'acme_shop') RETURNING id`,
-      [
-        `iga_${String(organization.id).padStart(21, '0')}`,
-        organization.id,
-        channelAccount?.id,
-        instagramUserId,
-      ],
+      `INSERT INTO app.instagram_accounts (organization_id, channel_account_id, instagram_user_id, username)
+       VALUES ($1, $2, $3, 'acme_shop') RETURNING id`,
+      [organization.id, channelAccount?.id, instagramUserId],
     ),
   );
   await operatorQuery.unsafe(

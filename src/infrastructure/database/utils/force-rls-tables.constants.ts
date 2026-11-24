@@ -38,6 +38,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'auth', tableName: 'mfa_methods' },
   { schemaName: 'auth', tableName: 'mfa_recovery_codes' },
   { schemaName: 'auth', tableName: 'sessions' },
+  { schemaName: 'auth', tableName: 'trusted_devices' },
   { schemaName: 'auth', tableName: 'user_bug_reports' },
   { schemaName: 'auth', tableName: 'user_data_exports' },
   { schemaName: 'auth', tableName: 'user_notification_preferences' },

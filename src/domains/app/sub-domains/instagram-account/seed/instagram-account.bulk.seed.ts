@@ -1,8 +1,8 @@
 /**
  * Instagram account bulk seeder — gives every demo team organization's seeded channel account
  * (`channel-account/seed/`) its Instagram extension (`app.instagram_accounts`, 1:1), as a pick leaves
- * it (feat-instagram-dm-sending MC7): status
- * `connected`, the connection's scopes, the webhook subscribed. The token is the connection's.
+ * it (feat-instagram-dm-sending MC7, 2.A IA8): the profile and the webhook subscribed. The status,
+ * the public id and the token are the channel account's and its connection's.
  *
  * Idempotency: the Instagram id is derived from the organization id (digits behind a `9`, never a
  * real Instagram id), so a re-run finds the same account; the insert is `ON CONFLICT DO NOTHING`.
@@ -12,9 +12,7 @@ import { and, eq } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { seededProviderAccountId } from '@/domains/app/sub-domains/channel-account/seed/channel-account.bulk.seed.js';
-import { channel_connections } from '@/domains/app/sub-domains/channel-connection/channel-connection.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
-import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import type { SeedContext, SeededOrg } from '@/scripts/seed/seed-contract.js';
 import { generateBulkInstagramAccountProfile } from './instagram-account.faker.js';
 
@@ -29,15 +27,8 @@ async function seedInstagramAccountForOrganization({
   const database = getRequestDatabase();
   const instagramUserId = seededProviderAccountId(organization.id);
   const [account] = await database
-    .select({ id: channel_accounts.id, scopes: channel_connections.scopes })
+    .select({ id: channel_accounts.id })
     .from(channel_accounts)
-    .innerJoin(
-      channel_connections,
-      and(
-        eq(channel_connections.organization_id, channel_accounts.organization_id),
-        eq(channel_connections.id, channel_accounts.channel_connection_id),
-      ),
-    )
     .where(
       and(
         eq(channel_accounts.organization_id, organization.id),
@@ -52,24 +43,17 @@ async function seedInstagramAccountForOrganization({
   const inserted = await database
     .insert(instagram_accounts)
     .values({
-      public_id: generatePublicId('instagramAccount'),
       organization_id: organization.id,
       channel_account_id: account.id,
       instagram_user_id: instagramUserId,
-      instagram_app_user_id: instagramUserId,
       username: profile.username,
-      name: profile.name,
       biography: profile.biography,
       website: profile.website,
+      account_type: 'business',
       followers_count: profile.followersCount,
       follows_count: profile.followsCount,
       media_count: profile.mediaCount,
-      scopes: account.scopes,
-      connection_status: 'connected',
-      connection_status_changed_at: connectedAt,
       webhook_subscribed_at: connectedAt,
-      connected_by_user_id: organization.ownerUserId,
-      connected_at: connectedAt,
       profile_synced_at: connectedAt,
     })
     .onConflictDoNothing()
@@ -83,7 +67,7 @@ async function seedInstagramAccountForOrganization({
  *
  * @remarks
  * Parents read: `context.registry.organizations` — the tenancy seeder's bulk team organizations
- * (personal organizations never enter the registry); `ownerUserId` is the connecting user.
+ * (personal organizations never enter the registry).
  * Algorithm: per organization, find its seeded channel account, then insert the extension
  * (`ON CONFLICT DO NOTHING`). Side effects: inserts into `app.instagram_accounts`. Failure modes:
  * warns and returns early when the registry has no organizations; otherwise propagates database

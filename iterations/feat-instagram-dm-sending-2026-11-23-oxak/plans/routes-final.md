@@ -1039,6 +1039,8 @@ Every route can answer the errors in 2.5; each route's own errors are in its nes
 | IAC3 | IA6: `instagram-account/queues/` + `workers/` for `instagram-account-setup`, `instagram-webhook-subscription-check`, `instagram-starter-question-sync`, `instagram-reconnect-notice` on `instagram-tasks` (payloads with `channelAccountPublicId`; registry, `WORKER_QUEUE_NAMES`, scheduler for the 10-minute check, DLQ); the launch's `instagram-account-daily-check` removed (sub-domain 1 takes the profile refresh); tests: retries 1/5/15/60, a field off re-runs set-up, a sync writes the whole list, twice = once |
 | IAC5 | `instagram-account-erasure.service.ts` (team delete, launch D54) loops every Instagram account of the organization and erases each connection's token through sub-domain 1; `instagram-account.overview.md` and the two nested overviews (the `instagram-account-meta-callback` one removed); `src/FLOWS.md` (connect with Meta, pick, reconnect, choose active accounts — across 1, 1B and 2) |
 
+**As built at ROUTE row R6** ([P121](decisions.md)): the team delete unsubscribes every live account, revokes every account (channel account + extension) and erases each profile and stored posts, then `ChannelConnectionTokenService.revokeOrganizationConnections` revokes every connection still live with its token. The `instagram-account-meta-callback` folder and overview stay until R9 moves the callbacks to sub-domain 1.
+
 ### 2.12 Nested sub-domains
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-account/…`) | Tables | Routes | Status |
@@ -1120,6 +1122,16 @@ None of its own.
 | # | Change |
 | --- | --- |
 | IAC6 | IA8: `instagram-account.schema.ts` and its migration changed in place (columns, indexes, checks as 2.A.3; the moved columns dropped with 1B's table in the same migration — no data, P29); repository and service for the extension (create at the pick, refresh, erase); the serializer of the `instagram` part used by 1B |
+
+**As built at ROUTE row R6** ([P120](decisions.md), [P121](decisions.md)): columns, indexes and checks as 2.A.3, with
+`account_type` nullable (`business` · `creator`) and `is_private` `NOT NULL DEFAULT false` — Meta's profile read does not
+carry them yet, so the pick writes `null` / `false`; `name` and `connection_status_changed_at` dropped too;
+`chk_instagram_accounts_username_unless_revoked` → `_username_unless_erased`, `_profile_erased` dropped (the erase is
+guarded on the revoked channel account). `InstagramAccountExtensionService` (`instagram-account-extension.service.ts`)
+is the one writer; `serializeInstagramAccountExtension` (`instagram-account.serializer.ts`) builds 2.A.6 for 1B. The
+status writes moved onto `ChannelAccountRepository`; the reconnect notice's key is the channel account's `updated_at` at
+the break. The `iga_` prefix is gone — the account's one id is `cha_…` everywhere. Settings and media keep
+`instagram_account_id` until R7 / R8.
 
 ---
 
@@ -1216,6 +1228,9 @@ what the lanes use now, the new-account limit included), `is_day_limit_enabled` 
 | # | Change |
 | --- | --- |
 | IAC8 | IA12–IA14: schema and migration changed in place (2.B.3, the key renamed, `is_automation_enabled` moved); DTO (the 14 optional fields + `is_automation_enabled`, nullable numbers, strict, at least one), validator (merged min ≤ max; PRO and the untested list through 1B's feature check, CA11), serializer with `effective_limits` (the settings file's defaults, sub-domain 6's new-account rule), service (the switch through 1B's service in the same commit, lane wake after commit), the audit's changed fields; reasons `plan_lacks_feature`, `feature_not_offered` (`errors:` keys, `response-codes.md`); integration tests for every error of 2.B.9, the null-clears-to-default case and the switch landing on the channel account |
+
+
+**As built at ROUTE row R7** ([P122](decisions.md)): route 12 at `PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings`; the table changed in place as 2.B.3; the five public-reply columns dropped and the launch engine's account-level reply safety off until R13's per-automation pacing; the channel account reached through `InstagramAccountSettingsChannelAccountPort` (implemented by `ChannelAccountService`: `requireLiveInstagramAccount`, `setAutomationEnabled`, the one feature check) and the lane wake through `InstagramAccountSettingsLanePort` (R18); the settings-file values in `instagram-account-settings.constants.ts` until R18; the feature check only for what a save turns on; the audit entry (IA7) carries the changed fields with their old and new values (AC-3.11); the day limit judged against the owner hour limit, else 600; event processing reads the switch from the channel account.
 
 ---
 
@@ -4899,6 +4914,13 @@ cookie, as built). Route 124: no body — `303` with `Location`.
 | ATC6 | AT10, AT11, ATQ2: `apple-oauth.provider.ts` (ES256 client secret with `node:crypto`, `id_token` check against Apple's keys — cached ≤ 60 s per be-read-cache-guard's TTL rule), the form route with its body limit and form parser, the `303` allowlist entry (method-status middleware + `validate:route-success-coverage` + `route-success-statuses.json` + CLAUDE.md and `response-codes.md` lines), the five env vars, contract fixtures (`src/tests/contract/apple*`), tests: name kept from the first post, a second post without `user`, a spent state, a cross-site post without the cookie still lands |
 | ATC7 | AT12–AT14: `intent=link` in the start DTO, the state payload, the callback's link branch; `provider_account_in_use`, `email_code_always_on`; tests |
 
+**As built (R31, [P206](decisions.md)):** Apple gets no PKCE — its `nonce` is the SHA-256 of the browser nonce and the
+`id_token`'s `nonce` must equal it (AT10's fallback); the client secret and the `id_token` check use `jose`. Route 124's
+failed page is `<FRONTEND_URL>/callback/apple?reason=oauth_cancelled|oauth_failed|oauth_expired`. Route 122 answers the
+as-built `{ providers: ["google", "apple"] }` (configured ones only). Route 123: another provider name is a `400`, an
+unset provider a `404` (Google's too). Route 143 takes no `error` query (§ 10.B.10) and matches the person by the
+provider account before the email. The `303` exception is `METHOD_STATUS_POLICY_EXCEPTIONS`.
+
 ---
 
 ### 10.C Two-factor, trusted devices and step-up — `auth/sub-domains/auth-mfa/`, `auth/sub-domains/auth-trusted-device/` (new) — final (rev 3, confirmed 2026-11-24)
@@ -4930,9 +4952,11 @@ None.
 | `revoked_at` | `timestamptz` | yes | | |
 
 Indexes: unique `public_id`; unique `token_hash`; `(user_id, created_at) WHERE revoked_at IS NULL` — the live count and "revoke the
-oldest". RLS: the user policy (`app.current_user_public_id`), `USING` and `WITH CHECK`, enabled and forced; it is read after the
-first factor proves the person, in the same database context the session insert uses (as built for `auth.sessions`). Clean-up:
-the existing session clean-up worker also deletes rows expired or revoked over 30 days ago (a batch delete — **WC-64**, CHANGED).
+oldest"; as built also `(user_id)` (the FK cascade) and `(expires_at)` (the clean-up) ([P207](decisions.md)). RLS: the user policy
+(`app.current_user_public_id`), `USING` and `WITH CHECK`, enabled and forced, plus the session clean-up's maintenance arm in `USING`
+only ([P207](decisions.md)); it is read after the first factor proves the person, in the same database context the session insert
+uses (as built for `auth.sessions`). Clean-up: the session clean-up deletes rows expired or revoked over 30 days ago (a batch delete —
+**WC-64**, CHANGED) — built at R50 through `TrustedDeviceRepository.deleteEndedBefore`, which R32 left ([P207](decisions.md)).
 
 #### 10.C.4 Permissions
 
@@ -4991,6 +5015,13 @@ true, factor }` (`factor` added: `email_code` · `mfa`).
 | ATC8 | AT15: `StepUpVerifyDto` (code only), `recent-step-up.util.ts` (strong when no settled factor), the handler; tests — no 2FA: email code removes a passkey; settled 2FA: `403 mfa_step_up_required`; provisional only: email code is strong |
 | ATC9 | AT16: the `mfa_code_wrong` / `mfa_locked` reasons with the counter's remaining tries and time in `auth-mfa.service.ts` |
 | ATC10 | AT17: new auth migration `auth_trusted_devices` (table, indexes, user policy, FORCE; `EXPECTED_FORCE_RLS_TABLES` +1); `auth-trusted-device/auth-trusted-device.{schema,repository,service,constants}.ts`; the cookie in `auth.http.util.ts`; the skip in `complete-first-factor-auth.ts`; the early ends in the MFA removal, sign-out-everywhere-else, account delete and suspend paths; the session clean-up worker's extra delete; tests — trusted + no 2FA organization skips, trusted + 2FA organization asks, `super_admin` asks, the 11th revokes the oldest, a stolen cookie of another person does nothing, an expired row does nothing |
+
+**As built (R32, [P207](decisions.md)).** AT15: route 127 refuses a person with settled 2FA (`403 mfa_step_up_required`), so every
+`email_code` window is strong (`STRONG_STEP_UP_FACTORS` = `mfa`, `email_code`; `provisional_mfa` stays weak). AT16: the reasons are
+route 126's (the authenticated MFA step-up keeps its generic 401); a wrong recovery code is `mfa_code_wrong` without `tries_left`.
+AT17: the skip is refused when **any** organization of the person requires 2FA (the existing gate) and for any `GLOBAL_ADMIN_EMAILS`
+address; the cookie's `SameSite` is `lax` (`none` when `COOKIE_SAMESITE=none`) and it is cleared when 2FA is turned off; the
+session clean-up worker's extra delete is R50's. Prefix `tdv_`.
 
 ---
 

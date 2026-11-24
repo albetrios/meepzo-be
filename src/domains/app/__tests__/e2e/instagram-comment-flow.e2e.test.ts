@@ -18,9 +18,7 @@ import { runAutomationRunWaitExpiryJob } from '@/domains/app/sub-domains/automat
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
-import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
-  insertAutomationCommentLog,
   insertAutomationRun,
   nextInstagramObjectId,
   readRunEventTrail,
@@ -991,76 +989,9 @@ describe('Instagram comment automation flow (e2e)', () => {
       }
     });
 
-    it('on: duplicate → random → hour limit → gap, the first that applies is saved, and the DM always goes (AC-8.11, AC-8.15)', async () => {
-      const replying = await flow.createAutomation({
-        name: 'Replying',
-        keywords: ['guide'],
-        is_public_reply_enabled: true,
-        public_reply_texts: ['One', 'Two'],
-      });
-      const safety = {
-        is_public_reply_safety_enabled: true,
-        public_reply_chance_percent: 100,
-        public_reply_hour_limit: 1,
-        public_reply_gap_min_seconds: 3600,
-        public_reply_gap_max_seconds: 3600,
-      };
-      await flow.changeSettings(safety);
-      const firstId = await flow.commentAndProcess({ person: jordan, postId, text: 'guide' });
-      expect(await flow.logOf({ commentId: firstId, automation: replying })).toMatchObject({
-        public_reply_status: 'sent',
-        public_reply_skip_reason: null,
-      });
-
-      /** A new person's comment under changed settings: its saved skip reason, and its DM. */
-      async function skipReasonWith(settings: Record<string, unknown>) {
-        await flow.changeSettings(settings);
-        const person = instagram.person(`person.${instagram.calls.length}`);
-        const commentId = await flow.commentAndProcess({ person, postId, text: 'guide' });
-        const log = await flow.logOf({ commentId, automation: replying });
-        expect(log).toMatchObject({ public_reply_status: 'skipped', opening_dm_status: 'waiting' });
-        expect(instagram.directMessages.at(-1)?.recipient).toEqual({ comment_id: commentId });
-        return log?.public_reply_skip_reason;
-      }
-
-      // Every later rule applies too each time; the first in the order is the one saved.
-      expect(await skipReasonWith({ public_reply_chance_percent: 0 })).toBe('random');
-      expect(await skipReasonWith({ public_reply_chance_percent: 100 })).toBe('hour_limit');
-      expect(await skipReasonWith({ public_reply_hour_limit: 60 })).toBe('gap');
-      expect(instagram.publicReplies).toHaveLength(1);
-
-      // A comment that already got a public reply: its automation starts late (behind an email),
-      // and the reply is skipped as a duplicate although every other rule applies as well.
-      await flow.changeSettings({ public_reply_chance_percent: 0, public_reply_hour_limit: 1 });
-      await flow.createFinalMessageAutomation({
-        name: 'Email first',
-        keywords: ['catalog'],
-        is_email_collection_enabled: true,
-      });
-      const asked = instagram.person('asked.first');
-      await flow.commentAndProcess({ person: asked, postId, text: 'catalog' });
-      const repliedId = await flow.commentAndProcess({ person: asked, postId, text: 'guide' });
-      const elsewhere = await insertAutomation({
-        organizationId: flow.team.organization.id,
-        instagramAccountId: flow.account.id,
-      });
-      await insertAutomationCommentLog({
-        organizationId: flow.team.organization.id,
-        automationId: elsewhere.id,
-        contactId: (await flow.contactOf(asked)).id,
-        instagram_comment_id: repliedId,
-        public_reply_status: 'sent',
-        public_reply_text: 'One',
-        public_reply_at: new Date(),
-      });
-      await flow.answer({ person: asked, text: 'asked@example.com' });
-      expect(await flow.logOf({ commentId: repliedId, automation: replying })).toMatchObject({
-        overall_status: 'completed',
-        public_reply_status: 'skipped',
-        public_reply_skip_reason: 'duplicate',
-      });
-      expect(instagram.publicReplies).toHaveLength(1);
-    });
+    // The account-level safety switch ('on: duplicate → random → hour limit → gap') left the
+    // account settings at ROUTE row R7 (IA12); its rules stay covered by the reply-safety service's
+    // unit suite, and the per-automation pacing ("reply like a person", D32) is R13's.
 
     it.each([
       ['refused', instagramFailure.outsideMessagingWindow, 'instagram_api'],

@@ -1,4 +1,5 @@
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import { env } from '@/shared/config/env.config.js';
 import type { FastifyInstance } from 'fastify';
 import type { UserService } from '@/domains/user/user.service.js';
 import type { OrganizationSettingsService } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-settings.service.js';
@@ -17,7 +18,10 @@ import { MfaService } from './sub-domains/auth-mfa/auth-mfa.service.js';
 import { WebauthnService } from './sub-domains/auth-webauthn/webauthn.service.js';
 import { WebauthnCredentialRepository } from './sub-domains/auth-webauthn/webauthn-credential.repository.js';
 import { AuthSessionService } from './sub-domains/auth-session/auth-session.service.js';
+import { createSessionPlaceLookup } from './sub-domains/auth-session/session-place.js';
 import { AuthMeContextService } from './auth-me-context.service.js';
+import { TrustedDeviceRepository } from './sub-domains/auth-trusted-device/auth-trusted-device.repository.js';
+import { TrustedDeviceService } from './sub-domains/auth-trusted-device/auth-trusted-device.service.js';
 
 /** DI container shape for the auth domain: aggregates every sub-domain service consumed by routes, handlers, and other domains. */
 export type AuthContainer = {
@@ -53,7 +57,13 @@ export function createAuthContainer({
   const verificationTokenRepository = new VerificationTokenRepository();
   const authSessionRepository = new AuthSessionRepository();
 
-  const authSessionService = new AuthSessionService(userService, authSessionRepository);
+  const trustedDeviceService = new TrustedDeviceService(new TrustedDeviceRepository());
+  const authSessionService = new AuthSessionService(
+    userService,
+    authSessionRepository,
+    trustedDeviceService,
+    createSessionPlaceLookup({ databasePath: env.SESSION_PLACE_DATABASE_PATH }),
+  );
   const authMethodService = new AuthMethodService(
     userService,
     authMethodRepository,
@@ -65,6 +75,7 @@ export function createAuthContainer({
     authSessionService,
     redisConnection,
     organizationSettingsService,
+    trustedDeviceService,
   );
   const authService = new AuthService(userService, authSessionService);
   const emailLoginService = new EmailLoginService(

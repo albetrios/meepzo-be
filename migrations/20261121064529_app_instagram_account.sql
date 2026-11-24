@@ -5,7 +5,8 @@
 --
 -- launch-2026-11-20-ujai, ROUTE R3 (routes-final.md § 1.3, 1.A.3, 1.B.3 — IA5, IA6, IA11, IAC5,
 -- IAC6), changed in place by feat-instagram-dm-sending-2026-11-23-oxak ROUTE R3 (P29; routes-final
--- § 1.3 MC1, MC9, MC18, MC19 / S13, P107, P111) and ROUTE R5 (§ 1B.3 CAC1, CAQ1 — P116): the provider login an organization connects its
+-- § 1.3 MC1, MC9, MC18, MC19 / S13, P107, P111), ROUTE R5 (§ 1B.3 CAC1, CAQ1 — P116) and ROUTE R6
+-- (§ 2.A.3 IA8, IAC6 — P120): the provider login an organization connects its
 -- accounts through, its encrypted token and Meta's usage per connection; the organization's
 -- connected Instagram professional accounts and their automation settings, in the `app` schema R1
 -- created (20261121050908_app_schema.sql).
@@ -27,10 +28,14 @@
 --                                   across all organizations (CAQ1, P60). No soft delete: `revoked`
 --                                   stands in.
 --   app.instagram_accounts          the Instagram part of a channel account, 1:1 through
---                                   `channel_account_id` (2.A.3); one row per organization and
---                                   Instagram account. Its own status columns mirror the channel
---                                   account's until ROUTE row R6 drops them (P116).
---   app.instagram_account_settings  the automation switch and public reply safety, one per account.
+--                                   `channel_account_id` (ROUTE row R6, routes-final § 2.A.3, IA8):
+--                                   the Instagram user id, profile, account type, private flag,
+--                                   webhook stamp and starter-question time. No public id, status or
+--                                   connection columns of its own — those are the channel account's.
+--   app.instagram_account_settings  the account's sending limits (empty = the settings file's value),
+--                                   stop words and behaviour switches, one per Instagram channel account
+--                                   (ROUTE row R7, routes-final § 2.B.3, IA12). The automation switch is
+--                                   the channel account's; public reply safety is per automation.
 --
 -- The launch's app.instagram_account_tokens (the Instagram Login token, renewed daily) is gone: the
 -- token lives on the connection (D24); no data moves (plan:L2924).
@@ -209,90 +214,76 @@ CREATE INDEX IF NOT EXISTS idx_channel_accounts_plan_stop ON app.channel_account
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS app.instagram_accounts (
   id BIGSERIAL PRIMARY KEY,
-  public_id VARCHAR(28) NOT NULL,
   organization_id BIGINT NOT NULL,
   channel_account_id BIGINT NOT NULL,
   instagram_user_id VARCHAR(64) NOT NULL,
-  instagram_app_user_id VARCHAR(64) NOT NULL,
   username VARCHAR(64),
-  name VARCHAR(255),
   biography TEXT,
   website TEXT,
   profile_picture_url TEXT,
+  account_type VARCHAR(20),
+  is_private BOOLEAN NOT NULL DEFAULT FALSE,
   followers_count INTEGER NOT NULL DEFAULT 0,
   follows_count INTEGER NOT NULL DEFAULT 0,
   media_count INTEGER NOT NULL DEFAULT 0,
-  scopes TEXT[] NOT NULL DEFAULT '{}',
-  connection_status VARCHAR(20) NOT NULL DEFAULT 'connected',
-  connection_status_changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  token_expires_at TIMESTAMPTZ,
   webhook_subscribed_at TIMESTAMPTZ,
-  connected_by_user_id BIGINT,
-  connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  disconnected_at TIMESTAMPTZ,
+  starter_questions_set_at TIMESTAMPTZ,
   profile_synced_at TIMESTAMPTZ,
   profile_erased_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT instagram_accounts_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
-  CONSTRAINT instagram_accounts_connected_by_user_id_users_id_fk FOREIGN KEY (connected_by_user_id) REFERENCES auth.users (id) ON DELETE SET NULL,
   CONSTRAINT instagram_accounts_channel_account_fk FOREIGN KEY (organization_id, channel_account_id) REFERENCES app.channel_accounts (organization_id, id) ON DELETE RESTRICT,
-  CONSTRAINT chk_instagram_accounts_connection_status CHECK (connection_status IN ('connected', 'expired', 'error', 'revoked')),
   CONSTRAINT chk_instagram_accounts_instagram_user_id CHECK (instagram_user_id ~ '^[0-9]{1,64}$'),
-  CONSTRAINT chk_instagram_accounts_instagram_app_user_id CHECK (instagram_app_user_id ~ '^[0-9]{1,64}$'),
+  CONSTRAINT chk_instagram_accounts_account_type CHECK (account_type IS NULL OR account_type IN ('business', 'creator')),
   CONSTRAINT chk_instagram_accounts_counts CHECK (followers_count >= 0 AND follows_count >= 0 AND media_count >= 0),
-  CONSTRAINT chk_instagram_accounts_scopes CHECK (cardinality(scopes) <= 20),
-  CONSTRAINT chk_instagram_accounts_username_unless_revoked CHECK (username IS NOT NULL OR connection_status = 'revoked'),
-  CONSTRAINT chk_instagram_accounts_disconnected CHECK ((connection_status = 'revoked') = (disconnected_at IS NOT NULL)),
-  CONSTRAINT chk_instagram_accounts_profile_erased CHECK (profile_erased_at IS NULL OR connection_status = 'revoked'),
+  CONSTRAINT chk_instagram_accounts_username_unless_erased CHECK (username IS NOT NULL OR profile_erased_at IS NOT NULL),
   CONSTRAINT chk_instagram_accounts_updated CHECK (updated_at >= created_at)
 );
---> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_public_id ON app.instagram_accounts USING btree (public_id);
 --> statement-breakpoint
 -- The children's composite key (organization_id, instagram_account_id) -> (organization_id, id).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_organization_id_id ON app.instagram_accounts USING btree (organization_id, id);
 --> statement-breakpoint
--- One row per Instagram account per organization: a reconnect reuses it, revoked included (IA11).
+-- One row per Instagram account per organization: a pick brings a revoked one back with its settings.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_organization_instagram_user ON app.instagram_accounts USING btree (organization_id, instagram_user_id);
 --> statement-breakpoint
 -- The 1:1 extension of the channel account and its composite key's index (2.A.3).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_channel_account ON app.instagram_accounts USING btree (organization_id, channel_account_id);
 --> statement-breakpoint
--- One organization at a time per Instagram account — decides a race between two organizations.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_accounts_instagram_user_live ON app.instagram_accounts USING btree (instagram_user_id) WHERE connection_status <> 'revoked';
---> statement-breakpoint
--- The Meta callbacks' resolver: every row of an app-scoped id, any status (IA6).
-CREATE INDEX IF NOT EXISTS idx_instagram_accounts_instagram_app_user_id ON app.instagram_accounts USING btree (instagram_app_user_id);
---> statement-breakpoint
-CREATE INDEX IF NOT EXISTS idx_instagram_accounts_connected_by_user_id ON app.instagram_accounts USING btree (connected_by_user_id) WHERE connected_by_user_id IS NOT NULL;
---> statement-breakpoint
 CREATE TABLE IF NOT EXISTS app.instagram_account_settings (
   id BIGSERIAL PRIMARY KEY,
   organization_id BIGINT NOT NULL,
-  instagram_account_id BIGINT NOT NULL,
-  is_automation_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-  is_public_reply_safety_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-  public_reply_chance_percent SMALLINT NOT NULL DEFAULT 80,
-  public_reply_hour_limit SMALLINT NOT NULL DEFAULT 60,
-  public_reply_gap_min_seconds SMALLINT NOT NULL DEFAULT 20,
-  public_reply_gap_max_seconds SMALLINT NOT NULL DEFAULT 60,
+  channel_account_id BIGINT NOT NULL,
+  opening_hour_limit SMALLINT,
+  opening_day_limit INTEGER,
+  fast_hour_limit INTEGER,
+  person_hour_limit SMALLINT,
+  broadcast_hour_limit SMALLINT,
+  is_automatic_notice_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  extra_stop_words TEXT[] NOT NULL DEFAULT '{}',
+  is_comment_reply_trigger_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  is_once_per_person_per_post_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  is_mark_seen_after_reply_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  extra_delay_seconds_min SMALLINT,
+  extra_delay_seconds_max SMALLINT,
   updated_by_user_id BIGINT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT instagram_account_settings_organization_id_organizations_id_fk FOREIGN KEY (organization_id) REFERENCES tenancy.organizations (id) ON DELETE CASCADE,
-  CONSTRAINT instagram_account_settings_instagram_account_fk FOREIGN KEY (organization_id, instagram_account_id) REFERENCES app.instagram_accounts (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT instagram_account_settings_channel_account_fk FOREIGN KEY (organization_id, channel_account_id) REFERENCES app.channel_accounts (organization_id, id) ON DELETE RESTRICT,
   CONSTRAINT instagram_account_settings_updated_by_user_id_users_id_fk FOREIGN KEY (updated_by_user_id) REFERENCES auth.users (id) ON DELETE SET NULL,
-  CONSTRAINT chk_instagram_account_settings_chance CHECK (public_reply_chance_percent BETWEEN 0 AND 100),
-  CONSTRAINT chk_instagram_account_settings_hour_limit CHECK (public_reply_hour_limit BETWEEN 1 AND 1000),
-  CONSTRAINT chk_instagram_account_settings_gap_min CHECK (public_reply_gap_min_seconds BETWEEN 5 AND 3600),
-  CONSTRAINT chk_instagram_account_settings_gap_max CHECK (public_reply_gap_max_seconds BETWEEN 5 AND 3600),
-  CONSTRAINT chk_instagram_account_settings_gap_order CHECK (public_reply_gap_max_seconds >= public_reply_gap_min_seconds),
+  CONSTRAINT chk_instagram_account_settings_opening_hour_limit CHECK (opening_hour_limit IS NULL OR opening_hour_limit BETWEEN 1 AND 750),
+  CONSTRAINT chk_instagram_account_settings_opening_day_limit CHECK (opening_day_limit IS NULL OR opening_day_limit > 0),
+  CONSTRAINT chk_instagram_account_settings_fast_hour_limit CHECK (fast_hour_limit IS NULL OR fast_hour_limit > 0),
+  CONSTRAINT chk_instagram_account_settings_person_hour_limit CHECK (person_hour_limit IS NULL OR person_hour_limit > 0),
+  CONSTRAINT chk_instagram_account_settings_broadcast_hour_limit CHECK (broadcast_hour_limit IS NULL OR broadcast_hour_limit BETWEEN 1 AND 2000),
+  CONSTRAINT chk_instagram_account_settings_extra_stop_words CHECK (cardinality(extra_stop_words) <= 50 AND array_position(extra_stop_words, NULL) IS NULL),
+  CONSTRAINT chk_instagram_account_settings_extra_delay CHECK ((extra_delay_seconds_min IS NULL) = (extra_delay_seconds_max IS NULL) AND (extra_delay_seconds_min IS NULL OR (extra_delay_seconds_min BETWEEN 1 AND 20 AND extra_delay_seconds_max BETWEEN 1 AND 20 AND extra_delay_seconds_min <= extra_delay_seconds_max))),
   CONSTRAINT chk_instagram_account_settings_updated CHECK (updated_at >= created_at)
 );
 --> statement-breakpoint
--- One settings row per account, and the composite key's index.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_account_settings_organization_account ON app.instagram_account_settings USING btree (organization_id, instagram_account_id);
+-- One settings row per channel account, and the composite key's index (2.B.3, P47).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_instagram_account_settings_organization_account ON app.instagram_account_settings USING btree (organization_id, channel_account_id);
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS idx_instagram_account_settings_updated_by_user_id ON app.instagram_account_settings USING btree (updated_by_user_id) WHERE updated_by_user_id IS NOT NULL;
 --> statement-breakpoint
@@ -471,9 +462,9 @@ CREATE POLICY instagram_account_settings_tenant_isolation ON app.instagram_accou
     )
   );
 --> statement-breakpoint
--- IA6 (1): the organization whose NOT-revoked account has this Instagram user id (the webhook
--- entry.id) — the pick's "connected elsewhere" check (MC7); webhook routing (sub-domain 4).
--- At most one row matches (idx_instagram_accounts_instagram_user_live); NULL when none.
+-- IA6 (1): the organization whose NOT-revoked channel account has this Instagram user id (the
+-- webhook entry.id) — webhook routing (sub-domain 5). Since ROUTE row R6 the status is the channel
+-- account's (2.A.3): at most one row matches (idx_channel_accounts_provider_account_live); NULL when none.
 CREATE OR REPLACE FUNCTION app.resolve_organization_public_id_for_instagram_user (
   instagram_user_id_param TEXT
 ) RETURNS TEXT
@@ -483,15 +474,18 @@ SECURITY DEFINER
 SET search_path = app, tenancy, public
 AS $$
   SELECT o.public_id
-  FROM app.instagram_accounts AS a
-  INNER JOIN tenancy.organizations AS o ON o.id = a.organization_id
-  WHERE a.instagram_user_id = instagram_user_id_param
-    AND a.connection_status <> 'revoked'
+  FROM app.channel_accounts AS c
+  INNER JOIN tenancy.organizations AS o ON o.id = c.organization_id
+  WHERE c.channel = 'instagram'
+    AND c.provider_account_id = instagram_user_id_param
+    AND c.connection_status <> 'revoked'
   LIMIT 1;
 $$;
 --> statement-breakpoint
--- IA6 (2): every organization holding a row of this app-scoped id (`/me` id), any status — Meta's
--- deauthorize and data-deletion callbacks (1.D, IQ3). Public ids only, one per organization.
+-- IA6 (2): every organization holding an Instagram row of this id, any status — Meta's deauthorize
+-- and data-deletion callbacks (1.D, IQ3). Under Unified Login the id Meta signs is the Instagram
+-- user id (P111), so since ROUTE row R6 it matches `instagram_user_id` (the app-scoped column is
+-- gone, IA8); ROUTE row R9 replaces this resolver (MC15). Public ids only, one per organization.
 CREATE OR REPLACE FUNCTION app.resolve_organization_public_ids_for_instagram_app_user (
   instagram_app_user_id_param TEXT
 ) RETURNS SETOF TEXT
@@ -503,7 +497,7 @@ AS $$
   SELECT DISTINCT o.public_id::text
   FROM app.instagram_accounts AS a
   INNER JOIN tenancy.organizations AS o ON o.id = a.organization_id
-  WHERE a.instagram_app_user_id = instagram_app_user_id_param;
+  WHERE a.instagram_user_id = instagram_app_user_id_param;
 $$;
 --> statement-breakpoint
 REVOKE EXECUTE ON FUNCTION app.resolve_organization_public_id_for_instagram_user (TEXT) FROM PUBLIC;

@@ -214,6 +214,7 @@ function connectedAccount(
 ): InstagramWebhookProcessingAccount {
   return {
     instagramAccount: INSTAGRAM_ACCOUNT_KEY,
+    channelAccountId: 33,
     instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
     connectionStatus: 'connected',
     isAutomationEnabled: true,
@@ -993,8 +994,8 @@ describe('the account checked again before each event (WH12 step 2)', () => {
       skipReason: 'automation_disabled',
     },
     {
-      name: 'an expired account',
-      account: connectedAccount({ connectionStatus: 'expired', encryptedAccessToken: null }),
+      name: 'an error account',
+      account: connectedAccount({ connectionStatus: 'error', encryptedAccessToken: null }),
       skipReason: 'account_disconnected',
     },
     {

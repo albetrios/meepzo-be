@@ -9,7 +9,8 @@ import { generateTestTokenWithActiveSession } from '@/tests/helpers/test-auth.js
 
 /**
  * Auth had no performance coverage at all. Most auth endpoints are DELIBERATELY slow
- * (password hashing dominates), so latency budgets there would measure the hash — but
+ * (the anti-enumeration minimum duration dominates), so latency budgets there would measure
+ * that floor — but
  * `GET /auth/me/sessions` is the domain's one read-heavy fan-out: a user reviewing
  * "where am I logged in?" lists every active session row. Today that is one query and
  * per-row serialization; the regression this guards is a future per-row enrichment

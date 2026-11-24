@@ -11,7 +11,7 @@ describe('outboundFetch', () => {
     });
 
     await outboundFetch({
-      name: 'oauth-github',
+      name: 'oauth-apple',
       url: 'https://example.com/token',
       requestId: 'req-abc-123',
       expectedStatus: 200,
@@ -62,7 +62,7 @@ describe('outboundFetchJson', () => {
     );
 
     const rejection = outboundFetchJson({
-      name: 'oauth-github',
+      name: 'oauth-apple',
       url: 'https://example.com/user',
       expectedStatus: 200,
       fetchImplementation,
@@ -70,7 +70,7 @@ describe('outboundFetchJson', () => {
 
     await expect(rejection).rejects.toBeInstanceOf(ExternalServiceError);
     await expect(rejection).rejects.toMatchObject({
-      integration: 'oauth-github',
+      integration: 'oauth-apple',
       statusCode: 503,
     });
   });

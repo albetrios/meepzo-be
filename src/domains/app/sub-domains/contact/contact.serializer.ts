@@ -29,7 +29,7 @@ interface ContactSerializableRow {
  *
  * @remarks
  * - **Algorithm:** names every key (no row spread): `id` from `public_id`, `instagram_account_id`
- *   the caller-resolved `iga_…` (CT13), timestamps as ISO 8601, `tags` copied.
+ *   the caller-resolved `cha_…` (CT13), timestamps as ISO 8601, `tags` copied.
  * - **Failure modes:** none — a pure mapping. Only live rows reach it (the list reads
  *   `deleted_at IS NULL`), so `instagram_user_id` is set; an empty string stands in otherwise.
  * - **Side effects:** none.
@@ -41,7 +41,7 @@ export function serializeContact({
   instagram_account_public_id,
 }: {
   contact: ContactSerializableRow;
-  /** `iga_…` of the contact's account. */
+  /** `cha_…` of the contact's account. */
   instagram_account_public_id: string;
 }): ContactOutput {
   return {

@@ -256,6 +256,7 @@ src/
     │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account-webhook-processing.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account.repository.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-account.service.unit.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.processor.unit.test.ts
     │   │   │   ├── instagram-account-meta-callback/
@@ -280,6 +281,8 @@ src/
     │   │   │   │   └── instagram-account-meta-callback.types.ts
     │   │   │   ├── instagram-account-settings/
     │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── instagram-account-settings.factory.ts
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── instagram-account-settings.integration.test.ts
     │   │   │   │   │   └── unit/
@@ -293,6 +296,7 @@ src/
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── index.ts
     │   │   │   │   │   └── instagram-account-settings.bulk.seed.ts
+    │   │   │   │   ├── instagram-account-settings.constants.ts
     │   │   │   │   ├── instagram-account-settings.controller.ts
     │   │   │   │   ├── instagram-account-settings.dto.ts
     │   │   │   │   ├── instagram-account-settings.overview.md
@@ -346,10 +350,12 @@ src/
     │   │   │   │   └── instagram-reconnect-notice.worker.ts
     │   │   │   ├── instagram-account-erasure.service.ts
     │   │   │   ├── instagram-account-error.util.ts
+    │   │   │   ├── instagram-account-extension.service.ts
     │   │   │   ├── instagram-account.constants.ts
     │   │   │   ├── instagram-account.overview.md
     │   │   │   ├── instagram-account.repository.ts
     │   │   │   ├── instagram-account.schema.ts
+    │   │   │   ├── instagram-account.serializer.ts
     │   │   │   ├── instagram-account.service.ts
     │   │   │   └── instagram-account.types.ts
     │   │   └── instagram-webhook/
@@ -512,7 +518,8 @@ src/
     │   │   │   ├── refresh-preserves-active-organization.integration.test.ts
     │   │   │   ├── refresh-reuse-detection.integration.test.ts
     │   │   │   ├── refresh-rotates-token-hash.integration.test.ts
-    │   │   │   └── refresh-session-lifetime.integration.test.ts
+    │   │   │   ├── refresh-session-lifetime.integration.test.ts
+    │   │   │   └── step-up-email-code.integration.test.ts
     │   │   ├── unit/
     │   │   │   ├── auth-me-context.serializer.unit.test.ts
     │   │   │   ├── auth-me-context.service.unit.test.ts
@@ -570,6 +577,7 @@ src/
     │   │   │   ├── oauth/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   ├── oauth-apple-and-link.integration.test.ts
     │   │   │   │   │   │   └── oauth-callback.integration.test.ts
     │   │   │   │   │   └── unit/
     │   │   │   │   │   │   ├── oauth-pkce.unit.test.ts
@@ -580,9 +588,8 @@ src/
     │   │   │   │   ├── providers/
     │   │   │   │   │   ├── __tests__/
     │   │   │   │   │   │   └── unit/
-    │   │   │   │   │   │   │   ├── github-oauth.provider.unit.test.ts
     │   │   │   │   │   │   │   └── google-oauth.provider.unit.test.ts
-    │   │   │   │   │   ├── github-oauth.provider.ts
+    │   │   │   │   │   ├── apple-oauth.provider.ts
     │   │   │   │   │   ├── google-oauth.provider.ts
     │   │   │   │   │   └── oauth-provider-failure.util.ts
     │   │   │   │   ├── oauth-pkce.ts
@@ -651,6 +658,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── auth-session.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── auth-session.place.db.unit.test.ts
     │   │   │   │   │   ├── auth-session.refresh-concurrency.db.unit.test.ts
     │   │   │   │   │   ├── auth-session.repository.db.unit.test.ts
     │   │   │   │   │   ├── auth-session.repository.expired.db.unit.test.ts
@@ -660,6 +668,7 @@ src/
     │   │   │   │   │   ├── session-cleanup.constants.unit.test.ts
     │   │   │   │   │   ├── session-cleanup.worker.unit.test.ts
     │   │   │   │   │   ├── session-lifetime.unit.test.ts
+    │   │   │   │   │   ├── session-place.unit.test.ts
     │   │   │   │   │   └── session-token-cache.service.unit.test.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── auth-session.bulk.seed.ts
@@ -675,7 +684,18 @@ src/
     │   │   │   ├── auth-session.service.ts
     │   │   │   ├── auth-session.types.ts
     │   │   │   ├── session-lifetime.ts
+    │   │   │   ├── session-place.ts
     │   │   │   └── session-token-cache.service.ts
+    │   │   ├── auth-trusted-device/
+    │   │   │   ├── __tests__/
+    │   │   │   │   └── integration/
+    │   │   │   │   │   └── auth-trusted-device.integration.test.ts
+    │   │   │   ├── auth-trusted-device.constants.ts
+    │   │   │   ├── auth-trusted-device.overview.md
+    │   │   │   ├── auth-trusted-device.repository.ts
+    │   │   │   ├── auth-trusted-device.schema.ts
+    │   │   │   ├── auth-trusted-device.service.ts
+    │   │   │   └── auth-trusted-device.types.ts
     │   │   └── auth-webauthn/
     │   │   │   ├── __tests__/
     │   │   │       ├── integration/
@@ -2289,9 +2309,7 @@ src/
     │   │   │   ├── unified-login-access-token.success.response.json
     │   │   │   └── user-profile.success.response.json
     │   │   ├── oauth/
-    │   │   │   ├── github.emails.success.response.json
-    │   │   │   ├── github.token.success.response.json
-    │   │   │   ├── github.user.success.response.json
+    │   │   │   ├── apple.token.success.response.json
     │   │   │   ├── google.token.success.response.json
     │   │   │   └── google.userinfo.success.response.json
     │   │   ├── resend/
@@ -2334,9 +2352,9 @@ src/
     │   │   ├── s3.schemas.ts
     │   │   └── stripe.schemas.ts
     │   ├── README.md
+    │   ├── apple-oauth.contract.test.ts
     │   ├── contract-vitest-setup.ts
     │   ├── contract.overview.md
-    │   ├── github-oauth.contract.test.ts
     │   ├── google-oauth.contract.test.ts
     │   ├── meta-graph.contract.test.ts
     │   ├── request-id-eventbus.contract.test.ts
@@ -2457,6 +2475,7 @@ src/
     │   ├── route-organization-scope.helper.ts
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
+    │   ├── session-place-mmdb.helper.ts
     │   ├── test-api-prefix.helper.ts
     │   ├── test-app.ts
     │   ├── test-auth.ts

@@ -192,8 +192,8 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R3 | 1 Channel connection: the connection and token tables, routes 1–5, 40, 42 (start, callback, pick, list, disconnect, reconnect), the two `channel-account:*` codes of § 9 TNC8 first — § 1 MCC1, MCC4, MCC5, MCC7, MCC10, MCC11 | sub-domain | R1, R2 | staged-build prompt | AC-1.1–AC-1.10, AC-1.15–AC-1.17 | Rimeet Mavani | done |
 | R4 | 1 The ad picker: routes 15, 41 — § 1 MCC8 | sub-domain | R3 | `/be-build-requirement` | AC-1.13 | Rimeet Mavani | done |
 | R5 | 1B Channel account: the account table, routes 6–11, the capability list and the one feature check — § 1B CAC1–CAC6 (the lane steps of routes 8–11 at R18) | sub-domain | R3 | staged-build prompt | AC-2.1, AC-2.4, AC-2.5, AC-2.8, AC-2.10, AC-2.11 | Rimeet Mavani | done |
-| R6 | 2.A Instagram account extension, and the team-delete erasure over every account — § 2.A (IAC6), § 2 IAC5 | sub-domain | R5 | `/be-build-requirement` | AC-2.1, AC-2.12 | Rimeet Mavani | open |
-| R7 | 2.B Instagram account settings: route 12 — § 2.B (IAC8) | sub-domain | R6 | `/be-build-requirement` | AC-3.1–AC-3.11 | Rimeet Mavani | open |
+| R6 | 2.A Instagram account extension, and the team-delete erasure over every account — § 2.A (IAC6), § 2 IAC5 | sub-domain | R5 | `/be-build-requirement` | AC-2.1, AC-2.12 | Rimeet Mavani | done |
+| R7 | 2.B Instagram account settings: route 12 — § 2.B (IAC8) | sub-domain | R6 | `/be-build-requirement` | AC-3.1–AC-3.11 | Rimeet Mavani | done |
 | R8 | 2.C Instagram media: routes 13–14, the watch and Live columns — § 2.C (IAC9, IAC10) | sub-domain | R6 | `/be-build-requirement` | AC-4.1–AC-4.6 | Rimeet Mavani | open |
 | R9 | 1 Meta's callbacks: routes 16–17, matched by account then business — § 1 MCC9 (after 1B and 2, whose disconnect and erasure they call) | sub-domain | R5, R6, R8 | `/be-build-requirement` | AC-1.11, AC-1.12 | Rimeet Mavani | open |
 | R10 | 3.A Contacts (shared): routes 18–23, `contact:update`, the activity and tag-count tables (S5, S7), search rules (S6), the erase and pause steps — § 3 CTC1–CTC4, § 3.A CTC5–CTC8, CTC10 (routes 24–26, CTC9, at R19; the bulk job at R46) | sub-domain | R5, R6 | `/be-build-requirement` | AC-5.1–AC-5.4, AC-5.6, AC-5.8–AC-5.14 | Rimeet Mavani | open |
@@ -217,9 +217,9 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R28 | 9.B Roles: Owner, Admin, Editor, Viewer on every team, `contact:update`, custom roles off; routes 111–115 — § 9 TNC1, TNC2, § 9.B | sub-domain | R27 | `/be-build-requirement` | AC-12.1–AC-12.4 | Rimeet Mavani | done |
 | R29 | 9.C Members and invitations: several emails, the preview, counts per role; routes 116–118 — § 9 TNC3, § 9.C (TNC5–TNC7) | sub-domain | R28 | `/be-build-requirement` | AC-12.5–AC-12.7 | Rimeet Mavani | done |
 | R30 | 10.A Email code, passwords removed; routes 120–121 (four removed) — § 10 ATC1, ATC2, ATC4, § 10.A (ATC5) | sub-domain | R28 | `/be-build-requirement` | AC-13.1–AC-13.4 | Rimeet Mavani | done |
-| R31 | 10.B Google and Apple, the one `303` exception; routes 122–125, 143 — § 10 ATC3, § 10.B (ATC6, ATC7) | sub-domain | R30 | `/be-build-requirement` | AC-13.5–AC-13.7 | Rimeet Mavani | open |
-| R32 | 10.C Two-factor, trusted devices, step-up; routes 126–127, 145, 147 — § 10.C (ATC8–ATC10) | sub-domain | R30 | staged-build prompt | AC-13.8–AC-13.11 | Rimeet Mavani | open |
-| R33 | 10.D Sessions with their place; routes 128, 144, 146 — § 10.D (ATC11) | sub-domain | R30 | `/be-build-requirement` | AC-13.12, AC-13.13 | Rimeet Mavani | open |
+| R31 | 10.B Google and Apple, the one `303` exception; routes 122–125, 143 — § 10 ATC3, § 10.B (ATC6, ATC7) | sub-domain | R30 | `/be-build-requirement` | AC-13.5–AC-13.7 | Rimeet Mavani | done |
+| R32 | 10.C Two-factor, trusted devices, step-up; routes 126–127, 145, 147 — § 10.C (ATC8–ATC10) | sub-domain | R30 | staged-build prompt | AC-13.8–AC-13.11 | Rimeet Mavani | done |
+| R33 | 10.D Sessions with their place; routes 128, 144, 146 — § 10.D (ATC11) | sub-domain | R30 | `/be-build-requirement` | AC-13.12, AC-13.13 | Rimeet Mavani | done |
 | R34 | 11.A The person and the organization chooser (the app's counts port); routes 130–132, 148–149 — § 11 UNC1, UNC2, § 11.A (UNC3, UNC4) | sub-domain | R13, R18, R29 | `/be-build-requirement` | AC-14.1–AC-14.3 | Rimeet Mavani | open |
 | R35 | 11.B Confirm your email; routes 133–134 — § 11.B (UNC5) | sub-domain | R30 | `/be-build-requirement` | AC-14.4 | Rimeet Mavani | open |
 | R36 | 11.C Notification kinds and the check before send; routes 135–136 — § 11.C (UNC6–UNC8) | sub-domain | R29 | `/be-build-requirement` | AC-14.5–AC-14.7 | Rimeet Mavani | done |

@@ -76,6 +76,26 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → larger replay window for a half-completed login; review with security.
 - **Last reviewed**: 2026-05-28
 
+## TRUSTED_DEVICE_DAYS
+
+- **Value**: 30 days
+- **Source**: [src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts](src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts)
+- **Rationale**: How long "trust this device" lets a browser skip the 2FA code at sign-in (feat-instagram-dm-sending AT17, D56). Counted from the tick; use never extends it. The `trusted_device` cookie lasts as long.
+- **Consequences of change**:
+  - Decreasing → people re-enter the 2FA code more often.
+  - Increasing → a stolen browser profile skips the 2FA code longer; review with security.
+- **Last reviewed**: 2026-11-24
+
+## TRUSTED_DEVICES_MAX
+
+- **Value**: 10 live trusted devices per person
+- **Source**: [src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts](src/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.constants.ts)
+- **Rationale**: Bounds the rows and the trusted surface per person (AT17); an 11th revokes the oldest under a per-user advisory lock.
+- **Consequences of change**:
+  - Decreasing → people with many browsers lose trust on the oldest sooner.
+  - Increasing → more live trusted cookies per account.
+- **Last reviewed**: 2026-11-24
+
 ## WEBAUTHN_CHALLENGE_TTL_SECONDS
 
 - **Value**: 300 seconds (5 minutes; alias of `MFA_SESSION_TTL_SECONDS`)
@@ -408,7 +428,7 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
 
 - **Value**: `{ SUPER_ADMIN: 'super_admin', USER: 'user' }`
 - **Source**: [src/shared/constants/roles.constants.ts](src/shared/constants/roles.constants.ts)
-- **Rationale**: Two-tier platform role, independent of organization-scoped permissions and granting nothing inside an organization. `super_admin` comes from the `GLOBAL_ADMIN_EMAILS` allowlist, is granted only to an ACTIVE, verified account with an enrolled MFA factor, and is re-derived against live account state on every request; `requireRole` admits it only on a session that proved the second factor (`amr: ['mfa']`, A-2), and the admin delete / suspend / status-edit routes also need a recent password or MFA step-up; `user` is every other active account, and no guard tests for it. A third code, `admin`, was removed as never-issued: no mint path produced it, the auth middleware downgraded it on sight, and nine route guards accepted a value that could not occur.
+- **Rationale**: Two-tier platform role, independent of organization-scoped permissions and granting nothing inside an organization. `super_admin` comes from the `GLOBAL_ADMIN_EMAILS` allowlist, is granted only to an ACTIVE, verified account with an enrolled MFA factor, and is re-derived against live account state on every request; `requireRole` admits it only on a session that proved the second factor (`amr: ['mfa']`, A-2), and the admin delete / suspend / status-edit routes also need a recent strong step-up (the 2FA code — a `super_admin` always holds MFA); `user` is every other active account, and no guard tests for it. A third code, `admin`, was removed as never-issued: no mint path produced it, the auth middleware downgraded it on sight, and nine route guards accepted a value that could not occur.
 - **Consequences of change**:
   - Adding a role → add the code that ISSUES it in the same change, then audit every JWT issuance path and `requireRole` call site. A role nobody mints is an authorization surface that reads as real and is not.
   - Removing a role → audit every Postgres row + JWT in flight. `admin` was safe to remove immediately because nothing minted it, and the auth middleware re-derives any claim that is not `user`, so a token carrying the retired value fails closed rather than being trusted.

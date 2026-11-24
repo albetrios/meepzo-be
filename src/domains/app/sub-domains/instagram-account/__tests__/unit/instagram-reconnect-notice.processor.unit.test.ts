@@ -87,34 +87,14 @@ beforeEach(() => {
 });
 
 describe('isSameConnectionBreak', () => {
-  it('holds only while the account is still broken at the same time', () => {
-    const connectionStatusChangedAt = BROKE_AT;
-    expect(
-      isSameConnectionBreak({ account: brokenAccount() as never, connectionStatusChangedAt }),
-    ).toBe(true);
-    expect(
-      isSameConnectionBreak({
-        account: brokenAccount({ connection_status: 'expired' }) as never,
-        connectionStatusChangedAt,
-      }),
-    ).toBe(true);
+  it('holds only while the channel account is still broken (`error`, CA4)', () => {
+    expect(isSameConnectionBreak({ account: brokenAccount() as never })).toBe(true);
     for (const connection_status of ['connected', 'revoked']) {
       expect(
-        isSameConnectionBreak({
-          account: brokenAccount({ connection_status }) as never,
-          connectionStatusChangedAt,
-        }),
+        isSameConnectionBreak({ account: brokenAccount({ connection_status }) as never }),
       ).toBe(false);
     }
-    expect(
-      isSameConnectionBreak({
-        account: brokenAccount({
-          connection_status_changed_at: new Date(BROKE_AT.getTime() + 1),
-        }) as never,
-        connectionStatusChangedAt,
-      }),
-    ).toBe(false);
-    expect(isSameConnectionBreak({ account: null, connectionStatusChangedAt })).toBe(false);
+    expect(isSameConnectionBreak({ account: null })).toBe(false);
   });
 });
 

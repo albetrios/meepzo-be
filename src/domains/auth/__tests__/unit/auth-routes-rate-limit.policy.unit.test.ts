@@ -134,7 +134,7 @@ describe('auth public-route rate-limit + captcha policy (public go-live surface)
     });
   }
 
-  // OAuth initiation only returns the provider's authorization URL; Google/GitHub authenticate
+  // OAuth initiation only returns the provider's authorization URL; Google/Apple authenticate
   // the user, so it carries no captcha (the challenge on click was the slowest part of "Sign in
   // with Google") — the strict public rate limit above still applies.
   it('GET /oauth/:provider carries no captchaPreHandler', () => {

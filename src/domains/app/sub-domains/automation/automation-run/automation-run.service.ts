@@ -1894,7 +1894,9 @@ export class AutomationRunService {
     const { run, automation, commentLog } = state;
     const decision = await this.replySafetyService.decide({
       commentLogRepository: unit.commentLogs,
-      settings: call.access.settings,
+      // The account settings carry no reply safety since ROUTE row R7 (IA12); the pacing moves to
+      // each automation at R13 (D32) — until then safety is off.
+      settings: null,
       organizationId: call.organizationId,
       automationId: automation.id,
       instagramCommentId: run.trigger_instagram_comment_id ?? '',

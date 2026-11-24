@@ -61,29 +61,24 @@ export type InstagramReconnectNoticeResult =
   | { outcome: 'skipped'; reason: 'break_over' | 'no_recipients' };
 
 /**
- * Whether the account still stands at the break a notice is about: still `expired` or `error`, and
- * its `connection_status_changed_at` is the job's.
+ * Whether the account still stands at a break: its channel account is still `error` (CA4).
  *
  * @remarks
- * - **Algorithm:** a missing account, any other status, or another change time → `false`.
+ * - **Algorithm:** a missing account or any other status → `false`.
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
- * - **Notes:** a reconnect (`connected`) or a disconnect (`revoked`) ends a break, and a later
- *   break carries a later time — telling an old break after it ended would ask for a reconnect
- *   that already happened. Exported for the unit test.
+ * - **Notes:** a reconnect (`connected`) or a disconnect (`revoked`) ends a break. Since ROUTE row
+ *   R6 the channel account keeps no status time (1B.3, P99), so the job's break time names the
+ *   notice (its once key) but is not compared here; a job still waiting after a reconnect and a new
+ *   break tells that new break under its own key. Exported for the unit test.
  */
 export function isSameConnectionBreak({
   account,
-  connectionStatusChangedAt,
 }: {
-  account: Pick<InstagramAccountRow, 'connection_status' | 'connection_status_changed_at'> | null;
-  connectionStatusChangedAt: Date;
+  account: Pick<InstagramAccountRow, 'connection_status'> | null;
 }): boolean {
   if (account === null) return false;
-  if (account.connection_status !== 'expired' && account.connection_status !== 'error') {
-    return false;
-  }
-  return account.connection_status_changed_at.getTime() === connectionStatusChangedAt.getTime();
+  return account.connection_status === 'error';
 }
 
 /**
@@ -174,7 +169,7 @@ export async function processInstagramReconnectNoticeJob({
       const account = await createWorkerInstagramAccountRepository(
         databaseHandle,
       ).findByPublicIdInOrganization({ organizationPublicId, instagramAccountPublicId });
-      if (account === null || !isSameConnectionBreak({ account, connectionStatusChangedAt })) {
+      if (account === null || !isSameConnectionBreak({ account })) {
         return { outcome: 'skipped', reason: 'break_over' };
       }
       const recipientUserIds = await services.membershipService.findActiveUserIdsWithPermission({

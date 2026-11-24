@@ -22,7 +22,7 @@ export const MAIL_QUEUE_NAME = 'mail';
 export const MAIL_QUEUE_MAX_ATTEMPTS = 8;
 
 /**
- * Which mail goes out first. `transactional` — sign-in codes, password resets, invitations — runs
+ * Which mail goes out first. `transactional` — sign-in codes, invitations — runs
  * ahead of every `bulk` email (notification fan-out): a broadcast to an organization cannot hold a
  * sign-in code behind it.
  */

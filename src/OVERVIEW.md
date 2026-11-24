@@ -137,7 +137,7 @@ Deliberate business, UX, and security trade-offs encoded as constants. Full rati
 - **Validation**: [Zod 4](https://zod.dev) (HTTP DTOs + route schemas)
 - **ORM**: [Drizzle 0.45](https://orm.drizzle.team) over the [node-postgres (`pg`) 8.x](https://node-postgres.com) driver (Postgres 17, RLS-enforced)
 - **Cache + queue**: [ioredis 6](https://github.com/redis/ioredis) + [BullMQ 6](https://docs.bullmq.io)
-- **Auth**: [jose 6](https://github.com/panva/jose) (RS256 JWT), [argon2id](https://github.com/ranisalt/node-argon2), [otplib](https://github.com/yeojz/otplib) (TOTP), [@simplewebauthn/server](https://simplewebauthn.dev) (WebAuthn)
+- **Auth**: [jose 6](https://github.com/panva/jose) (RS256 JWT), [otplib](https://github.com/yeojz/otplib) (TOTP), [@simplewebauthn/server](https://simplewebauthn.dev) (WebAuthn)
 - **Payments**: [Stripe 23](https://stripe.com)
 - **Email**: [Resend 6](https://resend.com)
 - **Storage**: AWS SDK v3 S3 (`@aws-sdk/client-s3`, `@aws-sdk/s3-presigned-post`, `@aws-sdk/s3-request-presigner`) — works against any S3-compatible store

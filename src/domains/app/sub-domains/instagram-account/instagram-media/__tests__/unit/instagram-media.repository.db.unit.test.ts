@@ -1,4 +1,5 @@
 import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { buildInstagramPickValues } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { insertChannelConnection } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
@@ -61,25 +62,15 @@ async function connectAccount({
     providerAccountId: instagramUserId,
     channelConnectionId: channelConnection.id,
   });
-  const { account } = await inOrganization(organization, () =>
-    new InstagramAccountRepository().upsertConnected({
-      channelAccountId: channelAccount.id,
-      channelConnectionId: channelConnection.id,
-      organizationId: organization.id,
-      instagramUserId,
-      instagramAppUserId: `9${instagramUserId}`,
-      username: `acme_shop_${instagramUserId.slice(-4)}`,
-      name: 'Acme Shop',
-      biography: null,
-      website: null,
-      profilePictureUrl: null,
-      followersCount: 0,
-      followsCount: 0,
-      mediaCount: 0,
-      scopes: [],
-
-      connectedByUserId: null,
-    }),
+  const account = await inOrganization(organization, () =>
+    new InstagramAccountRepository().upsertAtPick(
+      buildInstagramPickValues({
+        organizationId: organization.id,
+        channelAccountId: channelAccount.id,
+        instagramUserId: instagramUserId,
+        username: `acme_shop_${instagramUserId.slice(-4)}`,
+      }),
+    ),
   );
   return { organizationId: organization.id, instagramAccountId: account.id };
 }
@@ -203,9 +194,10 @@ describe('InstagramMediaRepository (database)', () => {
     await inOrganization(organization, () =>
       repository.upsertForAccount(mediaValues(instagramAccount)),
     );
-    await inOrganization(organization, () =>
-      new InstagramAccountRepository().revoke(instagramAccount),
-    );
+    await operatorQuery`
+      UPDATE app.channel_accounts SET connection_status = 'revoked', disconnected_at = now()
+      WHERE id = (SELECT channel_account_id FROM app.instagram_accounts
+                  WHERE id = ${instagramAccount.instagramAccountId})`;
     const secondAccount = await connectAccount({
       organization,
       instagramUserId: '17841400000000002',

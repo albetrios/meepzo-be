@@ -1,5 +1,5 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
-import type { InstagramAccountSettingsOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
+import type { InstagramAccountExtensionOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import type {
   ChannelAccountChannel,
   ChannelAccountPlanStopReason,
@@ -38,20 +38,6 @@ export interface ChannelAccountActiveStopOutput {
   stop_until: string | null;
 }
 
-/**
- * The Instagram part of the Channel account (2.A.6) — the launch's columns until ROUTE row R6
- * reshapes the extension.
- */
-export interface ChannelAccountInstagramOutput {
-  instagram_user_id: string;
-  username: string | null;
-  profile_picture_url: string | null;
-  followers_count: number;
-  is_webhook_subscribed: boolean;
-  profile_synced_at: string | null;
-  settings: InstagramAccountSettingsOutput;
-}
-
 /** The Channel account object of routes 7, 9–11 (routes-final § 1B.6). */
 export interface ChannelAccountOutput {
   id: string;
@@ -72,8 +58,8 @@ export interface ChannelAccountOutput {
   connected_by_user_id: string | null;
   connected_at: string;
   disconnected_at: string | null;
-  /** The Instagram extension when `channel` is `instagram`, else `null`. */
-  instagram: ChannelAccountInstagramOutput | null;
+  /** The Instagram extension (2.A.6) when `channel` is `instagram`, else `null`. */
+  instagram: InstagramAccountExtensionOutput | null;
 }
 
 /** The organization scope and internal id every port call runs with. */

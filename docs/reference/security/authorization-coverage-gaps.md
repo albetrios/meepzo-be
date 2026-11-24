@@ -1,6 +1,6 @@
 # Authorization coverage & gap map (all routes)
 
-> Point-in-time analysis derived from `docs/routes.txt` + `tooling/openapi/route-catalog/route-authorization-model.json`. Generated 2026-06-15.
+> Point-in-time analysis derived from `docs/routes.txt` + `tooling/openapi/route-catalog/route-authorization-model.json`. Generated 2026-06-15. Since then the password routes (`POST /auth/login`, `/auth/password/forgot`, `/reset`, `/change`) are removed (feat-instagram-dm-sending P84) and later routes are not listed — `docs/routes.txt` is the live set.
 
 Answers "is every route — organization-level included — covered, and what is **not** in the codebase/tests yet?" Companion to [`authorization-testing-plan.md`](./authorization-testing-plan.md).
 

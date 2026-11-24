@@ -41,7 +41,7 @@ import {
   readAccountContactRows,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
-  INSTAGRAM_ACCOUNT_SETTINGS_PATH,
+  organizationInstagramAccountSettingsPath,
   type InstagramTeamFixture,
   buildInstagramProfile,
   createInstagramTeam,
@@ -339,7 +339,7 @@ export class InstagramMessageFlow {
 
   /** Disconnects the account (route 4). */
   async disconnect(): Promise<void> {
-    mockInstagramUnsubscribe({ instagramAppUserId: this.account.instagramAppUserId });
+    mockInstagramUnsubscribe({ instagramUserId: this.account.instagramAppUserId });
     const response = await this.asOwner({
       method: 'DELETE',
       url: await organizationChannelAccountPath(this.team.organization.id),
@@ -347,11 +347,11 @@ export class InstagramMessageFlow {
     expect(response.statusCode).toBe(204);
   }
 
-  /** Changes the account's settings (route 3). */
+  /** Changes the account's settings (route 12). */
   async saveSettings(settings: Record<string, unknown>): Promise<void> {
     const response = await this.asOwner({
       method: 'PATCH',
-      url: INSTAGRAM_ACCOUNT_SETTINGS_PATH,
+      url: await organizationInstagramAccountSettingsPath(this.team.organization.id),
       payload: settings,
     });
     expect(response.statusCode).toBe(200);

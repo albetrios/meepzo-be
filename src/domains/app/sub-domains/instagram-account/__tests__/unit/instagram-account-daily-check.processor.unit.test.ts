@@ -128,9 +128,7 @@ function connectedAccount(overrides: Record<string, unknown> = {}) {
     organization_id: 7,
     connection_status: 'connected',
     instagram_user_id: '17841400000000001',
-    instagram_app_user_id: '17841400000000001',
     channel_connection_id: 5,
-    token_expires_at: null,
     webhook_subscribed_at: new Date('2026-10-01T00:00:00.000Z'),
     ...overrides,
   };
@@ -318,7 +316,7 @@ describe('processInstagramAccountDailyCheckJob', () => {
     await expect(runCheck()).resolves.toMatchObject({ subscription: 'subscribed' });
     expect(instagramClient.subscribeInstagramWebhookFields).toHaveBeenCalledWith({
       encryptedAccessToken: STORED_CIPHERTEXT,
-      instagramAppUserId: '17841400000000001',
+      instagramUserId: '17841400000000001',
       requestId: 'instagram-account-daily-check-test',
     });
     expect(accountRepository.recordWebhookSubscribed).toHaveBeenCalledWith({

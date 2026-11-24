@@ -3,7 +3,7 @@ import { isLocalDatabaseUrl } from '@/infrastructure/database/utils/connection-u
 /**
  * Guard that keeps the demo seeders from ever writing to a hosted/production database: the bulk
  * seed, the full seed (`runFullSeed`), the demo admin
- * (`ensureDemoAdmin`, a known password with every permission) and the load-test credential pool.
+ * (`ensureDemoAdmin`, a known address with every permission) and the load-test credential pool.
  * Each calls {@link assertBulkSeedAllowed} before any write.
  */
 

@@ -15,7 +15,7 @@ export interface BulkAuthMethodProfile {
   provider_user_id: string | null;
 }
 
-const OAUTH_PROVIDERS = ['google', 'github'] as const;
+const OAUTH_PROVIDERS = ['google', 'apple'] as const;
 
 /** Builds one fake auth-method profile from the provided faker instance. */
 export function generateBulkAuthMethod(faker: Faker): BulkAuthMethodProfile {

@@ -32,7 +32,7 @@ export interface InstagramConnectionBreak {
   organizationPublicId: string;
   instagramAccountPublicId: string;
   connectionStatus: InstagramAccountBrokenConnectionStatus;
-  /** `connection_status_changed_at` the guarded change stamped — it names this break. */
+  /** The channel account's `updated_at` the guarded break wrote (R6) — it names this break. */
   connectionStatusChangedAt: Date;
 }
 

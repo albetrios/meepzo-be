@@ -282,8 +282,9 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
       ]);
     });
 
-    it("creates on an expired or error account too — it is still the organization's (AU27)", async () => {
-      await operatorQuery`UPDATE app.instagram_accounts SET connection_status = 'expired' WHERE id = ${account.id}`;
+    it("creates on an error account too — it is still the organization's (AU27)", async () => {
+      await operatorQuery`UPDATE app.channel_accounts SET connection_status = 'error'
+        WHERE id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id})`;
       const response = await create({ body: commentAutomationBody() });
       expect(response.statusCode).toBe(200);
       expect(dataOf(response).instagram_account_id).toBe(account.public_id);
@@ -814,7 +815,7 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
         400,
       );
       for (const body of [
-        { instagram_account_id: generatePublicId('instagramAccount') },
+        { instagram_account_id: generatePublicId('channelAccount') },
         { completed_run_count: 5 },
         { last_triggered_at: new Date().toISOString() },
         { next_post_status: 'waiting' },
@@ -1154,9 +1155,9 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
         onSecond.public_id,
       ]);
       expect(await listedIds(`instagram_account_id=${account.public_id}`)).toHaveLength(3);
-      expect(
-        await listedIds(`instagram_account_id=${generatePublicId('instagramAccount')}`),
-      ).toEqual([]);
+      expect(await listedIds(`instagram_account_id=${generatePublicId('channelAccount')}`)).toEqual(
+        [],
+      );
       expect((await list({ query: 'instagram_account_id=con_abc' })).statusCode).toBe(400);
       expect((await list({ query: 'search=x' })).statusCode).toBe(400);
     });

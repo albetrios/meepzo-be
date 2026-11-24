@@ -262,7 +262,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm ${{ env.WORKER_IMAGE }}:ci node --check dist/src/worker.js
-          docker run --rm ${{ env.WORKER_IMAGE }}:ci node -e "import('argon2').then(()=>import('@sentry/profiling-node')).then(()=>console.log('native ok'))"
+          docker run --rm ${{ env.WORKER_IMAGE }}:ci node -e "import('@sentry/profiling-node').then(()=>console.log('native ok'))"
 
       - name: Generate API image SBOM
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3

@@ -1,4 +1,5 @@
 /** Auth and user resource schemas. */
+import { LIVE_AUTH_METHOD_TYPES } from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
 import { loadConfig } from '@tooling/setup/common/config.js';
 
 /** TOTP issuer used in example provisioning URIs — matches the runtime issuer. */
@@ -234,9 +235,8 @@ export const authMethodSchema = {
     id: { type: 'string', pattern: '^am_[a-z0-9]{21}$' },
     method_type: {
       type: 'string',
-      enum: ['PASSWORD', 'EMAIL_CODE', 'OAUTH', 'MFA_TOTP', 'MFA_SMS', 'MFA_EMAIL'],
-      description:
-        'Possible values: PASSWORD | EMAIL_CODE | OAUTH | MFA_TOTP | MFA_SMS | MFA_EMAIL',
+      enum: [...LIVE_AUTH_METHOD_TYPES],
+      description: `Possible values: ${LIVE_AUTH_METHOD_TYPES.join(' | ')}`,
       example: 'EMAIL_CODE',
     },
     provider: { type: 'string', nullable: true },
@@ -274,6 +274,25 @@ export const sessionSchema = {
       description:
         'Browser family parsed from user_agent (e.g. "Chrome", "Safari"); null if unknown.',
     },
+    place: {
+      type: 'object',
+      nullable: true,
+      description:
+        "Where the session's IP is, from the server's local IP-to-place file (DB-IP IP to City Lite); null when nothing is known. Set at sign-in and when a refresh comes from a new IP.",
+      properties: {
+        city: {
+          type: 'string',
+          nullable: true,
+          description: 'English city name; null if unknown.',
+        },
+        country_code: {
+          type: 'string',
+          nullable: true,
+          pattern: '^[A-Z]{2}$',
+          description: 'ISO 3166-1 alpha-2 country code; null if unknown.',
+        },
+      },
+    },
     is_current: {
       type: 'boolean',
       description: 'True for the session the request is authenticated with.',
@@ -290,6 +309,7 @@ export const sessionExample = {
   user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
   device: 'Mac',
   browser: 'Chrome',
+  place: { city: 'Mumbai', country_code: 'IN' },
   is_current: true,
   last_active_at: '2026-02-14T08:30:00.000Z',
   expires_at: '2026-02-21T08:30:00.000Z',

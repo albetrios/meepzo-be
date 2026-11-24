@@ -96,7 +96,7 @@ Every organization-scoped list endpoint uses the **shared** helpers in `src/shar
 - `Content-Type: application/json` — any body.
 - `X-Organization-Id` — **removed**. Organization-scoped routes resolve the active organization from the signed `org` JWT claim only; switch it via `/auth/switch-to-personal` / `/auth/switch-to-organization` (which re-mint the access token). Never reintroduce an organization header.
 - `X-Idempotency-Key` — all mutating routes (optional, auto-generate in clients); REQUIRED on the writes registered with `config.idempotencyRequired: true` (for example organization create, subscription create, uploads). Live list = the `I` (`req`) column in `docs/routes.txt` — never copy a count or list of it elsewhere.
-- `X-Captcha-Token` — public auth forms only (login, email verification-code send + login, password forgot/reset, mfa/login, webauthn authenticate options, oauth authorize).
+- `X-Captcha-Token` — public auth forms only (email verification-code send + login, mfa/login, webauthn authenticate options).
 - `X-CSRF-Token` — POST /auth/refresh only (double-submit of the csrf_token cookie). Keeps the X- form (frontend-framework default).
 - `Stripe-Signature` — sent BY Stripe to the webhook routes; the app never sends it.
 - `X-Hub-Signature-256` — sent BY Meta to the Instagram webhook delivery (`POST /app/social/instagram/webhook`): `sha256=` + the hex HMAC-SHA256 of the raw body with the Instagram app secret; missing or wrong → `400 invalid_webhook_signature`. The app never sends it. Meta's subscription check (`GET` on the same path) is proved by `hub.verify_token` instead.

@@ -11,8 +11,6 @@ const INSTAGRAM_USERNAME_MAX_LENGTH = 30;
 export interface BulkInstagramAccountProfile {
   /** Lower-case letters, digits, `.` and `_`, at most 30 characters — Instagram's own rule. */
   username: string;
-  /** The account's display name. */
-  name: string;
   /** A one-line bio. */
   biography: string;
   /** A link on the reserved `example.com` domain, never a real site. */
@@ -30,7 +28,7 @@ export interface BulkInstagramAccountProfile {
  *
  * @remarks
  * Algorithm: a faker username folded to Instagram's alphabet (lower case, `.` and `_` only) and
- * cut to 30 characters; a company name and catch phrase as the name and bio; an `example.com`
+ * cut to 30 characters; a catch phrase as the bio; an `example.com`
  * link; plausible counts. Failure modes: none. Side effects: advances the faker sequence.
  */
 export function generateBulkInstagramAccountProfile(faker: Faker): BulkInstagramAccountProfile {
@@ -42,7 +40,6 @@ export function generateBulkInstagramAccountProfile(faker: Faker): BulkInstagram
       .slice(0, INSTAGRAM_USERNAME_MAX_LENGTH) || 'demo_shop';
   return {
     username,
-    name: faker.company.name(),
     biography: faker.company.catchPhrase(),
     website: `https://example.com/${username}`,
     followersCount: faker.number.int({ min: 100, max: 50_000 }),

@@ -11,7 +11,9 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { AuthSessionRepository } from './auth-session.repository.js';
-import type { AuthSessionCreateData } from './auth-session.types.js';
+import type { AuthSessionCreateData, AuthSessionNetworkUpdate } from './auth-session.types.js';
+import { NO_SESSION_PLACE_LOOKUP, type SessionPlaceLookup } from './session-place.js';
+import type { TrustedDeviceService } from '@/domains/auth/sub-domains/auth-trusted-device/auth-trusted-device.service.js';
 import {
   getCachedSessionTokenValid,
   invalidateCachedSessionToken,
@@ -52,6 +54,9 @@ function refreshHashesEqual({ left, right }: { left: string; right: string }): b
  *   downstream bearer checks see the change immediately. On refresh-secret reuse
  *   (an already-rotated secret replayed), {@link refreshSessionCredentials}
  *   revokes the user's entire session family, not just the targeted session.
+ * - **Place:** a new session, and a refresh from a new IP, store the IP's city and country from
+ *   the injected {@link SessionPlaceLookup} (a local file, routes-final § 10.D AT18); no file or no
+ *   match leaves both null.
  * - **Notes:** {@link verifyActiveAccessToken} is hot-pathed by the auth
  *   middleware and uses a 60-second Redis cache to amortise DB round-trips.
  */
@@ -59,7 +64,20 @@ export class AuthSessionService {
   constructor(
     private readonly userService: UserService,
     private readonly sessionRepository: AuthSessionRepository,
+    private readonly trustedDeviceService?: TrustedDeviceService,
+    private readonly sessionPlaceLookup: SessionPlaceLookup = NO_SESSION_PLACE_LOOKUP,
   ) {}
+
+  /** The place columns for an IP address — both null when the place file has no match or there is no file. */
+  private placeOf(
+    ipAddress: string,
+  ): Pick<AuthSessionNetworkUpdate, 'place_city' | 'place_country'> {
+    const place = this.sessionPlaceLookup.findPlace(ipAddress);
+    return {
+      place_city: place?.place_city ?? null,
+      place_country: place?.place_country ?? null,
+    };
+  }
 
   async list(userPublicId: string) {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
@@ -141,6 +159,16 @@ export class AuthSessionService {
     }
   }
 
+  /**
+   * Revokes every session of the user and ends every trusted device (AT17) — the account is being
+   * deleted, suspended or otherwise deactivated, so nothing of it may sign in or skip a 2FA code.
+   *
+   * @remarks
+   * - **Algorithm:** one user-scoped `UPDATE` of `auth.sessions`, then the session-token cache
+   *   purge, then the trusted devices' revoke (its own user-scoped transaction).
+   * - **Failure modes:** `NotFoundError('User')` when the user is gone.
+   * - **Side effects:** writes `auth.sessions` and `auth.trusted_devices`; purges the token cache.
+   */
   async revokeAllSessions(userPublicId: string): Promise<void> {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new NotFoundError('User');
@@ -149,6 +177,9 @@ export class AuthSessionService {
       callback: (_databaseHandle) => this.sessionRepository.revokeAllByUserId(user.id),
     });
     await this.invalidateRevokedSessionCaches(revokedSessions);
+    await this.trustedDeviceService?.revokeAllForUser({
+      owner: { id: user.id, public_id: user.public_id },
+    });
   }
 
   /**
@@ -164,16 +195,20 @@ export class AuthSessionService {
    *   simply revokes the remaining sessions.
    * - **Side effects:** writes `auth.sessions` rows; invalidates cached
    *   token-validity entries so revocation takes effect immediately.
-   * - **Notes:** used by the authenticated change-password flow to terminate all
-   *   other devices while keeping the caller's current session alive.
+   * - **Notes:** "sign out everywhere else" (`DELETE /auth/me/sessions`, route 144) — keeps the
+   *   caller's current session alive and also ends every trusted device but this browser's
+   *   (`keepTrustedDeviceToken`, the caller's `trusted_device` cookie; AT17). Returns the trusted
+   *   devices it ended, for the audit.
    */
   async revokeAllSessionsExceptCurrent({
     userPublicId,
     currentAccessToken,
+    keepTrustedDeviceToken,
   }: {
     userPublicId: string;
     currentAccessToken: string;
-  }): Promise<void> {
+    keepTrustedDeviceToken?: string | undefined;
+  }): Promise<{ revoked_trusted_device_ids: string[] }> {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new NotFoundError('User');
     const currentTokenHash = hashAccessToken(currentAccessToken);
@@ -183,6 +218,12 @@ export class AuthSessionService {
         this.sessionRepository.revokeAllByUserIdExcept(user.id, currentTokenHash),
     });
     await this.invalidateRevokedSessionCaches(revokedSessions);
+    const revokedTrustedDeviceIds =
+      (await this.trustedDeviceService?.revokeAllForUser({
+        owner: { id: user.id, public_id: user.public_id },
+        keepToken: keepTrustedDeviceToken,
+      })) ?? [];
+    return { revoked_trusted_device_ids: revokedTrustedDeviceIds };
   }
 
   async createSessionForUser({
@@ -190,11 +231,16 @@ export class AuthSessionService {
     data,
   }: {
     userPublicId: string;
-    data: Omit<AuthSessionCreateData, 'user_id' | 'refresh_token_hash'>;
+    data: Omit<
+      AuthSessionCreateData,
+      'user_id' | 'refresh_token_hash' | 'place_city' | 'place_country'
+    >;
   }): Promise<{ public_id: string; refresh_secret: string }> {
     const user = await this.userService.requireUserRecordByPublicId(userPublicId);
     if (!user) throw new NotFoundError('User');
     const refreshSecret = generateRefreshSecret({ userPublicId });
+    // The place is looked up before the transaction: an in-process file read, never a network call.
+    const place = this.placeOf(data.ip_address);
     const { session, evictedSessions } = await withAppDatabaseContext({
       scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: userPublicId }),
       callback: async (_databaseHandle) => {
@@ -212,6 +258,7 @@ export class AuthSessionService {
           user_id: user.id,
           refresh_token_hash: hashRefreshSecret(refreshSecret),
           ...data,
+          ...place,
         });
         return { session: created, evictedSessions: evicted };
       },
@@ -388,12 +435,15 @@ export class AuthSessionService {
     userPublicId,
     refreshSecret,
     nextAccessToken,
+    ipAddress,
   }: {
     sessionPublicId: string;
     /** The session's user — the refresh secrets' issuance MACs are bound to it. */
     userPublicId: string;
     refreshSecret: string;
     nextAccessToken: string;
+    /** The refreshing request's IP; when it differs from the session's, the address and its place move with it. */
+    ipAddress?: string | undefined;
   }): Promise<{ refresh_secret: string; organization_id: number | null }> {
     const currentRefreshHash = hashRefreshSecret(refreshSecret);
     const nextTokenHash = hashAccessToken(nextAccessToken);
@@ -406,11 +456,16 @@ export class AuthSessionService {
           return null;
         }
         const minted = generateRefreshSecret({ userPublicId });
+        const nextNetwork: AuthSessionNetworkUpdate | undefined =
+          ipAddress !== undefined && ipAddress !== existing.ip_address
+            ? { ip_address: ipAddress, ...this.placeOf(ipAddress) }
+            : undefined;
         const rotated = await this.sessionRepository.rotateSessionCredentials(
           sessionPublicId,
           currentRefreshHash,
           nextTokenHash,
           hashRefreshSecret(minted),
+          nextNetwork,
         );
         if (!rotated) {
           return null;

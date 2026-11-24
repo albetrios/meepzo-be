@@ -19,12 +19,14 @@ import type {
 } from '@/domains/app/sub-domains/channel-connection/channel-connection.types.js';
 import type {
   InstagramAccountKey,
-  InstagramAccountRepository,
   InstagramAccountRow,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import type { InstagramAccountExtensionService } from '@/domains/app/sub-domains/instagram-account/instagram-account-extension.service.js';
+import { serializeInstagramAccountExtension } from '@/domains/app/sub-domains/instagram-account/instagram-account.serializer.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
 import { serializeInstagramAccountSettings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.serializer.js';
+import type { InstagramAccountSettingsChannelAccountPort } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import { CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import { planAccountLimitError } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
 import {
@@ -47,7 +49,6 @@ import {
 import type { ChannelAccountRepository, ChannelAccountRow } from './channel-account.repository.js';
 import {
   serializeChannelAccount,
-  serializeChannelAccountInstagram,
   serializeChannelAccountSummary,
 } from './channel-account.serializer.js';
 import type {
@@ -161,9 +162,9 @@ function checkFeature({
  *   `400 stop_channel_account_id` (CA9).
  *
  * Side effects:
- * - Writes `app.channel_accounts` and — until ROUTE row R6 drops the copy — the status columns of
- *   `app.instagram_accounts` (P116); revokes a connection with its last account (CA8); Meta's
- *   `subscribed_apps` (best effort).
+ * - Writes `app.channel_accounts`, and the Instagram extension only through
+ *   `InstagramAccountExtensionService` (2.A.10); revokes a connection with its last account (CA8);
+ *   Meta's `subscribed_apps` (best effort).
  *
  * Notes:
  * - The lane steps of routes 8–11 go through {@link ChannelAccountLanePort} (sub-domain 6, ROUTE row
@@ -171,10 +172,12 @@ function checkFeature({
  *   (R18, R24); until then the app container passes none.
  * - The audit entries are the controller's, after commit (D36).
  */
-export class ChannelAccountService implements ChannelConnectionAccountPort {
+export class ChannelAccountService
+  implements ChannelConnectionAccountPort, InstagramAccountSettingsChannelAccountPort
+{
   constructor(
     private readonly accountRepository: ChannelAccountRepository,
-    private readonly instagramAccountRepository: InstagramAccountRepository,
+    private readonly instagramExtensionService: InstagramAccountExtensionService,
     private readonly instagramAccountService: InstagramAccountService,
     private readonly instagramSettingsService: InstagramAccountSettingsService,
     private readonly connectionRepository: ChannelConnectionRepository,
@@ -207,7 +210,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
       callback: async () => {
         const organizationId = await this.requireReadableOrganization(scope);
         const accounts = await this.accountRepository.listLive({ organizationId, channels });
-        const instagramById = await this.readInstagramRows({ organizationId, accounts });
+        const instagramById = await this.readInstagramRows({ scope, organizationId, accounts });
         const connections = await this.connectionRepository.findByIds({
           organizationId,
           channelConnectionIds: [
@@ -292,7 +295,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
       callback: async () => {
         const organizationId = await this.requireWritableOrganization(scope);
         const account = await this.requireLiveAccount({ organizationId, channelAccountPublicId });
-        const instagram = await this.findInstagramRow({ organizationId, account });
+        const instagram = await this.findInstagramRow({ scope, organizationId, account });
         const token = await this.connectionTokenService.findAccessToken({
           scope,
           channelConnection: { organizationId, channelConnectionId: account.channel_connection_id },
@@ -315,7 +318,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
       scope,
       callback: async () => {
         const { organizationId, account } = snapshot;
-        const revoked = await this.revokeAccount({ organizationId, account });
+        const revoked = await this.revokeAccount({ scope, organizationId, account });
         if (revoked === null) throw channelAccountNotFoundError();
         await this.lanePort?.stopLanes({ scope, organizationId, channelAccountId: account.id });
         const liveCount = await this.accountRepository.countLiveByConnection({
@@ -526,7 +529,8 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
    * reconnect notice (WC-46, through the Instagram account service).
    *
    * @remarks
-   * Algorithm: one unit — the account, its Instagram row, the guarded change on both (P116).
+   * Algorithm: one unit — the account, its Instagram row, the guarded change of the account's
+   * status through the Instagram account service (which enqueues the notice).
    * Failure modes: none of its own — `false` when the account was not `connected` (another caller won
    * the race, or it was revoked). Side effects: the status change; one notice job per break.
    */
@@ -546,7 +550,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
         if (account === null || account.connection_status !== CHANNEL_ACCOUNT_STATUS.CONNECTED) {
           return false;
         }
-        const instagram = await this.findInstagramRow({ organizationId, account });
+        const instagram = await this.findInstagramRow({ scope, organizationId, account });
         if (instagram === null) return false;
         const broken = await this.instagramAccountService.markConnectionBroken({
           scope,
@@ -614,6 +618,64 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
     return problems;
   }
 
+  // Route 12's channel account port (routes-final § 2.B, IA12 — ROUTE row R7).
+
+  /**
+   * The organization's not-revoked Instagram account by its public id, in the caller's unit — route
+   * 12's account (2.5).
+   *
+   * @remarks
+   * Algorithm: one read. Failure modes: `404 channel_account_not_found` when it is another
+   * organization's, revoked, missing or not `instagram`. Side effects: none.
+   */
+  async requireLiveInstagramAccount({
+    scope,
+    organizationId,
+    channelAccountPublicId,
+  }: ChannelConnectionAccountScope & {
+    channelAccountPublicId: string;
+  }): Promise<ChannelAccountRow> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const account = await this.requireLiveAccount({ organizationId, channelAccountPublicId });
+        if (account.channel !== 'instagram') throw channelAccountNotFoundError();
+        return account;
+      },
+    });
+  }
+
+  /**
+   * Sets the account's automation switch (P42) in the caller's unit — route 12 writes it with the
+   * Instagram settings in one commit (IA12; no channel-account `PATCH` this iteration).
+   *
+   * @remarks
+   * Algorithm: one guarded update (a repeat writes nothing), then the row. Failure modes: `404
+   * channel_account_not_found` when it is revoked. Side effects: one row update.
+   */
+  async setAutomationEnabled({
+    scope,
+    organizationId,
+    channelAccountId,
+    isAutomationEnabled,
+  }: ChannelConnectionAccountScope & {
+    channelAccountId: number;
+    isAutomationEnabled: boolean;
+  }): Promise<ChannelAccountRow> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const account = await this.accountRepository.setAutomationEnabled({
+          organizationId,
+          channelAccountId,
+          isAutomationEnabled,
+        });
+        if (account === null) throw channelAccountNotFoundError();
+        return account;
+      },
+    });
+  }
+
   // The channel connection's account port (routes-final § 1 MC5–MC8).
 
   /**
@@ -653,7 +715,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
           });
           if (row !== null) broken.push(row);
         }
-        return this.toConnectionAccounts({ organizationId, accounts: broken });
+        return this.toConnectionAccounts({ scope, organizationId, accounts: broken });
       },
     });
   }
@@ -727,7 +789,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
           organizationId,
           channelConnectionIds,
         });
-        return this.toConnectionAccounts({ organizationId, accounts });
+        return this.toConnectionAccounts({ scope, organizationId, accounts });
       },
     });
   }
@@ -748,7 +810,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
           channel: 'instagram',
           providerAccountIds,
         });
-        return this.toConnectionAccounts({ organizationId, accounts });
+        return this.toConnectionAccounts({ scope, organizationId, accounts });
       },
     });
   }
@@ -765,8 +827,8 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
   }
 
   /**
-   * The organization holding this Instagram account live, or `null` — through the Instagram user
-   * resolver (IA6) until ROUTE row R6 points it at the channel account (2.A.3).
+   * The organization holding this Instagram account live, or `null` — the Instagram user resolver
+   * (IA6), which reads `app.channel_accounts` since ROUTE row R6 (2.A.3).
    */
   async resolveLiveOrganizationPublicIdForProviderAccount(
     providerAccountId: string,
@@ -806,13 +868,13 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
             channelConnectionId,
           });
           if (attached === null) continue;
-          const instagram = await this.findInstagramRow({ organizationId, account: attached });
-          const marked =
-            instagram === null
-              ? null
-              : await this.instagramAccountRepository.markConnected(instagramKeyOf(instagram));
+          const instagram = await this.findInstagramRow({
+            scope,
+            organizationId,
+            account: attached,
+          });
           reconnected.push({
-            account: toConnectionAccount({ account: attached, instagram: marked ?? undefined }),
+            account: toConnectionAccount({ account: attached, instagram: instagram ?? undefined }),
             previousChannelConnectionId: account.channel_connection_id,
           });
         }
@@ -833,14 +895,12 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
     providerAccountId,
     profile,
     username,
-    scopes,
     connectedByUserId,
   }: ChannelConnectionAccountScope & {
     channelConnectionId: number;
     providerAccountId: string;
     profile: InstagramAccountProfile | null;
     username: string | null;
-    scopes: readonly string[];
     connectedByUserId: number | null;
   }): Promise<ChannelConnectionAccount> {
     return withAppDatabaseContext({
@@ -855,26 +915,27 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
           displayName: `@${instagramUsername}`.slice(0, 100),
           connectedByUserId,
         });
-        const { account: instagram } = await this.instagramAccountRepository.upsertConnected({
-          organizationId,
-          channelAccountId: account.id,
-          channelConnectionId,
-          instagramUserId: providerAccountId,
-          instagramAppUserId: providerAccountId,
-          username: instagramUsername,
-          name: profile?.name ?? null,
-          biography: profile?.biography ?? null,
-          website: profile?.website ?? null,
-          profilePictureUrl: profile?.profilePictureUrl ?? null,
-          followersCount: profile?.followersCount ?? 0,
-          followsCount: profile?.followsCount ?? 0,
-          mediaCount: profile?.mediaCount ?? 0,
-          scopes: [...new Set(scopes)].slice(0, 20),
-          connectedByUserId,
+        const instagram = await this.instagramExtensionService.createAtPick({
+          scope,
+          values: {
+            organizationId,
+            channelAccountId: account.id,
+            instagramUserId: providerAccountId,
+            username: instagramUsername,
+            biography: profile?.biography ?? null,
+            website: profile?.website ?? null,
+            profilePictureUrl: profile?.profilePictureUrl ?? null,
+            // Meta's profile read carries neither (P120): unknown until Meta tells.
+            accountType: null,
+            isPrivate: false,
+            followersCount: profile?.followersCount ?? 0,
+            followsCount: profile?.followsCount ?? 0,
+            mediaCount: profile?.mediaCount ?? 0,
+          },
         });
         await this.instagramSettingsService.createDefaultSettings({
           scope,
-          instagramAccount: instagramKeyOf(instagram),
+          channelAccount: { organizationId, channelAccountId: account.id },
         });
         return toConnectionAccount({ account, instagram });
       },
@@ -898,10 +959,10 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
         });
         const revoked: ChannelAccountRow[] = [];
         for (const account of accounts) {
-          const row = await this.revokeAccount({ organizationId, account });
+          const row = await this.revokeAccount({ scope, organizationId, account });
           if (row !== null) revoked.push(row);
         }
-        return this.toConnectionAccounts({ organizationId, accounts: revoked });
+        return this.toConnectionAccounts({ scope, organizationId, accounts: revoked });
       },
     });
   }
@@ -971,23 +1032,32 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
     }
   }
 
-  /** The account and its Instagram row revoked together (P116), in the caller's unit. */
+  /**
+   * The account revoked (guarded: `null` when a concurrent disconnect won) and its Instagram
+   * extension's webhook stamp cleared, in the caller's unit.
+   */
   private async revokeAccount({
+    scope,
     organizationId,
     account,
   }: {
+    scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     account: ChannelAccountRow;
   }): Promise<ChannelAccountRow | null> {
-    const instagram = await this.findInstagramRow({ organizationId, account });
-    if (instagram === null) return null;
-    // The Instagram row's revoke writes the channel account's too, guarded (P116): `null` when a
-    // concurrent disconnect won.
-    const revokedInstagram = await this.instagramAccountRepository.revoke(
-      instagramKeyOf(instagram),
-    );
-    if (revokedInstagram === null) return null;
-    return this.accountRepository.findById({ organizationId, channelAccountId: account.id });
+    const revoked = await this.accountRepository.revoke({
+      organizationId,
+      channelAccountId: account.id,
+    });
+    if (revoked === null) return null;
+    const instagram = await this.findInstagramRow({ scope, organizationId, account });
+    if (instagram !== null) {
+      await this.instagramExtensionService.clearOnRevoke({
+        scope,
+        instagramAccount: instagramKeyOf(instagram),
+      });
+    }
+    return revoked;
   }
 
   /** The named account of route 11, checked (CA9) — `null` when none is named. */
@@ -1065,13 +1135,13 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
       organizationId,
       channelConnectionIds: [account.channel_connection_id],
     });
-    const instagram = await this.findInstagramRow({ organizationId, account });
+    const instagram = await this.findInstagramRow({ scope, organizationId, account });
     const settings =
       instagram === null
         ? null
         : await this.instagramSettingsService.findSettings({
             scope,
-            instagramAccount: instagramKeyOf(instagram),
+            channelAccount: { organizationId, channelAccountId: account.id },
           });
     const userPublicIds = await this.organizationService.resolveUserPublicIdsByInternalIds(
       [account.connected_by_user_id, settings?.updated_by_user_id ?? null].filter(
@@ -1098,11 +1168,13 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
       instagram:
         instagram === null || settings === null
           ? null
-          : serializeChannelAccountInstagram({
+          : serializeInstagramAccountExtension({
               instagram,
               settings: serializeInstagramAccountSettings({
                 settings,
+                channel_account: account,
                 updated_by_user_public_id: publicIdOf(settings.updated_by_user_id),
+                now: new Date(Date.now()),
               }),
             }),
       now: new Date(Date.now()),
@@ -1111,13 +1183,15 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
 
   /** The port accounts of rows, with their Instagram extensions, inside the caller's unit. */
   private async toConnectionAccounts({
+    scope,
     organizationId,
     accounts,
   }: {
+    scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     accounts: readonly ChannelAccountRow[];
   }): Promise<ChannelConnectionAccount[]> {
-    const instagramById = await this.readInstagramRows({ organizationId, accounts });
+    const instagramById = await this.readInstagramRows({ scope, organizationId, accounts });
     return accounts.map((account) =>
       toConnectionAccount({ account, instagram: instagramById.get(account.id) }),
     );
@@ -1125,32 +1199,33 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
 
   /** The Instagram rows of these accounts, by channel account id, inside the caller's unit. */
   private async readInstagramRows({
+    scope,
     organizationId,
     accounts,
   }: {
+    scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     accounts: readonly ChannelAccountRow[];
   }): Promise<Map<number, InstagramAccountRow>> {
-    const rows = await this.instagramAccountRepository.findByChannelAccountIds({
+    return this.instagramExtensionService.findByChannelAccountIds({
+      scope,
       organizationId,
       channelAccountIds: accounts.map((account) => account.id),
     });
-    return new Map(rows.map((row) => [row.channel_account_id, row]));
   }
 
   /** One account's Instagram row, or `null` (another channel), inside the caller's unit. */
   private async findInstagramRow({
+    scope,
     organizationId,
     account,
   }: {
+    scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     account: ChannelAccountRow;
   }): Promise<InstagramAccountRow | null> {
-    const [row] = await this.instagramAccountRepository.findByChannelAccountIds({
-      organizationId,
-      channelAccountIds: [account.id],
-    });
-    return row ?? null;
+    const rows = await this.readInstagramRows({ scope, organizationId, accounts: [account] });
+    return rows.get(account.id) ?? null;
   }
 
   /** The Instagram row behind a port account, in the scope's organization. */
@@ -1169,7 +1244,7 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
           channelAccountPublicId: target.publicId,
         });
         if (account === null) return null;
-        return this.findInstagramRow({ organizationId: account.organization_id, account });
+        return this.findInstagramRow({ scope, organizationId: account.organization_id, account });
       },
     });
   }

@@ -18,6 +18,13 @@ function isMfaSessionPayload(payload: unknown): payload is MfaSessionPayload {
   return typeof candidate.user_public_id === 'string' && candidate.user_public_id.trim().length > 0;
 }
 
+/** `401 mfa_session_invalid` — the MFA session token is unknown, spent, expired or malformed (routes-final § 10.C.9). */
+function mfaSessionInvalidError(): UnauthorizedError {
+  return new UnauthorizedError('errors:mfaInvalidOrExpiredSession').withReason(
+    'mfa_session_invalid',
+  );
+}
+
 /** Mints a 32-byte hex MFA session token, stores `{user_public_id}` under `mfa:session:<token>` with {@link MFA_SESSION_TTL_SECONDS} TTL, and returns the token for the client to echo back. */
 export async function createMfaSession({
   redis,
@@ -37,7 +44,7 @@ export async function createMfaSession({
   return mfaSessionToken;
 }
 
-/** Single-use lookup: atomically reads-and-deletes the Redis entry (`GETDEL`), parses the JSON payload, and returns the original user public id; throws `UnauthorizedError` (`errors:mfaInvalidOrExpiredSession`) on any failure. The atomic consume guarantees only one of two concurrent verifies can read a non-null value, preventing token replay in a GET-then-DEL race. */
+/** Single-use lookup: atomically reads-and-deletes the Redis entry (`GETDEL`), parses the JSON payload, and returns the original user public id; throws `UnauthorizedError` (`errors:mfaInvalidOrExpiredSession`, reason `mfa_session_invalid`) on any failure. The atomic consume guarantees only one of two concurrent verifies can read a non-null value, preventing token replay in a GET-then-DEL race. */
 export async function verifyMfaSession({
   redis,
   mfaSessionToken,
@@ -46,23 +53,23 @@ export async function verifyMfaSession({
   mfaSessionToken: string;
 }): Promise<MfaSessionPayload> {
   if (!mfaSessionToken || mfaSessionToken.length === 0) {
-    throw new UnauthorizedError('errors:mfaInvalidOrExpiredSession');
+    throw mfaSessionInvalidError();
   }
 
   const storedPayloadRaw = await redis.getdel(`${MFA_SESSION_KEY_PREFIX}${mfaSessionToken}`);
   if (!storedPayloadRaw) {
-    throw new UnauthorizedError('errors:mfaInvalidOrExpiredSession');
+    throw mfaSessionInvalidError();
   }
 
   let storedPayload: unknown;
   try {
     storedPayload = JSON.parse(storedPayloadRaw);
   } catch {
-    throw new UnauthorizedError('errors:mfaInvalidOrExpiredSession');
+    throw mfaSessionInvalidError();
   }
 
   if (!isMfaSessionPayload(storedPayload)) {
-    throw new UnauthorizedError('errors:mfaInvalidOrExpiredSession');
+    throw mfaSessionInvalidError();
   }
 
   return storedPayload;

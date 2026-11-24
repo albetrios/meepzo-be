@@ -1,5 +1,4 @@
 import { randomInt } from 'node:crypto';
-import type { InstagramAccountSettingsRow } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 import {
   AUTOMATION_PUBLIC_REPLY_CHANCE_SCALE,
@@ -19,20 +18,23 @@ import type { AutomationCommentLogRepository } from './automation-comment-log.re
 export type AutomationRandomSource = (maxExclusive: number) => number;
 
 /**
- * The reply-safety settings of the account (sub-domain 1's row, IA15).
+ * The launch's reply-safety settings (launch IA15) — `null` means safety off.
  *
  * @remarks
- * Read once per engine call with the account (`findAutomationAccountAccess`); `null` there means
- * the defaults — safety off.
+ * The account settings no longer carry them (feat-instagram-dm-sending § 2.B, IA12, ROUTE row R7):
+ * public reply pacing moves to each automation ("reply like a person", D14, D32 — ROUTE row R13),
+ * so the engine passes `null` until then.
  */
-export type AutomationPublicReplySafetySettings = Pick<
-  InstagramAccountSettingsRow,
-  | 'is_public_reply_safety_enabled'
-  | 'public_reply_chance_percent'
-  | 'public_reply_hour_limit'
-  | 'public_reply_gap_min_seconds'
-  | 'public_reply_gap_max_seconds'
->;
+export interface AutomationPublicReplySafetySettings {
+  is_public_reply_safety_enabled: boolean;
+  /** 0–100. */
+  public_reply_chance_percent: number;
+  /** Public replies an hour. */
+  public_reply_hour_limit: number;
+  /** Seconds, never above the maximum. */
+  public_reply_gap_min_seconds: number;
+  public_reply_gap_max_seconds: number;
+}
 
 /**
  * What reply safety decided for one comment's public reply (AU20).

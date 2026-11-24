@@ -44,9 +44,9 @@ import type {
   InstagramStoryOutput,
 } from './instagram-media.types.js';
 
-/** What one live Instagram read needs: the account's app-scoped id and its encrypted token (IA5). */
+/** What one live Instagram read needs: the account's Instagram user id and its encrypted token (IA5). */
 interface InstagramLiveReadTarget {
-  instagramAppUserId: string;
+  instagramUserId: string;
   encryptedAccessToken: string;
 }
 
@@ -276,7 +276,7 @@ export class InstagramMediaService {
     assertInstagramConfigured();
     try {
       return await read({
-        instagramAppUserId: account.instagram_app_user_id,
+        instagramUserId: account.instagram_user_id,
         encryptedAccessToken,
       });
     } catch (error) {

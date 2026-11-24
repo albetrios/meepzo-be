@@ -123,7 +123,7 @@ describe('the lock order of the delete, the erase and the run engine (database, 
     const access: InstagramAutomationAccountAccess = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
       instagramAccountPublicId: account.public_id,
-      instagramAppUserId: '17841400000000999',
+      instagramUserId: '17841400000000999',
       username: 'acme.shop',
       connectionStatus: 'connected',
       encryptedAccessToken: 'v1:fake-ciphertext',

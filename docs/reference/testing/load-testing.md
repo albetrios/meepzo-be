@@ -47,15 +47,19 @@ Report separately: executed route coverage, concurrency profile, fixture/identit
 ## Lifecycle journeys
 
 `auth-security-lifecycle.js` runs in the nightly strict step against the running API on the
-seeded credential pool (`VUS=4`, `ITERATIONS=5`: 20 distinct users). Each journey revokes
-sessions, links and removes a sign-in method, changes and restores the password, enrolls real
-TOTP MFA, verifies and replays codes, consumes a recovery code and removes MFA, so every pool
-user ends as it started. It requires 100% checks, zero unexpected HTTP failures, zero dropped
+seeded credential pool (`VUS=4`, `ITERATIONS=5`: 20 distinct users). Each journey signs in by
+email code, revokes sessions under an email-code step-up (strong for a person without 2FA —
+feat-instagram-dm-sending AT15), checks the email-code way cannot be removed and the removed
+sign-in routes answer 404, enrolls real TOTP MFA, verifies and replays codes, consumes a recovery code with
+"trust this device", signs in again without the code on that trusted browser, then removes MFA
+under an email-code step-up (the factor is still provisional), so every pool user ends as it
+started. Every sign-in and step-up sends a code: on a target with the 60 s send spacing on, each VU
+waits it out (`AUTH_EMAIL_CODE_RESEND_COOLDOWN_ENABLED=false` on a local or development target). It requires 100% checks, zero unexpected HTTP failures, zero dropped
 iterations and exactly 20 completed journeys.
 
 The account, tenant, upload, passkey, billing-provider and webhook-delivery journeys are
 covered by the Vitest lanes (the same assertions, in-process, with the existing factories and
-mocks): `src/domains/auth/__tests__/` (password, MFA, email-code, reset, CSRF and real P-256
+mocks): `src/domains/auth/__tests__/` (email-code, MFA, trusted-device, step-up, CSRF and real P-256
 passkey ceremonies via `src/tests/helpers/webauthn-authenticator.helper.ts`),
 `membership.integration.test.ts`, `upload.integration.test.ts`, `user-admin.integration.test.ts`,
 `notify.test.ts`, `billing-subscription-mutations.integration.test.ts`, and the Stripe contract
@@ -65,7 +69,7 @@ tests under `src/tests/contract/`.
 
 Workflow: [.github/workflows/scheduled-k6-load-slo.yml](../../../.github/workflows/scheduled-k6-load-slo.yml) (`Scheduled k6 API load & SLO`)
 
-Runs **daily at 02:00 UTC** (`cron`) and **on demand** (`workflow_dispatch`, which tests the ref it is started on). The job starts Postgres and Redis service containers, migrates, runs `pnpm db:seed:full` with `DEMO_PASSWORD=DemoPassword123!` (the demo user) and `pnpm db:seed:demo-admin` for `ops@example.com` (the super_admin on `GLOBAL_ADMIN_EMAILS` that the admin scenarios sign in as), boots the API with `RATE_LIMIT_MAX=10000`, then runs k6.
+Runs **daily at 02:00 UTC** (`cron`) and **on demand** (`workflow_dispatch`, which tests the ref it is started on). The job starts Postgres and Redis service containers, migrates, runs `pnpm db:seed:full` (the demo user, signed in by email code — the API runs with `TEST_MODE`, which echoes the code; there are no passwords, P84) and `pnpm db:seed:demo-admin` for `ops@example.com` (the super_admin on `GLOBAL_ADMIN_EMAILS` that the admin scenarios sign in as), boots the API with `RATE_LIMIT_MAX=10000`, then runs k6.
 
 The service containers are plaintext and the connection is the superuser, while the schema defaults are production-safe (TLS on, boot-time safety checks enforced). So the shared `test-env` action exports `DATABASE_SSL_ENABLED=false`, and `start-api-server` relaxes the boot-time checks for its ephemeral boot, as the Docker smoke boot does. Without them the run dies before k6 — the seed fails in the TLS handshake — which kept this nightly red on every run from its first one.
 
@@ -86,7 +90,7 @@ Artifacts (`k6-*.json` summaries and `server.log`) are uploaded for 14 days. A r
 
 **Route coverage.** `pnpm load:coverage` matches every request the scenario files make — method and path — against `docs/routes.txt`; `pnpm load:coverage --nightly` counts only the files this workflow runs. It skips ROLE and TOKEN routes and public infrastructure routes (OAuth, email sign-in, WebAuthn, the Stripe webhook, health). The nightly count is a ratchet: `tooling/ci/load-coverage-budget.json` records it, and `k6-coverage.policy.unit.test.ts` fails when the nightly load-tests fewer routes — raise the budget when a change adds coverage. The nightly workflow references 79 eligible catalog routes; this static inventory does not prove every route passed at runtime. Stripe-backed writes (the nightly subscribes only with no payment provider configured), signed outbound webhook delivery, account deletion, organization leave/ownership transfer and S3 transport writes are covered by the Vitest lanes (see [Lifecycle journeys](#lifecycle-journeys)), not by load.
 
-**Reproduce locally:** `pnpm compose:up`, `DEMO_PASSWORD=DemoPassword123! pnpm db:seed:full` (create, migrate, the database logins, the full seed), `pnpm dev:loadtest`, then `pnpm tool:load-test-credentials`, export `TEST_TOKEN` / `TEST_ORG_ID`, and run `pnpm load:stress` and `pnpm load:stress:api` (same thresholds as CI).
+**Reproduce locally:** `pnpm compose:up`, `pnpm db:seed:full` (create, migrate, the database logins, the full seed), `pnpm dev:loadtest`, then `pnpm tool:load-test-credentials`, export `TEST_TOKEN` / `TEST_ORG_ID`, and run `pnpm load:stress` and `pnpm load:stress:api` (same thresholds as CI).
 
 ### Seats for the member steps
 
@@ -216,11 +220,10 @@ from noise.
    inflates the route it targets and adds load that does not exist in production. `POST
    /auth/switch-to-organization` returns the active-organization context inline and meepzo-fe writes it straight
    into its cache, so a `GET /auth/me/context` after a switch measures a request the app never makes.
-4. **Hold the auth method constant, and know what it costs.** `POST /auth/login` verifies with
-   argon2id — roughly 100 ms of deliberate CPU per call. Node runs one thread, so 50 concurrent
-   password logins queue several seconds of CPU that inflates *every other route in the run* and can
-   trip `overloadGuardMiddleware` into shedding 503s. A journey using password auth and one using
-   email-code auth are not comparable, and the difference between them is not an application change.
+4. **Hold the auth method constant, and know what it costs.** Every sign-in is an email code
+   (passwords are off, P84): `send-code` pays the 300 ms anti-enumeration floor, and `AUTH=otp`
+   also creates an account per VU. A journey that signs up and one that signs in pool users are not
+   comparable, and the difference between them is not an application change.
 
 **Diagnosing a failing journey**
 
@@ -299,7 +302,7 @@ The same signals are observable live via `GET /readyz` (verbose), `GET /metrics`
 
 - **Server**: Run the API with `pnpm dev` (and optionally `pnpm dev:worker` for background jobs).
 - **Postgres + Redis**: Required for auth and organization-dependent scenarios. Start with `docker compose up -d` or your own instances.
-- **Database**: Migrations applied (`pnpm db:migrate`). For auth and organization scenarios, run full seed: `pnpm db:seed:full` (creates demo user `demo@example.com` / `DemoPassword123!` and a demo organization).
+- **Database**: Migrations applied (`pnpm db:migrate`). For auth and organization scenarios, run full seed: `pnpm db:seed:full` (creates demo user `demo@example.com` — signed in by email code — and a demo organization).
 - **k6**: Install [k6](https://k6.io/docs/get-started/installation/) for scenario runs.
 
 ## Quick commands (no auth)
@@ -327,8 +330,8 @@ The same signals are observable live via `GET /readyz` (verbose), `GET /metrics`
 ### 3. Auth onboarding
 
 - **File**: `src/tests/load/k6/scenarios/auth-onboarding.js`
-- **Auth**: Login with email/password, then profile and list organizations
-- **Env**: `DEMO_EMAIL`, `DEMO_PASSWORD` (defaults `demo@example.com` / `DemoPassword123!`, matching `DEMO_PASSWORD=DemoPassword123! pnpm db:seed:full`)
+- **Auth**: Sign in by email code (send-code, then the echoed code — the API needs `TEST_MODE=true`), then profile and list organizations
+- **Env**: `DEMO_EMAIL` (default `demo@example.com`, the `pnpm db:seed:full` demo user)
 - **Run**: `pnpm load:auth` (uses demo credentials by default) or `k6 run src/tests/load/k6/scenarios/auth-onboarding.js`
 
 ### 4. Daily ops
@@ -367,7 +370,7 @@ Walks the complete front-end user journey once per virtual user, so **VUs are us
 - **File**: `src/tests/load/k6/scenarios/fe-login-to-organization.js`
 - **Auth**: `AUTH=code` (default) signs a pool user in the way the app does: `send-code` → read
   `debug_verification_code` → login (needs `TEST_MODE=true`, and no more VUs than pool users, because an
-  address gets one code per resend cooldown); `AUTH=password` uses `POST /auth/login`; `AUTH=otp` does
+  address gets one code per resend cooldown); `AUTH=otp` does
   the same round trip for a brand-new account, so each VU signs up (needs `TEST_MODE=true`).
 - **Credentials**: the pool at `src/tests/load/k6/data/credential-pool.json` — build it with
   `pnpm db:seed:loadtest`.
@@ -379,7 +382,7 @@ Walks the complete front-end user journey once per virtual user, so **VUs are us
 | --- | ------- | ------- |
 | `VUS` | `50` | Virtual users; each performs the journey once |
 | `POOL` | — | `DATABASE_POOL_MAX` the API was started with; printed in the header for the record |
-| `AUTH` | `code` | `code` \| `password` \| `otp` |
+| `AUTH` | `code` | `code` \| `otp` (passwords are off, P84) |
 | `STAGGER` | `5` | Milliseconds between VU starts, to avoid a synthetic thundering herd |
 | `RESULT_TAG` | — | Label recorded with the run |
 
@@ -421,7 +424,7 @@ call `switchToOrganization` / `loginScopedToOrganization`), not to build the pat
 | `notification-policy-crud.js` | `TEST_TOKEN`, `TEST_ORG_ID` | `GET /api/v1/tenancy/organization/notification-policies` |
 | `billing-subscriptions-rls.js` | `TEST_TOKEN`, `TEST_ORG_ID`, optional `TEST_SUBSCRIPTION_ID` | `GET /api/v1/billing/subscriptions` |
 | `upload-list.js` | `TEST_TOKEN`, `TEST_UPLOAD_PUBLIC_ID` (without it the scenario sends nothing) | `GET /api/v1/uploads/:id` |
-| `user-data-export.js` | `TEST_TOKEN`, `DEMO_PASSWORD` (the token user's, for the step-up) | once: `POST /api/v1/auth/step-up`, `POST /api/v1/users/me/data-export`; under load: `GET /api/v1/users/me/data-export/:data_export_id` |
+| `user-data-export.js` | `TEST_TOKEN`, `DEMO_EMAIL` (the token user's — the step-up is an email code the `TEST_MODE` API echoes) | once: `POST /api/v1/auth/step-up`, `POST /api/v1/users/me/data-export`; under load: `GET /api/v1/users/me/data-export/:data_export_id` |
 
 CI runs a subset in the **organization-scoped routes** job step (see `scheduled-k6-load-slo.yml`).
 
@@ -439,7 +442,7 @@ CI runs a subset in the **organization-scoped routes** job step (see `scheduled-
 
 - **TEST_TOKEN and TEST_ORG_ID**: Run `pnpm tool:load-test-credentials` (with server up and full seed). It logs in as the demo user, lists organizations, and prints `TEST_TOKEN` and `TEST_ORG_ID` for copy-paste.
 - **Credential pool**: Run `pnpm db:seed:loadtest` (bulk seed + pool export). The generator **excludes MFA accounts** — both `users.is_mfa_enabled` and membership of an organization whose `security_policy.mfa_required` is true, mirroring the login gate in `completeFirstFactorAuth`. Such an account returns HTTP 200 with an `mfa_required` envelope instead of an `access_token`, so a VU drawing one would read no token and quietly abandon its journey. The bulk seeder sets `mfa_required` on a share of its organizations, so without the filter roughly a third of the pool is unusable.
-- **ADMIN_TOKEN**: Put the email on `GLOBAL_ADMIN_EMAILS`, then create the account once with `DEMO_EMAIL=<admin email> pnpm db:seed:demo-admin` (it takes `DEMO_PASSWORD`, and for a platform-admin address enrolls a TOTP factor with `DEMO_TOTP_SECRET`, default the local demo secret in `tooling/dev/demo-admin-totp.ts`). Then, with the server up, run `pnpm tool:admin-token`. It signs in as `ADMIN_EMAIL` (default: the first `GLOBAL_ADMIN_EMAILS` entry) with `ADMIN_PASSWORD` (default: `DEMO_PASSWORD`), completes `POST /auth/mfa/login` with a TOTP code from `ADMIN_TOTP_SECRET` (default: `DEMO_TOTP_SECRET`, else the local secret) — a super_admin needs an MFA-verified session (A-2) — and prints the access token, refusing unless the role is `super_admin`. The nightly job sets `DEMO_TOTP_SECRET` in its env. The token belongs to a real session: the auth middleware refuses a token whose session does not exist, which is why the self-signed token this tool used to print failed every admin request. It lives `GLOBAL_ADMIN_ACCESS_TOKEN_EXPIRY_SECONDS` (default 5 minutes).
+- **ADMIN_TOKEN**: Put the email on `GLOBAL_ADMIN_EMAILS`, then create the account once with `DEMO_EMAIL=<admin email> pnpm db:seed:demo-admin` (for a platform-admin address it enrolls a TOTP factor with `DEMO_TOTP_SECRET`, default the local demo secret in `tooling/dev/demo-admin-totp.ts`). Then, with the server up, run `pnpm tool:admin-token`. It signs in as `ADMIN_EMAIL` (default: the first `GLOBAL_ADMIN_EMAILS` entry) by email code — there are no passwords (P84), so the API must run with `TEST_MODE=true` (send-code echoes the code) — completes `POST /auth/mfa/login` with a TOTP code from `ADMIN_TOTP_SECRET` (default: `DEMO_TOTP_SECRET`, else the local secret) — a super_admin needs an MFA-verified session (A-2) — and prints the access token, refusing unless the role is `super_admin`. The nightly job sets `DEMO_TOTP_SECRET` in its env. The token belongs to a real session: the auth middleware refuses a token whose session does not exist, which is why the self-signed token this tool used to print failed every admin request. It lives `GLOBAL_ADMIN_ACCESS_TOKEN_EXPIRY_SECONDS` (default 5 minutes).
 
 ## Optional env (all scenarios)
 

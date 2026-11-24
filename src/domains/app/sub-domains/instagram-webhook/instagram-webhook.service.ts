@@ -329,7 +329,8 @@ export class InstagramWebhookService {
         if (account === null) return null;
         const accountIds = {
           instagramUserId: account.instagramUserId,
-          instagramAppUserId: account.instagramAppUserId,
+          // Under Unified Login the id send URLs take is the Instagram user id (2.A IA8).
+          instagramAppUserId: account.instagramUserId,
         };
         const events = firstEventPerKey(
           items.map((entryItem) =>

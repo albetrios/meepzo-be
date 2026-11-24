@@ -57,6 +57,8 @@ describe('completeOAuthUserSession', () => {
       is_email_verified: true,
     }),
     updateEmailVerified: vi.fn().mockResolvedValue(null),
+    // The person a linked provider account belongs to (matched before the email, AT10).
+    findById: vi.fn(() => userService.findByEmail()),
   };
   const authMethodService = {
     linkOAuthProviderIfMissing: vi.fn().mockResolvedValue(undefined),

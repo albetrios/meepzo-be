@@ -237,7 +237,7 @@ describe('validateUpdateAutomation (route 14 body)', () => {
 
   it('refuses a null final_message and every read-only field (D19, AU27)', () => {
     expect(() => validateUpdateAutomation({ final_message: null })).toThrow(ValidationError);
-    expect(() => validateUpdateAutomation({ instagram_account_id: 'iga_x' })).toThrow(
+    expect(() => validateUpdateAutomation({ instagram_account_id: 'cha_x' })).toThrow(
       ValidationError,
     );
     expect(() => validateUpdateAutomation({ completed_run_count: 3 })).toThrow(ValidationError);
@@ -252,7 +252,7 @@ describe('validateListAutomationsQuery (route 11)', () => {
         trigger_type: 'comment',
         target_scope: 'next',
         next_post_status: 'waiting',
-        instagram_account_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
+        instagram_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
         sort: 'last_triggered_at',
         order: 'asc',
         q: 'link',
@@ -268,7 +268,7 @@ describe('validateListAutomationsQuery (route 11)', () => {
       triggerType: 'comment',
       targetScope: 'next',
       nextPostStatus: 'waiting',
-      instagramAccountPublicId: 'iga_k7x9m2pqr4w8n1v3a1b2c',
+      instagramAccountPublicId: 'cha_k7x9m2pqr4w8n1v3a1b2c',
     });
   });
 

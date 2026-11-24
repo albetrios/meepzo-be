@@ -19,6 +19,8 @@ function buildRow(overrides: Record<string, unknown> = {}) {
     last_active_at: new Date('2026-01-02T03:04:05.000Z'),
     expires_at: new Date('2026-01-09T03:04:05.000Z'),
     is_revoked: false,
+    place_city: null,
+    place_country: null,
     created_at: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
   } as never;
@@ -51,11 +53,27 @@ describe('auth-session.serializer', () => {
       user_agent: 'Mozilla/5.0',
       device: null,
       browser: null,
+      place: null,
       is_current: false,
       last_active_at: '2026-01-02T03:04:05.000Z',
       expires_at: '2026-01-09T03:04:05.000Z',
       created_at: '2026-01-01T00:00:00.000Z',
     });
+  });
+
+  it('answers the place as { city, country_code } when either is known (routes-final § 10.D AT18)', () => {
+    expect(
+      serializeAuthSession({
+        row: buildRow({ place_city: 'Mumbai', place_country: 'IN' }),
+        options: NO_CURRENT_SESSION,
+      }).place,
+    ).toEqual({ city: 'Mumbai', country_code: 'IN' });
+    expect(
+      serializeAuthSession({
+        row: buildRow({ place_country: 'DE' }),
+        options: NO_CURRENT_SESSION,
+      }).place,
+    ).toEqual({ city: null, country_code: 'DE' });
   });
 
   it('normalizes a missing user_agent to null', () => {

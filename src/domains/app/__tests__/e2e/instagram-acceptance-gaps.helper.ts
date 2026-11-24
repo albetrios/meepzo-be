@@ -39,7 +39,7 @@ interface FlowOfApp {
 
 /** Disconnects the team's account (route 4); the flow keeps naming it, for the reconnect. */
 export async function disconnectOverRoute({ app, flow }: FlowOfApp): Promise<void> {
-  mockInstagramUnsubscribe({ instagramAppUserId: flow.account.instagramAppUserId });
+  mockInstagramUnsubscribe({ instagramUserId: flow.account.instagramAppUserId });
   const response = await injectAuthenticated(app, {
     method: 'DELETE',
     url: await organizationChannelAccountPath(flow.team.organization.id),

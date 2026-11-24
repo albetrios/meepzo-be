@@ -10,6 +10,7 @@ import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
 import {
+  AppleFormCallbackDto,
   EmailSendCodeDto,
   EmailLoginDto,
   MfaVerifyDto,
@@ -120,6 +121,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Auth ──
   'POST /api/v1/auth/email/send-code': EmailSendCodeDto,
   'POST /api/v1/auth/email/login': EmailLoginDto,
+  // Apple's form post (route 124) — application/x-www-form-urlencoded, not JSON.
+  'POST /api/v1/auth/oauth/apple/callback': AppleFormCallbackDto,
   'POST /api/v1/auth/me/mfa/verify': MfaVerifyDto,
   'POST /api/v1/auth/me/mfa/enroll': MfaEnrollDto,
   'POST /api/v1/auth/me/mfa/enroll/confirm': MfaEnrollConfirmDto,
@@ -203,7 +206,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/app/social/channel-accounts/{channel_account_id}/activate':
     activateChannelAccountDto,
   // ── App: Instagram account ──
-  'PATCH /api/v1/app/social/instagram/account/settings': UpdateInstagramAccountSettingsDto,
+  'PATCH /api/v1/app/social/instagram/accounts/{channel_account_id}/settings':
+    UpdateInstagramAccountSettingsDto,
   // Meta's callbacks (routes 7–8): form-encoded, not JSON — see FORM_ENCODED_REQUEST_BODY_ROUTE_KEYS.
   'POST /api/v1/app/social/instagram/deauthorize': MetaSignedRequestDto,
   'POST /api/v1/app/social/instagram/data-deletion': MetaSignedRequestDto,

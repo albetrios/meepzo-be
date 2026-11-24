@@ -7,9 +7,10 @@ import {
 } from '@/shared/utils/auth/recent-step-up.util.js';
 
 /**
- * Factor gating (item #8): the step-up sentinel stores the factor that opened the window so a
- * bootstrap `email_code` step-up (a passwordless-no-MFA account enrolling its first factor) can
- * ENROLL but never satisfy the strong gate on destructive credential/session mutations.
+ * Factor gating (item #8, AT15): the step-up sentinel stores the factor that opened the window.
+ * `mfa` and `email_code` (opened only for a person without settled 2FA — route 127 refuses the
+ * rest) satisfy the strong gate on destructive credential/session mutations; a `provisional_mfa`
+ * window (a factor enrolled under an email-code window, A-1) can ENROLL but never satisfy it.
  */
 describe('recent-step-up util — factor gating', () => {
   let store: Map<string, string>;
@@ -26,7 +27,7 @@ describe('recent-step-up util — factor gating', () => {
     vi.clearAllMocks();
   });
 
-  it.each(['mfa'] as const)(
+  it.each(['mfa', 'email_code'] as const)(
     'a %s step-up satisfies both the normal and the strong gate',
     async (factor) => {
       await recordRecentStepUp({
@@ -44,12 +45,12 @@ describe('recent-step-up util — factor gating', () => {
     },
   );
 
-  it('an email_code step-up satisfies the normal (enroll) gate but NOT the strong gate', async () => {
+  it('a provisional_mfa step-up satisfies the normal (enroll) gate but NOT the strong gate', async () => {
     await recordRecentStepUp({
       redis: mockRedis,
       userPublicId: 'u',
       sessionPublicId: 's',
-      factor: 'email_code',
+      factor: 'provisional_mfa',
     });
     await expect(
       hasRecentStepUp({ redis: mockRedis, userPublicId: 'u', sessionPublicId: 's' }),

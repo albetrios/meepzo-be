@@ -447,7 +447,7 @@ describe('Channel connection routes', () => {
       await operatorQuery`
         UPDATE app.channel_connections SET status = 'error' WHERE public_id = ${channelConnectionPublicId}`;
       await operatorQuery`
-        UPDATE app.instagram_accounts SET connection_status = 'error'
+        UPDATE app.channel_accounts SET connection_status = 'error'
         WHERE organization_id = ${team.organization.id}`;
 
       const mismatchStart = await injectAuthenticated(app, {

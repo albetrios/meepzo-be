@@ -223,7 +223,18 @@ export function buildResponses(
     const statusCode = declaredStatus ?? responseDefinition.statusCode;
     const { schema } = responseDefinition;
 
-    if (schema === null || statusCode === 204) {
+    if (statusCode === 303) {
+      // The one named method→status exception (P85): Apple's form callback redirects the browser.
+      responses['303'] = {
+        description: translate('seeOther', 'See Other — the browser is sent on to the app page'),
+        headers: {
+          Location: {
+            description: 'The app page the browser goes to next.',
+            schema: { type: 'string', format: 'uri' },
+          },
+        },
+      };
+    } else if (schema === null || statusCode === 204) {
       responses[String(statusCode)] = { description: translate('noContent', 'No Content') };
     } else {
       const description =

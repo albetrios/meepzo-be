@@ -28,17 +28,18 @@ through a resolver that sees deleted organizations.
 
 | Action | Resource type | When |
 | ------ | ------------- | ---- |
-| `auth.login` | `session` | Successful login on any surface — password, email code, WebAuthn, OAuth, MFA second factor (`metadata.source`) |
+| `auth.login` | `session` | Successful login on any surface — email code, WebAuthn, OAuth, MFA second factor (`metadata.source`) |
 | `auth.login_failure` | `session` | Failed login on any surface — anonymous actor (see [Actors](#actors)) |
 | `auth.logout` | `session` | Bearer logout |
 | `auth.organization.switch` | `session` | Active organization switched (`metadata.target`) |
 | `auth.session.revoke` | `session` | One session revoked |
 | `auth.session.revoke_all` | `session` | All sessions revoked |
-| `auth.password.change` | `user` | Authenticated password change |
-| `auth.password.reset` | `user` | Completed password reset (`WARNING`) |
 | `auth.step_up` | `user` | Step-up re-authentication passed (`metadata.factor`) |
 | `auth.auth_method.create` | `auth_method` | Sign-in method linked |
 | `auth.auth_method.delete` | `auth_method` | Sign-in method removed |
+| `auth.oauth.link` | `auth_method` | A Google or Apple account linked to the signed-in person by the OAuth link mode (`WARNING`, `metadata.provider`, `metadata.auth_method_id`) |
+| `auth.trusted_device.create` | `trusted_device` | "Trust this device for 30 days" ticked on a right 2FA code (`POST /auth/mfa/login`, `metadata.trusted_device_ids`) |
+| `auth.trusted_device.revoke` | `trusted_device` | Trusted devices ended early, one row per action (`metadata.trusted_device_ids`, `metadata.reason`: `over_limit` — an 11th ended the oldest, `mfa_off` — the last 2FA factor removed, `sign_out_everywhere_else`) |
 | `auth.mfa.enroll_init` | `mfa_method` | MFA enrollment started |
 | `auth.mfa.enroll_confirm` | `mfa_method` | MFA enrollment confirmed — recovery codes issued |
 | `auth.mfa.delete` | `mfa_method` | MFA method removed |
@@ -107,14 +108,16 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 
 | Action | Resource type | When |
 | ------ | ------------- | ---- |
-| `app.instagram_account.connect` | `instagram_account` | Instagram account connected or reconnected (`WARNING`, `metadata.instagram_account_public_id`, `metadata.is_new_connection`) — recorded after the connect commits, best-effort |
+| `app.channel_connection.connect` | `channel_connection` | A channel connection's login finished — a new connection, or a reconnect of an existing one (`POST /app/social/channel-connections/{provider}/callback`) (`WARNING`, `metadata.channel_connection_public_id`, `metadata.provider`, `metadata.is_reconnect`, `metadata.reconnected_account_count`) — after the commit, best-effort; public ids only, never the token, the code or the state; replaces the launch's `app.instagram_account.connect` |
+| `app.channel_account.connect` | `channel_account` | One account connected by a pick (`POST /app/social/channel-connections/{channel_connection_id}/accounts`) — one row per account the pick connected (`WARNING`, `metadata.channel_account_public_id`, `metadata.channel_connection_public_id`) — after the pick's commit, best-effort |
+| `app.channel_connection.disconnect` | `channel_connection` | A channel connection disconnected (`DELETE /app/social/channel-connections/{channel_connection_id}`) — every account on it revoked and its token erased (`WARNING`, `metadata.channel_connection_public_id`, `metadata.disconnected_account_count`) — after the commit, best-effort |
 | `app.channel_account.disconnect` | `channel_account` | One channel account disconnected (route 8) — revoked, its lanes stopped; the connection's token erased with its last account (`WARNING`, `metadata.channel_account_public_id`, `metadata.old_value` / `metadata.new_value` — `{ connection_status }`) — after the commit, best-effort; replaces the launch's `app.instagram_account.disconnect` |
 | `app.channel_account.pause` | `channel_account` | The owner paused the account's sending (route 9) (`INFO`, `metadata.channel_account_public_id`, `metadata.old_value` / `metadata.new_value` — `{ is_paused }`) |
 | `app.channel_account.resume` | `channel_account` | The owner's pause cleared (route 10) (`INFO`, as pause) |
 | `app.channel_account.activate` | `channel_account` | A "not in your plan" account made active (route 11) (`WARNING`, `metadata.channel_account_public_id`, `metadata.stopped_channel_account_public_id` — the account swapped out, or `null`, `metadata.old_value` / `metadata.new_value` — `{ plan_stop_reason }`) |
 | `app.instagram_account.deauthorize` | `instagram_account` | Meta's deauthorize callback — the account's owner removed the app; in this organization the account was revoked and its token erased (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
 | `app.instagram_account.data_deletion` | `instagram_account` | Meta's data-deletion callback — revoked, token, profile and stored posts erased in this organization (`WARNING`, anonymous actor, `metadata.source = 'meta'`, `metadata.instagram_account_public_ids`, `metadata.confirmation_code` — the code Meta got, the request's only record, `metadata.erased_post_count`) — one row per organization changed, after its commit, best-effort; none when nothing was left to do |
-| `app.instagram_account_settings.update` | `instagram_account` | Instagram account settings changed — the automation switch or the public reply safety (`INFO`, `metadata.instagram_account_public_id`, `metadata.changed_fields` — names only, never values) — recorded after the change commits, best-effort |
+| `app.instagram_account_settings.update` | `instagram_account` | Instagram account settings changed (`PATCH /app/social/instagram/accounts/{channel_account_id}/settings`, route 12) (`INFO`, `metadata.channel_account_public_id`, `metadata.changed_fields` — the changed field names, `metadata.old_value` / `metadata.new_value` — those fields' values before and after) — recorded after the change commits, best-effort |
 | `app.contact.delete` | `contact` | A contact's personal data erased at the person's request (`WARNING`, `metadata.contact_public_id` only) — recorded after the erase commits, best-effort |
 | `app.automation.create` | `automation` | Automation created — also the frontend's Duplicate (`INFO`, `metadata.automation_public_id`) — recorded after the create commits, best-effort |
 | `app.automation.update` | `automation` | Automation edited or turned on or off (`INFO`, `metadata.automation_public_id`, `metadata.changed_fields` — names only, never values; `expected_updated_at` is not a change) |
@@ -186,7 +189,7 @@ Three layers hold the rule. The `AuditActor` type ([`audit.types.ts`](../../../s
 makes an actorless call fail to compile. The outbox CHECK `chk_audit_outbox_actor_present` admits an
 actorless row only when it is declared anonymous. `AuditService.record` logs `audit.record.missingActor`
 at `error` and drops a value that bypassed the type. Before the actor was a type, actorless calls
-compiled and were dropped at runtime — failed logins, password resets, recovery-code uses and API-key
+compiled and were dropped at runtime — failed logins, recovery-code uses and API-key
 permission denials never reached `audit.logs`.
 
 ## Storage & partitioning
@@ -216,7 +219,7 @@ Daily NDJSON export to S3 is documented in [audit-export.md](./audit-export.md).
 ## Tests
 
 - `src/tests/security/infrastructure/mutation-audit.security.test.ts` — login, logout, user settings.
-- `src/domains/auth/__tests__/integration/auth-audit-trail.integration.test.ts` — failed login, password reset, recovery-code login and API-key permission denial, end to end into `audit.logs` (real routes, real drain).
+- `src/domains/auth/__tests__/integration/auth-audit-trail.integration.test.ts` — one entry per sign-in / step-up / removed way (AC-13.13), failed email-code login, recovery-code login and API-key permission denial, end to end into `audit.logs` (real routes, real drain).
 - `src/tests/integration/queue/audit-outbox-drain.integration.test.ts` — the drain: anonymous rows, the actor CHECK, unresolvable actors, concurrent drainers, per-row savepoints.
 - `src/domains/tenancy/__tests__/integration/tenancy-audit-trail.integration.test.ts`, `src/domains/billing/__tests__/integration/billing-audit-trail.integration.test.ts`, `src/domains/notify/__tests__/integration/notify-audit-trail.integration.test.ts` — every organization governance change (membership, invitation, ownership, settings, role permissions, notification policies, API keys, subscriptions, webhooks, organization create and delete) staged with its actor and organization, then drained.
 - `src/domains/audit/__tests__/unit/audit-action-catalog.policy.unit.test.ts` — this catalog and the emitted actions are one set.

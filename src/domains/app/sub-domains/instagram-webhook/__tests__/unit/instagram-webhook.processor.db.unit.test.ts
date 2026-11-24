@@ -116,6 +116,12 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     account = await insertInstagramAccount({ organizationId: organization.id });
     processingAccount = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
+      channelAccountId: Number(
+        (
+          await operatorQuery<Array<{ channel_account_id: string }>>`
+            SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id}`
+        )[0]?.channel_account_id,
+      ),
       instagramAccountPublicId: account.public_id,
       connectionStatus: 'connected',
       isAutomationEnabled: true,
@@ -124,7 +130,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     const access: InstagramAutomationAccountAccess = {
       instagramAccount: processingAccount.instagramAccount,
       instagramAccountPublicId: account.public_id,
-      instagramAppUserId: '17841400000000999',
+      instagramUserId: '17841400000000999',
       username: 'acme.shop',
       connectionStatus: 'connected',
       encryptedAccessToken: 'v1:fake-ciphertext',

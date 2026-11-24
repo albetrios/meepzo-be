@@ -45,7 +45,7 @@ function accountChange(
 ): InstagramAccountDisconnectChange {
   return {
     instagramAccount: { organizationId: 1, instagramAccountId: 10 },
-    instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+    instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     wasRevoked: false,
     wasTokenErased: false,
     wasProfileErased: false,
@@ -108,7 +108,7 @@ describe('InstagramAccountErasureService (no database)', () => {
       expect(disconnectForOrganizationOffboarding).toHaveBeenCalledWith({ scope });
       // The second account held only stored posts: it changed too.
       expect(erasure).toEqual({
-        instagramAccountPublicIds: ['iga_aaaaaaaaaaaaaaaaaaaaa', 'iga_bbbbbbbbbbbbbbbbbbbbb'],
+        instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa', 'iga_bbbbbbbbbbbbbbbbbbbbb'],
         erasedPostCount: 4,
       });
     });
@@ -152,7 +152,7 @@ describe('InstagramAccountErasureService (no database)', () => {
       });
       expect(deleteForAccount).not.toHaveBeenCalled();
       expect(erasure).toEqual({
-        instagramAccountPublicIds: ['iga_aaaaaaaaaaaaaaaaaaaaa'],
+        instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa'],
         erasedPostCount: 0,
       });
     });
@@ -176,7 +176,7 @@ describe('InstagramAccountErasureService (no database)', () => {
         [{ scope, instagramAccount: account.instagramAccount }],
       ]);
       expect(erasure).toEqual({
-        instagramAccountPublicIds: ['iga_aaaaaaaaaaaaaaaaaaaaa'],
+        instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa'],
         erasedPostCount: 3,
       });
     });

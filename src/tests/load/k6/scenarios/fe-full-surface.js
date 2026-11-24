@@ -1,6 +1,7 @@
 import http from 'k6/http';
 import { DELETE_REASON_QUERY, PUBLIC_AUTH_FORM_HEADERS } from '../helpers/config.js';
 import { idempotencyKey } from '../helpers/idempotency.js';
+import { sendCodeAndReadEcho } from '../helpers/auth.js';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
@@ -31,19 +32,18 @@ import { SharedArray } from 'k6/data';
  *
  * ## What the front end calls that this cannot do
  *
- *   POST /auth/login                      Password sign-in. The journey signs in once, the way
- *                                         meepzo-fe does by default, with an email code;
- *                                         `fe-login-to-organization.js` walks password sign-in
- *                                         (`AUTH=password`).
- *   POST /auth/mfa/login                  Needs an enrolled TOTP factor and a live code.
+ *   POST /auth/mfa/login                  Needs an enrolled TOTP factor and a live code
+ *                                         (`auth-security-lifecycle.js` walks it, with
+ *                                         "trust this device").
  *   GET  /auth/oauth/:provider/callback   Needs the authorization code the provider hands back.
  *   POST /auth/me/mfa/enroll/confirm      Needs a TOTP code computed from the staged secret.
  *   POST /auth/me/mfa/verify              Needs an enrolled factor.
  *   DELETE /auth/me/mfa/:id               Enrolment stages the secret in Redis; no method row
  *                                         exists to delete until `confirm` succeeds.
- *   DELETE /auth/me/sessions/:id          The API is explicit: "This action requires a recent
- *                                         step-up with your password or MFA; an email-code step-up
- *                                         is not sufficient." Pool users have neither factor.
+ *   DELETE /auth/me/sessions/:id          Each VU holds one session; ending another one needs a
+ *                                         second sign-in (`auth-security-lifecycle.js` walks it
+ *                                         under the email-code step-up, which is strong without
+ *                                         2FA).
  *   POST /auth/me/webauthn/register/verify
  *   DELETE /auth/me/webauthn/credentials/:id
  *                                         Both need a real authenticator to sign the challenge.
@@ -952,17 +952,20 @@ function stepUpBlock(auth, email) {
 }
 
 /** 53-56 teardown: step up, delete what this VU made, return home, prove it is gone, sign out. */
-function teardownBlock(auth, json, slug, password) {
+function teardownBlock(auth, json, slug, { email, steppedUp }) {
   const state = { ok: true };
   const step = stepper(state);
   let session = auth;
 
-  // Deleting an organization needs a recent step-up on this session. Pool users have a password, so
-  // that is the step-up (an email-code one is refused for an account with a password).
-  http.post(`${API}/auth/step-up`, JSON.stringify({ password }), {
-    headers: session,
-    tags: { name: 'teardown-step-up' },
-  });
+  // Deleting an organization needs a recent step-up on this session. Pool users have no 2FA, so the
+  // email code is a strong one (AT15). With STEP_UP=true step 50 already opened it; otherwise this
+  // sends a code (waiting out the 60 s send spacing if sign-in just used it).
+  if (!(STEP_UP && steppedUp)) {
+    http.post(`${API}/auth/step-up`, JSON.stringify({ code: sendCodeAndReadEcho(email) }), {
+      headers: session,
+      tags: { name: 'teardown-step-up' },
+    });
+  }
   const removed = http.del(`${API}/tenancy/organization`, null, {
     headers: session,
     tags: { name: '53-delete-org' },
@@ -1160,9 +1163,10 @@ export function feFullJourney() {
   if (!membershipBlock(auth, invitee.email, seats.seatCeiling)) state.ok = false;
   if (!billingBlock(auth)) state.ok = false;
 
-  if (!stepUpBlock(auth, cred.email)) state.ok = false;
+  const steppedUp = stepUpBlock(auth, cred.email);
+  if (!steppedUp) state.ok = false;
 
-  if (!teardownBlock(auth, json, slug, cred.password)) state.ok = false;
+  if (!teardownBlock(auth, json, slug, { email: cred.email, steppedUp })) state.ok = false;
 
   journeyDuration.add(Date.now() - t0);
   journeyComplete.add(state.ok);

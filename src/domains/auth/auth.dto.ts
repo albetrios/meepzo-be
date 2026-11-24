@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { trimmedEmail, trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
 import { AUTH_METHOD_TYPE } from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
+import { OAUTH_FORM_CALLBACK_USER_MAX_LENGTH } from '@/shared/constants/limits.constants.js';
+import {
+  OAUTH_LINK_INTENT,
+  SUPPORTED_OAUTH_PROVIDERS,
+} from '@/domains/auth/sub-domains/auth-method/oauth/oauth.types.js';
 
 /** Zod schema for the `POST /api/v1/auth/email/send-code` request body. */
 export const EmailSendCodeDto = z
@@ -115,6 +120,8 @@ export const MfaLoginVerifyDto = z
     mfa_session_token: trimmedStringMinMax({ min: 1, max: 128 }),
     totp_code: z.string().trim().length(6).regex(/^\d+$/).optional(),
     recovery_code: trimmedStringMinMax({ min: 8, max: 64 }).optional(),
+    /** "Trust this device for 30 days" (AT17) — a right code then sets the `trusted_device` cookie. */
+    trust_device: z.boolean().optional(),
   })
   .strict()
   .refine((value) => value.totp_code !== undefined || value.recovery_code !== undefined, {
@@ -145,7 +152,7 @@ export const OauthCallbackQueryDto = z.looseObject({
   state: trimmedStringMinMax({ min: 1, max: 512 }),
   /** Google: issuer identifier (`https://accounts.google.com`). */
   iss: z.string().optional(),
-  /** Google/GitHub: space-delimited scopes actually granted. */
+  /** Google: space-delimited scopes actually granted. */
   scope: z.string().optional(),
   /** Google: index of the signed-in account in a multi-account session. */
   authuser: z.string().optional(),
@@ -159,10 +166,14 @@ export const OauthCallbackQueryDto = z.looseObject({
 export type OauthCallbackQueryInput = z.infer<typeof OauthCallbackQueryDto>;
 
 // Path params
-/** Zod schema for the `:provider` path parameter on OAuth routes (`/api/v1/auth/oauth/:provider`). */
+/**
+ * Zod schema for the `:provider` path parameter on OAuth routes (`/api/v1/auth/oauth/:provider`):
+ * `google` or `apple` (AT5, AT10) — any other name is a `400` on `provider` (routes-final § 10.B.9);
+ * a supported provider whose env vars are unset answers `404` from the service (AT11).
+ */
 export const oauthProviderParamsDto = z
   .object({
-    provider: trimmedStringMinMax({ min: 1, max: 50 }),
+    provider: z.enum(SUPPORTED_OAUTH_PROVIDERS),
   })
   .strict();
 /** Inferred input type of {@link oauthProviderParamsDto}. */
@@ -206,3 +217,33 @@ export const sessionIdParamsDto = z
   .strict();
 /** Inferred input type of {@link sessionIdParamsDto}. */
 export type SessionIdParamsInput = z.infer<typeof sessionIdParamsDto>;
+
+/**
+ * Zod schema for the `GET /api/v1/auth/oauth/:provider` query string: `intent=link` starts link
+ * mode (AT12 — a bearer and a recent step-up required); without it the route is the public
+ * sign-in start. Any other `intent` or field is a `400`.
+ */
+export const OauthStartQueryDto = z
+  .object({
+    intent: z.literal(OAUTH_LINK_INTENT).optional(),
+  })
+  .strict();
+/** Inferred input type of {@link OauthStartQueryDto}. */
+export type OauthStartQueryInput = z.infer<typeof OauthStartQueryDto>;
+
+/**
+ * Zod schema for Apple's form post to `POST /api/v1/auth/oauth/apple/callback` (route 124, AT10):
+ * `state` (required), `code` or `error`, and on the first sign-in only `user` — a JSON text with
+ * the name, at most {@link OAUTH_FORM_CALLBACK_USER_MAX_LENGTH} characters. `id_token` is
+ * accepted and ignored (the code swap of route 143 reads Apple's own). Not `.strict()`: Apple
+ * authors this form, as Google authors its callback query.
+ */
+export const AppleFormCallbackDto = z.looseObject({
+  state: trimmedStringMinMax({ min: 1, max: 512 }),
+  code: trimmedStringMinMax({ min: 1, max: 2048 }).optional(),
+  error: trimmedStringMinMax({ min: 1, max: 200 }).optional(),
+  user: z.string().max(OAUTH_FORM_CALLBACK_USER_MAX_LENGTH).optional(),
+  id_token: z.string().optional(),
+});
+/** Inferred input type of {@link AppleFormCallbackDto}. */
+export type AppleFormCallbackInput = z.infer<typeof AppleFormCallbackDto>;

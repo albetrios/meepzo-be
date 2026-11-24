@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 161
+  Total routes: 163
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 24
+  Routes: 26
 ================================================================================
 
   — Sub Domains —
@@ -28,6 +28,8 @@ Legend:
   GET    /api/v1/app/social/channel-connections/:channel_connection_id  200  -    team  PERM: channel-account:read
   DELETE /api/v1/app/social/channel-connections/:channel_connection_id  204  -    team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:channel_connection_id/accounts  200  req  team  PERM: channel-account:manage
+  GET    /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts  200  -    team  PERM: channel-account:read
+  GET    /api/v1/app/social/channel-connections/:channel_connection_id/ads  200  -    team  PERM: channel-account:read
   POST   /api/v1/app/social/channel-connections/:channel_connection_id/reconnect  200  -    team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/callback  200  req  team  PERM: channel-account:manage
   POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
@@ -252,13 +254,13 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 161
+  Total routes    : 163
   Public          : 20
   Authenticated   : 54
   Role-guarded    : 9
-  Perm-guarded    : 73
+  Perm-guarded    : 75
   Token-guarded   : 5
-  Team-only (O)   : 30
+  Team-only (O)   : 32
 
 ================================================================================
   IDEMPOTENCY-REQUIRED WRITES (21) — X-Idempotency-Key required

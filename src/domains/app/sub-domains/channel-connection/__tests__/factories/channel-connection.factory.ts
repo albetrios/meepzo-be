@@ -46,6 +46,23 @@ export function channelReconnectPath(channelConnectionPublicId: string): string 
   return `${channelConnectionPath(channelConnectionPublicId)}/reconnect`;
 }
 
+/** `GET …/{channel_connection_id}/ad-accounts` (route 41). */
+export function channelAdAccountsPath(channelConnectionPublicId: string): string {
+  return `${channelConnectionPath(channelConnectionPublicId)}/ad-accounts`;
+}
+
+/** `GET …/{channel_connection_id}/ads` (route 15) with its query. */
+export function channelAdsPath({
+  channelConnectionPublicId,
+  query,
+}: {
+  channelConnectionPublicId: string;
+  query?: Readonly<Record<string, string>>;
+}): string {
+  const search = new URLSearchParams(query ?? {}).toString();
+  return `${channelConnectionPath(channelConnectionPublicId)}/ads${search === '' ? '' : `?${search}`}`;
+}
+
 /** The plain token every mocked code exchange issues — it must never reach a response. */
 export const TEST_META_SYSTEM_USER_TOKEN = 'EAAG-test-system-user-token-never-returned';
 
@@ -166,12 +183,15 @@ export async function connectInstagramAccountsThroughRoutes({
   accounts,
   clientBusinessId = nextClientBusinessId(),
   subscription = 'success',
+  grantedPermissions,
 }: {
   app: FastifyInstance;
   token: string;
   accounts: readonly TestAssignedAccount[];
   clientBusinessId?: string;
   subscription?: 'success' | 'failure' | 'none';
+  /** The permissions Meta grants the login (default: the three required ones, no `ads_read`). */
+  grantedPermissions?: readonly string[];
 }): Promise<{
   channelConnectionPublicId: string;
   clientBusinessId: string;
@@ -185,7 +205,11 @@ export async function connectInstagramAccountsThroughRoutes({
   if (start.statusCode !== 200)
     throw new Error(`start answered ${start.statusCode}: ${start.body}`);
   const state = readStateFromLoginUrl(readData(start).login_url as string);
-  mockMetaLogin({ clientBusinessId, assignedAccounts: accounts });
+  mockMetaLogin({
+    clientBusinessId,
+    assignedAccounts: accounts,
+    ...(grantedPermissions === undefined ? {} : { grantedPermissions }),
+  });
   const callback = await injectAuthenticated(app, {
     method: 'POST',
     url: channelConnectCallbackPath(),

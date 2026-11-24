@@ -134,8 +134,10 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── channel-connection.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── channel-connection-ad-picker.integration.test.ts
     │   │   │   │   │   └── channel-connection.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-connection-error.util.unit.test.ts
     │   │   │   │   │   ├── channel-connection-state.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token-isolation.policy.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token.service.db.unit.test.ts

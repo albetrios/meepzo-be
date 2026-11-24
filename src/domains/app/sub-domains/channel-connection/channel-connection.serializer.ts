@@ -1,3 +1,7 @@
+import type {
+  MetaAd,
+  MetaAdAccount,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import type { ChannelConnectionRow } from './channel-connection.repository.js';
 import {
   type ChannelConnectionStatus,
@@ -9,6 +13,8 @@ import type {
   ChannelConnectionAccount,
   ChannelConnectionAccountOutput,
   ChannelConnectionOutput,
+  MetaAdAccountOutput,
+  MetaAdOutput,
 } from './channel-connection.types.js';
 
 /** A timestamp as ISO 8601, `null` kept. */
@@ -75,5 +81,39 @@ export function serializeChannelAccountPlanRoom({
     accounts_max,
     accounts_used,
     accounts_free: Math.max(0, accounts_max - accounts_used),
+  };
+}
+
+/** One ad account of route 41 — the Meta ad account object (1.6). */
+export function serializeMetaAdAccount(adAccount: MetaAdAccount): MetaAdAccountOutput {
+  return {
+    ad_account_id: adAccount.adAccountId,
+    name: adAccount.name,
+    account_status: adAccount.accountStatus,
+  };
+}
+
+/**
+ * One ad of route 15 — the Meta ad object (1.6): its Instagram post and the organization's channel
+ * account the ad runs as, matched by its Instagram id (`null` when none of this organization's).
+ */
+export function serializeMetaAd({
+  ad,
+  ad_account_id,
+  channel_account_public_id,
+}: {
+  ad: MetaAd;
+  ad_account_id: string;
+  channel_account_public_id: string | null;
+}): MetaAdOutput {
+  return {
+    ad_id: ad.adId,
+    name: ad.name,
+    status: ad.status,
+    ad_account_id,
+    instagram_media_id: ad.instagramMediaId,
+    channel_account_id: channel_account_public_id,
+    thumbnail_url: ad.thumbnailUrl,
+    created_at: ad.createdAt,
   };
 }

@@ -41,7 +41,7 @@ function keyOf(account: InstagramAccountRow): InstagramAccountKey {
  * The channel connection's account port over the launch's `app.instagram_accounts`
  * (feat-instagram-dm-sending routes-final § 1 MC5–MC8, P111): the accounts a connection brings in,
  * the plan's count, the reconnect, the pick's write with its default settings, the revoke of
- * "Disconnect business" and the webhook subscription steps.
+ * "Disconnect business", the break of a connection (MC11) and the webhook subscription steps.
  *
  * @remarks
  * Algorithm:
@@ -228,6 +228,42 @@ export class InstagramAccountConnectionService implements ChannelConnectionAccou
           if (row !== null) revoked.push(toConnectionAccount(row));
         }
         return revoked;
+      },
+    });
+  }
+
+  /**
+   * MC11: every `connected` account of the connection → `error` through the account service's
+   * guarded break (IA9), which enqueues each winner's reconnect notice after the commit.
+   */
+  async markAccountsOfConnectionBroken({
+    scope,
+    organizationId,
+    channelConnectionId,
+    requestId,
+  }: ChannelConnectionAccountScope & {
+    channelConnectionId: number;
+    requestId: string;
+  }): Promise<ChannelConnectionAccount[]> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const accounts = await this.accountRepository.listLiveByConnections({
+          organizationId,
+          channelConnectionIds: [channelConnectionId],
+        });
+        const broken: ChannelConnectionAccount[] = [];
+        for (const account of accounts) {
+          if (account.connection_status !== 'connected') continue;
+          const changed = await this.accountService.markConnectionBroken({
+            scope,
+            instagramAccount: keyOf(account),
+            connectionStatus: 'error',
+            requestId,
+          });
+          if (changed !== null) broken.push(toConnectionAccount(changed));
+        }
+        return broken;
       },
     });
   }

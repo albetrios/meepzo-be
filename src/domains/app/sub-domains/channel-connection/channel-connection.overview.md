@@ -11,8 +11,8 @@ portfolio for Instagram, Facebook and ads (routes-final § 1 of `iterations/feat
 MC1–MC19). It lands in rows: ROUTE row R2 built the Meta adapter, the one-use login state and Meta's usage kept per
 connection; ROUTE row R3 added the tables `app.channel_connections`, `app.channel_connection_tokens` and
 `app.channel_connection_usages`, routes 1–5, 40 and 42 (start, callback, reconnect, pick, list, one, disconnect
-business) and the token path. The ad picker (routes 15, 41) lands at R4, Meta's callbacks (16–17) at R9, the daily
-token check at R51.
+business) and the token path; ROUTE row R4 the ad picker (routes 41 and 15) and the connection's break on Meta's 190
+(MC11). Meta's callbacks (16–17) land at R9, the daily token check at R51.
 
 ## Routes (under `/api/v1/app`)
 
@@ -25,6 +25,8 @@ token check at R51.
 | 4 | GET | `/social/channel-connections` | `channel-account:read` | — |
 | 42 | GET | `/social/channel-connections/{channel_connection_id}` | `channel-account:read` | — |
 | 5 | DELETE | `/social/channel-connections/{channel_connection_id}` | `channel-account:manage` | — |
+| 41 | GET | `/social/channel-connections/{channel_connection_id}/ad-accounts` | `channel-account:read` | — |
+| 15 | GET | `/social/channel-connections/{channel_connection_id}/ads?ad_account_id=…` | `channel-account:read` | — |
 
 `{provider}` and `{channel_connection_id}` share the segment after `channel-connections/`; the next segment tells them
 apart (MCC10). Team organizations only: a write on a personal one is `422`, a read `404 team_organization_required`.
@@ -48,7 +50,7 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
 - `channel-connection.{controller,routes,dto,validator,serializer,constants,types}.ts`,
   `channel-connection-error.util.ts` — the route layer and its reasons (`provider_code_invalid`,
   `provider_permissions_missing`, `channel_connection_business_mismatch`, `plan_account_limit`,
-  `channel_connection_not_connected`, `channel_connection_not_found`).
+  `channel_connection_not_connected`, `channel_connection_not_found`, `ad_account_not_found`).
 - `seed/` — one Meta connection with a fake encrypted token per demo team organization.
 - `channel-connection-meta/` — the Meta provider adapter (no table, no route): the one Meta client, the login address
   and code exchange, the usage headers, the error map and the two signature checks
@@ -76,5 +78,14 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
 - **The plan's limit under the organization lock** (MC7): the pick takes `pg_advisory_xact_lock` on the organization
   (`RESOURCE_QUOTA_LOCK_NAMESPACE.CHANNEL_ACCOUNT_LIMIT`), counts the not-revoked accounts and connects the picks in
   one commit — over `channel_accounts_max` is `409 plan_account_limit`, nothing saved.
+- **The ad picker reads live, one ad account at a time** (MC13, P57): route 41 lists the ad accounts the login
+  reaches (Meta's first 100), route 15 one ad account's ads (`ad_account_id` required, checked against route 41's list
+  → `404 ad_account_not_found`; Meta's `limit` / `after` passed through) with the channel account each ad runs as;
+  nothing is stored. Without `ads_read` both answer `data: []` and `meta.ad_access = 'missing'` — never an error.
+- **Meta's 190 breaks the connection** (MC11): `ChannelConnectionService.markConnectionBroken` — one guarded
+  `connected → error` on the connection (`last_check_error`, Meta's codes only) and, in the same commit, every
+  `connected` account of it → `error` through the account port, one reconnect notice each. Routes 15 and 41 call it
+  today; the daily token check (R51) and the senders (R20) call the same. Only code 190 breaks: a permission code on
+  an ad read means the ad access is missing.
 - **A reconnect moves accounts** (MC6): every not-revoked account of the organization the business still assigns is
   attached to the connection and goes `connected`; a connection a move left without accounts is revoked with its token.

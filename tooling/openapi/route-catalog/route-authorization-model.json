@@ -17,6 +17,12 @@
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": {
     "model": "organization"
   },
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": {
+    "model": "organization"
+  },
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": {
+    "model": "organization"
+  },
   "DELETE /api/v1/app/social/channel-connections/:channel_connection_id": {
     "model": "organization",
     "verifyNoMutation": true

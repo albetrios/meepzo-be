@@ -963,6 +963,11 @@ export interface MetaAd {
   status: string | null;
   /** The Instagram post the ad runs (`creative.effective_instagram_media_id`), or `null`. */
   instagramMediaId: string | null;
+  /**
+   * The Instagram account the ad runs as (`creative.instagram_user_id`), or `null` — route 15
+   * matches it to a channel account by its Instagram id.
+   */
+  instagramUserId: string | null;
   thumbnailUrl: string | null;
   /** Meta's `created_time`, as sent. */
   createdAt: string | null;
@@ -970,7 +975,7 @@ export interface MetaAd {
 
 /** Ad fields of route 15 (MC13). */
 const META_AD_FIELDS =
-  'id,name,effective_status,created_time,creative{effective_instagram_media_id,thumbnail_url}';
+  'id,name,effective_status,created_time,creative{effective_instagram_media_id,instagram_user_id,thumbnail_url}';
 
 /**
  * Lists one page of an ad account's ads with their Instagram post
@@ -1013,6 +1018,7 @@ export async function listMetaAdAccountAds({
         name: readAnswerText(item.name),
         status: readAnswerText(item.effective_status),
         instagramMediaId: readAnswerId(creative.effective_instagram_media_id),
+        instagramUserId: readAnswerId(creative.instagram_user_id),
         thumbnailUrl: readAnswerText(creative.thumbnail_url),
         createdAt: readAnswerText(item.created_time),
       },

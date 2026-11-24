@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { successResponse } from '@/shared/utils/http/response.util.js';
+import { paginatedResponse, successResponse } from '@/shared/utils/http/response.util.js';
 import {
   getActingUserPublicId,
   getRequestIdentifier,
@@ -21,12 +21,14 @@ import {
   validateChannelConnectionIdParam,
   validateChannelConnectionProvider,
   validateEmptyChannelConnectionBody,
+  validateListChannelConnectionAdAccountsQuery,
+  validateListChannelConnectionAdsQuery,
   validateListChannelConnectionsQuery,
 } from './channel-connection.validator.js';
 
 /** A request with the `{provider}` path parameter (routes 1, 2). */
 type ProviderRequest = FastifyRequest<{ Params: { provider: string } }>;
-/** A request with the `{channel_connection_id}` path parameter (routes 3, 5, 40, 42). */
+/** A request with the `{channel_connection_id}` path parameter (routes 3, 5, 15, 40–42). */
 type ConnectionRequest = FastifyRequest<{ Params: { channel_connection_id: string } }>;
 
 /**
@@ -65,7 +67,59 @@ async function recordPickedAccountAudits({
 }
 
 /**
- * Builds the handler map for the channel connection routes (routes-final § 1 — routes 1–5, 40, 42):
+ * The ad picker's handlers (routes 41 and 15, MC13): reads only — no audit entry; `meta.ad_access`
+ * beside the list (and Meta's cursor as `meta.pagination` on route 15).
+ */
+function createAdPickerHandlers(service: ChannelConnectionService) {
+  return {
+    listChannelConnectionAdAccounts: async (request: ConnectionRequest, _reply: FastifyReply) => {
+      validateListChannelConnectionAdAccountsQuery(request.query);
+      const { adAccess, items } = await service.listAdAccounts({
+        scope: requireOrganizationScope(request),
+        requestId: getRequestIdentifier(request),
+        channelConnectionPublicId: validateChannelConnectionIdParam(
+          request.params.channel_connection_id,
+        ),
+      });
+      return successResponse({
+        data: items,
+        request_id: getRequestIdentifier(request),
+        extraMeta: { ad_access: adAccess },
+      });
+    },
+    listChannelConnectionAds: async (request: ConnectionRequest, _reply: FastifyReply) => {
+      const {
+        ad_account_id: adAccountId,
+        limit,
+        after,
+      } = validateListChannelConnectionAdsQuery(request.query);
+      const page = await service.listAds({
+        scope: requireOrganizationScope(request),
+        requestId: getRequestIdentifier(request),
+        channelConnectionPublicId: validateChannelConnectionIdParam(
+          request.params.channel_connection_id,
+        ),
+        adAccountId,
+        limit,
+        after,
+      });
+      return paginatedResponse({
+        data: page.items,
+        request_id: getRequestIdentifier(request),
+        pagination: {
+          per_page: page.limit,
+          next: page.nextCursor,
+          has_more: page.nextCursor !== null,
+        },
+        extraMeta: { ad_access: page.adAccess },
+      });
+    },
+  };
+}
+
+/**
+ * Builds the handler map for the channel connection routes (routes-final § 1 — routes 1–5, 15,
+ * 40–42):
  * reads the organization scope and the actor, validates the path, query and body, calls
  * {@link ChannelConnectionService} and shapes the answer.
  *
@@ -77,6 +131,7 @@ async function recordPickedAccountAudits({
  */
 export function createChannelConnectionController(service: ChannelConnectionService) {
   return {
+    ...createAdPickerHandlers(service),
     startChannelConnection: async (request: ProviderRequest, _reply: FastifyReply) => {
       const provider = validateChannelConnectionProvider(request.params.provider);
       validateEmptyChannelConnectionBody(request.body);

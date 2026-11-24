@@ -262,6 +262,67 @@ export const channelAccountPickResultExample = {
   plan_room: channelAccountPlanRoomExample,
 };
 
+// ── The ad picker (routes 41 and 15, MC13) ──
+// Mirror serializeMetaAdAccount / serializeMetaAd key for key (routes-final § 1.6).
+export const metaAdAccountSchema = {
+  type: 'object',
+  properties: {
+    ad_account_id: { type: 'string', description: "Meta's ad account id, digits, no act_ prefix" },
+    name: { type: 'string', nullable: true },
+    account_status: {
+      type: 'integer',
+      nullable: true,
+      description: "Meta's account_status (1 active, 2 disabled, …)",
+    },
+  },
+};
+
+export const metaAdAccountExample = {
+  ad_account_id: '1234567890123',
+  name: 'Handmade Shop ads',
+  account_status: 1,
+};
+
+export const metaAdSchema = {
+  type: 'object',
+  properties: {
+    ad_id: { type: 'string' },
+    name: { type: 'string', nullable: true },
+    status: { type: 'string', nullable: true, description: "Meta's effective_status" },
+    ad_account_id: { type: 'string' },
+    instagram_media_id: { type: 'string', nullable: true },
+    channel_account_id: {
+      type: 'string',
+      nullable: true,
+      description:
+        "The organization's channel account the ad runs as (matched by its Instagram id)",
+    },
+    thumbnail_url: { type: 'string', nullable: true },
+    created_at: { type: 'string', nullable: true, description: "Meta's created_time, as sent" },
+  },
+};
+
+export const metaAdExample = {
+  ad_id: '120200000000000001',
+  name: 'Winter sale',
+  status: 'ACTIVE',
+  ad_account_id: '1234567890123',
+  instagram_media_id: '18030000000000001',
+  channel_account_id: 'iga_q4w8n1v3a1b2ck7x9m2pr',
+  thumbnail_url: 'https://scontent.cdninstagram.com/v/ad-thumbnail.jpg',
+  created_at: '2026-11-01T10:00:00+0000',
+};
+
+/** `meta.ad_access` of the ad picker (MC13): `missing` → an empty list and "Connect an ad account". */
+export const adAccessMetaProperty = {
+  ad_access: {
+    type: 'string',
+    enum: ['granted', 'missing'],
+    description:
+      'granted when the connection holds ads_read; missing → the list is empty (offer Connect an ad account)',
+  },
+};
+
 // ── Instagram media item (route 5) ──
 // Mirrors serializeInstagramMediaItem key for key (routes-final § 1.C.6).
 const instagramMediaChildSchema = {

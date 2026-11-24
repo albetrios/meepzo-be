@@ -76,11 +76,13 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { readMetaGraphErrorResponse } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import {
+  describeMetaGraphError,
+  readMetaGraphErrorResponse,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { ProviderOutageError } from '@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js';
 import {
   classifyInstagramDailyCheckFailure,
-  describeInstagramRefreshError,
   processInstagramAccountDailyCheckJob,
   runInstagramAccountDailyCheckSweep,
 } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
@@ -228,18 +230,18 @@ describe('classifyInstagramDailyCheckFailure', () => {
   });
 });
 
-describe('describeInstagramRefreshError', () => {
+describe('describeMetaGraphError', () => {
   it("keeps Instagram's class, codes and status, never its text — which can quote the token", () => {
-    expect(describeInstagramRefreshError(endedTokenError())).toBe(
+    expect(describeMetaGraphError(endedTokenError())).toBe(
       'auth (code 190, subcode 463, HTTP 400)',
     );
-    expect(describeInstagramRefreshError(new TypeError('secret detail'))).toBe('failed: TypeError');
+    expect(describeMetaGraphError(new TypeError('secret detail'))).toBe('failed: TypeError');
     const quotedToken = instagramError({
       httpStatus: 400,
       body: { error: { message: 'Malformed access token AQ_quoted_in_the_answer', code: 190 } },
     });
-    expect(describeInstagramRefreshError(quotedToken)).not.toContain('AQ_quoted');
-    expect(describeInstagramRefreshError(quotedToken)).not.toContain('Malformed');
+    expect(describeMetaGraphError(quotedToken)).not.toContain('AQ_quoted');
+    expect(describeMetaGraphError(quotedToken)).not.toContain('Malformed');
   });
 });
 

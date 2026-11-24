@@ -1,8 +1,17 @@
 /** Paddle-style: single resource. Include meta.request_id (e.g. request.id). */
-export function successResponse<T>({ data, request_id }: { data: T; request_id: string }) {
+export function successResponse<T>({
+  data,
+  request_id,
+  extraMeta = {},
+}: {
+  data: T;
+  request_id: string;
+  /** Extra `meta` fields beside `request_id` (e.g. the ad picker's `ad_access`). */
+  extraMeta?: Readonly<Record<string, unknown>> | undefined;
+}) {
   return {
     data,
-    meta: { request_id },
+    meta: { ...extraMeta, request_id },
   };
 }
 

@@ -37,12 +37,6 @@ export const INSTAGRAM_ACCOUNT_UNIQUE_INDEXES = {
 export const INSTAGRAM_ACCOUNT_AUDIT_RESOURCE_TYPE = 'instagram_account';
 
 /**
- * Longest error text the daily account check logs — Meta's class, code, subcode and HTTP status cut
- * to it (the `varchar(500)` of `app.channel_connections.last_check_error`).
- */
-export const INSTAGRAM_ACCOUNT_REFRESH_ERROR_MAX_LENGTH = 500;
-
-/**
  * The frontend's Instagram page (meepzo-fe), where the reconnect card lives — the link of the
  * reconnect notice (IA9), joined to `FRONTEND_URL` so the email's button works too.
  */

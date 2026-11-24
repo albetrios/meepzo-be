@@ -96,6 +96,10 @@ function materializeOrganizationScopedPath(
   if (route.method === 'DELETE' && route.path.includes('/app/automations/')) {
     return `${path}?reason=mistake`;
   }
+  // The ad picker's ads read needs one ad account (feat-instagram-dm-sending route 15, P57).
+  if (route.method === 'GET' && route.path.endsWith('/:channel_connection_id/ads')) {
+    return `${path}?ad_account_id=1234567890123`;
+  }
   return path;
 }
 

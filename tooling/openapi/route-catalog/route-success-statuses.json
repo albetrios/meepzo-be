@@ -26,6 +26,8 @@
   "GET /api/v1/app/automations/:automation_id": 200,
   "GET /api/v1/app/social/channel-connections": 200,
   "GET /api/v1/app/social/channel-connections/:channel_connection_id": 200,
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ad-accounts": 200,
+  "GET /api/v1/app/social/channel-connections/:channel_connection_id/ads": 200,
   "GET /api/v1/app/social/instagram/account": 200,
   "GET /api/v1/app/social/instagram/media": 200,
   "GET /api/v1/app/social/instagram/stories": 200,

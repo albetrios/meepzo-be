@@ -45,6 +45,23 @@ export const META_REQUIRED_PERMISSIONS = [
 /** The optional permission of the ad picker (MC13); `has_ads_access` reads it. */
 export const META_ADS_PERMISSION = 'ads_read';
 
+/**
+ * The ad picker's `meta.ad_access` (MC13): `granted` when the connection holds `ads_read`, `missing`
+ * when it does not (or Meta says it does not) — the list is then empty and the screen offers
+ * "Connect an ad account", never an error.
+ */
+export const CHANNEL_CONNECTION_AD_ACCESS = { GRANTED: 'granted', MISSING: 'missing' } as const;
+
+/** One value of {@link CHANNEL_CONNECTION_AD_ACCESS}. */
+export type ChannelConnectionAdAccess =
+  (typeof CHANNEL_CONNECTION_AD_ACCESS)[keyof typeof CHANNEL_CONNECTION_AD_ACCESS];
+
+/** Route 15's page size (1.8: `limit` 1–50, default 25), passed on as Meta's `limit`. */
+export const META_AD_PAGE_SIZE = { default: 25, maximum: 50 } as const;
+
+/** Longest Meta cursor route 15 takes back as `after` (1.8: 1–1000 characters). */
+export const META_AD_CURSOR_MAX_LENGTH = 1000;
+
 /** Most accounts one pick names (1.8: `provider_account_ids` 1–10). */
 export const CHANNEL_ACCOUNT_PICK_MAX = 10;
 

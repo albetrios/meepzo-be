@@ -1,5 +1,8 @@
 import {
   createStripeSetupIntent,
+  detachStripePaymentMethod,
+  retrieveStripePaymentMethod,
+  setStripeCustomerDefaultPaymentMethod,
   listStripeInvoices,
   listStripePaymentMethods,
   retrieveStripeCustomerDefaultPaymentMethodId,
@@ -23,11 +26,24 @@ import setupIntentCreateFixture from './fixtures/stripe/setup-intent.create.resp
 import subscriptionConfirmationSecretFixture from './fixtures/stripe/subscription.retrieve.confirmation-secret.response.json' with {
   type: 'json',
 };
+import paymentMethodRetrieveFixture from './fixtures/stripe/payment-method.retrieve.response.json' with {
+  type: 'json',
+};
+import paymentMethodDetachFixture from './fixtures/stripe/payment-method.detach.response.json' with {
+  type: 'json',
+};
+import customerUpdateDefaultPaymentMethodFixture from './fixtures/stripe/customer.update.default-pm.response.json' with {
+  type: 'json',
+};
+import subscriptionUpdateFixture from './fixtures/stripe/subscription.update.response.json' with {
+  type: 'json',
+};
 import { assertStripeEncodedFormContainsExpectedFields } from './helpers/stripe-form.js';
 import { registerThirdPartyContractTestIsolationHooks } from './helpers/register-contract-test-hooks.js';
 import {
   StripeInvoiceListResponseContractSchema,
   StripePaymentMethodListResponseContractSchema,
+  StripePaymentMethodResponseContractSchema,
   StripeSetupIntentResponseContractSchema,
   StripeSubscriptionConfirmationSecretContractSchema,
 } from './schemas/stripe.schemas.js';
@@ -208,5 +224,109 @@ describe('Stripe billing-account read + setup contract (`stripe.client`)', () =>
     await expect(
       retrieveStripeSubscriptionPaymentClientSecret({ subscriptionId }),
     ).resolves.toBeNull();
+  });
+
+  // ── The card routes (feat-instagram-dm-sending § 8.C, routes 105 and 106) ──
+
+  test('retrieveStripePaymentMethod reads /v1/payment_methods/{id} with its customer', async () => {
+    nock(stripeOutboundApiHostname)
+      .get('/v1/payment_methods/pm_1CONTRACTfixtureCARD')
+      .matchHeader('authorization', /^Bearer /)
+      .reply(200, paymentMethodRetrieveFixture);
+
+    const paymentMethod = await retrieveStripePaymentMethod({
+      paymentMethodId: 'pm_1CONTRACTfixtureCARD',
+    });
+
+    // The ownership check reads `customer`; the audit reads brand and last 4.
+    StripePaymentMethodResponseContractSchema.parse(paymentMethodRetrieveFixture);
+    expect(paymentMethod?.customer).toBe(contractCustomerId);
+    expect(paymentMethod?.card?.last4).toBe('4242');
+  });
+
+  test('retrieveStripePaymentMethod answers null on resource_missing', async () => {
+    nock(stripeOutboundApiHostname)
+      .get('/v1/payment_methods/pm_missing')
+      .reply(404, {
+        error: {
+          type: 'invalid_request_error',
+          code: 'resource_missing',
+          message: "No such PaymentMethod: 'pm_missing'",
+          param: 'payment_method',
+        },
+      });
+
+    await expect(
+      retrieveStripePaymentMethod({ paymentMethodId: 'pm_missing' }),
+    ).resolves.toBeNull();
+  });
+
+  test('detachStripePaymentMethod POSTs /v1/payment_methods/{id}/detach with the idempotency key', async () => {
+    nock(stripeOutboundApiHostname)
+      .post('/v1/payment_methods/pm_1CONTRACTfixtureCARD/detach')
+      .matchHeader('authorization', /^Bearer /)
+      .matchHeader('idempotency-key', 'pm-detach-contract-key')
+      .reply(200, paymentMethodDetachFixture);
+
+    const detached = await detachStripePaymentMethod({
+      paymentMethodId: 'pm_1CONTRACTfixtureCARD',
+      options: { idempotencyKey: 'pm-detach-contract-key' },
+    });
+
+    StripePaymentMethodResponseContractSchema.parse(paymentMethodDetachFixture);
+    expect(detached.customer).toBeNull();
+  });
+
+  test('setStripeCustomerDefaultPaymentMethod sets the customer default, then the subscription default', async () => {
+    const subscriptionId = 'sub_CONTRACTfixture01';
+    const order: string[] = [];
+    nock(stripeOutboundApiHostname)
+      .post(`/v1/customers/${contractCustomerId}`, (encodedBody) => {
+        assertStripeEncodedFormContainsExpectedFields({
+          stripeOutboundRequestBody: encodedBody,
+          expectedStripeFields: {
+            'invoice_settings[default_payment_method]': 'pm_1CONTRACTfixtureCARD',
+          },
+        });
+        order.push('customer');
+        return true;
+      })
+      .matchHeader('idempotency-key', 'pm-default-contract-key:customer-default')
+      .reply(200, customerUpdateDefaultPaymentMethodFixture);
+    nock(stripeOutboundApiHostname)
+      .post(`/v1/subscriptions/${subscriptionId}`, (encodedBody) => {
+        assertStripeEncodedFormContainsExpectedFields({
+          stripeOutboundRequestBody: encodedBody,
+          expectedStripeFields: { default_payment_method: 'pm_1CONTRACTfixtureCARD' },
+        });
+        order.push('subscription');
+        return true;
+      })
+      .matchHeader('idempotency-key', 'pm-default-contract-key:subscription-default')
+      .reply(200, subscriptionUpdateFixture);
+
+    await setStripeCustomerDefaultPaymentMethod({
+      customerId: contractCustomerId,
+      subscriptionId,
+      paymentMethodId: 'pm_1CONTRACTfixtureCARD',
+      idempotencyKey: 'pm-default-contract-key',
+    });
+
+    expect(order).toEqual(['customer', 'subscription']);
+  });
+
+  test('setStripeCustomerDefaultPaymentMethod with no live subscription updates the customer only', async () => {
+    nock(stripeOutboundApiHostname)
+      .post(`/v1/customers/${contractCustomerId}`)
+      .reply(200, customerUpdateDefaultPaymentMethodFixture);
+
+    await setStripeCustomerDefaultPaymentMethod({
+      customerId: contractCustomerId,
+      subscriptionId: null,
+      paymentMethodId: 'pm_1CONTRACTfixtureCARD',
+    });
+
+    // No subscription id: the customer update is the only call (an extra one would find no interceptor).
+    expect(nock.isDone()).toBe(true);
   });
 });

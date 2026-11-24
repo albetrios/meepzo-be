@@ -77,6 +77,14 @@
     "model": "user",
     "verifyNoMutation": true
   },
+  "DELETE /api/v1/billing/payment-methods/:payment_method_id": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "POST /api/v1/billing/payment-methods/:payment_method_id/default": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
   "GET /api/v1/billing/subscriptions/:subscription_id": {
     "model": "organization"
   },

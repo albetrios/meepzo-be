@@ -20,6 +20,13 @@ export type PaymentProviderCall =
       providerPriceId: string;
     }
   | { method: 'releaseScheduledPriceChange'; providerSubscriptionId: string }
+  | { method: 'detachPaymentMethod'; paymentMethodId: string }
+  | {
+      method: 'setDefaultPaymentMethod';
+      providerCustomerId: string;
+      providerSubscriptionId: string | null;
+      paymentMethodId: string;
+    }
   | { method: 'updateSubscriptionPrice'; providerSubscriptionId: string; providerPriceId: string }
   | { method: 'updateSubscriptionQuantity'; providerSubscriptionId: string; quantity: number }
   | {
@@ -170,6 +177,27 @@ export class FakePaymentProvider implements PaymentProvider {
     providerSubscriptionId: string;
   }): Promise<void> {
     paymentProviderCalls.push({ method: 'releaseScheduledPriceChange', providerSubscriptionId });
+  }
+
+  async detachPaymentMethod({ paymentMethodId }: { paymentMethodId: string }): Promise<void> {
+    paymentProviderCalls.push({ method: 'detachPaymentMethod', paymentMethodId });
+  }
+
+  async setDefaultPaymentMethod({
+    providerCustomerId,
+    providerSubscriptionId,
+    paymentMethodId,
+  }: {
+    providerCustomerId: string;
+    providerSubscriptionId: string | null;
+    paymentMethodId: string;
+  }): Promise<void> {
+    paymentProviderCalls.push({
+      method: 'setDefaultPaymentMethod',
+      providerCustomerId,
+      providerSubscriptionId,
+      paymentMethodId,
+    });
   }
 
   async compensateFailedCreate(providerSubscriptionId: string): Promise<void> {

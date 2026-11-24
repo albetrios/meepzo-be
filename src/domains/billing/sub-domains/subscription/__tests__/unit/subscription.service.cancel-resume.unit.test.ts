@@ -116,6 +116,8 @@ function buildService() {
     compensatePlanChange: vi.fn().mockResolvedValue(undefined),
     schedulePriceChangeAtPeriodEnd: vi.fn().mockResolvedValue(undefined),
     releaseScheduledPriceChange: vi.fn().mockResolvedValue(undefined),
+    detachPaymentMethod: vi.fn().mockResolvedValue(undefined),
+    setDefaultPaymentMethod: vi.fn().mockResolvedValue(undefined),
   } satisfies PaymentProvider;
 
   const service = new SubscriptionService(

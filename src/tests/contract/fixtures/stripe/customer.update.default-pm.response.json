@@ -1,0 +1,7 @@
+{
+  "id": "cus_CONTRACTfixture01",
+  "object": "customer",
+  "invoice_settings": {
+    "default_payment_method": "pm_1CONTRACTfixtureCARD"
+  }
+}

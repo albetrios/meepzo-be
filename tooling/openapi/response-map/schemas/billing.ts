@@ -195,6 +195,28 @@ export const planAccessExample = {
   is_plan_choice_required: false,
 };
 
+// ── Payment method (a card — Stripe-proxied, routes-final § 8.C.6) ──
+export const paymentMethodSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', description: "Stripe's card id (`pm_…`)." },
+    brand: { type: 'string' },
+    last4: { type: 'string' },
+    exp_month: { type: 'integer' },
+    exp_year: { type: 'integer' },
+    is_default: { type: 'boolean' },
+  },
+};
+
+export const paymentMethodExample = {
+  id: 'pm_1QExampleCardA1b2C3d4',
+  brand: 'visa',
+  last4: '4242',
+  exp_month: 12,
+  exp_year: 2030,
+  is_default: true,
+};
+
 export const webhookReceivedSchema = {
   type: 'object',
   properties: { received: { type: 'boolean' } },

@@ -13,6 +13,8 @@ import {
   updateStripeSubscriptionQuantity,
   scheduleStripeSubscriptionPriceChange,
   releaseStripeSubscriptionSchedule,
+  detachStripePaymentMethod,
+  setStripeCustomerDefaultPaymentMethod,
 } from '@/infrastructure/payment/stripe.client.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { AppError, ConfigurationError } from '@/shared/errors/index.js';
@@ -272,6 +274,50 @@ export class StripePaymentProvider implements PaymentProvider {
       );
     } catch (error) {
       logger.error({ error }, 'stripe.subscription.release_schedule.failed');
+      throw toPaymentProviderFailure(error);
+    }
+  }
+
+  async detachPaymentMethod({
+    paymentMethodId,
+    idempotencyKey,
+  }: {
+    paymentMethodId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void> {
+    if (!isStripeConfigured()) return;
+    try {
+      await detachStripePaymentMethod({
+        paymentMethodId,
+        options: omitUndefined({ idempotencyKey }),
+      });
+    } catch (error) {
+      logger.error({ error }, 'stripe.payment_method.detach.failed');
+      throw toPaymentProviderFailure(error);
+    }
+  }
+
+  async setDefaultPaymentMethod({
+    providerCustomerId,
+    providerSubscriptionId,
+    paymentMethodId,
+    idempotencyKey,
+  }: {
+    providerCustomerId: string;
+    providerSubscriptionId: string | null;
+    paymentMethodId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void> {
+    if (!isStripeConfigured()) return;
+    try {
+      await setStripeCustomerDefaultPaymentMethod({
+        customerId: providerCustomerId,
+        subscriptionId: providerSubscriptionId,
+        paymentMethodId,
+        idempotencyKey,
+      });
+    } catch (error) {
+      logger.error({ error }, 'stripe.payment_method.set_default.failed');
       throw toPaymentProviderFailure(error);
     }
   }

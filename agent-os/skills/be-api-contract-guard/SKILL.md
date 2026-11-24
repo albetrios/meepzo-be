@@ -17,7 +17,7 @@ indexNote: route params / public-ids / method→status policy / header matrix �
 ## Route params — snake_case, semantic, entity-typed
 
 - Every path param is snake_case and semantic: `{plan_id}`, `{subscription_id}`, `{session_id}`, `{upload_id}`, `{auth_method_id}`, … — never `{id}` or camelCase. The active organization is NOT a path param — it is carried by the signed `org` JWT claim; the active-organization resource is the singular `/tenancy/organization` (sub-resources like settings/memberships/roles/api-keys nest under it).
-- Entity-id param names must exist in `PARAM_NAME_TO_ENTITY` (src/shared/utils/identity/public-id.util.ts) so validators, test materializers, and OpenAPI docs derive the entity automatically. The only non-entity params are `{provider}` (OAuth provider name) and `{slug}` (organization slug) — unregistered by design.
+- Entity-id param names must exist in `PARAM_NAME_TO_ENTITY` (src/shared/utils/identity/public-id.util.ts) so validators, test materializers, and OpenAPI docs derive the entity automatically. The only non-entity params are `{provider}` (OAuth / channel provider name), `{slug}` (organization slug) and `{payment_method_id}` (Stripe's `pm_…` card id — cards live only in Stripe, so it is shape-checked by `PAYMENT_METHOD_ID_PATTERN` and ownership-checked against the organization's customer; feat-instagram-dm-sending P78) — unregistered by design.
 - Zod params-DTO object keys must equal the route param name exactly.
 
 ## Public ids — Paddle-style prefixed

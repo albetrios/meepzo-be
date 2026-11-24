@@ -93,6 +93,26 @@ export interface PaymentProvider {
     idempotencyKey?: string | undefined;
   }): Promise<void>;
 
+  /**
+   * Removes a card from the organization's customer (feat-instagram-dm-sending BL20, route 105). The
+   * caller has already checked that the card is the customer's.
+   */
+  detachPaymentMethod(options: {
+    paymentMethodId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void>;
+
+  /**
+   * Makes a card the customer's default and, given one, the live subscription's (BL21, route 106);
+   * repeating it for the card already the default is harmless.
+   */
+  setDefaultPaymentMethod(options: {
+    providerCustomerId: string;
+    providerSubscriptionId: string | null;
+    paymentMethodId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void>;
+
   compensateFailedCreate(providerSubscriptionId: string): Promise<void>;
 
   compensatePlanChange(options: {

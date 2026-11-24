@@ -79,6 +79,7 @@
     "reservedSecurityPolicyKey": "The keys __proto__, constructor and prototype are not allowed",
     "svgLogoNotAllowed": "SVG logos are not allowed",
     "securityPolicyTooManyKeys": "security_policy allows at most 50 keys",
+    "invalidPaymentMethodId": "Must be a Stripe card id: pm_ and 1 to 250 letters or digits",
     "eachValueOnce": "Each value once",
     "eachCodeOnce": "Each code once",
     "eachRoleOnce": "Each role once",
@@ -281,6 +282,7 @@
     "Channel connection": "Channel connection",
     "Ad account": "Ad account",
     "Notification kind": "Notification kind",
+    "Payment method": "Payment method",
     "Channel account": "Channel account"
   },
   "channelAccountAlreadyActive": "This account is already active.",
@@ -299,5 +301,6 @@
   "trialAlreadyUsed": "This workspace, or one of its Instagram accounts, has already had a free trial.",
   "planHasNoTrial": "Only a paid plan has a free trial.",
   "trialUsedByAccount": "One of these Instagram accounts has already had a free trial, so it cannot join this one.",
-  "keepChannelAccountsInvalid": "Choose only this workspace's connected accounts, at most as many as the new plan allows, and only when moving to a smaller plan."
+  "keepChannelAccountsInvalid": "Choose only this workspace's connected accounts, at most as many as the new plan allows, and only when moving to a smaller plan.",
+  "defaultCardInUse": "This is your only card and a paid plan is on. Add another card before removing this one."
 }

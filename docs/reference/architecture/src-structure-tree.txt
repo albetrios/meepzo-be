@@ -831,6 +831,7 @@ src/
     │   │   │       ├── integration/
     │   │   │       │   ├── subscription-happy.integration.test.ts
     │   │   │       │   ├── subscription-lifecycle.integration.test.ts
+    │   │   │       │   ├── subscription-payment-method.integration.test.ts
     │   │   │       │   ├── subscription-refusals.integration.test.ts
     │   │   │       │   ├── subscription-seat-ceiling.integration.test.ts
     │   │   │       │   ├── subscription-seat-entitlement.integration.test.ts
@@ -2304,7 +2305,10 @@ src/
     │   │   │   ├── customer.create.request.fields.json
     │   │   │   ├── customer.create.response.json
     │   │   │   ├── customer.retrieve.default-pm.response.json
+    │   │   │   ├── customer.update.default-pm.response.json
     │   │   │   ├── invoices.list.response.json
+    │   │   │   ├── payment-method.detach.response.json
+    │   │   │   ├── payment-method.retrieve.response.json
     │   │   │   ├── payment-methods.list.response.json
     │   │   │   ├── setup-intent.create.response.json
     │   │   │   ├── subscription.cancel.response.json

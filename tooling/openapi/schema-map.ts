@@ -85,6 +85,7 @@ import { putMemberRolePermissionsDto } from '@/domains/tenancy/sub-domains/membe
 import {
   CreateSubscriptionDto,
   ChangePlanDto,
+  emptyPaymentMethodBodyDto,
 } from '@/domains/billing/sub-domains/subscription/subscription.dto.js';
 
 // ─── Upload ────────────────────────────────────────────────────────────
@@ -178,6 +179,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Billing: Subscriptions ──
   'POST /api/v1/billing/subscriptions': CreateSubscriptionDto,
   'POST /api/v1/billing/subscriptions/{subscription_id}/change-plan': ChangePlanDto,
+  'POST /api/v1/billing/payment-methods/{payment_method_id}/default': emptyPaymentMethodBodyDto,
 
   // ── Webhooks ──
   'POST /api/v1/notify/webhooks': CreateWebhookDto,

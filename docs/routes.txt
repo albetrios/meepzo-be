@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 164
+  Total routes: 166
 ================================================================================
 
 Legend:
@@ -92,12 +92,14 @@ Legend:
 
 ================================================================================
   DOMAIN: BILLING (/api/v1/billing)
-  Routes: 13
+  Routes: 15
 ================================================================================
 
   — Sub Domains —
   GET    /api/v1/billing/invoices                                 200  -    both  PERM: subscription:read
   GET    /api/v1/billing/payment-methods                          200  -    both  PERM: subscription:read
+  DELETE /api/v1/billing/payment-methods/:payment_method_id       204  -    team  PERM: subscription:manage
+  POST   /api/v1/billing/payment-methods/:payment_method_id/default  200  req  team  PERM: subscription:manage
   POST   /api/v1/billing/payment-methods/setup                    200  req  team  PERM: subscription:manage
   GET    /api/v1/billing/plans                                    200  -    both  PUBLIC
   GET    /api/v1/billing/plans/:plan_id                           200  -    both  PUBLIC
@@ -255,16 +257,16 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 164
+  Total routes    : 166
   Public          : 18
   Authenticated   : 53
   Role-guarded    : 9
-  Perm-guarded    : 79
+  Perm-guarded    : 81
   Token-guarded   : 5
-  Team-only (O)   : 36
+  Team-only (O)   : 38
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (22) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (23) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
@@ -274,6 +276,7 @@ Legend:
     POST /api/v1/app/social/channel-accounts/:channel_account_id/activate
     POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts
     POST /api/v1/app/social/channel-connections/:provider/callback
+    POST /api/v1/billing/payment-methods/:payment_method_id/default
     POST /api/v1/billing/payment-methods/setup
     POST /api/v1/billing/subscriptions
     POST /api/v1/billing/subscriptions/:subscription_id/cancel

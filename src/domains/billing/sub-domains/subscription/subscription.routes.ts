@@ -8,6 +8,8 @@ import { createSubscriptionController } from './subscription.controller.js';
 import {
   ChangePlanDto,
   CreateSubscriptionDto,
+  emptyPaymentMethodBodyDto,
+  paymentMethodIdParamsDto,
   subscriptionIdParamsDto,
 } from './subscription.dto.js';
 
@@ -171,6 +173,42 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         },
       },
       controller.listPaymentMethods,
+    );
+    zodApplication.delete<{ Params: { payment_method_id: string } }>(
+      '/payment-methods/:payment_method_id',
+      {
+        config: ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
+        schema: {
+          summary: 'Remove payment method',
+          description:
+            "Removes a card from the organization's Stripe customer. `{payment_method_id}` is Stripe's `pm_…` card id; a card that is not this organization's answers 404. The only card cannot be removed while a paid plan is on (active, past due, unpaid or trialing) — `409 default_card_in_use`; add another card first. Team organizations only. Requires SUBSCRIPTION_MANAGE permission.",
+          tags: ['Subscription'],
+          params: paymentMethodIdParamsDto,
+        },
+      },
+      controller.deletePaymentMethod,
+    );
+    zodApplication.post<{ Params: { payment_method_id: string } }>(
+      '/payment-methods/:payment_method_id/default',
+      {
+        config: {
+          idempotencyRequired: true,
+          ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config,
+        },
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(BILLING_PERMISSIONS.SUBSCRIPTION_MANAGE)],
+        schema: {
+          summary: 'Set default payment method',
+          description:
+            "Makes the card the default — the Stripe customer's invoice default and the live subscription's — and answers the organization's cards with `is_default`. `{payment_method_id}` is Stripe's `pm_…` card id; a card that is not this organization's answers 404. Repeating it for the default card gives the same answer. No body. Team organizations only. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe. See docs/reference/reliability/idempotency.md.",
+          tags: ['Subscription'],
+          params: paymentMethodIdParamsDto,
+          body: emptyPaymentMethodBodyDto,
+        },
+      },
+      controller.setDefaultPaymentMethod,
     );
     zodApplication.post(
       '/payment-methods/setup',

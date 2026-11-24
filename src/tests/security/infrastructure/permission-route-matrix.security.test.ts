@@ -72,6 +72,8 @@ function grantedPermissionCodes(route: (typeof organizationPermissionRoutes)[num
 function placeholderForParamName(paramName: string): string {
   // `{provider}` is a non-entity param whose schema takes `meta` only (feat-instagram-dm-sending MC1).
   if (paramName === 'provider') return 'meta';
+  // `{payment_method_id}` is Stripe's card id, a non-entity param (feat-instagram-dm-sending P78).
+  if (paramName === 'payment_method_id') return 'pm_placeholder';
   const entity = PARAM_NAME_TO_ENTITY[paramName as keyof typeof PARAM_NAME_TO_ENTITY];
   return entity ? publicIdPlaceholderFor(entity) : 'placeholder';
 }

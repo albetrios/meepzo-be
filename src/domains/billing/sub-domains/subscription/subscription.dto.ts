@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { PAGINATION } from '@/shared/constants/pagination.constants.js';
 import { trimmedString, trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
 import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
+import { PAYMENT_METHOD_ID_PATTERN } from './subscription.constants.js';
 
 /** The most channel accounts a move down may keep — Studio's limit (routes-final § 8.B.8). */
 const KEEP_CHANNEL_ACCOUNT_IDS_MAX = 10;
@@ -12,6 +13,21 @@ export const subscriptionIdParamsDto = z
     subscription_id: trimmedStringMinMax({ min: 1, max: 28 }),
   })
   .strict();
+
+/**
+ * Zod schema for the `:payment_method_id` path param of routes 105 and 106 (routes-final § 8.C, P78):
+ * Stripe's `pm_…` card id, checked by shape here — a malformed one is a `400` naming the field.
+ */
+export const paymentMethodIdParamsDto = z
+  .object({
+    payment_method_id: z
+      .string()
+      .regex(PAYMENT_METHOD_ID_PATTERN, 'errors:validation.invalidPaymentMethodId'),
+  })
+  .strict();
+
+/** Body of `POST /billing/payment-methods/:payment_method_id/default` (route 106): none — absent, `null` or `{}`. */
+export const emptyPaymentMethodBodyDto = z.object({}).strict().nullish();
 
 /**
  * Zod schema for `POST /api/v1/billing/subscriptions` request body — with `is_trial: true` it starts

@@ -4115,7 +4115,7 @@ As 8.5; 105 and 106 are team-only (`422` on a personal organization, like `POST 
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 105, 106 | `400` · `payment_method_id` | not `pm_` + 1–250 letters and digits |
+| 105, 106 | `400` · `params.payment_method_id` | not `pm_` + 1–250 letters and digits (as built, [P404](decisions.md): the field is the route schema's path; a segment over 100 characters is `414`, Fastify's parameter limit) |
 | 105, 106 | `404` | no such card on the organization's customer, or no customer |
 | 105 | `409` · `default_card_in_use` | the only card while a paid plan is on |
 | 105, 106 | `422` | a personal organization; (106) the idempotency key missing, malformed or reused |

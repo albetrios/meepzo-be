@@ -47,6 +47,12 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-resource: organization by-slug',
 
   // ── model: organization — cross-organization writes (cross-organization-mutation.security.test.ts) ────
+  // The card routes (feat-instagram-dm-sending § 8.C): another organization's Stripe card answers 404
+  // and nothing is detached or set — subscription-payment-method.integration.test.ts.
+  'DELETE /api/v1/billing/payment-methods/:payment_method_id':
+    'subscription-payment-method: another organization card (cross-organization, no mutation)',
+  'POST /api/v1/billing/payment-methods/:payment_method_id/default':
+    'subscription-payment-method: another organization card (cross-organization, no mutation)',
   'POST /api/v1/billing/subscriptions/:subscription_id/cancel':
     'cross-organization-mutation: subscription cancel',
   'POST /api/v1/billing/subscriptions/:subscription_id/change-plan':

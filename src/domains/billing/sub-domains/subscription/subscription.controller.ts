@@ -51,6 +51,33 @@ async function recordSubscriptionAuditEvent(options: {
   });
 }
 
+/** A request with the `{payment_method_id}` path parameter (routes 105, 106). */
+type PaymentMethodRequest = FastifyRequest<{ Params: { payment_method_id: string } }>;
+
+/**
+ * Records a card change in the organization's audit log (routes-final § 8 BL10, WARNING) — the card's
+ * brand and last four digits only, never more of the card.
+ */
+async function recordPaymentMethodAuditEvent(options: {
+  request: FastifyRequest;
+  auth: AuthContext;
+  organizationPublicId: string;
+  action: 'billing.payment_method.delete' | 'billing.payment_method.set_default';
+  card: { brand: string; last4: string };
+}): Promise<void> {
+  await recordScopedAuditEvent({
+    request: options.request,
+    input: {
+      ...buildAuditActorFields(options.auth),
+      action: options.action,
+      resource_type: 'payment_method',
+      organizationPublicId: options.organizationPublicId,
+      severity: 'WARNING',
+      metadata: { card_brand: options.card.brand, card_last_digits: options.card.last4 },
+    },
+  });
+}
+
 /**
  * Builds organization-scoped subscription handlers (list / get / create /
  * update / change-plan / cancel / resume). The active organization is resolved
@@ -241,6 +268,39 @@ export function createSubscriptionController(service: SubscriptionService) {
       requirePrincipal(request);
       const data = await service.listPaymentMethods(requireOrganizationScope(request));
       return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    deletePaymentMethod: async (request: PaymentMethodRequest, reply: FastifyReply) => {
+      const auth = requirePrincipal(request);
+      const scope = requireOrganizationScope(request);
+      const card = await service.deletePaymentMethod({
+        scope,
+        payment_method_id: request.params.payment_method_id,
+      });
+      await recordPaymentMethodAuditEvent({
+        request,
+        auth,
+        organizationPublicId: scope.organizationPublicId,
+        action: 'billing.payment_method.delete',
+        card,
+      });
+      return reply.code(204).send();
+    },
+    setDefaultPaymentMethod: async (request: PaymentMethodRequest, _reply: FastifyReply) => {
+      const auth = requirePrincipal(request);
+      const scope = requireOrganizationScope(request);
+      const { card, payment_methods } = await service.setDefaultPaymentMethod({
+        scope,
+        payment_method_id: request.params.payment_method_id,
+        idempotencyKey: readIdempotencyKey(request),
+      });
+      await recordPaymentMethodAuditEvent({
+        request,
+        auth,
+        organizationPublicId: scope.organizationPublicId,
+        action: 'billing.payment_method.set_default',
+        card,
+      });
+      return successResponse({ data: payment_methods, request_id: getRequestIdentifier(request) });
     },
     createPaymentMethodSetup: async (request: FastifyRequest, _reply: FastifyReply) => {
       requirePrincipal(request);

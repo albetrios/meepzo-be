@@ -4,6 +4,7 @@ import { env } from '@/shared/config/env.config.js';
 import { PAGINATION } from '@/shared/constants/pagination.constants.js';
 import { buildOutboundCallOptions, outboundCall } from '@/infrastructure/outbound/index.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
+import { isStripeResourceMissing } from '@/infrastructure/payment/stripe-error.util.js';
 
 /** Pinned Stripe API version — bump deliberately and verify against Stripe's changelog. */
 const STRIPE_API_VERSION = '2026-09-30.endive';
@@ -677,6 +678,114 @@ export async function retrieveStripeCustomerDefaultPaymentMethodId({
         const defaultPm = customer.invoice_settings?.default_payment_method;
         if (!defaultPm) return null;
         return typeof defaultPm === 'string' ? defaultPm : defaultPm.id;
+      },
+    }),
+  );
+}
+
+/**
+ * Retrieves one payment method by its Stripe id (`pm_…`) — the card routes' ownership check
+ * (feat-instagram-dm-sending BL20, BL21). Answers `null` when Stripe has no such payment method.
+ *
+ * @remarks
+ * - **Failure modes:** Stripe's `resource_missing` answers `null` (the caller's `404`); every other
+ *   Stripe error propagates unwrapped through {@link outboundCall}.
+ */
+export async function retrieveStripePaymentMethod({
+  paymentMethodId,
+  requestId,
+}: {
+  paymentMethodId: string;
+  requestId?: string | undefined;
+}): Promise<Stripe.PaymentMethod | null> {
+  return outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        try {
+          return await stripe.paymentMethods.retrieve(paymentMethodId);
+        } catch (error) {
+          if (isStripeResourceMissing(error)) return null;
+          throw error;
+        }
+      },
+    }),
+  );
+}
+
+/**
+ * Detaches a payment method from its customer — removing a card (feat-instagram-dm-sending BL20,
+ * route 105). Stripe clears the customer's default when the card was it.
+ */
+export async function detachStripePaymentMethod({
+  paymentMethodId,
+  options,
+}: {
+  paymentMethodId: string;
+  options?: { requestId?: string; idempotencyKey?: string } | undefined;
+}): Promise<Stripe.PaymentMethod> {
+  return outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId: options?.requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        return stripe.paymentMethods.detach(
+          paymentMethodId,
+          {},
+          options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined,
+        );
+      },
+    }),
+  );
+}
+
+/**
+ * Makes a card the default — the customer's `invoice_settings.default_payment_method` and, when the
+ * organization has a live Stripe subscription, its `default_payment_method` (feat-instagram-dm-sending
+ * BL21, route 106).
+ *
+ * @remarks
+ * - **Side effects:** one or two Stripe updates; each carries its own suffix of `idempotencyKey`, so
+ *   a retried request repeats neither. Setting the card that is already the default is harmless.
+ */
+export async function setStripeCustomerDefaultPaymentMethod(options: {
+  customerId: string;
+  subscriptionId: string | null;
+  paymentMethodId: string;
+  idempotencyKey?: string | undefined;
+  requestId?: string | undefined;
+}): Promise<void> {
+  await outboundCall(
+    buildOutboundCallOptions({
+      name: 'stripe',
+      requestId: options.requestId,
+      enforceAbortTimeout: false,
+      rethrowIf: (error) => error instanceof Stripe.errors.StripeError,
+      operation: async () => {
+        const stripe = getStripeClient();
+        const keyed = (suffix: string) =>
+          options.idempotencyKey
+            ? { idempotencyKey: `${options.idempotencyKey}:${suffix}` }
+            : undefined;
+        await stripe.customers.update(
+          options.customerId,
+          { invoice_settings: { default_payment_method: options.paymentMethodId } },
+          keyed('customer-default'),
+        );
+        if (options.subscriptionId) {
+          await stripe.subscriptions.update(
+            options.subscriptionId,
+            { default_payment_method: options.paymentMethodId },
+            keyed('subscription-default'),
+          );
+        }
       },
     }),
   );

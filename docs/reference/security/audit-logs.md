@@ -90,6 +90,8 @@ through a resolver that sees deleted organizations.
 | `billing.subscription.change_plan` | `subscription` | Plan changed (`metadata.plan_public_id` is the plan now; `is_scheduled` — a move down waiting for the period end; `scheduled_change_at`; `kept_channel_account_count`) |
 | `billing.subscription.cancel` | `subscription` | Cancellation requested |
 | `billing.subscription.resume` | `subscription` | Cancellation withdrawn |
+| `billing.payment_method.delete` | `payment_method` | A card removed from the organization's Stripe customer (WARNING; `metadata.card_brand`, `card_last_digits` — never more of the card) |
+| `billing.payment_method.set_default` | `payment_method` | A card made the default for the customer and the live subscription (WARNING; `metadata.card_brand`, `card_last_digits`) |
 
 ### Notify
 

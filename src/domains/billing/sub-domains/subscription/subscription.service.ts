@@ -17,7 +17,11 @@ import {
 } from '@/infrastructure/cache/redis-lock.util.js';
 import { addMonths } from './subscription-period.util.js';
 import { INACTIVE_SUBSCRIPTION_STATUSES } from './subscription.repository.js';
-import { PAID_TRIAL_DAYS, PLAN_ACCESS_STATE } from './subscription.constants.js';
+import {
+  CARD_REQUIRED_SUBSCRIPTION_STATUSES,
+  PAID_TRIAL_DAYS,
+  PLAN_ACCESS_STATE,
+} from './subscription.constants.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { TrialAccountRepository } from './trial-account.repository.js';
 import { SubscriptionTrialService } from './subscription-trial.service.js';
@@ -94,6 +98,7 @@ import {
   listStripeInvoices,
   listStripePaymentMethods,
   retrieveStripeCustomerDefaultPaymentMethodId,
+  retrieveStripePaymentMethod,
 } from '@/infrastructure/payment/stripe.client.js';
 
 /**
@@ -2084,10 +2089,119 @@ export class SubscriptionService {
     return { client_secret };
   }
 
+  /**
+   * Removes a card from the organization's Stripe customer (routes-final § 8.C BL20, route 105).
+   *
+   * @remarks
+   * - **Algorithm:** reads the organization's live subscription row (team-only), closes that unit of
+   *   work, then checks with Stripe that the card is the customer's; while a paid plan is on
+   *   ({@link CARD_REQUIRED_SUBSCRIPTION_STATUSES} with a Stripe subscription) it lists the customer's
+   *   cards and refuses removing the last one; then detaches it through the payment-provider port.
+   * - **Failure modes:** `422` on a personal organization; `404` when there is no customer, Stripe has
+   *   no such card or it is another customer's (no existence leak); `409 default_card_in_use`; `503`
+   *   when Stripe is down or its circuit is open.
+   * - **Side effects:** one Stripe detach. No database write.
+   * - **Notes:** answers the removed card's public shape so the controller can audit brand and last 4.
+   */
+  async deletePaymentMethod({
+    scope,
+    payment_method_id,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    payment_method_id: string;
+  }) {
+    const { context, card } = await this.requireOrganizationCard({ scope, payment_method_id });
+    const subscription = context.subscription;
+    if (
+      subscription?.provider_subscription_id &&
+      CARD_REQUIRED_SUBSCRIPTION_STATUSES.has(subscription.status)
+    ) {
+      const cards = await listStripePaymentMethods({ customerId: context.customerId });
+      if (!cards.some((other) => other.id !== payment_method_id)) {
+        throw new ConflictError('errors:defaultCardInUse').withReason('default_card_in_use');
+      }
+    }
+    await this.paymentProvider.detachPaymentMethod({ paymentMethodId: payment_method_id });
+    return BillingAccountSerializer.paymentMethod({ row: card, is_default: false });
+  }
+
+  /**
+   * Makes a card the default — the customer's and the live subscription's (routes-final § 8.C BL21,
+   * route 106) — and answers the card list.
+   *
+   * @remarks
+   * - **Algorithm:** the ownership check of {@link SubscriptionService.deletePaymentMethod}, then one
+   *   provider call that sets the customer's `invoice_settings.default_payment_method` and, when the
+   *   row has a Stripe subscription, its `default_payment_method`; then lists the cards with this one
+   *   marked default.
+   * - **Failure modes:** `422` on a personal organization; `404` as for the delete; `503` when Stripe
+   *   is down or its circuit is open.
+   * - **Side effects:** one or two Stripe updates, the client's `X-Idempotency-Key` forwarded as
+   *   Stripe's idempotency key (per organization). Repeating it for the default card is harmless.
+   */
+  async setDefaultPaymentMethod({
+    scope,
+    payment_method_id,
+    idempotencyKey,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    payment_method_id: string;
+    idempotencyKey?: string | undefined;
+  }) {
+    const { context, card } = await this.requireOrganizationCard({ scope, payment_method_id });
+    await this.paymentProvider.setDefaultPaymentMethod({
+      providerCustomerId: context.customerId,
+      providerSubscriptionId: context.subscription?.provider_subscription_id ?? null,
+      paymentMethodId: payment_method_id,
+      idempotencyKey: buildStripeIdempotencyKey({
+        operation: 'pm-default',
+        organizationPublicId: scope.organizationPublicId,
+        clientKey: idempotencyKey,
+      }),
+    });
+    const cards = await listStripePaymentMethods({ customerId: context.customerId });
+    return {
+      card: BillingAccountSerializer.paymentMethod({ row: card, is_default: true }),
+      payment_methods: BillingAccountSerializer.paymentMethods({
+        rows: cards,
+        default_payment_method_id: payment_method_id,
+      }),
+    };
+  }
+
+  /**
+   * The card routes' ownership check (BL20, BL21): the organization's customer and live subscription,
+   * and the card when it is that customer's — else `404`, the same answer for no customer, no such
+   * card and another customer's card.
+   */
+  private async requireOrganizationCard({
+    scope,
+    payment_method_id,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    payment_method_id: string;
+  }) {
+    const context = await this.resolveBillingCustomer(scope);
+    const customerId = context.customerId;
+    if (!(customerId && isStripeConfigured())) throw new NotFoundError('Payment method');
+    const card = await retrieveStripePaymentMethod({ paymentMethodId: payment_method_id });
+    const cardCustomerId = typeof card?.customer === 'string' ? card.customer : card?.customer?.id;
+    if (!card || cardCustomerId !== customerId) throw new NotFoundError('Payment method');
+    return { context: { customerId, subscription: context.subscription }, card };
+  }
+
   /** Resolves the Stripe customer id from the org's active subscription row. */
   private async resolveStripeCustomerId(
     scope: OrganizationPrincipalDatabaseScope,
   ): Promise<string | null> {
+    return (await this.resolveBillingCustomer(scope)).customerId;
+  }
+
+  /**
+   * The organization's live subscription row and its Stripe customer id, read in one unit of work
+   * (team-only — `422` on a personal organization).
+   */
+  private async resolveBillingCustomer(scope: OrganizationPrincipalDatabaseScope) {
     const organization_public_id = scope.organizationPublicId;
     return withAppDatabaseContext({
       scope,
@@ -2096,7 +2210,15 @@ export class SubscriptionService {
           await this.organizationService.requireOrganizationByPublicId(organization_public_id);
         assertTeamOrganization({ organization, capability: 'BILLING' });
         const subscription = await this.repository.findActiveByOrganization(organization.id);
-        return subscription?.provider_customer_id ?? null;
+        return {
+          customerId: subscription?.provider_customer_id ?? null,
+          subscription: subscription
+            ? {
+                status: subscription.status,
+                provider_subscription_id: subscription.provider_subscription_id,
+              }
+            : null,
+        };
       },
     });
   }

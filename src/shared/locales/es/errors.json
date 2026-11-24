@@ -79,6 +79,7 @@
     "reservedSecurityPolicyKey": "Las claves __proto__, constructor y prototype no están permitidas",
     "svgLogoNotAllowed": "No se permiten logotipos SVG",
     "securityPolicyTooManyKeys": "security_policy admite como máximo 50 claves",
+    "invalidPaymentMethodId": "Debe ser un id de tarjeta de Stripe: pm_ y de 1 a 250 letras o dígitos",
     "eachValueOnce": "Cada valor una sola vez",
     "eachCodeOnce": "Cada código una sola vez",
     "eachRoleOnce": "Cada rol una sola vez",
@@ -281,6 +282,7 @@
     "Channel connection": "Conexión de canal",
     "Ad account": "Cuenta publicitaria",
     "Notification kind": "el tipo de notificación",
+    "Payment method": "Método de pago",
     "Channel account": "Cuenta de canal"
   },
   "channelAccountAlreadyActive": "Esta cuenta ya está activa.",
@@ -299,5 +301,6 @@
   "trialAlreadyUsed": "Este espacio de trabajo, o una de sus cuentas de Instagram, ya tuvo una prueba gratuita.",
   "planHasNoTrial": "Solo un plan de pago tiene prueba gratuita.",
   "trialUsedByAccount": "Una de estas cuentas de Instagram ya tuvo una prueba gratuita, así que no puede unirse a esta.",
-  "keepChannelAccountsInvalid": "Elige solo cuentas conectadas de este espacio de trabajo, como máximo las que permite el nuevo plan, y solo al pasar a un plan menor."
+  "keepChannelAccountsInvalid": "Elige solo cuentas conectadas de este espacio de trabajo, como máximo las que permite el nuevo plan, y solo al pasar a un plan menor.",
+  "defaultCardInUse": "Es tu única tarjeta y tienes un plan de pago activo. Añade otra tarjeta antes de quitar esta."
 }

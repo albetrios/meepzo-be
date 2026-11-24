@@ -31,3 +31,22 @@ export const PAID_TRIAL_DAYS = 7;
  * sent by the plan-state check (WC-59, ROUTE row R52), once per subscription and day.
  */
 export const TRIAL_NOTICE_DAYS: readonly number[] = Object.freeze([3, 1]);
+
+/**
+ * Statuses in which the organization's paid plan needs a card on file: removing its only card is
+ * refused `409 default_card_in_use` (routes-final § 8.C BL20) — a trial too, whose end would then have
+ * nothing to charge.
+ */
+export const CARD_REQUIRED_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set([
+  'ACTIVE',
+  'PAST_DUE',
+  'UNPAID',
+  'TRIALING',
+]);
+
+/**
+ * Shape of the `{payment_method_id}` path parameter (routes-final § 8.C, P78): Stripe's card id —
+ * `pm_` and 1–250 letters and digits. A non-entity parameter (cards live only in Stripe); ownership
+ * is checked against the organization's customer.
+ */
+export const PAYMENT_METHOD_ID_PATTERN = /^pm_[A-Za-z0-9]{1,250}$/;

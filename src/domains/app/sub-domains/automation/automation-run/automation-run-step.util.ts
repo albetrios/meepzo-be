@@ -1,7 +1,7 @@
 import type {
   AutomationFollowRequestMessage,
   AutomationOpeningMessage,
-} from '@/domains/app/sub-domains/automation/automation.types.js';
+} from './automation-run-automation.repository.js';
 import {
   AUTOMATION_OPENING_MESSAGE_SKIP_WINDOW_MILLISECONDS,
   type AutomationCommentLogStep,

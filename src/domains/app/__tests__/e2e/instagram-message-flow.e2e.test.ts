@@ -207,7 +207,6 @@ describe('Instagram message flow — DMs, story replies and button clicks (e2e)'
       expect(contact.last_message_sent_at).toBeInstanceOf(Date);
       expect(contact.last_direct_message_received_at).toBeInstanceOf(Date);
       expect(await flow.automation(automation)).toMatchObject({
-        completed_run_count: 1,
         last_triggered_at: expect.any(Date),
       });
       const events = await flow.events();
@@ -284,7 +283,6 @@ describe('Instagram message flow — DMs, story replies and button clicks (e2e)'
       for (const untouched of [...Object.values(older), younger]) {
         expect(await flow.automation(untouched)).toMatchObject({
           last_triggered_at: null,
-          completed_run_count: 0,
         });
       }
     });
@@ -478,7 +476,7 @@ describe('Instagram message flow — DMs, story replies and button clicks (e2e)'
           final_message: { text: 'This story answers' },
         }),
       );
-      const anyStory = await flow.createAutomation(
+      const _anyStory = await flow.createAutomation(
         storyReplyAutomation({ name: 'Any story', final_message: { text: 'Any story answers' } }),
       );
       const youngerAnyStory = await flow.createAutomation(
@@ -515,8 +513,6 @@ describe('Instagram message flow — DMs, story replies and button clicks (e2e)'
         status: 'completed',
       });
       expect(await flow.trailOf(run)).toEqual(STRAIGHT_THROUGH_TRAIL);
-      expect(await flow.automation(thisStory)).toMatchObject({ completed_run_count: 1 });
-      expect(await flow.automation(anyStory)).toMatchObject({ completed_run_count: 2 });
       expect((await flow.contact(OTHER_PERSON)).tags).toEqual(['Any story']);
       for (const silent of [...notStoryAutomations, youngerAnyStory]) {
         expect(await flow.runsOf(silent)).toEqual([]);
@@ -632,61 +628,12 @@ describe('Instagram message flow — DMs, story replies and button clicks (e2e)'
         status: 'completed',
       });
       expect(await flow.trailOf(storyRun)).toEqual(STRAIGHT_THROUGH_TRAIL);
-      expect(await flow.automation(storyAutomation)).toMatchObject({ completed_run_count: 1 });
     });
   });
 
-  describe('the opening message outside comments', () => {
-    it.each(['dm', 'story_reply'] as const)(
-      'goes as a normal DM on a %s trigger, unless a DM went to the contact in the last 24 hours (AC-9.7)',
-      async (triggerType) => {
-        const openings = { first: 'first', within: 'second', later: 'third' };
-        const stories: Record<string, string> = {};
-        for (const keyword of Object.values(openings)) {
-          stories[keyword] = nextInstagramObjectId();
-          const opening = {
-            is_opening_message_enabled: true,
-            opening_message: { text: `Welcome, ${keyword}` },
-            final_message: { text: `Final, ${keyword}` },
-          };
-          await flow.createAutomation(
-            triggerType === 'dm'
-              ? directMessageAutomation({ ...opening, keywords: [keyword] })
-              : storyReplyAutomation({
-                  ...opening,
-                  target_scope: 'specific',
-                  target_instagram_story_id: stories[keyword],
-                }),
-          );
-        }
-        const trigger = (keyword: string) =>
-          flow.receive(
-            triggerType === 'dm'
-              ? flow.directMessage({ text: keyword })
-              : flow.storyReply({ storyId: stories[keyword] ?? '', text: 'love it' }),
-          );
-
-        const first = await trigger(openings.first);
-        const within = await trigger(openings.within);
-        await flow.ageLastSentMessage();
-        const later = await trigger(openings.later);
-
-        expect(first.map((message) => message.text)).toEqual(['Welcome, first', 'Final, first']);
-        expect(within.map((message) => message.text)).toEqual(['Final, second']);
-        expect(later.map((message) => message.text)).toEqual(['Welcome, third', 'Final, third']);
-        // Never a private reply: there is no comment to reply to.
-        for (const message of [...first, ...within, ...later]) {
-          expect(message.recipient).toEqual({ id: PERSON });
-        }
-        const runs = await flow.runs();
-        expect(runs.map((run) => [run.trigger_type, run.status])).toEqual([
-          [triggerType, 'completed'],
-          [triggerType, 'completed'],
-          [triggerType, 'completed'],
-        ]);
-      },
-    );
-  });
+  // The launch's opening message without a button (AC-9.7) has no counterpart since P2 — a hello
+  // always carries its "sends your next step" button; the rebuilt engine (ROUTE row R14) proves
+  // the hello's lanes.
 
   describe('a button click', () => {
     /** A DM automation whose flow waits for its opening button, and the payload it sent. */
@@ -733,7 +680,6 @@ describe('Instagram message flow — DMs, story replies and button clicks (e2e)'
       expect(await flow.receive(flow.buttonClick({ payload }))).toEqual([]);
 
       expect(await flow.runOf(automation)).toEqual(completed);
-      expect((await flow.automation(automation)).completed_run_count).toBe(1);
     });
 
     it('on a failed run is ignored and sends nothing (AC-9.9)', async () => {
@@ -908,7 +854,6 @@ describe('Instagram message flow — DMs, story replies and button clicks (e2e)'
         expect(await flow.latestEvent()).toMatchObject({ status: 'processed', attempt_count: 2 });
         expect(flow.instagram.calls.filter((call) => call.name === 'send_message')).toHaveLength(1);
         expect(flow.instagram.sentMessages).toEqual([]);
-        expect(await flow.automation(automation)).toMatchObject({ completed_run_count: 0 });
         expect(await flow.connectionStatus()).toBe('connected');
       },
     );

@@ -34,7 +34,6 @@ import {
   resolveKeysetSort,
 } from '@/shared/utils/http/list-query.util.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
-import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
@@ -406,8 +405,8 @@ export function segmentAutomationPublicIds(conditions: SegmentConditions): strin
  * - **Failure modes:** an audience count past {@link SEGMENT_AUDIENCE_COUNT_STATEMENT_TIMEOUT_MS} is
  *   cancelled (Postgres 57014) — the service sends it to the background; the transaction is then
  *   aborted, so the count runs in its own unit of work.
- * - **Side effects:** reads `app.channel_accounts` (the account), `app.automations` with
- *   `app.instagram_accounts` (an automation is the account's), `app.contacts`,
+ * - **Side effects:** reads `app.channel_accounts` (the account), `app.automations` (keyed by
+ *   `channel_account_id` since ROUTE row R13 — an automation is the account's), `app.contacts`,
  *   `app.contact_activities`, `app.automation_runs` and `app.automation_comment_logs` (the audience)
  *   — join-only uses inside the app domain; writes `app.segments` only.
  * - **Notes:** HTTP paths run inside the caller's `withAppDatabaseContext`.
@@ -461,17 +460,10 @@ export class BroadcastSegmentRepository {
     const rows = await this.db()
       .select({ id: automations.id, public_id: automations.public_id })
       .from(automations)
-      .innerJoin(
-        instagram_accounts,
-        and(
-          eq(instagram_accounts.organization_id, automations.organization_id),
-          eq(instagram_accounts.id, automations.instagram_account_id),
-        ),
-      )
       .where(
         and(
           eq(automations.organization_id, organizationId),
-          eq(instagram_accounts.channel_account_id, channelAccountId),
+          eq(automations.channel_account_id, channelAccountId),
           inArray(automations.public_id, [...automationPublicIds]),
         ),
       );

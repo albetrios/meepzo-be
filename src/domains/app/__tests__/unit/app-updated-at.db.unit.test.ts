@@ -6,10 +6,10 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { AutomationRepository } from '@/domains/app/sub-domains/automation/automation.repository.js';
-import type { AutomationMergedFields } from '@/domains/app/sub-domains/automation/automation.types.js';
+import type { AutomationWritableFields } from '@/domains/app/sub-domains/automation/automation.types.js';
 import {
   insertAutomation,
-  type AutomationFixtureRow,
+  type AutomationFixtureOverrides,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { AutomationCommentLogRepository } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.repository.js';
 import { AutomationRunRepository } from '@/domains/app/sub-domains/automation/automation-run/automation-run.repository.js';
@@ -81,18 +81,17 @@ describe('app tables: updated_at when the row was created after this transaction
 
   describe('automations', () => {
     const repository = new AutomationRepository();
-    const insertNew = (overrides: Partial<AutomationFixtureRow> = {}) =>
+    const insertNew = (overrides: AutomationFixtureOverrides = {}) =>
       insertAutomation({
         organizationId: organization.id,
         instagramAccountId: account.id,
         status: 'live',
         ...overrides,
       });
-    const waitingForNextPost = (endsAt: Date): Partial<AutomationFixtureRow> => ({
+    const waitingForNextPost = (startsAt: Date): AutomationFixtureOverrides => ({
       target_scope: 'next',
       next_post_status: 'waiting',
-      next_post_starts_at: new Date(endsAt.getTime() - 2 * DAY_MILLISECONDS),
-      next_post_ends_at: endsAt,
+      target_starts_at: startsAt,
     });
 
     it('edits one', async () => {
@@ -103,10 +102,12 @@ describe('app tables: updated_at when the row was created after this transaction
             organizationId: organization.id,
             automationId: automation.id,
             fields: {
-              ...(automation as unknown as AutomationMergedFields),
+              ...(automation as unknown as AutomationWritableFields),
               name: 'Edited automation',
             },
             updatedByUserId: null,
+            isStopCleared: false,
+            nextPost: { status: null, linkedAt: null },
           }),
       });
       expectNotBeforeCreation(row);
@@ -129,29 +130,16 @@ describe('app tables: updated_at when the row was created after this transaction
 
     it('links a "next post" one', async () => {
       const linked = await changeAfterInsert({
-        insert: () => insertNew(waitingForNextPost(new Date(Date.now() + DAY_MILLISECONDS))),
+        insert: () => insertNew(waitingForNextPost(new Date(Date.now() - DAY_MILLISECONDS))),
         change: () =>
           repository.linkNextPost({
             organizationId: organization.id,
-            instagramAccountPublicId: account.public_id,
+            channelAccountPublicId: account.public_id,
             instagramMediaId: '18030000000000001',
             publishedAt: new Date(),
           }),
       });
       expect(linked).toHaveLength(1);
-    });
-
-    it('expires a "next post" one', async () => {
-      const expired = await changeAfterInsert({
-        insert: () => insertNew(waitingForNextPost(new Date(Date.now() - DAY_MILLISECONDS))),
-        change: (automation) =>
-          repository.expireNextPostWindows({
-            organizationId: organization.id,
-            automationIds: [automation.id],
-            endedBefore: new Date(),
-          }),
-      });
-      expect(expired).toBe(1);
     });
   });
 

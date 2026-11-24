@@ -111,6 +111,22 @@ const CONVERSIONS: readonly Conversion[] = [
     'cascade',
     'segments_channel_account_fk',
   ),
+  // feat-instagram-dm-sending R11 (CT16): a tag event names its contact (CASCADE) and, as a copy of
+  // the contact's, its account (RESTRICT).
+  link(
+    'app.contact_tag_events',
+    'contact_id',
+    'app.contacts',
+    'cascade',
+    'contact_tag_events_contact_fk',
+  ),
+  link(
+    'app.contact_tag_events',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'contact_tag_events_channel_account_fk',
+  ),
   // launch R12 (WH16): an Instagram webhook event names its account through the composite key —
   // the channel account since feat-instagram-dm-sending R16 (§ 5.B.3), as does its event key.
   link(
@@ -127,14 +143,51 @@ const CONVERSIONS: readonly Conversion[] = [
     'cascade',
     'instagram_webhook_event_keys_channel_account_fk',
   ),
-  // launch R9 (AU27): an automation names its account through the composite key, RESTRICT — an
-  // account is revoked, never deleted.
+  // feat-instagram-dm-sending R13 (AU34, P48): an automation names its channel account through the
+  // composite key, RESTRICT — an account is revoked, never deleted; its counts and reply state name
+  // it (CASCADE), the reply state its account too (RESTRICT); the two contact keys this migration
+  // adds clear only their own column when it is purged (R10, R11).
   link(
     'app.automations',
-    'instagram_account_id',
-    'app.instagram_accounts',
+    'channel_account_id',
+    'app.channel_accounts',
     'restrict',
-    'automations_instagram_account_fk',
+    'automations_channel_account_fk',
+  ),
+  link(
+    'app.automation_counts',
+    'automation_id',
+    'app.automations',
+    'cascade',
+    'automation_counts_automation_fk',
+  ),
+  link(
+    'app.automation_reply_states',
+    'automation_id',
+    'app.automations',
+    'cascade',
+    'automation_reply_states_automation_fk',
+  ),
+  link(
+    'app.automation_reply_states',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'automation_reply_states_channel_account_fk',
+  ),
+  link(
+    'app.contacts',
+    'first_automation_id',
+    'app.automations',
+    'set null',
+    'contacts_first_automation_fk',
+  ),
+  link(
+    'app.contact_tag_events',
+    'source_automation_id',
+    'app.automations',
+    'set null',
+    'contact_tag_events_source_automation_fk',
   ),
   // launch R10 (3.B.3): a run names its automation and contact, a run event its run, a comment log
   // its automation, run and contact — each through the composite key.
@@ -243,7 +296,7 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
       ],
     ),
   );
-  const [account] = rowsOf<{ id: string }>(
+  const [_account] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(
       `INSERT INTO app.instagram_accounts (organization_id, channel_account_id, instagram_user_id, username)
        VALUES ($1, $2, $3, 'acme_shop') RETURNING id`,
@@ -265,27 +318,39 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
      VALUES ($1, $2, 'comment:composite-key', (now() AT TIME ZONE 'UTC')::date)`,
     [organization.id, Number(channelAccount?.id)],
   );
-  // One automation of the account (launch R9) — the smallest complete flow: a DM automation with
-  // a keyword, the opening message on with its text, and the final message.
+  // One draft automation of the channel account (R13), its count slot and its reply state.
   const [automation] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(
-      `INSERT INTO app.automations (public_id, organization_id, instagram_account_id, name, trigger_type, keywords, opening_message, final_message)
-     VALUES ($1, $2, $3, 'Price reply', 'dm', ARRAY['price'], '{"text":"Hi!","button_title":null}'::jsonb, '{"text":"Thanks","links":[]}'::jsonb)
+      `INSERT INTO app.automations (public_id, organization_id, channel_account_id, name, trigger_type, keywords)
+     VALUES ($1, $2, $3, 'Price reply', 'dm_keyword', ARRAY['price'])
      RETURNING id`,
-      [`aut_${String(organization.id).padStart(21, '0')}`, organization.id, Number(account?.id)],
+      [
+        `aut_${String(organization.id).padStart(21, '0')}`,
+        organization.id,
+        Number(channelAccount?.id),
+      ],
     ),
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.automation_counts (organization_id, automation_id, slot) VALUES ($1, $2, 0)`,
+    [organization.id, Number(automation?.id)],
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.automation_reply_states (organization_id, automation_id, channel_account_id) VALUES ($1, $2, $3)`,
+    [organization.id, Number(automation?.id), Number(channelAccount?.id)],
   );
   // A contact of the account, a completed run of the automation for it, the run's event and a
   // comment log (launch R10).
   const [contact] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(
-      `INSERT INTO app.contacts (public_id, organization_id, channel_account_id, instagram_user_id, first_seen_at)
-       VALUES ($1, $2, $3, $4, now()) RETURNING id`,
+      `INSERT INTO app.contacts (public_id, organization_id, channel_account_id, instagram_user_id, first_seen_at, first_automation_id)
+       VALUES ($1, $2, $3, $4, now(), $5) RETURNING id`,
       [
         `con_${String(organization.id).padStart(21, '0')}`,
         organization.id,
         Number(channelAccount?.id),
         `7${String(organization.id).padStart(15, '0')}`,
+        Number(automation?.id),
       ],
     ),
   );
@@ -309,6 +374,12 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
       organization.id,
       Number(channelAccount?.id),
     ],
+  );
+  // One tag event of the contact (R11, CT16).
+  await operatorQuery.unsafe(
+    `INSERT INTO app.contact_tag_events (organization_id, channel_account_id, contact_id, tag, kind, source, source_automation_id)
+     VALUES ($1, $2, $3, 'vip', 'added', 'automation', $4)`,
+    [organization.id, Number(channelAccount?.id), Number(contact?.id), Number(automation?.id)],
   );
   const [run] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(

@@ -27,6 +27,7 @@ import {
   readAccountContactRows,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
+  type AutomationFixtureOverrides,
   type AutomationFixtureRow,
   insertAutomation,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
@@ -120,9 +121,7 @@ const ENDED_RUN_COLUMNS = {
 
 type EndedRunStatus = keyof typeof ENDED_RUN_COLUMNS;
 
-type AutomationOverrides = Partial<
-  Omit<AutomationFixtureRow, 'id' | 'organization_id' | 'instagram_account_id'>
->;
+type AutomationOverrides = AutomationFixtureOverrides;
 
 /** Every value that names or reaches the person — none may outlive an erase or reach a log line. */
 export function personalValuesOf(person: TestInstagramPerson): string[] {
@@ -489,6 +488,11 @@ export async function writeHistory({
     WHERE id = ${contact.id}
     ON CONFLICT (organization_id, channel_account_id, tag)
     DO UPDATE SET contact_count = app.contact_tag_counts.contact_count + 1`;
+  // The tag change's event, written in the same commit (3.B, ROUTE R11).
+  await operatorQuery`
+    INSERT INTO app.contact_tag_events (organization_id, channel_account_id, contact_id, tag, kind, source)
+    SELECT organization_id, channel_account_id, id, ${`Tag of ${name}`}, 'added', 'owner'
+    FROM app.contacts WHERE id = ${contact.id}`;
   const owner = { organizationId: team.organization.id, contactId: contact.id };
   const runningRun = await insertAutomationRun({
     ...owner,
@@ -787,6 +791,14 @@ export async function writeSendingHistory(organizationId: number): Promise<void>
   await operatorQuery`
     INSERT INTO app.message_month_counts (organization_id, month_start, slot, count)
     VALUES (${organizationId}, date_trunc('month', now())::date, 0, 1)`;
+  // The automations' counts and reply pacing (feat-instagram-dm-sending R13, AU19).
+  await operatorQuery`
+    INSERT INTO app.automation_counts (organization_id, automation_id, slot, runs_started)
+    SELECT organization_id, id, 0, 1 FROM app.automations WHERE organization_id = ${organizationId}`;
+  await operatorQuery`
+    INSERT INTO app.automation_reply_states (organization_id, automation_id, channel_account_id)
+    SELECT organization_id, id, channel_account_id FROM app.automations
+    WHERE organization_id = ${organizationId}`;
 }
 
 /**

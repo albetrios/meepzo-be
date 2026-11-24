@@ -19,6 +19,8 @@ export type ForceRlsTableRef = {
  */
 export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'automation_comment_logs' },
+  { schemaName: 'app', tableName: 'automation_counts' },
+  { schemaName: 'app', tableName: 'automation_reply_states' },
   { schemaName: 'app', tableName: 'automation_run_events' },
   { schemaName: 'app', tableName: 'automation_runs' },
   { schemaName: 'app', tableName: 'automations' },
@@ -28,6 +30,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'channel_connections' },
   { schemaName: 'app', tableName: 'contact_activities' },
   { schemaName: 'app', tableName: 'contact_tag_counts' },
+  { schemaName: 'app', tableName: 'contact_tag_events' },
   { schemaName: 'app', tableName: 'contacts' },
   { schemaName: 'app', tableName: 'instagram_account_settings' },
   { schemaName: 'app', tableName: 'instagram_accounts' },

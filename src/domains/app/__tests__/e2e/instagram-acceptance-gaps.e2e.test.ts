@@ -30,9 +30,13 @@ import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i1
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { processInstagramAccountDailyCheckJob } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
+import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
+import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
+import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import {
   AUTOMATIONS_PATH,
   type AutomationFixtureRow,
+  automationActionPath,
   automationPath,
   commentAutomationBody,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
@@ -170,9 +174,16 @@ describe('Instagram acceptance across features (e2e)', () => {
         recipient: { id: person.instagramUserId },
       });
     }
-    expect(await flow.readAutomation(automation.public_id)).toMatchObject({
-      completed_run_count: 2,
+  }
+
+  /** Gives the team Creator's features — every PRO switch on (P83). */
+  async function useCreatorPlan(organizationId: number): Promise<void> {
+    const plan = await createTestPlan({
+      features: CREATOR_PLAN_FEATURES,
+      priceMonthly: '29.00',
+      priceYearly: '276.00',
     });
+    await createTestSubscription({ organizationId, planId: plan.id, status: 'ACTIVE' });
   }
 
   function errorOf(response: InjectHttpResult): { reason?: string } {
@@ -197,7 +208,7 @@ describe('Instagram acceptance across features (e2e)', () => {
         expect(await readInstagramTokenCiphertexts(flow.team.organization.id)).toEqual([]);
         expect(await readAutomationState(flow)).toEqual(before);
         expect((await flow.readAutomation(automation.public_id)).status).toBe('live');
-        expect((await flow.readAutomation(draft.public_id)).status).toBe('inactive');
+        expect((await flow.readAutomation(draft.public_id)).status).toBe('paused');
 
         // Nothing runs while no account is connected: the click reaches nobody.
         const storedEvents = await countStoredEvents(flow);
@@ -241,35 +252,31 @@ describe('Instagram acceptance across features (e2e)', () => {
       env.BILLING_READ_ONLY_ENFORCED = enforced;
     });
 
-    it('refuses the automation writes while live automations run on: waiting runs finish and a new comment starts one', async () => {
+    it('refuses go-live while live automations run on: waiting runs finish and a new comment starts one', async () => {
       const automation = await leaveTwoRunsWaiting();
       await endPaidPlanWithoutPaying(flow.team.organization.id);
       env.BILLING_READ_ONLY_ENFORCED = true;
 
+      // feat-instagram-dm-sending P10 (AU4 (1)): only go-live is refused; a draft may still be saved.
       const asOwner = { token: flow.team.ownerToken };
-      for (const refused of [
-        await injectAuthenticated(app, {
-          ...asOwner,
-          method: 'POST',
-          url: AUTOMATIONS_PATH,
-          payload: commentAutomationBody(),
-          headers: { 'x-idempotency-key': `acceptance-gaps-${randomUUID()}` },
+      const draft = await injectAuthenticated(app, {
+        ...asOwner,
+        method: 'POST',
+        url: AUTOMATIONS_PATH,
+        payload: commentAutomationBody({ channelAccountPublicId: flow.account.publicId }),
+        headers: { 'x-idempotency-key': `acceptance-gaps-${randomUUID()}` },
+      });
+      expect(draft.statusCode).toBe(200);
+      const refused = await injectAuthenticated(app, {
+        ...asOwner,
+        method: 'POST',
+        url: automationActionPath({
+          automationPublicId: (draft.json() as { data: { id: string } }).data.id,
+          action: 'go-live',
         }),
-        await injectAuthenticated(app, {
-          ...asOwner,
-          method: 'PATCH',
-          url: automationPath(automation.public_id),
-          payload: { name: 'Blocked' },
-        }),
-        await injectAuthenticated(app, {
-          ...asOwner,
-          method: 'DELETE',
-          url: `${automationPath(automation.public_id)}?reason=not_needed`,
-        }),
-      ]) {
-        expect(refused.statusCode).toBe(403);
-        expect(errorOf(refused).reason).toBe('organization_read_only');
-      }
+      });
+      expect(refused.statusCode).toBe(403);
+      expect(errorOf(refused).reason).toBe('organization_read_only');
       const read = await injectAuthenticated(app, {
         ...asOwner,
         url: automationPath(automation.public_id),
@@ -305,7 +312,6 @@ describe('Instagram acceptance across features (e2e)', () => {
       expect(await flow.readAutomation(automation.public_id)).toMatchObject({
         name: automation.name,
         status: 'live',
-        completed_run_count: 3,
         deleted_at: null,
       });
     });
@@ -320,7 +326,7 @@ describe('Instagram acceptance across features (e2e)', () => {
 
       // The edit itself moves no run.
       const inactive = await flow.readAutomation(automation.public_id);
-      expect(inactive.status).toBe('inactive');
+      expect(inactive.status).toBe('paused');
       const after = await readAutomationState(flow);
       expect({ ...after, automations: [] }).toEqual({ ...before, automations: [] });
 
@@ -349,9 +355,11 @@ describe('Instagram acceptance across features (e2e)', () => {
 
       // The open runs finish, each to its final message.
       await finishBothRuns(automation);
-      expect((await flow.readAutomation(automation.public_id)).status).toBe('inactive');
+      expect((await flow.readAutomation(automation.public_id)).status).toBe('paused');
 
-      // Live again, the very comment that started nothing starts a run.
+      // Live again (its email ask is PRO — a Creator plan, P83), the very comment that started nothing
+      // starts a run.
+      await useCreatorPlan(flow.team.organization.id);
       await flow.editAutomation({ automation, body: { status: 'live' } });
       await flow.commentAndProcess({ person: morgan, postId, text: 'guide' });
       expect(await runOfPerson({ flow, automation, person: morgan })).toMatchObject({

@@ -3,6 +3,11 @@ import { AppError } from './app.error.js';
 /** One field-level entry in a {@link ValidationError}'s `errors` array (Paddle-style validation output). */
 export interface ValidationErrorItem {
   field: string;
+  /**
+   * A stable snake_case sub-code of this one item (e.g. `plan_lacks_feature` in a
+   * `409 automation_not_ready` list) — sent as `errors[].reason` when set.
+   */
+  reason?: string;
   /** Fallback when messageKey is absent or request.t is unavailable. */
   message?: string;
   /** When set, error handler uses request.t(messageKey, messageParams) for message. */

@@ -5,6 +5,18 @@ import {
 } from '@/shared/constants/ttl.constants.js';
 
 /**
+ * Every value of `app.automation_runs.trigger_type` — the launch's three kinds the run engine still
+ * starts from (a comment, a story reply, a DM). The 15 ways of feat-instagram-dm-sending AU8 reach
+ * the engine at ROUTE row R14; until then the engine reads automations through the step view of
+ * `automation-run-automation.repository.ts` (`dm_keyword` is a `dm` here). Mirrors
+ * `chk_automation_runs_trigger_type`.
+ */
+export const AUTOMATION_RUN_TRIGGER_TYPES = ['comment', 'story_reply', 'dm'] as const;
+
+/** One value of {@link AUTOMATION_RUN_TRIGGER_TYPES}. */
+export type AutomationRunTriggerType = (typeof AUTOMATION_RUN_TRIGGER_TYPES)[number];
+
+/**
  * Every value of `app.automation_runs.status` (routes-final § 3.B.3): `running` and `waiting` are
  * open (one per automation × contact, AU17); `completed`, `failed` and `cancelled` are final.
  * Mirrors `chk_automation_runs_status`.

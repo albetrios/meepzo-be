@@ -3,62 +3,274 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
+import type { AutomationSteps } from '@/domains/app/sub-domains/automation/automation-steps.dto.js';
+import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
+import { AutomationRepository } from '@/domains/app/sub-domains/automation/automation.repository.js';
+import { AutomationService } from '@/domains/app/sub-domains/automation/automation.service.js';
+import { AutomationCountRepository } from '@/domains/app/sub-domains/automation/automation-count.repository.js';
+import { AutomationCountService } from '@/domains/app/sub-domains/automation/automation-count.service.js';
+import { AutomationReplyStateRepository } from '@/domains/app/sub-domains/automation/automation-reply-state.repository.js';
+import { AutomationReplyStateService } from '@/domains/app/sub-domains/automation/automation-reply-state.service.js';
+import type { AutomationOpenRunCancelStep } from '@/domains/app/sub-domains/automation/automation.types.js';
+import { toAutomationRunAutomation } from '@/domains/app/sub-domains/automation/automation-run/automation-run-automation.repository.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 
-/** `GET` / `POST /app/automations` (routes 11–12). */
+/** `GET` / `POST /app/automations` (routes 27–28). */
 export const AUTOMATIONS_PATH = testApiPath('/app/automations');
 
-/** `GET` / `PATCH` / `DELETE /app/automations/{automation_id}` (routes 13–15). */
+/** `GET` / `PATCH` / `DELETE /app/automations/{automation_id}` (routes 29–31). */
 export function automationPath(automationPublicId: string): string {
   return `${AUTOMATIONS_PATH}/${automationPublicId}`;
 }
 
+/** `POST /app/automations/{automation_id}/<action>` (routes 32–35). */
+export function automationActionPath({
+  automationPublicId,
+  action,
+}: {
+  automationPublicId: string;
+  action: 'go-live' | 'pause' | 'duplicate' | 'keyword-test';
+}): string {
+  return `${automationPath(automationPublicId)}/${action}`;
+}
+
+/** The launch engine's default email ask (`common:automation.emailQuestion`) — a fixture's wording when it names none. */
+const LEGACY_EMAIL_QUESTION = 'Please share your email to continue!';
+
+/** The launch engine's default phone ask (`common:automation.phoneQuestion`). */
+const LEGACY_PHONE_QUESTION = 'Please share your phone number to continue!';
+
 /** One `app.automations` row as the fixtures write and read it. */
 export type AutomationFixtureRow = typeof automations.$inferSelect;
 
-/** The smallest complete comment automation body (route 12): the opening button and the final message. */
-export function commentAutomationBody(
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
+/** The smallest steps that pass go-live for a comment: a hello with its next button, one text message. */
+export function completeAutomationSteps(overrides: Partial<AutomationSteps> = {}): AutomationSteps {
+  return {
+    hello: {
+      on: true,
+      versions: [
+        { text: 'Thanks for your comment!', buttons: [{ title: 'Send it', action: 'next' }] },
+      ],
+    },
+    messages: [
+      {
+        kind: 'text',
+        wait_minutes: 0,
+        text: 'Here you go',
+        buttons: [{ title: 'Shop', url: 'https://shop.example.com' }],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+/** The smallest draft body (route 28): a name, the account and a way to start, with complete steps. */
+export function commentAutomationBody({
+  channelAccountPublicId,
+  overrides = {},
+}: {
+  channelAccountPublicId: string;
+  overrides?: Record<string, unknown>;
+}): Record<string, unknown> {
   return {
     name: 'Comment for the link',
+    channel_account_id: channelAccountPublicId,
     trigger_type: 'comment',
-    opening_message: { text: 'Thanks for your comment!', button_title: 'Send it' },
-    final_message: {
-      text: 'Here you go',
-      links: [{ title: 'Shop', url: 'https://shop.example.com' }],
-    },
+    steps: completeAutomationSteps(),
     ...overrides,
   };
 }
 
 /**
- * Inserts one live automation through the operator; every column may be overridden. The default
- * is an inactive comment automation on any post with its opening button and final message — a
- * complete flow the table's checks accept.
+ * The launch's step fields a run-engine fixture still names (the engine reads automations through
+ * its step view until ROUTE row R14): each maps onto the shared shape's `steps`.
+ */
+export interface LegacyAutomationFixtureFields {
+  is_opening_message_enabled?: boolean;
+  opening_message?: { text: string; button_title?: string | null } | null;
+  is_follow_required?: boolean;
+  follow_request_message?: {
+    text: string;
+    following_button_title: string;
+    profile_button_title: string;
+  } | null;
+  is_email_collection_enabled?: boolean;
+  email_request_message?: { text: string } | null;
+  is_phone_collection_enabled?: boolean;
+  phone_request_message?: { text: string } | null;
+  final_message?: { text: string; links?: { title: string; url: string }[] };
+  tags?: string[];
+  is_dm_keyword_trigger_enabled?: boolean;
+  /** The launch's window start — the go-live time of a `next` automation now. */
+  next_post_starts_at?: Date | null;
+  /** Gone (P12) — ignored. */
+  next_post_ends_at?: Date | null;
+}
+
+/**
+ * The `steps` and start fields of a launch-shaped fixture: the opening message with its button is
+ * the hello (P2 — an opening without a button has no counterpart and is left out), the final
+ * message the one text message.
+ */
+function stepsFromLegacy(legacy: LegacyAutomationFixtureFields): {
+  steps: AutomationSteps;
+  alsoStartFromDm: boolean;
+} {
+  const opening =
+    legacy.is_opening_message_enabled === false
+      ? null
+      : legacy.opening_message === undefined
+        ? { text: 'Hi there', button_title: 'Send it' }
+        : legacy.opening_message;
+  const final = legacy.final_message ?? { text: 'Here you go', links: [] };
+  const finalMessage = {
+    kind: 'text' as const,
+    wait_minutes: 0,
+    text: final.text,
+    ...((final.links ?? []).length > 0 ? { buttons: final.links ?? [] } : {}),
+  };
+  const hasButton = opening !== null && (opening.button_title ?? null) !== null;
+  const steps: AutomationSteps = {
+    ...(hasButton
+      ? {
+          hello: {
+            on: true,
+            versions: [
+              {
+                text: opening.text,
+                buttons: [{ title: opening.button_title as string, action: 'next' as const }],
+              },
+            ],
+          },
+        }
+      : {}),
+    ...(legacy.is_follow_required === true && legacy.follow_request_message
+      ? { follow: { on: true, versions: [legacy.follow_request_message] } }
+      : {}),
+    ...(legacy.is_email_collection_enabled === true
+      ? {
+          email: {
+            on: true,
+            wordings: [legacy.email_request_message?.text ?? LEGACY_EMAIL_QUESTION],
+          },
+        }
+      : {}),
+    ...(legacy.is_phone_collection_enabled === true
+      ? {
+          phone: {
+            on: true,
+            wordings: [legacy.phone_request_message?.text ?? LEGACY_PHONE_QUESTION],
+          },
+        }
+      : {}),
+    messages: [finalMessage],
+    ...(legacy.tags !== undefined && legacy.tags.length > 0
+      ? { tags: { on: true, list: legacy.tags } }
+      : {}),
+  };
+  return { steps, alsoStartFromDm: legacy.is_dm_keyword_trigger_enabled === true };
+}
+
+/** The channel account of an Instagram extension row, read as the operator. */
+async function channelAccountIdOfInstagramAccount({
+  organizationId,
+  instagramAccountId,
+}: {
+  organizationId: number;
+  instagramAccountId: number;
+}): Promise<number> {
+  const [row] = await getOperatorDatabase()
+    .select({ channelAccountId: instagram_accounts.channel_account_id })
+    .from(instagram_accounts)
+    .where(
+      and(
+        eq(instagram_accounts.organization_id, organizationId),
+        eq(instagram_accounts.id, instagramAccountId),
+      ),
+    )
+    .limit(1);
+  if (row === undefined) throw new Error('automation fixture: no such Instagram account');
+  return row.channelAccountId;
+}
+
+/** Every column a fixture may set, and the launch's step fields the run-engine fixtures still name. */
+export type AutomationFixtureOverrides = LegacyAutomationFixtureFields &
+  Partial<
+    Omit<
+      AutomationFixtureRow,
+      'id' | 'organization_id' | 'channel_account_id' | 'status' | 'trigger_type'
+    >
+  > & { status?: string; trigger_type?: string };
+
+/**
+ * Inserts one automation through the operator; every column may be overridden. Name the account by
+ * `channelAccountId`, or by the Instagram extension's `instagramAccountId` (the run-engine
+ * fixtures). The default is a `draft` comment automation on any post with a hello and one text
+ * message; the launch's step fields ({@link LegacyAutomationFixtureFields}) map onto `steps`, a
+ * launch `inactive` status onto `paused`, a launch `dm` onto `dm_keyword`.
  */
 export async function insertAutomation({
   organizationId,
   instagramAccountId,
+  channelAccountId,
   ...overrides
 }: {
   organizationId: number;
-  instagramAccountId: number;
-} & Partial<
-  Omit<AutomationFixtureRow, 'id' | 'organization_id' | 'instagram_account_id'>
->): Promise<AutomationFixtureRow> {
+  instagramAccountId?: number;
+  channelAccountId?: number;
+} & AutomationFixtureOverrides): Promise<AutomationFixtureRow> {
+  const {
+    is_opening_message_enabled,
+    opening_message,
+    is_follow_required,
+    follow_request_message,
+    is_email_collection_enabled,
+    email_request_message,
+    is_phone_collection_enabled,
+    phone_request_message,
+    final_message,
+    tags,
+    is_dm_keyword_trigger_enabled,
+    next_post_starts_at,
+    next_post_ends_at: _nextPostEndsAt,
+    status,
+    trigger_type,
+    ...columns
+  } = overrides;
+  const resolvedChannelAccountId =
+    channelAccountId ??
+    (await channelAccountIdOfInstagramAccount({
+      organizationId,
+      instagramAccountId: instagramAccountId ?? 0,
+    }));
+  const legacy = stepsFromLegacy({
+    is_opening_message_enabled,
+    opening_message,
+    is_follow_required,
+    follow_request_message,
+    is_email_collection_enabled,
+    email_request_message,
+    is_phone_collection_enabled,
+    phone_request_message,
+    final_message,
+    tags,
+    is_dm_keyword_trigger_enabled,
+  } as LegacyAutomationFixtureFields);
+  const triggerType = trigger_type === 'dm' ? 'dm_keyword' : (trigger_type ?? 'comment');
   const [automation] = await getOperatorDatabase()
     .insert(automations)
     .values({
       public_id: generatePublicId('automation'),
       organization_id: organizationId,
-      instagram_account_id: instagramAccountId,
+      channel_account_id: resolvedChannelAccountId,
       name: 'Fixture automation',
-      trigger_type: 'comment',
-      opening_message: { text: 'Hi there', button_title: 'Send it' },
-      final_message: { text: 'Here you go', links: [] },
-      ...overrides,
+      trigger_type: triggerType,
+      status: status === 'inactive' ? 'paused' : (status ?? 'draft'),
+      steps: legacy.steps,
+      also_start_from: legacy.alsoStartFromDm && triggerType === 'comment' ? ['dm'] : [],
+      ...(next_post_starts_at === undefined ? {} : { target_starts_at: next_post_starts_at }),
+      ...columns,
     })
     .returning();
   if (automation === undefined) throw new Error('automation fixture insert returned no row');
@@ -104,4 +316,169 @@ export async function revokeInstagramAccount({
         inArray(channel_accounts.id, channelAccountIdOf),
       ),
     );
+}
+
+/**
+ * An automation service for the suites that only delete or link (the run engine's lock order,
+ * event processing): the real repositories, with no account, plan or later-row port — the reads
+ * those paths never make answer empty.
+ */
+export function createTestAutomationService({
+  organizationService,
+  openRunCancelSteps = [],
+}: {
+  organizationService: OrganizationService;
+  openRunCancelSteps?: readonly AutomationOpenRunCancelStep[];
+}): AutomationService {
+  return new AutomationService(
+    new AutomationRepository(),
+    new AutomationCountService(new AutomationCountRepository()),
+    new AutomationReplyStateService(new AutomationReplyStateRepository()),
+    {
+      readAutomationAccount: async () => null,
+      listChannelAccountAutomationProblems: async () => [],
+    },
+    { getPlanAccess: async () => ({ features: null }) } as never,
+    organizationService,
+    openRunCancelSteps,
+  );
+}
+
+/** The launch fields of a route body an engine-era flow test still sends. */
+const LEGACY_STEP_KEYS = [
+  'is_opening_message_enabled',
+  'opening_message',
+  'is_follow_required',
+  'follow_request_message',
+  'is_email_collection_enabled',
+  'email_request_message',
+  'is_phone_collection_enabled',
+  'phone_request_message',
+  'final_message',
+  'tags',
+] as const;
+
+/**
+ * A launch-shaped route body (the engine-era flow suites, until ROUTE row R14 rewrites them) as the
+ * shared shape's draft body: the step fields become `steps`, `dm` becomes `dm_keyword`, the DM
+ * keyword switch (on by default in the launch) becomes "also start from" DMs on a comment or story
+ * reply with keywords, and a `next` window becomes the go-live time (no end date, P12). Answers the
+ * body and whether the launch body asked for a live automation.
+ */
+export function legacyAutomationDraftBody({
+  channelAccountPublicId,
+  legacyBody,
+}: {
+  channelAccountPublicId: string;
+  legacyBody: Record<string, unknown>;
+}): { body: Record<string, unknown>; isLive: boolean } {
+  const {
+    status,
+    trigger_type,
+    is_dm_keyword_trigger_enabled,
+    next_post_starts_at: _startsAt,
+    next_post_ends_at: _endsAt,
+    ...rest
+  } = legacyBody;
+  const legacy: Record<string, unknown> = {};
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if ((LEGACY_STEP_KEYS as readonly string[]).includes(key)) legacy[key] = value;
+    else body[key] = value;
+  }
+  const triggerType =
+    trigger_type === 'dm' ? 'dm_keyword' : ((trigger_type as string) ?? 'comment');
+  const keywords = (body.keywords as string[] | undefined) ?? [];
+  const isDmAlso =
+    (triggerType === 'comment' || triggerType === 'story_reply') &&
+    is_dm_keyword_trigger_enabled !== false &&
+    keywords.length > 0;
+  return {
+    body: {
+      name: 'Comment for the link',
+      channel_account_id: channelAccountPublicId,
+      trigger_type: triggerType,
+      ...(isDmAlso ? { also_start_from: ['dm'] } : {}),
+      steps: stepsFromLegacy(legacy as LegacyAutomationFixtureFields).steps,
+      ...body,
+    },
+    isLive: status === undefined ? true : status === 'live',
+  };
+}
+
+/**
+ * A launch-shaped edit (the engine-era flow suites) as the shared routes: `status` becomes go-live or
+ * pause, the step fields are laid over the stored steps' launch view and saved as `steps`.
+ */
+export async function legacyAutomationEditRequests({
+  automationPublicId,
+  changes,
+}: {
+  automationPublicId: string;
+  changes: Record<string, unknown>;
+}): Promise<{ patch: Record<string, unknown> | null; action: 'go-live' | 'pause' | null }> {
+  const { status, ...rest } = changes;
+  const stored = await readAutomationRow(automationPublicId);
+  if (stored === undefined) throw new Error('legacy edit: no such automation');
+  const legacyChanges: Record<string, unknown> = {};
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if ((LEGACY_STEP_KEYS as readonly string[]).includes(key)) legacyChanges[key] = value;
+    else if (key !== 'next_post_starts_at' && key !== 'next_post_ends_at') patch[key] = value;
+  }
+  if (Object.keys(legacyChanges).length > 0) {
+    const view = toAutomationRunAutomation({ row: stored, instagramAccountId: 0 });
+    patch.steps = stepsFromLegacy({
+      is_opening_message_enabled: view.is_opening_message_enabled,
+      opening_message: view.opening_message,
+      is_follow_required: view.is_follow_required,
+      follow_request_message: view.follow_request_message,
+      is_email_collection_enabled: view.is_email_collection_enabled,
+      email_request_message: view.email_request_message,
+      is_phone_collection_enabled: view.is_phone_collection_enabled,
+      phone_request_message: view.phone_request_message,
+      final_message: view.final_message,
+      tags: view.tags,
+      ...legacyChanges,
+    } as LegacyAutomationFixtureFields).steps;
+  }
+  return {
+    patch: Object.keys(patch).length === 0 ? null : patch,
+    action: status === undefined ? null : status === 'live' ? 'go-live' : 'pause',
+  };
+}
+
+/**
+ * Inserts a launch-shaped automation the way the engine-era flow suites created one over route 12
+ * (until ROUTE row R14 rewrites them): {@link legacyAutomationDraftBody}'s fields written directly,
+ * `live` unless the body says otherwise (a launch `inactive` is `paused`), a `next` one waiting from
+ * its window's start (or now). The routes' own checks are proven by the route suite, not here.
+ */
+export async function insertLegacyAutomation({
+  organizationId,
+  channelAccountId,
+  channelAccountPublicId,
+  legacyBody,
+}: {
+  organizationId: number;
+  channelAccountId: number;
+  channelAccountPublicId: string;
+  legacyBody: Record<string, unknown>;
+}): Promise<AutomationFixtureRow> {
+  const { body, isLive } = legacyAutomationDraftBody({ channelAccountPublicId, legacyBody });
+  const { channel_account_id: _publicId, ...columns } = body;
+  const startsAt = legacyBody.next_post_starts_at;
+  const isNext = columns.target_scope === 'next';
+  return insertAutomation({
+    organizationId,
+    channelAccountId,
+    ...(columns as AutomationFixtureOverrides),
+    status: isLive ? 'live' : 'paused',
+    ...(isNext
+      ? {
+          target_starts_at: startsAt === undefined ? new Date() : new Date(startsAt as string),
+          next_post_status: 'waiting',
+        }
+      : {}),
+  });
 }

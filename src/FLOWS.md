@@ -626,8 +626,6 @@ sequenceDiagram
   loop each organization, its own PRINCIPAL_SCOPE.JOB
     Worker->>Engine: cancelExpiredWaitingRuns — re-check, cancelled · wait_expired, one status_changed event, log cancelled, saved automations dropped
   end
-  Scheduler->>Worker: every 15 minutes — automation-next-post-expiry
-  Worker->>DB: windows that ended unlinked → expired (scan, then each organization's scope)
   Scheduler->>Worker: 03:00 — instagram-webhook-event-retention
   Worker->>DB: events received more than 30 days ago, any status
   Scheduler->>Worker: 03:20 — automation-run-retention
@@ -815,12 +813,12 @@ sequenceDiagram
     end
   end
   Note over Worker,Engine: the person clicks, follows, answers the email or phone — the next events move the waiting run on
-  Engine->>DB: the final message went — completed, completed_run_count + 1, the tags (or the name) on the contact
+  Engine->>DB: the final message went — completed, the tags (or the name) on the contact (the all-time counts are app.automation_counts, written from ROUTE row R14)
 ```
 
 ### Side effects
 
-- `app.contacts` — created or touched by every comment, click and answer; the profile of a new one; the follow answer, the email (lowercased) and the phone (normalised) with their times; `last_message_sent_at` after every DM; the tags of a completed run. `app.instagram_media` — the post, the first time. `app.automations` — a "next post" link, `last_triggered_at`, `completed_run_count`.
+- `app.contacts` — created or touched by every comment, click and answer; the profile of a new one; the follow answer, the email (lowercased) and the phone (normalised) with their times; `last_message_sent_at` after every DM; the tags of a completed run. `app.instagram_media` — the post, the first time. `app.automations` — a "next post" link, `last_triggered_at`.
 - `app.automation_runs` — one run per chosen automation and contact, its step, wait, claim and queued automations; `app.automation_run_events` — one row per status change and per email or phone collected; `app.automation_comment_logs` — one per comment × matching automation: the chosen one with each step's status, time and error, every other match `ignored` · `comment_already_answered`.
 - Instagram: at most one public reply per comment, one private reply per comment (until the person messages the account), then DMs inside the 24-hour messaging window — each after a random pause.
 - A comment that meets a run starts none: another automation's run waiting for the email asks for it again and saves the new automation (`waiting_for_other_email`); this automation's own wait — for the email too — is `already_waiting`; `run_in_progress`; `previous_run_final`. When the email arrives each saved automation starts as its own run, in order, its email step skipped; after a `cancelled` run a new one may start.
@@ -840,7 +838,7 @@ sequenceDiagram
 
 ### Trigger
 
-A team prepares an automation before its post exists: a comment automation with `target_scope` `next` and a window (`POST` / `PATCH /api/v1/app/automations`, `iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 3.A AU9, AU15, AU27). Two triggers end its wait: **a comment** on a post published inside the window of a live, waiting automation of that Instagram account — linking is part of every comment's handling ([instagram-webhook-processing-flow](#instagram-webhook-processing-flow)), before the comment is matched ([instagram-comment-automation-flow](#instagram-comment-automation-flow)) — and **the 15-minute check** (`automation-next-post-expiry`, D9) once the window ended with no post. Built by ROUTE rows R9 and R14, proven end to end by R17 (`src/domains/app/__tests__/e2e/instagram-next-post-flow.e2e.test.ts`).
+A team prepares an automation before its post exists: a comment automation with `target_scope` `next` that goes live (`POST /api/v1/app/automations/{automation_id}/go-live`, feat-instagram-dm-sending routes-final § 4.A AU13, AU20). It waits from its go-live (`target_starts_at`) with **no end date** (P12): **a comment** on a post published at or after that time, on a live, waiting automation of that channel account, ends the wait — linking is part of every comment's handling ([instagram-webhook-processing-flow](#instagram-webhook-processing-flow)), before the comment is matched ([instagram-comment-automation-flow](#instagram-comment-automation-flow)). The 15-minute linking sweep (WC-43) lands with ROUTE row R41; the launch's expiry is gone (R13). Proven end to end by `src/domains/app/__tests__/e2e/instagram-next-post-flow.e2e.test.ts`.
 
 ### Sequence
 
@@ -852,11 +850,10 @@ sequenceDiagram
   participant Instagram as meta-graph.client
   participant Media as InstagramMediaService
   participant Engine as AutomationRunService
-  participant Expiry as automation-next-post-expiry worker
   participant DB as Postgres (schema app)
 
-  Team->>Automation: POST / PATCH /app/automations — target_scope next, both dates
-  Automation->>DB: lock AUTOMATION_NEXT_POST (per organization), the account's overlap check, waiting
+  Team->>Automation: POST /app/automations/{automation_id}/go-live — target_scope next
+  Automation->>DB: every go-live check, then live, target_starts_at now, next_post_status waiting
   Note over Team,DB: somebody comments on a post of the account
   Worker->>Media: findStoredMedia — is the post stored?
   opt not stored yet
@@ -864,20 +861,16 @@ sequenceDiagram
   end
   Worker->>Media: upsertFromInstagram — one short unit of work, in a savepoint
   Worker->>Automation: linkNextPostAutomations — the same unit, in its own savepoint
-  Automation->>DB: the same lock, then one UPDATE — every live, waiting automation of the account whose window holds published_at (its start counts, its end does not), unless one of the account's automations targets the post already → linked, the post, the time
+  Automation->>DB: lock AUTOMATION_NEXT_POST (per organization), then one UPDATE — every live, waiting automation of the account with target_starts_at <= published_at, unless one of the account's automations targets the post already → linked, the post, the time
   Worker->>Engine: startCommentRun — a just-linked automation is post-linked for this same comment, of two the older answers
-  Expiry->>DB: every 15 minutes — windows ended and still waiting, across live organizations (read only, 500 a tick)
-  loop each organization, its own PRINCIPAL_SCOPE.JOB
-    Expiry->>DB: the same WHERE again → expired
-  end
 ```
 
 ### Side effects
 
-- `app.automations` — `next_post_status` `waiting` → `linked` (with `target_instagram_media_id` and `next_post_linked_at`) or → `expired`; changing the window of an expired one puts it back to `waiting` (route 14). Both changes move `updated_at`, so a save opened before them is `409 record_changed`.
+- `app.automations` — `next_post_status` `waiting` → `linked` (with `target_instagram_media_id` and `next_post_linked_at`); it moves `updated_at`, so a save opened before it is `409 record_changed`, and a save that changes a linked one's scope or post is `409 next_post_already_linked` (route 30).
 - `app.instagram_media` — the post, stored once at its first comment, whether anything links or not; a stored one is never read from Instagram again.
-- The comment's run and logs are the [instagram-comment-automation-flow](#instagram-comment-automation-flow)'s. A `waiting` or `expired` automation answers no comment and gets no log.
-- Nobody is told (D11): no notification, email or audit entry — the list shows the new status when it is read again. Log lines `app.automation.next_post_linked` and `automation-next-post-expiry.completed` carry public ids and counts only.
+- The comment's run and logs are the [instagram-comment-automation-flow](#instagram-comment-automation-flow)'s. A `waiting` automation answers no comment and gets no log.
+- Nobody is told (D11): no notification, email or audit entry — the list shows the new status when it is read again. Log line `app.automation.next_post_linked` carries public ids only.
 
 ### Failure modes
 
@@ -938,7 +931,7 @@ The steps are a comment run's without the public reply: the opening message (a n
 
 - `app.contacts` — created or touched by every event (a new one's profile read), `email` / `phone` with their collected times, `is_following_account` with each follow read, `last_message_sent_at` after every DM, the automation's tags (or its name) when a run completes.
 - `app.automation_runs` and `app.automation_run_events` — one run per automation and contact while one is open, `last_instagram_event_key` the event that last moved it, one `status_changed` row per status change and one `email_received` / `phone_received` per answer. No `app.automation_comment_logs` row: those belong to comment runs.
-- `app.automations` — `last_triggered_at` when a run starts, `completed_run_count + 1` when one completes.
+- `app.automations` — `last_triggered_at` when a run starts (only when over 60 s old, AU19); the counts in `app.automation_counts` from ROUTE row R14.
 - Instagram — normal DMs only, never a private or public reply.
 
 ### Failure modes

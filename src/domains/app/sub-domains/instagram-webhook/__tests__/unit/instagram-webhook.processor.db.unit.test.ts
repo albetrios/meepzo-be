@@ -13,8 +13,6 @@ import { InstagramMediaRepository } from '@/domains/app/sub-domains/instagram-ac
 import { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
-import { AutomationRepository } from '@/domains/app/sub-domains/automation/automation.repository.js';
-import { AutomationService } from '@/domains/app/sub-domains/automation/automation.service.js';
 import { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
 import {
   type AutomationInstagramClient,
@@ -33,7 +31,9 @@ import {
   readAccountContactRows,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
+  type AutomationFixtureOverrides,
   type AutomationFixtureRow,
+  createTestAutomationService,
   insertAutomation,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
@@ -177,12 +177,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
         accountService as unknown as InstagramAccountService,
         { markConnectionBroken: async () => false },
       ),
-      automationService: new AutomationService(
-        new AutomationRepository(),
-        accountService as unknown as InstagramAccountService,
-        organizationService,
-        [],
-      ),
+      automationService: createTestAutomationService({ organizationService }),
       automationRunService: new AutomationRunService(
         accountService as unknown as InstagramAccountService,
         contactService,
@@ -261,11 +256,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     });
   }
 
-  function liveAutomation(
-    overrides: Partial<
-      Omit<AutomationFixtureRow, 'id' | 'organization_id' | 'instagram_account_id'>
-    >,
-  ): Promise<AutomationFixtureRow> {
+  function liveAutomation(overrides: AutomationFixtureOverrides): Promise<AutomationFixtureRow> {
     return insertAutomation({
       organizationId: organization.id,
       instagramAccountId: account.id,

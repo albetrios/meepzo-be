@@ -143,3 +143,31 @@ export interface ChannelAccountChange {
   /** The changed field's value after the write. */
   newValue: Record<string, unknown>;
 }
+
+/**
+ * A channel account as the automations read it (feat-instagram-dm-sending routes-final § 4.A — AU11,
+ * AU13 checks 2 and the private-account warning, AU17's link): its ids, channel, status, its
+ * connection's status, and the channel extension's username and privacy.
+ */
+export interface AutomationChannelAccount {
+  id: number;
+  /** `cha_…`. */
+  public_id: string;
+  channel: ChannelAccountChannel;
+  connection_status: ChannelAccountStatus;
+  /** `app.channel_connections.status` of its connection (`connected`, `error`, `revoked`). */
+  channel_connection_status: string | null;
+  /** The Instagram username (the `ig.me` link), `null` when unknown. */
+  username: string | null;
+  /** A private Instagram account gets no comment webhooks (the go-live warning). */
+  is_private: boolean;
+}
+
+/** One part an automation uses that the account's feature check refuses (AU34, CA11). */
+export interface ChannelAutomationPartProblem {
+  /** `trigger_type`, `step`, `message_kind` or `feature`. */
+  kind: 'trigger_type' | 'step' | 'message_kind' | 'feature';
+  /** The part's value (`story_repost`, `follow`, `cards`, `email_ask`). */
+  part: string;
+  reason: ChannelFeatureRefusalReason;
+}

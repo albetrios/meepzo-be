@@ -2,11 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '@/shared/config/env.config.js';
-import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
-import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
-import { createAutomationDto } from '@/domains/app/sub-domains/automation/automation.dto.js';
+import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
+import {
+  CREATOR_PLAN_FEATURES,
+  FREE_PLAN_FEATURES,
+} from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
+import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -24,28 +27,34 @@ import {
 import { insertInstagramAccount } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
   AUTOMATIONS_PATH,
+  automationActionPath,
   automationPath,
-  type AutomationFixtureRow,
   commentAutomationBody,
+  completeAutomationSteps,
   insertAutomation,
   readAutomationRow,
-  revokeInstagramAccount,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 
+/** The error body of a refusal. */
+interface ErrorBody {
+  code?: string;
+  reason?: string;
+  errors?: Array<{ field: string; reason?: string; message: string }>;
+}
+
 /**
- * Routes 11–15 of the automations (routes-final § 3.A, ROUTE R9) over HTTP: each route's success and
- * every error of 3.A.9 — the flow rules, the "next post" window and its overlap `409` (two saves at
- * once, never across two accounts), the account set at create (AU27) and kept by an edit, a copy
- * of an automation (Duplicate, 3.A.10), a stale save, a linked window, the delete's reason; the
- * list's filters, search and every sort in both directions across pages; the audit entries;
- * team-only (AU3), the Editor role on route 15, the read-only plan on the three writes with the
- * reads open (AQ8, D27), and another organization's automation (K1). The database, auth,
- * permissions, idempotency and audit are real.
+ * Routes 27–35 of the shared automations (feat-instagram-dm-sending routes-final § 4.A, ROUTE R13)
+ * over HTTP: a draft needs only a name, an account and a way to start; the list of one account with
+ * its counts; go-live's every check answered together as `409 automation_not_ready` with `errors[]`
+ * (account, plan, month, content, feature check, starter total, ref code, catch-all, files) and its
+ * warnings; the content checks and the PRO turn-on on a live save; pause keep and cancel; duplicate;
+ * delete without a reason; the keyword test; the gates, the idempotency keys, the audit entries and
+ * team-only. The database, auth, permissions, idempotency and audit are real.
  */
-describe('Automation routes (list, create, read, edit, delete)', () => {
+describe('Automation routes 27–35 (shared automations, § 4.A)', () => {
   let app: FastifyInstance;
   let team: InstagramTeamFixture;
-  let account: { id: number; public_id: string };
+  let account: { id: number; public_id: string; channel_account_id: number };
 
   beforeAll(async () => {
     ({ app } = await createTestApp());
@@ -62,18 +71,21 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
     account = await insertInstagramAccount({ organizationId: team.organization.id });
   });
 
-  const day = (daysFromNow: number) => new Date(Date.now() + daysFromNow * MILLISECONDS_PER_DAY);
+  function errorOf(response: InjectHttpResult): ErrorBody {
+    return (response.json() as { error: ErrorBody }).error;
+  }
 
-  /** An automation of the team's account, inserted directly. */
-  function automationOfTeam(
-    overrides: Partial<
-      Omit<AutomationFixtureRow, 'id' | 'organization_id' | 'instagram_account_id'>
-    > = {},
-  ): Promise<AutomationFixtureRow> {
-    return insertAutomation({
+  function dataOf<T = Record<string, unknown>>(response: InjectHttpResult): T {
+    return (response.json() as { data: T }).data;
+  }
+
+  /** Gives the team a plan with these features (Free or Creator, P83). */
+  async function usePlan(features: typeof FREE_PLAN_FEATURES): Promise<void> {
+    const plan = await createTestPlan({ features, priceMonthly: '29.00', priceYearly: '276.00' });
+    await createTestSubscription({
       organizationId: team.organization.id,
-      instagramAccountId: account.id,
-      ...overrides,
+      planId: plan.id,
+      status: 'ACTIVE',
     });
   }
 
@@ -95,18 +107,39 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
     });
   }
 
-  function read({
+  /** Saves a draft on the team's account and returns its `aut_…` id. */
+  async function createDraft(overrides: Record<string, unknown> = {}): Promise<string> {
+    const response = await create({
+      body: commentAutomationBody({ channelAccountPublicId: account.public_id, overrides }),
+    });
+    expect(response.statusCode).toBe(200);
+    return dataOf<{ id: string }>(response).id;
+  }
+
+  function action({
     automationPublicId,
+    name,
+    body,
     token = team.ownerToken,
+    idempotencyKey,
   }: {
     automationPublicId: string;
+    name: 'go-live' | 'pause' | 'duplicate' | 'keyword-test';
+    body?: unknown;
     token?: string;
+    idempotencyKey?: string;
   }): Promise<InjectHttpResult> {
     return injectAuthenticated(app, {
-      method: 'GET',
-      url: automationPath(automationPublicId),
+      method: 'POST',
+      url: automationActionPath({ automationPublicId, action: name }),
       token,
+      headers: idempotencyKey === undefined ? {} : { 'x-idempotency-key': idempotencyKey },
+      ...(body === undefined ? {} : { payload: body }),
     });
+  }
+
+  function goLive(automationPublicId: string, token = team.ownerToken) {
+    return action({ automationPublicId, name: 'go-live', token });
   }
 
   function edit({
@@ -126,1090 +159,607 @@ describe('Automation routes (list, create, read, edit, delete)', () => {
     });
   }
 
-  function remove({
-    automationPublicId,
-    query = 'reason=mistake',
-    token = team.ownerToken,
-  }: {
-    automationPublicId: string;
-    query?: string;
-    token?: string;
-  }): Promise<InjectHttpResult> {
-    return injectAuthenticated(app, {
-      method: 'DELETE',
-      url:
-        query === ''
-          ? automationPath(automationPublicId)
-          : `${automationPath(automationPublicId)}?${query}`,
-      token,
-    });
-  }
-
-  function list({
-    token = team.ownerToken,
-    query = '',
-  }: {
-    token?: string;
-    query?: string;
-  } = {}): Promise<InjectHttpResult> {
+  function read(automationPublicId: string, token = team.ownerToken) {
     return injectAuthenticated(app, {
       method: 'GET',
-      url: query === '' ? AUTOMATIONS_PATH : `${AUTOMATIONS_PATH}?${query}`,
+      url: automationPath(automationPublicId),
       token,
     });
   }
 
-  type AutomationBody = Record<string, unknown> & { id: string };
-  type ListBody = {
-    data: AutomationBody[];
-    meta: {
-      pagination: {
-        per_page: number;
-        next: string | null;
-        has_more: boolean;
-        estimated_total?: number;
-      };
-    };
-  };
-
-  function dataOf(response: InjectHttpResult): AutomationBody {
-    return (response.json() as { data: AutomationBody }).data;
+  function list(query: string, token = team.ownerToken) {
+    return injectAuthenticated(app, { method: 'GET', url: `${AUTOMATIONS_PATH}?${query}`, token });
   }
 
-  function errorOf(response: InjectHttpResult): {
-    code?: string;
-    reason?: string;
-    detail?: string;
-    errors?: Array<{ field: string }>;
-  } {
-    return (response.json() as { error: Record<string, never> }).error;
-  }
-
-  function errorFields(response: InjectHttpResult): string[] {
-    return (errorOf(response).errors ?? []).map((item) => item.field);
-  }
-
-  /** The automation public ids `query` lists (one page of 100). */
-  async function listedIds(query = '', token = team.ownerToken): Promise<string[]> {
-    const response = await list({
+  function remove(automationPublicId: string, query = '', token = team.ownerToken) {
+    return injectAuthenticated(app, {
+      method: 'DELETE',
+      url: `${automationPath(automationPublicId)}${query === '' ? '' : `?${query}`}`,
       token,
-      query: query === '' ? 'limit=100' : `${query}&limit=100`,
-    });
-    expect(response.statusCode).toBe(200);
-    return (response.json() as ListBody).data.map((automation) => automation.id);
-  }
-
-  /** Every page of `query`, `limit` at a time, as one list of public ids. */
-  async function pagedIds(query: string, limit: number): Promise<string[]> {
-    const ids: string[] = [];
-    let after: string | null = null;
-    for (let page = 0; page < 20; page += 1) {
-      const cursor: string = after === null ? '' : `&after=${encodeURIComponent(after)}`;
-      const response = await list({ query: `${query}&limit=${limit}${cursor}` });
-      expect(response.statusCode).toBe(200);
-      const body = response.json() as ListBody;
-      ids.push(...body.data.map((automation) => automation.id));
-      if (!body.meta.pagination.has_more) return ids;
-      after = body.meta.pagination.next;
-    }
-    throw new Error('paging did not end');
-  }
-
-  /** A live, waiting "next post" body on the window [from, to) days from now. */
-  function nextPostBody({
-    from,
-    to,
-    keywords,
-    name = 'Next post',
-  }: {
-    from: number;
-    to: number;
-    keywords: string[];
-    name?: string;
-  }): Record<string, unknown> {
-    return commentAutomationBody({
-      name,
-      status: 'live',
-      target_scope: 'next',
-      keywords,
-      next_post_starts_at: day(from).toISOString(),
-      next_post_ends_at: day(to).toISOString(),
     });
   }
 
-  describe('POST /app/automations (route 12)', () => {
-    it('creates on the connected account, inactive, normalised, with the caller as creator and editor (AC-5.1)', async () => {
+  /** The `field: reason` pairs of a go-live refusal. */
+  function problemsOf(response: InjectHttpResult): string[] {
+    return (errorOf(response).errors ?? []).map((item) => `${item.field}: ${item.reason}`);
+  }
+
+  describe('route 28 — save a draft (AU11, AC-6.1, AC-6.26)', () => {
+    it('saves a draft on the named account and sends nothing; without a way to start it is refused', async () => {
       const response = await create({
-        body: commentAutomationBody({
-          keywords: ['  Price ', 'PRICE', 'link'],
-          tags: ['vip', 'vip', 'launch'],
-        }),
+        body: { name: 'Guide', channel_account_id: account.public_id, trigger_type: 'comment' },
       });
-
       expect(response.statusCode).toBe(200);
-      const automation = dataOf(response);
-      expect(automation).toMatchObject({
-        instagram_account_id: account.public_id,
-        name: 'Comment for the link',
-        status: 'inactive',
-        trigger_type: 'comment',
-        target_scope: 'any',
-        keywords: ['price', 'link'],
-        tags: ['vip', 'launch'],
-        is_opening_message_enabled: true,
-        opening_message: { text: 'Thanks for your comment!', button_title: 'Send it' },
-        final_message: {
-          text: 'Here you go',
-          links: [{ title: 'Shop', url: 'https://shop.example.com' }],
-        },
-        next_post_status: null,
-        completed_run_count: 0,
-        last_triggered_at: null,
-        created_by_user_id: team.owner.public_id,
-        updated_by_user_id: team.owner.public_id,
+      expect(dataOf(response)).toMatchObject({
+        status: 'draft',
+        channel: 'instagram',
+        channel_account_id: account.public_id,
+        steps: {},
+        counts: { runs_started: 0 },
       });
-      expect(automation.id).toMatch(/^aut_[a-z0-9]{21}$/);
-      expect(automation).not.toHaveProperty('deleted_at');
-      const audit = await readStagedAuditRows({
-        organizationPublicId: team.organization.public_id,
-        action: 'app.automation.create',
+      const refused = await create({
+        body: { name: 'Guide', channel_account_id: account.public_id },
       });
-      expect(audit).toEqual([
-        expect.objectContaining({
-          resource_type: 'automation',
-          metadata: expect.objectContaining({ automation_public_id: automation.id }),
-        }),
-      ]);
+      expect(refused.statusCode).toBe(400);
     });
 
-    it("creates on an error account too — it is still the organization's (AU27)", async () => {
-      await operatorQuery`UPDATE app.channel_accounts SET connection_status = 'error'
-        WHERE id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id})`;
-      const response = await create({ body: commentAutomationBody() });
-      expect(response.statusCode).toBe(200);
-      expect(dataOf(response).instagram_account_id).toBe(account.public_id);
-    });
-
-    it('answers 409 instagram_not_connected without a not-revoked account (AC-5.2)', async () => {
-      await revokeInstagramAccount({
-        organizationId: team.organization.id,
-        instagramAccountId: account.id,
-      });
-      const response = await create({ body: commentAutomationBody() });
-      expect(response.statusCode).toBe(409);
-      expect(errorOf(response).reason).toBe('instagram_not_connected');
-      // A broken body is still a 400 first.
-      const invalid = await create({ body: commentAutomationBody({ opening_message: null }) });
-      expect(invalid.statusCode).toBe(400);
-    });
-
-    it('requires X-Idempotency-Key (AC-5.3)', async () => {
-      const missing = await create({ body: commentAutomationBody(), idempotencyKey: null });
-      expect(missing.statusCode).toBe(422);
-    });
-
-    // The automation object carries `is_email_collection_enabled` and `email_request_message`: an
-    // email is personal data, not a secret (launch D40), so the create's answer is cached.
-    it('replays the first automation for the same key and body, and refuses another body (AC-5.3)', async () => {
-      const key = `automation-${randomUUID()}`;
-      const first = await create({ body: commentAutomationBody(), idempotencyKey: key });
-      const second = await create({ body: commentAutomationBody(), idempotencyKey: key });
-      expect(first.statusCode).toBe(200);
-      expect(second.statusCode).toBe(200);
-      expect(dataOf(second).id).toBe(dataOf(first).id);
-      // The same key with another body is a reused key: 422, nothing created.
-      const reused = await create({
-        body: commentAutomationBody({ name: 'Another automation' }),
-        idempotencyKey: key,
-      });
-      expect(reused.statusCode).toBe(422);
-      expect(await listedIds()).toEqual([dataOf(first).id]);
-    });
-
-    it('refuses the scope and target rules on their fields (AC-5.4)', async () => {
-      const storyNext = await create({
+    it('refuses an account of another organization (400) and a disconnected one (409)', async () => {
+      const unknown = await create({
         body: {
-          name: 'Story',
-          trigger_type: 'story_reply',
-          target_scope: 'next',
-          is_opening_message_enabled: false,
-          final_message: { text: 'Bye' },
-        },
-      });
-      expect(storyNext.statusCode).toBe(400);
-      expect(errorFields(storyNext)).toContain('body.target_scope');
-
-      const dmSpecific = await create({
-        body: {
-          name: 'DM',
-          trigger_type: 'dm',
-          target_scope: 'specific',
-          keywords: ['price'],
-          is_opening_message_enabled: false,
-          final_message: { text: 'Bye' },
-        },
-      });
-      expect(errorFields(dmSpecific)).toContain('body.target_scope');
-
-      const specificWithoutPost = await create({
-        body: commentAutomationBody({ target_scope: 'specific' }),
-      });
-      expect(errorFields(specificWithoutPost)).toEqual(['body.target_instagram_media_id']);
-
-      const mediaOnNext = await create({
-        body: {
-          ...nextPostBody({ from: 1, to: 3, keywords: ['x'] }),
-          target_instagram_media_id: '18030000000000001',
-        },
-      });
-      expect(errorFields(mediaOnNext)).toEqual(['body.target_instagram_media_id']);
-
-      const notDigits = await create({
-        body: commentAutomationBody({ target_scope: 'specific', target_instagram_media_id: 'abc' }),
-      });
-      expect(notDigits.statusCode).toBe(400);
-    });
-
-    it('a DM automation needs a keyword and the DM keyword trigger on (AC-5.5)', async () => {
-      const response = await create({
-        body: {
-          name: 'DM',
-          trigger_type: 'dm',
-          is_dm_keyword_trigger_enabled: false,
-          is_opening_message_enabled: false,
-          final_message: { text: 'Bye' },
-        },
-      });
-      expect(response.statusCode).toBe(400);
-      expect(errorFields(response).sort()).toEqual([
-        'body.is_dm_keyword_trigger_enabled',
-        'body.keywords',
-      ]);
-    });
-
-    it('public replies only on comments, with 1–20 texts (AC-5.6)', async () => {
-      const onStory = await create({
-        body: {
-          name: 'Story',
-          trigger_type: 'story_reply',
-          is_public_reply_enabled: true,
-          public_reply_texts: ['Thanks'],
-          is_opening_message_enabled: false,
-          final_message: { text: 'Bye' },
-        },
-      });
-      expect(errorFields(onStory)).toEqual(['body.is_public_reply_enabled']);
-      const withoutTexts = await create({
-        body: commentAutomationBody({ is_public_reply_enabled: true }),
-      });
-      expect(errorFields(withoutTexts)).toEqual(['body.public_reply_texts']);
-    });
-
-    it('public replies: a DM automation, 21 texts and a text over 300 characters are refused; 20 texts are kept (AC-5.6)', async () => {
-      const replyTexts = (count: number) =>
-        Array.from({ length: count }, (_text, index) => `Sent, reply ${index}`);
-      const withReplyTexts = (texts: string[]) =>
-        commentAutomationBody({ is_public_reply_enabled: true, public_reply_texts: texts });
-
-      const onDirectMessage = await create({
-        body: {
-          name: 'DM',
-          trigger_type: 'dm',
-          keywords: ['price'],
-          is_public_reply_enabled: true,
-          public_reply_texts: ['Thanks'],
-          is_opening_message_enabled: false,
-          final_message: { text: 'Bye' },
-        },
-      });
-      expect(onDirectMessage.statusCode).toBe(400);
-      expect(errorFields(onDirectMessage)).toEqual(['body.is_public_reply_enabled']);
-
-      const tooMany = await create({ body: withReplyTexts(replyTexts(21)) });
-      expect(tooMany.statusCode).toBe(400);
-      expect(errorFields(tooMany)).toEqual(['body.public_reply_texts']);
-      const tooLong = await create({ body: withReplyTexts(['Sent', 'x'.repeat(301)]) });
-      expect(tooLong.statusCode).toBe(400);
-      expect(errorFields(tooLong)).toEqual(['body.public_reply_texts/1']);
-      expect(await listedIds()).toEqual([]);
-
-      const atTheLimit = await create({ body: withReplyTexts(replyTexts(20)) });
-      expect(atTheLimit.statusCode).toBe(200);
-      expect(dataOf(atTheLimit).public_reply_texts).toEqual(replyTexts(20));
-      // An edit is refused the same way, and the stored texts stay.
-      const edited = await edit({
-        automationPublicId: dataOf(atTheLimit).id,
-        body: { public_reply_texts: replyTexts(21) },
-      });
-      expect(edited.statusCode).toBe(400);
-      expect(errorFields(edited)).toEqual(['body.public_reply_texts']);
-      expect((await readAutomationRow(dataOf(atTheLimit).id))?.public_reply_texts).toEqual(
-        replyTexts(20),
-      );
-    });
-
-    it("needs the final message and each enabled step's message, one item each (AC-5.7)", async () => {
-      const withoutFinal = await create({
-        body: {
-          name: 'X',
+          name: 'G',
+          channel_account_id: generatePublicId('channelAccount'),
           trigger_type: 'comment',
-          opening_message: { text: 'Hi', button_title: 'Go' },
         },
       });
-      expect(withoutFinal.statusCode).toBe(400);
-      expect(errorFields(withoutFinal)).toContain('body.final_message');
-
-      const missingSteps = await create({
-        body: commentAutomationBody({ opening_message: null, is_follow_required: true }),
+      expect(unknown.statusCode).toBe(400);
+      expect(errorOf(unknown).errors?.[0]?.field).toBe('channel_account_id');
+      const revoked = await insertInstagramAccount({
+        organizationId: team.organization.id,
+        connectionStatus: 'revoked',
       });
-      expect(errorFields(missingSteps).sort()).toEqual([
-        'body.follow_request_message',
-        'body.opening_message',
-      ]);
+      const disconnected = await create({
+        body: { name: 'G', channel_account_id: revoked.public_id, trigger_type: 'comment' },
+      });
+      expect(disconnected.statusCode).toBe(409);
+      expect(errorOf(disconnected).reason).toBe('instagram_not_connected');
     });
 
-    it('a comment automation with the opening message on needs a button title (AC-5.8)', async () => {
+    it('needs an idempotency key (AC-6.26)', async () => {
       const response = await create({
-        body: commentAutomationBody({ opening_message: { text: 'Hi', button_title: null } }),
+        body: commentAutomationBody({ channelAccountPublicId: account.public_id }),
+        idempotencyKey: null,
       });
-      expect(errorFields(response)).toEqual(['body.opening_message.button_title']);
+      expect(response.statusCode).toBe(422);
     });
 
-    it('refuses each "next post" date rule with its own message (AC-5.9)', async () => {
-      const cases: Array<[Record<string, unknown>, string]> = [
-        [
-          { next_post_starts_at: null, next_post_ends_at: day(2).toISOString() },
-          'body.next_post_starts_at',
-        ],
-        [
-          { next_post_starts_at: day(2).toISOString(), next_post_ends_at: day(1).toISOString() },
-          'body.next_post_ends_at',
-        ],
-        [
-          { next_post_starts_at: day(-2).toISOString(), next_post_ends_at: day(2).toISOString() },
-          'body.next_post_starts_at',
-        ],
-        [
-          {
-            next_post_starts_at: day(-0.5).toISOString(),
-            next_post_ends_at: day(-0.1).toISOString(),
-          },
-          'body.next_post_ends_at',
-        ],
-      ];
-      for (const [window, field] of cases) {
-        const response = await create({
-          body: { ...nextPostBody({ from: 1, to: 2, keywords: ['x'] }), ...window },
-        });
-        expect(response.statusCode, JSON.stringify(window)).toBe(400);
-        expect(errorFields(response)).toEqual([field]);
-      }
-      const invalid = await create({
-        body: { ...nextPostBody({ from: 1, to: 2, keywords: ['x'] }), next_post_ends_at: 'soon' },
+    it('gives a link automation a free link name and refuses one the account uses (AC-6.12)', async () => {
+      const linkId = await createDraft({ trigger_type: 'ref_link' });
+      const linkRow = await readAutomationRow(linkId);
+      expect(linkRow?.ref_code).toMatch(/^link-[A-Za-z0-9]{4}$/);
+      const clash = await create({
+        body: commentAutomationBody({
+          channelAccountPublicId: account.public_id,
+          overrides: { trigger_type: 'ref_link', ref_code: linkRow?.ref_code },
+        }),
       });
-      expect(invalid.statusCode).toBe(400);
-    });
-
-    it('refuses a read-only field and an unknown key — instagram_account_id included (AC-5.14)', async () => {
-      for (const field of ['instagram_account_id', 'completed_run_count', 'next_post_status']) {
-        const response = await create({
-          body: commentAutomationBody({ [field]: field === 'completed_run_count' ? 3 : 'x' }),
-        });
-        expect(response.statusCode, field).toBe(400);
-      }
-    });
-
-    it('has no plan limit on the number of automations (AC-5.21)', async () => {
-      for (let index = 0; index < 12; index += 1) {
-        expect(
-          (await create({ body: commentAutomationBody({ name: `A${index}` }) })).statusCode,
-        ).toBe(200);
-      }
-    });
-  });
-
-  describe('the "next post" overlap (AU9, AC-5.11)', () => {
-    it('refuses a live, waiting window that overlaps and shares a keyword, naming the other one', async () => {
-      const first = await create({
-        body: nextPostBody({ from: 1, to: 5, keywords: ['shop', 'link'], name: 'Giveaway' }),
-      });
-      expect(first.statusCode).toBe(200);
-
-      const clash = await create({ body: nextPostBody({ from: 3, to: 8, keywords: ['link'] }) });
       expect(clash.statusCode).toBe(409);
-      const error = errorOf(clash);
-      expect(error.reason).toBe('next_post_window_overlap');
-      expect(error.detail).toContain('Giveaway');
-      expect(error.detail).toContain('link');
-      expect(error.errors ?? []).toEqual([]);
-
-      // Without keywords the other side answers any comment.
-      const anyComment = await create({ body: nextPostBody({ from: 2, to: 3, keywords: [] }) });
-      expect(errorOf(anyComment).reason).toBe('next_post_window_overlap');
+      expect(errorOf(clash).reason).toBe('automation_ref_code_exists');
     });
 
-    it('allows a different keyword, a window that only touches, and an inactive draft', async () => {
-      await create({ body: nextPostBody({ from: 1, to: 5, keywords: ['shop'] }) });
+    it('starts "Reply like a person" on for a paid plan and off on Free (D59, AC-6.13)', async () => {
+      await usePlan(CREATOR_PLAN_FEATURES);
+      const paid = await read(await createDraft());
+      expect(dataOf(paid)).toMatchObject({ is_reply_like_person_enabled: true });
+    });
+  });
+
+  describe("route 27 — one account's list (AU10, AC-6.2)", () => {
+    it('needs the account, lists its automations with runs and % tapped, and totals the top bar', async () => {
+      expect((await list('')).statusCode).toBe(400);
+      const live = await insertAutomation({
+        organizationId: team.organization.id,
+        channelAccountId: account.channel_account_id,
+        status: 'live',
+        name: 'Live one',
+      });
+      await createDraft({ name: 'Draft one' });
+      await operatorQuery`
+        INSERT INTO app.automation_counts (organization_id, automation_id, slot, runs_started, taps, typed_answers)
+        VALUES (${team.organization.id}, ${live.id}, 0, 1200, 600, 12),
+               (${team.organization.id}, ${live.id}, 5, 100, 50, 1)`;
+      const response = await list(`channel_account_id=${account.public_id}&sort=name&order=asc`);
+      expect(response.statusCode).toBe(200);
+      const rows = dataOf<Array<Record<string, unknown>>>(response);
       expect(
-        (await create({ body: nextPostBody({ from: 1, to: 5, keywords: ['price'] }) })).statusCode,
-      ).toBe(200);
-      const touching = nextPostBody({ from: 5, to: 6, keywords: ['shop'] });
-      expect((await create({ body: touching })).statusCode).toBe(200);
-      const draft = { ...nextPostBody({ from: 2, to: 4, keywords: ['shop'] }), status: 'inactive' };
-      const draftResponse = await create({ body: draft });
-      expect(draftResponse.statusCode).toBe(200);
-      // The draft is checked when it turns live.
-      const goLive = await edit({
-        automationPublicId: dataOf(draftResponse).id,
-        body: { status: 'live' },
-      });
-      expect(errorOf(goLive).reason).toBe('next_post_window_overlap');
-    });
-
-    it('two saves at the same moment never both pass', async () => {
-      const responses = await Promise.all([
-        create({ body: nextPostBody({ from: 1, to: 5, keywords: ['shop'] }) }),
-        create({ body: nextPostBody({ from: 2, to: 6, keywords: ['shop'] }) }),
+        rows.map((row) => [row.name, row.status, row.runs_started, row.tapped_percent]),
+      ).toEqual([
+        ['Draft one', 'draft', 0, null],
+        ['Live one', 'live', 1300, 51],
       ]);
-      expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 409]);
-    });
-
-    it('never clashes across two Instagram accounts of the organization (AU27, D26)', async () => {
-      const onFirst = await create({ body: nextPostBody({ from: 1, to: 5, keywords: ['shop'] }) });
-      expect(onFirst.statusCode).toBe(200);
-      await revokeInstagramAccount({
-        organizationId: team.organization.id,
-        instagramAccountId: account.id,
+      expect((response.json() as { meta: { totals: unknown } }).meta.totals).toEqual({
+        live_count: 1,
+        runs_started: 1300,
       });
-      const second = await insertInstagramAccount({ organizationId: team.organization.id });
-
-      const onSecond = await create({ body: nextPostBody({ from: 1, to: 5, keywords: ['shop'] }) });
-      expect(onSecond.statusCode).toBe(200);
-      expect(dataOf(onSecond).instagram_account_id).toBe(second.public_id);
+      const drafts = await list(`channel_account_id=${account.public_id}&status=draft`);
+      expect(dataOf<unknown[]>(drafts)).toHaveLength(1);
+      const unknown = await list(`channel_account_id=${generatePublicId('channelAccount')}`);
+      expect(dataOf<unknown[]>(unknown)).toEqual([]);
     });
   });
 
-  describe('Duplicate — read one (route 13), create from it (route 12) (3.A.10, AC-5.23)', () => {
-    /**
-     * The body a Duplicate posts: every field route 12 takes, as route 13 read it — but the post of
-     * a "next post" automation, which only the server sets when it links one (AU9).
-     */
-    async function duplicateBody(automationPublicId: string): Promise<Record<string, unknown>> {
-      const response = await read({ automationPublicId });
+  describe('route 32 — go live (AU13)', () => {
+    it('goes live, writes its audit entry, and a repeat changes nothing (AU3, AC-6.27)', async () => {
+      const automationId = await createDraft();
+      const response = await goLive(automationId);
       expect(response.statusCode).toBe(200);
-      const original = dataOf(response);
-      const body: Record<string, unknown> = {};
-      for (const field of Object.keys(createAutomationDto.shape)) {
-        // The read carries every field the create takes — a copy loses none.
-        expect(original).toHaveProperty(field);
-        body[field] = original[field];
-      }
-      if (original.target_scope === 'next') delete body.target_instagram_media_id;
-      return body;
-    }
-
-    /** The team leaves its Instagram account for another one, which is the account connected now. */
-    async function switchAccount(): Promise<{ id: number; public_id: string }> {
-      await revokeInstagramAccount({
-        organizationId: team.organization.id,
-        instagramAccountId: account.id,
-      });
-      return insertInstagramAccount({ organizationId: team.organization.id });
-    }
-
-    it("copies every field onto the account connected now — not the original's, nor its counters", async () => {
-      const original = await automationOfTeam({
-        name: 'Spring guide',
-        status: 'live',
-        target_scope: 'specific',
-        target_instagram_media_id: '18030000000000021',
-        keywords: ['guide', 'link'],
-        tags: ['spring'],
-        is_dm_keyword_trigger_enabled: false,
-        is_public_reply_enabled: true,
-        public_reply_texts: ['Sent!', 'Check your DMs'],
-        is_follow_required: true,
-        follow_request_message: {
-          text: 'Follow us first',
-          following_button_title: "I'm following",
-          profile_button_title: 'Profile',
-        },
-        is_email_collection_enabled: true,
-        email_request_message: { text: 'Your email?' },
-        is_phone_collection_enabled: true,
-        phone_request_message: { text: 'Your phone?' },
-        final_message: {
-          text: 'Here you go',
-          links: [{ title: 'Shop', url: 'https://shop.example.com' }],
-        },
-        completed_run_count: 7,
-        last_triggered_at: day(-1),
-      });
-      const connectedNow = await switchAccount();
-      const body = await duplicateBody(original.public_id);
-
-      const response = await create({ body, token: team.editorToken });
-
-      expect(response.statusCode, response.body).toBe(200);
-      const copy = dataOf(response);
-      expect(copy).toMatchObject({
-        ...body,
-        instagram_account_id: connectedNow.public_id,
-        completed_run_count: 0,
-        last_triggered_at: null,
-        created_by_user_id: team.editor.public_id,
-        updated_by_user_id: team.editor.public_id,
-      });
-      expect(copy.id).not.toBe(original.public_id);
-      expect((await readAutomationRow(copy.id))?.instagram_account_id).toBe(connectedNow.id);
-      // The original is only read: still its own account's, its counters untouched.
-      expect(await readAutomationRow(original.public_id)).toEqual(original);
-    });
-
-    it('a copy of a linked "next post" automation arrives waiting, with no post of its own', async () => {
-      const linked = await automationOfTeam({
-        name: 'Giveaway',
-        status: 'live',
-        target_scope: 'next',
-        keywords: ['gift'],
-        target_instagram_media_id: '18030000000000022',
-        next_post_starts_at: day(-0.5),
-        next_post_ends_at: day(3),
-        next_post_status: 'linked',
-        next_post_linked_at: day(-0.25),
-      });
-      const connectedNow = await switchAccount();
-      const body = await duplicateBody(linked.public_id);
-
-      const response = await create({ body });
-
-      expect(response.statusCode, response.body).toBe(200);
-      expect(dataOf(response)).toMatchObject({
-        name: 'Giveaway',
-        status: 'live',
-        target_scope: 'next',
-        keywords: ['gift'],
-        instagram_account_id: connectedNow.public_id,
-        next_post_status: 'waiting',
-        next_post_linked_at: null,
-        target_instagram_media_id: null,
-        next_post_starts_at: linked.next_post_starts_at?.toISOString(),
-        next_post_ends_at: linked.next_post_ends_at?.toISOString(),
-      });
-      expect(await readAutomationRow(linked.public_id)).toEqual(linked);
-      // Sent with the original's post it is refused: only the server links one (AU9).
-      const withPost = await create({
-        body: { ...body, target_instagram_media_id: linked.target_instagram_media_id },
-      });
-      expect(withPost.statusCode).toBe(400);
-      expect(errorFields(withPost)).toEqual(['body.target_instagram_media_id']);
-    });
-
-    it('a copied window must still pass the window rules: an ended one needs new dates, then it waits (AU9)', async () => {
-      const ended = await automationOfTeam({
-        target_scope: 'next',
-        target_instagram_media_id: '18030000000000023',
-        next_post_starts_at: day(-10),
-        next_post_ends_at: day(-3),
-        next_post_status: 'linked',
-        next_post_linked_at: day(-5),
-      });
-      const body = await duplicateBody(ended.public_id);
-
-      const asRead = await create({ body });
-      expect(asRead.statusCode).toBe(400);
-      expect(errorFields(asRead).sort()).toEqual([
-        'body.next_post_ends_at',
-        'body.next_post_starts_at',
-      ]);
-
-      const redated = await create({
-        body: {
-          ...body,
-          next_post_starts_at: day(1).toISOString(),
-          next_post_ends_at: day(4).toISOString(),
-        },
-      });
-      expect(redated.statusCode, redated.body).toBe(200);
-      expect(dataOf(redated)).toMatchObject({
-        instagram_account_id: account.public_id,
-        next_post_status: 'waiting',
-        next_post_linked_at: null,
-        target_instagram_media_id: null,
-      });
-    });
-  });
-
-  describe('GET /app/automations/{automation_id} (route 13)', () => {
-    it('reads one automation; a deleted, missing or foreign one is 404 automation_not_found (AC-5.17)', async () => {
-      const automation = await automationOfTeam({ name: 'Readable' });
-      const response = await read({ automationPublicId: automation.public_id });
-      expect(response.statusCode).toBe(200);
-      expect(dataOf(response)).toMatchObject({
-        id: automation.public_id,
-        name: 'Readable',
-        instagram_account_id: account.public_id,
-      });
-
-      const deleted = await automationOfTeam({ deleted_at: new Date(), delete_reason: 'mistake' });
-      const otherTeam = await createInstagramTeam();
-      const otherAccount = await insertInstagramAccount({
-        organizationId: otherTeam.organization.id,
-      });
-      const foreign = await insertAutomation({
-        organizationId: otherTeam.organization.id,
-        instagramAccountId: otherAccount.id,
-      });
-      for (const automationPublicId of [
-        deleted.public_id,
-        foreign.public_id,
-        generatePublicId('automation'),
-      ]) {
-        const missing = await read({ automationPublicId });
-        expect(missing.statusCode).toBe(404);
-        expect(errorOf(missing).reason).toBe('automation_not_found');
-      }
-      expect((await read({ automationPublicId: 'not-an-id' })).statusCode).toBe(400);
-    });
-  });
-
-  describe('PATCH /app/automations/{automation_id} (route 14)', () => {
-    it('edits, runs every create rule on the merged automation and keeps the account (AC-5.12)', async () => {
-      const automation = await automationOfTeam();
-      const renamed = await edit({
-        automationPublicId: automation.public_id,
-        body: { name: 'Renamed', status: 'live', keywords: ['NEW'] },
-      });
-      expect(renamed.statusCode).toBe(200);
-      expect(dataOf(renamed)).toMatchObject({
-        name: 'Renamed',
-        status: 'live',
-        keywords: ['new'],
-        instagram_account_id: account.public_id,
-        updated_by_user_id: team.owner.public_id,
-      });
-
-      const broken = await edit({
-        automationPublicId: automation.public_id,
-        body: { opening_message: { text: 'No button', button_title: null } },
-      });
-      expect(errorFields(broken)).toEqual(['body.opening_message.button_title']);
-
-      const audit = await readStagedAuditRows({
+      expect(dataOf(response)).toMatchObject({ status: 'live' });
+      const again = await goLive(automationId);
+      expect(again.statusCode).toBe(200);
+      const audits = await readStagedAuditRows({
         organizationPublicId: team.organization.public_id,
-        action: 'app.automation.update',
+        action: 'app.automation.go_live',
       });
-      expect(audit).toEqual([
-        expect.objectContaining({
-          metadata: expect.objectContaining({
-            automation_public_id: automation.public_id,
-            changed_fields: ['name', 'status', 'keywords'],
-          }),
-        }),
-      ]);
+      expect(audits).toHaveLength(1);
     });
 
-    it('refuses an empty body and every read-only field, the account included (AC-5.14)', async () => {
-      const automation = await automationOfTeam();
-      expect((await edit({ automationPublicId: automation.public_id, body: {} })).statusCode).toBe(
-        400,
+    it('lists every problem with its step and changes nothing (AC-6.3, AC-6.4)', async () => {
+      const automationId = await createDraft({
+        trigger_type: 'dm_keyword',
+        steps: {
+          hello: {
+            on: true,
+            versions: [
+              {
+                text: 'Hi',
+                buttons: [{ title: 'Shop', action: 'link', url: 'https://x.example' }],
+              },
+            ],
+          },
+          email: { on: true, wordings: [] },
+          messages: [],
+          tags: { on: true, list: [] },
+        },
+      });
+      const response = await goLive(automationId);
+      expect(response.statusCode).toBe(409);
+      expect(errorOf(response).reason).toBe('automation_not_ready');
+      expect(problemsOf(response)).toEqual(
+        expect.arrayContaining([
+          'keywords: missing',
+          'steps.hello.versions.0.buttons: next_button_missing',
+          'steps.email.wordings: count',
+          'steps.messages: count',
+          'steps.tags.list: count',
+          'features.email_ask: plan_lacks_feature',
+        ]),
       );
-      for (const body of [
-        { instagram_account_id: generatePublicId('channelAccount') },
-        { completed_run_count: 5 },
-        { last_triggered_at: new Date().toISOString() },
-        { next_post_status: 'waiting' },
-        { next_post_linked_at: new Date().toISOString() },
-      ]) {
-        expect((await edit({ automationPublicId: automation.public_id, body })).statusCode).toBe(
-          400,
-        );
-      }
+      expect((await readAutomationRow(automationId))?.status).toBe('draft');
     });
 
-    it('refuses a stale save with 409 record_changed (AC-5.15)', async () => {
-      const automation = await automationOfTeam();
-      const first = await edit({
-        automationPublicId: automation.public_id,
-        body: { name: 'First', expected_updated_at: automation.updated_at.toISOString() },
+    it('on Free, a draft with an email step saves; its go-live names the email ask (AC-6.7)', async () => {
+      await usePlan(FREE_PLAN_FEATURES);
+      const automationId = await createDraft({
+        steps: completeAutomationSteps({ email: { on: true, wordings: ['Your email?'] } }),
       });
-      expect(first.statusCode).toBe(200);
-      const stale = await edit({
-        automationPublicId: automation.public_id,
-        body: { name: 'Second', expected_updated_at: automation.updated_at.toISOString() },
-      });
-      expect(stale.statusCode).toBe(409);
-      expect(errorOf(stale).reason).toBe('record_changed');
+      const response = await goLive(automationId);
+      expect(response.statusCode).toBe(409);
+      expect(problemsOf(response)).toEqual(['features.email_ask: plan_lacks_feature']);
     });
 
-    it('a changed window waits again on an expired automation; a linked one is fixed (AC-5.13)', async () => {
-      const expired = await automationOfTeam({
-        target_scope: 'next',
-        next_post_starts_at: day(-10),
-        next_post_ends_at: day(-3),
-        next_post_status: 'expired',
-      });
-      const reopened = await edit({
-        automationPublicId: expired.public_id,
-        body: { next_post_ends_at: day(4).toISOString() },
-      });
-      expect(reopened.statusCode).toBe(200);
-      expect(dataOf(reopened).next_post_status).toBe('waiting');
-
-      const linked = await automationOfTeam({
-        target_scope: 'next',
-        target_instagram_media_id: '18030000000000009',
-        next_post_starts_at: day(-10),
-        next_post_ends_at: day(-3),
-        next_post_status: 'linked',
-        next_post_linked_at: day(-5),
-      });
-      for (const body of [
-        { next_post_ends_at: day(4).toISOString() },
-        { target_scope: 'any' },
-        { target_instagram_media_id: '18030000000000010' },
-      ]) {
-        const response = await edit({ automationPublicId: linked.public_id, body });
-        expect(response.statusCode).toBe(409);
-        expect(errorOf(response).reason).toBe('next_post_already_linked');
-      }
-      // Anything else still changes.
-      expect(
-        (await edit({ automationPublicId: linked.public_id, body: { name: 'Still linked' } }))
-          .statusCode,
-      ).toBe(200);
-    });
-
-    it('a started window may move later, never earlier (AC-5.10)', async () => {
-      const started = await automationOfTeam({
-        status: 'live',
-        target_scope: 'next',
-        next_post_starts_at: day(-0.5),
-        next_post_ends_at: day(3),
-        next_post_status: 'waiting',
-      });
-      const later = await edit({
-        automationPublicId: started.public_id,
-        body: { next_post_starts_at: day(-0.25).toISOString() },
-      });
-      expect(later.statusCode).toBe(200);
-      const earlier = await edit({
-        automationPublicId: started.public_id,
-        body: { next_post_starts_at: day(-0.75).toISOString() },
-      });
-      expect(errorFields(earlier)).toEqual(['body.next_post_starts_at']);
-    });
-
-    it("answers 404 for a deleted or another organization's automation (K1)", async () => {
-      const otherTeam = await createInstagramTeam();
-      const otherAccount = await insertInstagramAccount({
-        organizationId: otherTeam.organization.id,
-      });
-      const foreign = await insertAutomation({
-        organizationId: otherTeam.organization.id,
-        instagramAccountId: otherAccount.id,
-        name: 'Foreign',
-      });
-      const response = await edit({
-        automationPublicId: foreign.public_id,
-        body: { name: 'Taken' },
-      });
-      expect(response.statusCode).toBe(404);
-      expect(errorOf(response).reason).toBe('automation_not_found');
-      expect((await readAutomationRow(foreign.public_id))?.name).toBe('Foreign');
-    });
-  });
-
-  describe('DELETE /app/automations/{automation_id} (route 15)', () => {
-    it('soft-deletes with the reason, writes the audit entry and never lists or reads it again (AC-5.18)', async () => {
-      const automation = await automationOfTeam();
-      const response = await remove({
-        automationPublicId: automation.public_id,
-        query: 'reason=other&note=Season%20over',
-      });
-      expect(response.statusCode).toBe(204);
-      const row = await readAutomationRow(automation.public_id);
-      expect(row).toMatchObject({ delete_reason: 'other', delete_note: 'Season over' });
-      expect(row?.deleted_at).not.toBeNull();
-      expect(await listedIds()).toEqual([]);
-      expect((await read({ automationPublicId: automation.public_id })).statusCode).toBe(404);
-      expect((await remove({ automationPublicId: automation.public_id })).statusCode).toBe(404);
-
-      const audit = await readStagedAuditRows({
-        organizationPublicId: team.organization.public_id,
-        action: 'app.automation.delete',
-      });
-      expect(audit).toEqual([
-        expect.objectContaining({
-          severity: 'WARNING',
-          metadata: expect.objectContaining({
-            automation_public_id: automation.public_id,
-            delete_reason: 'other',
-            cancelled_run_count: 0,
-          }),
-        }),
+    it('lists the month limit reached and the account not connected (AC-6.8)', async () => {
+      const automationId = await createDraft();
+      await usePlan(FREE_PLAN_FEATURES);
+      await operatorQuery`
+        INSERT INTO app.message_month_counts (organization_id, month_start, slot, count)
+        VALUES (${team.organization.id}, date_trunc('month', now() AT TIME ZONE 'UTC')::date, 0, 1000),
+               (${team.organization.id}, date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata')::date, 1, 1000)
+        ON CONFLICT DO NOTHING`;
+      await operatorQuery`
+        UPDATE app.channel_accounts SET connection_status = 'error' WHERE id = ${account.channel_account_id}`;
+      const refused = await goLive(automationId);
+      expect(refused.statusCode).toBe(409);
+      expect(problemsOf(refused)).toEqual([
+        'channel_account_id: account_not_connected',
+        'channel_account_id: month_limit_reached',
       ]);
     });
 
-    it('needs a reason, and a note for other (AQ6)', async () => {
-      const automation = await automationOfTeam();
-      expect(
-        (await remove({ automationPublicId: automation.public_id, query: '' })).statusCode,
-      ).toBe(400);
-      expect(
-        (await remove({ automationPublicId: automation.public_id, query: 'reason=other' }))
-          .statusCode,
-      ).toBe(400);
-      expect(
-        (await remove({ automationPublicId: automation.public_id, query: 'reason=gone' }))
-          .statusCode,
-      ).toBe(400);
-      expect(
-        (
-          await remove({
-            automationPublicId: automation.public_id,
-            query: `reason=other&note=${'n'.repeat(281)}`,
-          })
-        ).statusCode,
-      ).toBe(400);
-    });
-
-    it("lets an Editor delete (TN1, AC-12.2), refuses a Viewer with 403 missing_permission (AC-12.3) and another organization's automation with 404 (AC-5.19)", async () => {
-      const kept = await automationOfTeam();
-      const viewerResponse = await remove({
-        automationPublicId: kept.public_id,
-        token: team.viewerToken,
+    it('refuses the Meta-tested ways and kinds with feature_not_offered (P36, AC-6.9)', async () => {
+      const repost = await createDraft({
+        trigger_type: 'story_repost',
+        steps: { messages: [{ kind: 'text', wait_minutes: 0, text: 'Hi' }] },
       });
-      expect(viewerResponse.statusCode).toBe(403);
-      expect(errorOf(viewerResponse).reason).toBe('missing_permission');
-      expect((await readAutomationRow(kept.public_id))?.deleted_at).toBeNull();
-
-      const automation = await automationOfTeam();
-      const editorResponse = await remove({
-        automationPublicId: automation.public_id,
-        token: team.editorToken,
-      });
-      expect(editorResponse.statusCode).toBe(204);
-      expect((await readAutomationRow(automation.public_id))?.deleted_at).not.toBeNull();
-
-      const otherTeam = await createInstagramTeam();
-      const otherAccount = await insertInstagramAccount({
-        organizationId: otherTeam.organization.id,
-      });
-      const foreign = await insertAutomation({
-        organizationId: otherTeam.organization.id,
-        instagramAccountId: otherAccount.id,
-      });
-      expect((await remove({ automationPublicId: foreign.public_id })).statusCode).toBe(404);
-      expect((await readAutomationRow(foreign.public_id))?.deleted_at).toBeNull();
-    });
-  });
-
-  describe('a Viewer (feat-instagram-dm-sending TN1, AC-12.3)', () => {
-    it('lists and reads, and is refused create and edit with 403 missing_permission', async () => {
-      const automation = await automationOfTeam();
-      expect(
-        (await read({ automationPublicId: automation.public_id, token: team.viewerToken }))
-          .statusCode,
-      ).toBe(200);
-      expect(await listedIds('', team.viewerToken)).toEqual([automation.public_id]);
-      for (const response of [
-        await create({ body: commentAutomationBody(), token: team.viewerToken }),
-        await edit({
-          automationPublicId: automation.public_id,
-          body: { status: 'live' },
-          token: team.viewerToken,
+      expect(problemsOf(await goLive(repost))).toEqual(['trigger_type: feature_not_offered']);
+      const cards = await createDraft({
+        steps: completeAutomationSteps({
+          messages: [{ kind: 'cards', wait_minutes: 0, cards: [{ title: 'A', subtitle: 'B' }] }],
         }),
-      ]) {
-        expect(response.statusCode).toBe(403);
-        expect(errorOf(response).reason).toBe('missing_permission');
-      }
-    });
-  });
-
-  describe('an Editor (AC-5.19, AC-12.2)', () => {
-    it('lists, reads, creates and edits', async () => {
-      const created = await create({ body: commentAutomationBody(), token: team.editorToken });
-      expect(created.statusCode).toBe(200);
-      const automationPublicId = dataOf(created).id;
-      expect((await read({ automationPublicId, token: team.editorToken })).statusCode).toBe(200);
-      expect(
-        (await edit({ automationPublicId, body: { status: 'live' }, token: team.editorToken }))
-          .statusCode,
-      ).toBe(200);
-      expect(await listedIds('', team.editorToken)).toEqual([automationPublicId]);
-    });
-  });
-
-  describe('team-only (AU3)', () => {
-    it('a personal organization: the reads 404 team_organization_required, the writes 422', async () => {
-      const personal = await createPersonalOrganizationWithInstagramCodes({
-        permissionCodes: [
-          APP_PERMISSIONS.AUTOMATION_READ,
-          APP_PERMISSIONS.AUTOMATION_CREATE,
-          APP_PERMISSIONS.AUTOMATION_UPDATE,
-          APP_PERMISSIONS.AUTOMATION_DELETE,
-        ],
       });
-      const listResponse = await list({ token: personal.token });
-      expect(listResponse.statusCode).toBe(404);
-      expect(errorOf(listResponse).reason).toBe('team_organization_required');
-      const readResponse = await read({
-        automationPublicId: generatePublicId('automation'),
-        token: personal.token,
+      expect(problemsOf(await goLive(cards))).toEqual(['steps.messages: feature_not_offered']);
+    });
+
+    it('allows one live first-message automation per account, naming the one that answers (AC-6.10)', async () => {
+      const steps = { messages: [{ kind: 'text', wait_minutes: 0, text: 'Welcome' }] };
+      const first = await createDraft({ trigger_type: 'first_message', name: 'Welcome A', steps });
+      const second = await createDraft({ trigger_type: 'first_message', name: 'Welcome B', steps });
+      expect((await goLive(first)).statusCode).toBe(200);
+      const refused = await goLive(second);
+      expect(problemsOf(refused)).toEqual(['trigger_type: catch_all_taken']);
+      expect(errorOf(refused).errors?.[0]?.message).toContain('Welcome A');
+    });
+
+    it('refuses a fifth live starter question on the account (AC-6.11)', async () => {
+      await usePlan(CREATOR_PLAN_FEATURES);
+      const steps = { messages: [{ kind: 'text', wait_minutes: 0, text: 'Hi' }] };
+      const three = await createDraft({
+        trigger_type: 'starter_question',
+        starter_questions: ['One?', 'Two?', 'Three?'],
+        steps,
       });
-      expect(errorOf(readResponse).reason).toBe('team_organization_required');
-      expect(
-        (await create({ body: commentAutomationBody(), token: personal.token })).statusCode,
-      ).toBe(422);
-      const placeholder = generatePublicId('automation');
-      expect(
-        (
-          await edit({
-            automationPublicId: placeholder,
-            body: { name: 'X' },
-            token: personal.token,
-          })
-        ).statusCode,
-      ).toBe(422);
-      expect(
-        (await remove({ automationPublicId: placeholder, token: personal.token })).statusCode,
-      ).toBe(422);
+      expect((await goLive(three)).statusCode).toBe(200);
+      const two = await createDraft({
+        trigger_type: 'starter_question',
+        starter_questions: ['Four?', 'Five?'],
+        steps,
+      });
+      expect(problemsOf(await goLive(two))).toEqual([
+        'starter_questions: starter_questions_over_limit',
+      ]);
+    });
+
+    it('refuses a file not uploaded and checked (AC-6.14, D58)', async () => {
+      const automationId = await createDraft({
+        steps: completeAutomationSteps({
+          messages: [{ kind: 'file', wait_minutes: 0, upload_id: generatePublicId('upload') }],
+        }),
+      });
+      expect(problemsOf(await goLive(automationId))).toEqual([
+        'steps.messages.0.upload_id: file_not_usable',
+      ]);
+    });
+
+    it('only warns about a shared keyword and a private account on a comment kind (AC-6.5)', async () => {
+      await insertAutomation({
+        organizationId: team.organization.id,
+        channelAccountId: account.channel_account_id,
+        status: 'live',
+        name: 'GUIDE 2',
+        keywords: ['guide'],
+      });
+      await operatorQuery`UPDATE app.instagram_accounts SET is_private = true WHERE id = ${account.id}`;
+      const automationId = await createDraft({ keywords: ['guide'] });
+      const response = await goLive(automationId);
+      expect(response.statusCode).toBe(200);
+      const warnings = (
+        response.json() as { meta: { warnings: Array<{ reason: string; detail: string }> } }
+      ).meta.warnings;
+      expect(warnings.map((warning) => warning.reason)).toEqual([
+        'keyword_shared',
+        'account_private',
+      ]);
+      expect(warnings[0]?.detail).toContain('GUIDE 2');
     });
   });
 
-  describe('a read-only plan (AQ8, D27, AC-5.20)', () => {
+  describe('a read-only plan (AU4 (1), P10, AC-6.8, AC-6.24)', () => {
     const enforced = env.BILLING_READ_ONLY_ENFORCED;
 
     afterEach(() => {
       env.BILLING_READ_ONLY_ENFORCED = enforced;
     });
 
-    it('refuses the three writes with 403 organization_read_only; the reads stay open', async () => {
-      const automation = await automationOfTeam();
+    it('refuses go-live with 403 organization_read_only; drafts, pause and delete stay open', async () => {
+      const live = await insertAutomation({
+        organizationId: team.organization.id,
+        channelAccountId: account.channel_account_id,
+        status: 'live',
+        steps: completeAutomationSteps(),
+      });
       await endPaidPlanWithoutPaying(team.organization.id);
       env.BILLING_READ_ONLY_ENFORCED = true;
 
-      for (const response of [
-        await create({ body: commentAutomationBody() }),
-        await edit({ automationPublicId: automation.public_id, body: { name: 'Blocked' } }),
-        await remove({ automationPublicId: automation.public_id }),
-      ]) {
-        expect(response.statusCode).toBe(403);
-        expect(errorOf(response).reason).toBe('organization_read_only');
-      }
-      expect((await list()).statusCode).toBe(200);
-      expect((await read({ automationPublicId: automation.public_id })).statusCode).toBe(200);
-      expect((await readAutomationRow(automation.public_id))?.name).toBe('Fixture automation');
+      const draft = await create({
+        body: commentAutomationBody({ channelAccountPublicId: account.public_id }),
+      });
+      expect(draft.statusCode).toBe(200);
+      const refused = await goLive(dataOf<{ id: string }>(draft).id);
+      expect(refused.statusCode).toBe(403);
+      expect(errorOf(refused).reason).toBe('organization_read_only');
+      const paused = await action({
+        automationPublicId: live.public_id,
+        name: 'pause',
+        body: { mode: 'keep' },
+      });
+      expect(paused.statusCode).toBe(200);
+      expect((await remove(live.public_id)).statusCode).toBe(204);
     });
   });
 
-  describe('GET /app/automations (route 11)', () => {
-    it('lists the live automations with the estimated total on the first page (AC-5.16)', async () => {
-      const first = await automationOfTeam({ name: 'First' });
-      const second = await automationOfTeam({ name: 'Second' });
-      await automationOfTeam({ deleted_at: new Date(), delete_reason: 'mistake' });
-
-      const response = await list();
-      expect(response.statusCode).toBe(200);
-      const body = response.json() as ListBody;
-      expect(body.data.map((automation) => automation.id)).toEqual([
-        second.public_id,
-        first.public_id,
-      ]);
-      expect(body.meta.pagination.estimated_total).toBe(2);
+  describe('route 30 — save content (AU12, AC-6.6)', () => {
+    it('saves anything on a draft; on a live one refuses a content problem and saves nothing', async () => {
+      const automationId = await createDraft();
+      expect(
+        (await edit({ automationPublicId: automationId, body: { steps: { messages: [] } } }))
+          .statusCode,
+      ).toBe(200);
+      await edit({ automationPublicId: automationId, body: { steps: completeAutomationSteps() } });
+      await goLive(automationId);
+      const refused = await edit({
+        automationPublicId: automationId,
+        body: { steps: { messages: [] } },
+      });
+      expect(refused.statusCode).toBe(400);
+      expect(errorOf(refused).errors?.map((item) => item.field)).toContain('body.steps.messages');
+      expect((await readAutomationRow(automationId))?.steps).toEqual(completeAutomationSteps());
     });
 
-    it('filters by status, trigger, scope, next-post status and account; searches the name (AC-5.16)', async () => {
-      const liveComment = await automationOfTeam({ status: 'live', name: 'Spring SALE link' });
-      const story = await automationOfTeam({
-        trigger_type: 'story_reply',
-        is_opening_message_enabled: false,
-        name: 'Story thanks',
-      });
-      const waiting = await automationOfTeam({
-        target_scope: 'next',
-        next_post_starts_at: day(1),
-        next_post_ends_at: day(3),
-        next_post_status: 'waiting',
-        name: 'Next one',
-      });
-
-      expect(await listedIds('status=live')).toEqual([liveComment.public_id]);
-      expect(await listedIds('trigger_type=story_reply')).toEqual([story.public_id]);
-      expect(await listedIds('target_scope=next')).toEqual([waiting.public_id]);
-      expect(await listedIds('next_post_status=waiting')).toEqual([waiting.public_id]);
-      expect(await listedIds('q=sale')).toEqual([liveComment.public_id]);
-      expect(await listedIds('q=50%25_off')).toEqual([]);
-
-      await revokeInstagramAccount({
+    it('refuses turning a PRO part on without PRO, keeps one already on, and keeps the way to start in its group', async () => {
+      await usePlan(FREE_PLAN_FEATURES);
+      const live = await insertAutomation({
         organizationId: team.organization.id,
-        instagramAccountId: account.id,
+        channelAccountId: account.channel_account_id,
+        status: 'live',
+        steps: completeAutomationSteps({ email: { on: true, wordings: ['Email?'] } }),
       });
-      const secondAccount = await insertInstagramAccount({ organizationId: team.organization.id });
-      const onSecond = await insertAutomation({
-        organizationId: team.organization.id,
-        instagramAccountId: secondAccount.id,
+      const turnOn = await edit({
+        automationPublicId: live.public_id,
+        body: {
+          steps: completeAutomationSteps({
+            email: { on: true, wordings: ['Email?'] },
+            phone: { on: true, wordings: ['Phone?'] },
+          }),
+        },
       });
-      expect(await listedIds(`instagram_account_id=${secondAccount.public_id}`)).toEqual([
-        onSecond.public_id,
-      ]);
-      expect(await listedIds(`instagram_account_id=${account.public_id}`)).toHaveLength(3);
-      expect(await listedIds(`instagram_account_id=${generatePublicId('channelAccount')}`)).toEqual(
-        [],
-      );
-      expect((await list({ query: 'instagram_account_id=con_abc' })).statusCode).toBe(400);
-      expect((await list({ query: 'search=x' })).statusCode).toBe(400);
+      expect(turnOn.statusCode).toBe(403);
+      expect(errorOf(turnOn).reason).toBe('plan_lacks_feature');
+      const keepsIt = await edit({ automationPublicId: live.public_id, body: { name: 'Renamed' } });
+      expect(keepsIt.statusCode).toBe(200);
+      expect(dataOf(keepsIt)).toMatchObject({ name: 'Renamed', pro_parts_off: ['email_ask'] });
+      const otherGroup = await edit({
+        automationPublicId: live.public_id,
+        body: { trigger_type: 'dm_keyword' },
+      });
+      expect(otherGroup.statusCode).toBe(400);
+    });
+  });
+
+  describe('routes 33 and 34 — pause and duplicate (AU14, AU15)', () => {
+    it('pause keep, then cancel sets the cut-off; a draft cannot pause; go live again from paused (AC-6.15, AC-6.16)', async () => {
+      const draft = await createDraft();
+      const refused = await action({
+        automationPublicId: draft,
+        name: 'pause',
+        body: { mode: 'keep' },
+      });
+      expect(refused.statusCode).toBe(409);
+      expect(errorOf(refused).reason).toBe('transition_not_allowed');
+      await goLive(draft);
+      const kept = await action({
+        automationPublicId: draft,
+        name: 'pause',
+        body: { mode: 'keep' },
+      });
+      expect(dataOf(kept)).toMatchObject({ status: 'paused', cancelled_before_at: null });
+      const cancelled = await action({
+        automationPublicId: draft,
+        name: 'pause',
+        body: { mode: 'cancel' },
+      });
+      expect(dataOf(cancelled)).toMatchObject({
+        status: 'paused',
+        cancelled_before_at: expect.any(String),
+      });
+      expect((await goLive(draft)).statusCode).toBe(200);
+      expect((await readAutomationRow(draft))?.status).toBe('live');
     });
 
-    describe('sorts across pages, both directions (AU13, AQ9)', () => {
-      it('created_at: newest first by default, oldest first with order=asc', async () => {
-        const rows = [];
-        for (let index = 0; index < 4; index += 1) {
-          rows.push(await automationOfTeam({ name: `A${index}`, created_at: day(-10 + index) }));
-        }
-        const oldestFirst = rows.map((row) => row.public_id);
-        expect(await pagedIds('sort=created_at', 1)).toEqual([...oldestFirst].reverse());
-        expect(await pagedIds('order=asc', 3)).toEqual(oldestFirst);
+    it('duplicates as a draft "(copy)" with counters at 0 and a new link name (AC-6.17)', async () => {
+      const source = await createDraft({
+        trigger_type: 'ref_link',
+        ref_code: 'spring',
+        name: 'Spring',
       });
+      const copy = await action({
+        automationPublicId: source,
+        name: 'duplicate',
+        idempotencyKey: randomUUID(),
+      });
+      expect(copy.statusCode).toBe(200);
+      expect(dataOf(copy)).toMatchObject({
+        name: 'Spring (copy)',
+        status: 'draft',
+        counts: { runs_started: 0 },
+        ref_code: expect.stringMatching(/^spring-[A-Za-z0-9]{4}$/),
+      });
+      const withoutKey = await action({ automationPublicId: source, name: 'duplicate' });
+      expect(withoutKey.statusCode).toBe(422);
+    });
+  });
 
-      it('name: A→Z by default, Z→A with order=desc', async () => {
-        const zed = await automationOfTeam({ name: 'Zed' });
-        const amy = await automationOfTeam({ name: 'Amy' });
-        const mia = await automationOfTeam({ name: 'Mia' });
-        expect(await pagedIds('sort=name', 1)).toEqual([amy, mia, zed].map((row) => row.public_id));
-        expect(await pagedIds('sort=name&order=desc', 2)).toEqual(
-          [zed, mia, amy].map((row) => row.public_id),
-        );
-      });
+  describe('route 31 — delete (AU16, P11, AC-6.18)', () => {
+    it('deletes without a reason; other needs a note; it is gone from list and read', async () => {
+      const automationId = await createDraft();
+      expect((await remove(automationId, 'reason=other')).statusCode).toBe(400);
+      expect((await remove(automationId)).statusCode).toBe(204);
+      expect((await read(automationId)).statusCode).toBe(404);
+      expect(dataOf<unknown[]>(await list(`channel_account_id=${account.public_id}`))).toEqual([]);
+    });
+  });
 
-      it('last_triggered_at: newest first by default, never-triggered last in both directions', async () => {
-        const never = await automationOfTeam({ name: 'Never' });
-        const old = await automationOfTeam({ last_triggered_at: day(-5) });
-        const neverToo = await automationOfTeam({ name: 'Never too' });
-        const recent = await automationOfTeam({ last_triggered_at: day(-1) });
-        const descending = [recent, old, never, neverToo].map((row) => row.public_id);
-        const ascending = [old, recent, never, neverToo].map((row) => row.public_id);
-        for (const limit of [1, 2, 3]) {
-          expect(await pagedIds('sort=last_triggered_at', limit)).toEqual(descending);
-          expect(await pagedIds('sort=last_triggered_at&order=asc', limit)).toEqual(ascending);
-        }
+  describe('route 35 — the keyword test (AU17, AC-6.20, AC-6.21)', () => {
+    it('answers the match, exact or close, and which automation answers first; it saves nothing', async () => {
+      const older = await insertAutomation({
+        organizationId: team.organization.id,
+        channelAccountId: account.channel_account_id,
+        status: 'live',
+        name: 'Older guide',
+        keywords: ['free guide'],
       });
+      const automationId = await createDraft({ keywords: ['free guide'] });
+      await goLive(automationId);
+      const close = await action({
+        automationPublicId: automationId,
+        name: 'keyword-test',
+        body: { text: 'Can I get the FREE guida please' },
+      });
+      expect(close.statusCode).toBe(200);
+      expect(dataOf(close)).toEqual({
+        is_match: false,
+        matched_keyword: 'free guide',
+        match_kind: 'close',
+        first_answering_automation: { id: older.public_id, name: 'Older guide' },
+        reason: 'other_answers_first',
+      });
+      const shortWord = await action({
+        automationPublicId: older.public_id,
+        name: 'keyword-test',
+        body: { text: 'fret guide' },
+      });
+      expect(dataOf(shortWord)).toMatchObject({ is_match: false, reason: 'no_keyword' });
+      const exact = await action({
+        automationPublicId: older.public_id,
+        name: 'keyword-test',
+        body: { text: 'the free guide' },
+      });
+      expect(dataOf(exact)).toMatchObject({ is_match: true, match_kind: 'exact', reason: null });
+    });
+  });
 
-      it('completed_run_count: most first by default, fewest first with order=asc; ties by id', async () => {
-        const five = await automationOfTeam({ completed_run_count: 5 });
-        const zero = await automationOfTeam({ completed_run_count: 0 });
-        const fiveToo = await automationOfTeam({ completed_run_count: 5 });
-        const twelve = await automationOfTeam({ completed_run_count: 12 });
-        for (const limit of [1, 2]) {
-          expect(await pagedIds('sort=completed_run_count', limit)).toEqual(
-            [twelve, five, fiveToo, zero].map((row) => row.public_id),
-          );
-          expect(await pagedIds('sort=completed_run_count&order=asc', limit)).toEqual(
-            [zero, five, fiveToo, twelve].map((row) => row.public_id),
-          );
-        }
+  describe('gates, team-only and audit (AC-6.25, AC-6.27)', () => {
+    it('lets a Viewer read and refuses every write with missing_permission; an Editor may do them all', async () => {
+      const automationId = await createDraft();
+      expect((await read(automationId, team.viewerToken)).statusCode).toBe(200);
+      const writes = [
+        create({
+          body: commentAutomationBody({ channelAccountPublicId: account.public_id }),
+          token: team.viewerToken,
+        }),
+        edit({ automationPublicId: automationId, body: { name: 'X' }, token: team.viewerToken }),
+        goLive(automationId, team.viewerToken),
+        action({
+          automationPublicId: automationId,
+          name: 'pause',
+          body: { mode: 'keep' },
+          token: team.viewerToken,
+        }),
+        action({
+          automationPublicId: automationId,
+          name: 'duplicate',
+          token: team.viewerToken,
+          idempotencyKey: randomUUID(),
+        }),
+        remove(automationId, '', team.viewerToken),
+      ];
+      for (const response of await Promise.all(writes)) {
+        expect(response.statusCode).toBe(403);
+        expect(errorOf(response).reason).toBe('missing_permission');
+      }
+      const editorDraft = await create({
+        body: commentAutomationBody({ channelAccountPublicId: account.public_id }),
+        token: team.editorToken,
       });
+      const editorId = dataOf<{ id: string }>(editorDraft).id;
+      expect(
+        (await edit({ automationPublicId: editorId, body: { name: 'E' }, token: team.editorToken }))
+          .statusCode,
+      ).toBe(200);
+      expect((await goLive(editorId, team.editorToken)).statusCode).toBe(200);
+      expect(
+        (
+          await action({
+            automationPublicId: editorId,
+            name: 'pause',
+            body: { mode: 'keep' },
+            token: team.editorToken,
+          })
+        ).statusCode,
+      ).toBe(200);
+      expect(
+        (
+          await action({
+            automationPublicId: editorId,
+            name: 'duplicate',
+            token: team.editorToken,
+            idempotencyKey: randomUUID(),
+          })
+        ).statusCode,
+      ).toBe(200);
+      expect((await remove(editorId, '', team.editorToken)).statusCode).toBe(204);
+    });
+
+    it('leaves one audit entry per create, edit, go-live, pause, duplicate and delete', async () => {
+      const automationId = await createDraft();
+      await edit({ automationPublicId: automationId, body: { name: 'Renamed' } });
+      await goLive(automationId);
+      await action({ automationPublicId: automationId, name: 'pause', body: { mode: 'cancel' } });
+      await action({
+        automationPublicId: automationId,
+        name: 'duplicate',
+        idempotencyKey: randomUUID(),
+      });
+      await remove(automationId, 'reason=duplicate');
+      for (const actionName of [
+        'app.automation.create',
+        'app.automation.update',
+        'app.automation.go_live',
+        'app.automation.pause',
+        'app.automation.duplicate',
+        'app.automation.delete',
+      ]) {
+        const rows = await readStagedAuditRows({
+          organizationPublicId: team.organization.public_id,
+          action: actionName,
+        });
+        expect(rows, actionName).toHaveLength(1);
+      }
+    });
+
+    it('is team-only: a personal organization reads 404 and writes 422', async () => {
+      const personal = await createPersonalOrganizationWithInstagramCodes({
+        permissionCodes: ['automation:read', 'automation:create'],
+      });
+      const readResponse = await list(`channel_account_id=${account.public_id}`, personal.token);
+      expect(readResponse.statusCode).toBe(404);
+      expect(errorOf(readResponse).reason).toBe('team_organization_required');
+      const write = await create({
+        body: commentAutomationBody({ channelAccountPublicId: account.public_id }),
+        token: personal.token,
+      });
+      expect(write.statusCode).toBe(422);
+    });
+
+    it("answers 404 automation_not_found for another organization's automation — read and every action, the row unchanged", async () => {
+      const other = await createInstagramTeam();
+      const otherAccount = await insertInstagramAccount({ organizationId: other.organization.id });
+      const foreign = await insertAutomation({
+        organizationId: other.organization.id,
+        channelAccountId: otherAccount.channel_account_id,
+      });
+      const response = await read(foreign.public_id);
+      expect(response.statusCode).toBe(404);
+      expect(errorOf(response).reason).toBe('automation_not_found');
+      for (const response of [
+        await goLive(foreign.public_id),
+        await action({
+          automationPublicId: foreign.public_id,
+          name: 'pause',
+          body: { mode: 'keep' },
+        }),
+        await action({
+          automationPublicId: foreign.public_id,
+          name: 'duplicate',
+          idempotencyKey: randomUUID(),
+        }),
+        await action({
+          automationPublicId: foreign.public_id,
+          name: 'keyword-test',
+          body: { text: 'price' },
+        }),
+      ]) {
+        expect(response.statusCode).toBe(404);
+        expect(errorOf(response).reason).toBe('automation_not_found');
+      }
+      expect(await readAutomationRow(foreign.public_id)).toEqual(foreign);
     });
   });
 });

@@ -13,7 +13,7 @@ import type { InstagramAccountSettingsRow } from '@/domains/app/sub-domains/inst
 import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import type { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
 import type { ContactCollectedValueResult } from '@/domains/app/sub-domains/contact/contact.types.js';
-import type { AutomationRow } from '@/domains/app/sub-domains/automation/automation.repository.js';
+import type { AutomationRunAutomationRow } from '@/domains/app/sub-domains/automation/automation-run/automation-run-automation.repository.js';
 import type {
   AutomationCommentLogInsertValues,
   AutomationCommentLogRow,
@@ -98,12 +98,15 @@ vi.mock(
   }),
 );
 
-vi.mock('@/domains/app/sub-domains/automation/automation.repository.js', () => ({
-  AutomationRepository: vi.fn(function AutomationRepositoryMock() {
-    return fakes.automations;
+vi.mock(
+  '@/domains/app/sub-domains/automation/automation-run/automation-run-automation.repository.js',
+  () => ({
+    AutomationRunAutomationRepository: vi.fn(function AutomationRunAutomationRepositoryMock() {
+      return fakes.automations;
+    }),
+    createWorkerAutomationRunAutomationRepository: vi.fn(() => fakes.automations),
   }),
-  createWorkerAutomationRepository: vi.fn(() => fakes.automations),
-}));
+);
 
 vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
   logger: { warn: loggerWarn, info: loggerInfo, error: vi.fn(), debug: vi.fn() },
@@ -140,7 +143,9 @@ const scope: OrganizationPrincipalDatabaseScope = PRINCIPAL_SCOPE.JOB({
 const instagramAccount = { organizationId: ORGANIZATION_ID, instagramAccountId: ACCOUNT_ID };
 
 /** The final message only, on a comment; every step off. */
-function automationRow(overrides: Partial<AutomationRow> = {}): AutomationRow {
+function automationRow(
+  overrides: Partial<AutomationRunAutomationRow> = {},
+): AutomationRunAutomationRow {
   return {
     id: 17,
     public_id: generatePublicId('automation'),
@@ -329,7 +334,7 @@ function createStore() {
   const rows = {
     runs: [] as AutomationRunRow[],
     commentLogs: [] as AutomationCommentLogRow[],
-    automations: [] as AutomationRow[],
+    automations: [] as AutomationRunAutomationRow[],
     /** Appended run events: `<run id>:<event type>:<status>`. */
     runEvents: [] as string[],
   };
@@ -527,7 +532,6 @@ function createStore() {
       ),
     ),
     markRunStarted: vi.fn(async () => {}),
-    incrementCompletedRunCount: vi.fn(async () => {}),
   };
   return { rows, runs, runEvents, commentLogs, automations };
 }
@@ -777,14 +781,16 @@ function click({
 }
 
 /** Adds an automation to the store. */
-function addAutomation(overrides: Partial<AutomationRow> = {}): AutomationRow {
+function addAutomation(
+  overrides: Partial<AutomationRunAutomationRow> = {},
+): AutomationRunAutomationRow {
   const automation = automationRow(overrides);
   engine.rows.automations.push(automation);
   return automation;
 }
 
 /** Adds another automation, on a keyword no test sends, whose run waits for the contact's email. */
-function addEmailFirst(): AutomationRow {
+function addEmailFirst(): AutomationRunAutomationRow {
   return addAutomation({
     id: EMAIL_FIRST_ID,
     name: 'Email first',
@@ -837,7 +843,7 @@ function sentKinds(): Array<string | undefined> {
   );
 }
 
-const queuedEntry = (automation: AutomationRow): AutomationQueuedEntry => ({
+const queuedEntry = (automation: AutomationRunAutomationRow): AutomationQueuedEntry => ({
   automation_id: automation.public_id,
   queued_at: '2026-11-21T09:00:00.000Z',
   trigger: { type: 'dm', text: 'price' },
@@ -960,7 +966,6 @@ describe('claim → send → record (AU19)', () => {
       expect(engine.contactService.addContactTags).toHaveBeenCalledWith(
         expect.objectContaining({ contactId: CONTACT_ID, tags }),
       );
-      expect(engine.store.automations.incrementCompletedRunCount).toHaveBeenCalledTimes(1);
       expect(engine.store.automations.markRunStarted).toHaveBeenCalledWith({
         organizationId: ORGANIZATION_ID,
         automationId: automation.id,
@@ -1060,7 +1065,7 @@ describe('the contact lock: an erase wins (CT8, CT9)', () => {
           waiting_for: 'opening_message_button',
           current_step: 'comment_reply',
         });
-        const automation = engine.rows.automations[1] as AutomationRow;
+        const automation = engine.rows.automations[1] as AutomationRunAutomationRow;
         return click({ automationPublicId: automation.public_id, runPublicId: run.public_id });
       },
     ],
@@ -1212,7 +1217,6 @@ describe('the contact lock: an erase wins (CT8, CT9)', () => {
     expect(run.status).toBe('cancelled');
     expect(eventTrail(run.id)).toEqual(['status_changed:running']);
     expect(engine.contactService.addContactTags).not.toHaveBeenCalled();
-    expect(engine.store.automations.incrementCompletedRunCount).not.toHaveBeenCalled();
   });
 
   it('an erase between the queued trigger and the question sends no question', async () => {
@@ -2009,7 +2013,7 @@ describe('a button click (AU16, D18)', () => {
     expect(sentKinds()).toEqual(['email_question']);
   });
 
-  it.each<[string, (automation: AutomationRow, run: AutomationRunRow) => void]>([
+  it.each<[string, (automation: AutomationRunAutomationRow, run: AutomationRunRow) => void]>([
     ['is unknown', (_automation, run) => Object.assign(run, { public_id: 'run_other' })],
     ['is another contact’s', (_automation, run) => Object.assign(run, { contact_id: 42 })],
     ['is running', (_automation, run) => Object.assign(run, { status: 'running' })],
@@ -2129,7 +2133,7 @@ describe('the lock order: the contact, the automations, the runs (AU12, D47)', (
           waiting_for: 'opening_message_button',
           current_step: 'comment_reply',
         });
-        const automation = engine.rows.automations[1] as AutomationRow;
+        const automation = engine.rows.automations[1] as AutomationRunAutomationRow;
         return click({ automationPublicId: automation.public_id, runPublicId: run.public_id });
       },
     ],
@@ -2769,7 +2773,7 @@ describe('a run waiting for a step that is now off (AU14, D48)', () => {
     expect(result.runPublicIds).toHaveLength(2);
   });
 
-  it.each<[string, (automation: AutomationRow) => void]>([
+  it.each<[string, (automation: AutomationRunAutomationRow) => void]>([
     [
       'its automation was deleted',
       (automation) => Object.assign(automation, { deleted_at: new Date() }),
@@ -3078,7 +3082,7 @@ describe('the follow check (AU18 step 3)', () => {
   });
 
   it('a follow confirmed after the request closes the step as done', async () => {
-    const automation = engine.rows.automations[0] as AutomationRow;
+    const automation = engine.rows.automations[0] as AutomationRunAutomationRow;
     const run = addRun({
       trigger_type: 'comment',
       trigger_instagram_comment_id: COMMENT,

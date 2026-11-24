@@ -1,10 +1,12 @@
 /**
  * App domain resource schemas — the channel connection (feat-instagram-dm-sending routes-final
  * § 1.6), the channel account (§ 1B.6), the Instagram account settings (§ 2.B.6), the
- * contact (§ 2.6), the automation (§ 3.A.6), the Instagram webhook event (§ 4.B.6) and the
+ * contact (§ 2.6), the automation (§ 4.A.6), the Instagram webhook event (§ 4.B.6) and the
  * segment (§ 7.B.6).
  */
 import {
+  AUTOMATION_ALSO_START_FROM_VALUES,
+  AUTOMATION_DEFAULT_REPLY_MODES,
   AUTOMATION_NEXT_POST_STATUSES,
   AUTOMATION_STATUSES,
   AUTOMATION_TARGET_SCOPES,
@@ -740,73 +742,74 @@ export const instagramWebhookEventExample = {
   processed_at: '2026-11-21T09:00:03.000Z',
 };
 
-// ── Automation ──
-// Mirrors serializeAutomation key for key (routes-final § 3.A.6). Never the internal ids or the
+// ── Automation (feat-instagram-dm-sending routes-final § 4.A.6, ROUTE R13) ──
+// Mirrors serializeAutomation / serializeAutomationListRow key for key. Never the internal ids or the
 // soft-delete columns; every value list typed as its list (D19).
-const automationOpeningMessageSchema = {
+const automationCountsSchema = {
   type: 'object',
   properties: {
-    text: { type: 'string' },
-    button_title: { type: 'string', nullable: true },
+    runs_started: { type: 'integer', minimum: 0 },
+    taps: { type: 'integer', minimum: 0 },
+    typed_answers: { type: 'integer', minimum: 0 },
+    tapped_percent: { type: 'number', nullable: true },
+    by_version: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          runs_started: { type: 'integer' },
+          taps: { type: 'integer' },
+          typed_answers: { type: 'integer' },
+        },
+      },
+    },
   },
-};
-
-const automationFollowRequestMessageSchema = {
-  type: 'object',
-  properties: {
-    text: { type: 'string' },
-    following_button_title: { type: 'string' },
-    profile_button_title: { type: 'string' },
-  },
-};
-
-const automationTextMessageSchema = {
-  type: 'object',
-  properties: { text: { type: 'string' } },
 };
 
 export const automationSchema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
-    instagram_account_id: { type: 'string' },
+    channel_account_id: { type: 'string' },
     name: { type: 'string' },
     status: { type: 'string', enum: [...AUTOMATION_STATUSES] },
+    channel: { type: 'string' },
     trigger_type: { type: 'string', enum: [...AUTOMATION_TRIGGER_TYPES] },
+    also_start_from: {
+      type: 'array',
+      items: { type: 'string', enum: [...AUTOMATION_ALSO_START_FROM_VALUES] },
+    },
     target_scope: { type: 'string', enum: [...AUTOMATION_TARGET_SCOPES] },
     target_instagram_media_id: { type: 'string', nullable: true },
     target_instagram_story_id: { type: 'string', nullable: true },
-    next_post_starts_at: { type: 'string', format: 'date-time', nullable: true },
-    next_post_ends_at: { type: 'string', format: 'date-time', nullable: true },
+    target_starts_at: { type: 'string', format: 'date-time', nullable: true },
+    target_ends_at: { type: 'string', format: 'date-time', nullable: true },
     next_post_status: { type: 'string', enum: [...AUTOMATION_NEXT_POST_STATUSES], nullable: true },
     next_post_linked_at: { type: 'string', format: 'date-time', nullable: true },
-    is_dm_keyword_trigger_enabled: { type: 'boolean' },
     keywords: { type: 'array', items: { type: 'string' } },
-    tags: { type: 'array', items: { type: 'string' } },
+    ref_code: { type: 'string', nullable: true },
+    link_url: { type: 'string', format: 'uri', nullable: true },
+    starter_questions: { type: 'array', items: { type: 'string' } },
+    ad_id: { type: 'string', nullable: true },
+    trigger_tag: { type: 'string', nullable: true },
+    default_reply_mode: {
+      type: 'string',
+      enum: [...AUTOMATION_DEFAULT_REPLY_MODES],
+      nullable: true,
+    },
     is_public_reply_enabled: { type: 'boolean' },
     public_reply_texts: { type: 'array', items: { type: 'string' } },
-    is_opening_message_enabled: { type: 'boolean' },
-    opening_message: { ...automationOpeningMessageSchema, nullable: true },
-    is_follow_required: { type: 'boolean' },
-    follow_request_message: { ...automationFollowRequestMessageSchema, nullable: true },
-    is_email_collection_enabled: { type: 'boolean' },
-    email_request_message: { ...automationTextMessageSchema, nullable: true },
-    is_phone_collection_enabled: { type: 'boolean' },
-    phone_request_message: { ...automationTextMessageSchema, nullable: true },
-    final_message: {
-      type: 'object',
-      properties: {
-        text: { type: 'string' },
-        links: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: { title: { type: 'string' }, url: { type: 'string', format: 'uri' } },
-          },
-        },
-      },
-    },
-    completed_run_count: { type: 'integer', minimum: 0 },
+    is_public_reply_mention_enabled: { type: 'boolean' },
+    is_reply_like_person_enabled: { type: 'boolean' },
+    public_reply_hour_limit: { type: 'integer', nullable: true },
+    is_hide_comment_after_direct_message_enabled: { type: 'boolean' },
+    steps: { type: 'object', description: 'hello, follow, email, phone, messages[], tags' },
+    stopped_reason: { type: 'string', nullable: true },
+    stopped_at: { type: 'string', format: 'date-time', nullable: true },
+    cancelled_before_at: { type: 'string', format: 'date-time', nullable: true },
+    counts: automationCountsSchema,
+    pro_parts_off: { type: 'array', items: { type: 'string' } },
+    open_backfill: { type: 'object', nullable: true },
     last_triggered_at: { type: 'string', format: 'date-time', nullable: true },
     created_by_user_id: { type: 'string', nullable: true },
     updated_by_user_id: { type: 'string', nullable: true },
@@ -817,43 +820,149 @@ export const automationSchema = {
 
 export const automationExample = {
   id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
-  instagram_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
-  name: 'Comment SHOP for the link',
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  name: 'Comment GUIDE for the free guide',
   status: 'live',
+  channel: 'instagram',
   trigger_type: 'comment',
-  target_scope: 'specific',
-  target_instagram_media_id: '18030000000000004',
+  also_start_from: ['dm'],
+  target_scope: 'any',
+  target_instagram_media_id: null,
   target_instagram_story_id: null,
-  next_post_starts_at: null,
-  next_post_ends_at: null,
+  target_starts_at: null,
+  target_ends_at: null,
   next_post_status: null,
   next_post_linked_at: null,
-  is_dm_keyword_trigger_enabled: true,
-  keywords: ['shop', 'link'],
-  tags: ['launch'],
+  keywords: ['guide'],
+  ref_code: null,
+  link_url: null,
+  starter_questions: [],
+  ad_id: null,
+  trigger_tag: null,
+  default_reply_mode: null,
   is_public_reply_enabled: true,
-  public_reply_texts: ['Check your DMs!', 'Sent you the link'],
-  is_opening_message_enabled: true,
-  opening_message: {
-    text: 'Thanks for your comment! Tap below for the link.',
-    button_title: 'Send it',
+  public_reply_texts: ['Check your DMs!', 'Sent it to you', 'Look in your inbox'],
+  is_public_reply_mention_enabled: true,
+  is_reply_like_person_enabled: true,
+  public_reply_hour_limit: 60,
+  is_hide_comment_after_direct_message_enabled: false,
+  steps: {
+    hello: {
+      on: true,
+      versions: [
+        {
+          text: 'Hi {name}! Want the free guide?',
+          buttons: [{ title: 'Send it', action: 'next' }],
+        },
+      ],
+    },
+    messages: [{ kind: 'text', wait_minutes: 0, text: 'Here is your guide' }],
+    tags: { on: true, list: ['guide'] },
   },
-  is_follow_required: false,
-  follow_request_message: null,
-  is_email_collection_enabled: true,
-  email_request_message: null,
-  is_phone_collection_enabled: false,
-  phone_request_message: null,
-  final_message: {
-    text: 'Here is the shop — enjoy!',
-    links: [{ title: 'Open the shop', url: 'https://shop.example.com/launch' }],
+  stopped_reason: null,
+  stopped_at: null,
+  cancelled_before_at: null,
+  counts: {
+    runs_started: 1300,
+    taps: 650,
+    typed_answers: 13,
+    tapped_percent: 51,
+    by_version: { 'hello.1': { runs_started: 1300, taps: 650, typed_answers: 0 } },
   },
-  completed_run_count: 42,
+  pro_parts_off: [],
+  open_backfill: null,
   last_triggered_at: '2026-11-21T09:00:00.000Z',
   created_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
   updated_by_user_id: 'usr_a1b2c3d4e5f6g7h8i9j0k',
   created_at: '2026-11-21T08:00:00.000Z',
   updated_at: '2026-11-21T08:30:00.000Z',
+};
+
+export const automationListRowSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    channel_account_id: { type: 'string' },
+    name: { type: 'string' },
+    status: { type: 'string', enum: [...AUTOMATION_STATUSES] },
+    trigger_type: { type: 'string', enum: [...AUTOMATION_TRIGGER_TYPES] },
+    stopped_reason: { type: 'string', nullable: true },
+    runs_started: { type: 'integer', minimum: 0 },
+    tapped_percent: { type: 'number', nullable: true },
+    last_triggered_at: { type: 'string', format: 'date-time', nullable: true },
+    updated_at: { type: 'string', format: 'date-time' },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const automationListRowExample = {
+  id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  name: 'Comment GUIDE for the free guide',
+  status: 'live',
+  trigger_type: 'comment',
+  stopped_reason: null,
+  runs_started: 1300,
+  tapped_percent: 51,
+  last_triggered_at: '2026-11-21T09:00:00.000Z',
+  updated_at: '2026-11-21T08:30:00.000Z',
+  created_at: '2026-11-21T08:00:00.000Z',
+};
+
+/** `meta.totals` of route 27 — the account's live count and all-time runs (AU10). */
+export const automationTotalsMetaProperty = {
+  totals: {
+    type: 'object',
+    properties: {
+      live_count: { type: 'integer', minimum: 0 },
+      runs_started: { type: 'integer', minimum: 0 },
+    },
+  },
+};
+
+/** `meta.warnings` of routes 30 and 32 — never a refusal (AU13). */
+export const automationWarningsMetaProperty = {
+  warnings: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', enum: ['keyword_shared', 'account_private'] },
+        field: { type: 'string' },
+        detail: { type: 'string' },
+      },
+    },
+  },
+};
+
+export const automationKeywordTestSchema = {
+  type: 'object',
+  properties: {
+    is_match: { type: 'boolean' },
+    matched_keyword: { type: 'string', nullable: true },
+    match_kind: { type: 'string', enum: ['exact', 'close'], nullable: true },
+    first_answering_automation: {
+      type: 'object',
+      nullable: true,
+      properties: { id: { type: 'string' }, name: { type: 'string' } },
+    },
+    reason: {
+      type: 'string',
+      enum: ['no_keyword', 'not_live', 'other_answers_first'],
+      nullable: true,
+    },
+  },
+};
+
+export const automationKeywordTestExample = {
+  is_match: true,
+  matched_keyword: 'guide',
+  match_kind: 'close',
+  first_answering_automation: {
+    id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
+    name: 'Comment GUIDE for the free guide',
+  },
+  reason: null,
 };
 
 // ── Instagram sending (feat-instagram-dm-sending § 6.A — routes 63–64) ──

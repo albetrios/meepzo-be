@@ -1,20 +1,20 @@
 /**
  * Automation bulk seeder — gives every demo team organization's connected Instagram account a set
- * of automations (`app.automations`) across every trigger and target scope (routes-final § 3.A.3,
- * AUC9): a comment automation on any post (public replies on), one on a specific post, three
- * "next post" ones (waiting, linked, expired), a DM automation collecting emails, and story-reply
- * automations on any and on a specific story — some live, some inactive, some with counters, so the
- * list's filters and sorts have rows at both ends.
+ * of automations (`app.automations`, feat-instagram-dm-sending routes-final § 4.A.3, AUC8): one of
+ * each of the 15 ways to start, the comment ones on any post (public replies and "Reply like a
+ * person" on), a specific post, a waiting and a linked "next post"; live, draft and paused ones;
+ * all-time counts (`app.automation_counts`, slot 0) on the busy ones — so the list's filters, sorts
+ * and totals have rows at both ends.
  *
  * Idempotency: count-and-resume — an organization that already has an automation is skipped, so a
  * re-run writes nothing twice. No reference data: automations are tenant rows only.
  */
 import { and, asc, count, eq, ne } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
-import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
-import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
+import { automation_counts } from '@/domains/app/sub-domains/automation/automation-count.schema.js';
+import type { AutomationSteps } from '@/domains/app/sub-domains/automation/automation-steps.dto.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import type { SeedContext, SeededOrg } from '@/scripts/seed/seed-contract.js';
@@ -23,8 +23,13 @@ import { generateBulkAutomationWords } from './automation.faker.js';
 /** A row the seeder inserts, before the ids every row shares. */
 type SeededAutomationShape = Omit<
   typeof automations.$inferInsert,
-  'public_id' | 'organization_id' | 'instagram_account_id'
->;
+  'public_id' | 'organization_id' | 'channel_account_id'
+> & {
+  /** All-time runs started the seed writes to slot 0 of `app.automation_counts` (AU19). */
+  seededRunsStarted?: number;
+  /** Hello taps the seed writes beside them. */
+  seededTaps?: number;
+};
 
 /** A digits-only Instagram id for a seeded target, unique per organization and slot. */
 function seededInstagramId({
@@ -37,7 +42,46 @@ function seededInstagramId({
   return `7${String(organizationId).padStart(12, '0')}${String(slot).padStart(3, '0')}`;
 }
 
-/** The demo automations of one account: every trigger and scope, live and inactive. */
+/** The steps of a seeded automation: a hello with its "next step" button and one text message. */
+function seededSteps({
+  openingText,
+  finalText,
+  tags,
+  isHelloOn,
+}: {
+  openingText: string;
+  finalText: string;
+  tags: string[];
+  isHelloOn: boolean;
+}): AutomationSteps {
+  return {
+    ...(isHelloOn
+      ? {
+          hello: {
+            on: true,
+            versions: [
+              { text: openingText, buttons: [{ title: 'Send it', action: 'next' as const }] },
+            ],
+          },
+        }
+      : {}),
+    messages: [
+      {
+        kind: 'text',
+        wait_minutes: 0,
+        text: finalText,
+        buttons: [{ title: 'Open the shop', url: 'https://shop.example.com/demo' }],
+      },
+    ],
+    tags: { on: tags.length > 0, list: tags },
+  };
+}
+
+/**
+ * The demo automations of one account (feat-instagram-dm-sending AUC8): one of each of the 15 ways
+ * to start — live ones that pass the go-live checks, the untested and PRO-heavy ones as drafts — a
+ * paused one, and counts on the live ones.
+ */
 function buildSeededAutomations({
   context,
   organizationId,
@@ -45,112 +89,171 @@ function buildSeededAutomations({
 }: {
   context: SeedContext;
   organizationId: number;
-  /** A stored post of the account, or a seeded digits id. */
+  /** A seeded digits post id. */
   postId: string;
 }): SeededAutomationShape[] {
   const now = Date.now();
   const days = (dayCount: number) => new Date(now + dayCount * MILLISECONDS_PER_DAY);
-  const words = () => generateBulkAutomationWords(context.faker);
-  const commentFlow = () => {
-    const { keywords, tags, openingText, finalText } = words();
-    return {
-      trigger_type: 'comment',
-      keywords,
-      tags,
-      opening_message: { text: openingText, button_title: 'Send it' },
-      final_message: {
-        text: finalText,
-        links: [{ title: 'Open the shop', url: 'https://shop.example.com/demo' }],
-      },
-    };
+  const flow = (isHelloOn = true) => {
+    const { keywords, tags, openingText, finalText } = generateBulkAutomationWords(context.faker);
+    return { keywords, steps: seededSteps({ openingText, finalText, tags, isHelloOn }) };
   };
   return [
     {
-      ...commentFlow(),
+      ...flow(),
       name: 'Comment any post for the link',
       status: 'live',
+      trigger_type: 'comment',
+      also_start_from: ['dm'],
       is_public_reply_enabled: true,
-      public_reply_texts: ['Check your DMs!', 'Sent it to you'],
-      completed_run_count: 37,
+      public_reply_texts: ['Check your DMs!', 'Sent it to you', 'Look in your inbox'],
+      is_reply_like_person_enabled: true,
       last_triggered_at: days(-1),
+      seededRunsStarted: 37,
+      seededTaps: 19,
     },
     {
-      ...commentFlow(),
+      ...flow(),
       name: 'Price on the spring post',
       status: 'live',
+      trigger_type: 'comment',
       target_scope: 'specific',
       target_instagram_media_id: postId,
-      is_follow_required: true,
-      follow_request_message: {
-        text: 'Follow us first, then tap the button.',
-        following_button_title: "I'm following",
-        profile_button_title: 'Open profile',
-      },
-      completed_run_count: 4,
       last_triggered_at: days(-3),
+      seededRunsStarted: 4,
+      seededTaps: 2,
     },
     {
-      ...commentFlow(),
+      ...flow(),
       name: 'Next post giveaway',
       status: 'live',
+      trigger_type: 'comment',
       target_scope: 'next',
-      next_post_starts_at: days(0),
-      next_post_ends_at: days(7),
+      target_starts_at: days(-1),
       next_post_status: 'waiting',
     },
     {
-      ...commentFlow(),
+      ...flow(),
       name: 'Last week next post',
-      status: 'live',
+      status: 'paused',
+      trigger_type: 'comment',
       target_scope: 'next',
       target_instagram_media_id: seededInstagramId({ organizationId, slot: 1 }),
-      next_post_starts_at: days(-10),
-      next_post_ends_at: days(-3),
+      target_starts_at: days(-10),
       next_post_status: 'linked',
       next_post_linked_at: days(-8),
-      completed_run_count: 12,
+      cancelled_before_at: days(-2),
       last_triggered_at: days(-7),
+      seededRunsStarted: 12,
+      seededTaps: 5,
+    },
+    ...buildOtherWaysToStart({ flow, organizationId }),
+  ];
+}
+
+/** The demo automations of the other 14 ways to start: the untested and PRO-heavy ones as drafts. */
+function buildOtherWaysToStart({
+  flow,
+  organizationId,
+}: {
+  flow: () => Pick<SeededAutomationShape, 'keywords' | 'steps'>;
+  organizationId: number;
+}): SeededAutomationShape[] {
+  return [
+    { ...flow(), name: 'Live comment link', status: 'draft', trigger_type: 'live_comment' },
+    { ...flow(), name: 'Story replies', status: 'live', trigger_type: 'story_reply', keywords: [] },
+    {
+      ...flow(),
+      name: 'Story mentions',
+      status: 'live',
+      trigger_type: 'story_mention',
+      keywords: [],
     },
     {
-      ...commentFlow(),
-      name: 'Old next post window',
-      status: 'inactive',
-      target_scope: 'next',
-      next_post_starts_at: days(-30),
-      next_post_ends_at: days(-20),
-      next_post_status: 'expired',
+      ...flow(),
+      name: 'Story reposts',
+      status: 'draft',
+      trigger_type: 'story_repost',
+      keywords: [],
     },
     {
-      tags: words().tags,
+      ...flow(),
       name: 'DM keyword for the catalog',
       status: 'live',
-      trigger_type: 'dm',
+      trigger_type: 'dm_keyword',
       keywords: ['catalog'],
-      opening_message: { text: 'Hi! One moment, getting the catalog.', button_title: null },
-      is_email_collection_enabled: true,
-      final_message: { text: 'Here is the catalog.', links: [] },
-      completed_run_count: 21,
-      last_triggered_at: days(-2),
+      last_triggered_at: new Date(Date.now() - 2 * MILLISECONDS_PER_DAY),
+      seededRunsStarted: 21,
+      seededTaps: 14,
     },
     {
-      name: 'Story replies',
-      status: 'inactive',
-      trigger_type: 'story_reply',
-      keywords: [],
-      tags: ['story'],
-      is_opening_message_enabled: false,
-      final_message: { text: 'Thanks for replying to our story!', links: [] },
-    },
-    {
-      name: 'Story launch reply',
+      ...flow(),
+      name: 'Welcome first message',
       status: 'live',
-      trigger_type: 'story_reply',
-      target_scope: 'specific',
-      target_instagram_story_id: seededInstagramId({ organizationId, slot: 2 }),
-      keywords: ['launch'],
-      tags: [],
-      opening_message: { text: 'Glad you like it!', button_title: null },
-      final_message: { text: 'The launch page is live.', links: [] },
+      trigger_type: 'first_message',
+      keywords: [],
+    },
+    {
+      ...flow(),
+      name: 'Shared post reply',
+      status: 'draft',
+      trigger_type: 'shared_post',
+      keywords: [],
+    },
+    {
+      ...flow(),
+      name: 'Starter questions',
+      status: 'draft',
+      trigger_type: 'starter_question',
+      keywords: [],
+      starter_questions: ['How do I join?', 'What does it cost?'],
+    },
+    {
+      ...flow(),
+      name: 'Event QR code',
+      status: 'live',
+      trigger_type: 'ref_link',
+      keywords: [],
+      ref_code: `event-${organizationId}`,
+    },
+    {
+      ...flow(),
+      name: 'Nobody else answered',
+      status: 'draft',
+      trigger_type: 'default_reply',
+      keywords: [],
+      default_reply_mode: 'once_a_day',
+    },
+    {
+      ...flow(),
+      name: 'Ad comment info',
+      status: 'draft',
+      trigger_type: 'ad_comment',
+      ad_id: seededInstagramId({ organizationId, slot: 3 }),
+    },
+    {
+      ...flow(),
+      name: 'Ad send message',
+      status: 'draft',
+      trigger_type: 'ad_message',
+      keywords: [],
+      ad_id: seededInstagramId({ organizationId, slot: 4 }),
+    },
+    {
+      ...flow(),
+      name: 'VIP tag added',
+      status: 'draft',
+      trigger_type: 'tag_added',
+      keywords: [],
+      trigger_tag: 'vip',
+    },
+    {
+      ...flow(),
+      name: 'Waitlist tag removed',
+      status: 'draft',
+      trigger_type: 'tag_removed',
+      keywords: [],
+      trigger_tag: 'waitlist',
     },
   ];
 }
@@ -165,21 +268,15 @@ async function seedAutomationsForOrganization({
 }): Promise<number> {
   const database = getRequestDatabase();
   const [account] = await database
-    .select({ id: instagram_accounts.id, channelAccountId: instagram_accounts.channel_account_id })
-    .from(instagram_accounts)
-    .innerJoin(
-      channel_accounts,
-      and(
-        eq(channel_accounts.organization_id, instagram_accounts.organization_id),
-        eq(channel_accounts.id, instagram_accounts.channel_account_id),
-      ),
-    )
+    .select({ channelAccountId: channel_accounts.id })
+    .from(channel_accounts)
     .where(
       and(
-        eq(instagram_accounts.organization_id, organization.id),
+        eq(channel_accounts.organization_id, organization.id),
         ne(channel_accounts.connection_status, 'revoked'),
       ),
     )
+    .orderBy(asc(channel_accounts.id))
     .limit(1);
   // No live account: an automation is created on the connected account only (AU27).
   if (account === undefined) return 0;
@@ -190,34 +287,40 @@ async function seedAutomationsForOrganization({
     .where(eq(automations.organization_id, organization.id));
   if ((existing?.total ?? 0) > 0) return 0;
 
-  const [post] = await database
-    .select({ instagram_media_id: instagram_media.instagram_media_id })
-    .from(instagram_media)
-    .where(
-      and(
-        eq(instagram_media.organization_id, organization.id),
-        eq(instagram_media.channel_account_id, account.channelAccountId),
-      ),
-    )
-    .orderBy(asc(instagram_media.id))
-    .limit(1);
   const rows = buildSeededAutomations({
     context,
     organizationId: organization.id,
-    postId:
-      post?.instagram_media_id ?? seededInstagramId({ organizationId: organization.id, slot: 0 }),
-  }).map((row) => ({
-    ...row,
-    public_id: generatePublicId('automation'),
-    organization_id: organization.id,
-    instagram_account_id: account.id,
-    created_by_user_id: organization.ownerUserId,
-    updated_by_user_id: organization.ownerUserId,
-  }));
+    postId: seededInstagramId({ organizationId: organization.id, slot: 0 }),
+  });
   const inserted = await database
     .insert(automations)
-    .values(rows)
+    .values(
+      rows.map(({ seededRunsStarted: _runs, seededTaps: _taps, ...row }) => ({
+        ...row,
+        public_id: generatePublicId('automation'),
+        organization_id: organization.id,
+        channel_account_id: account.channelAccountId,
+        created_by_user_id: organization.ownerUserId,
+        updated_by_user_id: organization.ownerUserId,
+      })),
+    )
     .returning({ id: automations.id });
+  const countRows = inserted.flatMap((automation, index) => {
+    const seeded = rows[index];
+    if (seeded?.seededRunsStarted === undefined) return [];
+    return [
+      {
+        organization_id: organization.id,
+        automation_id: automation.id,
+        slot: 0,
+        runs_started: seeded.seededRunsStarted,
+        taps: seeded.seededTaps ?? 0,
+        runs_by_version: { 'hello.1': seeded.seededRunsStarted },
+        taps_by_version: { 'hello.1': seeded.seededTaps ?? 0 },
+      },
+    ];
+  });
+  if (countRows.length > 0) await database.insert(automation_counts).values(countRows);
   return inserted.length;
 }
 
@@ -226,10 +329,11 @@ async function seedAutomationsForOrganization({
  *
  * @remarks
  * Parents read: `context.registry.organizations` — the tenancy seeder's bulk team organizations —
- * each one's live `app.instagram_accounts` row and its first stored post (`app.instagram_media`),
+ * each one's first not-revoked channel account,
  * which the Instagram account seeder wrote just before (the app domain composes this contribution
  * after it). Algorithm: per organization, read its live account (none → skip), skip when it already
- * has automations, then insert the demo set. Side effects: inserts into `app.automations`. Failure
+ * has automations, then insert the demo set and its counts. Side effects: inserts into
+ * `app.automations` and `app.automation_counts`. Failure
  * modes: warns and returns early when the registry has no organizations; otherwise propagates
  * database errors.
  */

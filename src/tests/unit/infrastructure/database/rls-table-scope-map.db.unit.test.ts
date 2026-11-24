@@ -49,12 +49,16 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'app.automation_runs': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // Automations: organization-scoped, plus the retention sweep arm in USING (routes-final § 3.3).
   'app.automations': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  'app.automation_counts': ['app.current_organization_public_id'],
+  'app.automation_reply_states': ['app.current_organization_public_id'],
   // Contacts: organization-scoped, plus the retention sweep arm in USING (routes-final § 2.3).
   'app.contacts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.contact_activities': ['app.current_organization_public_id'],
   'app.contact_tag_counts': ['app.current_organization_public_id'],
   // Segments (feat-instagram-dm-sending R21): organization-scoped, plus the purge's sweep arm (7.3).
   'app.segments': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // Tag events (3.B): the organization arm, plus the pick-up scan and the 8-day clean-up (CT17).
+  'app.contact_tag_events': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The channel connection: organization-scoped, plus the token check's sweep (MC10). Its token and
   // usage: the organization arm only — no sweep arm reads a token (MC9).
   'app.channel_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],

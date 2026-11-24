@@ -83,11 +83,15 @@ comment-log retention.
   `status_changed` event, its comment log `failed` (an error it already holds is kept). Waiting and
   ended runs are not touched; a repeat finds none. An event skipped after a claim does the same with its
   skip reason as the code (`code:automation_disabled`, `code:account_disconnected`, D51).
+- **Until ROUTE row R14** the engine reads each automation through its step view of the shared row
+  (`automation-run-automation.repository.ts`, feat-instagram-dm-sending R13): the hello's and the follow
+  ask's first version, the first email / phone wording, the last text message as the final DM, the tag
+  step's tags; `dm_keyword` runs as `dm`, "also start from" DMs as the DM keyword switch.
 - **The steps** (AU18): the public reply (comments, reply safety), the opening message on every
   trigger (AQ3; skipped when the contact got a DM in the last 24 hours, D14; with a button the run
   waits), the follow check, the email and the phone (skipped when the contact has them), the final
-  DM — then `completed`, `completed_run_count + 1` and the automation's tags (or its name) on the
-  contact. The automation is read as it is now at every step (AU14).
+  DM — then `completed` and the automation's tags (or its name) on the contact (the all-time counts
+  are `app.automation_counts`, written from ROUTE row R14). The automation is read as it is now at every step (AU14).
 - **A step turned off while a run waits for it** (AU14, D48) — the opening button, the follow, the
   email or the phone: nothing is sent when the setting changes. The run takes no answer any more,
   holds no trigger or click back (AU17 (1)) and is never asked again; at the contact's next event —

@@ -50,6 +50,15 @@ const EXEMPT_KEYS_BY_FILE: Record<string, ReadonlySet<string>> = {
   // The options key of the shared end-after-start refinement (`addEndAfterStartIssue`); its value
   // names the snake_case body field the issue is reported on — never a body key itself.
   'src/domains/tenancy/sub-domains/membership/membership.dto.ts': new Set(['endField']),
+  // The options key of the shared record-delete query builder (`recordDeleteQuerySchemaOf`) on
+  // route 31 (feat-instagram-dm-sending R13) — configures the schema, never a query key itself.
+  'src/domains/app/sub-domains/automation/automation.dto.ts': new Set(['isReasonOptional']),
+  // The options of `buildAutomationLinkUrl` (R13, AU17) and its call — read to build the
+  // snake_case `link_url`, never emitted as response keys.
+  'src/domains/app/sub-domains/automation/automation.serializer.ts': new Set([
+    'triggerType',
+    'refCode',
+  ]),
 };
 
 /** A line-leading `<identifier>:` declares an object/schema property or a type field. */

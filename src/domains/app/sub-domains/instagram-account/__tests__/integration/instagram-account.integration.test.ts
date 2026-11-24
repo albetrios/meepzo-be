@@ -29,6 +29,7 @@ import {
 import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import {
   AUTOMATIONS_PATH,
+  automationActionPath,
   commentAutomationBody,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 
@@ -110,13 +111,22 @@ describe('Instagram account (read-only plan, guarded break)', () => {
         expect.objectContaining({ is_automation_enabled: false }),
       ]);
 
-      // The plan is read-only all along: creating an automation on that account is refused.
-      const refused = await injectAuthenticated(app, {
+      // The plan is read-only all along: a draft on that account saves (P10), its go-live is refused.
+      const draft = await injectAuthenticated(app, {
         method: 'POST',
         url: AUTOMATIONS_PATH,
         token: team.ownerToken,
-        payload: commentAutomationBody(),
+        payload: commentAutomationBody({ channelAccountPublicId: String(account.id) }),
         headers: { 'x-idempotency-key': `ig-read-only-${generatePublicId('automation')}` },
+      });
+      expect(draft.statusCode).toBe(200);
+      const refused = await injectAuthenticated(app, {
+        method: 'POST',
+        url: automationActionPath({
+          automationPublicId: (draft.json() as { data: { id: string } }).data.id,
+          action: 'go-live',
+        }),
+        token: team.ownerToken,
       });
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('organization_read_only');

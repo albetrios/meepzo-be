@@ -1,6 +1,6 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
-import type { AutomationTriggerType } from '@/domains/app/sub-domains/automation/automation.constants.js';
+import type { AutomationRunTriggerType } from './automation-run.constants.js';
 import type {
   AutomationCommentLogErrorType,
   AutomationCommentLogStepStatus,
@@ -14,7 +14,7 @@ import type {
  * it becomes starts exactly as the original trigger would have.
  */
 export interface AutomationQueuedTrigger {
-  type: AutomationTriggerType;
+  type: AutomationRunTriggerType;
   instagram_media_id?: string;
   instagram_comment_id?: string;
   instagram_story_id?: string;

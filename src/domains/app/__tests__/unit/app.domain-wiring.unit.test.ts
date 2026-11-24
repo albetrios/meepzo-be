@@ -43,9 +43,15 @@ describe('app domain wiring', () => {
       subscriptionService: planAccessService,
       subscriptionTrialService: trialPort,
     } as never);
+    // The automation go-live's file check reads the upload domain's usable-file read (R13, R12).
+    application.decorate('uploadDomain', {
+      uploadService: { findUsableMessageFile: vi.fn() },
+    } as never);
     registerAppContainer(application);
 
     expect(Object.keys(application.appDomain).sort()).toEqual([
+      'automationCountService',
+      'automationReplyStateService',
       'automationRunService',
       'automationService',
       'broadcastSegmentService',
@@ -55,6 +61,7 @@ describe('app domain wiring', () => {
       'channelConnectionTokenService',
       'channelConnectionUsageService',
       'contactService',
+      'contactTagEventService',
       'instagramAccountErasureService',
       'instagramAccountService',
       'instagramAccountSettingsService',
@@ -140,6 +147,10 @@ describe('app domain wiring', () => {
       `PATCH ${APP_PREFIX}/segments/:segment_id`,
       `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
       `POST ${APP_PREFIX}/automations`,
+      `POST ${APP_PREFIX}/automations/:automation_id/duplicate`,
+      `POST ${APP_PREFIX}/automations/:automation_id/go-live`,
+      `POST ${APP_PREFIX}/automations/:automation_id/keyword-test`,
+      `POST ${APP_PREFIX}/automations/:automation_id/pause`,
       `POST ${APP_PREFIX}/contacts/bulk-actions`,
       `POST ${APP_PREFIX}/segments`,
       `POST ${APP_PREFIX}/segments/audience-count`,
@@ -168,13 +179,14 @@ describe('app domain wiring', () => {
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
     // Without organizations the channel connection, channel account, Instagram account, settings, stored-posts,
-    // sending, contact, automation, automation-run, segment and webhook event seeders warn and write nothing.
+    // sending, contact, contact tag event, automation, automation-run, segment and webhook event seeders
+    // warn and write nothing.
     const warn = vi.fn();
     const context = {
       registry: createSeedRegistry(),
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(11);
+    expect(warn).toHaveBeenCalledTimes(12);
   });
 });

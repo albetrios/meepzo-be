@@ -26,10 +26,6 @@ const TENANT_SCOPING_EXEMPT_QUEUE_NAME_PATTERNS = [
   // global-retention context, then ends each in that organization's own context — no per-job
   // tenant payload.
   /membership-invitation-expiry/i,
-  // Launch D9 (routes-final § 3.A AU15): the "next post" expiry reads every organization's ended
-  // windows in the global-retention context, then expires each organization's in its own job
-  // scope — a cron with no per-job tenant payload.
-  /automation-next-post-expiry/i,
   // Launch D8 (routes-final § 3.B AU25): the 7-day wait check reads every organization's long
   // waiting runs in the global-retention context, then cancels each organization's in its own job
   // scope — a cron with no per-job tenant payload.

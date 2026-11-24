@@ -47,6 +47,7 @@ import {
 } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import {
   AUTOMATIONS_PATH,
+  automationActionPath,
   commentAutomationBody,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
@@ -544,12 +545,22 @@ describe('Channel account routes', () => {
         'stopped',
       ]);
 
-      // The plan is read-only: an automation write is refused.
-      const refused = await injectAuthenticated(app, {
+      // The plan is read-only: a draft still saves (R13, P10), but its go-live is refused.
+      const draft = await injectAuthenticated(app, {
         method: 'POST',
         url: AUTOMATIONS_PATH,
         token: team.ownerToken,
-        payload: commentAutomationBody(),
+        payload: commentAutomationBody({ channelAccountPublicId: id }),
+        headers: { 'x-idempotency-key': `read-only-${randomUUID()}` },
+      });
+      expect(draft.statusCode, draft.body).toBe(200);
+      const refused = await injectAuthenticated(app, {
+        method: 'POST',
+        url: automationActionPath({
+          automationPublicId: dataOf<{ id: string }>(draft).id,
+          action: 'go-live',
+        }),
+        token: team.ownerToken,
         headers: { 'x-idempotency-key': `read-only-${randomUUID()}` },
       });
       expect(refused.statusCode).toBe(403);

@@ -121,6 +121,9 @@ import { MetaSignedRequestDto } from '@/domains/app/sub-domains/channel-connecti
 // ─── App: automations ──────────────────────────────────────────────────
 import {
   createAutomationDto,
+  emptyAutomationActionDto,
+  keywordTestAutomationDto,
+  pauseAutomationDto,
   updateAutomationDto,
 } from '@/domains/app/sub-domains/automation/automation.dto.js';
 
@@ -228,6 +231,12 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── App: automations ──
   'POST /api/v1/app/automations': createAutomationDto,
   'PATCH /api/v1/app/automations/{automation_id}': updateAutomationDto,
+  // The automation actions (DM-sending routes-final § 4.A.8, routes 32–35): go-live and duplicate
+  // take an empty body, pause its mode, the keyword test its text.
+  'POST /api/v1/app/automations/{automation_id}/go-live': emptyAutomationActionDto,
+  'POST /api/v1/app/automations/{automation_id}/pause': pauseAutomationDto,
+  'POST /api/v1/app/automations/{automation_id}/duplicate': emptyAutomationActionDto,
+  'POST /api/v1/app/automations/{automation_id}/keyword-test': keywordTestAutomationDto,
   // App: contacts (DM-sending routes-final § 3.A.8, routes 20 and 21).
   'PATCH /api/v1/app/contacts/{contact_id}': updateContactBodyDto,
   'POST /api/v1/app/contacts/bulk-actions': contactBulkActionBodyDto,

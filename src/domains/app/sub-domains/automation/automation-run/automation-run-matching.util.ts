@@ -1,8 +1,6 @@
+import type { AutomationTargetScope } from '@/domains/app/sub-domains/automation/automation.constants.js';
 import type {
-  AutomationTargetScope,
-  AutomationTriggerType,
-} from '@/domains/app/sub-domains/automation/automation.constants.js';
-import type {
+  AutomationRunTriggerType,
   AutomationCommentLogIgnoredReason,
   AutomationRunStatus,
 } from './automation-run.constants.js';
@@ -25,10 +23,103 @@ function byAge<T extends AutomationMatchCandidate>({ left, right }: { left: T; r
   return timeDifference === 0 ? left.id - right.id : timeDifference;
 }
 
+/** The shortest word that may match with one wrong letter (D39, D60 — AU17). */
+export const AUTOMATION_KEYWORD_CLOSE_MATCH_MIN_LETTERS = 5;
+
+/** A keyword match: which keyword, and whether as written (`exact`) or with one wrong letter (`close`). */
+export interface AutomationKeywordMatch {
+  keyword: string;
+  kind: 'exact' | 'close';
+}
+
+/** The words of a text, lowercased: runs of letters, marks and digits (any script). */
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+}
+
+/** Whether two words differ by at most one letter — one changed, added or missing (edit distance ≤ 1). */
+function isOneLetterApart({ left, right }: { left: string; right: string }): boolean {
+  const leftLetters = [...left];
+  const rightLetters = [...right];
+  if (Math.abs(leftLetters.length - rightLetters.length) > 1) return false;
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let differences = 0;
+  while (leftIndex < leftLetters.length && rightIndex < rightLetters.length) {
+    if (leftLetters[leftIndex] === rightLetters[rightIndex]) {
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+    differences += 1;
+    if (differences > 1) return false;
+    if (leftLetters.length > rightLetters.length) leftIndex += 1;
+    else if (rightLetters.length > leftLetters.length) rightIndex += 1;
+    else {
+      leftIndex += 1;
+      rightIndex += 1;
+    }
+  }
+  return differences + (leftLetters.length - leftIndex) + (rightLetters.length - rightIndex) <= 1;
+}
+
 /**
- * Whether a text matches an automation's keywords (schema-routes § 6.5): the lowercased text
- * contains any keyword. No keywords matches every comment and story reply (`isMatchWithoutKeywords`)
- * but never a DM.
+ * Whether a keyword's words stand together and in order among the text's words, each a word of 5+
+ * letters allowed one wrong letter, a shorter one only as written (AU17, D60).
+ */
+function isCloseKeywordMatch({
+  keywordWords,
+  textWords,
+}: {
+  keywordWords: readonly string[];
+  textWords: readonly string[];
+}): boolean {
+  if (keywordWords.length === 0) return false;
+  for (let start = 0; start + keywordWords.length <= textWords.length; start += 1) {
+    const isMatch = keywordWords.every((keywordWord, offset) => {
+      const textWord = textWords[start + offset] ?? '';
+      if (textWord === keywordWord) return true;
+      return (
+        [...keywordWord].length >= AUTOMATION_KEYWORD_CLOSE_MATCH_MIN_LETTERS &&
+        isOneLetterApart({ left: keywordWord, right: textWord })
+      );
+    });
+    if (isMatch) return true;
+  }
+  return false;
+}
+
+/**
+ * The first of an automation's keywords a text matches (schema-routes § 6.5, AU17 — the one function
+ * intake and route 35 share): `exact` when the lowercased text contains the keyword; `close` when its
+ * words stand together and in order with at most one wrong letter in each word of 5 or more letters
+ * ("guide" matches "guida"). `null` when none matches.
+ *
+ * @remarks
+ * Pure. The keywords are tried in their order; an exact match of any keyword wins over a close one.
+ */
+export function matchAutomationKeyword({
+  keywords,
+  text,
+}: {
+  keywords: readonly string[];
+  text: string | null;
+}): AutomationKeywordMatch | null {
+  const lowered = (text ?? '').toLowerCase();
+  const exact = keywords.find(
+    (keyword) => keyword.length > 0 && lowered.includes(keyword.toLowerCase()),
+  );
+  if (exact !== undefined) return { keyword: exact, kind: 'exact' };
+  const textWords = wordsOf(lowered);
+  const close = keywords.find((keyword) =>
+    isCloseKeywordMatch({ keywordWords: wordsOf(keyword), textWords }),
+  );
+  return close === undefined ? null : { keyword: close, kind: 'close' };
+}
+
+/**
+ * Whether a text matches an automation's keywords ({@link matchAutomationKeyword}). No keywords
+ * matches every comment and story reply (`isMatchWithoutKeywords`) but never a DM.
  */
 export function matchesAutomationKeywords({
   keywords,
@@ -40,8 +131,7 @@ export function matchesAutomationKeywords({
   isMatchWithoutKeywords: boolean;
 }): boolean {
   if (keywords.length === 0) return isMatchWithoutKeywords;
-  const lowered = (text ?? '').toLowerCase();
-  return keywords.some((keyword) => keyword.length > 0 && lowered.includes(keyword.toLowerCase()));
+  return matchAutomationKeyword({ keywords, text }) !== null;
 }
 
 /**
@@ -66,7 +156,9 @@ export function chooseCommentAutomation<T extends AutomationMatchCandidate>({
   text: string | null;
 }): { chosen: T | null; otherMatches: T[] } {
   const matching = candidates
-    .filter((candidate) => candidate.trigger_type === ('comment' satisfies AutomationTriggerType))
+    .filter(
+      (candidate) => candidate.trigger_type === ('comment' satisfies AutomationRunTriggerType),
+    )
     .filter((candidate) =>
       matchesAutomationKeywords({
         keywords: candidate.keywords,
@@ -133,7 +225,7 @@ export function chooseStoryReplyAutomation<T extends AutomationMatchCandidate>({
 }): T | null {
   const matching = candidates
     .filter(
-      (candidate) => candidate.trigger_type === ('story_reply' satisfies AutomationTriggerType),
+      (candidate) => candidate.trigger_type === ('story_reply' satisfies AutomationRunTriggerType),
     )
     .filter(
       (candidate) =>

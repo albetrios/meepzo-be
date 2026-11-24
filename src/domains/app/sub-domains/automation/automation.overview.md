@@ -6,147 +6,105 @@ Parent: [App](../../app.overview.md)
 
 ## Purpose
 
-What an organization builds to answer comments, DMs and story replies on its Instagram account: one
-automation of one Instagram account — its trigger, target, keywords and tags, the message of each
-step, and the counters the run engine keeps (`app.automations`, routes-final § 3.A, ROUTE row R9).
-The team lists, creates (the frontend's Duplicate too), reads, edits and deletes them (routes
-11–15, `/api/v1/app/automations`); event processing (sub-domain 4) links waiting "next post"
-automations to a new post through this service, a worker expires the windows that ended
-unlinked every 15 minutes, and another removes for good the automations deleted 180 days ago that
-nothing points at any more (AQ7). The runs, their history, the per-comment logs and the run engine are the
-nested [`automation-run/`](automation-run/automation-run.overview.md) (§ 3.B, ROUTE row R10).
+What an organization builds to answer people on its channel accounts, shared by every channel
+(feat-instagram-dm-sending routes-final § 4, ROUTE row R13, P48): one automation of one channel
+account — how it starts (one of 15 ways, "also start from", where it listens, keywords, the link code,
+starter questions, the ad, the trigger tag), its public reply and "Reply like a person" pacing, and
+one `steps` object for what it sends (hello, follow, email, phone, 1–10 messages of 7 kinds, tags)
+(`app.automations`). `draft` → `live` ⇄ `paused`, by actions only. The team lists one account's
+automations, saves drafts, reads, saves content, deletes, goes live, pauses, duplicates and tries a
+keyword (routes 27–35, `/api/v1/app/automations`). All-time counts live in 16 slot rows
+(`app.automation_counts`) and the reply pacing in `app.automation_reply_states`. Event processing
+(sub-domain 5) links waiting "next post" automations to a new post through this service (no end
+date — P12); a worker removes for good the automations deleted long ago that nothing points at. The
+runs, their history, the per-comment logs and the run engine are the nested
+[`automation-run/`](automation-run/automation-run.overview.md) (§ 4.B — rebuilt at ROUTE row R14).
 
 ## Layout
 
-- `automation.schema.ts` — the table: its composite key to the Instagram account, every check and
-  index of 3.A.3 and the RLS policy
-- `automation.repository.ts` — the list (filters, name search, four keyset sorts, capped total),
-  the reads and the locked read, insert, update and soft delete, the "next post" overlap read, the
-  linking `UPDATE`, the run engine's reads, locks and counters, the expiry's scan and change and the
-  purge's batch delete; `createWorkerAutomationRepository` and `createRetentionAutomationRepository`
-- `automation.service.ts` — routes 11–15, `linkNextPostAutomations` (AU15) and
-  `findAutomationIdForFilter` (the contacts list's `automation_id`, CT5)
-- `automation.validator.ts` — the body and query parsers, the merge of a body over the defaults or
-  the stored row, `validateAutomationFlow` (every cross-field rule of AU8 and AU9, pure),
-  `assertNextPostLinkUnchanged` and `resolveNextPostState`
-- `automation.types.ts` — the automation object, the message shapes and
-  `AutomationOpenRunCancelStep`, the delete hook the run sub-domain registers through the app
-  container (AU12)
+- `automation.schema.ts` — the table: the composite key to the channel account, the every-save and
+  the go-live (`status = 'draft' OR (…)`) checks, the indexes of 4.A.3, the RLS policy
+- `automation-steps.dto.ts` — the one zod schema of `steps` (types and kinds at every save)
+- `automation.repository.ts` — one account's list (status and kind filters, name search, three keyset
+  sorts), the reads and the locked read, insert, update, the action write, soft delete, the go-live's
+  account-wide reads (catch-all, starter questions, ref code, shared keywords), the keyword test's
+  candidates, the linking `UPDATE`, the contacts filter's lookup and the purge
+- `automation-count.{schema,repository,service}.ts` — the 16 count slots: the `+1` (R14 writes it in
+  the event's commit) and the sums the list and the read show
+- `automation-reply-state.{schema,repository,service}.ts` — the "Reply like a person" pacing the
+  channel's reply lane reads and writes
+- `automation.service.ts` — routes 27–35, the go-live list (every check at once), the warnings,
+  `linkNextPostAutomations` and `findAutomationIdForFilter` (CT5)
+- `automation.validator.ts` — the parsers, the merges, `listAutomationContentProblems` (go-live
+  checks 1 and 6–17, pure, each with its step path), the feature-check parts, the uploads, ref codes
+- `automation.types.ts` — the objects, the later rows' ports (`AutomationStarterQuestionSyncQueue`,
+  `AutomationMonthLimitPort`, `AutomationMessageFilePort`) and `AutomationOpenRunCancelStep`
 - `automation.dto.ts`, `automation.serializer.ts`, `automation.controller.ts`,
   `automation.routes.ts`, `automation.constants.ts`
-- `workers/` — the "next post" expiry (`automation-next-post-expiry`, every 15 minutes, D9) and the
-  deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC, AQ7)
-- `automation-run/` — the nested run sub-domain: runs, run events, comment logs, the run engine
-- `seed/` — bulk: every trigger and scope per seeded live Instagram account, then the runs
-- `__tests__/` — unit (validator, serializer, service, the expiry processor and worker, the purge
-  worker), the repository's and the purge's database suites, the route integration suite and its
-  factory
+- `workers/` — the deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC)
+- `automation-run/` — the nested run sub-domain: runs, run events, comment logs, the run engine and,
+  until R14, its step view of the shared row (`automation-run-automation.repository.ts`)
+- `seed/` — bulk: one automation of each of the 15 ways per seeded account, drafts, a paused one,
+  counts; then the runs
 
 ## Key invariants
 
-- **Each automation belongs to one Instagram account** (AU27): the organization's not-revoked
-  account (an `expired` or `error` one counts), read through the account service in the create's
-  transaction; without one the create is `409 instagram_not_connected`. No DTO carries
-  `instagram_account_id`, so it never changes; the composite key
-  `(organization_id, instagram_account_id)` → `app.instagram_accounts (organization_id, id)` is
-  `ON DELETE RESTRICT`. Another account's automations never run.
-- **Every save is a complete flow, whatever the status** (AU8, D19): the body is laid over the
-  create's defaults or the stored row and one rule set runs on the result — the final message
-  always; the opening and follow messages when their step is on; on a comment automation with the
-  opening message on, its button (AQ2); `next` only on comments; a DM automation `any`, with a
-  keyword and the DM keyword trigger on; `specific` with exactly its post or story id; public
-  replies only on comments, with 1–20 texts. One `errors[]` item per broken field. The table's
-  checks hold the same rules.
-- **Keywords are trimmed, lowercased and deduplicated, tags deduplicated** (AU7); the message
-  objects are strict — an unknown key is a `400`.
-- **"Next post" windows** (AU9): both dates, the end after the start; a new or changed start not
-  before 24 hours ago, a new or changed end not in the past; a started window may move later,
-  never earlier. A save that leaves the automation live and waiting is checked against the same
-  account's other live, waiting windows — overlapping and sharing a keyword, or either without
-  keywords, is `409 next_post_window_overlap` — under the organization's `AUTOMATION_NEXT_POST`
-  advisory lock, which linking takes too, so two saves never both pass. A changed window on an
-  `expired` automation waits again; a `linked` one's window, scope and target ids are fixed
-  (`409 next_post_already_linked`); leaving `next` clears every next-post field.
-- **Linking** (AU15, AQ4): under the same lock, one conditional `UPDATE` links every live, waiting
-  automation of the post's account whose window holds the post's publish time (the start counts, the
-  end does not), unless one of the account's automations targeted the post before — so two may link
-  one post. **Expiry** (D9): the worker scans every live organization's ended `waiting` windows (500 a
-  tick, oldest first) under the retention sweep arm, then changes each organization's in its own job
-  scope with the same conditional `WHERE`. Both change `updated_at`, so a save opened before them is
-  `409 record_changed`. End to end: [`instagram-next-post-flow`](src/FLOWS.md#instagram-next-post-flow).
-- **The counters are the run engine's** (AU10): `completed_run_count` and `last_triggered_at` are
-  in no DTO; the engine writes them in SQL through this repository (`markRunStarted`,
-  `incrementCompletedRunCount`) and leaves `updated_at` as it is, so a person's
-  `expected_updated_at` does not go stale each time the automation runs.
-- **Edits** carry an optional `expected_updated_at`; an older one is `409 record_changed` (AU11).
-  An edit reaches open runs from their next step; turning one `inactive` stops new runs (AU14).
-- **Delete** (AU12, AQ6): soft, with `reason` required and `note` for `other`, in the query; in the
-  same transaction every registered `AutomationOpenRunCancelStep` runs — the run sub-domain's
-  `cancelAutomationOpenRuns` (its open runs `cancelled` · `automation_deleted`, one run event each,
-  their comment logs `cancelled`). It locks the automation (`FOR UPDATE`) before its runs — the order
-  of the run engine and the contact erase, which hold the automation `FOR KEY SHARE` before they touch
-  a run (`lockForRunChanges`, `lockLiveForRunStart`) — so they never block each other, and the cancel,
-  which reads after the lock, leaves no open run on a deleted automation (D47).
-  No restore route. **Purge** (AQ7, AU25): daily at 03:40 UTC, after run retention (03:20) and
-  comment-log retention (03:30), the automations deleted more than 180 days ago are removed in
-  capped batches; one a run or a comment log still points at (`RESTRICT`) is skipped by the batch
-  delete's per-row fallback and tried again the next day. The audit log keeps the delete.
-- **Team-only and read-only plans** (AU3, AQ8, D27): the reads answer
-  `404 team_organization_required` on a personal organization, the writes `422`; another
-  organization's automation is `404 automation_not_found`. The three writes run the app domain's
-  read-only guard first (`app-plan-access.ts`, `403 organization_read_only`); the reads and
-  running automations go on. Members list, read, create and edit; only Owner and Admin delete.
-- **The list** searches the name (any case, trigram index), filters by status, trigger, scope,
-  "next post" status and account (an unknown account is an empty page), and sorts by created
-  (default, newest first), name (A→Z), last triggered (never-triggered last in both directions —
-  the nulls-last timestamp keyset) or completed runs (the integer keyset), either way.
-- **RLS:** the organization policy in `USING` and `WITH CHECK`, plus the retention sweep arm in
-  `USING` only — the expiry scan reads across organizations and never writes there; the purge
-  deletes there.
+- **Shared by every channel (P48, AU34):** keyed by `channel_account_id` with `channel` copied from
+  the account; the folder root imports no `instagram-*` folder (`automation-channel-neutral` policy
+  test) — accounts and the one feature check come through the channel account (1B), a channel's
+  sending through `app.channel-ports.ts`.
+- **Two levels (AU9):** a draft saves anything of the right shape; a live or paused row must pass the
+  go-live CHECKs; a save of one also passes the content checks (`400`, one item per problem with its
+  `body.steps…` path) and may not turn a PRO part on (`403 plan_lacks_feature`).
+- **Go-live answers every problem at once (AUQ1):** `409 automation_not_ready` with `errors[]`
+  (`field`, `reason`, `message`) — the account, the month limit, the content, the one feature check
+  (`channel_lacks_feature`, `permission_not_granted`, `plan_lacks_feature`, `feature_not_offered`),
+  the starter-question total (≤ 4 per account, counted under the account row's `FOR UPDATE`), the free
+  ref code, one live catch-all, usable files. Warnings never refuse. The plan-ended `403` is route
+  32's preHandler only (P10).
+- **Lock order (4.A.10):** go-live locks the account, then the automation; saves, actions and the
+  delete lock the automation `FOR UPDATE` after the organization's `AUTOMATION_NEXT_POST` advisory
+  lock (a save and a link take turns); the run engine holds it `FOR KEY SHARE` (D47).
+- **Counts survive the runs (AU19):** 16 slot rows per automation, `+1` with an upsert; no run key.
+- **A "next post" never expires (P12):** it waits from its first go-live (`target_starts_at`) and links
+  the first post published after it; a save may not change a linked one's target.
+- **The delete (AU16, P11):** an optional reason; the open runs are cancelled in the same commit; the
+  contacts it collected stay; the purge sets the two contact keys null.
 
 ## Lifecycle
 
-The "next post" status of a `next` automation (`next_post_status`):
-
 ```mermaid
 stateDiagram-v2
-    [*] --> waiting: created or edited to target_scope next
-    waiting --> linked: a comment on a post published inside the window (linkNextPostAutomations)
-    waiting --> expired: the window ended unlinked (automation-next-post-expiry, every 15 minutes)
-    expired --> waiting: the window changed (PATCH)
-    waiting --> [*]: target_scope changed away from next, or deleted
-    expired --> [*]: target_scope changed away from next, or deleted
-    linked --> [*]: deleted
+  [*] --> draft: route 28 (or 34 — a duplicate)
+  draft --> live: route 32, every check passes
+  live --> paused: route 33 (keep or cancel)
+  paused --> live: route 32, every check again
+  draft --> [*]: route 31
+  live --> [*]: route 31
+  paused --> [*]: route 31
 ```
-
-A linked automation never returns to `waiting`; its Duplicate starts `waiting` on a new window.
 
 ## Events
 
-None emitted. Audit entries are the controller's, after commit (AU4): `app.automation.create`
-(`automation_public_id`), `app.automation.update` (`automation_public_id`, `changed_fields`) and
-`app.automation.delete` (`automation_public_id`, `delete_reason`, `cancelled_run_count`).
+None on the event bus. The audit entries are the controller's, after commit: `app.automation.create`,
+`.update`, `.delete`, `.go_live`, `.pause` (`mode`), `.duplicate`. A starter-question automation's
+go-live, pause, delete or question change enqueues the account's starter-question sync after commit
+once ROUTE row R40 wires it.
 
 ## Failure modes
 
-- **An open-run cancel step throws** → the whole delete rolls back; the automation stays live.
-- **Two saves race on overlapping windows** → the advisory lock makes the second wait and then see
-  the first; it answers `409 next_post_window_overlap`.
-- **A link fails** → sub-domain 4 logs it and still matches the comment (D18); the next comment on
-  that post tries again.
-- **An expiry change fails for one organization** → counted, logged and sent to Sentry; its
-  automations stay due for the next tick.
-- **The purge meets a still-referenced automation** → skipped and counted (`blockedCount`, a warn
-  log per row); any other database error → BullMQ retry and the DLQ.
+- The `400`s of a draft's shape and a live save's content; `400 trigger_type` for a change across
+  groups; `403 plan_lacks_feature`, `403 organization_read_only` (route 32); `404
+  automation_not_found`, `404 team_organization_required`; `409 automation_not_ready`,
+  `automation_ref_code_exists`, `instagram_not_connected`, `next_post_already_linked`,
+  `record_changed`, `transition_not_allowed`; `422` on a personal organization's writes and a missing
+  `X-Idempotency-Key` (routes 28, 34).
+- A cancel step that throws rolls the delete back.
 
 ## Policy constants
 
-`AUTOMATION_KEYWORDS_MAX_COUNT` (50), `AUTOMATION_TAGS_MAX_COUNT` (20),
-`AUTOMATION_PUBLIC_REPLY_TEXTS_MAX_COUNT` (20), `AUTOMATION_MESSAGE_TEXT_MAX_LENGTH` (1000),
-`AUTOMATION_BUTTON_TITLE_MAX_LENGTH` (20), `AUTOMATION_FINAL_MESSAGE_LINKS_MAX_COUNT` (3),
-`AUTOMATION_LINK_URL_MAX_LENGTH` (2048) and `AUTOMATION_NEXT_POST_START_GRACE_MILLISECONDS` (24
-hours) in `automation.constants.ts`; `AUTOMATION_TOMBSTONE_RETENTION_DAYS` (180, a product rule — not
-`TOMBSTONE_RETENTION_DAYS`) in `src/shared/constants/instagram.constants.ts`;
-`AUTOMATION_NEXT_POST_EXPIRY_BATCH` (500) in
-`workers/automation-next-post-expiry.constants.ts`; `RESOURCE_QUOTA_LOCK_NAMESPACE.AUTOMATION_NEXT_POST`
-in `src/infrastructure/database/resource-quota-lock.util.ts`.
+`automation.constants.ts` — the 15 ways with their groups, the scopes and "also start from" each
+allows, statuses, the limits of 4.A.3 (`AUTOMATION_*_MAX_*`, full names — P6), `AUTOMATION_COUNT_SLOTS`
+(16), `AUTOMATION_LAST_TRIGGERED_UPDATE_SECONDS` (60), the sorts; the shared matcher's
+`AUTOMATION_KEYWORD_CLOSE_MATCH_MIN_LETTERS` (5) in `automation-run/automation-run-matching.util.ts`;
+`RESOURCE_QUOTA_LOCK_NAMESPACE.AUTOMATION_NEXT_POST`.

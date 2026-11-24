@@ -83,3 +83,10 @@ export const OAUTH_FORM_CALLBACK_USER_MAX_LENGTH = 4 * 1024;
 
 /** Bytes per mebibyte (1024 * 1024) — RSS / threshold byte math. */
 export const BYTES_PER_MEGABYTE = 1024 * 1024;
+
+/**
+ * Hard ceiling on the response body a webhook target may return (64 KB). Enforced while
+ * streaming so a hostile or buggy endpoint cannot exhaust worker memory; the connection is
+ * destroyed and the fetch rejected the moment the limit is crossed.
+ */
+export const WEBHOOK_RESPONSE_BODY_MAX_BYTES = 64 * 1024;

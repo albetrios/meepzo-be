@@ -141,6 +141,29 @@ export class ChannelAccountRepository {
     return rows[0] ?? null;
   }
 
+  /**
+   * One account of the organization by its internal id, locked `FOR UPDATE` until the unit ends —
+   * the automation go-live's starter-question count (feat-instagram-dm-sending 4.A.10: the account
+   * first, then the automation); `null` when absent.
+   */
+  async lockById({
+    organizationId,
+    channelAccountId,
+  }: ChannelAccountKey): Promise<ChannelAccountRow | null> {
+    const rows = await this.db()
+      .select()
+      .from(channel_accounts)
+      .where(
+        and(
+          eq(channel_accounts.organization_id, organizationId),
+          eq(channel_accounts.id, channelAccountId),
+        ),
+      )
+      .limit(1)
+      .for('update');
+    return rows[0] ?? null;
+  }
+
   /** The organization's accounts by internal id, any status. */
   async findByIds({
     organizationId,

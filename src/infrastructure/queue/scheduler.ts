@@ -52,7 +52,6 @@ import { INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME } from '@/domains/app/sub-
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
-import { AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-expiry.constants.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { AUTOMATION_RUN_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.constants.js';
 import { AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.constants.js';
@@ -141,11 +140,6 @@ const DEFAULT_AUDIT_EXPORT_CRON = '15 2 * * *';
  * profiles, subscribe again what is not subscribed — after the 03:xx clean-ups.
  */
 const DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON = '0 4 * * *';
-/**
- * Launch D9 (routes-final § 3.A AU15, WC-6): every 15 minutes, mark the "next post" windows that
- * ended with no post linked `expired`. A fixed cadence, not a setting.
- */
-const DEFAULT_AUTOMATION_NEXT_POST_EXPIRY_CRON = '*/15 * * * *';
 /**
  * Launch D8 (routes-final § 3.B AU25, WC-13): every hour, cancel the runs that have waited more
  * than 7 days. A fixed cadence, not a setting.
@@ -564,15 +558,6 @@ export function getScheduledJobs(): ScheduledJob[] {
         schedulerId: 'daily-instagram-account-check',
         jobName: INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
         cronPattern: DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON,
-      },
-    }),
-    withSchedulerTimezone({
-      timezone,
-      job: {
-        queueName: AUTOMATION_NEXT_POST_EXPIRY_QUEUE_NAME,
-        schedulerId: 'automation-next-post-expiry-quarter-hourly',
-        jobName: 'expire-ended-next-post-windows',
-        cronPattern: DEFAULT_AUTOMATION_NEXT_POST_EXPIRY_CRON,
       },
     }),
     ...getAutomationCleanupScheduledJobs(timezone),

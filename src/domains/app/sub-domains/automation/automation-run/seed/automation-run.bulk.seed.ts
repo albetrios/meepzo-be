@@ -223,7 +223,7 @@ async function seedRunsForOrganization(organization: SeededOrg): Promise<number>
     .where(
       and(
         eq(automations.organization_id, organization.id),
-        eq(automations.instagram_account_id, account.id),
+        eq(automations.channel_account_id, account.channel_account_id),
         isNull(automations.deleted_at),
       ),
     )

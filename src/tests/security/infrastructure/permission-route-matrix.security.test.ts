@@ -94,9 +94,13 @@ function materializeOrganizationScopedPath(
   ) {
     return `${path}?reason=mistake`;
   }
-  // An automation's DELETE takes the same reason query (launch AU12, AQ6).
+  // An automation's DELETE takes an optional reason (feat-instagram-dm-sending AU16, P11).
   if (route.method === 'DELETE' && route.path.includes('/app/automations/')) {
     return `${path}?reason=mistake`;
+  }
+  // The automation list names its channel account (feat-instagram-dm-sending AU10).
+  if (route.method === 'GET' && route.path.endsWith('/app/automations')) {
+    return `${path}?channel_account_id=${publicIdPlaceholderFor('channelAccount')}`;
   }
   // The ad picker's ads read needs one ad account (feat-instagram-dm-sending route 15, P57).
   if (route.method === 'GET' && route.path.endsWith('/:channel_connection_id/ads')) {
@@ -109,8 +113,13 @@ function materializeOrganizationScopedPath(
   return path;
 }
 
-/** The contact (R10) and segment (R21) writes of feat-instagram-dm-sending: the smallest body each schema accepts. */
-const CONTACT_WRITE_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
+/**
+ * The contact writes (feat-instagram-dm-sending R10) the automation actions with a body (R13) and
+ * the segment writes (R21): the smallest body each schema accepts.
+ */
+const APP_WRITE_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
+  'POST /automations/:automation_id/pause': { mode: 'keep' },
+  'POST /automations/:automation_id/keyword-test': { text: 'price please' },
   'PATCH /contacts/:contact_id': { note: 'Matrix note' },
   'POST /contacts/bulk-actions': {
     channel_account_id: publicIdPlaceholderFor('channelAccount'),
@@ -192,9 +201,8 @@ function payloadForPermissionRoute(
   if (route.path.includes('/roles/:role_id')) {
     return { name: 'Matrix role updated' };
   }
-  const contactPayload =
-    CONTACT_WRITE_PAYLOADS[`${route.method} ${route.path.replace(/^.*\/app/, '')}`];
-  if (contactPayload !== undefined) return contactPayload;
+  const appPayload = APP_WRITE_PAYLOADS[`${route.method} ${route.path.replace(/^.*\/app/, '')}`];
+  if (appPayload !== undefined) return appPayload;
   if (route.path.endsWith('/app/social/instagram/accounts/:channel_account_id/settings')) {
     // A setting in range, so body validation (400) does not preempt the permission check (403).
     return { is_automation_enabled: false };
@@ -206,13 +214,12 @@ function payloadForPermissionRoute(
     return { name: 'Matrix organization' };
   }
   if (route.method === 'POST' && route.path.endsWith('/app/automations')) {
-    // The smallest complete flow, so body validation (400) does not preempt the permission check.
+    // The smallest draft (feat-instagram-dm-sending AU11), so body validation (400) does not
+    // preempt the permission check.
     return {
       name: 'Matrix automation',
-      trigger_type: 'dm',
-      keywords: ['price'],
-      is_opening_message_enabled: false,
-      final_message: { text: 'Thanks' },
+      channel_account_id: publicIdPlaceholderFor('channelAccount'),
+      trigger_type: 'dm_keyword',
     };
   }
   if (route.method === 'PATCH' && route.path.includes('/app/automations/:automation_id')) {

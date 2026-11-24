@@ -79,6 +79,7 @@ export function createDomainContainers(
     organizationService: tenancyDomain.organizationService,
     planAccessService: billingDomain.subscriptionService,
     trialPort: billingDomain.subscriptionTrialService,
+    messageFilePort: uploadDomain.uploadService,
   });
   // Billing's accounts port (feat-instagram-dm-sending § 8.10) is the app's — late-wired, as the API.
   billingDomain.subscriptionService.wireChannelAccounts(appDomain.channelAccountService);

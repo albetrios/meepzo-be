@@ -11,8 +11,8 @@ import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
 import type { ContactErasureStep } from '@/domains/app/sub-domains/contact/contact.types.js';
-import { AutomationRepository } from '@/domains/app/sub-domains/automation/automation.repository.js';
-import { AutomationService } from '@/domains/app/sub-domains/automation/automation.service.js';
+import { AutomationRunAutomationRepository } from '@/domains/app/sub-domains/automation/automation-run/automation-run-automation.repository.js';
+import type { AutomationService } from '@/domains/app/sub-domains/automation/automation.service.js';
 import type {
   AutomationDeleteResult,
   AutomationOpenRunCancelStep,
@@ -31,7 +31,9 @@ import {
   readContactRow,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
+  type AutomationFixtureOverrides,
   type AutomationFixtureRow,
+  createTestAutomationService,
   insertAutomation,
   readAutomationRow,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
@@ -164,21 +166,17 @@ describe('the lock order of the delete, the erase and the run engine (database, 
     );
     cancelSteps = [(input) => engine.cancelAutomationOpenRuns(input)];
     erasureSteps.push((input) => engine.eraseContactRunCopies(input));
-    automationService = new AutomationService(
-      new AutomationRepository(),
-      accountService,
+    automationService = createTestAutomationService({
       organizationService,
-      cancelSteps,
-    );
+      openRunCancelSteps: cancelSteps,
+    });
   });
 
   const scope = () => PRINCIPAL_SCOPE.JOB({ organizationPublicId: organization.public_id });
 
   /** A live automation on `keyword` whose flow is the final message only. */
   function liveAutomation(
-    overrides: Partial<
-      Omit<AutomationFixtureRow, 'id' | 'organization_id' | 'instagram_account_id'>
-    > = {},
+    overrides: AutomationFixtureOverrides = {},
   ): Promise<AutomationFixtureRow> {
     return insertAutomation({
       organizationId: organization.id,
@@ -323,8 +321,8 @@ describe('the lock order of the delete, the erase and the run engine (database, 
         'status_changed:running',
         'status_changed:completed',
       ]);
+      // The all-time counts are `app.automation_counts`, written by the run engine from R14 (AU19).
       expect(await readAutomationRow(automation.public_id)).toMatchObject({
-        completed_run_count: 1,
         deleted_at: expect.any(Date),
       });
     });
@@ -354,7 +352,6 @@ describe('the lock order of the delete, the erase and the run engine (database, 
         'status_changed:cancelled',
       ]);
       expect(await readAutomationRow(automation.public_id)).toMatchObject({
-        completed_run_count: 0,
         deleted_at: expect.any(Date),
       });
     });
@@ -445,9 +442,6 @@ describe('the lock order of the delete, the erase and the run engine (database, 
         cancelledRunCount: run.status === 'cancelled' ? 1 : 0,
       });
       await expectNoOpenRunOf(automation);
-      expect((await readAutomationRow(automation.public_id))?.completed_run_count).toBe(
-        run.status === 'completed' ? 1 : 0,
-      );
     });
   });
 
@@ -538,7 +532,10 @@ describe('the lock order of the delete, the erase and the run engine (database, 
       withAppDatabaseContext({
         scope: scope(),
         callback: () =>
-          new AutomationRepository().lockLiveForRunStart({ organizationId, automationId }),
+          new AutomationRunAutomationRepository().lockLiveForRunStart({
+            organizationId,
+            automationId,
+          }),
       });
 
     expect(await lockForStart({ automationId: live.id })).toMatchObject({ id: live.id });

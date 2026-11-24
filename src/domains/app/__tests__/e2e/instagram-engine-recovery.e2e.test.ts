@@ -275,7 +275,6 @@ describe('Instagram run engine — failed events, steps turned off, deletes (e2e
           waiting_for: 'phone',
         });
         expect(await flow.contact()).toMatchObject({ email: null, tags: ['catalog'] });
-        expect(await flow.automation(automation)).toMatchObject({ completed_run_count: 1 });
       },
     );
 
@@ -412,7 +411,6 @@ describe('Instagram run engine — failed events, steps turned off, deletes (e2e
         'status_changed:running',
         'status_changed:cancelled',
       ]);
-      expect(await flow.automation(automation)).toMatchObject({ completed_run_count: 0 });
       expect(
         await readStagedAuditRows({
           organizationPublicId: flow.team.organization.public_id,

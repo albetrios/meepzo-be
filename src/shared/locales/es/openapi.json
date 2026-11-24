@@ -42,7 +42,7 @@
     "Instagram account": "La cuenta profesional de Instagram conectada de la organización: consultar, cambiar su configuración, desconectar, ver sus publicaciones e historias",
     "Contact": "Las personas que interactuaron con las cuentas de Instagram de la organización: listar y borrar",
     "Instagram Webhook": "Eventos de Instagram que Meta entrega para la cuenta conectada, y la lista de lo que pasó con cada uno",
-    "Automation": "Lo que responde comentarios, DM y respuestas a historias en las cuentas de Instagram de la organización: listar, crear, consultar, editar y eliminar",
+    "Automation": "Lo que responde comentarios, DM, respuestas a historias y las demás formas de empezar en cada cuenta de canal: guardar borradores, listar, consultar, guardar contenido, activar, pausar, duplicar, probar una palabra clave y eliminar",
     "Instagram sending": "Cómo envían las cuentas de Instagram de la organización: el estado de envío de una cuenta (mensajes en espera, paradas, resultados de hoy) y el contador mensual de mensajes directos de la organización",
     "Segments": "Audiencias guardadas de una cuenta de canal que reutilizan las difusiones: listarlas, guardarlas, consultarlas, cambiarlas y borrarlas, y contar una audiencia"
   },

@@ -39,10 +39,10 @@ import {
 /** One minute, in hours. */
 const ONE_MINUTE = 1 / 60;
 /** The expiry check's interval (D9), in hours. */
-const FIFTEEN_MINUTES = 15 * ONE_MINUTE;
+const _FIFTEEN_MINUTES = 15 * ONE_MINUTE;
 
 /** What an expiry check answers when nothing is due. */
-const NOTHING_DUE = { scanned: 0, expired: 0, failedOrganizationCount: 0 };
+const _NOTHING_DUE = { scanned: 0, expired: 0, failedOrganizationCount: 0 };
 
 /**
  * The "next post" flow end to end (ROUTE row R17 — AC-10.1 to AC-10.9; routes-final § 3.A AU9,
@@ -181,8 +181,7 @@ describe('Instagram "next post" linking flow (e2e)', () => {
         next_post_status: 'linked',
         target_instagram_media_id: postId,
         next_post_linked_at: linked.updated_at,
-        next_post_starts_at: nextPost.next_post_starts_at,
-        next_post_ends_at: nextPost.next_post_ends_at,
+        target_starts_at: nextPost.target_starts_at,
       });
       expect(linked.updated_at.getTime()).toBeGreaterThan(nextPost.updated_at.getTime());
 
@@ -232,8 +231,8 @@ describe('Instagram "next post" linking flow (e2e)', () => {
         hours: DEFAULT_WINDOW.startHours - ONE_MINUTE,
         isInside: false,
       },
-      { moment: 'at the end', hours: DEFAULT_WINDOW.endHours, isInside: false },
-      { moment: 'after the end', hours: DEFAULT_WINDOW.endHours + 1, isInside: false },
+      // No end date since feat-instagram-dm-sending P12: a post after the launch's end still links.
+      { moment: 'long after the old end', hours: DEFAULT_WINDOW.endHours + 1, isInside: true },
     ])(
       'a post published $moment: inside the window = $isInside (AC-10.1, AC-10.7)',
       async ({ hours, isInside }) => {
@@ -310,10 +309,7 @@ describe('Instagram "next post" linking flow (e2e)', () => {
         body: { name: 'Too late', expected_updated_at: nextPost.updated_at.toISOString() },
       });
       expect(refusalOf(openedBefore)).toBe('409 record_changed');
-      const movedWindow = await flow.save({
-        automation: nextPost,
-        body: flow.windowBody({ startHours: 2, endHours: 30 }),
-      });
+      const movedWindow = await flow.save({ automation: nextPost, body: { target_scope: 'any' } });
       expect(refusalOf(movedWindow)).toBe('409 next_post_already_linked');
       await comments.editAutomation({
         automation: nextPost,
@@ -327,7 +323,6 @@ describe('Instagram "next post" linking flow (e2e)', () => {
         next_post_status: 'linked',
         target_instagram_media_id: postId,
         next_post_linked_at: linked.next_post_linked_at,
-        completed_run_count: 2,
       });
       expect(await storedPostIds()).toEqual([postId]);
       expect(postReads(postId)).toBe(1);
@@ -626,154 +621,6 @@ describe('Instagram "next post" linking flow (e2e)', () => {
       expect(await answersOf(commentId)).toEqual([answeredBy(anyPost)]);
       await flow.expectStillWaiting(nextPost);
     });
-
-    it('expired: a post published in the ended window, first commented on after the check, does not link and is not answered by it (D26)', async () => {
-      const nextPost = await flow.createNextPostAutomation({
-        name: 'Launch day',
-        window: { startHours: -2, endHours: 1 },
-      });
-      await flow.checkEndedWindows({ hours: 1 + FIFTEEN_MINUTES });
-      const expired = await flow.rowOf(nextPost);
-      expect(expired.next_post_status).toBe('expired');
-      const postId = flow.publishPost(flow.hoursFromNow(1 - ONE_MINUTE));
-
-      const unansweredId = await commentOn({ postId });
-      const anyPost = await comments.createFinalMessageAutomation({
-        name: 'Every post',
-        keywords: [],
-      });
-      const answeredId = await commentOn({ postId, person: sam });
-
-      expect(await answersOf(unansweredId)).toEqual([]);
-      expect(await answersOf(answeredId)).toEqual([answeredBy(anyPost)]);
-      expect(await flow.rowOf(nextPost)).toEqual(expired);
-      await flow.expectNeverAnswered(nextPost);
-    });
-  });
-
-  describe('a window that ends (AC-10.8, D9)', () => {
-    it('expires within one 15-minute check, in every organization; a linked one and an open window never; a repeat changes nothing', async () => {
-      const linked = await flow.createNextPostAutomation({
-        name: 'Linked',
-        window: { startHours: -2, endHours: 1 },
-      });
-      const postId = flow.publishPost(flow.hoursFromNow(-1));
-      await commentOn({ postId });
-      await flow.expectLinkedTo({ automation: linked, postId });
-      const linkedRow = await flow.rowOf(linked);
-      const ended = await flow.createNextPostAutomation({
-        name: 'Ended',
-        window: { startHours: 0.5, endHours: 1 },
-      });
-      const open = await flow.createNextPostAutomation({
-        name: 'Open',
-        window: { startHours: 1, endHours: 24 },
-      });
-      const otherTeam = await InstagramNextPostFlow.open(app);
-      const otherTeamEnded = await otherTeam.createNextPostAutomation({
-        name: 'Ended, other team',
-        window: { startHours: -1, endHours: 1 },
-      });
-      const toldBefore = await countToldPeople();
-
-      // Not before the end. (The other team's window is counted from a later moment.)
-      expect(await flow.checkEndedWindows({ hours: 1 })).toEqual(NOTHING_DUE);
-      await flow.expectStillWaiting(ended);
-
-      // The first check after it, at most 15 minutes later — as the worker runs it.
-      expect(
-        await inWorkerProcess(() => flow.checkEndedWindows({ hours: 1 + FIFTEEN_MINUTES })),
-      ).toEqual({ scanned: 2, expired: 2, failedOrganizationCount: 0 });
-      const expiredRow = await flow.rowOf(ended);
-      expect(expiredRow).toMatchObject({
-        status: 'live',
-        target_scope: 'next',
-        next_post_status: 'expired',
-        target_instagram_media_id: null,
-        next_post_linked_at: null,
-        next_post_starts_at: ended.next_post_starts_at,
-        next_post_ends_at: ended.next_post_ends_at,
-      });
-      expect(expiredRow.updated_at.getTime()).toBeGreaterThan(ended.updated_at.getTime());
-      expect((await otherTeam.rowOf(otherTeamEnded)).next_post_status).toBe('expired');
-      expect(await flow.rowOf(linked)).toEqual(linkedRow);
-      await flow.expectStillWaiting(open);
-
-      // The next checks change nothing.
-      for (const checks of [2, 3]) {
-        expect(await flow.checkEndedWindows({ hours: 1 + checks * FIFTEEN_MINUTES })).toEqual(
-          NOTHING_DUE,
-        );
-      }
-      expect(await flow.rowOf(ended)).toEqual(expiredRow);
-
-      // The list shows it on the next read; nobody is told (D11).
-      expect(await flow.listedNames('expired')).toEqual(['Ended']);
-      expect(await countToldPeople()).toBe(toldBefore);
-    });
-
-    it('a first comment after the end but before the check still links, and the check leaves it linked', async () => {
-      const nextPost = await flow.createNextPostAutomation({ name: 'Launch day' });
-      const ended = { startHours: -3, endHours: -2 * ONE_MINUTE };
-      await flow.passTheWindow({ automation: nextPost, ...ended });
-      const postId = flow.publishPost(flow.hoursFromNow(-1));
-
-      const commentId = await commentOn({ postId });
-
-      await flow.expectLinkedTo({ automation: nextPost, postId });
-      expect(await answersOf(commentId)).toEqual([answeredBy(nextPost)]);
-      expect(await flow.checkEndedWindows({ hours: FIFTEEN_MINUTES })).toEqual(NOTHING_DUE);
-      await flow.expectLinkedTo({ automation: nextPost, postId });
-    });
-
-    it('a link that lands between the check finding the window and changing it wins', async () => {
-      const nextPost = await flow.createNextPostAutomation({
-        name: 'Launch day',
-        window: { startHours: -2, endHours: 1 },
-      });
-      const postId = flow.publishPost(flow.hoursFromNow(-1));
-      const isFound = createGate();
-      const mayChange = createGate();
-      const list = AutomationRepository.prototype.listNextPostExpiryCandidates;
-      vi.spyOn(
-        AutomationRepository.prototype,
-        'listNextPostExpiryCandidates',
-      ).mockImplementationOnce(async function holdScan(this: AutomationRepository, input) {
-        const candidates = await list.call(this, input);
-        isFound.open();
-        await mayChange.opened;
-        return candidates;
-      });
-
-      const check = flow.checkEndedWindows({ hours: 2 });
-      await isFound.opened;
-      await commentOn({ postId });
-      mayChange.open();
-
-      expect(await check).toEqual({ scanned: 1, expired: 0, failedOrganizationCount: 0 });
-      await flow.expectLinkedTo({ automation: nextPost, postId });
-    });
-
-    it('a changed window puts an expired automation back to waiting, and it takes the next new post', async () => {
-      const nextPost = await flow.createNextPostAutomation({
-        name: 'Launch day',
-        window: { startHours: -2, endHours: 1 },
-      });
-      await flow.checkEndedWindows({ hours: 2 });
-      expect((await flow.rowOf(nextPost)).next_post_status).toBe('expired');
-
-      await comments.editAutomation({
-        automation: nextPost,
-        body: { next_post_ends_at: flow.hoursFromNow(48).toISOString() },
-      });
-
-      await flow.expectStillWaiting(nextPost);
-      expect(await flow.checkEndedWindows({ hours: 2 })).toEqual(NOTHING_DUE);
-      const postId = flow.publishPost(flow.hoursFromNow(-0.5));
-      const commentId = await commentOn({ postId });
-      await flow.expectLinkedTo({ automation: nextPost, postId });
-      expect(await answersOf(commentId)).toEqual([answeredBy(nextPost)]);
-    });
   });
 
   describe('a link and a save take turns inside one organization (D26)', () => {
@@ -797,21 +644,6 @@ describe('Instagram "next post" linking flow (e2e)', () => {
       expect((await saved).statusCode).toBe(200);
       expect(await processed).toMatchObject({ processedEventCount: 1 });
     }
-
-    it('the save first: the link waits for it and sees the moved window', async () => {
-      const nextPost = await flow.createNextPostAutomation({ name: 'Launch day' });
-      const postId = flow.publishPost(flow.hoursFromNow(-1));
-      const commentId = await comments.comment({ person: jordan, postId, text: NEXT_POST_KEYWORD });
-
-      await processWhileSaving({
-        automation: nextPost,
-        body: flow.windowBody({ startHours: 2, endHours: 30 }),
-      });
-
-      expect(await answersOf(commentId)).toEqual([]);
-      await flow.expectStillWaiting(nextPost);
-      expect((await flow.rowOf(nextPost)).next_post_starts_at).toEqual(flow.hoursFromNow(2));
-    });
 
     it('a save that sets another automation to the post first: the link waits for it and leaves the post (AC-10.3)', async () => {
       const nextPost = await flow.createNextPostAutomation({ name: 'Launch day' });
@@ -845,17 +677,14 @@ describe('Instagram "next post" linking flow (e2e)', () => {
 
       const commented = commentOn({ postId });
       await isLinked.opened;
-      const saved = flow.save({
-        automation: nextPost,
-        body: flow.windowBody({ startHours: 2, endHours: 30 }),
-      });
+      const saved = flow.save({ automation: nextPost, body: { target_scope: 'any' } });
       await untilASessionWaitsForALock().finally(mayCommit.open);
 
       expect(refusalOf(await saved)).toBe('409 next_post_already_linked');
       expect(await answersOf(await commented)).toEqual([answeredBy(nextPost)]);
       expect(await flow.rowOf(nextPost)).toMatchObject({
         target_instagram_media_id: postId,
-        next_post_starts_at: nextPost.next_post_starts_at,
+        target_starts_at: nextPost.target_starts_at,
       });
     });
 
@@ -871,7 +700,7 @@ describe('Instagram "next post" linking flow (e2e)', () => {
             scope: PRINCIPAL_SCOPE.JOB({
               organizationPublicId: comments.team.organization.public_id,
             }),
-            instagramAccountPublicId: comments.account.publicId,
+            channelAccountPublicId: comments.account.publicId,
             instagramMediaId: postId,
             publishedAt,
           }),

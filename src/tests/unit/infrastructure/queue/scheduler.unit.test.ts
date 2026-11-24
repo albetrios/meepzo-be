@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(38);
+    expect(scheduledJobs).toHaveLength(37);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -69,8 +69,6 @@ describe('infrastructure queue scheduler', () => {
       // Launch IA8: the daily Instagram account check's sweep rides its queue
       // (job `sweep-connected-instagram-accounts`).
       'instagram-account-daily-check',
-      // launch-2026-11-20-ujai D9 (AU15): the "next post" windows that ended expire every 15 minutes
-      'automation-next-post-expiry',
       // launch-2026-11-20-ujai D8 (AU25, AQ7): the hourly 7-day wait cancel, then the daily run
       // (03:20), comment-log (03:30) and deleted-automation (03:40) clean-ups
       'automation-run-wait-expiry',
@@ -142,16 +140,13 @@ describe('infrastructure queue scheduler', () => {
     });
   });
 
-  it('expires ended "next post" windows every 15 minutes (D9, routes-final § 3.A AU15)', async () => {
+  it('schedules no "next post" expiry — a next post never expires (feat-instagram-dm-sending P12, AU20)', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
-    const job = getScheduledJobs().find(
-      (scheduledJob) => scheduledJob.queueName === 'automation-next-post-expiry',
-    );
-    expect(job).toMatchObject({
-      schedulerId: 'automation-next-post-expiry-quarter-hourly',
-      jobName: 'expire-ended-next-post-windows',
-      cronPattern: '*/15 * * * *',
-    });
+    expect(
+      getScheduledJobs().some(
+        (scheduledJob) => scheduledJob.queueName === 'automation-next-post-expiry',
+      ),
+    ).toBe(false);
   });
 
   it('cancels runs waiting more than 7 days every hour (D8, routes-final § 3.B AU25)', async () => {
@@ -240,15 +235,15 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(38);
-    // Each scheduled job opens one Queue for upsert (38) + the reconcile pass opens one Queue per
-    // unique queue name (38 — the seat reconcile, the export reclaim, the Instagram daily-check
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(37);
+    // Each scheduled job opens one Queue for upsert (37) + the reconcile pass opens one Queue per
+    // unique queue name (37 — the seat reconcile, the export reclaim, the Instagram daily-check
     // sweep and the Instagram stuck-event pick-up ride queues no other cron uses), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(76);
+    expect(queueCloseMock).toHaveBeenCalledTimes(74);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(76);
+    expect(queueCloseMock).toHaveBeenCalledTimes(74);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

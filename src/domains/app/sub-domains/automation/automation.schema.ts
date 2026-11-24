@@ -6,9 +6,9 @@ import {
   check,
   foreignKey,
   index,
-  integer,
   jsonb,
   pgPolicy,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -23,67 +23,83 @@ import {
 } from '@/shared/constants/record-fields.constants.js';
 import { users } from '@/domains/user/user.schema.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
-import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import {
+  AUTOMATION_ALSO_START_FROM_VALUES,
+  AUTOMATION_CHANNELS,
+  AUTOMATION_DEFAULT_REPLY_MODES,
   AUTOMATION_INSTAGRAM_ID_PATTERN,
   AUTOMATION_KEYWORDS_MAX_COUNT,
+  AUTOMATION_MESSAGES_MAX_COUNT,
   AUTOMATION_NAME_MAX_LENGTH,
   AUTOMATION_NEXT_POST_STATUSES,
+  AUTOMATION_PUBLIC_REPLY_HOUR_LIMITS,
+  AUTOMATION_PUBLIC_REPLY_LINES_WITH_REPLY_LIKE_PERSON_MIN_COUNT,
   AUTOMATION_PUBLIC_REPLY_TEXTS_MAX_COUNT,
+  AUTOMATION_REF_CODE_PATTERN,
+  AUTOMATION_STARTER_QUESTIONS_MAX_COUNT,
   AUTOMATION_STATUSES,
-  AUTOMATION_TAGS_MAX_COUNT,
+  AUTOMATION_STEPS_MAX_BYTES,
+  AUTOMATION_STOPPED_REASONS,
+  AUTOMATION_TAG_MAX_LENGTH,
   AUTOMATION_TARGET_SCOPES,
   AUTOMATION_TRIGGER_TYPES,
 } from './automation.constants.js';
-import type {
-  AutomationFinalMessage,
-  AutomationFollowRequestMessage,
-  AutomationOpeningMessage,
-  AutomationTextMessage,
-} from './automation.types.js';
+import type { AutomationSteps } from './automation-steps.dto.js';
 
-/** The columns of `app.automations` (routes-final § 3.A.3), as the table is built from them. */
+/** The columns of `app.automations` (routes-final § 4.A.3), as the table is built from them. */
 const automationColumns = {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   public_id: varchar('public_id', { length: 28 }).notNull(),
   organization_id: bigint('organization_id', { mode: 'number' })
     .notNull()
     .references(() => organizations.id, { onDelete: 'cascade' }),
-  /** The Instagram account the automation runs on (AU27) — set at create, never changed. */
-  instagram_account_id: bigint('instagram_account_id', { mode: 'number' }).notNull(),
+  /** The channel account the automation runs on (AU34, P48) — set at create, never changed. */
+  channel_account_id: bigint('channel_account_id', { mode: 'number' }).notNull(),
+  /** The account's channel, copied at create (AU34). */
+  channel: varchar('channel', { length: 10 }).notNull().default('instagram'),
   name: varchar('name', { length: 255 }).notNull(),
-  status: varchar('status', { length: 10 }).notNull().default('inactive'),
-  trigger_type: varchar('trigger_type', { length: 15 }).notNull(),
+  status: varchar('status', { length: 10 }).notNull().default('draft'),
+  trigger_type: varchar('trigger_type', { length: 20 }).notNull(),
+  also_start_from: text('also_start_from').array().notNull().default([]),
   target_scope: varchar('target_scope', { length: 10 }).notNull().default('any'),
-  /** The `specific` post, or the post a `next` automation linked to; digits only. */
+  /** The `specific` post or shared post, or the post a `next` automation linked to; digits only. */
   target_instagram_media_id: varchar('target_instagram_media_id', { length: 64 }),
   /** The `specific` story; digits only. */
   target_instagram_story_id: varchar('target_instagram_story_id', { length: 64 }),
-  next_post_starts_at: timestamp('next_post_starts_at', { withTimezone: true }),
-  next_post_ends_at: timestamp('next_post_ends_at', { withTimezone: true }),
+  /** `between`: the owner's start; `next`: the go-live time (AU20). */
+  target_starts_at: timestamp('target_starts_at', { withTimezone: true }),
+  /** `between`: the owner's end; `next`: always empty. */
+  target_ends_at: timestamp('target_ends_at', { withTimezone: true }),
   next_post_status: varchar('next_post_status', { length: 10 }),
   next_post_linked_at: timestamp('next_post_linked_at', { withTimezone: true }),
-  is_dm_keyword_trigger_enabled: boolean('is_dm_keyword_trigger_enabled').notNull().default(true),
-  /** Trimmed, lowercased, deduplicated (AU7). */
+  /** Trimmed, lowercased, deduplicated. */
   keywords: text('keywords').array().notNull().default([]),
-  tags: text('tags').array().notNull().default([]),
+  ref_code: varchar('ref_code', { length: 64 }),
+  starter_questions: text('starter_questions').array().notNull().default([]),
+  ad_id: varchar('ad_id', { length: 64 }),
+  trigger_tag: varchar('trigger_tag', { length: 50 }),
+  default_reply_mode: varchar('default_reply_mode', { length: 12 }),
   is_public_reply_enabled: boolean('is_public_reply_enabled').notNull().default(false),
   public_reply_texts: text('public_reply_texts').array().notNull().default([]),
-  is_opening_message_enabled: boolean('is_opening_message_enabled').notNull().default(true),
-  opening_message: jsonb('opening_message').$type<AutomationOpeningMessage>(),
-  is_follow_required: boolean('is_follow_required').notNull().default(false),
-  follow_request_message: jsonb('follow_request_message').$type<AutomationFollowRequestMessage>(),
-  is_email_collection_enabled: boolean('is_email_collection_enabled').notNull().default(false),
-  /** `null` = the default email question. */
-  email_request_message: jsonb('email_request_message').$type<AutomationTextMessage>(),
-  is_phone_collection_enabled: boolean('is_phone_collection_enabled').notNull().default(false),
-  /** `null` = the default phone question. */
-  phone_request_message: jsonb('phone_request_message').$type<AutomationTextMessage>(),
-  /** Always set (D19). */
-  final_message: jsonb('final_message').$type<AutomationFinalMessage>().notNull(),
-  /** `+ 1` in SQL at each completed run (AU10). */
-  completed_run_count: integer('completed_run_count').notNull().default(0),
-  /** The last run start (AU10). */
+  is_public_reply_mention_enabled: boolean('is_public_reply_mention_enabled')
+    .notNull()
+    .default(true),
+  is_reply_like_person_enabled: boolean('is_reply_like_person_enabled').notNull().default(false),
+  /** Empty = 60 (`AUTOMATION_PUBLIC_REPLY_HOUR_LIMIT_DEFAULT`). */
+  public_reply_hour_limit: smallint('public_reply_hour_limit'),
+  is_hide_comment_after_direct_message_enabled: boolean(
+    'is_hide_comment_after_direct_message_enabled',
+  )
+    .notNull()
+    .default(false),
+  /** What it sends (AU8) — one object, ≤ 64 KB. */
+  steps: jsonb('steps').$type<AutomationSteps>().notNull().default({}),
+  stopped_reason: varchar('stopped_reason', { length: 20 }),
+  stopped_at: timestamp('stopped_at', { withTimezone: true }),
+  /** Pause + Cancel: its waiting messages made before this count as cancelled (AU14). */
+  cancelled_before_at: timestamp('cancelled_before_at', { withTimezone: true }),
+  /** The last run start — moved only when over 60 s old (AU19). */
   last_triggered_at: timestamp('last_triggered_at', { withTimezone: true }),
   created_by_user_id: bigint('created_by_user_id', { mode: 'number' }).references(() => users.id, {
     onDelete: 'set null',
@@ -105,56 +121,80 @@ type AutomationTableColumns = BuildExtraConfigColumns<
   'pg'
 >;
 
-/** The account reference and every index of 3.A.3 — each declared for the index-hygiene gate. */
+/** A live-level rule: a `draft` passes, a `live` or `paused` row must hold it (AU9). */
+function liveRule({
+  table,
+  rule,
+}: {
+  table: AutomationTableColumns;
+  rule: ReturnType<typeof sql>;
+}) {
+  return sql`${table.status} = 'draft' OR (${rule})`;
+}
+
+/** The account reference and every index of 4.A.3 — each declared for the index-hygiene gate. */
 function automationKeysAndIndexes(table: AutomationTableColumns) {
   return [
     foreignKey({
-      name: 'automations_instagram_account_fk',
-      columns: [table.organization_id, table.instagram_account_id],
-      foreignColumns: [instagram_accounts.organization_id, instagram_accounts.id],
+      name: 'automations_channel_account_fk',
+      columns: [table.organization_id, table.channel_account_id],
+      foreignColumns: [channel_accounts.organization_id, channel_accounts.id],
     }).onDelete('restrict'),
     uniqueIndex('idx_automations_public_id').on(table.public_id),
-    // The runs' and comment logs' composite key (organization_id, automation_id) → (organization_id, id).
+    // The composite parent key of runs, logs, counts, reply states, backfills and contacts' keys.
     uniqueIndex('idx_automations_organization_id_id').on(table.organization_id, table.id),
-    // The account reference (AU27) and the list's instagram_account_id filter; not partial.
-    index('idx_automations_organization_id_instagram_account_id').on(
+    // The account reference; not partial, so it covers soft-deleted rows.
+    index('idx_automations_organization_id_channel_account_id').on(
       table.organization_id,
-      table.instagram_account_id,
+      table.channel_account_id,
     ),
-    // One index per list sort over the live automations, each serving both directions (AU13, AQ9).
-    index('idx_automations_organization_id_created_at_id')
-      .on(table.organization_id, table.created_at, table.id)
+    // One index per list sort over one account's automations (AU10).
+    index('idx_automations_account_created_at_id')
+      .on(table.organization_id, table.channel_account_id, table.created_at, table.id)
       .where(sql`${table.deleted_at} IS NULL`),
-    index('idx_automations_organization_id_name_id')
-      .on(table.organization_id, table.name, table.id)
+    index('idx_automations_account_name_id')
+      .on(table.organization_id, table.channel_account_id, table.name, table.id)
       .where(sql`${table.deleted_at} IS NULL`),
-    index('idx_automations_organization_id_last_triggered_at_id')
-      .on(table.organization_id, table.last_triggered_at, table.id)
+    // last_triggered_at nulls last in both directions: one index each way (launch follow-up 2).
+    index('idx_automations_account_last_triggered_at_id')
+      .on(
+        table.organization_id,
+        table.channel_account_id,
+        table.last_triggered_at.asc().nullsLast(),
+        table.id,
+      )
       .where(sql`${table.deleted_at} IS NULL`),
-    index('idx_automations_organization_id_completed_run_count_id')
-      .on(table.organization_id, table.completed_run_count, table.id)
+    index('idx_automations_account_last_triggered_at_desc_id')
+      .on(
+        table.organization_id,
+        table.channel_account_id,
+        table.last_triggered_at.desc().nullsLast(),
+        table.id.desc(),
+      )
       .where(sql`${table.deleted_at} IS NULL`),
-    // The list's `q` over the name, any case (AU13).
+    // The list's `q` over the name, any case.
     index('idx_automations_name_trgm')
       .using('gin', table.name.op('gin_trgm_ops'))
       .where(sql`${table.deleted_at} IS NULL`),
-    // An event's candidates, of the event's account only (AU16, AU27).
+    // An event's candidates, of the event's account only.
     index('idx_automations_live_triggers')
-      .on(table.organization_id, table.instagram_account_id, table.trigger_type)
+      .on(table.organization_id, table.channel_account_id, table.trigger_type)
       .where(sql`${table.status} = 'live' AND ${table.deleted_at} IS NULL`),
-    // A comment's post-linked automations (AU16) and "already targeted" (AU15).
+    // A comment's post-linked automations and "already targeted".
     index('idx_automations_target_media')
-      .on(table.organization_id, table.instagram_account_id, table.target_instagram_media_id)
+      .on(table.organization_id, table.channel_account_id, table.target_instagram_media_id)
       .where(sql`${table.target_instagram_media_id} IS NOT NULL AND ${table.deleted_at} IS NULL`),
-    // Linking and the overlap check, per account (AU9, AU15).
+    // The linking sweep's live, waiting "next post" automations per account (AU20, WC-43).
     index('idx_automations_next_post_waiting')
-      .on(table.organization_id, table.instagram_account_id, table.next_post_ends_at)
-      .where(sql`${table.next_post_status} = 'waiting' AND ${table.deleted_at} IS NULL`),
-    // The 15-minute expiry scan across organizations (AU15, D9).
-    index('idx_automations_next_post_expiry')
-      .on(table.next_post_ends_at)
-      .where(sql`${table.next_post_status} = 'waiting' AND ${table.deleted_at} IS NULL`),
-    // Tombstone purge (AQ7): only the soft-deleted rows, so live writes never maintain it.
+      .on(table.organization_id, table.channel_account_id)
+      .where(
+        sql`${table.next_post_status} = 'waiting' AND ${table.status} = 'live' AND ${table.deleted_at} IS NULL`,
+      ),
+    // `ref_code` unique per account, drafts included (D43).
+    uniqueIndex('idx_automations_account_ref_code')
+      .on(table.organization_id, table.channel_account_id, table.ref_code)
+      .where(sql`${table.ref_code} IS NOT NULL AND ${table.deleted_at} IS NULL`),
+    // Tombstone purge: only the soft-deleted rows, so live writes never maintain it.
     index('idx_automations_tombstoned')
       .on(table.deleted_at)
       .where(sql`${table.deleted_at} IS NOT NULL`),
@@ -167,8 +207,8 @@ function automationKeysAndIndexes(table: AutomationTableColumns) {
   ];
 }
 
-/** The value-list, name, scope, target and "next post" CHECKs (3.A.3). */
-function automationScopeChecks(table: AutomationTableColumns) {
+/** The every-save CHECKs (AU9 level 1): value lists, lengths, counts, ranges, `steps` an object. */
+function automationEverySaveChecks(table: AutomationTableColumns) {
   return [
     check(
       'chk_automations_status',
@@ -177,6 +217,10 @@ function automationScopeChecks(table: AutomationTableColumns) {
     check(
       'chk_automations_trigger_type',
       sql`${table.trigger_type} IN (${sqlLiteralList(AUTOMATION_TRIGGER_TYPES)})`,
+    ),
+    check(
+      'chk_automations_channel',
+      sql`${table.channel} IN (${sqlLiteralList(AUTOMATION_CHANNELS)})`,
     ),
     check(
       'chk_automations_target_scope',
@@ -191,87 +235,58 @@ function automationScopeChecks(table: AutomationTableColumns) {
       sql`char_length(btrim(${table.name})) BETWEEN 1 AND ${sqlLiteral(AUTOMATION_NAME_MAX_LENGTH)}`,
     ),
     check(
-      'chk_automations_next_only_comment',
-      sql`${table.target_scope} <> 'next' OR ${table.trigger_type} = 'comment'`,
+      'chk_automations_also_start_from',
+      sql`${table.also_start_from} <@ ARRAY[${sqlLiteralList(AUTOMATION_ALSO_START_FROM_VALUES)}]::text[] AND cardinality(${table.also_start_from}) <= 2 AND array_position(${table.also_start_from}, NULL) IS NULL`,
     ),
-    check(
-      'chk_automations_dm_scope',
-      sql`${table.trigger_type} <> 'dm' OR ${table.target_scope} = 'any'`,
-    ),
-    check(
-      'chk_automations_dm_keyword_trigger',
-      sql`${table.trigger_type} <> 'dm' OR ${table.is_dm_keyword_trigger_enabled}`,
-    ),
-    check(
-      'chk_automations_dm_needs_keywords',
-      sql`${table.trigger_type} <> 'dm' OR cardinality(${table.keywords}) >= 1`,
-    ),
-    check(
-      'chk_automations_specific_target',
-      sql`(${table.target_scope} <> 'specific' OR ${table.trigger_type} <> 'comment' OR (${table.target_instagram_media_id} IS NOT NULL AND ${table.target_instagram_story_id} IS NULL))
-        AND (${table.target_scope} <> 'specific' OR ${table.trigger_type} <> 'story_reply' OR (${table.target_instagram_story_id} IS NOT NULL AND ${table.target_instagram_media_id} IS NULL))
-        AND (${table.target_scope} <> 'any' OR (${table.target_instagram_media_id} IS NULL AND ${table.target_instagram_story_id} IS NULL))
-        AND (${table.target_scope} <> 'next' OR ${table.target_instagram_story_id} IS NULL)`,
-    ),
-    check(
-      'chk_automations_next_post_fields',
-      sql`(${table.target_scope} = 'next') = (${table.next_post_status} IS NOT NULL)
-        AND (${table.target_scope} = 'next') = (${table.next_post_starts_at} IS NOT NULL)
-        AND (${table.target_scope} = 'next') = (${table.next_post_ends_at} IS NOT NULL)`,
-    ),
-    check(
-      'chk_automations_next_post_window',
-      sql`${table.next_post_ends_at} > ${table.next_post_starts_at}`,
-    ),
+    check('chk_automations_target_dates', sql`${table.target_ends_at} > ${table.target_starts_at}`),
     check(
       'chk_automations_next_post_linked',
-      sql`(${table.next_post_status} IS NOT DISTINCT FROM 'linked') = (${table.next_post_linked_at} IS NOT NULL)
-        AND (${table.target_scope} <> 'next' OR (${table.next_post_status} IS NOT DISTINCT FROM 'linked') = (${table.target_instagram_media_id} IS NOT NULL))`,
+      sql`(${table.next_post_status} IS NOT DISTINCT FROM 'linked') = (${table.next_post_linked_at} IS NOT NULL)`,
     ),
-  ];
-}
-
-/** The array, message, counter, soft-delete and `updated` CHECKs (3.A.3). */
-function automationContentChecks(table: AutomationTableColumns) {
-  return [
     check(
       'chk_automations_keywords',
       sql`cardinality(${table.keywords}) <= ${sqlLiteral(AUTOMATION_KEYWORDS_MAX_COUNT)} AND array_position(${table.keywords}, NULL) IS NULL`,
     ),
     check(
-      'chk_automations_tags',
-      sql`cardinality(${table.tags}) <= ${sqlLiteral(AUTOMATION_TAGS_MAX_COUNT)} AND array_position(${table.tags}, NULL) IS NULL`,
+      'chk_automations_ref_code',
+      sql`${table.ref_code} ~ ${sqlLiteral(AUTOMATION_REF_CODE_PATTERN)}`,
+    ),
+    check(
+      'chk_automations_starter_questions',
+      sql`cardinality(${table.starter_questions}) <= ${sqlLiteral(AUTOMATION_STARTER_QUESTIONS_MAX_COUNT)} AND array_position(${table.starter_questions}, NULL) IS NULL`,
+    ),
+    check(
+      'chk_automations_instagram_ids',
+      sql`${table.target_instagram_media_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)} AND ${table.target_instagram_story_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)} AND ${table.ad_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)}`,
+    ),
+    check(
+      'chk_automations_trigger_tag',
+      sql`char_length(btrim(${table.trigger_tag})) BETWEEN 1 AND ${sqlLiteral(AUTOMATION_TAG_MAX_LENGTH)}`,
+    ),
+    check(
+      'chk_automations_default_reply_mode',
+      sql`${table.default_reply_mode} IN (${sqlLiteralList(AUTOMATION_DEFAULT_REPLY_MODES)})`,
     ),
     check(
       'chk_automations_public_reply_texts',
       sql`cardinality(${table.public_reply_texts}) <= ${sqlLiteral(AUTOMATION_PUBLIC_REPLY_TEXTS_MAX_COUNT)} AND array_position(${table.public_reply_texts}, NULL) IS NULL`,
     ),
     check(
-      'chk_automations_public_reply',
-      sql`NOT ${table.is_public_reply_enabled} OR (${table.trigger_type} = 'comment' AND cardinality(${table.public_reply_texts}) >= 1)`,
+      'chk_automations_public_reply_hour_limit',
+      sql`${table.public_reply_hour_limit} IN (${sqlLiteralList(AUTOMATION_PUBLIC_REPLY_HOUR_LIMITS)})`,
     ),
     check(
-      'chk_automations_message_objects',
-      sql`(${table.opening_message} IS NULL OR jsonb_typeof(${table.opening_message}) = 'object')
-        AND (${table.follow_request_message} IS NULL OR jsonb_typeof(${table.follow_request_message}) = 'object')
-        AND (${table.email_request_message} IS NULL OR jsonb_typeof(${table.email_request_message}) = 'object')
-        AND (${table.phone_request_message} IS NULL OR jsonb_typeof(${table.phone_request_message}) = 'object')
-        AND jsonb_typeof(${table.final_message}) = 'object'`,
+      'chk_automations_steps',
+      sql`jsonb_typeof(${table.steps}) = 'object' AND octet_length(${table.steps}::text) <= ${sqlLiteral(AUTOMATION_STEPS_MAX_BYTES)}`,
     ),
     check(
-      'chk_automations_enabled_steps_have_messages',
-      sql`(NOT ${table.is_opening_message_enabled} OR ${table.opening_message} IS NOT NULL)
-        AND (NOT ${table.is_follow_required} OR ${table.follow_request_message} IS NOT NULL)`,
+      'chk_automations_stopped_reason',
+      sql`${table.stopped_reason} IN (${sqlLiteralList(AUTOMATION_STOPPED_REASONS)})`,
     ),
     check(
-      'chk_automations_comment_opening_button',
-      sql`${table.trigger_type} <> 'comment' OR NOT ${table.is_opening_message_enabled} OR coalesce(jsonb_typeof(${table.opening_message} -> 'button_title') = 'string', false)`,
+      'chk_automations_stopped',
+      sql`(${table.stopped_reason} IS NULL) = (${table.stopped_at} IS NULL)`,
     ),
-    check(
-      'chk_automations_instagram_ids',
-      sql`${table.target_instagram_media_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)} AND ${table.target_instagram_story_id} ~ ${sqlLiteral(AUTOMATION_INSTAGRAM_ID_PATTERN)}`,
-    ),
-    check('chk_automations_completed_run_count', sql`${table.completed_run_count} >= 0`),
     check(
       'chk_automations_delete_reason',
       sql`${table.delete_reason} IN (${sqlLiteralList(RECORD_DELETE_REASON_VALUES)})`,
@@ -288,37 +303,121 @@ function automationContentChecks(table: AutomationTableColumns) {
   ];
 }
 
+/** The go-live CHECKs (AU9 level 2), each `status = 'draft' OR (…)` (plan §18.5). */
+function automationLiveChecks(table: AutomationTableColumns) {
+  return [
+    check(
+      'chk_automations_live_trigger_fields',
+      liveRule({
+        table,
+        rule: sql`(${table.trigger_type} <> 'ref_link' OR ${table.ref_code} IS NOT NULL)
+        AND (${table.trigger_type} <> 'starter_question' OR cardinality(${table.starter_questions}) BETWEEN 1 AND ${sqlLiteral(AUTOMATION_STARTER_QUESTIONS_MAX_COUNT)})
+        AND (${table.trigger_type} NOT IN ('ad_comment', 'ad_message') OR ${table.ad_id} IS NOT NULL)
+        AND (${table.trigger_type} NOT IN ('tag_added', 'tag_removed') OR ${table.trigger_tag} IS NOT NULL)
+        AND (${table.trigger_type} <> 'default_reply' OR ${table.default_reply_mode} IS NOT NULL)
+        AND (${table.trigger_type} <> 'dm_keyword' OR cardinality(${table.keywords}) >= 1)`,
+      }),
+    ),
+    check(
+      'chk_automations_live_target',
+      liveRule({
+        table,
+        rule: sql`(${table.trigger_type} = 'comment' OR ${table.target_scope} IN ('any', 'specific'))
+        AND (${table.trigger_type} IN ('comment', 'story_reply', 'shared_post') OR ${table.target_scope} = 'any')
+        AND (${table.target_scope} <> 'specific' OR ${table.trigger_type} = 'story_reply' OR (${table.target_instagram_media_id} IS NOT NULL AND ${table.target_instagram_story_id} IS NULL))
+        AND (${table.target_scope} <> 'specific' OR ${table.trigger_type} <> 'story_reply' OR (${table.target_instagram_story_id} IS NOT NULL AND ${table.target_instagram_media_id} IS NULL))
+        AND (${table.target_scope} NOT IN ('any', 'between') OR (${table.target_instagram_media_id} IS NULL AND ${table.target_instagram_story_id} IS NULL))
+        AND (${table.target_scope} <> 'next' OR ${table.target_instagram_story_id} IS NULL)`,
+      }),
+    ),
+    check(
+      'chk_automations_live_also_start_from',
+      liveRule({
+        table,
+        rule: sql`CASE ${table.trigger_type}
+          WHEN 'comment' THEN ${table.also_start_from} <@ ARRAY['story_reply', 'dm']::text[]
+          WHEN 'story_reply' THEN ${table.also_start_from} <@ ARRAY['dm']::text[]
+          WHEN 'dm_keyword' THEN ${table.also_start_from} <@ ARRAY['story_reply']::text[]
+          ELSE cardinality(${table.also_start_from}) = 0
+        END`,
+      }),
+    ),
+    check(
+      'chk_automations_live_next_post',
+      liveRule({
+        table,
+        rule: sql`(${table.target_scope} = 'next') = (${table.next_post_status} IS NOT NULL)
+        AND (${table.target_scope} <> 'next' OR (${table.target_starts_at} IS NOT NULL AND ${table.target_ends_at} IS NULL))
+        AND (${table.target_scope} <> 'next' OR (${table.next_post_status} = 'linked') = (${table.target_instagram_media_id} IS NOT NULL))`,
+      }),
+    ),
+    check(
+      'chk_automations_live_between',
+      liveRule({
+        table,
+        rule: sql`${table.target_scope} <> 'between' OR (${table.target_starts_at} IS NOT NULL AND ${table.target_ends_at} IS NOT NULL)`,
+      }),
+    ),
+    check(
+      'chk_automations_live_public_reply',
+      liveRule({
+        table,
+        rule: sql`NOT ${table.is_public_reply_enabled}
+        OR (${table.trigger_type} IN ('comment', 'ad_comment') AND cardinality(${table.public_reply_texts}) >= 1
+          AND (NOT ${table.is_reply_like_person_enabled} OR cardinality(${table.public_reply_texts}) >= ${sqlLiteral(AUTOMATION_PUBLIC_REPLY_LINES_WITH_REPLY_LIKE_PERSON_MIN_COUNT)}))`,
+      }),
+    ),
+    check(
+      'chk_automations_live_hide',
+      liveRule({
+        table,
+        rule: sql`NOT ${table.is_hide_comment_after_direct_message_enabled} OR ${table.trigger_type} IN ('comment', 'ad_comment')`,
+      }),
+    ),
+    check(
+      'chk_automations_live_messages',
+      liveRule({
+        table,
+        rule: sql`jsonb_typeof(${table.steps} -> 'messages') = 'array' AND jsonb_array_length(${table.steps} -> 'messages') BETWEEN 1 AND ${sqlLiteral(AUTOMATION_MESSAGES_MAX_COUNT)}`,
+      }),
+    ),
+    check(
+      'chk_automations_live_hello_next_button',
+      liveRule({
+        table,
+        rule: sql`${table.steps} -> 'hello' -> 'on' IS DISTINCT FROM 'true'::jsonb
+        OR NOT jsonb_path_exists(${table.steps}, '$.hello.versions[*] ? (!exists(@.buttons[*] ? (@.action == "next")))')`,
+      }),
+    ),
+  ];
+}
+
 /**
- * `app.automations` — one automation of one Instagram account: its trigger, its target, its
- * keywords and tags, the message of each step and the counters the run engine keeps (routes-final
- * § 3.A.3).
+ * `app.automations` — one automation of one channel account, shared by every channel (routes-final
+ * § 4.A.3, P48): how it starts (flat columns), its public reply and its pacing, and one `steps`
+ * object for what it sends.
  *
  * @remarks
- * - **Keys:** the account link is the composite `(organization_id, instagram_account_id)` →
- *   `app.instagram_accounts (organization_id, id)`, `ON DELETE RESTRICT` (an account is revoked,
- *   never deleted) — set by the server at create from the organization's not-revoked account and
- *   never changed (AU27). The unique `(organization_id, id)` index is the parent key of the runs'
- *   and comment logs' composite references (sub-domain 3.B).
- * - **Always complete (AU8):** the final message always; the opening and follow messages whenever
- *   their step is on; on a comment automation with the opening message on, its button
- *   (`chk_automations_comment_opening_button`, AQ2 — a missing `button_title` is refused too: the
- *   check never ends in NULL, which a CHECK lets through, D56). The service checks every rule
- *   first, so a caller gets a `400` naming the field, never a constraint error.
- * - **"Next post" (AU9, AU15):** the window and `next_post_status` are set exactly on `next`; the
- *   media id is set exactly when `linked`. The 15-minute expiry and linking change only
- *   `waiting` rows.
- * - **Counters (AU10):** `completed_run_count` and `last_triggered_at` are the run engine's, never
- *   a DTO's.
- * - **Soft delete (AU12):** `deleted_at` with the reason and note of the confirm drawer, as
- *   `tenancy.roles`; no restore; purged 180 days later (AQ7).
- * - **RLS:** the organization policy, plus the retention sweep arm in `USING` only — the expiry
- *   scan reads across organizations and each change runs in its organization's own context.
+ * - **Keys:** the account link is the composite `(organization_id, channel_account_id)` →
+ *   `app.channel_accounts (organization_id, id)`, `ON DELETE RESTRICT` (an account is revoked, never
+ *   deleted) — set at create, never changed. `channel` is copied from the account. The unique
+ *   `(organization_id, id)` index is the parent key of runs, logs, counts, reply states and the two
+ *   contact keys (`contacts.first_automation_id`, `contact_tag_events.source_automation_id`, both
+ *   `ON DELETE SET NULL (<column>)`, added by this table's migration — § 4.3).
+ * - **Two levels of checks (AU9):** every save — lists, lengths, counts, ranges, `steps` an object
+ *   ≤ 64 KB; go-live — `status = 'draft' OR (…)`, so a `live` or `paused` row must pass. The API
+ *   runs every rule first and answers with the problems, never a constraint error.
+ * - **Status by actions only (AU3):** `draft` → `live` ⇄ `paused`; an automatic stop
+ *   (`stopped_reason`) keeps it `live`.
+ * - **Counters (AU19):** in `app.automation_counts`; only `last_triggered_at` stays here.
+ * - **Soft delete (AU16):** `deleted_at`, an optional reason; `other` needs a note.
+ * - **RLS:** the organization policy, plus the retention sweep arm in `USING` only.
  */
 export const automations = appSchema
   .table('automations', automationColumns, (table) => [
     ...automationKeysAndIndexes(table),
-    ...automationScopeChecks(table),
-    ...automationContentChecks(table),
+    ...automationEverySaveChecks(table),
+    ...automationLiveChecks(table),
     pgPolicy('automations_tenant_isolation', {
       as: 'permissive',
       for: 'all',

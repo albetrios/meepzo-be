@@ -59,8 +59,9 @@ describe('worker-registration.registry', () => {
     // hourly 7-day wait cancel, run retention, comment-log retention, the deleted-automation purge);
     // +1 for the Instagram webhook event processing (instagram family, throughput,
     // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
-    // WH12–WH15).
-    expect(definitions).toHaveLength(43);
+    // WH12–WH15); −1 for the "next post" expiry, retired by feat-instagram-dm-sending R13 (WC-44: a
+    // "next post" has no end date since P12).
+    expect(definitions).toHaveLength(42);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -91,15 +92,16 @@ describe('worker-registration.registry', () => {
     // the Instagram webhook event clean-up (WH19) one more Postgres-backed, scheduled, maintenance
     // worker; the "next post" expiry (D9, AU15) one more; the four run and automation clean-ups
     // (D8, AU25, AQ7) four more; the Instagram webhook event processing (WH5, WH15) one
-    // Postgres-backed throughput worker whose every-minute pick-up rides its queue.
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(40);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(38);
+    // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the "next post"
+    // expiry (a Postgres-backed, scheduled, maintenance worker) retired at R13 (WC-44).
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(39);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(37);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(8);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
-    ).toHaveLength(33);
+    ).toHaveLength(32);
     expect(
       definitions.filter((definition) => definition.criticality === 'observability'),
     ).toHaveLength(2);

@@ -822,3 +822,15 @@ export function captureLogLines(app: FastifyInstance): {
     },
   };
 }
+
+/**
+ * One saved segment (feat-instagram-dm-sending § 7.B, R21) for every channel account of the
+ * organization — so the organization delete is seen erasing `app.segments` too.
+ */
+export async function writeSegmentHistory(organizationId: number): Promise<void> {
+  await operatorQuery`
+    INSERT INTO app.segments (public_id, organization_id, channel_account_id, name, conditions)
+    SELECT 'seg_' || lpad(id::text, 21, '0'), organization_id, id, 'Has an email',
+           '{"op":"and","items":[{"field":"details","has":"email"}]}'::jsonb
+      FROM app.channel_accounts WHERE organization_id = ${organizationId}`;
+}

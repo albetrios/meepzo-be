@@ -53,6 +53,8 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'app.contacts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   'app.contact_activities': ['app.current_organization_public_id'],
   'app.contact_tag_counts': ['app.current_organization_public_id'],
+  // Segments (feat-instagram-dm-sending R21): organization-scoped, plus the purge's sweep arm (7.3).
+  'app.segments': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The channel connection: organization-scoped, plus the token check's sweep (MC10). Its token and
   // usage: the organization arm only — no sweep arm reads a token (MC9).
   'app.channel_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],

@@ -80,6 +80,11 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   'GET /api/v1/app/automations/:automation_id': 'cross-organization-resource: automation',
   'PATCH /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation PATCH',
   'DELETE /api/v1/app/automations/:automation_id': 'cross-organization-mutation: automation DELETE',
+  // feat-instagram-dm-sending R21: broadcast-segment.integration.test.ts reads, edits and deletes
+  // another organization's segment → 404 segment_not_found, and reads the row back unchanged.
+  'GET /api/v1/app/segments/:segment_id': 'cross-organization-resource: segment',
+  'PATCH /api/v1/app/segments/:segment_id': 'cross-organization-mutation: segment PATCH',
+  'DELETE /api/v1/app/segments/:segment_id': 'cross-organization-mutation: segment DELETE',
   // feat-instagram-dm-sending R3: channel-connection.integration.test.ts reads, reconnects, picks
   // and disconnects another organization's connection → 404 channel_connection_not_found with the
   // row and token unchanged; a login state another organization started is refused (400) and

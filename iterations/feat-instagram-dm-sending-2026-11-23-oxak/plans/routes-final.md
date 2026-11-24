@@ -3450,6 +3450,7 @@ BCQ1 (7.2) — the purge horizon; answered P75: 90 days.
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `channel_account_id` | `bigint` | no | | composite → accounts `ON DELETE CASCADE`; fixed |
+| `channel` | `varchar(10)` | no | `'instagram'` | the account's, copied (P48, BC18; added at R21 — [P309](decisions.md)) |
 | `channel` | `varchar(20)` | no | | copied from the account at create (P48; written here in rev 5 — P99); `chk_broadcasts_channel` (`instagram`) |
 | `name` | `varchar(255)` | no | | 1–255 after trim |
 | `status` | `varchar(17)` | no | `'draft'` | `draft` · `scheduled` · `sending` · `waiting_for_chats` · `done` · `cancelled` |
@@ -3632,10 +3633,11 @@ As 7.5.
 | 78, 80, 82 | `400` · `conditions` | not the tree of BC12: an unknown field or key, over 2 levels, over 20 conditions, an id that is not this account's |
 | 78, 80 | `400` · `name` | empty or over 255 after trim |
 | 82 | `400` · `segment_id` / `conditions` | neither or both; a segment of another account |
-| 78 | `404` · `instagram_not_connected` | the account is not this organization's (a `revoked` one may still hold segments: allowed) |
+| 78, 82 | `404` · `channel_account_not_found` | the account is not this organization's (a `revoked` one may still hold segments: allowed) — 1B's account error, as built at R21 ([P309](decisions.md)) |
 | 80 | `409` · `record_changed` | a stale `expected_updated_at` |
 | 79–82 | `404` · `segment_not_found` | absent, deleted or another organization's |
 | 78, 80, 82 | `403` · `plan_lacks_feature` | a plan without the `segments` switch — Free (BC19, P76) |
+| 82 | `503` · `segment_count_unavailable` | the inline count passed its 2 s and the background count (R46) is not wired yet — as built at R21 ([P309](decisions.md)) |
 
 #### 7.B.10 Rules worth knowing
 
@@ -3646,6 +3648,7 @@ As 7.5.
 | # | Change |
 | --- | --- |
 | BCC8 | BC12–BC15: schema, repository (with the audience builder and its statement timeout), service, the `segmentConditionsSchema` DTO (one schema for segments and broadcasts' one-off conditions), validator, serializer, controller, routes 77–82; the `segment-count` task handler and its cache file (be-read-cache-guard's five tests); unit tests: every field and the 2-level and 20-condition limits; DB tests: each condition against seeded contacts, the always-left-out rules, the open-window count; delete empties drafts' `segment_id` |
+| R21 as built | [AS-BUILT](../AS-BUILT.md) row R21, [P309](decisions.md), [P310](decisions.md): prefix `seg`; the `segment-count` task and its cache behind `SegmentBackgroundCountPort` (R46); delete's draft step behind `SegmentDeleteStep` (R22); media ids checked by shape; `got_message` numbers above 1 wait for R14 / R19; seeds in `broadcast-segment/seed/` |
 | BCC11 | BC19: the `segments` feature check on routes 78, 80 and 82 (through 1B's `canChannelAccountUseFeature`); the `errors:` copy (`src/shared/locales/en/` first); tests — Free `403` on 78, 80, 82 and `200` on 77, 79, 81; Creator `200`; a trial's segment still readable after a move down |
 
 ---

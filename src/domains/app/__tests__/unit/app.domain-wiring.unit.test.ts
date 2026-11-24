@@ -48,6 +48,7 @@ describe('app domain wiring', () => {
     expect(Object.keys(application.appDomain).sort()).toEqual([
       'automationRunService',
       'automationService',
+      'broadcastSegmentService',
       'channelAccountService',
       'channelConnectionMetaCallbackService',
       'channelConnectionService',
@@ -112,6 +113,7 @@ describe('app domain wiring', () => {
     expect(registeredRoutes.sort()).toEqual([
       `DELETE ${APP_PREFIX}/automations/:automation_id`,
       `DELETE ${APP_PREFIX}/contacts/:contact_id`,
+      `DELETE ${APP_PREFIX}/segments/:segment_id`,
       `DELETE ${APP_PREFIX}/social/channel-accounts/:channel_account_id`,
       `DELETE ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
       `GET ${APP_PREFIX}/automations`,
@@ -119,6 +121,8 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/contact-tags`,
       `GET ${APP_PREFIX}/contacts`,
       `GET ${APP_PREFIX}/contacts/:contact_id`,
+      `GET ${APP_PREFIX}/segments`,
+      `GET ${APP_PREFIX}/segments/:segment_id`,
       `GET ${APP_PREFIX}/social/channel-accounts`,
       `GET ${APP_PREFIX}/social/channel-accounts/:channel_account_id`,
       `GET ${APP_PREFIX}/social/channel-connections`,
@@ -133,9 +137,12 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/usage`,
       `PATCH ${APP_PREFIX}/automations/:automation_id`,
       `PATCH ${APP_PREFIX}/contacts/:contact_id`,
+      `PATCH ${APP_PREFIX}/segments/:segment_id`,
       `PATCH ${APP_PREFIX}/social/instagram/accounts/:channel_account_id/settings`,
       `POST ${APP_PREFIX}/automations`,
       `POST ${APP_PREFIX}/contacts/bulk-actions`,
+      `POST ${APP_PREFIX}/segments`,
+      `POST ${APP_PREFIX}/segments/audience-count`,
       `POST ${APP_PREFIX}/social/channel-accounts/:channel_account_id/activate`,
       `POST ${APP_PREFIX}/social/channel-accounts/:channel_account_id/pause`,
       `POST ${APP_PREFIX}/social/channel-accounts/:channel_account_id/resume`,
@@ -161,13 +168,13 @@ describe('app domain wiring', () => {
     expect(appSeedModule.dependsOn).toEqual(['tenancy']);
     expect(appSeedModule.seedReference).toBeUndefined();
     // Without organizations the channel connection, channel account, Instagram account, settings, stored-posts,
-    // sending, contact, automation, automation-run and webhook event seeders warn and write nothing.
+    // sending, contact, automation, automation-run, segment and webhook event seeders warn and write nothing.
     const warn = vi.fn();
     const context = {
       registry: createSeedRegistry(),
       logger: { warn, info: vi.fn() },
     } as unknown as SeedContext;
     await expect(appSeedModule.seedBulk(context)).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(10);
+    expect(warn).toHaveBeenCalledTimes(11);
   });
 });

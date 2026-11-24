@@ -10,6 +10,11 @@ import {
   contactBulkActionBodyDto,
   updateContactBodyDto,
 } from '@/domains/app/sub-domains/contact/contact.dto.js';
+import {
+  createSegmentBodyDto,
+  segmentAudienceCountBodyDto,
+  updateSegmentBodyDto,
+} from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.dto.js';
 import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
@@ -226,4 +231,8 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // App: contacts (DM-sending routes-final § 3.A.8, routes 20 and 21).
   'PATCH /api/v1/app/contacts/{contact_id}': updateContactBodyDto,
   'POST /api/v1/app/contacts/bulk-actions': contactBulkActionBodyDto,
+  // App: segments (DM-sending routes-final § 7.B.8, routes 78, 80 and 82).
+  'POST /api/v1/app/segments': createSegmentBodyDto,
+  'PATCH /api/v1/app/segments/{segment_id}': updateSegmentBodyDto,
+  'POST /api/v1/app/segments/audience-count': segmentAudienceCountBodyDto,
 };

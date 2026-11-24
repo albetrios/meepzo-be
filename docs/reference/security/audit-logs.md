@@ -125,6 +125,9 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 | `app.contact.bulk_action` | `contact` | A bulk tag or pause action on one account's contacts was queued (`INFO`, `metadata.channel_account_public_id`, `action`, `matched_count`) — after the job is queued (CT7) |
 | `app.automation.create` | `automation` | Automation created — also the frontend's Duplicate (`INFO`, `metadata.automation_public_id`) — recorded after the create commits, best-effort |
 | `app.automation.update` | `automation` | Automation edited or turned on or off (`INFO`, `metadata.automation_public_id`, `metadata.changed_fields` — names only, never values; `expected_updated_at` is not a change) |
+| `app.segment.create` | `segment` | A segment saved on one channel account (`INFO`, `metadata.segment_public_id`, `channel_account_public_id`) — after the create commits, best-effort (feat-instagram-dm-sending BC6) |
+| `app.segment.update` | `segment` | A segment's name or conditions changed (`INFO`, `metadata.segment_public_id`, `changed_fields` — names only); none when nothing changed |
+| `app.segment.delete` | `segment` | A segment deleted (soft, `WARNING`, `metadata.segment_public_id`) |
 | `app.automation.delete` | `automation` | Automation deleted with why (`WARNING`, `metadata.automation_public_id`, `metadata.delete_reason`, `metadata.cancelled_run_count` — the open runs cancelled with it) |
 
 No Instagram account row ever holds the Instagram token or the authorization code; the contact row never holds an erased value (launch CT12).

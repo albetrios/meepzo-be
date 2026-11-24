@@ -29,6 +29,7 @@ TableGroup app {
   app.instagram_webhook_event_keys
   app.instagram_webhook_events
   app.message_month_counts
+  app.segments
   app.sending_states
 }
 
@@ -620,6 +621,25 @@ Table app.message_month_counts {
 
 Note app.message_month_counts {
   'RLS: enabled\nPolicies: message_month_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.segments {
+  channel varchar(10) [not null]
+  channel_account_id bigint [not null]
+  conditions jsonb [not null]
+  created_at timestamptz [not null]
+  created_by_user_id bigint
+  deleted_at timestamptz
+  id bigint [pk, increment]
+  name varchar(255) [not null]
+  organization_id bigint [not null]
+  public_id varchar(28) [not null]
+  updated_at timestamptz [not null]
+  updated_by_user_id bigint
+}
+
+Note app.segments {
+  'RLS: enabled\nPolicies: segments_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.sending_states {

@@ -117,7 +117,14 @@
     "contactIdsRepeated": "Cada contacto puede indicarse una sola vez",
     "contactBulkSelection": "Envía contact_ids o filter, no ambos",
     "contactBulkTag": "Envía una etiqueta para las acciones de etiqueta y ninguna para las de pausa",
-    "invalidPaymentMethodId": "Debe ser un id de tarjeta de Stripe: pm_ y de 1 a 250 letras o dígitos"
+    "invalidPaymentMethodId": "Debe ser un id de tarjeta de Stripe: pm_ y de 1 a 250 letras o dígitos",
+    "segmentMessageNumber": "Envía message_number con got_message, y solo con él",
+    "segmentCameInValue": "Envía el id de una automatización como value para first_automation, un value opcional para ref y ninguno para las demás vías de entrada",
+    "segmentActiveOneWindow": "Envía exactamente uno de last_message_within_hours, last_message_within_days y first_seen_within_days",
+    "segmentConditionsTooMany": "Un segmento admite como máximo 20 condiciones",
+    "segmentAudienceSelection": "Envía segment_id o conditions, no ambos",
+    "segmentConditionsForeignId": "Una automatización de las condiciones no es de esta cuenta",
+    "segmentOfAnotherAccount": "Este segmento pertenece a otra cuenta"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -298,7 +305,8 @@
     "Channel connection": "Conexión de canal",
     "Channel account": "Cuenta de canal",
     "Ad account": "Cuenta publicitaria",
-    "Payment method": "Método de pago"
+    "Payment method": "Método de pago",
+    "Segment": "el segmento"
   },
   "emailCodeWrong": "Ese código no es correcto. Revisa el último correo que enviamos e inténtalo de nuevo.",
   "emailCodeExpired": "Ese código ha caducado. Pide un código nuevo.",
@@ -318,5 +326,6 @@
   "defaultCardInUse": "Es tu única tarjeta y tienes un plan de pago activo. Añade otra tarjeta antes de quitar esta.",
   "emailAlreadyConfirmed": "Tu correo ya está confirmado",
   "emailConfirmationResendTooSoon": "Acabamos de enviar un enlace de confirmación. Espera un momento antes de pedir otro.",
-  "emailConfirmTokenInvalid": "Este enlace de confirmación ya no es válido. Pide uno nuevo."
+  "emailConfirmTokenInvalid": "Este enlace de confirmación ya no es válido. Pide uno nuevo.",
+  "segmentCountUnavailable": "Esta audiencia es demasiado grande para contarla ahora. Inténtalo más tarde."
 }

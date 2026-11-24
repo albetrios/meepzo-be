@@ -45,6 +45,8 @@ import type { AutomationOpenRunCancelStep } from './sub-domains/automation/autom
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
 import { AutomationRunMessageService } from './sub-domains/automation/automation-run/automation-run-message.service.js';
 import { AutomationPublicReplySafetyService } from './sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
+import { BroadcastSegmentRepository } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
+import { BroadcastSegmentService } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.service.js';
 import { InstagramSendLaneRepository } from './sub-domains/instagram-sending/instagram-send-lane.repository.js';
 import { InstagramSendLaneService } from './sub-domains/instagram-sending/instagram-send-lane.service.js';
 import { InstagramSendStopRepository } from './sub-domains/instagram-sending/instagram-send-stop.repository.js';
@@ -70,7 +72,8 @@ import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-a
  * (route 18; the one write path for the events table the receiver and processing use), the
  * Instagram webhook receiver (Meta's routes 16–17), the automation service (routes 11–15 and
  * "next post" linking for event processing), the run engine (sub-domain 3.B — the entry points
- * event processing calls per comment, DM, story reply and button click), and the sending
+ * event processing calls per comment, DM, story reply and button click), and the segment service
+ * (routes 77–82 of feat-instagram-dm-sending § 7.B, ROUTE row R21), and the sending
  * sub-domain's root (feat-instagram-dm-sending § 6.A, ROUTE row R18) — the lane service (the lane
  * port of the connection, the channel account and route 12), the month count (the plan-stop port,
  * route 64's meter), the global sending state (`SENDING_ENABLED` and the environment id, the app-level
@@ -101,6 +104,7 @@ export type AppContainer = {
   instagramWebhookService: InstagramWebhookService;
   automationService: AutomationService;
   automationRunService: AutomationRunService;
+  broadcastSegmentService: BroadcastSegmentService;
   instagramSendLaneService: InstagramSendLaneService;
   messageMonthCountService: MessageMonthCountService;
   sendingStateService: SendingStateService;
@@ -182,6 +186,28 @@ function createInstagramAccountServices({
     instagramAccountSettingsService,
     instagramAccountService,
   };
+}
+
+/**
+ * The segment service (feat-instagram-dm-sending routes-final § 7.B, ROUTE row R21): the `segments`
+ * switch through the channel account's one feature check (BC19).
+ *
+ * @remarks
+ * Notes: the delete step that empties drafts' segment (R22) and the background count (R46) join at
+ * their rows; wiring only, no side effects.
+ */
+function createSegmentService({
+  organizationService,
+  channelAccountService,
+}: {
+  organizationService: OrganizationService;
+  channelAccountService: ChannelAccountService;
+}): BroadcastSegmentService {
+  return new BroadcastSegmentService(
+    new BroadcastSegmentRepository(),
+    organizationService,
+    (input) => channelAccountService.canChannelAccountUseFeature(input),
+  );
 }
 
 /**
@@ -474,6 +500,7 @@ export function createAppContainer({
     messageMonthCountService: sending.messageMonthCountService,
     sendingStateService: sending.sendingStateService,
     instagramSendingService,
+    broadcastSegmentService: createSegmentService({ organizationService, channelAccountService }),
   };
 }
 

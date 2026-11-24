@@ -173,5 +173,11 @@
   "GET /api/v1/app/usage": 200,
   "POST /api/v1/app/social/channel-connections/meta/webhooks/instagram": 200,
   "POST /api/v1/auth/email/confirm": 200,
-  "POST /api/v1/users/me/email-confirmation": 200
+  "POST /api/v1/users/me/email-confirmation": 200,
+  "GET /api/v1/app/segments": 200,
+  "POST /api/v1/app/segments": 200,
+  "POST /api/v1/app/segments/audience-count": 200,
+  "GET /api/v1/app/segments/:segment_id": 200,
+  "PATCH /api/v1/app/segments/:segment_id": 200,
+  "DELETE /api/v1/app/segments/:segment_id": 204
 }

@@ -48,6 +48,8 @@ export function buildTagDefinitions(
       'Instagram events Meta delivers for the connected account, and the list of what happened to each',
     Automation:
       "What answers comments, DMs and story replies on the organization's Instagram accounts — list, create, read, edit and delete",
+    Segments:
+      'Saved audiences of one channel account that broadcasts reuse — list, save, read, change and delete them, and count an audience',
   };
   const tagDescriptions = tagStrings ?? builtInTagDescriptions;
 
@@ -89,6 +91,7 @@ export function buildTagDefinitions(
     'Instagram sending',
     'Contact',
     'Automation',
+    'Segments',
     'Instagram Webhook',
   ];
 

@@ -14,7 +14,7 @@ import {
   toMetaGraphApiError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 
-/** A Graph error body, as graph.instagram.com sends it. */
+/** A Graph error body, as graph.facebook.com sends it. */
 function graphErrorBody(error: {
   code: number;
   error_subcode?: number;

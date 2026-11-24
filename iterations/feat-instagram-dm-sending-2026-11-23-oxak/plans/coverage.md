@@ -100,7 +100,7 @@ channel reuses it, with Instagram-specific adapters around it. P48 supersedes P4
 | plan:L2105–2263 | human timing, extra delay, expiry, estimate | `operations.instagram-timing-boxes`, `operations.instagram-message-expiry`, `operations.instagram-pending-estimate` | sending-engine | — | covered |
 | plan:L2267–2362 | public replies per automation, usage header | `operations.automation-public-reply-per-automation`, `background.meta-usage-per-connection` | automations | — | covered (the usage kept per connection — P51) |
 | plan:L2364–2510 | follow check, email / phone parse, answer table, stop words, ask once, mark seen, pause one person | `operations.automation-answer-table`, `operations.contact-stop-words`, `operations.contact-pause-automations` | automations, contacts | — | covered |
-| plan:L2512–2736 | owner screens: counters, switcher, 35 banners, workspace notices, pause / resume account, undo, fix text, limits, contacts (note, timeline, delete, tags), connect / reconnect / disconnect, team suspend, owner emails, broadcast screen, backfill button, retry failed | `operations.automation-list-counters`, `operations.instagram-account-banners`, `operations.workspace-notices`, `operations.contact-note`, `operations.contact-timeline`, `notifications.owner-emails` | owner-actions | — | covered (A14, A15, A18; connect, reconnect, disconnect, pause, resume and team suspend on the channel connection and account — P41, P42) |
+| plan:L2512–2736 | owner screens: counters, switcher, 35 banners, organization notices, pause / resume account, undo, fix text, limits, contacts (note, timeline, delete, tags), connect / reconnect / disconnect, team suspend, owner emails, broadcast screen, backfill button, retry failed | `operations.automation-list-counters`, `operations.instagram-account-banners`, `operations.organization-notices`, `operations.contact-note`, `operations.contact-timeline`, `notifications.owner-emails` | owner-actions | — | covered (A14, A15, A18; connect, reconnect, disconnect, pause, resume and team suspend on the channel connection and account — P41, P42) |
 | plan:L2737–2791 | 26 Riya examples | acceptance seeds | all | `plans/acceptance.md` | covered |
 
 ### Part C — data (§17–23)
@@ -148,7 +148,7 @@ channel reuses it, with Instagram-specific adapters around it. P48 supersedes P4
 | Source | Item | Requirement | Feature | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
 | plan:L7598–7780 | sign-in: passwords off, Apple, digits code, trusted devices, step-up, GitHub off | `access.sign-in-v8` | product-around-sending | — | covered — P28 |
-| plan:L7782–7909 | workspaces, members, Editor / Viewer, `contact:update`, invitations, chooser, `logo_color` | `access.editor-viewer-roles`, `access.contact-update-code` | product-around-sending | — | covered — P28 (`contact:update`: A20) |
+| plan:L7782–7909 | organizations, members, Editor / Viewer, `contact:update`, invitations, chooser, `logo_color` | `access.editor-viewer-roles`, `access.contact-update-code` | product-around-sending | — | covered — P28 (`contact:update`: A20) |
 | plan:L7911–8115 | Flowdm plans, typed features, plan states, read-only, cards, trial | `billing.flowdm-plans`, `billing.plan-states`, `billing.paid-trial` | plans-and-limits | BRIEF AC-7 | covered — P28, P37 (placeholder prices) |
 | plan:L8117–8238 | profile, settings, notification kinds, notices | `notifications.kinds-v8` | notices | — | covered — P28 |
 | plan:L8240–8316 | refer | `billing.referral` | product-around-sending | — | out-of-scope — P39 |
@@ -191,7 +191,7 @@ against itself, against the guide, and against what the launch built (`SD` = lau
 | R12 | Once rule | per once key, resets ~90 days (D13) | launch: once ever, `previous_run_final` (SD "Trigger after an earlier run") | D13 (user) wins | before → after in requirements |
 | R13 | Unknown result | resend once on her next action (D17) | launch: fail the step (SD "Sending again on a retry") | D17 (user, 22 Nov) wins | before → after |
 | R14 | Retention | events 8 d, runs / logs 90 d (D15, D16) | launch 30 d / 180 d (SD "Wait limit and run retention") | D15 / D16 (user) win | before → after |
-| R15 | Accounts per workspace | 1 / 3 / 10 by plan (D26) | launch: one not-revoked account, singular routes (SD "Accounts per organization") | D26 wins | A1 |
+| R15 | Accounts per organization | 1 / 3 / 10 by plan (D26) | launch: one not-revoked account, singular routes (SD "Accounts per organization") | D26 wins | A1 |
 | R16 | Login | Unified Login only (D24) | launch: Instagram Login, token table, daily renewal (SD "Daily account check") | D24 wins | REMOVED rows |
 | R17 | Read-only plan | owner may pause, delete, disconnect (plan:L2066) | launch: `organization_read_only` on create / edit / delete (SD "Read-only plan") | — | A10 |
 | R18 | Delete reason | optional (plan:L677, L3035) | launch: required (SD "Automation delete") | — | A11 |

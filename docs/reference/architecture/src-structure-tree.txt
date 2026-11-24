@@ -680,6 +680,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── plan.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── plan-features.unit.test.ts
     │   │   │   │   │   ├── plan-routes-rate-limit.policy.unit.test.ts
     │   │   │   │   │   ├── plan.controller.unit.test.ts
     │   │   │   │   │   ├── plan.repository.db.unit.test.ts
@@ -691,6 +692,7 @@ src/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── plan.reference.seed.ts
     │   │   │   ├── plan-catalog-memo.ts
+    │   │   │   ├── plan.constants.ts
     │   │   │   ├── plan.controller.ts
     │   │   │   ├── plan.dto.ts
     │   │   │   ├── plan.overview.md

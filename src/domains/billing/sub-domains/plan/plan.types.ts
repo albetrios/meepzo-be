@@ -1,25 +1,37 @@
-/**
- * Free-form feature flags / capability map advertised by a plan tier (the
- * `billing.plans.features` jsonb). REQ-4 surfaces this verbatim in the public
- * plan response; keys are caller-defined capability names mapping to a boolean
- * toggle or a numeric/string limit (e.g. `{ "priority_support": true,
- * "max_projects": 10 }`). The map is intentionally open (`Record`) so adding a
- * feature needs no schema change — only the seed and the frontend agree on keys.
- */
-export type PlanFeatures = Record<string, boolean | number | string>;
+import { z } from 'zod';
+import {
+  PLAN_CHANNEL_ACCOUNTS_MAX_LIMIT,
+  PLAN_FEATURE_KEYS,
+  type PlanFeatureKey,
+} from './plan.constants.js';
+
+const featureSwitchShape = Object.fromEntries(
+  PLAN_FEATURE_KEYS.map((key) => [key, z.boolean()]),
+) as Record<PlanFeatureKey, z.ZodBoolean>;
 
 /**
- * Structured, typed limits derived from a plan tier (REQ-4). Distinct from the
- * open {@link PlanFeatures} map so the seat allowance has a stable, documented
- * shape the frontend can rely on. `seats` is `null` when the plan grants an
- * unlimited / unmetered seat count.
+ * The typed `billing.plans.features` (routes-final BL12, P83): the two limits, priority support and
+ * one on / off switch per feature key of {@link PLAN_FEATURE_KEYS}.
+ *
+ * @remarks
+ * `.strict()` at both levels: a missing or unknown key is a loud error, never a silent default. Parsed
+ * by `PlanRepository` on every read and by the reference seed before every write; the database's
+ * `chk_plans_features` pins the four top-level keys and their JSON types too.
  */
-export interface PlanLimits {
-  seats: number | null;
-}
+export const planFeaturesSchema = z
+  .object({
+    message_month_limit: z.number().int().min(0),
+    channel_accounts_max: z.number().int().min(1).max(PLAN_CHANNEL_ACCOUNTS_MAX_LIMIT),
+    has_priority_support: z.boolean(),
+    feature_switches: z.object(featureSwitchShape).strict(),
+  })
+  .strict();
+
+/** A plan's typed features — inferred from {@link planFeaturesSchema}. */
+export type PlanFeatures = z.infer<typeof planFeaturesSchema>;
 
 /**
- * Public response shape for plan endpoints. Uses the plan's `public_id` as `id`
+ * Public response shape for plan endpoints (routes-final 8.A.6). Uses the plan's `public_id` as `id`
  * and emits ISO-string timestamps so the type is JSON-safe over the wire.
  */
 export interface PlanOutput {
@@ -29,16 +41,14 @@ export interface PlanOutput {
   price_monthly: string;
   /** Null when the plan does not offer annual billing. */
   price_yearly: string | null;
+  /** `price_yearly` ÷ 12, two decimals (BL13); null when the plan does not offer annual billing. */
+  price_yearly_per_month: string | null;
   /** Available purchase intervals. */
   billing_cycles: ('monthly' | 'yearly')[];
   currency: string;
   is_active: boolean;
-  // REQ-4: the previously-stripped `features` jsonb is now surfaced verbatim so
-  // the frontend can gate UI on plan capabilities.
+  /** The typed features (BL12, P83). */
   features: PlanFeatures;
-  // REQ-4: typed seat allowance (`null` = unlimited) so the FE can render seat
-  // usage against the plan limit without parsing the open `features` map.
-  limits: PlanLimits;
   created_at: string;
   updated_at: string;
 }

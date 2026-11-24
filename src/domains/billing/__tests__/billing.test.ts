@@ -1,3 +1,4 @@
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import {
@@ -91,10 +92,19 @@ describe('Billing Domain — Route gates (e2e)', () => {
       expect(response.statusCode).toBe(200);
     });
 
-    it('should return 404 for non-existent plan', async () => {
+    it('should return 400 for a plan_id that is not a pln_ id (routes-final 8.A.9)', async () => {
       const { token } = await createAuthorizedBillingContext();
       const response = await injectAuthenticated(app, {
         url: testApiPath('/billing/plans/nonexistent'),
+        token,
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('should return 404 for a well-formed plan id that does not exist', async () => {
+      const { token } = await createAuthorizedBillingContext();
+      const response = await injectAuthenticated(app, {
+        url: testApiPath(`/billing/plans/${generatePublicId('plan')}`),
         token,
       });
       expect(response.statusCode).toBe(404);

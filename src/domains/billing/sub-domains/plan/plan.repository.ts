@@ -1,6 +1,24 @@
 import { and, asc, eq, or } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
+import {
+  type PlanFeatures,
+  planFeaturesSchema,
+} from '@/domains/billing/sub-domains/plan/plan.types.js';
+
+/**
+ * Parses a plan row's `features` with {@link planFeaturesSchema} (routes-final BL12, P83): a row with a
+ * missing, unknown or wrongly typed key throws a `ZodError` — a loud error, never a silent default.
+ *
+ * @remarks
+ * Every `billing.plans` read in the repository passes through it, so no caller ever meets an untyped
+ * feature map. The database's `chk_plans_features` refuses a bad row first; this is the read half.
+ */
+export function parsePlanRow<Row extends { features: unknown }>(
+  row: Row,
+): Omit<Row, 'features'> & { features: PlanFeatures } {
+  return { ...row, features: planFeaturesSchema.parse(row.features) };
+}
 
 /**
  * Hard cap on the number of active plan rows returned by `findAllActive`.
@@ -18,12 +36,15 @@ const PLAN_FIND_ALL_ACTIVE_LIMIT = 100;
  * table (no organization scope), so reads do not depend on RLS context.
  */
 export class PlanRepository {
+  /** The active plans, cheapest first (route 100), each row's features parsed ({@link parsePlanRow}). */
   async findAllActive() {
-    return getRequestDatabase()
+    const rows = await getRequestDatabase()
       .select()
       .from(plans)
       .where(eq(plans.is_active, true))
+      .orderBy(asc(plans.price_monthly), asc(plans.id))
       .limit(PLAN_FIND_ALL_ACTIVE_LIMIT);
+    return rows.map(parsePlanRow);
   }
 
   async findByPublicId(public_id: string) {
@@ -32,12 +53,12 @@ export class PlanRepository {
       .from(plans)
       .where(eq(plans.public_id, public_id))
       .limit(1);
-    return rows[0] ?? null;
+    return rows[0] ? parsePlanRow(rows[0]) : null;
   }
 
   async findById(id: number) {
     const rows = await getRequestDatabase().select().from(plans).where(eq(plans.id, id)).limit(1);
-    return rows[0] ?? null;
+    return rows[0] ? parsePlanRow(rows[0]) : null;
   }
 
   /**
@@ -91,6 +112,6 @@ export class PlanRepository {
         ),
       )
       .limit(1);
-    return rows[0] ?? null;
+    return rows[0] ? parsePlanRow(rows[0]) : null;
   }
 }

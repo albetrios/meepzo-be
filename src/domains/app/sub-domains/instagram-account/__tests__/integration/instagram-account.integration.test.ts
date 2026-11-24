@@ -36,7 +36,7 @@ import {
   buildInstagramProfile,
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
-  endTrialWithoutPaying,
+  endPaidPlanWithoutPaying,
   mockInstagramConnect,
   mockInstagramUnsubscribe,
   readInstagramAccountRows,
@@ -907,7 +907,7 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
     });
 
     it('leaves connect, the settings change and disconnect open — only the automation writes are refused', async () => {
-      await endTrialWithoutPaying(team.organization.id);
+      await endPaidPlanWithoutPaying(team.organization.id);
       env.BILLING_READ_ONLY_ENFORCED = true;
 
       const profile = buildInstagramProfile();

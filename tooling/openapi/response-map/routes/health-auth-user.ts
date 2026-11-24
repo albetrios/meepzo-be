@@ -232,7 +232,7 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
         access_token: schemas.accessTokenExample.access_token,
         active_organization: {
           ...activeOrganizationExample,
-          plan_access: { state: 'active', grace_ends_at: null },
+          plan_access: { state: 'active', grace_ends_at: null, trial_ends_at: null },
         },
         my_permissions: ['organization:read'],
         global_role: null,

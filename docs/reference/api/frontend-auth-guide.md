@@ -154,7 +154,7 @@ while a pinned organization is not usable (they left it, or it was suspended).
     "active_organization": {
       "id": "org_…",
       "type": "TEAM",
-      "plan_access": { "state": "grace", "grace_ends_at": "2026-10-31T09:30:00.000Z" }
+      "plan_access": { "state": "grace", "grace_ends_at": "2026-10-31T09:30:00.000Z", "trial_ends_at": null }
     },
     "membership_id": "mem_…",
     "my_permissions": ["organization:read", "membership:create"],
@@ -171,14 +171,15 @@ while a pinned organization is not usable (they left it, or it was suspended).
   member without `role:read` can show their own role. A system role's name never changes. Without an
   active organization or a live membership, `membership_id` is `null` and both lists are empty.
 
-- **Can this organization still write — `active_organization.plan_access`.** `state` is `active` (a paid
-  plan; always for a personal organization, and for every organization while the server's read-only
-  mode is off), `grace` (no paid plan — everything works until `grace_ends_at`, so show the
-  countdown and the way to pay) or `read_only` (no paid plan since `grace_ends_at`). In `read_only`
-  every product write behind the write guard answers **403 with `error.reason`
-  `organization_read_only`** — disable those write actions up front; reads, billing
-  (so the organization can pay), auth, user, tenancy and upload stay open. `grace_ends_at` is ISO 8601,
-  `null` when `active`. Paying lifts it on the next request — re-fetch this context after checkout.
+- **Can this organization still write — `active_organization.plan_access`.** `state` is `active` (a
+  live plan — Free never ends; always for a personal organization, and for every organization while the
+  server's read-only mode is off), `grace` (a paid plan whose payment failed — everything works until
+  `grace_ends_at`, so show the countdown and the way to pay) or `read_only` (a lapsed or cancelled paid
+  plan since `grace_ends_at`). In `read_only` every product write behind the write guard answers
+  **403 with `error.reason` `organization_read_only`** — disable those write actions up front; reads,
+  billing (so the organization can choose a plan), auth, user, tenancy and upload stay open.
+  `grace_ends_at` is ISO 8601, `null` when `active`; `trial_ends_at` is when a running trial ends,
+  `null` otherwise. Paying lifts it on the next request — re-fetch this context after checkout.
 - **`type` vs `my_permissions` — render on the intersection.** The organization `type` says what the organization **kind** allows (only a `TEAM` organization can invite members); `my_permissions` is what **this caller** may do in the active organization (resolved permission codes). Show a team-only action only when `type === 'TEAM'` **and** the caller holds the permission.
 - **The organization-switcher list is NOT here.** It lives at `GET /users/me/organizations`, which is **paginated** — follow the cursor to the end before rendering, or a user in more than one page of organizations silently loses the rest from their switcher. It was embedded in this response once, as a flat array with no cursor filled by a default-limit read, which is exactly the truncation this split fixes. Derive each row's "is this the active one?" by comparing its `id` to `active_organization.id`.
 - **Switch flow (one call):** `POST /auth/switch-to-organization` (or `…-personal`) re-mints the token **and returns the active-organization delta** — `{ access_token, active_organization, my_permissions, global_role }`, `active_organization` carrying its `plan_access` as here. Swap your in-memory Bearer for the new `access_token` and repaint from `active_organization` + `my_permissions`. The `user` is stable across a switch, so **no follow-up `GET /auth/me/context` is needed** — re-fetch the full context only on a cold reload. Your cached organization list is stable too: switching changes which organization is active, not which ones you belong to, so re-derive the active row from the new `active_organization.id` rather than re-fetching the list.
@@ -500,6 +501,7 @@ export interface Organization {
 export interface PlanAccess {
   state: 'active' | 'grace' | 'read_only';
   grace_ends_at: string | null; // ISO-8601; null when `active`
+  trial_ends_at: string | null; // ISO-8601; null unless a trial runs
 }
 // source: src/domains/auth/auth-me-context.types.ts → AuthMeContextActiveOrganizationOutput
 export type ActiveOrganization = Organization & { plan_access: PlanAccess };

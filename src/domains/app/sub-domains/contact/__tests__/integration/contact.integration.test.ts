@@ -14,7 +14,7 @@ import {
 import {
   createInstagramTeam,
   createPersonalOrganizationWithInstagramCodes,
-  endTrialWithoutPaying,
+  endPaidPlanWithoutPaying,
   readStagedAuditRows,
   type InstagramTeamFixture,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
@@ -630,7 +630,7 @@ describe('Contact routes (list, erase)', () => {
         organizationId: team.organization.id,
         instagramAccountId: account.id,
       });
-      await endTrialWithoutPaying(team.organization.id);
+      await endPaidPlanWithoutPaying(team.organization.id);
       env.BILLING_READ_ONLY_ENFORCED = true;
 
       const response = await erase({ contactPublicId: contact.public_id });

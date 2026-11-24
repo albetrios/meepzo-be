@@ -35,7 +35,7 @@ import {
   TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
   buildInstagramProfile,
   createInstagramTeam,
-  endTrialWithoutPaying,
+  endPaidPlanWithoutPaying,
   mockInstagramConnect,
   readInstagramAccountRows,
   readInstagramTokenCiphertexts,
@@ -237,7 +237,7 @@ describe('Instagram acceptance across features (e2e)', () => {
 
     it('refuses the automation writes while live automations run on: waiting runs finish and a new comment starts one', async () => {
       const automation = await leaveTwoRunsWaiting();
-      await endTrialWithoutPaying(flow.team.organization.id);
+      await endPaidPlanWithoutPaying(flow.team.organization.id);
       env.BILLING_READ_ONLY_ENFORCED = true;
 
       const asOwner = { token: flow.team.ownerToken };

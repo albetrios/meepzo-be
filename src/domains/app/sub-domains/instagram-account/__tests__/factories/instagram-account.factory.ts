@@ -9,6 +9,8 @@ import {
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
+import { createTestPlan } from '@/tests/factories/plan.factory.js';
+import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -245,13 +247,21 @@ export async function createPersonalOrganizationWithInstagramCodes({
 }
 
 /**
- * Puts a team past its 14-day trial without it ever paying: with `BILLING_READ_ONLY_ENFORCED` on,
- * its plan is read-only (AQ8, D27).
+ * Ends a team's paid plan without it paying on (routes-final BL3): a paid plan's subscription,
+ * cancelled, whose period ended yesterday — with `BILLING_READ_ONLY_ENFORCED` on, its plan is
+ * read-only (AQ8, D27). Free never ends, so only a lapsed or cancelled paid plan gets here.
  */
-export async function endTrialWithoutPaying(organizationId: number): Promise<void> {
+export async function endPaidPlanWithoutPaying(organizationId: number): Promise<void> {
+  const plan = await createTestPlan({ priceMonthly: '29.00', priceYearly: '276.00' });
+  const subscription = await createTestSubscription({
+    organizationId,
+    planId: plan.id,
+    status: 'CANCELED',
+  });
   await operatorQuery`
-    UPDATE tenancy.organizations SET created_at = now() - interval '30 days'
-    WHERE id = ${organizationId}`;
+    UPDATE billing.subscriptions
+    SET current_period_start = now() - interval '31 days', current_period_end = now() - interval '1 day'
+    WHERE id = ${subscription.id}`;
 }
 
 /** The account rows of an organization, read as the operator (any status). */

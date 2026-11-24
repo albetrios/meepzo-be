@@ -19,8 +19,8 @@ import type { PlanFeatures } from './plan.types.js';
 
 /**
  * Drizzle table for `billing.plans` — the global subscription plan catalog with
- * monthly / yearly pricing and Stripe product/price identifiers; no tenant RLS
- * because plans are shared across all organizations.
+ * monthly / yearly pricing, the typed features (BL12, P83) and Stripe product/price identifiers;
+ * no tenant RLS because plans are shared across all organizations.
  */
 export const plans = billingSchema.table(
   'plans',
@@ -32,9 +32,10 @@ export const plans = billingSchema.table(
     price_monthly: decimal('price_monthly', { precision: 10, scale: 2 }).notNull(),
     price_yearly: decimal('price_yearly', { precision: 10, scale: 2 }).notNull(),
     currency: varchar('currency', { length: 3 }).notNull().default('USD'),
-    features: jsonb('features').$type<PlanFeatures>().notNull().default({}),
-    // REQ-4: seat allowance baked into the plan tier. NULL = unlimited/unmetered
-    // (the historical behaviour, so existing plans keep an unbounded seat count).
+    // BL12 (P83): typed features — no default; a row must carry the four keys (`chk_plans_features`).
+    features: jsonb('features').$type<PlanFeatures>().notNull(),
+    // REQ-4: seat allowance baked into the plan tier. NULL = unlimited/unmetered — every plan since
+    // `billing_flowdm_plans` (D55: members are unlimited on every plan).
     included_seats: integer('included_seats'),
     stripe_product_id: varchar('stripe_product_id', { length: 255 }),
     stripe_price_monthly_id: varchar('stripe_price_monthly_id', { length: 255 }),
@@ -73,6 +74,11 @@ export const plans = billingSchema.table(
     check(
       'chk_plans_included_seats',
       sql`${table.included_seats} IS NULL OR ${table.included_seats} >= 0`,
+    ),
+    // BL12 (P83): the four top-level feature keys and their JSON types; every switch a boolean.
+    check(
+      'chk_plans_features',
+      sql`CASE WHEN jsonb_typeof(${table.features}) = 'object' THEN ${table.features} ?& ARRAY['message_month_limit', 'channel_accounts_max', 'has_priority_support', 'feature_switches'] AND (${table.features} - ARRAY['message_month_limit', 'channel_accounts_max', 'has_priority_support', 'feature_switches']) = '{}'::jsonb AND jsonb_typeof(${table.features} -> 'message_month_limit') = 'number' AND jsonb_typeof(${table.features} -> 'channel_accounts_max') = 'number' AND jsonb_typeof(${table.features} -> 'has_priority_support') = 'boolean' AND jsonb_typeof(${table.features} -> 'feature_switches') = 'object' AND NOT jsonb_path_exists(${table.features}, '$.feature_switches.* ? (@.type() != "boolean")') ELSE false END`,
     ),
     check('chk_plans_currency', sql`${table.currency} ~ '^[A-Z]{3}$'`),
     check('chk_plans_updated', sql`${table.updated_at} >= ${table.created_at}`),

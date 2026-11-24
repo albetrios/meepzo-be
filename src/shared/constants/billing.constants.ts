@@ -24,17 +24,3 @@ export const STRIPE_WEBHOOK_MAX_PROCESSING_ATTEMPTS = 25;
  * is operationally equivalent.
  */
 export const STRIPE_WEBHOOK_FAILED_COUNT_CAP = 10_000;
-
-/**
- * A new organization's trial: the days a TEAM organization that has never paid keeps writing its
- * automations, counted from its `created_at`. Past it, with `BILLING_READ_ONLY_ENFORCED` on, the organization is
- * read-only until it pays (owner decision D3, 2026-10-17). A lapsed paid subscription has its own
- * grace instead — `BILLING_DUNNING_GRACE_DAYS` after its `current_period_end`.
- *
- * @remarks
- * Matches the lapse grace's default (14) so every unpaid organization gets the same two weeks. Shorter
- * turns new organizations read-only before they finish setting up; longer gives a non-paying organization full
- * use for longer — either applies at once to every organization still counting from `created_at`.
- * Rationale and review date: `src/POLICIES.md` (NEW_ORGANIZATION_TRIAL_DAYS).
- */
-export const NEW_ORGANIZATION_TRIAL_DAYS = 14;

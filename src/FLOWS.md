@@ -332,7 +332,7 @@ sequenceDiagram
 
 ### Trigger
 
-A TEAM organization has no paid entitlement — no subscription, a subscription on the Free plan, or a paid one that lapsed — while `BILLING_READ_ONLY_ENFORCED` is on (owner decision D3, 2026-10-17; **off by default**). `GET /api/v1/auth/me/context` (and both organization switches) report the organization's state; a product write guard checks it with `SubscriptionService.assertOrganizationWritable` — the app domain's `app-plan-access.ts` preHandler, on the automation writes only (`POST /app/automations`, `PATCH` and `DELETE /app/automations/{automation_id}`; launch D27).
+A TEAM organization's PAID plan lapsed (dunning past its grace) or was cancelled (past its period end) while `BILLING_READ_ONLY_ENFORCED` is on (owner decision D3, 2026-10-17; **on by default** since routes-final BL4 — Free never ends, so an organization that never paid is never read-only). `GET /api/v1/auth/me/context` (and both organization switches) report the organization's state; a product write guard checks it with `SubscriptionService.assertOrganizationWritable` — the app domain's `app-plan-access.ts` preHandler, on the automation writes only (`POST /app/automations`, `PATCH` and `DELETE /app/automations/{automation_id}`; launch D27).
 
 ### Sequence
 
@@ -345,7 +345,7 @@ sequenceDiagram
   participant DB as Postgres
   Client->>Ctx: GET /auth/me/context
   Ctx->>Sub: getPlanAccess(active organization)
-  Sub->>DB: organization + current subscription + plan prices (one query, the context's own transaction)
+  Sub->>DB: organization + current subscription + its plan + the Free plan (one query, the context's own transaction)
   Sub-->>Ctx: active | grace (grace_ends_at) | read_only (grace_ends_at)
   Ctx-->>Client: 200 active_organization.plan_access
   Client->>Guard: POST/PUT/PATCH/DELETE (a guarded product route)
@@ -361,16 +361,16 @@ sequenceDiagram
 ### Side effects
 
 - **Nothing is written.** The state is computed on every read from `tenancy.organizations` and `billing.subscriptions` (`resolvePlanAccess` in `subscription-entitlement.util.ts`) — no column, no job, so paying lifts read-only on the very next request.
-- **Paid entitlement** = ACTIVE or TRIALING on a plan priced above zero (`isPaidPlan`), or a dunning subscription (PAST_DUE / UNPAID) still inside its grace — the same entitlement the seat ceiling reads (`requiresFreeSeatCeiling`).
-- **The grace:** an organization that never paid (no subscription, or the Free plan) — `created_at + NEW_ORGANIZATION_TRIAL_DAYS` (14), a new organization's trial; a lapsed paid subscription (cancelled, expired, paused, never paid, or dunning past its period) — `current_period_end + BILLING_DUNNING_GRACE_DAYS`. Until then `grace`; after it `read_only`, with `grace_ends_at` the moment read-only began.
+- **The entitlement** (routes-final BL2): the state plus the plan whose features apply and its typed features — the one plan read every decision uses. **Free never ends:** no subscription, the Free plan, an unpaid row that never earned its plan (INCOMPLETE, PAUSED) or an expired checkout → `active` on Free. ACTIVE / TRIALING on a paid plan → `active` on it (`trial_ends_at` while TRIALING).
+- **The grace:** a dunning paid subscription (PAST_DUE / UNPAID) — `grace` until `current_period_end + BILLING_DUNNING_GRACE_DAYS`, then `read_only` on Free's features; a cancelled paid plan — `active` until its `current_period_end`, then `read_only` with no grace ("plan ended"). `grace_ends_at` is the moment read-only began.
 - **Only the guarded product writes close.** Reads stay open, and so do billing, auth, user, tenancy and upload — a read-only organization can still pay, sign in, manage its team and export its data. Nobody is suspended and no data is deleted. PERSONAL organizations are always `active`.
 - The write guard runs before the route's permission gate and the idempotency claim, so a refused write holds no idempotency key.
 
 ### Failure modes
 
 - **The plan access read fails** → the write fails with the error (no write goes through unchecked); `GET /auth/me/context` fails the same way.
-- **`BILLING_READ_ONLY_ENFORCED` off** → every organization reads `active` and no query runs.
-- **Switching the flag on** → every unpaid organization already past its grace turns read-only at once; the grace counts from `created_at` / `current_period_end`, not from the day the flag was switched on.
+- **`BILLING_READ_ONLY_ENFORCED` off** → every organization reads `active`; the plan and its features are still read (one query).
+- **Switching the flag on** → every lapsed or cancelled paid plan already past its grace turns read-only at once; the grace counts from `current_period_end`, not from the day the flag was switched on.
 
 ## organization-resource-webhook-flow
 

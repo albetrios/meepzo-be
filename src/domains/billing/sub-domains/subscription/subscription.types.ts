@@ -1,3 +1,4 @@
+import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
 /** MVCC token and provider watermark used to guard an authoritative same-second reconciliation. */
 export interface StripeSubscriptionOrderingState {
   version: string;
@@ -85,33 +86,61 @@ export interface SubscriptionUpdateData {
 }
 
 /**
- * An organization's plan access (owner decision D3, 2026-10-17): `active` with a paid entitlement (or while
- * `BILLING_READ_ONLY_ENFORCED` is off, and always for a PERSONAL organization), `grace` while an
- * unpaid organization's grace runs, `read_only` once it has ended — the automation writes under
+ * An organization's plan state (owner decision D3, 2026-10-17; routes-final BL3): `active` on a live
+ * plan — Free never ends — (and always while `BILLING_READ_ONLY_ENFORCED` is off, and for a PERSONAL
+ * organization), `grace` while a lapsed paid plan's dunning grace runs, `read_only` once it has ended
+ * or a cancelled paid plan passed its period end — the automation writes under
  * `/api/v1/app/automations` are then refused (launch D27).
  */
 export type PlanAccessState = 'active' | 'grace' | 'read_only';
 
-/** An organization's plan access as the service decides it — produced by `resolvePlanAccess`. */
+/**
+ * An organization's plan entitlement (routes-final BL2) — the one plan read every decision uses:
+ * the state, its dates, the plan the organization's features come from and those typed features.
+ * Produced by `resolvePlanAccess`.
+ */
 export interface PlanAccess {
   state: PlanAccessState;
   /** When the grace ends (`grace`) or ended, i.e. when read-only began (`read_only`); `null` when `active`. */
   graceEndsAt: Date | null;
+  /** When the trial ends while the subscription is `TRIALING`; `null` otherwise. */
+  trialEndsAt: Date | null;
+  /**
+   * The plan whose features apply — the subscription's plan, or Free when there is none or it no
+   * longer grants its plan; `null` only when the catalog holds no Free plan.
+   */
+  plan: { publicId: string; name: string } | null;
+  /** That plan's typed features (BL12); `null` exactly when `plan` is. */
+  features: PlanFeatures | null;
 }
 
-/** Public `plan_access` body — `active_organization.plan_access` on `GET /auth/me/context`. */
+/**
+ * Public `plan_access` body — `active_organization.plan_access` on `GET /auth/me/context`. The plan and
+ * its features join it at iteration row R24 (routes-final BL16).
+ */
 export interface PlanAccessOutput {
   state: PlanAccessState;
   /** ISO 8601 timestamp; `null` when `state` is `active`. */
   grace_ends_at: string | null;
+  /** ISO 8601 timestamp — when the 7-day trial ends while it runs; `null` otherwise (BL3). */
+  trial_ends_at: string | null;
+}
+
+/** A plan row as the plan entitlement reads it (its features parsed, BL12). */
+export interface PlanAccessPlan {
+  public_id: string;
+  name: string;
+  price_monthly: string;
+  price_yearly: string;
+  features: PlanFeatures;
 }
 
 /**
- * What an organization's plan access is decided from — read by
+ * What an organization's plan entitlement is decided from — read by
  * `SubscriptionRepository.findPlanAccessSubject` in one query.
  */
 export interface PlanAccessSubject {
-  organization: { type: string; created_at: Date };
+  organization: { type: string };
   /**
    * The organization's current subscription: its live (non-terminal) row when it has one, else its
    * most recent; `null` when it never had one.
@@ -119,7 +148,10 @@ export interface PlanAccessSubject {
   subscription: {
     status: string;
     current_period_end: Date;
-    /** The subscription plan's prices; `null` only when the plan row is gone. */
-    plan: { price_monthly: string; price_yearly: string } | null;
+    trial_end: Date | null;
+    /** The subscription's plan; `null` only when the plan row is gone. */
+    plan: PlanAccessPlan | null;
   } | null;
+  /** The catalog's Free plan (active, priced zero on both cycles); `null` when there is none. */
+  freePlan: PlanAccessPlan | null;
 }

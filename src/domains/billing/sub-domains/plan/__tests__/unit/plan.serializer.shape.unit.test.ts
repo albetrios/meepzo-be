@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PlanSerializer } from '@/domains/billing/sub-domains/plan/plan.serializer.js';
 import type { PlanOutput } from '@/domains/billing/sub-domains/plan/plan.types.js';
+import { STUDIO_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 
 describe('plan.serializer shape (regression-guard)', () => {
   const samplePlan: PlanOutput = {
@@ -9,12 +10,12 @@ describe('plan.serializer shape (regression-guard)', () => {
     description: 'For growing teams',
     price_monthly: '29.00',
     price_yearly: '290.00',
+    price_yearly_per_month: '24.17',
     billing_cycles: ['monthly', 'yearly'],
     currency: 'USD',
     is_active: true,
-    // REQ-4: features map + typed seat limit are part of the public shape.
-    features: { priority_support: true, audit_log: true },
-    limits: { seats: 25 },
+    // BL12 (P83): the typed features are part of the public shape; no `limits` (BL13).
+    features: STUDIO_PLAN_FEATURES,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-02T00:00:00.000Z',
   };
@@ -30,19 +31,18 @@ describe('plan.serializer shape (regression-guard)', () => {
         'features',
         'id',
         'is_active',
-        'limits',
         'name',
         'price_monthly',
         'price_yearly',
+        'price_yearly_per_month',
         'updated_at',
       ].sort(),
     );
   });
 
-  it('REQ-4: PlanSerializer.one surfaces features verbatim and the typed seat limit', () => {
+  it('BL12: PlanSerializer.one surfaces the typed features verbatim', () => {
     const result = PlanSerializer.one(samplePlan);
-    expect(result.features).toEqual({ priority_support: true, audit_log: true });
-    expect(result.limits).toEqual({ seats: 25 });
+    expect(result.features).toEqual(STUDIO_PLAN_FEATURES);
   });
 
   it('PlanSerializer.one preserves a null description without coercion', () => {

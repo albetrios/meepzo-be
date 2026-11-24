@@ -7,8 +7,14 @@ export const PLAN_ACCESS_STATE = {
   READ_ONLY: 'read_only',
 } as const satisfies Record<string, PlanAccessState>;
 
-/** The plan access of an organization that may write and has no grace running. */
+/**
+ * The plan access of an organization that may write and has no grace running, with no plan read —
+ * the answer when there is no organization to read (or no plan-access service wired).
+ */
 export const ACTIVE_PLAN_ACCESS: Readonly<PlanAccess> = Object.freeze({
   state: PLAN_ACCESS_STATE.ACTIVE,
   graceEndsAt: null,
+  trialEndsAt: null,
+  plan: null,
+  features: null,
 });

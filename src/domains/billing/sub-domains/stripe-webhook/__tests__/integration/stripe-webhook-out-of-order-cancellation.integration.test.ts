@@ -10,6 +10,7 @@ import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import { FREE_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 
 /**
  * audit-#1 (CRITICAL): an out-of-order `customer.subscription.deleted` delivered
@@ -131,7 +132,7 @@ describe('Stripe Webhook — out-of-order cancellation (audit-#1)', () => {
         price_monthly: '9.99',
         price_yearly: '99.99',
         currency: 'USD',
-        features: {},
+        features: FREE_PLAN_FEATURES,
         stripe_price_monthly_id: stripePriceId,
       })
       .returning();

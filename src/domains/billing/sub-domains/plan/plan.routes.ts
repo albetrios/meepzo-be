@@ -21,7 +21,7 @@ export function planRoutes(service: PlanService): FastifyPluginAsync {
         schema: {
           summary: 'List available plans',
           description:
-            'Returns all active subscription plans with pricing and feature details. No authentication required.',
+            'Returns the active plans, cheapest first, with prices (the yearly price also per month) and typed features: the monthly message limit, the connected-account limit, priority support and one on / off switch per feature. No authentication required.',
           tags: ['Plan'],
         },
       },
@@ -34,7 +34,7 @@ export function planRoutes(service: PlanService): FastifyPluginAsync {
         schema: {
           summary: 'Get plan details',
           description:
-            'Returns a single plan with full pricing and feature information. No authentication required.',
+            'Returns one active plan with its prices and typed features; a switched-off plan answers 404. No authentication required.',
           tags: ['Plan'],
           params: getPlanParamsDto,
         },

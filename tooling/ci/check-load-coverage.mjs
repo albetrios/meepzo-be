@@ -51,6 +51,7 @@ const PUBLIC_INFRASTRUCTURE_PATHS = [
   '/auth/oauth',
   '/auth/email/send-code',
   '/auth/email/login',
+  '/auth/email/confirm',
   '/auth/mfa/login',
   '/auth/webauthn',
   '/auth/refresh',

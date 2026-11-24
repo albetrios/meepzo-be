@@ -16,6 +16,16 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → larger token replay window; review with security if pushing past 30 minutes.
 - **Last reviewed**: 2026-05-28
 
+## EMAIL_CONFIRM_LINK_HOURS
+
+- **Value**: 24 hours
+- **Source**: [src/domains/auth/sub-domains/auth-method/auth-method.constants.ts](src/domains/auth/sub-domains/auth-method/auth-method.constants.ts) (domain-local constant, not under `shared/constants/`)
+- **Rationale**: The confirm-your-email link (`POST /users/me/email-confirmation`, feat-instagram-dm-sending UN6) is clicked from an inbox, often later than a sign-in code is typed; the token is 32 random bytes stored as its SHA-256, one live per person, one use. A new link may be asked 60 seconds after the last (`VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS`, reused).
+- **Consequences of change**:
+  - Decreasing → more "link no longer valid" answers (`400 email_confirm_token_invalid`) for people who open the email the next day.
+  - Increasing → a longer window for a forwarded or leaked email to confirm an address it does not own.
+- **Last reviewed**: 2026-11-24
+
 ## ACCESS_TOKEN_EXPIRY_SECONDS
 
 - **Value**: 900 seconds (15 minutes)

@@ -1886,6 +1886,9 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   counter lives in Redis only.
 - `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
   goes with the password routes (UN6, UN7, P84; routes-final § 11).
+  **Built R35** ([AS-BUILT](../AS-BUILT.md), [P302](decisions.md)): no migration — `auth.verification_tokens.token_type`
+  takes `EMAIL_CONFIRM` (`VERIFICATION_TOKEN_TYPE` in `auth-method.constants.ts`; the column keeps no CHECK); the row
+  holds the SHA-256 of a 32-byte link token, `expires_at` = now + 24 h; `auth.users.is_email_verified` is the field set.
 - Notification preferences keep their stored form — one row per type — and the routes speak kinds:
   saving a kind writes one row per type of that kind ([P87](decisions.md), UNQ1); no new table or column.
 - An email whose in-app notice is off still has its once rule: the caller's `dedupe_key` names the mail

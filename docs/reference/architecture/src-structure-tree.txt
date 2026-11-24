@@ -464,6 +464,7 @@ src/
     │   │   └── index.ts
     │   ├── handlers/
     │   │   ├── auth-auth-method.handlers.ts
+    │   │   ├── auth-email-confirmation.handlers.ts
     │   │   ├── auth-email-login.handlers.ts
     │   │   ├── auth-me-context.handlers.ts
     │   │   ├── auth-mfa.handlers.ts
@@ -483,7 +484,8 @@ src/
     │   │   ├── auth-method/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── integration/
-    │   │   │   │   │   └── auth-method.integration.test.ts
+    │   │   │   │   │   ├── auth-method.integration.test.ts
+    │   │   │   │   │   └── email-confirmation.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
     │   │   │   │   │       └── auth-method.event-handlers.unit.test.ts
@@ -492,6 +494,7 @@ src/
     │   │   │   │   │   ├── auth-method.service.last-method-guard.unit.test.ts
     │   │   │   │   │   ├── auth-method.service.unit.test.ts
     │   │   │   │   │   ├── auth-method.validator.unit.test.ts
+    │   │   │   │   │   ├── email-confirmation.service.unit.test.ts
     │   │   │   │   │   ├── email-login.service.unit.test.ts
     │   │   │   │   │   ├── email-login.verify-atomicity.db.unit.test.ts
     │   │   │   │   │   └── verification-code.unit.test.ts
@@ -543,6 +546,7 @@ src/
     │   │   │   ├── auth-method.schema.ts
     │   │   │   ├── auth-method.service.ts
     │   │   │   ├── auth-method.types.ts
+    │   │   │   ├── email-confirmation.service.ts
     │   │   │   ├── email-login.service.ts
     │   │   │   └── verification-code.ts
     │   │   ├── auth-mfa/
@@ -1674,10 +1678,12 @@ src/
     │   │   ├── __tests__/
     │   │   │   └── unit/
     │   │   │   │   ├── base.template.unit.test.ts
+    │   │   │   │   ├── email-confirm-link.template.unit.test.ts
     │   │   │   │   ├── escape-html.util.unit.test.ts
     │   │   │   │   ├── invitation.template.unit.test.ts
     │   │   │   │   └── verification-code.template.unit.test.ts
     │   │   ├── base.template.ts
+    │   │   ├── email-confirm-link.template.ts
     │   │   ├── escape-html.util.ts
     │   │   ├── invitation.template.ts
     │   │   └── verification-code.template.ts

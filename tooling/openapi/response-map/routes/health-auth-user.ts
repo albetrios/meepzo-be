@@ -122,6 +122,11 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
     schema: wrapSuccess(schemas.accessTokenSchema, schemas.accessTokenExample),
     example: null,
   },
+  'POST /api/v1/auth/email/confirm': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.emailConfirmedSchema, schemas.emailConfirmedExample),
+    example: null,
+  },
   'GET /api/v1/auth/oauth/providers': {
     statusCode: 200,
     schema: wrapSuccess(schemas.oauthProvidersSchema, { providers: ['google', 'github'] }),
@@ -413,6 +418,11 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
   'PATCH /api/v1/users/me/settings': {
     statusCode: 200,
     schema: wrapSuccess(schemas.userSettingsSchema, schemas.userSettingsExample),
+    example: null,
+  },
+  'POST /api/v1/users/me/email-confirmation': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.emailConfirmationSentSchema, schemas.emailConfirmationSentExample),
     example: null,
   },
   'GET /api/v1/users/me/notification-preferences': {

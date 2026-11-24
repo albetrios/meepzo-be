@@ -12,8 +12,11 @@ import {
 } from '@/shared/utils/infrastructure/audit-request-context.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { MembershipInvitationService } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.service.js';
+import type { EmailConfirmationService } from '@/domains/auth/sub-domains/auth-method/email-confirmation.service.js';
+import { toSupportedLanguage } from '@/shared/constants/i18n.constants.js';
 import type { UserSettingsOutput } from '@/domains/user/sub-domains/user-settings/user-settings.types.js';
 import type { UserContainer } from './user.container.js';
+import { UserSerializer } from './user.serializer.js';
 
 type AdminUserAuditAction =
   | 'user.admin.update'
@@ -81,6 +84,28 @@ async function recordAnalyticsConsentAudit({
       },
     },
   });
+}
+
+/** `POST /users/me/email-confirmation` (route 133, feat-instagram-dm-sending UN6) — the link is auth's token flow, injected by the routes. */
+function createUserEmailConfirmationHandlers({
+  emailConfirmationService,
+}: {
+  emailConfirmationService?: EmailConfirmationService | undefined;
+}) {
+  return {
+    requestEmailConfirmation: async (request: FastifyRequest, _reply: FastifyReply) => {
+      if (!emailConfirmationService) throw new Error('Email confirmation service not configured');
+      const result = await emailConfirmationService.requestLink({
+        userPublicId: requireUserScope(request).userPublicId,
+        body: request.body,
+        locale: toSupportedLanguage(request.language),
+      });
+      return successResponse({
+        data: UserSerializer.emailConfirmationSent(result),
+        request_id: getRequestIdentifier(request),
+      });
+    },
+  };
 }
 
 /** The admin handlers (list/get/update/suspend/unsuspend/delete), each audited via {@link recordAdminUserAudit}. */
@@ -176,12 +201,15 @@ export function createUserController({
   userNotificationPreferencesService,
   organizationService,
   membershipInvitationService,
+  emailConfirmationService,
 }: Pick<
   UserContainer,
   'userService' | 'userSettingsService' | 'userNotificationPreferencesService'
 > & {
   organizationService?: OrganizationService;
   membershipInvitationService?: MembershipInvitationService;
+  /** Route 133 (feat-instagram-dm-sending UN6): the confirm-email link is auth's token flow. */
+  emailConfirmationService?: EmailConfirmationService;
 }) {
   return {
     // ── Self-service ──────────────────────────────────────────
@@ -331,5 +359,6 @@ export function createUserController({
     },
 
     ...createUserAdminHandlers({ userService }),
+    ...createUserEmailConfirmationHandlers({ emailConfirmationService }),
   };
 }

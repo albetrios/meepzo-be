@@ -34,10 +34,10 @@ describe('VerificationTokenRepository (database)', () => {
   it('invalidates all unused tokens of a type for user', async () => {
     const user = await createTestUser({ email: 'invalidate@example.com' });
     const expiresAt = new Date(Date.now() + 3_600_000);
-    await repository.create('EMAIL_CHANGE', user.id, user.email, 'hash-a', expiresAt);
-    await repository.create('EMAIL_CHANGE', user.id, user.email, 'hash-b', expiresAt);
+    await repository.create('EMAIL_CONFIRM', user.id, user.email, 'hash-a', expiresAt);
+    await repository.create('EMAIL_CONFIRM', user.id, user.email, 'hash-b', expiresAt);
 
-    await repository.invalidateAllForUser(user.id, 'EMAIL_CHANGE');
+    await repository.invalidateAllForUser(user.id, 'EMAIL_CONFIRM');
 
     expect(await repository.findValidByTokenHash('hash-a')).toBeNull();
     expect(await repository.findValidByTokenHash('hash-b')).toBeNull();

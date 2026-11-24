@@ -11,7 +11,7 @@ What it owns:
 - The `users` table (email, status, profile fields, `deleted_at` for soft-delete).
 - The `user_settings`, `user_notification_preferences`, and `user_data_exports` resource tables.
 - The GDPR export pipeline that produces a downloadable bundle of every row this user owns across the platform.
-- The `GET /api/v1/users/me` and the user profile / settings / preferences APIs.
+- The `GET /api/v1/users/me` and the user profile / settings / preferences APIs, and `POST /api/v1/users/me/email-confirmation` (the confirm-your-email link — the token flow is auth's `EmailConfirmationService`, injected into the user routes; the link's page posts to `POST /auth/email/confirm`).
 
 What it does not own: credentials (lives in [auth](src/domains/auth/)), organization membership (lives in [tenancy](src/domains/tenancy/)), audit history (lives in [audit](src/domains/audit/)).
 

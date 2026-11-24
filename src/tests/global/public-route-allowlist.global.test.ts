@@ -26,6 +26,7 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   'GET /api/v1/auth/oauth/:provider',
   'GET /api/v1/auth/oauth/:provider/callback',
   'GET /api/v1/auth/oauth/providers',
+  'POST /api/v1/auth/email/confirm',
   'POST /api/v1/auth/email/login',
   'POST /api/v1/auth/email/send-code',
   'POST /api/v1/auth/mfa/login',

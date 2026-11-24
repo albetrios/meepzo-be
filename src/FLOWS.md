@@ -87,6 +87,21 @@ or a passkey. Every first factor ends in `completeFirstFactorAuth`: a session, o
 - **MFA challenge expired, already used, or burned by a wrong code** → 401 `errors:mfaInvalidOrExpiredSession`; client must sign in again.
 - **Suspended, locked or deleted account** → 401 `account_not_active`; **the sign-in way turned off by the owner** → 403 `login_method_turned_off`.
 
+## email-confirmation-flow
+
+A signed-in person whose `is_email_verified` is false (an OAuth or invited account not yet proven
+by a code) confirms the address with an emailed link (feat-instagram-dm-sending § 11.B).
+
+### Sequence
+
+1. `POST /users/me/email-confirmation` (AUTH) → `EmailConfirmationService.requestLink`: `409 email_already_confirmed` when confirmed; `429 email_confirmation_resend_too_soon` + `retry_after_seconds` when the person's newest link is under 60 s old; else, in one transaction, the person's earlier links end, the SHA-256 of a 32-byte token is stored as `EMAIL_CONFIRM` (24 hours) and `AUTH_EVENT.EMAIL_CONFIRM_LINK_REQUESTED` records a `mail_outbox` row with `<FRONTEND_URL>/confirm-email?token=…` (always sent — not a notification choice). `200 { resend_after_seconds, expires_at }`.
+2. The frontend's `/confirm-email` page posts `POST /auth/email/confirm { token }` (PUBLIC) → `EmailConfirmationService.confirm`: one transaction consumes the token (`consumeIfValid(hash, EMAIL_CONFIRM)`) and sets `is_email_verified`; audit `user.email.confirm`. `200 { is_email_verified: true }` — also when a code sign-in already confirmed it. No session is made.
+
+### Failure modes
+
+- **Unknown, spent or expired token**, or one sent to an address the person no longer has → 400 `email_confirm_token_invalid`.
+- **Mail not configured** → 503 `errors:mailNotConfigured`; the new link rolls back.
+
 ## organization-switch-and-capability-discovery-flow
 
 ### Trigger

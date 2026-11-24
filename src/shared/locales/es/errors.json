@@ -284,5 +284,8 @@
   "emailCodeUsedUp": "Demasiados intentos fallidos con este código. Pide un código nuevo.",
   "emailCodeDayLimit": "Demasiados códigos incorrectos para este correo hoy. Inténtalo más tarde o entra de otra forma.",
   "emailCodeResendTooSoon": "Acabamos de enviar un código. Espera un momento antes de pedir otro.",
+  "emailAlreadyConfirmed": "Tu correo ya está confirmado",
+  "emailConfirmationResendTooSoon": "Acabamos de enviar un enlace de confirmación. Espera un momento antes de pedir otro.",
+  "emailConfirmTokenInvalid": "Este enlace de confirmación ya no es válido. Pide uno nuevo.",
   "emailCodeAlwaysOn": "El acceso con código por correo siempre está activo y no se puede quitar."
 }

@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 152
+  Total routes: 154
 ================================================================================
 
 Legend:
@@ -45,9 +45,10 @@ Legend:
 
 ================================================================================
   DOMAIN: AUTH (/api/v1/auth)
-  Routes: 29
+  Routes: 30
 ================================================================================
 
+  POST   /api/v1/auth/email/confirm                               200  -    both  PUBLIC
   POST   /api/v1/auth/email/login                                 200  -    both  PUBLIC
   POST   /api/v1/auth/email/send-code                             200  -    both  PUBLIC
   POST   /api/v1/auth/logout                                      200  -    both  TOKEN: access-token
@@ -190,7 +191,7 @@ Legend:
 
 ================================================================================
   DOMAIN: USER (/api/v1/users)
-  Routes: 22
+  Routes: 23
 ================================================================================
 
   GET    /api/v1/users                                            200  -    both  ROLE: super_admin
@@ -207,6 +208,7 @@ Legend:
   POST   /api/v1/users/me/bug-reports                             200  -    both  AUTH
   POST   /api/v1/users/me/data-export                             200  -    both  AUTH
   GET    /api/v1/users/me/data-export/:data_export_id             200  -    both  AUTH
+  POST   /api/v1/users/me/email-confirmation                      200  -    both  AUTH
   GET    /api/v1/users/me/membership-invitations                  200  -    both  AUTH
   GET    /api/v1/users/me/notification-preferences                200  -    both  AUTH
   PUT    /api/v1/users/me/notification-preferences                200  -    both  AUTH
@@ -243,9 +245,9 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 152
-  Public          : 18
-  Authenticated   : 53
+  Total routes    : 154
+  Public          : 19
+  Authenticated   : 54
   Role-guarded    : 9
   Perm-guarded    : 67
   Token-guarded   : 5

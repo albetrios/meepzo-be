@@ -5289,8 +5289,8 @@ As 11.5.
 
 | # | Decision |
 | --- | --- |
-| UN6 | **Ask for the link (route 133, RC-80, plan:L8209).** Signed in, email not yet confirmed: a 32-byte random token (base64url), its SHA-256 stored in `auth.verification_tokens` with `token_type` `EMAIL_CONFIRM`, `expires_at` = now + 24 hours (`EMAIL_CONFIRM_LINK_HOURS` 24); a new one ends the old (one live per person, as the email code); the email goes through the mail outbox with the link `<FRONTEND_URL>/confirm-email?token=<token>` (always sent — not in the grid). Again within 60 s → `429 email_confirmation_resend_too_soon` + `retry_after_seconds` (the email code's 60 s, `VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS`, reused); already confirmed → `409 email_already_confirmed`. |
-| UN7 | **Confirm (route 134, RC-79, plan:L8211).** PUBLIC, body `{ token }`: the existing one-use consume (`verificationTokenRepository.consumeIfValid(hash, 'EMAIL_CONFIRM')` — the reset flow's consume, kept when the password routes go) → `is_email_verified = true` and the token spent, in one transaction; audit `user.email.confirm`. Unknown, spent or expired token → `400 email_confirm_token_invalid`. The person's email already confirmed (a second click after a code sign-in confirmed it) → the same success (nothing to change). No session is made. |
+| UN6 | **Ask for the link (route 133, RC-80, plan:L8209).** Signed in, email not yet confirmed: a 32-byte random token (base64url), its SHA-256 stored in `auth.verification_tokens` with `token_type` `EMAIL_CONFIRM`, `expires_at` = now + 24 hours (`EMAIL_CONFIRM_LINK_HOURS` 24); a new one ends the old (one live per person, as the email code); the email goes through the mail outbox with the link `<FRONTEND_URL>/confirm-email?token=<token>` (always sent — not in the grid). Again within 60 s → `429 email_confirmation_resend_too_soon` + `retry_after_seconds` (the email code's 60 s, `VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS`, reused; built R35: read from the person's newest link's `created_at` in Postgres, not the code's Redis key — [P302](decisions.md)); already confirmed → `409 email_already_confirmed`. |
+| UN7 | **Confirm (route 134, RC-79, plan:L8211).** PUBLIC, body `{ token }`: the existing one-use consume (`verificationTokenRepository.consumeIfValid(hash, 'EMAIL_CONFIRM')` — the reset flow's consume, kept when the password routes go) → `is_email_verified = true` and the token spent, in one transaction; audit `user.email.confirm`. Unknown, spent or expired token → `400 email_confirm_token_invalid`. The person's email already confirmed (a second click after a code sign-in confirmed it) → the same success (nothing to change); built R35: a spent token is the `400`, and so is a token sent to an address the person no longer has ([P302](decisions.md)). No session is made. |
 
 #### 11.B.2 Open questions
 
@@ -5328,7 +5328,7 @@ As 11.5; 134 has the strict public rate limit (as built for the former reset rou
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 133 | — | — (strict empty) | Email confirmation sent |
+| 133 | — | — (strict empty; an absent body is accepted, any field `400` — R35, [P302](decisions.md)) | Email confirmation sent |
 | 134 | — | `token*` (1–512) | Email confirmed |
 
 #### 11.B.9 Errors
@@ -5348,7 +5348,7 @@ As 11.5; 134 has the strict public rate limit (as built for the former reset rou
 
 | # | Change |
 | --- | --- |
-| UNC5 | UN6, UN7: `VERIFICATION_TOKEN_TYPE` (`EMAIL_CODE`, `EMAIL_CONFIRM`; `PASSWORD_RESET` gone with AT1); the request route in `user.routes.ts` and the confirm route in `auth.routes.ts` (one service, `user-email-confirmation` methods on `UserService`); the email template and its i18n copy; `EMAIL_CONFIRM_LINK_HOURS`; tests — the link confirms, a second click succeeds, an expired token `400`, a resend within 60 s `429` |
+| UNC5 | UN6, UN7: `VERIFICATION_TOKEN_TYPE` (`EMAIL_CODE`, `EMAIL_CONFIRM`; `PASSWORD_RESET` gone with AT1); the request route in `user.routes.ts` and the confirm route in `auth.routes.ts` (one service — built R35 as `EmailConfirmationService` in `auth/sub-domains/auth-method/`, injected into the user routes, [P302](decisions.md)); the email template and its i18n copy; `EMAIL_CONFIRM_LINK_HOURS`; tests — the link confirms, a second click succeeds, an expired token `400`, a resend within 60 s `429` |
 
 ---
 

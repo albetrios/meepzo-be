@@ -69,6 +69,8 @@ const PUBLIC_ROUTE_KEYS = new Set<string>([
   'POST /api/v1/auth/mfa/login',
   'POST /api/v1/auth/email/send-code',
   'POST /api/v1/auth/email/login',
+  // The confirm-email link (feat-instagram-dm-sending route 134): the emailed token is the key.
+  'POST /api/v1/auth/email/confirm',
   'POST /api/v1/auth/webauthn/authenticate/options',
   'POST /api/v1/auth/webauthn/authenticate/verify',
   'GET /api/v1/auth/oauth/{provider}',

@@ -284,5 +284,8 @@
   "emailCodeUsedUp": "Too many wrong tries for this code. Ask for a new code.",
   "emailCodeDayLimit": "Too many wrong codes for this email today. Try again later, or sign in another way.",
   "emailCodeResendTooSoon": "A code was just sent. Wait a moment before asking for a new one.",
+  "emailAlreadyConfirmed": "Your email is already confirmed",
+  "emailConfirmationResendTooSoon": "A confirm link was just sent. Wait a moment before asking for a new one.",
+  "emailConfirmTokenInvalid": "This confirm link is not valid any more. Ask for a new one.",
   "emailCodeAlwaysOn": "Signing in with an email code is always on and cannot be removed."
 }

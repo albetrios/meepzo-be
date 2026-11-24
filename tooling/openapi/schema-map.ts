@@ -11,7 +11,9 @@ import type { ZodTypeAny } from 'zod';
 // ─── Auth ──────────────────────────────────────────────────────────────
 import {
   EmailSendCodeDto,
+  EmailConfirmDto,
   EmailLoginDto,
+  RequestEmailConfirmationDto,
   MfaVerifyDto,
   CreateAuthMethodDto,
   MfaEnrollDto,
@@ -111,6 +113,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Auth ──
   'POST /api/v1/auth/email/send-code': EmailSendCodeDto,
   'POST /api/v1/auth/email/login': EmailLoginDto,
+  'POST /api/v1/auth/email/confirm': EmailConfirmDto,
   'POST /api/v1/auth/me/mfa/verify': MfaVerifyDto,
   'POST /api/v1/auth/me/mfa/enroll': MfaEnrollDto,
   'POST /api/v1/auth/me/mfa/enroll/confirm': MfaEnrollConfirmDto,
@@ -129,6 +132,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'PATCH /api/v1/users/me/settings': UpdateUserSettingsDto,
   'PUT /api/v1/users/me/notification-preferences': PutNotificationPreferencesDto,
   'POST /api/v1/users/me/bug-reports': CreateUserBugReportDto,
+  'POST /api/v1/users/me/email-confirmation': RequestEmailConfirmationDto,
 
   // ── Admin: Users ──
   'PATCH /api/v1/users/{user_id}': AdminUpdateUserDto,

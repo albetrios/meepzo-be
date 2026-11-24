@@ -150,5 +150,7 @@
   "POST /api/v1/tenancy/organization/roles/:role_id/restore": 200,
   "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/decline": 200,
   "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/preview": 200,
-  "GET /api/v1/users/me/membership-invitations": 200
+  "GET /api/v1/users/me/membership-invitations": 200,
+  "POST /api/v1/auth/email/confirm": 200,
+  "POST /api/v1/users/me/email-confirmation": 200
 }

@@ -19,6 +19,18 @@ export interface SubscriptionPublicState {
   plan_id: number;
 }
 
+/**
+ * A Stripe-backed row before a webhook sync or cancel (routes-final § 8.D BL22): its public state
+ * plus what decides the plan-state case — the trial end, the scheduled move down and its kept
+ * accounts, and the billing cycle.
+ */
+export interface StripeSubscriptionPriorState extends SubscriptionPublicState {
+  billing_cycle: string;
+  trial_end: Date | null;
+  scheduled_plan_id: number | null;
+  downgrade_keep: string[] | null;
+}
+
 /** Repository-level input for {@link SubscriptionRepository.create} — already-resolved numeric IDs. */
 export interface SubscriptionCreateData {
   organization_id: number;

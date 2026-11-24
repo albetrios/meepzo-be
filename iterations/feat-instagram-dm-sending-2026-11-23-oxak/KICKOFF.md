@@ -212,7 +212,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R23 | 7.C Broadcast recipients — § 7.C (BCC9, BCC10) | sub-domain | R22 | staged-build prompt | AC-9.5 | Rimeet Mavani | open |
 | R24 | 8.B Subscriptions, plan states and the trial: the trial table and port (completes R3's pick), the move down at the period end with kept accounts, the context; routes 102, 103, 108 — § 8 BLC1, BLC3–BLC5, § 8.B BLC7–BLC9, BLC13 (the state check at R52) | sub-domain | R1, R5 | `/be-build-requirement` | AC-11.4, AC-11.5, AC-11.7, AC-10.2 | Rimeet Mavani | done |
 | R25 | 8.C Cards: routes 104–106 — § 8.C (BLC11) | sub-domain | R24 | `/be-build-requirement` | AC-11.11, AC-11.13 | Rimeet Mavani | done |
-| R26 | 8.D Stripe webhook: the four plan-state cases — § 8.D (BLC12) | sub-domain | R24 | `/be-build-requirement` | AC-11.8, AC-11.9 (the state change; the lane stops at R52) | Rimeet Mavani | open |
+| R26 | 8.D Stripe webhook: the four plan-state cases — § 8.D (BLC12) | sub-domain | R24 | `/be-build-requirement` | AC-11.8, AC-11.9 (the state change; the lane stops at R52) | Rimeet Mavani | done |
 | R27 | 9.A Organization: optional slug, the tile colour (`lavender`); routes 110, 141–142 — § 9.A (TNC4) | sub-domain | — | `/be-build-requirement` | AC-12.8–AC-12.11 | Rimeet Mavani | done |
 | R28 | 9.B Roles: Owner, Admin, Editor, Viewer on every team, `contact:update`, custom roles off; routes 111–115 — § 9 TNC1, TNC2, § 9.B | sub-domain | R27 | `/be-build-requirement` | AC-12.1–AC-12.4 | Rimeet Mavani | done |
 | R29 | 9.C Members and invitations: several emails, the preview, counts per role; routes 116–118 — § 9 TNC3, § 9.C (TNC5–TNC7) | sub-domain | R28 | `/be-build-requirement` | AC-12.5–AC-12.7 | Rimeet Mavani | done |

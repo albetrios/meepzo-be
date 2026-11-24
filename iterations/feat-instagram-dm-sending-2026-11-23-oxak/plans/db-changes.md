@@ -1814,6 +1814,8 @@ erDiagram
   (`20261124140000_billing_subscriptions_downgrade_keep.sql`); the 8.B.3 indexes `idx_subscriptions_org_trialled`,
   `idx_subscriptions_trialing_trial_end`, `idx_subscriptions_dunning_period_end`, `idx_subscriptions_scheduled_plan`
   (`20261124140100_billing_subscriptions_plan_state_indexes.sql`, CONCURRENTLY).
+  **Used R26** ([P405](decisions.md)): no schema change — the Stripe webhook clears the three columns when
+  the schedule flips, and inserts the local `ACTIVE` Free row (no Stripe id) on an unpaid trial end or a move to Free.
 
 ```mermaid
 erDiagram

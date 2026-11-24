@@ -1,6 +1,20 @@
 import { fieldValidationError } from '@/shared/errors/validation.error.js';
 import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
-import type { BillingChannelAccount, PlanAccess } from './subscription.types.js';
+import type {
+  BillingChannelAccount,
+  PlanAccess,
+  SubscriptionUpdateData,
+} from './subscription.types.js';
+
+/**
+ * The three columns of a scheduled move down, cleared (BL5) — by route 103's up move and release,
+ * and by the Stripe webhook when the move is applied at the period end (§ 8.D BL22).
+ */
+export const CLEARED_SCHEDULED_CHANGE = {
+  scheduled_plan_id: null,
+  scheduled_change_at: null,
+  downgrade_keep: null,
+} as const satisfies SubscriptionUpdateData;
 
 /**
  * How route 103 changes a plan (routes-final § 8.B BL15): `up` at once (a dearer plan, or leaving a

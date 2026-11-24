@@ -27,6 +27,7 @@ import { TrialAccountRepository } from './trial-account.repository.js';
 import { SubscriptionTrialService } from './subscription-trial.service.js';
 import {
   type ChangePlanDirection,
+  CLEARED_SCHEDULED_CHANGE,
   assertKeptChannelAccounts,
   decideChangePlanDirection,
   hasPlanStateChanged,
@@ -77,6 +78,7 @@ import type {
   StripeSubscriptionOrderingState,
   SubscriptionCreateData,
   SubscriptionPublicState,
+  StripeSubscriptionPriorState,
   SubscriptionUpdateData,
 } from './subscription.types.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -197,13 +199,6 @@ function createdPlanStateChange({
     ? PLAN_STATE_CHANGE.RESUMED
     : PLAN_STATE_CHANGE.UPGRADED;
 }
-
-/** The three columns of a scheduled move down, cleared (BL5). */
-const CLEARED_SCHEDULED_CHANGE = {
-  scheduled_plan_id: null,
-  scheduled_change_at: null,
-  downgrade_keep: null,
-} as const satisfies SubscriptionUpdateData;
 
 /** A scheduled move to Free is Stripe's period-end cancel on the row (BL5). */
 function isScheduledFreeCancel(subscription: {
@@ -379,7 +374,7 @@ export class SubscriptionService {
    * - **Failure modes:** a read failure propagates; handler failures are logged by the bus.
    * - **Side effects:** the app's handler enqueues its plan-change task (WC-38, sub-domain 6).
    * - **Notes:** call it **after** the write's commit (routes 102 and 103 call it once their unit has
-   *   returned). The Stripe webhook's four plan-state cases (ROUTE row R26) and the plan-state check
+   *   returned). The Stripe webhook's plan-state cases (through {@link emitPlanStateChangedAfterCommit}) and the plan-state check
    *   (WC-59, R52) emit through it too.
    */
   async emitPlanStateChanged(options: {
@@ -408,6 +403,25 @@ export class SubscriptionService {
         },
       }),
     );
+  }
+
+  /**
+   * Registers {@link emitPlanStateChanged} to run once the caller's unit of work has committed — the
+   * Stripe webhook's plan-state cases (routes-final § 8.D BL22), which decide inside the event's
+   * organization unit.
+   *
+   * @remarks
+   * - **Algorithm:** {@link runEnqueueAfterCommit}: a rolled-back event registers nothing; outside any
+   *   unit it runs at once.
+   * - **Failure modes:** a failure after the commit is logged by the commit queue, never retried — the
+   *   webhook's guarded write makes a re-run of the event emit nothing, so the plan-state check (WC-59,
+   *   ROUTE row R52) is the backup for a lost one.
+   * - **Side effects:** as {@link emitPlanStateChanged}.
+   */
+  async emitPlanStateChangedAfterCommit(
+    options: Parameters<SubscriptionService['emitPlanStateChanged']>[0],
+  ): Promise<void> {
+    await runEnqueueAfterCommit(() => this.emitPlanStateChanged(options));
   }
 
   /**
@@ -522,7 +536,7 @@ export class SubscriptionService {
   async findStripeSubscriptionPublicState(options: {
     providerSubscriptionId: string;
     repositoryOverride?: SubscriptionRepository;
-  }): Promise<SubscriptionPublicState | null> {
+  }): Promise<StripeSubscriptionPriorState | null> {
     const repository = options.repositoryOverride ?? this.repository;
     return repository.findPublicStateByProviderSubscriptionId(options.providerSubscriptionId);
   }
@@ -582,13 +596,18 @@ export class SubscriptionService {
    */
   async getPlanAccess({
     organizationPublicId,
+    repositoryOverride,
   }: {
     organizationPublicId: string;
+    /** The Stripe webhook's worker-scoped repository: read inside its organization unit, not a new one. */
+    repositoryOverride?: SubscriptionRepository;
   }): Promise<PlanAccess> {
-    const subject = await withAppDatabaseContext({
-      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
-      callback: () => this.repository.findPlanAccessSubject(organizationPublicId),
-    });
+    const subject = repositoryOverride
+      ? await repositoryOverride.findPlanAccessSubject(organizationPublicId)
+      : await withAppDatabaseContext({
+          scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
+          callback: () => this.repository.findPlanAccessSubject(organizationPublicId),
+        });
     return resolvePlanAccess({
       subject,
       now: new Date(Date.now()),
@@ -913,6 +932,36 @@ export class SubscriptionService {
         ? { provider_customer_id: input.providerCustomerId }
         : {}),
       last_stripe_event_created_at: input.stripeEventCreatedAt,
+    });
+  }
+
+  /**
+   * Inserts the organization's local `ACTIVE` Free row after its Stripe subscription ended on an
+   * unpaid trial or a scheduled move to Free (routes-final § 8.D BL22; BL5, BL7), in the webhook's
+   * organization unit — the same commit as the cancel.
+   *
+   * @remarks
+   * - **Algorithm:** resolves the organization from the webhook context, then
+   *   {@link SubscriptionRepository.createLocalFreeRowUnlessLive}: monthly, no Stripe id, the period
+   *   from now to one month ahead (a Free row's period decides nothing — Free never ends, BL3).
+   * - **Failure modes:** `null` when the organization cannot be resolved, or when it already holds a
+   *   live row (it subscribed again meanwhile — that row is its plan).
+   * - **Side effects:** at most one INSERT into `billing.subscriptions`.
+   */
+  async insertLocalFreeRowFromStripeWebhookEvent(input: {
+    freePlanId: number;
+    repositoryOverride: SubscriptionRepository;
+  }) {
+    const organization = await input.repositoryOverride.findOrganizationFromCurrentContext();
+    if (organization === null) return null;
+    const now = new Date();
+    return input.repositoryOverride.createLocalFreeRowUnlessLive({
+      organization_id: organization.id,
+      plan_id: input.freePlanId,
+      billing_cycle: 'MONTHLY',
+      status: 'ACTIVE',
+      current_period_start: now,
+      current_period_end: addMonths({ base: now, months: 1 }),
     });
   }
 

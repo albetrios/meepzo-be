@@ -20,7 +20,7 @@ import { planFeaturesSchema } from '@/domains/billing/sub-domains/plan/plan.type
 import type {
   PlanAccessPlan,
   PlanAccessSubject,
-  SubscriptionPublicState,
+  StripeSubscriptionPriorState,
   SubscriptionCreateData,
   SubscriptionUpdateData,
   StripeSubscriptionOrderingState,
@@ -464,6 +464,32 @@ export class SubscriptionRepository {
   }
 
   /**
+   * Inserts the organization's local `ACTIVE` Free row (no Stripe id) unless it already holds a live
+   * row — the Stripe webhook's unpaid trial end and scheduled move to Free (routes-final § 8.D BL22).
+   * `null` when a live row exists: `ON CONFLICT DO NOTHING` on the one-live-row index
+   * (`idx_subscriptions_org`) keeps the webhook's transaction usable (a caught unique violation would
+   * abort it) — the organization subscribed again meanwhile, and that row is its plan.
+   */
+  async createLocalFreeRowUnlessLive(data: SubscriptionCreateData) {
+    const inserted = await runInsertWithPublicIdentifierRetry({
+      insert: async () => {
+        const rows = await this.db()
+          .insert(subscriptions)
+          .values(buildSubscriptionInsertValues(data))
+          .onConflictDoNothing({
+            target: subscriptions.organization_id,
+            where: sql`${subscriptions.status} NOT IN ('CANCELED', 'INCOMPLETE_EXPIRED')`,
+          })
+          .returning();
+        return rows[0] ?? null;
+      },
+    });
+    return inserted === null
+      ? null
+      : this.reloadInsertedSubscription(inserted.public_id, data.organization_id);
+  }
+
+  /**
    * sec-re-07: re-select with the plans join so the returned row carries plan_public_id for the
    * HTTP serializer. The follow-up SELECT runs inside the same caller-supplied context
    * (organization for HTTP, worker handle for the webhook fallback path) so RLS still applies — a
@@ -596,10 +622,13 @@ export class SubscriptionRepository {
     };
   }
 
-  /** The customer-visible fields a Stripe sync can change, before the sync runs (`null` when absent). */
+  /**
+   * The customer-visible fields a Stripe sync can change, and what decides its plan-state case (the
+   * trial end, the scheduled move down), before the sync runs (`null` when absent).
+   */
   async findPublicStateByProviderSubscriptionId(
     provider_subscription_id: string,
-  ): Promise<SubscriptionPublicState | null> {
+  ): Promise<StripeSubscriptionPriorState | null> {
     const rows = await this.db()
       .select({
         status: subscriptions.status,
@@ -608,6 +637,10 @@ export class SubscriptionRepository {
         current_period_start: subscriptions.current_period_start,
         current_period_end: subscriptions.current_period_end,
         plan_id: subscriptions.plan_id,
+        billing_cycle: subscriptions.billing_cycle,
+        trial_end: subscriptions.trial_end,
+        scheduled_plan_id: subscriptions.scheduled_plan_id,
+        downgrade_keep: subscriptions.downgrade_keep,
       })
       .from(subscriptions)
       .where(eq(subscriptions.provider_subscription_id, provider_subscription_id))

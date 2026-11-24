@@ -4190,6 +4190,7 @@ As built (`400` bad signature, `503` not configured).
 | # | Change |
 | --- | --- |
 | BLC12 | BL22, BL23: the four cases in `stripe-webhook.service.ts`'s handlers (`handleSubscriptionUpdated`, `handleSubscriptionDeleted`); the local Free row insert through the subscription service; the event emits; tests per case (an unpaid trial → Free + one event; a scheduled Free move; a paid schedule flip; a cancelled paid plan → `plan_ended`; an out-of-order event changes nothing) |
+| R26 | As built ([P405](decisions.md)): a case starts only from a row live before the event; the end cases (1, 2, 4) also on a `.updated` that ends the row (status `canceled`); Free = the catalog's Free plan (a trial) or the scheduled Free plan, the local row `ON CONFLICT DO NOTHING` on the one-live-row index (+ `subscription.created`); case 5 — `resumed` from `PAST_DUE` / `UNPAID`, `upgraded` on the first payment, a Dashboard plan change by route 103's direction rule, entering the grace says nothing; `PLAN_STATE_CHANGED` after the commit, only when the entitlement moved (`stripe-webhook-plan-state.util.ts`, `emitPlanStateChangedAfterCommit`) |
 
 ---
 

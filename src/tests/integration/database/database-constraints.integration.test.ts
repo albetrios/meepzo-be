@@ -29,6 +29,7 @@ describe('Integration: database constraints', () => {
       .values({
         public_id: generatePublicId('organization'),
         name: 'Acme',
+        logo_color: 'sky',
         slug: 'duplicate-slug-constraint',
         owner_user_id: owner.id,
         created_by_user_id: owner.id,
@@ -40,6 +41,7 @@ describe('Integration: database constraints', () => {
         .values({
           public_id: generatePublicId('organization'),
           name: 'Other',
+          logo_color: 'sky',
           slug: 'duplicate-slug-constraint',
           owner_user_id: owner.id,
           created_by_user_id: owner.id,

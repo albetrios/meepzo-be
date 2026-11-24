@@ -37,6 +37,7 @@ import {
   parseListCursor,
 } from '@/shared/utils/http/pagination.util.js';
 import type { Organization } from './organization.types.js';
+import type { OrganizationLogoColor } from './organization.constants.js';
 import { ACTIVE_ORGANIZATION_STATUS } from './organization-capability.js';
 
 /**
@@ -45,6 +46,17 @@ import { ACTIVE_ORGANIZATION_STATUS } from './organization-capability.js';
  */
 function extractResolverRows<T>(result: unknown): T[] {
   return (Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])) as T[];
+}
+
+/**
+ * The tile colour a name gets (TN8), as the SQL an insert writes:
+ * `tenancy.fn_organization_logo_color(name)` — the one definition of the rule (the first 32 bits of
+ * the SHA-256 of the lower-cased name, mod 5, over `ORGANIZATION_LOGO_COLORS`), shared with the
+ * migration's backfill and the `trg_organizations_logo_color` fill, so one name always gets one
+ * colour whoever writes the row.
+ */
+export function organizationLogoColorFromName(name: string): SQL<OrganizationLogoColor> {
+  return sql<OrganizationLogoColor>`tenancy.fn_organization_logo_color(${name})`;
 }
 
 /**
@@ -485,7 +497,7 @@ export class OrganizationRepository {
     public_id: string,
     data: {
       name?: string;
-      slug?: string;
+      logo_color?: OrganizationLogoColor;
       status?: string;
       logo_url?: string | null;
       timezone?: string;

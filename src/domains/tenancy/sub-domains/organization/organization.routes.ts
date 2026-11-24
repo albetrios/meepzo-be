@@ -84,7 +84,8 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
       {
         schema: {
           summary: 'Get active organization',
-          description: 'Returns organization details including name, slug, status, and logo.',
+          description:
+            'Returns organization details including name, slug, status, logo and the tile colour (`logo_color`: sky, lavender, sage, peach or slate).',
           tags: ['Organization'],
         },
         onRequest: [app.authenticate],
@@ -116,7 +117,7 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         schema: {
           summary: 'Create organization',
           description:
-            'Creates a new organization. The authenticated user becomes the owner automatically.',
+            'Creates a new team organization from its name. The authenticated user becomes the owner automatically. `slug` is optional — without one it is made from the name (kebab case, with a short random suffix when taken); a chosen slug that is taken answers 409 `organization_slug_exists`. `logo_color` is optional — without one the name picks it (one name always gets one colour).',
           tags: ['Organization'],
           body: createOrganizationDto,
         },
@@ -134,7 +135,7 @@ export function organizationRoutes(deps: OrganizationRoutesDeps): FastifyPluginA
         schema: {
           summary: 'Update organization',
           description:
-            "Updates organization details (name, slug, timezone, status). Requires ORGANIZATION_UPDATE permission. `status` is the owner's alone (403 `owner_only` for anyone else, an API key included) and needs a recent step-up on this session (`POST /auth/step-up`, within 10 minutes). A SUSPENDED or ARCHIVED organization grants its members no permission, refuses its API keys and cannot be switched into — except by its owner, who keeps organization:read and organization:update to reactivate it.",
+            "Updates organization details (name, tile colour `logo_color`, timezone, status). Requires ORGANIZATION_UPDATE permission. The slug is read only — a body with `slug` answers 422 `slug_read_only`. `status` is the owner's alone (403 `owner_only` for anyone else, an API key included) and needs a recent step-up on this session (`POST /auth/step-up`, within 10 minutes). A SUSPENDED or ARCHIVED organization grants its members no permission, refuses its API keys and cannot be switched into — except by its owner, who keeps organization:read and organization:update to reactivate it.",
           tags: ['Organization'],
           body: updateOrganizationDto,
         },

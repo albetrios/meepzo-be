@@ -44,6 +44,7 @@ describe('Integration: a database failure leaves no bound value behind (C-1)', (
       .values({
         public_id: generatePublicId('organization'),
         name: marker,
+        logo_color: 'sky',
         slug: `slug-${randomUUID()}`,
         owner_user_id: missingUserId,
         created_by_user_id: missingUserId,

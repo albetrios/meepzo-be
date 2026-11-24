@@ -1,3 +1,4 @@
+import type { OrganizationLogoColor } from './organization.constants.js';
 import type { OrganizationOutput } from './organization.types.js';
 
 /**
@@ -15,6 +16,7 @@ export function serializeOrganization(row: {
   /** The owner's user public id (`usr_…`), resolved by the caller; null when the login is gone. */
   owner_user_public_id: string | null;
   logo_url: string | null;
+  logo_color: OrganizationLogoColor;
   timezone: string;
   currency: string;
   created_at: Date;
@@ -28,6 +30,7 @@ export function serializeOrganization(row: {
     status: row.status,
     owner_user_id: row.owner_user_public_id,
     logo_url: row.logo_url,
+    logo_color: row.logo_color,
     timezone: row.timezone,
     currency: row.currency,
     created_at: row.created_at.toISOString(),

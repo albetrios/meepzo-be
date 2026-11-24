@@ -7,11 +7,13 @@
  *   CHECK constraints, so adding a value is one edit here plus a migration that replaces the CHECKs.
  * - **Failure modes:** a value outside a list violates the table's CHECK (Postgres `23514`).
  * - **Notes:** the lowercase machine values are the launch drop's (`schema-routes.md` › Enum tone,
- *   weekday, delete_reason), which meepzo-fe already sends.
+ *   weekday, delete_reason), which meepzo-fe already sends — except the lavender tone, written in
+ *   full as `lavender` since feat-instagram-dm-sending (P81; migration
+ *   `20261124062834_tenancy_chip_tone_lavender.sql` rewrote the stored `lav`).
  */
 export const CHIP_TONE = {
   BUTTER: 'butter',
-  LAVENDER: 'lav',
+  LAVENDER: 'lavender',
   SKY: 'sky',
   SAGE: 'sage',
   BLUSH: 'blush',

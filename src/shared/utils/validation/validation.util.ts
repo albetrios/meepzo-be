@@ -57,6 +57,26 @@ export function trimmedSlug(): z.ZodType<string> {
     .regex(SLUG_REGEX, 'Slug must be lowercase alphanumeric and hyphens only');
 }
 
+/**
+ * Makes a kebab slug matching SLUG_REGEX from free text: `"Café Ölberg & Co."` → `cafe-olberg-co`.
+ *
+ * @remarks
+ * Accents are folded (NFKD, combining marks dropped), letters lowercased, every run of other
+ * characters becomes one hyphen, and leading/trailing hyphens go; the result is cut to `maxLength`
+ * without leaving a trailing hyphen. Text with no Latin letter or digit gives `''` — the caller
+ * supplies its own fallback.
+ */
+export function slugFromText({ text, maxLength }: { text: string; maxLength: number }): string {
+  return text
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLength)
+    .replace(/-+$/g, '');
+}
+
 /** Escapes SQL LIKE wildcards (`%`, `_`, `\`) in user-provided search terms. */
 export function escapeLikePattern(input: string): string {
   return input.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');

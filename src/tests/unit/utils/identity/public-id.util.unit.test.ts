@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { generatePublicId, PUBLIC_ID_LENGTH } from '@/shared/utils/identity/public-id.util.js';
+import {
+  generatePublicId,
+  generateRandomLowercaseAlphanumeric,
+  PUBLIC_ID_LENGTH,
+} from '@/shared/utils/identity/public-id.util.js';
 
 const PUBLIC_ID_PATTERN = /^usr_[0-9a-z]{21}$/;
 
 describe('public-id.util', () => {
   it('exports PUBLIC_ID_LENGTH as 21', () => {
     expect(PUBLIC_ID_LENGTH).toBe(21);
+  });
+
+  it('generateRandomLowercaseAlphanumeric gives [a-z0-9] text of the asked length', () => {
+    expect(generateRandomLowercaseAlphanumeric(6)).toMatch(/^[a-z0-9]{6}$/);
+    expect(generateRandomLowercaseAlphanumeric(0)).toBe('');
   });
 
   it('generates ids of correct length and charset', () => {

@@ -1,3 +1,5 @@
+import type { OrganizationLogoColor } from './organization.constants.js';
+
 /** Internal domain row mirroring `tenancy.organizations` — includes audit columns and soft-delete. */
 export interface Organization {
   id: number;
@@ -10,6 +12,8 @@ export interface Organization {
   owner_user_id: number;
   status: string;
   logo_url: string | null;
+  /** The tile colour (TN8) — one of `ORGANIZATION_LOGO_COLORS`. */
+  logo_color: OrganizationLogoColor;
   stripe_customer_id: string | null;
   /** IANA time zone its timed work runs in (D41). */
   timezone: string;
@@ -35,6 +39,11 @@ export interface OrganizationOutput {
    */
   owner_user_id: string | null;
   logo_url: string | null;
+  /**
+   * The tile colour shown when there is no logo (TN8): `sky` · `lavender` · `sage` · `peach` ·
+   * `slate`; picked from the name at create unless one is chosen.
+   */
+  logo_color: OrganizationLogoColor;
   /** IANA time zone its timed work runs in (D41). */
   timezone: string;
   /** Always `INR` at launch. */

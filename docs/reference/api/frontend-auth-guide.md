@@ -159,7 +159,7 @@ while a pinned organization is not usable (they left it, or it was suspended).
     "membership_id": "mem_…",
     "my_permissions": ["organization:read", "membership:create"],
     "my_role_ids": ["rol_…"],
-    "my_roles": [{ "id": "rol_…", "name": "Admin", "tone": "lav", "is_system": true }],
+    "my_roles": [{ "id": "rol_…", "name": "Admin", "tone": "lavender", "is_system": true }],
     "global_role": null
   }
 }
@@ -491,6 +491,7 @@ export interface Organization {
   status: string;
   owner_user_id: string | null; // usr_… — the owner; compare with user.id (null only if the login is gone)
   logo_url: string | null;
+  logo_color: 'sky' | 'lavender' | 'sage' | 'peach' | 'slate'; // the tile colour without a logo
   timezone: string;             // IANA time zone
   currency: string;             // always `INR` at launch
   created_at: string;           // ISO-8601

@@ -17,9 +17,11 @@ import { memberships } from '@/domains/tenancy/sub-domains/membership/membership
 import {
   listLiveTeamOrganizationPublicIds,
   OrganizationRepository,
+  organizationLogoColorFromName,
 } from '@/domains/tenancy/sub-domains/organization/organization.repository.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import type { Organization } from '@/domains/tenancy/sub-domains/organization/organization.types.js';
+import type { OrganizationLogoColor } from '@/domains/tenancy/sub-domains/organization/organization.constants.js';
 import { invalidateOrganizationPermissions } from '@/domains/tenancy/sub-domains/permission/permission-cache.service.js';
 import {
   MAINTENANCE_SCOPE,
@@ -224,6 +226,8 @@ export interface ProvisionOrganizationInput {
   slug: string | null;
   type: 'PERSONAL' | 'TEAM';
   ownerUserId: number;
+  /** The chosen tile colour; absent → the name's colour ({@link organizationLogoColorFromName}). */
+  logoColor?: OrganizationLogoColor | undefined;
 }
 
 /** Result of {@link provisionOrganizationWithOwner}. */
@@ -317,6 +321,7 @@ async function provisionOrganization(
           name: input.name,
           slug: input.slug,
           type: input.type,
+          logo_color: input.logoColor ?? organizationLogoColorFromName(input.name),
           owner_user_id: input.ownerUserId,
           created_by_user_id: input.ownerUserId,
           updated_by_user_id: input.ownerUserId,

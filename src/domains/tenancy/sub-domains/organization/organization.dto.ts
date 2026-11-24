@@ -6,6 +6,12 @@ import {
   isTraversalFreeStorageKey,
 } from '@/shared/utils/validation/validation.util.js';
 import { isKnownTimeZone } from '@/shared/utils/validation/record-fields.util.js';
+import { ORGANIZATION_LOGO_COLORS } from './organization.constants.js';
+
+/** The tile colour field (TN8): one of the five {@link ORGANIZATION_LOGO_COLORS}. */
+const organizationLogoColorField = z
+  .enum(ORGANIZATION_LOGO_COLORS)
+  .describe('The tile colour shown when there is no logo: sky, lavender, sage, peach or slate.');
 
 /** Path params for `/organizations/by-slug/:slug` (URL-friendly organization slug). */
 export const organizationSlugParamsDto = z
@@ -35,23 +41,36 @@ export const notificationPolicyIdParamsDto = z
   })
   .strict();
 
-/** Zod schema for the `POST /api/v1/organizations` request body (name + URL-friendly slug). */
+/**
+ * Zod schema for the `POST /api/v1/tenancy/organizations` request body: the name, and optionally
+ * the URL-friendly slug (made from the name when absent — TN7) and the tile colour (picked from the
+ * name when absent — TN8).
+ */
 export const createOrganizationDto = z
   .object({
     name: trimmedStringMinMax({ min: 1, max: 255 }),
-    slug: trimmedSlug(),
+    slug: trimmedSlug().optional(),
+    logo_color: organizationLogoColorField.optional(),
   })
   .strict();
 
 /**
- * Zod schema for the `PATCH /api/v1/organization` request body. All
+ * Zod schema for the `PATCH /api/v1/tenancy/organization` request body. All
  * fields optional; `status` is constrained to the lifecycle values stored
- * in `tenancy.organizations.status`.
+ * in `tenancy.organizations.status`. `slug` is read only (TN7): it stays in the
+ * strict schema only so a client that sends it gets `422 slug_read_only` from the
+ * service rather than a `400` unknown key.
  */
 export const updateOrganizationDto = z
   .object({
     name: trimmedStringMinMax({ min: 1, max: 255 }).optional(),
-    slug: trimmedSlug().optional(),
+    slug: z
+      .string()
+      .optional()
+      .describe(
+        'Read only — made once from the name at create; sending it answers 422 slug_read_only.',
+      ),
+    logo_color: organizationLogoColorField.optional(),
     status: z.enum(['ACTIVE', 'SUSPENDED', 'ARCHIVED']).optional(),
     timezone: trimmedStringMinMax({ min: 1, max: 64 })
       .refine(isKnownTimeZone, { message: 'errors:validation.notIanaTimeZone' })

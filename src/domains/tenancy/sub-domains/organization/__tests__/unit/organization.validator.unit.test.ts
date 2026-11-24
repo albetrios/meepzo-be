@@ -21,6 +21,24 @@ describe('organization.validator', () => {
     );
   });
 
+  it('validateCreateOrganization takes the name alone and one of the five tile colours (TN7, TN8)', () => {
+    expect(validateCreateOrganization({ name: 'Acme' })).toEqual({ name: 'Acme' });
+    expect(validateCreateOrganization({ name: 'Acme', logo_color: 'lavender' })).toEqual({
+      name: 'Acme',
+      logo_color: 'lavender',
+    });
+    expect(() => validateCreateOrganization({ name: 'Acme', logo_color: 'lav' })).toThrow(
+      ValidationError,
+    );
+  });
+
+  it('validateUpdateOrganization passes a slug through for the service to refuse (422 slug_read_only)', () => {
+    expect(validateUpdateOrganization({ slug: 'Any Value', logo_color: 'peach' })).toEqual({
+      slug: 'Any Value',
+      logo_color: 'peach',
+    });
+  });
+
   it('validateUpdateOrganization accepts partial fields', () => {
     expect(validateUpdateOrganization({ status: 'SUSPENDED' })).toEqual({
       status: 'SUSPENDED',

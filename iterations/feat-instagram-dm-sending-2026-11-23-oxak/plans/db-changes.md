@@ -40,7 +40,7 @@ changes to the platform domains are new migrations only (D48, [P38](decisions.md
 | NEW | 22 | **Common, Stages 1 and 6 (5):** channel_connection, channel_connection_token, channel_account, message_month_count, sending_state (`sending_helper_slot` dropped — P73) · **Shared product data, Stages 2, 3 and 5 (8, P48):** contact_tag_event, automation_count, automation_reply_state, automation_backfill, automation_run_open_key (P100), segment, broadcast, broadcast_recipient · **Instagram, Stages 4 and 6 (7):** instagram_webhook_event_key, instagram_send_lane, instagram_message, instagram_send_attempt, instagram_send_minute_count, instagram_send_stop, instagram_attachment · **Stage 8 (2):** trusted_device, trial_account |
 | CHANGED | 15 | **app (9):** instagram_account (now the Instagram extension of channel_account), instagram_account_setting, instagram_media, contact, automation, automation_run, automation_run_event, automation_comment_log (the four launch product tables, shared and keyed by `channel_account_id`, no rename — P48), instagram_webhook_event · **Stage 7 (2):** plan, subscription · **Stage 8 (4):** organization, user, user_setting, session |
 | REMOVED | 1 | instagram_account_token |
-| EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `instagram_attachment` names an upload by its public id. **Built R12** ([AS-BUILT](../AS-BUILT.md)): `upload.uploads` unchanged, no migration; the `message-media` purpose is recorded in the object key prefix `message-media/<organization public id>/` (the table has no purpose column, [P103](decisions.md)) |
+| EXISTING | 1 | upload — context only: not changed this iteration (no `scan_status`, P34); `instagram_attachment` names an upload by its public id. **Built R12** ([AS-BUILT](../AS-BUILT.md)): `upload.uploads` unchanged, no migration; the `message-media` purpose is recorded in the object key prefix `message-media/<organization public id>/` (the table has no purpose column, [P201](decisions.md)) |
 
 Since the last version (routes-final rev 5, [P100](decisions.md), 2026-11-24): **one table is added**, so NEW
 21 → **22** and the counts are **22 / 15 / 1 / 1**. `automation_run_open_key` (`app.automation_run_open_keys`,
@@ -1852,6 +1852,9 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
 - The shared chip tone `lav` → `lavender` everywhere — the roles' and memberships' `tone` rows and
   checks and the organization's `logo_color` — so one tone list serves them ([P81](decisions.md), TNQ1;
   a tenancy migration; meepzo-fe follows).
+  **Built R27**: `20261124062834_tenancy_chip_tone_lavender.sql` rewrote `tenancy.roles.tone` and
+  `tenancy.memberships.tone`, replaced `chk_roles_tone` / `chk_memberships_tone`, and keeps a `lav` the previous
+  release writes as `lavender` (trigger `trg_roles_tone_lavender`, `trg_memberships_tone_lavender`, [P202](decisions.md)).
 - `billing.plans`: the three switched-off rows take Free's features and limits ([P80](decisions.md));
   every row's features rewritten to the typed shape of P83 (Stage 7, `plan`).
 - `auth.auth_methods`: every `PASSWORD` row revoked, and every `auth.users.password_hash` emptied, by the
@@ -1951,6 +1954,10 @@ erDiagram
 - **Replaced:** none.
 - **Open:** none — the plan's tone `lav` is `lavender`, and the shared chip tones follow
   ([P81](decisions.md), TNQ1; see Reference data).
+- **Built R27** ([AS-BUILT](../AS-BUILT.md)): `tenancy.organizations.logo_color` `varchar(10)` NOT NULL,
+  `chk_organizations_logo_color`; the name's colour is `tenancy.fn_organization_logo_color(name)`, filled for a row
+  written without one by the trigger `trg_organizations_logo_color` (migration
+  `20261124062835_tenancy_organizations_logo_color.sql`, [P202](decisions.md)).
 
 ```mermaid
 erDiagram

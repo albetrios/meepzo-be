@@ -129,7 +129,7 @@ describe('GET /api/v1/auth/me/context — Integration', () => {
       roleId: mainRole.id,
     });
     const operatorSql = operatorQuery;
-    await operatorSql`UPDATE tenancy.roles SET tone = 'lav', is_system = true WHERE id = ${extraRole.id}`;
+    await operatorSql`UPDATE tenancy.roles SET tone = 'lavender', is_system = true WHERE id = ${extraRole.id}`;
     await operatorSql`UPDATE tenancy.roles SET deleted_at = now() WHERE id = ${deletedRole.id}`;
     await operatorSql`
       INSERT INTO tenancy.membership_additional_roles (membership_id, role_id, organization_id, position)
@@ -153,7 +153,7 @@ describe('GET /api/v1/auth/me/context — Integration', () => {
     expect(body.data.my_role_ids).toEqual([mainRole.public_id, extraRole.public_id]);
     expect(body.data.my_roles).toEqual([
       { id: mainRole.public_id, name: 'Front desk', tone: 'sky', is_system: false },
-      { id: extraRole.public_id, name: 'Counsellor', tone: 'lav', is_system: true },
+      { id: extraRole.public_id, name: 'Counsellor', tone: 'lavender', is_system: true },
     ]);
   });
 

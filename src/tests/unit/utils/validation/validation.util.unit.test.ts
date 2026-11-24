@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   escapeLikePattern,
+  slugFromText,
   trimmedEmail,
   trimmedSlug,
   trimmedString,
@@ -79,6 +80,19 @@ describe('validation.util', () => {
     it('accepts Gmail and Googlemail without plus', () => {
       expect(trimmedEmail().parse('user@gmail.com')).toBe('user@gmail.com');
       expect(trimmedEmail().parse('user@googlemail.com')).toBe('user@googlemail.com');
+    });
+  });
+
+  describe('slugFromText', () => {
+    it('makes a kebab slug that trimmedSlug accepts', () => {
+      const slug = slugFromText({ text: '  Café Ölberg & Co. ', maxLength: 100 });
+      expect(slug).toBe('cafe-olberg-co');
+      expect(trimmedSlug().parse(slug)).toBe(slug);
+    });
+
+    it('cuts to the length without a trailing hyphen, and gives empty text for no letter or digit', () => {
+      expect(slugFromText({ text: 'Acme Studio Group', maxLength: 12 })).toBe('acme-studio');
+      expect(slugFromText({ text: '🌸 — 🌸', maxLength: 100 })).toBe('');
     });
   });
 });

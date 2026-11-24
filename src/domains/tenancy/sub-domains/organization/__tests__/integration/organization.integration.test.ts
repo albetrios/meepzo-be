@@ -143,58 +143,19 @@ describe('Organization Sub-Domain — Integration', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('concurrent slug updates to the same new slug resolve to one 200 + one 409 (no 5xx)', async () => {
-      // One admin who owns two organizations races both to the SAME previously-unused slug.
-      // With flat routes each request targets the active organization carried in its token
-      // claim, so we mint a per-organization token for the same user. Both requests pass the
-      // findBySlug pre-check (neither organization holds it yet), so the loser hits the
-      // idx_organizations_slug unique index — which must map to 409, never a 500.
-      const user = await createTestUser();
-      const [organizationA, organizationB] = await Promise.all([
-        createTestOrganization({ ownerUserId: user.id }),
-        createTestOrganization({ ownerUserId: user.id }),
-      ]);
-      const [roleA, roleB] = await Promise.all([
-        createRoleWithPermissions({
-          organizationId: organizationA.id,
-          permissionCodes: ORGANIZATION_PERMISSIONS,
-        }),
-        createRoleWithPermissions({
-          organizationId: organizationB.id,
-          permissionCodes: ORGANIZATION_PERMISSIONS,
-        }),
-      ]);
-      await Promise.all([
-        createMembership({ userId: user.id, organizationId: organizationA.id, roleId: roleA.id }),
-        createMembership({ userId: user.id, organizationId: organizationB.id, roleId: roleB.id }),
-      ]);
-      const [tokenA, tokenB] = await Promise.all([
-        generateTestToken({
-          userId: user.public_id,
-          organizationPublicId: organizationA.public_id,
-        }),
-        generateTestToken({
-          userId: user.public_id,
-          organizationPublicId: organizationB.public_id,
-        }),
-      ]);
-
-      const sharedSlug = 'race-shared-organization-slug';
-      const patchSlug = (token: string) =>
-        injectAuthenticated(app, {
-          method: 'PATCH',
-          url: testApiPath('/tenancy/organization'),
-          token,
-          payload: { slug: sharedSlug },
-        });
-
-      const statuses = (await Promise.all([patchSlug(tokenA), patchSlug(tokenB)])).map(
-        (response) => response.statusCode,
+    it('refuses a slug change: the slug is read only (TN7, 422 slug_read_only)', async () => {
+      // The slug is made once at create, so the former race between two slug updates cannot happen.
+      const { token } = await createAuthorizedContext();
+      const response = await injectAuthenticated(app, {
+        method: 'PATCH',
+        url: testApiPath('/tenancy/organization'),
+        token,
+        payload: { slug: 'race-shared-organization-slug' },
+      });
+      expect(response.statusCode).toBe(422);
+      expect((response.json() as { error: { reason?: string } }).error.reason).toBe(
+        'slug_read_only',
       );
-
-      expect(statuses.filter((status) => status >= 500)).toHaveLength(0);
-      expect(statuses.filter((status) => status === 200)).toHaveLength(1);
-      expect(statuses.filter((status) => status === 409)).toHaveLength(1);
     });
   });
 });

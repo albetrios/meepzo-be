@@ -31,7 +31,8 @@ export function createAuthEmailLoginHandlers({
       return successResponse({
         data: AuthSerializer.verificationCodeSent({
           message: translated.message,
-          expires_in_minutes: data.expires_in_minutes,
+          resend_after_seconds: data.resend_after_seconds,
+          expires_in_seconds: data.expires_in_seconds,
           ...(data.debug_verification_code
             ? { debug_verification_code: data.debug_verification_code }
             : {}),

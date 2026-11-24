@@ -26,10 +26,6 @@ describe('UserRepository (database)', () => {
     const updated = await repository.update(user.public_id, { first_name: 'Updated' });
     expect(updated?.first_name).toBe('Updated');
 
-    await repository.updatePassword(user.public_id, 'new-hash');
-    const withPassword = await repository.findByPublicId(user.public_id);
-    expect(withPassword?.password_hash).toBe('new-hash');
-
     await repository.updateEmailVerified(user.public_id);
     const verified = await repository.findByPublicId(user.public_id);
     expect(verified?.is_email_verified).toBe(true);
@@ -63,10 +59,6 @@ describe('UserRepository (database)', () => {
     await repository.updateMfaEnabled(user.public_id, true);
     const withMfa = await repository.findByPublicId(user.public_id);
     expect(withMfa?.is_mfa_enabled).toBe(true);
-
-    await repository.updateLoginAttempt(user.public_id, 3, new Date(Date.now() + 60_000));
-    const withLock = await repository.findByPublicId(user.public_id);
-    expect(withLock?.failed_login_count).toBe(3);
 
     const adminUpdated = await repository.adminUpdate(user.public_id, { status: 'SUSPENDED' });
     expect(adminUpdated?.status).toBe('SUSPENDED');
@@ -105,44 +97,6 @@ describe('UserRepository (database)', () => {
     expect(oauthUser.is_email_verified).toBe(true);
   });
 
-  it('incrementFailedLoginAttempt counts every concurrent failure (no lost updates)', async () => {
-    const user = await createTestUser({ email: 'concurrent-failed-login@example.com' });
-    const attempts = 8;
-    const maxAttempts = 10;
-
-    // Fire all failures at once. A read-modify-write would let several collapse into one
-    // (two reads of N both write N+1); the atomic `count + 1` must land all of them.
-    await Promise.all(
-      Array.from({ length: attempts }, () =>
-        repository.incrementFailedLoginAttempt(user.public_id, { maxAttempts, lockoutMinutes: 30 }),
-      ),
-    );
-
-    const after = await repository.findByPublicId(user.public_id);
-    expect(after?.failed_login_count).toBe(attempts);
-    // Below the threshold, no lock is applied.
-    expect(after?.account_locked_until).toBeNull();
-  });
-
-  it('incrementFailedLoginAttempt applies the lockout once the threshold is reached', async () => {
-    const user = await createTestUser({ email: 'lockout-threshold@example.com' });
-    const maxAttempts = 3;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      await repository.incrementFailedLoginAttempt(user.public_id, {
-        maxAttempts,
-        lockoutMinutes: 30,
-      });
-    }
-
-    const after = await repository.findByPublicId(user.public_id);
-    expect(after?.failed_login_count).toBe(maxAttempts);
-    expect(after?.account_locked_until).not.toBeNull();
-    expect(new Date(after?.account_locked_until as unknown as string).getTime()).toBeGreaterThan(
-      Date.now(),
-    );
-  });
-
   // audit #13: admin search is now case-INSENSITIVE (was `like` — "john" missed "John") and
   // matches against the concatenated display name, targeting the trigram GIN indexes.
   it('admin search is case-insensitive and matches the display name (audit #13)', async () => {
@@ -160,25 +114,6 @@ describe('UserRepository (database)', () => {
 
     const byEmailUpper = await repository.findMany({ limit: 20, search: 'CASE-SEARCH-TARGET' });
     expect(byEmailUpper.items.some((row) => row.public_id === user.public_id)).toBe(true);
-  });
-
-  // sec-r5: removing a PASSWORD auth-method must actually kill the credential so login stops
-  // authenticating. Only the DECISION to call clearPasswordHash was tested (mocked); the SQL
-  // (`password_hash = NULL`, guarded by `isNull(deleted_at)`, RETURNING) never ran.
-  it('clearPasswordHash nulls the stored credential and persists it', async () => {
-    const user = await createTestUser({ email: 'clear-hash@example.com' });
-    await repository.updatePassword(user.public_id, 'live-hash');
-    expect((await repository.findByPublicId(user.public_id))?.password_hash).toBe('live-hash');
-
-    const cleared = await repository.clearPasswordHash(user.public_id);
-    expect(cleared?.password_hash).toBeNull();
-    // Re-read proves it persisted (not just the RETURNING row).
-    expect((await repository.findByPublicId(user.public_id))?.password_hash).toBeNull();
-  });
-
-  it('clearPasswordHash returns null for an unknown user id', async () => {
-    const result = await repository.clearPasswordHash(generatePublicId('user'));
-    expect(result).toBeNull();
   });
 
   // Admin list status filter — no test anywhere passed `status`; a dropped predicate would return

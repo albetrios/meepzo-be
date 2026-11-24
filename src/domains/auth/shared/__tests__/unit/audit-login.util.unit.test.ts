@@ -151,7 +151,7 @@ describe('recordLoginAuditEvent (sec-A8)', () => {
     recordScopedAuditEventSpy.mockRejectedValueOnce(new Error('audit write failed'));
 
     await expect(
-      recordLoginAuditEvent({ request, loginResult: sessionResult, source: 'password' }),
+      recordLoginAuditEvent({ request, loginResult: sessionResult, source: 'email_code' }),
     ).resolves.not.toThrow();
     // The failure path logs but does NOT propagate (login UX is not held hostage
     // by an audit-store outage).
@@ -165,7 +165,7 @@ describe('recordLoginAuditEvent (sec-A8)', () => {
     verifyAccessTokenSpy.mockRejectedValueOnce(new Error('verify failed'));
 
     await expect(
-      recordLoginAuditEvent({ request, loginResult: sessionResult, source: 'password' }),
+      recordLoginAuditEvent({ request, loginResult: sessionResult, source: 'email_code' }),
     ).resolves.not.toThrow();
     expect(recordScopedAuditEventSpy).not.toHaveBeenCalled();
     expect(loggerWarnSpy).toHaveBeenCalled();
@@ -180,7 +180,7 @@ describe('recordLoginAuditEvent (sec-A8)', () => {
   describe('recordLoginFailureAuditEvent (sec-A8 follow-up)', () => {
     it('records auth.login_failure with source and a typed error_code from AppError messageKey', async () => {
       class FakeAppError extends Error {
-        public readonly messageKey = 'errors:invalidEmailOrPassword';
+        public readonly messageKey = 'errors:emailCodeWrong';
         constructor() {
           super('Invalid email or password');
           this.name = 'UnauthorizedError';
@@ -189,7 +189,7 @@ describe('recordLoginAuditEvent (sec-A8)', () => {
 
       await recordLoginFailureAuditEvent({
         request,
-        source: 'password',
+        source: 'email_code',
         error: new FakeAppError(),
       });
 
@@ -200,8 +200,8 @@ describe('recordLoginAuditEvent (sec-A8)', () => {
           resource_type: 'session',
           severity: 'INFO',
           metadata: expect.objectContaining({
-            source: 'password',
-            error_code: 'errors:invalidEmailOrPassword',
+            source: 'email_code',
+            error_code: 'errors:emailCodeWrong',
           }),
         }),
       });

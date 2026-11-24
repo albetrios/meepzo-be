@@ -1,3 +1,4 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { generate as generateTotpCode } from 'otplib';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
@@ -7,7 +8,7 @@ import {
   injectUnauthenticated,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUser, createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import { generateTestToken, generateTestTokenAndSession } from '@/tests/helpers/test-auth.js';
 import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
@@ -55,6 +56,23 @@ describe('MFA Sub-Domain — Integration', () => {
     await app.close();
   });
 
+  /** Opens an email-code step-up window (passwords are off, P84) — send-code echoes the code. */
+  async function stepUpByEmailCode({ token, email }: { token: string; email: string }) {
+    const sent = await injectUnauthenticated(app, {
+      method: 'POST',
+      url: testApiPath('/auth/email/send-code'),
+      payload: { email },
+    });
+    const code = (sent.json() as { data: { debug_verification_code: string } }).data
+      .debug_verification_code;
+    return injectAuthenticated(app, {
+      method: 'POST',
+      url: testApiPath('/auth/step-up'),
+      token,
+      payload: { code },
+    });
+  }
+
   beforeEach(async () => {
     await cleanupDatabase();
   });
@@ -70,7 +88,7 @@ describe('MFA Sub-Domain — Integration', () => {
     });
 
     // Issue #1 regression: a TOTP code alone (without a valid mfa_session_token
-    // minted by POST /auth/login after password verification) must never mint a
+    // minted by the first factor, e.g. POST /auth/email/login) must never mint a
     // session. The session token is unforgeable, so an attacker who only knows a
     // victim's user id and a 6-digit code cannot log in.
     it('should return 401 for a TOTP code without a valid mfa_session_token', async () => {
@@ -95,11 +113,11 @@ describe('MFA Sub-Domain — Integration', () => {
     });
 
     it('returns 401 when a recovery code that already completed a login is replayed', async () => {
-      const { user, password } = await createTestUserWithPassword({ isEmailVerified: true });
+      const user = await createTestUser({ isEmailVerified: true });
       const { token, sessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'password');
+      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'mfa');
 
       const enroll = await injectAuthenticated(app, {
         method: 'POST',
@@ -121,13 +139,9 @@ describe('MFA Sub-Domain — Integration', () => {
         .recovery_codes;
       expect(recoveryCode).toBeTypeOf('string');
 
-      /** Signs in with the password and spends `recoveryCode` on the MFA challenge it returns. */
+      /** Signs in by email code and spends `recoveryCode` on the MFA challenge it returns. */
       async function completeLoginWithRecoveryCode() {
-        const login = await injectUnauthenticated(app, {
-          method: 'POST',
-          url: testApiPath('/auth/login'),
-          payload: { email: user.email, password },
-        });
+        const login = await signInWithEmailCode(app, { email: user.email });
         expect(login.statusCode, login.body).toBe(200);
         const { mfa_session_token: mfaSessionToken } = (
           login.json() as { data: { mfa_session_token: string } }
@@ -190,7 +204,7 @@ describe('MFA Sub-Domain — Integration', () => {
       const { token, sessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'password');
+      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'mfa');
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',
@@ -210,7 +224,7 @@ describe('MFA Sub-Domain — Integration', () => {
       const { token, sessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'password');
+      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'mfa');
 
       const response = await injectAuthenticated(app, {
         method: 'DELETE',
@@ -226,11 +240,11 @@ describe('MFA Sub-Domain — Integration', () => {
       // The route had exactly ONE case (a 401) and no success assertion, while the service side
       // is well covered. This closes the route half: a real enrolled TOTP method is removed over
       // HTTP, the declared 204 is observed, and the follow-up read proves it is gone.
-      const { user, password } = await createTestUserWithPassword({ isEmailVerified: true });
+      const user = await createTestUser({ isEmailVerified: true });
       const { token, sessionPublicId } = await generateTestTokenAndSession({
         userId: user.public_id,
       });
-      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'password');
+      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'mfa');
 
       const enroll = await injectAuthenticated(app, {
         method: 'POST',
@@ -274,12 +288,8 @@ describe('MFA Sub-Domain — Integration', () => {
       expect(afterDelete.statusCode).toBe(200);
       expect((afterDelete.json() as { data: unknown[] }).data).toHaveLength(0);
 
-      // With the factor gone, the password alone signs in again: a real access token, no challenge.
-      const login = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: { email: user.email, password },
-      });
+      // With the factor gone, the email code alone signs in again: a real access token, no challenge.
+      const login = await signInWithEmailCode(app, { email: user.email });
       expect(login.statusCode, login.body).toBe(200);
       const loginBody = (
         login.json() as { data: { access_token?: string; mfa_required?: boolean } }
@@ -305,15 +315,10 @@ describe('MFA Sub-Domain — Integration', () => {
 
   describe('full TOTP ceremony (enroll → confirm → verify → mfa login)', () => {
     it('completes step-up verify and the public mfa login with valid TOTP codes', async () => {
-      const { user, password } = await createTestUserWithPassword({ isEmailVerified: true });
+      const user = await createTestUser({ isEmailVerified: true });
       const token = await generateTestToken({ userId: user.public_id });
 
-      const stepUp = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/step-up'),
-        token,
-        payload: { password },
-      });
+      const stepUp = await stepUpByEmailCode({ token, email: user.email });
       expect(stepUp.statusCode, stepUp.body).toBe(200);
 
       const enroll = await injectAuthenticated(app, {
@@ -362,11 +367,7 @@ describe('MFA Sub-Domain — Integration', () => {
       expect(verify.statusCode, verify.body).toBe(200);
 
       // Password login now returns the MFA challenge envelope instead of a token.
-      const login = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: { email: user.email, password },
-      });
+      const login = await signInWithEmailCode(app, { email: user.email });
       expect(login.statusCode, login.body).toBe(200);
       const loginBody = (
         login.json() as { data: { mfa_required?: boolean; mfa_session_token?: string } }
@@ -508,54 +509,19 @@ describe('MFA Sub-Domain — Integration', () => {
         .where(eq(mail_outbox.subject, 'Your other sessions were signed out'));
       expect(notices.map((notice) => notice.to)).toContainEqual([user.email]);
     });
-
-    it('a factor enrolled under a password step-up is strong at once', async () => {
-      const { user, password } = await createTestUserWithPassword({ isEmailVerified: true });
-      const token = await generateTestToken({ userId: user.public_id });
-      const stepUp = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/step-up'),
-        token,
-        payload: { password },
-      });
-      expect(stepUp.statusCode, stepUp.body).toBe(200);
-      const enroll = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/me/mfa/enroll'),
-        token,
-        payload: { method_type: 'MFA_TOTP' },
-      });
-      const { secret } = (enroll.json() as { data: { secret: string } }).data;
-      const confirm = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/me/mfa/enroll/confirm'),
-        token,
-        payload: { code: await unspentTotpCode(secret) },
-      });
-      expect(confirm.statusCode, confirm.body).toBe(200);
-
-      await stepUpWithTotp({ token, code: await unspentTotpCode(secret) });
-      const signedOut = await signOutEverywhereElse(token);
-      expect(signedOut.statusCode, signedOut.body).toBe(204);
-    });
   });
 
   describe('pre-hijacking guard: unverified email cannot seed a login factor', () => {
     it('rejects MFA enrollment with 403 for an UNVERIFIED account, even after a valid step-up', async () => {
       // Account pre-hijacking (Trojan-credential variant): an attacker who pre-registers a
-      // victim's email holds an UNVERIFIED account whose password they set. A password step-up is
+      // victim's email holds an UNVERIFIED account. A step-up is
       // a factor they control, so it must NOT let them seed an MFA method — which would survive the
-      // victim's password-reset recovery (reset revokes sessions, not enrolled factors). Email
+      // victim's account recovery (recovery revokes sessions, not enrolled factors). Email
       // verification is the gate that the pre-registering attacker cannot pass.
-      const { user, password } = await createTestUserWithPassword({ isEmailVerified: false });
+      const user = await createTestUser({ isEmailVerified: false });
       const token = await generateTestToken({ userId: user.public_id });
 
-      const stepUp = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/step-up'),
-        token,
-        payload: { password },
-      });
+      const stepUp = await stepUpByEmailCode({ token, email: user.email });
       expect(stepUp.statusCode, stepUp.body).toBe(200);
 
       const enroll = await injectAuthenticated(app, {

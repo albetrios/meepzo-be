@@ -58,7 +58,7 @@ export function requireRecentStepUpWhenBodyHas(
  *
  * @remarks
  * - **Algorithm:** a body without `field` (or with it `undefined`) passes; otherwise a user must
- *   hold a recent password or MFA step-up on this session. An API key can never step up.
+ *   hold a recent strong (MFA) step-up on this session. An API key can never step up.
  * - **Failure modes:** `ForbiddenError('errors:strongStepUpRequired')`.
  */
 export function requireStrongRecentStepUpWhenBodyHas(
@@ -83,7 +83,7 @@ function bodyCarries({ request, field }: { request: FastifyRequest; field: strin
 /**
  * PreHandler for DESTRUCTIVE credential/session mutations (revoke sessions, delete an MFA method,
  * passkey, or auth-method) — requires a recent step-up completed via a STRONG factor
- * (password or MFA), on THIS session, within the last ten minutes.
+ * (MFA), on THIS session, within the last ten minutes.
  *
  * @remarks
  * Stricter than {@link requireRecentStepUpPreHandler}: a bootstrap `email_code` step-up (a

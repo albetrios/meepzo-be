@@ -52,6 +52,17 @@ async function createErrorHandlerApp() {
       'membership_already_exists',
     );
   });
+  application.get('/rate-limited-with-fields', async () => {
+    throw new AppError('RATE_LIMITED', 429, 'errors:rateLimited', undefined, 'Too many')
+      .withReason('code_day_limit')
+      .withRetryAfter(120)
+      .withFields({ retry_after_seconds: 120, tries_left: 0 });
+  });
+  application.get('/server-error-with-fields', async () => {
+    throw new AppError('INTERNAL_ERROR', 500, 'errors:internal', undefined, 'Internal').withFields({
+      tries_left: 2,
+    });
+  });
   application.get('/server-error-with-reason', async () => {
     throw new AppError('INTERNAL_ERROR', 500, 'errors:internal', undefined, 'Internal').withReason(
       'should_not_leak',
@@ -147,6 +158,25 @@ describe('error-handler.middleware', () => {
     const response = await application.inject({ method: 'GET', url: '/conflict-with-reason' });
     expect(response.statusCode).toBe(409);
     expect(response.json().error.reason).toBe('membership_already_exists');
+  });
+
+  it('AT3: serializes tries_left / retry_after_seconds beside the Retry-After header on a 4xx', async () => {
+    application = await createErrorHandlerApp();
+    const response = await application.inject({ method: 'GET', url: '/rate-limited-with-fields' });
+    expect(response.statusCode).toBe(429);
+    expect(response.headers['retry-after']).toBe('120');
+    expect(response.json().error).toMatchObject({
+      reason: 'code_day_limit',
+      retry_after_seconds: 120,
+      tries_left: 0,
+    });
+  });
+
+  it('AT3: never serializes the extra fields on a masked 5xx', async () => {
+    application = await createErrorHandlerApp();
+    const response = await application.inject({ method: 'GET', url: '/server-error-with-fields' });
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.tries_left).toBeUndefined();
   });
 
   it('omits reason when none is set on the error', async () => {

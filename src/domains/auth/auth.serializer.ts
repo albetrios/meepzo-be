@@ -67,12 +67,14 @@ export const AuthSerializer = {
   },
   verificationCodeSent(data: {
     message: string;
-    expires_in_minutes: number;
+    resend_after_seconds: number;
+    expires_in_seconds: number;
     debug_verification_code?: string;
   }) {
     return {
       message: data.message,
-      expires_in_minutes: data.expires_in_minutes,
+      resend_after_seconds: data.resend_after_seconds,
+      expires_in_seconds: data.expires_in_seconds,
       // TEST_MODE-only: present only when the service echoed a code (env.TEST_MODE on, never in prod).
       ...(data.debug_verification_code
         ? { debug_verification_code: data.debug_verification_code }

@@ -59,8 +59,7 @@ export function requestPresentsCredential(request: FastifyRequest): boolean {
  * - **Side effects:** response headers on the refusal only.
  * - **Notes:** D-2 — run before the API-key prefix lookup and the session check, so a caller
  *   guessing keys or replaying revoked tokens stops costing a database round trip once over
- *   budget. Valid credentials from that address are refused too until the window resets, as the
- *   per-IP failed-login throttle on `POST /auth/login` does.
+ *   budget. Valid credentials from that address are refused too until the window resets.
  */
 export async function refuseWhenFailedAuthenticationBudgetSpent({
   request,

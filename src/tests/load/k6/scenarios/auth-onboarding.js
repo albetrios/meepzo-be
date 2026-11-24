@@ -22,13 +22,16 @@ export const options = {
 };
 
 export function authOnboarding() {
-  // Step 1: Attempt login
+  // Step 1: Sign in by email code (passwords are off, P84 — the target echoes the code, TEST_MODE)
+  const email = __ENV.DEMO_EMAIL || 'demo@example.com';
+  const sent = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
+    headers: PUBLIC_AUTH_FORM_HEADERS,
+    tags: { name: 'auth-send-code' },
+  });
+  const code = sent.status === 200 ? JSON.parse(sent.body).data?.debug_verification_code : null;
   const loginResponse = http.post(
-    `${API_PREFIX}/auth/login`,
-    JSON.stringify({
-      email: __ENV.DEMO_EMAIL || 'demo@example.com',
-      password: __ENV.DEMO_PASSWORD || 'DemoPassword123!',
-    }),
+    `${API_PREFIX}/auth/email/login`,
+    JSON.stringify({ email, code }),
     { headers: PUBLIC_AUTH_FORM_HEADERS, tags: { name: 'auth-login' } },
   );
   checkOk(loginResponse, 'login');

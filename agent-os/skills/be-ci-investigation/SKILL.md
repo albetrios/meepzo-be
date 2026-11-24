@@ -30,7 +30,7 @@ Run it through the **be-ci-investigator** agent: CI logs are large and noisy, an
    | --- | --- | --- |
    | PR CI (lint, security, …) | `pr-ci.yml` | `pnpm ci:quality` (local aggregate; CI splits jobs) |
    | Tests | `reusable-vitest-postgres-redis.yml` | `pnpm compose:up` → `pnpm db:migrate` → `pnpm test` |
-   | Docker → API smoke against the container | `reusable-docker-build-trivy.yml` (post-merge, `api_smoke: true`) | `pnpm db:seed:full` (`DEMO_PASSWORD=DemoPassword123!`) then `pnpm test:api-smoke` against a running API — or `pnpm verify:base` |
+   | Docker → API smoke against the container | `reusable-docker-build-trivy.yml` (post-merge, `api_smoke: true`) | `pnpm db:seed:full` (the container runs with `TEST_MODE=true`; the smoke signs in by email code) then `pnpm test:api-smoke` against a running API — or `pnpm verify:base` |
    | Chaos (Toxiproxy) | `reusable-chaos-toxiproxy.yml` | `pnpm chaos:up` → `pnpm chaos:provision` → `pnpm test:chaos` |
    | Docker | `reusable-docker-build-trivy.yml` | `node tooling/ci/check-dockerfile-sync.mjs` + docker build |
    | API Docs (post-merge publish) | `reusable-openapi-postman-publish.yml` | `pnpm docs:all` / `pnpm docs:check` |

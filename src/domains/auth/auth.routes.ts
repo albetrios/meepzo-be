@@ -16,12 +16,9 @@ import { createPerEmailRateLimitPreHandler } from '@/shared/middlewares/rate-lim
 import { createAuthController } from './auth.controller.js';
 import {
   authMethodPublicIdParamsDto,
-  ChangePasswordDto,
   CreateAuthMethodDto,
   EmailLoginDto,
   EmailSendCodeDto,
-  ForgotPasswordDto,
-  LoginDto,
   MfaEnrollConfirmDto,
   MfaEnrollDto,
   MfaLoginVerifyDto,
@@ -29,7 +26,6 @@ import {
   mfaMethodIdParamsDto,
   OauthCallbackQueryDto,
   oauthProviderParamsDto,
-  ResetPasswordDto,
   sessionIdParamsDto,
   StepUpVerifyDto,
 } from './auth.dto.js';
@@ -40,30 +36,18 @@ import {
   webauthnRegisterVerifyDto,
 } from './sub-domains/auth-webauthn/webauthn.dto.js';
 
-/** Fastify plugin that registers all `/api/v1/auth/*` routes — login, logout, refresh, email verification-code login, OAuth, password, MFA, WebAuthn, sessions, and auth-method management. */
+/** Fastify plugin that registers all `/api/v1/auth/*` routes — logout, refresh, email verification-code login, OAuth, MFA, WebAuthn, sessions, and auth-method management (no password routes, P84). */
 export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
   const controller = createAuthController(app.authDomain);
   const zodApplication = app.withTypeProvider<ZodTypeProvider>();
 
+  // Public — strict rate limits on the email-code endpoints.
   // Per-identity (per-email) throttle layered on top of the IP-only STRICT_PUBLIC_RATE_LIMIT.
   // Applied to unauthenticated credential and outbound-email endpoints so abuse cannot bypass
   // the cap by rotating spoofed IPs (defense in depth alongside Turnstile CAPTCHA).
   // A standalone limiter, so it counts even though the route's IP limit already ran this request.
   const perEmailRateLimit = createPerEmailRateLimitPreHandler(app);
 
-  // Public — strict rate limits on login/email-code/password endpoints
-  zodApplication.post('/login', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
-    preHandler: [perEmailRateLimit, captchaPreHandler],
-    schema: {
-      summary: 'Login with email and password',
-      description:
-        'Authenticates a user with email and password credentials. Returns access and refresh tokens on success. If MFA is enabled, returns a challenge requiring a second factor.',
-      tags: ['Auth'],
-      body: LoginDto,
-    },
-    handler: controller.login,
-  });
   zodApplication.post(
     '/logout',
     {
@@ -83,7 +67,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     schema: {
       summary: 'Send email sign-in code',
       description:
-        'Sends a one-time alphanumeric verification code to the provided email address for passwordless login or sign-up. Always returns a uniform success (no account enumeration) and the code expires after a short period. Re-call this endpoint to resend a code.',
+        'Sends a one-time 6-digit verification code to the provided email address for passwordless login or sign-up. Answers the same for a known and an unknown email (no account enumeration): resend_after_seconds (when a new code may be asked) and expires_in_seconds (900). A resend within 60 seconds of the last code is refused with 429 code_resend_too_soon and retry_after_seconds.',
       tags: ['Email Login'],
       body: EmailSendCodeDto,
     },
@@ -95,7 +79,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     schema: {
       summary: 'Log in with an email verification code',
       description:
-        'Validates the 6-character email verification code and returns an access token + session on success (auto-signing-up an unknown email). If MFA is enabled, returns a challenge requiring a second factor.',
+        'Validates the 6-digit email verification code and returns an access token + session on success. If MFA is enabled, returns a challenge requiring a second factor. Refusals carry a reason: 401 code_wrong (+ tries_left; also an unknown email or a used code), 401 code_expired (the newest code is over 15 minutes old), 401 code_used_up (5 wrong tries on this code), 429 code_day_limit (+ retry_after_seconds; 20 wrong tries for this email in 24 hours).',
       tags: ['Email Login'],
       body: EmailLoginDto,
     },
@@ -140,43 +124,19 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     },
     handler: controller.oauthCallback,
   });
-  zodApplication.post('/password/forgot', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
-    preHandler: [perEmailRateLimit, captchaPreHandler],
-    schema: {
-      summary: 'Request password reset',
-      description:
-        'Sends a password reset email to the user. Returns 200 even if the email is not registered (to prevent enumeration).',
-      tags: ['Password'],
-      body: ForgotPasswordDto,
-    },
-    handler: controller.forgotPassword,
-  });
-  zodApplication.post('/password/reset', {
-    ...STRICT_PUBLIC_RATE_LIMIT,
-    preHandler: [captchaPreHandler],
-    schema: {
-      summary: 'Reset password with token',
-      description:
-        'Resets the user password using a valid reset token received via email, revokes all prior sessions, marks the email verified (the token proves email control), clears any failed-login lockout, and logs the user in immediately (returns an access token and sets the session cookie). MFA-enabled users receive an mfa_required challenge instead of a session.',
-      tags: ['Password'],
-      body: ResetPasswordDto,
-    },
-    handler: controller.resetPassword,
-  });
   zodApplication.post(
     '/mfa/login',
     {
       ...STRICT_PUBLIC_RATE_LIMIT,
       // sec-new-A1: add bot-protection at the MFA step. The mfa_session_token is
       // single-use (GETDEL), so per-email rate-limiting is already enforced at
-      // POST /auth/login (which mints the token). Captcha here adds a second
+      // the first factor that mints the token (POST /auth/email/login). Captcha here adds a second
       // friction layer against automated TOTP guessing from accumulated tokens.
       preHandler: [captchaPreHandler],
       schema: {
         summary: 'Complete MFA during login',
         description:
-          'Completes the login flow for an MFA-enabled account. Requires the short-lived mfa_session_token issued by POST /auth/login after password verification, plus a valid TOTP or recovery code. Returns access and refresh tokens and sets the session cookie on success.',
+          'Completes the login flow for an MFA-enabled account. Requires the short-lived mfa_session_token issued by the first factor (email code, OAuth or passkey), plus a valid TOTP or recovery code. Returns access and refresh tokens and sets the session cookie on success.',
         tags: ['MFA'],
         body: MfaLoginVerifyDto,
       },
@@ -258,22 +218,6 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
 
   // Authenticated
   zodApplication.post(
-    '/password/change',
-    {
-      onRequest: [app.authenticate],
-      preHandler: [requireRecentStepUpPreHandler],
-      ...STRICT_AUTHED_RATE_LIMIT,
-      schema: {
-        summary: 'Change current password',
-        description:
-          "Changes the authenticated user's password. Requires the current password for verification.",
-        tags: ['Password'],
-        body: ChangePasswordDto,
-      },
-    },
-    controller.changePassword,
-  );
-  zodApplication.post(
     '/step-up',
     {
       onRequest: [app.authenticate],
@@ -281,7 +225,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Step-up (re-authenticate)',
         description:
-          'Opens a short "recent step-up" window required before sensitive credential mutations. Re-verify with your password, or — for a passwordless account with no MFA — a 6-character email verification code (bootstrap-only, so the account can enroll its first MFA/passkey). MFA users must complete an MFA verification instead. An email-code window can enroll a factor but cannot perform destructive mutations (revoking sessions, deleting a credential / MFA / auth-method), which require a password or MFA step-up. Returns 401 for a wrong password/code.',
+          'Opens a short "recent step-up" window required before sensitive credential mutations. Re-verify with a 6-digit email verification code (an account with no MFA). MFA users must complete an MFA verification instead. An email-code window can enroll a factor but cannot perform destructive mutations (revoking sessions, deleting a credential / MFA / auth-method), which require an MFA step-up. Returns 401 for a wrong code.',
         tags: ['Auth'],
         body: StepUpVerifyDto,
       },
@@ -419,9 +363,9 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // sec-A7: a stolen bearer must not be able to kick the legitimate user out of their
       // own browser. Requiring recent step-up forces the attacker to also possess the
-      // second factor (or password for non-MFA users — sec-A1 blocks the password-only
-      // step-up path for MFA-enabled accounts). A STRONG step-up is required, so a bootstrap
-      // email-code window (passwordless-no-MFA) can enroll a factor but never revoke sessions.
+      // second factor (sec-A1 blocks the email-code step-up path for MFA-enabled accounts).
+      // A STRONG step-up is required, so a bootstrap email-code window (no MFA) can enroll a
+      // factor but never revoke sessions.
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
@@ -470,7 +414,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'List my auth methods',
         description:
-          'Returns all authentication methods (password, OAuth, email code) linked to the authenticated user.',
+          'Returns all authentication methods (OAuth, email code, MFA) linked to the authenticated user.',
         tags: ['Auth Method'],
       },
     },
@@ -502,7 +446,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Remove auth method',
         description:
-          "Removes an authentication method from the user's account. Cannot remove the last auth method.",
+          "Removes an authentication method from the user's account. The email-code way can never be removed (409 email_code_always_on); the last sign-in way cannot be removed either.",
         tags: ['Auth Method'],
         params: authMethodPublicIdParamsDto,
       },

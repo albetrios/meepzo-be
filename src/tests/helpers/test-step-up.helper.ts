@@ -12,7 +12,7 @@ import { recordRecentStepUp, type StepUpFactor } from '@/shared/utils/auth/recen
 export async function seedRecentStepUpForTestUser(
   userPublicId: string,
   sessionPublicId: string,
-  factor: StepUpFactor = 'password',
+  factor: StepUpFactor = 'mfa',
 ): Promise<void> {
   await recordRecentStepUp({ redis: redisConnection, userPublicId, sessionPublicId, factor });
 }

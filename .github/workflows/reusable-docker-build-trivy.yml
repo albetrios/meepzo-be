@@ -468,6 +468,7 @@ jobs:
             -e SECRETS_ENCRYPTION_KEY="$SECRETS_ENCRYPTION_KEY" \
             -e RESEND_API_KEY=re_test_contract_fixture_key \
             -e EMAIL_FROM_ADDRESS=noreply@example.com \
+            -e TEST_MODE=true \
             ${{ env.DOCKER_LOCAL_API_TAG }}:ci
           if ! bash tooling/ci/wait-for-ready.sh --url http://localhost:3000/readyz --timeout 90; then
             docker logs ${{ env.DOCKER_LOCAL_API_TAG }}-health --tail 200 || true
@@ -476,14 +477,14 @@ jobs:
           fi
 
       # The API smoke (task 15): every domain's key routes answer (no 5xx) for the seeded demo
-      # account, against the image this run built. The demo account is the k6 workflow's pair: the
-      # full seed creates DEMO_EMAIL with DEMO_PASSWORD, and the smoke signs in with them.
+      # account, against the image this run built. The full seed creates DEMO_EMAIL, and the smoke
+      # signs it in by email code — passwords are off (P84), so the container runs with TEST_MODE
+      # (NODE_ENV=development) and send-code echoes the code.
       - name: Seed the full demo data for the API smoke
         if: inputs.api_smoke
         env:
           NODE_ENV: development
           DEMO_EMAIL: demo@example.com
-          DEMO_PASSWORD: DemoPassword123!
         run: pnpm db:seed:full
 
       - name: API smoke against the container
@@ -491,7 +492,6 @@ jobs:
         env:
           BASE_URL: http://localhost:3000
           DEMO_EMAIL: demo@example.com
-          DEMO_PASSWORD: DemoPassword123!
         run: pnpm test:api-smoke
 
       - name: Stop the API container

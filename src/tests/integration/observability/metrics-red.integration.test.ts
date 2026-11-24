@@ -31,7 +31,7 @@ describe('Integration: RED HTTP metrics', () => {
   it('records http_requests_total and http_request_duration_seconds after an HTTP request', async () => {
     const apiResponse = await injectUnauthenticated(application, {
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
     });
     expect(apiResponse.statusCode).toBe(400);
@@ -52,7 +52,7 @@ describe('Integration: RED HTTP metrics', () => {
     expect(metricsBody).toContain('http_request_duration_seconds');
     expect(metricsBody).toContain('event_loop_lag_ms{');
     expect(metricsBody).toMatch(/method="POST"/);
-    expect(metricsBody).toMatch(/route="\/api\/v1\/auth\/login"/);
+    expect(metricsBody).toMatch(/route="\/api\/v1\/auth\/email\/login"/);
     expect(metricsBody).toMatch(/status_code="400"/);
   });
 });

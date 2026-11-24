@@ -11,9 +11,6 @@ export const AES_GCM_IV_LENGTH = 12;
 /** AES-256-GCM cipher identifier passed to Node `crypto.createCipheriv` / `createDecipheriv`. */
 export const AES_GCM_ALGORITHM = 'aes-256-gcm';
 
-/** Failed login attempts before the account is temporarily locked. */
-export const MAX_FAILED_LOGIN_ATTEMPTS = 10;
-
 /**
  * Cloudflare's published Turnstile **test** secrets
  * (developers.cloudflare.com/turnstile/troubleshooting/testing): `1x…AA` always passes, `2x…AA`
@@ -51,24 +48,6 @@ export const MAX_LINKED_AUTH_METHODS_PER_USER = 20;
  */
 export const MAX_WEBAUTHN_CREDENTIALS_PER_USER = 20;
 
-/** Account lockout duration after max failed login attempts (minutes). */
-export const ACCOUNT_LOCKOUT_MINUTES = 30;
-
-/**
- * Password step-up attempts (`POST /auth/step-up` with a password) one user may make in a
- * {@link PASSWORD_STEP_UP_ATTEMPT_WINDOW_SECONDS} window.
- *
- * @remarks
- * A-3 — the step-up re-verifies the password of a caller who already holds a session, so without
- * a budget a stolen session is an unlimited online password oracle. Each wrong password also
- * counts toward {@link MAX_FAILED_LOGIN_ATTEMPTS}, and the session that spends the budget is
- * revoked.
- */
-export const MAX_PASSWORD_STEP_UP_ATTEMPTS = 5;
-
-/** Fixed window of the per-user password step-up budget ({@link MAX_PASSWORD_STEP_UP_ATTEMPTS}). */
-export const PASSWORD_STEP_UP_ATTEMPT_WINDOW_SECONDS = 15 * 60;
-
 /**
  * How long a second factor enrolled under an email-code step-up window stays provisional (72 h).
  *
@@ -98,18 +77,11 @@ export const MAX_ACTIVE_SESSIONS_PER_USER = 30;
  *
  * @remarks
  * The `/auth/me/mfa/verify` step-up and `/auth/mfa/login` second factor were gated only by
- * a per-user rate limit with no account-level lockout, unlike the password path. With a
- * stolen-but-valid bearer token an attacker could keep guessing TOTP codes indefinitely.
- * This per-user counter mirrors {@link MAX_FAILED_LOGIN_ATTEMPTS} and locks verification
- * for {@link MFA_VERIFICATION_LOCKOUT_TTL_SECONDS} after the threshold.
+ * a per-user rate limit with no account-level lockout. With a stolen-but-valid bearer token an
+ * attacker could keep guessing TOTP codes indefinitely. This per-user counter locks
+ * verification for {@link MFA_VERIFICATION_LOCKOUT_TTL_SECONDS} after the threshold.
  */
 export const MAX_MFA_VERIFICATION_ATTEMPTS = 10;
-
-/** Failed login attempts from a single IP after which every login from it gets 429 for the rest of the window. */
-export const IP_FAILED_LOGIN_THRESHOLD = 50;
-
-/** Window of the per-IP failed-login counter (seconds), fixed from the IP's first failure. */
-export const IP_FAILED_LOGIN_WINDOW_SECONDS = 15 * 60;
 
 /**
  * How many leading bits of an IPv6 address one rate-limit bucket covers: a /64, the smallest

@@ -9,11 +9,12 @@ describe('AuthSerializer', () => {
     });
   });
 
-  it('verificationCodeSent shapes response with message and expiry (code never returned)', () => {
-    const payload = { message: 'sent', expires_in_minutes: 15 };
+  it('verificationCodeSent shapes response with message, resend wait and expiry (code never returned)', () => {
+    const payload = { message: 'sent', resend_after_seconds: 60, expires_in_seconds: 900 };
     expect(AuthSerializer.verificationCodeSent(payload)).toStrictEqual({
       message: 'sent',
-      expires_in_minutes: 15,
+      resend_after_seconds: 60,
+      expires_in_seconds: 900,
     });
     /**
      * Defense-in-depth: even if a `code` slips through the typed boundary,
@@ -21,7 +22,8 @@ describe('AuthSerializer', () => {
      */
     const stray = AuthSerializer.verificationCodeSent({
       message: 'sent',
-      expires_in_minutes: 15,
+      resend_after_seconds: 60,
+      expires_in_seconds: 900,
       ...({ code: 'should-not-leak' } as Record<string, unknown>),
     });
     expect(stray).not.toHaveProperty('code');

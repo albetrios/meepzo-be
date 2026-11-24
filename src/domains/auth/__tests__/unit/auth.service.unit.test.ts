@@ -1,36 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Redis } from 'ioredis';
-import {
-  ForbiddenError,
-  NotFoundError,
-  RateLimitedError,
-  UnauthorizedError,
-  ValidationError,
-} from '@/shared/errors/index.js';
+import { ForbiddenError, NotFoundError, UnauthorizedError } from '@/shared/errors/index.js';
 import { signAccessToken } from '@/shared/utils/security/jwt.util.js';
 import { organizationRequiresMfa } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-mfa-policy.js';
 import { AuthService } from '@/domains/auth/auth.service.js';
 import type { UserService } from '@/domains/user/user.service.js';
 import type { AuthSessionService } from '@/domains/auth/sub-domains/auth-session/auth-session.service.js';
-import type { MfaService } from '@/domains/auth/sub-domains/auth-mfa/auth-mfa.service.js';
-import type { AuthMethodService } from '@/domains/auth/sub-domains/auth-method/auth-method.service.js';
-import type { OrganizationSettingsService } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-settings.service.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
-import {
-  ACCOUNT_LOCKOUT_MINUTES,
-  IP_FAILED_LOGIN_THRESHOLD,
-  IP_FAILED_LOGIN_WINDOW_SECONDS,
-  MAX_FAILED_LOGIN_ATTEMPTS,
-} from '@/shared/constants/index.js';
 
 vi.mock('@/shared/utils/text/email.util.js', () => ({
   isDisposableEmailBlocked: vi.fn(() => false),
-}));
-
-vi.mock('@/shared/utils/security/password.util.js', () => ({
-  verifyPassword: vi.fn().mockResolvedValue({ valid: true, needsRehash: false }),
-  hashPassword: vi.fn().mockResolvedValue('new-hash'),
-  DUMMY_ARGON2_HASH: '$argon2id$dummy',
 }));
 
 vi.mock('@/shared/utils/security/jwt.util.js', () => ({
@@ -99,9 +77,6 @@ const user = {
   id: 1,
   public_id: generatePublicId('authSession'),
   email: 'user@example.com',
-  password_hash: 'hash',
-  failed_login_count: 0,
-  account_locked_until: null,
   status: 'ACTIVE',
   is_mfa_enabled: false,
 };
@@ -111,9 +86,6 @@ describe('AuthService', () => {
     findByEmail: vi.fn().mockResolvedValue(user),
     findById: vi.fn().mockResolvedValue(user),
     requireUserRecordByPublicId: vi.fn().mockResolvedValue(user),
-    updateLoginAttempt: vi.fn().mockResolvedValue(undefined),
-    registerFailedLoginAttempt: vi.fn().mockResolvedValue(undefined),
-    updatePassword: vi.fn().mockResolvedValue(user),
     rememberLastActiveOrganization: vi.fn().mockResolvedValue(true),
   } as unknown as UserService;
 
@@ -146,294 +118,10 @@ describe('AuthService', () => {
     rebindAccessToken: vi.fn().mockResolvedValue(undefined),
   } as unknown as AuthSessionService;
 
-  const mfaService = {
-    createMfaSession: vi.fn().mockResolvedValue('mfa_session_token'),
-  } as unknown as MfaService;
-
-  const organizationSettingsService = {
-    userHasOrganizationRequiringMfa: vi.fn().mockResolvedValue(false),
-  } as unknown as OrganizationSettingsService;
-
-  const redis = {
-    get: vi.fn().mockResolvedValue(null),
-    incr: vi.fn().mockResolvedValue(1),
-    expire: vi.fn().mockResolvedValue(1),
-    // route-audit C5: per-IP failed-login counter now uses an atomic INCR+EXPIRE Lua via redis.eval.
-    eval: vi.fn().mockResolvedValue(1),
-    // Remaining seconds of the per-IP window — the throttled login's Retry-After.
-    ttl: vi.fn().mockResolvedValue(600),
-  } as unknown as Redis;
-
-  const authMethodService = {
-    // resetPassword consumes the token + updates the password + revokes sessions, then returns the
-    // reset user so AuthService can mint a fresh session (auto-login).
-    resetPassword: vi.fn().mockResolvedValue(user),
-  } as unknown as AuthMethodService;
-
-  const service = new AuthService(
-    userService,
-    authSessionService,
-    mfaService,
-    organizationSettingsService,
-    redis,
-    authMethodService,
-  );
+  const service = new AuthService(userService, authSessionService);
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
-    vi.mocked(organizationSettingsService.userHasOrganizationRequiringMfa).mockResolvedValue(false);
-    vi.mocked(redis.get).mockResolvedValue(null);
-    vi.mocked(redis.incr).mockResolvedValue(1);
-    vi.mocked(redis.expire).mockResolvedValue(1);
-    vi.mocked(redis.ttl).mockResolvedValue(600);
-  });
-
-  it('login returns mfa_required when user has MFA enabled', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      is_mfa_enabled: true,
-    } as never);
-    const result = await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect(result).toEqual({
-      mfa_required: true,
-      mfa_session_token: 'mfa_session_token',
-    });
-    expect(mfaService.createMfaSession).toHaveBeenCalledWith(user.public_id);
-    expect(authSessionService.createSessionForUser).not.toHaveBeenCalled();
-  });
-
-  it('login returns mfa_required when an organization requires MFA', async () => {
-    vi.mocked(organizationSettingsService.userHasOrganizationRequiringMfa).mockResolvedValue(true);
-    const result = await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect(result).toEqual({
-      mfa_required: true,
-      mfa_session_token: 'mfa_session_token',
-    });
-  });
-
-  it('login returns access token and session id', async () => {
-    const result = await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-      userAgent: 'agent',
-    });
-    expect('access_token' in result && result.access_token).toBe('jwt-access-token');
-    expect(authSessionService.createSessionForUser).toHaveBeenCalled();
-  });
-
-  describe('resetPassword (auto-login)', () => {
-    const resetBody = {
-      token: 'reset-token',
-      password: 'BrandNewPassword456!',
-    };
-
-    it('logs the user straight in (access token + session) after a successful reset', async () => {
-      vi.mocked(authMethodService.resetPassword).mockResolvedValue(user as never);
-      const { userPublicId, loginResult } = await service.resetPassword({
-        body: resetBody,
-        ipAddress: '127.0.0.1',
-        userAgent: 'agent',
-      });
-      expect(authMethodService.resetPassword).toHaveBeenCalledWith(resetBody);
-      expect('access_token' in loginResult && loginResult.access_token).toBe('jwt-access-token');
-      // The reset is audited against this user (the controller cannot read it from an MFA challenge).
-      expect(userPublicId).toBe(user.public_id);
-      expect(authSessionService.createSessionForUser).toHaveBeenCalled();
-    });
-
-    it('returns mfa_required (no session) when the reset user has MFA — the reset never bypasses MFA', async () => {
-      vi.mocked(authMethodService.resetPassword).mockResolvedValue({
-        ...user,
-        is_mfa_enabled: true,
-      } as never);
-      const { userPublicId, loginResult } = await service.resetPassword({
-        body: resetBody,
-        ipAddress: '127.0.0.1',
-      });
-      expect(loginResult).toEqual({
-        mfa_required: true,
-        mfa_session_token: 'mfa_session_token',
-      });
-      expect(userPublicId).toBe(user.public_id);
-      expect(authSessionService.createSessionForUser).not.toHaveBeenCalled();
-    });
-
-    it('refuses a session for a suspended account even though the password was reset', async () => {
-      vi.mocked(authMethodService.resetPassword).mockResolvedValue({
-        ...user,
-        status: 'SUSPENDED',
-      } as never);
-      await expect(
-        service.resetPassword({ body: resetBody, ipAddress: '127.0.0.1' }),
-      ).rejects.toBeInstanceOf(UnauthorizedError);
-      expect(authSessionService.createSessionForUser).not.toHaveBeenCalled();
-    });
-  });
-
-  it('login rejects unknown user', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue(null);
-    await expect(
-      service.login({
-        body: { email: 'x@y.com', password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
-  it('runs a dummy password verification for unknown emails to equalize login timing (#23)', async () => {
-    const { verifyPassword, DUMMY_ARGON2_HASH } = await import(
-      '@/shared/utils/security/password.util.js'
-    );
-    vi.mocked(userService.findByEmail).mockResolvedValue(null);
-    await expect(
-      service.login({
-        body: { email: 'unknown@example.com', password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(verifyPassword).toHaveBeenCalledWith({
-      plaintext: 'WrongPassword1!',
-      storedHash: DUMMY_ARGON2_HASH,
-    });
-  });
-
-  it('applies the timing floor on both login failure branches (audit-#15d)', async () => {
-    const { enforceMinimumDuration } = await import(
-      '@/shared/utils/security/anti-enumeration.util.js'
-    );
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-
-    // Unknown-email branch.
-    vi.mocked(enforceMinimumDuration).mockClear();
-    vi.mocked(userService.findByEmail).mockResolvedValue(null);
-    await expect(
-      service.login({
-        body: { email: 'unknown@example.com', password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(enforceMinimumDuration).toHaveBeenCalledTimes(1);
-
-    // Wrong-password branch (known email) — the branch with the extra Postgres write.
-    vi.mocked(enforceMinimumDuration).mockClear();
-    vi.mocked(userService.findByEmail).mockResolvedValue(user as never);
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(enforceMinimumDuration).toHaveBeenCalledTimes(1);
-  });
-
-  it('login rejects a locked account only when the password is also wrong', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      account_locked_until: new Date(Date.now() + 60_000),
-    } as never);
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
-  it('login uses the SAME error message for unknown email, wrong password, and currently-locked-out wrong password (sec-A #23)', async () => {
-    // Prior code returned `errors:accountLocked` when (email is real) AND (password is
-    // wrong) AND (lockout is active) — a narrow enumeration oracle a credential-stuffing
-    // operator could use to confirm "this account has recently received >=
-    // MAX_FAILED_LOGIN_ATTEMPTS failed logins". The fix collapses the message to the
-    // generic invalidEmailOrPassword for all three branches.
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-
-    // Unknown email → invalidEmailOrPassword
-    vi.mocked(userService.findByEmail).mockResolvedValueOnce(null as never);
-    await expect(
-      service.login({
-        body: { email: 'unknown@example.com', password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toMatchObject({ messageKey: 'errors:invalidEmailOrPassword' });
-
-    // Real email, wrong password, NO lockout → invalidEmailOrPassword
-    vi.mocked(userService.findByEmail).mockResolvedValueOnce({
-      ...user,
-      account_locked_until: null,
-    } as never);
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toMatchObject({ messageKey: 'errors:invalidEmailOrPassword' });
-
-    // Real email, wrong password, ACTIVE lockout → invalidEmailOrPassword (no oracle)
-    vi.mocked(userService.findByEmail).mockResolvedValueOnce({
-      ...user,
-      account_locked_until: new Date(Date.now() + 60_000),
-    } as never);
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toMatchObject({ messageKey: 'errors:invalidEmailOrPassword' });
-  });
-
-  it('login lets a correct password bypass an active lockout (no victim-account DoS)', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      failed_login_count: 10,
-      account_locked_until: new Date(Date.now() + 60_000),
-    } as never);
-    const result = await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect('access_token' in result && result.access_token).toBe('jwt-access-token');
-    // The successful login lifts the lock and clears the failure counter for the owner.
-    expect(userService.updateLoginAttempt).toHaveBeenCalledWith({
-      public_id: user.public_id,
-      failed_login_count: 0,
-      account_locked_until: null,
-    });
-  });
-
-  it('allows login when account lock has expired', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      account_locked_until: new Date(Date.now() - 60_000),
-    } as never);
-    const result = await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect('access_token' in result && result.access_token).toBe('jwt-access-token');
   });
 
   it('logout revokes session by token hash', async () => {
@@ -900,50 +588,6 @@ describe('AuthService', () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it('records a failed attempt via the atomic increment (count + lock decided in SQL)', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      failed_login_count: 3,
-    } as never);
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    // The +1 and the lockout threshold are now evaluated atomically in the database, so the
-    // service delegates the policy rather than computing the next count itself.
-    expect(userService.registerFailedLoginAttempt).toHaveBeenCalledWith({
-      public_id: user.public_id,
-      options: {
-        maxAttempts: MAX_FAILED_LOGIN_ATTEMPTS,
-        lockoutMinutes: ACCOUNT_LOCKOUT_MINUTES,
-      },
-    });
-    expect(userService.updateLoginAttempt).not.toHaveBeenCalled();
-  });
-
-  it('login records a failed attempt on bad password via the atomic increment', async () => {
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(userService.registerFailedLoginAttempt).toHaveBeenCalled();
-  });
-
   it('refreshToken rejects missing session', async () => {
     vi.mocked(authSessionService.findSessionByPublicIdIncludingRevoked).mockResolvedValue(null);
     await expect(
@@ -1033,210 +677,11 @@ describe('AuthService', () => {
     );
   });
 
-  it('login rehashes password when verifyPassword reports needsRehash', async () => {
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: true,
-      needsRehash: true,
-    });
-    await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-      userAgent: 'agent',
-    });
-    expect(userService.updatePassword).toHaveBeenCalled();
-  });
-
-  it('login delegates the lockout decision to the atomic failed-attempt increment', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      failed_login_count: 9,
-    } as never);
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    // The threshold check (count + 1 >= max → lock) is applied atomically in SQL; the service
-    // simply hands the policy to the increment. The lockout behaviour itself is exercised against
-    // a real database in user.repository.db.unit.test.ts.
-    expect(userService.registerFailedLoginAttempt).toHaveBeenCalledWith({
-      public_id: user.public_id,
-      options: {
-        maxAttempts: MAX_FAILED_LOGIN_ATTEMPTS,
-        lockoutMinutes: ACCOUNT_LOCKOUT_MINUTES,
-      },
-    });
-  });
-
-  it('login rejects disposable email addresses', async () => {
-    const emailUtil = await import('@/shared/utils/text/email.util.js');
-    vi.mocked(emailUtil.isDisposableEmailBlocked).mockReturnValueOnce(true);
-    await expect(
-      service.login({
-        body: { email: 'temp@mailinator.com', password: 'ValidPassword12!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(ValidationError);
-  });
-
-  it('login answers 429 with the window remainder as Retry-After once the IP hits the threshold', async () => {
-    vi.mocked(redis.get).mockResolvedValueOnce(String(IP_FAILED_LOGIN_THRESHOLD));
-    vi.mocked(redis.ttl).mockResolvedValueOnce(742);
-    const error = await service
-      .login({
-        body: { email: user.email, password: 'ValidPassword12!' },
-        ipAddress: '192.168.1.1',
-      })
-      .catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(RateLimitedError);
-    expect(error).toMatchObject({
-      statusCode: 429,
-      messageKey: 'errors:rateLimited',
-      retryAfterSeconds: 742,
-    });
-    // Should reject before even checking the user
-    expect(userService.findByEmail).not.toHaveBeenCalled();
-  });
-
-  it('login keeps the ordinary 401 one failure below the IP threshold', async () => {
-    vi.mocked(redis.get).mockResolvedValueOnce(String(IP_FAILED_LOGIN_THRESHOLD - 1));
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(verifyPassword).mockResolvedValueOnce({ valid: false, needsRehash: false });
-    const error = await service
-      .login({ body: { email: user.email, password: 'WrongPassword1!' }, ipAddress: '192.168.1.2' })
-      .catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(UnauthorizedError);
-    expect(error).toMatchObject({ messageKey: 'errors:invalidEmailOrPassword' });
-  });
-
-  it.each([
-    { remaining: 0, retryAfter: 1, why: 'the last second of the window' },
-    { remaining: -2, retryAfter: 1, why: 'a window that ended between GET and TTL' },
-    { remaining: -1, retryAfter: IP_FAILED_LOGIN_WINDOW_SECONDS, why: 'a counter with no expiry' },
-  ])('login sends Retry-After $retryAfter for $why', async ({ remaining, retryAfter }) => {
-    vi.mocked(redis.get).mockResolvedValueOnce(String(IP_FAILED_LOGIN_THRESHOLD + 5));
-    vi.mocked(redis.ttl).mockResolvedValueOnce(remaining);
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'ValidPassword12!' },
-        ipAddress: '192.168.1.3',
-      }),
-    ).rejects.toMatchObject({ statusCode: 429, retryAfterSeconds: retryAfter });
-  });
-
-  it('login fails open when Redis errors while reading the throttle window', async () => {
-    vi.mocked(redis.get).mockResolvedValueOnce(String(IP_FAILED_LOGIN_THRESHOLD));
-    vi.mocked(redis.ttl).mockRejectedValueOnce(new Error('redis connection reset'));
-    const result = await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect('access_token' in result && result.access_token).toBe('jwt-access-token');
-  });
-
-  it('login increments the per-IP counter on a failed password attempt', async () => {
-    const { verifyPassword } = await import('@/shared/utils/security/password.util.js');
-    vi.mocked(verifyPassword).mockResolvedValueOnce({
-      valid: false,
-      needsRehash: false,
-    });
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'WrongPassword1!' },
-        ipAddress: '10.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(redis.eval).toHaveBeenCalled();
-  });
-
-  it('login increments the per-IP counter when the email is not found', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue(null);
-    await expect(
-      service.login({
-        body: { email: 'nobody@example.com', password: 'WrongPassword1!' },
-        ipAddress: '10.0.0.2',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(redis.eval).toHaveBeenCalled();
-  });
-
-  it('login fails open on Redis error during IP check (does not block legitimate user)', async () => {
-    vi.mocked(redis.get).mockRejectedValueOnce(new Error('redis connection refused'));
-    const result = await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect('access_token' in result && result.access_token).toBe('jwt-access-token');
-  });
-
   it('logout rejects unknown or already revoked tokens', async () => {
     vi.mocked(authSessionService.revokeSessionByAccessToken).mockRejectedValue(
       new UnauthorizedError('errors:invalidOrRevokedToken'),
     );
     await expect(service.logout('missing-token')).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
-  it('login does not reset failed login count when count is already zero', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      failed_login_count: 0,
-    } as never);
-    await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect(userService.updateLoginAttempt).not.toHaveBeenCalled();
-  });
-
-  it('login rejects a suspended user before issuing any session (bug 31)', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      status: 'SUSPENDED',
-    } as never);
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'ValidPassword12!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(authSessionService.createSessionForUser).not.toHaveBeenCalled();
-    expect(mfaService.createMfaSession).not.toHaveBeenCalled();
-  });
-
-  it('login rejects a suspended user even when MFA would otherwise be required (bug 31)', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      status: 'SUSPENDED',
-      is_mfa_enabled: true,
-    } as never);
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'ValidPassword12!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
-    expect(mfaService.createMfaSession).not.toHaveBeenCalled();
-  });
-
-  it('login rejects users without password authentication enabled', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      password_hash: null,
-    } as never);
-    await expect(
-      service.login({
-        body: { email: user.email, password: 'ValidPassword12!' },
-        ipAddress: '127.0.0.1',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
   it('refreshToken rejects when user record is missing', async () => {
@@ -1247,21 +692,5 @@ describe('AuthService', () => {
         refreshSecret: 'refresh-secret',
       }),
     ).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
-  it('login resets failed login count after successful authentication', async () => {
-    vi.mocked(userService.findByEmail).mockResolvedValue({
-      ...user,
-      failed_login_count: 4,
-    } as never);
-    await service.login({
-      body: { email: user.email, password: 'ValidPassword12!' },
-      ipAddress: '127.0.0.1',
-    });
-    expect(userService.updateLoginAttempt).toHaveBeenCalledWith({
-      public_id: user.public_id,
-      failed_login_count: 0,
-      account_locked_until: null,
-    });
   });
 });

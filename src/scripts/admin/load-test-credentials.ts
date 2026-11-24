@@ -1,6 +1,7 @@
 /**
  * Obtain TEST_TOKEN and TEST_ORG_ID for k6 load tests (the nightly gate, daily-ops, billing, webhooks).
- * Requires server running and full seed (demo@example.com / DemoPassword123!).
+ * Requires server running with TEST_MODE (the email-code echo — passwords are off, P84) and the full
+ * seed (demo@example.com).
  * The active organization rides the token's `org` claim, so the printed token is minted scoped to
  * the demo user's team organization: login → `GET /users/me/organizations` →
  * `POST /auth/switch-to-organization`.
@@ -13,11 +14,10 @@ import { parseCommandLine } from '@tooling/setup/common/script.js';
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000';
 const API_PREFIX = `${BASE_URL}/api/v1`;
 const EMAIL = process.env.DEMO_EMAIL ?? 'demo@example.com';
-const PASSWORD = process.env.DEMO_PASSWORD ?? 'DemoPassword123!';
 
 async function main() {
   parseCommandLine({ args: process.argv.slice(2) });
-  const token = await signInOverApi({ apiPrefix: API_PREFIX, email: EMAIL, password: PASSWORD });
+  const token = await signInOverApi({ apiPrefix: API_PREFIX, email: EMAIL });
 
   const organizationsResponse = await fetch(`${API_PREFIX}/users/me/organizations`, {
     headers: { Authorization: `Bearer ${token}` },

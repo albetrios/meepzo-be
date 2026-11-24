@@ -43,7 +43,6 @@ const runAsApplicationBehaviour = !process.env.TEST_DATABASE_ROLE;
 describe.runIf(runAsApplicationBehaviour)('Full seed — integration', () => {
   beforeEach(async () => {
     await cleanupDatabase();
-    process.env.DEMO_PASSWORD = 'DemoPassword123!';
   });
 
   it('seeds the demo user, organization, and an active admin membership', async () => {

@@ -4794,6 +4794,12 @@ built). Route 121 answers the sign-in result (10.C.6).
 | --- | --- |
 | ATC5 | AT6–AT8: `verification-code.ts` charset; DTOs to `^\d{6}$`; `email-login.service.ts` — the four reasons, `tries_left`, the day counter (`EMAIL_CODE_WRONG_TRIES_PER_DAY` beside the other code constants), the `429` on cooldown, `resend_after_seconds` / `expires_in_seconds`; unit tests for each reason and that an unknown email answers `code_wrong` exactly like a wrong code |
 
+**As built (R30, [P205](decisions.md)):** the per-code try counter is keyed by the email's hash (an unknown email
+counts like a known one); tries 1–4 answer `code_wrong` with `tries_left` 4…1, the 5th and later `code_used_up`;
+`code_expired` is not counted as a wrong try; `resend_after_seconds` is 0 where the resend spacing is off (local
+only). The password step-up went with the routes (ATQ1), so the strong step-up without 2FA waits for 10.C (R32,
+AT15); route 125's `409 email_code_always_on` (AT13) was built with this row (AC-13.4).
+
 ---
 
 ### 10.B Google, Apple and the sign-in ways — `auth/sub-domains/auth-method/oauth/` — final (rev 3, confirmed 2026-11-24)

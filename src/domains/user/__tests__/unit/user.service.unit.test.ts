@@ -34,7 +34,7 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
 
 /**
  * UserService wraps repository calls in `withAppDatabaseContext (user scope)` /
- * `withMaintenanceDatabaseContext` (see `softDeleteUserWithOffboarding`, `updatePassword`,
+ * `withMaintenanceDatabaseContext` (see `softDeleteUserWithOffboarding`,
  * `updateMfaEnabled`, admin listing). Those helpers open a real `database.transaction()` and would
  * hang in pure unit tests with mocked repositories. Run the inner callback directly so the test
  * exercises service logic without touching Postgres. Matches the pattern in
@@ -98,8 +98,6 @@ describe('UserService', () => {
     resolveInternalIdByPublicId: vi.fn().mockResolvedValue(userRow.id),
     findById: vi.fn().mockResolvedValue(userRow),
     update: vi.fn().mockResolvedValue(userRow),
-    updatePassword: vi.fn().mockResolvedValue(userRow),
-    updateLoginAttempt: vi.fn().mockResolvedValue(userRow),
     updateEmailVerified: vi.fn().mockResolvedValue(userRow),
     updateMfaEnabled: vi.fn().mockResolvedValue(userRow),
     insertOAuthUser: vi.fn().mockResolvedValue(userRow),
@@ -533,14 +531,12 @@ describe('UserService', () => {
     expect(repository.softDelete).toHaveBeenCalledWith(userRow.public_id);
   });
 
-  it('createFromOAuth, updatePassword, and resolveInternalId delegate to repository', async () => {
+  it('createFromOAuth and resolveInternalId delegate to repository', async () => {
     await service.createFromOAuth({
       email: 'oauth@example.com',
       is_email_verified: true,
     });
     expect(repository.insertOAuthUser).toHaveBeenCalled();
-    await service.updatePassword({ public_id: userRow.public_id, password_hash: 'new-hash' });
-    expect(repository.updatePassword).toHaveBeenCalledWith(userRow.public_id, 'new-hash');
     const internalId = await service.resolveInternalIdByPublicId(userRow.public_id);
     expect(internalId).toBe(1);
     expect(repository.resolveInternalIdByPublicId).toHaveBeenCalledWith(userRow.public_id);
@@ -684,15 +680,9 @@ describe('UserService', () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('findUserRecordByPublicId and login helpers delegate to repository', async () => {
+  it('findUserRecordByPublicId and updateEmailVerified delegate to repository', async () => {
     const record = await service.findUserRecordByPublicId(userRow.public_id);
     expect(record?.public_id).toBe(userRow.public_id);
-    await service.updateLoginAttempt({
-      public_id: userRow.public_id,
-      failed_login_count: 2,
-      account_locked_until: null,
-    });
-    expect(repository.updateLoginAttempt).toHaveBeenCalledWith(userRow.public_id, 2, null);
     await service.updateEmailVerified(userRow.public_id);
     expect(repository.updateEmailVerified).toHaveBeenCalledWith(userRow.public_id);
   });

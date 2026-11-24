@@ -1,15 +1,13 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { generate as generateTotp } from 'otplib';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import {
-  injectAuthenticated,
-  injectUnauthenticated,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUser, createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { generateTestToken, generateTestTokenAndSession } from '@/tests/helpers/test-auth.js';
 import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper.js';
@@ -174,13 +172,9 @@ describe('organization MFA policy is enforced after login', () => {
   });
 
   it('an organization turning MFA on refuses existing sessions — and refresh stops minting it', async () => {
-    const { user, password } = await createTestUserWithPassword({ isEmailVerified: true });
+    const user = await createTestUser({ isEmailVerified: true });
     const organization = await organizationWithMember({ userId: user.id, mfaRequired: false });
-    const login = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const login = await signInWithEmailCode(application, { email: user.email });
     expect(login.statusCode).toBe(200);
     const loginToken = (login.json() as { data: { access_token: string } }).data.access_token;
     const cookie = sessionCookiePair(login.headers);

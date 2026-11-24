@@ -40,28 +40,10 @@ describe('Security: Disposable email on auth signup paths (BLOCK_DISPOSABLE_EMAI
     vi.resetModules();
   });
 
-  it('POST /auth/login rejects disposable email with errors:disposableEmail', async () => {
-    const response = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: DISPOSABLE_EMAIL, password: 'Password123!' },
-    });
-    expectDisposableEmailRejected(response);
-  });
-
   it('POST /auth/email/send-code rejects disposable email with errors:disposableEmail', async () => {
     const response = await injectUnauthenticated(app, {
       method: 'POST',
       url: testApiPath('/auth/email/send-code'),
-      payload: { email: DISPOSABLE_EMAIL },
-    });
-    expectDisposableEmailRejected(response);
-  });
-
-  it('POST /auth/password/forgot rejects disposable email with errors:disposableEmail', async () => {
-    const response = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/password/forgot'),
       payload: { email: DISPOSABLE_EMAIL },
     });
     expectDisposableEmailRejected(response);

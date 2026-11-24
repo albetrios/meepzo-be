@@ -111,11 +111,6 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
   },
 
   // ── Auth ──
-  'POST /api/v1/auth/login': {
-    statusCode: 200,
-    schema: wrapSuccess(schemas.accessTokenSchema, schemas.accessTokenExample),
-    example: null,
-  },
   'POST /api/v1/auth/logout': { statusCode: 200, schema: null, example: null },
   'POST /api/v1/auth/email/send-code': {
     statusCode: 200,
@@ -147,19 +142,6 @@ export const healthAuthUserRouteResponses: Record<string, ResponseDefinition> = 
     schema: wrapSuccess(schemas.accessTokenSchema, schemas.accessTokenExample),
     example: null,
   },
-  'POST /api/v1/auth/password/forgot': {
-    statusCode: 200,
-    schema: wrapSuccess(schemas.messageSchema, {
-      message: 'If that email exists, a reset link has been sent',
-    }),
-    example: null,
-  },
-  'POST /api/v1/auth/password/reset': {
-    statusCode: 200,
-    schema: wrapSuccess(schemas.accessTokenSchema, schemas.accessTokenExample),
-    example: null,
-  },
-  'POST /api/v1/auth/password/change': { statusCode: 200, schema: null, example: null },
   'POST /api/v1/auth/me/mfa/enroll': {
     statusCode: 200,
     schema: wrapSuccess(schemas.mfaEnrollSchema, schemas.mfaEnrollExample),

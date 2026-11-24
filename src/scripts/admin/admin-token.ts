@@ -4,12 +4,12 @@
  * Access tokens are session-bound — the auth middleware accepts a token only while its session
  * exists, so a token signed without one is refused on every request — and super_admin is granted
  * only to an email on GLOBAL_ADMIN_EMAILS. So this tool signs in over the API as ADMIN_EMAIL
- * (default: the first GLOBAL_ADMIN_EMAILS entry) with ADMIN_PASSWORD (default: DEMO_PASSWORD, else
- * the demo default) against BASE_URL. A platform admin has an enrolled MFA factor and needs an
+ * (default: the first GLOBAL_ADMIN_EMAILS entry) by email code against BASE_URL — passwords are off
+ * (P84), so the target must run with TEST_MODE (send-code echoes the code). A platform admin has an enrolled MFA factor and needs an
  * MFA-verified session (A-2), so the tool completes `POST /auth/mfa/login` with a TOTP code from
  * ADMIN_TOTP_SECRET (default: DEMO_TOTP_SECRET, else the local demo default in
  * tooling/dev/demo-admin-totp.ts). Create that account — and its TOTP factor — first:
- *   DEMO_EMAIL=<admin email> DEMO_PASSWORD=<password> pnpm db:seed:demo-admin
+ *   DEMO_EMAIL=<admin email> pnpm db:seed:demo-admin
  * A super_admin token lives GLOBAL_ADMIN_ACCESS_TOKEN_EXPIRY_SECONDS (default 5 minutes).
  *
  * Run: pnpm run tool:admin-token
@@ -28,8 +28,6 @@ const ADMIN_EMAIL =
     .map((email) => email.trim())
     .find((email) => email.length > 0) ??
   'demo@example.com';
-const ADMIN_PASSWORD =
-  process.env.ADMIN_PASSWORD ?? process.env.DEMO_PASSWORD ?? 'DemoPassword123!';
 const ADMIN_TOTP_SECRET = process.env.ADMIN_TOTP_SECRET ?? resolveDemoAdminTotpSecret(process.env);
 
 /** The `role` claim of an access token (the payload is not verified here; the server did that). */
@@ -47,7 +45,6 @@ async function main() {
   const token = await signInOverApi({
     apiPrefix: API_PREFIX,
     email: ADMIN_EMAIL,
-    password: ADMIN_PASSWORD,
     totpSecret: ADMIN_TOTP_SECRET,
   });
 

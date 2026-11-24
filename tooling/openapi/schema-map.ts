@@ -10,14 +10,10 @@ import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
 import {
-  LoginDto,
   EmailSendCodeDto,
   EmailLoginDto,
   MfaVerifyDto,
   CreateAuthMethodDto,
-  ForgotPasswordDto,
-  ResetPasswordDto,
-  ChangePasswordDto,
   MfaEnrollDto,
   MfaEnrollConfirmDto,
   MfaLoginVerifyDto,
@@ -113,7 +109,6 @@ import {
  */
 export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── Auth ──
-  'POST /api/v1/auth/login': LoginDto,
   'POST /api/v1/auth/email/send-code': EmailSendCodeDto,
   'POST /api/v1/auth/email/login': EmailLoginDto,
   'POST /api/v1/auth/me/mfa/verify': MfaVerifyDto,
@@ -121,9 +116,6 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/auth/me/mfa/enroll/confirm': MfaEnrollConfirmDto,
   'POST /api/v1/auth/step-up': StepUpVerifyDto,
   'POST /api/v1/auth/mfa/login': MfaLoginVerifyDto,
-  'POST /api/v1/auth/password/forgot': ForgotPasswordDto,
-  'POST /api/v1/auth/password/reset': ResetPasswordDto,
-  'POST /api/v1/auth/password/change': ChangePasswordDto,
   'POST /api/v1/auth/webauthn/authenticate/options': webauthnAuthenticateOptionsDto,
   'POST /api/v1/auth/webauthn/authenticate/verify': webauthnAuthenticateVerifyDto,
   'POST /api/v1/auth/me/webauthn/register/verify': webauthnRegisterVerifyDto,

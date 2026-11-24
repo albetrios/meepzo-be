@@ -1,3 +1,4 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { eq } from 'drizzle-orm';
@@ -7,7 +8,7 @@ import {
   injectUnauthenticated,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase, database } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import { audit_outbox } from '@/domains/audit/audit-outbox.schema.js';
 import type { FastifyInstance } from 'fastify';
 
@@ -32,12 +33,8 @@ describe('Security: mutation audit logs', () => {
   });
 
   it('writes auth.login after successful login', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const response = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const user = await createTestUser();
+    const response = await signInWithEmailCode(app, { email: user.email });
     expect(response.statusCode).toBe(200);
 
     const rows = await database
@@ -50,12 +47,8 @@ describe('Security: mutation audit logs', () => {
   });
 
   it('writes auth.logout after authenticated logout', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const loginResponse = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const user = await createTestUser();
+    const loginResponse = await signInWithEmailCode(app, { email: user.email });
     const accessToken = (loginResponse.json() as { data: { access_token: string } }).data
       .access_token;
 
@@ -75,12 +68,8 @@ describe('Security: mutation audit logs', () => {
   });
 
   it('writes user.settings.update after PATCH /users/me/settings', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const loginResponse = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const user = await createTestUser();
+    const loginResponse = await signInWithEmailCode(app, { email: user.email });
     const token = (loginResponse.json() as { data: { access_token: string } }).data.access_token;
 
     const response = await injectAuthenticated(app, {

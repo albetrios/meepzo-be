@@ -1,13 +1,11 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import {
-  injectAuthenticated,
-  injectUnauthenticated,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 
 /**
  * Iteration change-cookie-consent-2026-10-13-fmal (CC1–CC4): the browser owns the cookie answer
@@ -31,19 +29,15 @@ describe('the analytics consent receipt across sign-out', () => {
     await cleanupDatabase();
   });
 
-  async function signIn(email: string, password: string): Promise<string> {
-    const response = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email, password },
-    });
+  async function signIn(email: string): Promise<string> {
+    const response = await signInWithEmailCode(application, { email });
     expect(response.statusCode, response.body).toBe(200);
     return (response.json() as { data: { access_token: string } }).data.access_token;
   }
 
   it('sign in → record a receipt (policy version 2) → sign out → sign in: the receipt is unchanged', async () => {
-    const { user, password } = await createTestUserWithPassword();
-    const firstToken = await signIn(user.email, password);
+    const user = await createTestUser();
+    const firstToken = await signIn(user.email);
 
     const recorded = await injectAuthenticated(application, {
       method: 'PATCH',
@@ -68,7 +62,7 @@ describe('the analytics consent receipt across sign-out', () => {
     const setCookies = [signedOut.headers['set-cookie'] ?? []].flat();
     expect(setCookies.filter((cookie) => /consent/i.test(String(cookie)))).toEqual([]);
 
-    const secondToken = await signIn(user.email, password);
+    const secondToken = await signIn(user.email);
     const read = await injectAuthenticated(application, {
       method: 'GET',
       url: testApiPath('/users/me/settings'),

@@ -46,10 +46,10 @@ describe('API contract (integration)', () => {
     });
   });
 
-  it('POST /api/v1/auth/login rejects empty body with validation error', async () => {
+  it('POST /api/v1/auth/email/login rejects empty body with validation error', async () => {
     const response = await injectUnauthenticated(app, {
       method: 'POST',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       payload: {},
     });
     expect([400, 422]).toContain(response.statusCode);

@@ -42,9 +42,6 @@ export function getFieldSpecificDescription(fieldName: string): string {
   const descriptions: Record<string, string> = {
     email: 'User email address.',
     billing_email: 'Email address for billing communications.',
-    password: 'Account password.',
-    current_password: 'Current password for verification.',
-    new_password: 'New password to set.',
     first_name: 'User first name.',
     last_name: 'User last name.',
     name: 'Display name.',

@@ -43,8 +43,8 @@ describe('Security: payload / resource-exhaustion (DoS) hardening', () => {
       const huge = 'a'.repeat(1_500_000);
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: { email: 'attacker@example.com', password: huge },
+        url: testApiPath('/auth/email/login'),
+        payload: { email: 'attacker@example.com', code: huge },
       });
       expect(response.statusCode).toBe(413);
     });
@@ -56,7 +56,7 @@ describe('Security: payload / resource-exhaustion (DoS) hardening', () => {
     it('rejects a non-JSON content type with a 4xx (not 5xx)', async () => {
       const response = await app.inject({
         method: 'POST',
-        url: testApiPath('/auth/login'),
+        url: testApiPath('/auth/email/login'),
         headers: { 'content-type': 'application/xml' },
         payload: '<credentials><email>a@b.com</email></credentials>',
       });
@@ -77,7 +77,7 @@ describe('Security: payload / resource-exhaustion (DoS) hardening', () => {
       const nested = `${'{"a":'.repeat(depth)}1${'}'.repeat(depth)}`;
       const response = await app.inject({
         method: 'POST',
-        url: testApiPath('/auth/login'),
+        url: testApiPath('/auth/email/login'),
         headers: { 'content-type': 'application/json' },
         payload: nested,
       });

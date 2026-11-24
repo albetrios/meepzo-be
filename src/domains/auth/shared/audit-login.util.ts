@@ -13,7 +13,6 @@ import { verifyAccessToken } from '@/shared/utils/security/jwt.util.js';
  * adding a separate column.
  */
 export type LoginAuditSource =
-  | 'password'
   | 'email_code'
   | 'webauthn'
   | 'mfa_totp'

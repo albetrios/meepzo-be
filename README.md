@@ -17,7 +17,7 @@
 ## ✨ Features
 
 - **Multi-tenancy** — organization-scoped data with Postgres RLS as defense-in-depth
-- **Authentication** — passwords (argon2id), email verification codes, OAuth, MFA (TOTP), WebAuthn, RS256 JWT
+- **Authentication** — no passwords: email verification codes, OAuth, MFA (TOTP), WebAuthn, RS256 JWT
 - **Billing** — Stripe-backed plans and subscriptions with webhook reconciliation
 - **Notifications** — in-app, email (Resend), and outbound webhooks via transactional outbox
 - **Audit** — append-only audit log for security- and governance-relevant actions

@@ -6,15 +6,12 @@ import {
   injectUnauthenticated,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
-import { generateTestToken } from '@/tests/helpers/test-auth.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
+import { generateTestTokenAndSession, signInWithEmailCode } from '@/tests/helpers/test-auth.js';
+import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
-import { users } from '@/domains/user/user.schema.js';
-import { MAX_PASSWORD_STEP_UP_ATTEMPTS } from '@/shared/constants/security.constants.js';
-import { mail_outbox } from '@/infrastructure/mail/mail-outbox.schema.js';
-import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 describe('Auth Method Sub-Domain — Integration', () => {
@@ -33,35 +30,19 @@ describe('Auth Method Sub-Domain — Integration', () => {
     await cleanupDatabase();
   });
 
-  describe('POST /api/v1/auth/login', () => {
+  describe('POST /api/v1/auth/email/login', () => {
     it('should return 400 for missing credentials', async () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
+        url: testApiPath('/auth/email/login'),
         payload: {},
       });
       expect(response.statusCode).toBe(400);
     });
 
-    it('should return 401 for invalid credentials', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: 'nonexistent@test.com',
-          password: 'WrongPassword123!',
-        },
-      });
-      expect(response.statusCode).toBe(401);
-    });
-
-    it('should return 200 for valid credentials', async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: { email: user.email, password },
-      });
+    it('should return 200 for the right code', async () => {
+      const user = await createTestUser();
+      const response = await signInWithEmailCode(app, { email: user.email });
       expect(response.statusCode).toBe(200);
       expect(
         (response.json() as { data?: { access_token?: string } }).data?.access_token,
@@ -94,31 +75,15 @@ describe('Auth Method Sub-Domain — Integration', () => {
     });
   });
 
-  describe('self-service auth-method management — happy paths', () => {
-    it('POST then DELETE /auth/me/auth-methods round-trips a EMAIL_CODE method', async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const token = await generateTestToken({ userId: user.public_id });
-
-      // Auth-method mutations require a recent step-up (password re-proof).
-      const stepUp = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/step-up'),
-        token,
-        payload: { password },
+  describe('self-service auth-method management', () => {
+    it('AC-13.4: the email-code way can never be removed — 409 email_code_always_on; another way can', async () => {
+      const user = await createTestUser();
+      const { token, sessionPublicId } = await generateTestTokenAndSession({
+        userId: user.public_id,
       });
-      expect(stepUp.statusCode, stepUp.body).toBe(200);
-
-      // The last-login-capable guard counts auth_methods rows; give the user a
-      // PASSWORD method row so removing the email-code is not removing the last one.
-      await getOperatorDatabase()
-        .insert(auth_methods)
-        .values({
-          public_id: generatePublicId('authMethod'),
-          user_id: user.id,
-          method_type: 'PASSWORD',
-          is_primary: true,
-          verified_at: new Date(),
-        });
+      // Removing a way in is destructive: it needs a strong step-up (MFA until R32 makes the email
+      // code strong for a person without 2FA).
+      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId, 'mfa');
 
       // EMAIL_CODE is the only type this endpoint may create (route-#3).
       const create = await injectAuthenticated(app, {
@@ -129,75 +94,35 @@ describe('Auth Method Sub-Domain — Integration', () => {
       });
       expect(create.statusCode, create.body).toBe(200);
       const created = (create.json() as { data: { id?: string; public_id?: string } }).data;
-      const methodPublicId = created.id ?? created.public_id;
-      expect(methodPublicId).toBeTypeOf('string');
+      const emailCodePublicId = created.id ?? created.public_id;
+      expect(emailCodePublicId).toBeTypeOf('string');
 
-      // The user keeps the password method, so the last-login-capable
-      // credential guard does not block this delete.
+      const refused = await injectAuthenticated(app, {
+        method: 'DELETE',
+        url: testApiPath(`/auth/me/auth-methods/${emailCodePublicId}`),
+        token,
+      });
+      expect(refused.statusCode, refused.body).toBe(409);
+      expect(refused.json()).toMatchObject({ error: { reason: 'email_code_always_on' } });
+
+      // Another way in (here a linked OAuth account) is removed while the email code stays.
+      const oauthPublicId = generatePublicId('authMethod');
+      await getOperatorDatabase()
+        .insert(auth_methods)
+        .values({
+          public_id: oauthPublicId,
+          user_id: user.id,
+          method_type: 'OAUTH',
+          provider: 'google',
+          provider_user_id: `google-${user.public_id}`,
+          verified_at: new Date(),
+        });
       const remove = await injectAuthenticated(app, {
         method: 'DELETE',
-        url: testApiPath(`/auth/me/auth-methods/${methodPublicId}`),
+        url: testApiPath(`/auth/me/auth-methods/${oauthPublicId}`),
         token,
       });
       expect(remove.statusCode, remove.body).toBe(204);
-    });
-  });
-
-  describe('POST /api/v1/auth/step-up — password attempt budget (A-3)', () => {
-    it('counts wrong passwords toward the login lockout and signs the session out once the budget is spent', async () => {
-      const { user } = await createTestUserWithPassword();
-      const token = await generateTestToken({ userId: user.public_id });
-      const stepUp = () =>
-        injectAuthenticated(app, {
-          method: 'POST',
-          url: testApiPath('/auth/step-up'),
-          token,
-          payload: { password: 'Not-The-Password-1!' },
-        });
-
-      for (let attempt = 1; attempt < MAX_PASSWORD_STEP_UP_ATTEMPTS; attempt += 1) {
-        const wrong = await stepUp();
-        expect(wrong.statusCode, wrong.body).toBe(401);
-      }
-      const [counted] = await getOperatorDatabase()
-        .select({ failedLoginCount: users.failed_login_count })
-        .from(users)
-        .where(eq(users.id, user.id));
-      expect(counted?.failedLoginCount).toBe(MAX_PASSWORD_STEP_UP_ATTEMPTS - 1);
-
-      const spent = await stepUp();
-      expect(spent.statusCode, spent.body).toBe(401);
-      expect(spent.body).toContain('signed out');
-
-      // The session that spent the budget no longer authenticates.
-      const afterwards = await injectAuthenticated(app, {
-        method: 'GET',
-        url: testApiPath('/auth/me/auth-methods'),
-        token,
-      });
-      expect(afterwards.statusCode, afterwards.body).toBe(401);
-    });
-  });
-
-  describe('POST /api/v1/auth/password/change — owner notice (A-1)', () => {
-    it("emails the owner that the password changed, with a this-wasn't-me line", async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const token = await generateTestToken({ userId: user.public_id, stepUp: true });
-
-      const response = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/change'),
-        token,
-        payload: { current_password: password, new_password: 'A-Brand-New-Passphrase-42!' },
-      });
-      expect(response.statusCode, response.body).toBe(200);
-
-      const notices = await getOperatorDatabase()
-        .select({ to: mail_outbox.to_addresses, html: mail_outbox.html })
-        .from(mail_outbox)
-        .where(eq(mail_outbox.subject, 'Your password was changed'));
-      const notice = notices.find((row) => JSON.stringify(row.to) === JSON.stringify([user.email]));
-      expect(notice?.html).toContain("This wasn't me?");
     });
   });
 });

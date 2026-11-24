@@ -102,35 +102,42 @@ export async function smokeFetch(path: string, options: SmokeFetchOptions = {}):
 }
 
 export async function smokeLogin(): Promise<{ accessToken: string }> {
-  const { demoEmail, demoPassword } = loadSmokeEnvironment();
+  const { demoEmail } = loadSmokeEnvironment();
   const { database } = await import('@/infrastructure/database/connection.js');
   const { users } = await import('@/domains/user/user.schema.js');
   const { eq } = await import('drizzle-orm');
-  const { hashPassword } = await import('@/shared/utils/security/password.util.js');
 
   const [existingUser] = await database
-    .select({ id: users.id, email: users.email })
+    .select({ id: users.id })
     .from(users)
     .where(eq(users.email, demoEmail))
     .limit(1);
-
-  const password = demoPassword;
-  const passwordHash = await hashPassword(demoPassword);
-  let email = demoEmail;
-  if (!existingUser) {
-    const { createTestUserWithPassword } = await import('@/tests/factories/user.factory.js');
-    const created = await createTestUserWithPassword({ email: demoEmail, password: demoPassword });
-    email = created.user.email;
-  } else {
+  if (existingUser) {
     await database
       .update(users)
-      .set({ password_hash: passwordHash, deleted_at: null, status: 'ACTIVE' })
+      .set({ deleted_at: null, status: 'ACTIVE' })
       .where(eq(users.id, existingUser.id));
-    email = existingUser.email;
   }
-  const response = await smokeFetch('/api/v1/auth/login', {
+  // Passwords are off (P84): sign in by email code — send-code signs an unknown email up and, under
+  // the harness TEST_MODE, echoes the code. Clear the 60 s send spacing so a re-run is not refused.
+  const { redisConnection } = await import('@/infrastructure/cache/redis.client.js');
+  const { emailCodeSendCooldownKey } = await import(
+    '@/domains/auth/sub-domains/auth-method/email-login.service.js'
+  );
+  await redisConnection.del(emailCodeSendCooldownKey(demoEmail));
+  const sent = await smokeFetch('/api/v1/auth/email/send-code', {
     method: 'POST',
-    body: { email, password },
+    body: { email: demoEmail },
+    expectStatus: 200,
+  });
+  const code = ((await sent.json()) as { data?: { debug_verification_code?: string } }).data
+    ?.debug_verification_code;
+  if (!code) {
+    throw new Error('Smoke send-code did not echo the code (TEST_MODE off?)');
+  }
+  const response = await smokeFetch('/api/v1/auth/email/login', {
+    method: 'POST',
+    body: { email: demoEmail, code },
     // POST → 200 under the uniform method→status policy (method-status-policy.middleware.ts).
     expectStatus: 200,
   });

@@ -17,7 +17,7 @@ describe('responses-builder', () => {
   });
 
   it('buildResponses adds 409 for write methods', () => {
-    const responses = buildResponses('POST', 'POST /api/v1/auth/login', {});
+    const responses = buildResponses('POST', 'POST /api/v1/auth/email/login', {});
     expect(responses['409']).toBeDefined();
   });
 

@@ -27,9 +27,9 @@ describe('VerificationTokenRepository — atomic consume (replay protection)', (
     const user = await createTestUser({ email: 'expired-token@example.com' });
     const tokenHash = `expired-hash-${user.public_id}`;
     const expiresAt = new Date(Date.now() - 60_000);
-    await repository.create('PASSWORD_RESET', user.id, user.email, tokenHash, expiresAt);
+    await repository.create('EMAIL_CHANGE', user.id, user.email, tokenHash, expiresAt);
 
-    const result = await repository.consumeIfValid(tokenHash, 'PASSWORD_RESET');
+    const result = await repository.consumeIfValid(tokenHash, 'EMAIL_CHANGE');
     expect(result).toBeNull();
   });
 
@@ -37,13 +37,13 @@ describe('VerificationTokenRepository — atomic consume (replay protection)', (
     const user = await createTestUser({ email: 'cross-type-token@example.com' });
     const tokenHash = `cross-type-hash-${user.public_id}`;
     const expiresAt = new Date(Date.now() + 3_600_000);
-    await repository.create('PASSWORD_RESET', user.id, user.email, tokenHash, expiresAt);
+    await repository.create('EMAIL_CHANGE', user.id, user.email, tokenHash, expiresAt);
 
-    // A valid PASSWORD_RESET token replayed against the EMAIL_CODE flow must not match — and
+    // A valid EMAIL_CHANGE token replayed against the EMAIL_CODE flow must not match — and
     // therefore must not be consumed (burned): the row stays redeemable on its own flow.
     const wrongType = await repository.consumeIfValid(tokenHash, 'EMAIL_CODE');
     expect(wrongType).toBeNull();
-    const rightType = await repository.consumeIfValid(tokenHash, 'PASSWORD_RESET');
+    const rightType = await repository.consumeIfValid(tokenHash, 'EMAIL_CHANGE');
     expect(rightType?.token_hash).toBe(tokenHash);
   });
 
@@ -78,7 +78,7 @@ describe('VerificationTokenRepository — atomic consume (replay protection)', (
     const user = await createTestUser({ email: 'invalidate-type@example.com' });
     const expiresAt = new Date(Date.now() + 3_600_000);
     await repository.create('EMAIL_CODE', user.id, user.email, 'magic-hash', expiresAt);
-    await repository.create('PASSWORD_RESET', user.id, user.email, 'reset-hash', expiresAt);
+    await repository.create('EMAIL_CHANGE', user.id, user.email, 'reset-hash', expiresAt);
 
     await repository.invalidateAllForUser(user.id, 'EMAIL_CODE');
 
@@ -89,12 +89,12 @@ describe('VerificationTokenRepository — atomic consume (replay protection)', (
   it('invalidateAllByUser invalidates EVERY token type for the user (offboarding), leaving other users untouched', async () => {
     // The sibling above pins the single-type method. Offboarding uses the type-agnostic
     // invalidateAllByUser (no token_type predicate): a soft-deleted user must be left with no live
-    // token of ANY type, or a still-valid PASSWORD_RESET/EMAIL_CHANGE could resurrect the account.
+    // token of ANY type, or a still-valid EMAIL_CHANGE could resurrect the account.
     const userA = await createTestUser({ email: 'invalidate-all-a@example.com' });
     const userB = await createTestUser({ email: 'invalidate-all-b@example.com' });
     const expiresAt = new Date(Date.now() + 3_600_000);
     await repository.create('EMAIL_CODE', userA.id, userA.email, 'a-code', expiresAt);
-    await repository.create('PASSWORD_RESET', userA.id, userA.email, 'a-reset', expiresAt);
+    await repository.create('EMAIL_CHANGE', userA.id, userA.email, 'a-reset', expiresAt);
     await repository.create('EMAIL_CHANGE', userA.id, userA.email, 'a-change', expiresAt);
     await repository.create('EMAIL_CODE', userB.id, userB.email, 'b-code', expiresAt);
 

@@ -326,9 +326,9 @@ erDiagram
     two stops of SN12 still hold at once (the plan stop here, the error stop on the lane).
 - **Open:**
   - Public id prefix — chosen at kickoff (P22, AMBER).
-  - "At most one not-revoked account per Instagram account across organizations" spans this table's
-    `status` and `instagram_account.instagram_user_id` — how it is held is the route review's
-    (routes-final § 2, 2.A.3).
+  - "At most one not-revoked account per provider account across organizations" is held on this table:
+    `provider_account_id` unique per channel while not revoked, written with the extension's
+    `instagram_user_id` (routes-final § 1B, CAQ1 — recommended, awaiting the one-pass review).
 
 ```mermaid
 erDiagram
@@ -337,6 +337,7 @@ erDiagram
     id organization_id FK "many per organization, up to channel_accounts_max (D26)"
     id channel_connection_id FK "the login it came from (D25)"
     choice channel "instagram (D27); a Facebook Page later"
+    text provider_account_id "the account id at the provider (for Instagram the instagram_user_id); one live per channel across workspaces (routes-final CAQ1)"
     choice status "connected · error · revoked"
     datetime status_changed_at
     text display_name "the account's name on its channel"

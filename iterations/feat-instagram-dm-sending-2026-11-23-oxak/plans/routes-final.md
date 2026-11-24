@@ -1,66 +1,71 @@
 # Route review — feat-instagram-dm-sending-2026-11-23-oxak
 
-**Status: rev 1 — every sub-domain awaiting your OK (one-pass review, [P31](decisions.md)).**
+**Status: rev 2 (2026-11-23) — the channel split ([P40–P47](decisions.md), M9): sub-domains 1, 1B, 2–8, 11 and 12 at rev 2, 9 and 10 at rev 1 — every sub-domain awaiting your OK (one-pass review, [P31](decisions.md)).**
 
 Iteration `feat-instagram-dm-sending-2026-11-23-oxak` · on branch `feat/instagram-automation` at `20823e3` (2026-11-23) · built
-from `intake-files/Instagram-DM-Sending-Plan-v8.md` (cited `plan:L<line>`) and `intake-files/BRIEF.md`, [decisions.md](decisions.md)
-P1–P39 (binding; the plan's D1–D73 are locked inputs), [db-changes.md](db-changes.md), [route-changes.md](route-changes.md)
+from `intake-files/Instagram-DM-Sending-Plan-v8.md` (cited `plan:L<line>`) and `intake-files/BRIEF.md`, [decisions.md](decisions.md) P1–P47 (binding; the plan's D1–D73 are locked inputs), [db-changes.md](db-changes.md), [route-changes.md](route-changes.md)
 (RC-n) and [worker-changes.md](worker-changes.md) (WC-n). The "before" of every changed app sub-domain is the frozen launch
 review, [`launch-2026-11-20-ujai/plans/routes-final.md`](../../launch-2026-11-20-ujai/plans/routes-final.md), as built (its
 `AS-BUILT.md` › Standing deviations); its ids are cited "launch IA5". Shape:
 [routes-final-template.md](../../../docs/design-workflow/process/routes-final-template.md). This is a proposal: kickoff builds
 it **ditto**, and where agent-os cannot, it stops and asks before anything differs.
 
-How to read the tables: sub-domains 1–7 are the `app` domain, paths under `/api/v1/app` (launch D1); sub-domains 8–12 change
+How to read the tables: sub-domains 1, 1B and 2–7 are the `app` domain, paths under `/api/v1/app` (launch D1) — the common ones under `/social/channel-connections` and `/social/channel-accounts`, Instagram's under `/social/instagram` (P47); sub-domains 8–12 change
 the platform domains in place, paths under `/api/v1` as written (`/billing/…`, `/tenancy/…`, `/auth/…`, `/users/…`,
 `/uploads`). `{x_id}` is a public id (Stripe's `{payment_method_id}` is the one exception — BLQ2); **Gate** is the permission
 the caller needs (`AUTH` = signed in, no code; `PUBLIC` = no sign-in, with the provider's signature or token where named);
 **Idem** `req` = `X-Idempotency-Key` header required, empty, `none` or `—` = none (why: K3); `*` = required. Lists take
-`limit` and `after` (cursor). Route numbers are global, in three bands — 1–39 (app core), 60–82 (app engine), 100–140
-(product) — with gaps between sub-domains and never a repeat (65–68 are left unused, M6). **(new)**,
+`limit` and `after` (cursor). Route numbers are global, in three bands — 1–42 (app core; 40–42 added in rev 2, M9), 60–82 (app engine), 100–140 (product) — with gaps between sub-domains and never a repeat (65–68 are left unused, M6; rev 2 renumbered nothing, so 1's routes are 1–5, 15–17 and 40–42). **(new)**,
 **(changed)**, **(moved)**, **(as built)** and **REMOVED** compare against today's code.
 
 ## Sub-domains (in build order)
 
-Each sub-domain builds on the ones it names. The numbers stay as they are; the **build order** differs in three places:
+Each sub-domain builds on the ones it names. The numbers stay as they are (rev 2 inserted **1B** so 2–12 keep theirs —
+M9); the **build order** differs in three places:
 
 - **Billing's plan features first.** Sub-domain 8's typed plan features and `getPlanAccess` (8.A, BL2, BL12) are read by 1
-  (`instagram_accounts_max`, the trial port), 4 (PRO at save, go-live and run time) and 6 (PRO, `direct_message_month_limit`),
-  so 8.A and the plan read are built before 1; the rest of 8 follows in its place.
+  (`channel_accounts_max`, the trial port), 1B (the limit at route 11), 4 (PRO at save, go-live and run time) and 6 (PRO,
+  `message_month_limit`), so 8.A and the plan read are built before 1; the rest of 8 follows in its place.
 - **5 is split around 6.** Sub-domain 6's message table must exist before 5's new intake (intake writes `waiting` rows
   there): build 5's receiver and tables (5.A receiver, 5.B events and keys), then 6, then 5's intake. 7's migration then
   adds the messages' foreign key to broadcasts (SN17).
-- **Built with 6.** The lane steps of 1's pick (route 3) and 2's disconnect (route 8), 2's pause, resume and activate
-  (routes 9–11), 3's "What happened" and failed messages (routes 24–26) and 4's failed messages (routes 36–37) land in 6's ROUTE row, where the lanes and the message rows exist (IA4).
+- **Built with 6.** The lane steps of 1's pick (route 3) and 1B's disconnect (route 8), 1B's pause, resume and activate
+  (routes 9–11), 3's "What happened" and failed messages (routes 24–26) and 4's failed messages (routes 36–37) land in 6's
+  ROUTE row, where the lanes and the message rows exist (CA5).
 
-Build order: 8.A → 1 → 2 → 3 → 4 → 5 (receiver and tables) → 6 → 5 (intake) → 7 → 8 (the rest) → 9 → 10 → 11 → 12.
+Build order: 8.A → 1 Channel connection → 1B Channel account → 2 Instagram account → 3 → 4 → 5 (receiver and tables) → 6 →
+5 (intake) → 7 → 8 (the rest) → 9 → 10 → 11 → 12.
 
 | # | Sub-domain | Folder (`src/domains/…`) | Paths (`/app/…` for 1–7; as written for 8–12) | Routes | Builds on | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Meta connection | `app/sub-domains/meta-connection/` **(new)** | `social/meta/connect/start`, `social/meta/connect/callback`, `social/meta/connections` (+ `accounts`) | 5 (1–5); RC-6 removed | organizations, users; 8 (`instagram_accounts_max`, the trial port — M4); 2's account rows and 6's lanes at the pick | **rev 1 — no nested sub-domains, awaiting your OK** |
-| 2 | Instagram account | `app/sub-domains/instagram-account/` (+ `instagram-account-settings/`, `instagram-media/`, `instagram-account-meta-callback/`) | `social/instagram/accounts` (+ `{instagram_account_id}`, `pause`, `resume`, `activate`, `settings`, `media`, `stories`, `ads`), `social/instagram/deauthorize`, `social/instagram/data-deletion` | 12 (6–17) | 1; 8 (account limit, PRO); routes 9–11 and route 8's lane step built with 6 | **rev 1 — nested sub-domains 2.A–2.D, awaiting your OK** |
-| 3 | Contacts | `app/sub-domains/contact/` (+ `contact-tag-event/`) | `contacts` (+ `bulk-actions`, `activity`, `failed-messages`), `social/instagram/accounts/{instagram_account_id}/contact-tags` | 9 (18–26) | 2; routes 24–26 over 4 and 6 | **rev 1 — nested sub-domains 3.A–3.B, awaiting your OK** |
-| 4 | Automations | `app/sub-domains/automation/` (+ `automation-run/`, `automation-backfill/` **(new)**) | `automations` (+ `go-live`, `pause`, `duplicate`, `keyword-test`, `failed-messages`, `backfills`) | 13 (27–39) | 2, 3; 8 (PRO, plan ended); 6 (message rows, the month count at go-live; routes 36–37 over its retry service) | **rev 1 — nested sub-domains 4.A–4.C, awaiting your OK** |
-| 5 | Instagram webhook | `app/sub-domains/instagram-webhook/` (+ `instagram-webhook-event/`) | `social/instagram/webhook`, `social/instagram/webhook-events` | 3 (60–62) | 1, 2, 3, 4; 6 for intake's writes (intake built after 6) | **rev 1 — nested sub-domains 5.A–5.B, awaiting your OK** |
-| 6 | Instagram sending | `app/sub-domains/instagram-sending/` **(new)** (+ `instagram-message/`, `meta-attachment/`) | `social/instagram/accounts/{instagram_account_id}/sending-status`, `usage` | 2 (63–64) | 1, 2, 3, 4, 8, 12; 5's receiver and tables | **rev 1 — nested sub-domains 6.A–6.C, awaiting your OK** |
-| 7 | Broadcasts | `app/sub-domains/broadcast/` **(new)** (+ `broadcast-segment/`, `broadcast-recipient/`) | `broadcasts` (+ `send`, `cancel`), `segments` (+ `audience-count`) | 13 (70–82) | 2, 3, 4, 6, 8 | **rev 1 — nested sub-domains 7.A–7.C, awaiting your OK** |
-| 8 | Billing — Flowdm plans, plan states, trial | `billing/sub-domains/plan/`, `subscription/` (+ `trial-account.*`, `workers/subscription-plan-state-check.*`), `stripe-webhook/` | `/billing/plans` (+ `{plan_id}`), `/billing/subscriptions` (+ `change-plan`), `/billing/payment-methods` (+ `{payment_method_id}`, `default`), `/billing/webhook`, `/auth/me/context` | 9 (100–108) | organizations, users; the app's accounts port (2) | **rev 1 — nested sub-domains 8.A–8.D, awaiting your OK** |
+| 1 | Channel connection | `app/sub-domains/channel-connection/` **(new)** (+ adapter folder `channel-connection-meta/`) | `social/channel-connections` (+ `{provider}/start`, `{provider}/callback`, `{provider}/deauthorize`, `{provider}/data-deletion`, `{channel_connection_id}`, `accounts`, `reconnect`, `ad-accounts`, `ads`) | 11 (1–5, 15–17, 40–42); RC-6 removed | organizations, users; 8 (`channel_accounts_max`, the trial port — M4); 1B's and 2's account rows and 6's lanes at the pick | **rev 2 (2026-11-23) — no nested sub-domains, awaiting your OK** |
+| 1B | Channel account | `app/sub-domains/channel-account/` **(new)** | `social/channel-accounts` (+ `{channel_account_id}`, `pause`, `resume`, `activate`) | 6 (6–11) | 1; 8 (account limit); routes 9–11 and route 8's lane step built with 6 | **rev 2 (2026-11-23) — no nested sub-domains, awaiting your OK** |
+| 2 | Instagram account | `app/sub-domains/instagram-account/` (+ `instagram-account-settings/`, `instagram-media/`) | `social/instagram/accounts/{channel_account_id}` (+ `settings`, `media`, `stories`) | 3 (12–14) | 1, 1B; 8 (PRO) | **rev 2 (2026-11-23) — nested sub-domains 2.A–2.C, awaiting your OK** |
+| 3 | Instagram contacts | `app/sub-domains/instagram-contact/` (+ `instagram-contact-tag-event/`) | `social/instagram/contacts` (+ `bulk-actions`, `activity`, `failed-messages`), `social/instagram/accounts/{channel_account_id}/contact-tags` | 9 (18–26) | 1B, 2; routes 24–26 over 4 and 6 | **rev 2 (2026-11-23) — nested sub-domains 3.A–3.B, awaiting your OK** |
+| 4 | Instagram automations | `app/sub-domains/instagram-automation/` (+ `instagram-automation-run/`, `instagram-automation-backfill/` **(new)**) | `social/instagram/automations` (+ `go-live`, `pause`, `duplicate`, `keyword-test`, `failed-messages`, `backfills`) | 13 (27–39) | 1B, 2, 3; 8 (PRO, plan ended); 6 (message rows, the month count at go-live; routes 36–37 over its retry service) | **rev 2 (2026-11-23) — nested sub-domains 4.A–4.C, awaiting your OK** |
+| 5 | Instagram webhook | `app/sub-domains/instagram-webhook/` (+ `instagram-webhook-event/`) | `social/instagram/webhook`, `social/instagram/webhook-events` | 3 (60–62) | 1, 1B, 2, 3, 4; 6 for intake's writes (intake built after 6) | **rev 2 (2026-11-23) — nested sub-domains 5.A–5.B, awaiting your OK** |
+| 6 | Instagram sending | `app/sub-domains/instagram-sending/` **(new)** (+ `instagram-message/`, `instagram-attachment/`) | `social/instagram/accounts/{channel_account_id}/sending-status`, `usage` | 2 (63–64) | 1, 1B, 2, 3, 4, 8, 12; 5's receiver and tables | **rev 2 (2026-11-23) — nested sub-domains 6.A–6.C, awaiting your OK** |
+| 7 | Instagram broadcasts | `app/sub-domains/instagram-broadcast/` **(new)** (+ `instagram-broadcast-segment/`, `instagram-broadcast-recipient/`) | `social/instagram/broadcasts` (+ `send`, `cancel`), `social/instagram/segments` (+ `audience-count`) | 13 (70–82) | 1B, 2, 3, 4, 6, 8 | **rev 2 (2026-11-23) — nested sub-domains 7.A–7.C, awaiting your OK** |
+| 8 | Billing — Flowdm plans, plan states, trial | `billing/sub-domains/plan/`, `subscription/` (+ `trial-account.*`, `workers/subscription-plan-state-check.*`), `stripe-webhook/` | `/billing/plans` (+ `{plan_id}`), `/billing/subscriptions` (+ `change-plan`), `/billing/payment-methods` (+ `{payment_method_id}`, `default`), `/billing/webhook`, `/auth/me/context` | 9 (100–108) | organizations, users; the app's accounts port (1B) | **rev 2 (2026-11-23) — nested sub-domains 8.A–8.D, awaiting your OK** |
 | 9 | Tenancy — roles and workspace | `tenancy/sub-domains/organization/`, `member-roles/`, `membership/` (+ `membership-invitation/`) | `/tenancy/organization`, `/tenancy/organization/roles/*`, `/tenancy/organization/memberships`, `/tenancy/membership-invitations/{membership_invitation_id}/preview` | 9 (110–118) | users; the app's codes (`app.permissions.ts`) and the upload code | **rev 1 — nested sub-domains 9.A–9.C, awaiting your OK** |
 | 10 | Auth — sign-in | `auth/sub-domains/auth-method/` (+ `oauth/`), `auth-mfa/`, `auth-trusted-device/` **(new, no routes)**, `auth-session/` | `/auth/email/*`, `/auth/oauth/*` (+ `apple/callback`), `/auth/mfa/login`, `/auth/step-up`, `/auth/me/auth-methods/{auth_method_id}`, `/auth/me/sessions` | 9 (120–128); 4 removed (RC-98–RC-101) | users; 9 (the MFA policy) | **rev 1 — nested sub-domains 10.A–10.D, awaiting your OK** |
-| 11 | User and notify — profile, settings, notifications | `user/` (root), `user/sub-domains/user-settings/`, `user-notification-preferences/`; `notify/sub-domains/notification/` (+ two workers) | `/users/me`, `/users/me/settings`, `/users/me/organizations`, `/users/me/email-confirmation`, `/auth/email/confirm`, `/users/me/notification-preferences` | 7 (130–136) | 10 (verification tokens, mail), 9 (memberships), the app's three ports | **rev 1 — nested sub-domains 11.A–11.D, awaiting your OK** |
-| 12 | Upload — message files | `upload/` | `/uploads` | 1 (140) | organizations; 9 (`upload:manage`) | **rev 1 — no nested sub-domains, awaiting your OK** |
+| 11 | User and notify — profile, settings, notifications | `user/` (root), `user/sub-domains/user-settings/`, `user-notification-preferences/`; `notify/sub-domains/notification/` (+ two workers) | `/users/me`, `/users/me/settings`, `/users/me/organizations`, `/users/me/email-confirmation`, `/auth/email/confirm`, `/users/me/notification-preferences` | 7 (130–136) | 10 (verification tokens, mail), 9 (memberships), the app's three ports | **rev 2 (2026-11-23) — nested sub-domains 11.A–11.D, awaiting your OK** |
+| 12 | Upload — message files | `upload/` | `/uploads` | 1 (140) | organizations; 9 (`upload:manage`) | **rev 2 (2026-11-23) — no nested sub-domains, awaiting your OK** |
 
-Domain total: **92 routes** — 46 new, 44 changed (moves included), 1 already as built (RC-67, route 104), 1 unchanged
-(route 60); **5 removed** (RC-6, RC-98–RC-101). Against today, one clause per sub-domain: **1** Unified Login replaces the
-launch's Instagram Login connect (RC-6 removed, D24); **2** many accounts per workspace, under `{instagram_account_id}` paths,
-with pause, resume, choose active and an ad picker; **3** a contact can now be opened, noted, tagged, paused and acted on in
-bulk, with "What happened" and a retry of her failed messages; **4** the new automation shape with go-live, pause,
-duplicate, a keyword test, a retry of its failed messages and past comments; **5** the same three routes, with a key table, an 8-day events table and an
-intake that only saves; **6** new — the sending engine's status and the DM meter (it serves 3's and 4's failed-message retry); **7** new —
-broadcasts and segments; **8** Flowdm plans, the trial, the move down at the period end and two card routes; **9** four fixed
-roles, `contact:update`, inviting several emails and the invitation preview; **10** no passwords — four routes removed, Apple
-and trusted devices added; **11** onboarding fields, the workspace chooser, email confirmation and notification kinds;
-**12** the message-file purpose on upload.
+Domain total: **95 routes** — 49 new, 44 changed (moves included), 1 already as built (RC-67, route 104), 1 unchanged
+(route 60); **5 removed** (RC-6, RC-98–RC-101). Against today, one clause per sub-domain: **1** a provider login (Meta's
+Unified Login for Instagram, Facebook and ads) replaces the launch's Instagram Login connect (RC-6 removed, D24), and holds
+the reconnect, the ad picker and Meta's two callbacks; **1B** new — the common account of any channel: many accounts per
+workspace under `{channel_account_id}` paths, with pause, resume and choose active; **2** the Instagram extension — settings,
+posts and stories under `social/instagram/accounts/{channel_account_id}`; **3** a contact can now be opened, noted, tagged,
+paused and acted on in bulk, with "What happened" and a retry of her failed messages; **4** the new automation shape with
+go-live, pause, duplicate, a keyword test, a retry of its failed messages and past comments; **5** the same three routes,
+with a key table, an 8-day events table and an intake that only saves; **6** new — the sending engine's status and the
+message meter (it serves 3's and 4's failed-message retry); **7** new — broadcasts and segments; **8** Flowdm plans, the
+trial, the move down at the period end and two card routes; **9** four fixed roles, `contact:update`, inviting several
+emails and the invitation preview; **10** no passwords — four routes removed, Apple and trusted devices added; **11**
+onboarding fields, the workspace chooser, email confirmation and notification kinds; **12** the message-file purpose on
+upload. Rev 2 (the channel split, P40–P47) touched 1–8, 11 and 12 (renames for 8, 11, 12); 9 and 10 are unchanged.
 
 ## Open questions — one-pass review
 
@@ -70,26 +75,28 @@ comes from the merge (Merge notes M7). SNQ1 (drop `app.sending_helper_slots`) st
 
 | Id | Sub-domain | Question | Recommended | Alternative |
 | --- | --- | --- | --- | --- |
-| MCQ1 | 1 Meta connection | A reconnect from a portfolio an account moved to: attach its row at the callback, or only when the owner picks it? | **At the callback** (MC6) — the account is the workspace's already, the owner pressed Reconnect for it, and it saves a step; plan:L4676 reads the same | Only at a pick |
-| MCQ2 | 1 Meta connection | Does the pick re-read the assigned accounts from Meta, or trust the list the callback read? | **Re-read** (MC7) — the pick can come minutes later and a stale list could attach an account the business no longer shares; one Graph call per pick | Keep the callback's list in the login state |
-| IAQ1 | 2 Instagram account | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? | **Match `instagram_user_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (IA20); a connection column only if the test says so — then a new decision | Also match `client_business_id`; or a person-id column on the connection |
-| IAQ2 | 2 Instagram account | Does the ad picker read one ad account at a time, or every ad account of the connection in one list? | **One at a time** (`ad_account_id`, the first by default; the answer lists her ad accounts) — Meta pages per ad account, so a merged list has no single cursor | All ad accounts merged in one list |
+| MCQ1 | 1 Channel connection | A reconnect from a portfolio an account moved to: attach its row at the callback, or only when the owner picks it? | **At the callback** (MC6) — the account is the workspace's already, the owner pressed Reconnect for it, and it saves a step; plan:L4676 reads the same | Only at a pick |
+| MCQ2 | 1 Channel connection | Does the pick re-read the assigned accounts from Meta, or trust the list the callback read? | **Re-read** (MC7) — the pick can come minutes later and a stale list could attach an account the business no longer shares; one Graph call per pick | Keep the callback's list in the login state |
+| MCQ3 | 1 Channel connection | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? (rev 1 IAQ1) | **Match the account's `provider_account_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (MC16); a connection column only if the test says so — then a new decision | Also match `client_business_id`; or a person-id column on the connection |
+| MCQ4 | 1 Channel connection | Does the ads list read one ad account at a time, or every ad account of the connection in one list? (rev 1 IAQ2) | **One at a time** (`ad_account_id` required; route 41 lists the ad accounts) — Meta pages per ad account, so a merged list has no single cursor | All ad accounts merged in one list |
+| MCQ5 | 1 Channel connection | Does "Reconnect" get its own route? | **Route 40**, a login bound to the connection (MC17) — the callback can refuse another business, and a connected connection can re-grant `ads_read` | Only a new login through route 1 (rev 1) |
+| CAQ1 | 1B Channel account | Where does "one workspace per account" live, now that status is on `app.channel_accounts` and the Instagram id on the extension? | **`provider_account_id` on the channel account**, unique per channel while not revoked, written with the extension's `instagram_user_id` in one commit (CAC5) | A status copy on the extension |
 | CTQ1 | 3 Contacts | The tag list's cache key: be-read-cache-guard rule 1 takes a key from the verified scope, never a request parameter, but the list is per account | **`…:<organization>:<account>`**, the account id read back from Postgres inside the scope (CT8) — the organization segment is the tenant boundary and comes from the scope | One key per organization holding every account's list (ten lists recomputed on every tag change) |
 | CTQ2 | 3 Contacts | Must every contact list name its account? | **Required** (CT2) — the app is switched per account and the indexes lead with it; the launch is unreleased (P29) | Optional, default every account |
 | CTQ3 | 3 Contacts | Do bulk actions select by ids only, or also "every contact matching these filters"? | **Both** (CT7) — "select all 12,000" is the case pieces of 500 exist for (plan:L1039) | Ids only (1–500) |
 | AUQ1 | 4 Automations | Go-live answers a list of problems, each with its step (plan §5.1) — which status? | **`409 automation_not_ready` with `errors[]`** — the request is fine, the saved state conflicts and the same call passes once fixed (response-codes' 409 vs 422 rule); `errors[]` on this 409 is documented in `response-codes.md` | `422` with `errors[]` |
 | AUQ2 | 4 Automations | Does a save of a live or paused automation also run the account, plan and month checks (plan:L670)? | **Content checks only** (AU12) — a month-limit or plan-ended workspace must still fix a refused text (P10); the rest run at go-live | The full go-live list on every save |
 | AUQ3 | 4 Automations | A draft "needs only a name" (D28) — is the way to start chosen at create? | **`trigger_type` required at create** — the editor opens on a chosen way, a later change stays in the same group (plan:L687), every database check keys on it | Optional until go-live |
-| AUQ4 | 4 Automations | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so `idx_automation_runs_one_open` is the whole rule; WC-45 frees no key | Keep the key table |
+| AUQ4 | 4 Automations | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so `idx_instagram_automation_runs_one_open` is the whole rule; WC-45 frees no key | Keep the key table |
 | WHQ1 | 5 Instagram webhook | How is "our own sent message" recognised before saving (plan step 3, the Redis `mid:` note)? | **A Postgres lookup** of the echo's `mid` in `app.instagram_messages` inside the store unit — the row holds `instagram_message_id`; no data only Redis has (P32); an early echo is stored `received` and matched by intake within 10 minutes (plan §27.13) | The plan's Redis `mid:` note (10 min; with P5's 60-second cap) |
-| WHQ2 | 5 Instagram webhook | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **Intake counts her message events of the last minute in Postgres** — the events are saved anyway; an index on (`instagram_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" | The webhook adds 1 to a Redis counter |
+| WHQ2 | 5 Instagram webhook | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **Intake counts her message events of the last minute in Postgres** — the events are saved anyway; an index on (`channel_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" | The webhook adds 1 to a Redis counter |
 | SNQ1 | 6 Instagram sending | Keep `app.sending_helper_slots` (16 slots leased by servers, plan §34.1)? | **Drop it** — the repair runs as scheduler repeat jobs, one worker per tick (P7); the two per-server duties (clock, Redis watch) need no slot; db-changes loses the table | Keep it as the plan writes |
 | SNQ2 | 6 Instagram sending | `.env.example`'s `SENDING_ENABLED`? | **`true`** — the dev value ships active (CLAUDE.md), the schema default stays `false`; a hosted environment still needs its own `SENDING_ENVIRONMENT_ID` | `false` in the template too |
 | BCQ1 | 7 Broadcasts | How long does a deleted broadcast or segment wait before its purge? | **90 days** — the same as recipients' keep (P33), so a purge never leaves numbers no row explains | 30 days; or the automation's 180 |
 | BCQ2 | 7 Broadcasts | May a Free workspace make segments and count audiences? | **Yes** — only broadcast create and send are PRO (RC-48, RC-52); a trial's segments survive it and the editor can show the count before an upgrade | No — segments are PRO too |
 | BLQ1 | 8 Billing | How does the move down wait for the period end? | **A Stripe subscription schedule** + two mirror columns `scheduled_plan_id`, `scheduled_change_at` — Stripe invoices the renewal itself; the columns let route 103 and the billing screen show the change without a Stripe call | Keep the target only on our row and change Stripe's price ourselves at renewal (races the invoice) |
 | BLQ2 | 8 Billing | `{payment_method_id}` is Stripe's `pm_…` id, not one of our public ids | **A third non-entity param** beside `{provider}` and `{slug}` — cards live only in Stripe (plan:L8069); checked by shape (`pm_` + 1–250 letters and digits) and by ownership | Mint our own ids (a new table of cards) |
-| BLQ3 | 8 Billing | The plan feature key `dm_month_limit` (db-changes open item) | **`direct_message_month_limit`** — full names (P6 already renamed the table `direct_message_month_counts`); applied across this file (M1) | The plan's `dm_month_limit` |
+| BLQ3 | 8 Billing | The plan feature key `dm_month_limit` (db-changes open item) | **`message_month_limit`** — full names, and channel-neutral since rev 2 (P43, P47: the table is the shared `message_month_counts`; rev 1 had `direct_message_month_limit`); applied across this file (M1, M9) | The plan's `dm_month_limit` |
 | BLQ4 | 8 Billing | The features of the turned-off rows Starter, Growth and Pro (a typed read refuses their old keys) | **Map them up**: Starter → Creator's, Growth and Pro → Studio's — a workspace still paying an old plan keeps paid powers; no Stripe change | Give them Free's |
 | TNQ1 | 9 Tenancy | The lavender tile value: the shared chip tones (`CHIP_TONE`) store it as `lav` | **Rename `lav` → `lavender`** everywhere in the same PR (a tenancy migration rewrites the `tone` rows and both `CHECK`s; meepzo-fe follows) — the full-names rule; one tone list for roles, members and the new column | Keep `lav` as a wire literal |
 | TNQ2 | 9 Tenancy | An invite takes one role (plan:L7891) but the code takes `role_ids` (main first) | **Keep `role_ids` with exactly one** — the shape `PATCH …/memberships` uses; turning extra roles on later is no contract change | A new `role_id` field |
@@ -98,43 +105,64 @@ comes from the merge (Merge notes M7). SNQ1 (drop `app.sending_helper_slots`) st
 | ATQ3 | 10 Auth | The IP-to-place file (plan:L8804 — its licence and monthly updates) | **DB-IP "IP to City Lite"** (CC BY 4.0, no account or key; `.mmdb` read with the `maxmind` package; the file comes with the monthly image build; unset path → place empty, never an error) | MaxMind GeoLite2 City (free account + licence key, its EULA); or no place |
 | UNQ1 | 11 User and notify | The preferences API shape: the screen saves kind × channel (plan:L8150) | **The routes speak kinds** (`{ kind, channel, is_enabled }`); the server writes one row per type of the kind — only `NOTIFICATION_KINDS` knows the kinds; per-type rows stay the stored form | Keep type × channel and let the app expand kinds |
 | UNQ2 | 11 User and notify | In-app off but email on: the email still needs a dedupe key (plan:L8180 uses the notification's public id) | **The caller's `dedupe_key`**; the outbox key is `<type>:<dedupe_key>:<user>` and the in-app row is written only when in-app is on — every new type already has a "once" rule naming its key | Always write the row, hidden when in-app is off |
-| MGQ2 | header (K3) | Which idempotency rule do the app's signed-in `POST`s follow? | **The rewritten K3** — a `POST` that creates a row or starts background work requires the key; state actions (9, 10, 32, 33), a `POST` that saves nothing (35) and the login start (1, a one-use Redis state — MC4) take none; it matches CLAUDE.md's per-route `idempotencyRequired` and the platform domains | The launch K3 and the template's hand-over line "every `POST` is `req`" — routes 1, 9, 10, 32, 33 and 35 gain `req` |
+| MGQ2 | header (K3) | Which idempotency rule do the app's signed-in `POST`s follow? | **The rewritten K3** — a `POST` that creates a row or starts background work requires the key; state actions (9, 10, 32, 33), a `POST` that saves nothing (35) and the login and reconnect starts (1, 40, a one-use Redis state — MC4, MC17) take none; it matches CLAUDE.md's per-route `idempotencyRequired` and the platform domains | The launch K3 and the template's hand-over line "every `POST` is `req`" — routes 1, 9, 10, 32, 33, 35 and 40 gain `req` |
 
 ## Merge notes
 
-The three drafted parts were merged verbatim except for these harmonisations.
+The three drafted parts were merged verbatim except for these harmonisations (M1–M8); M9 is rev 2's channel split.
 
 | # | Note |
 | --- | --- |
-| M1 | **`dm_month_limit` → `direct_message_month_limit`** (BLQ3, P6): replaced in sub-domain 6 (SN15, SNC7 — three places); only BLQ3's question still names the old key. `dm` as a *value* (`also_start_from`, `source` on route 35, the `dm:<date>` once key in 5) is a wire value and is not renamed here — say if it should be. |
+| M1 | **`dm_month_limit` → `direct_message_month_limit` (rev 1) → `message_month_limit` (rev 2, P47)** (BLQ3, P6): replaced in sub-domain 6 (SN15, SNC7 — three places); only BLQ3's question still names the old key. `dm` as a *value* (`also_start_from`, `source` on route 35, the `dm:<date>` once key in 5) is a wire value and is not renamed here — say if it should be. |
 | M2 | **`feature_not_offered` and `instagram_feature_not_offered` are two different things, both kept** (P36): `feature_not_offered` is the **go-live problem code** — one item of `409 automation_not_ready`'s `errors[]` when an automation uses a feature in `APP_UNTESTED_META_FEATURES` (4.A, AU4); `instagram_feature_not_offered` is the **settings-field reason** — `422` when route 12 turns mark-as-seen on while it is untested (2.B.9). Both places now say which is which. |
 | M3 | **`lav` → `lavender`** (TNQ1): the body already writes `lavender` (TN8, `logo_color`'s `CHECK`); `lav` remains only as today's value inside TNQ1. |
 | M4 | **The pick checks the trial** (sub-domain 8's trial port, BL14, BL18): MC7 and 1.9 gain `409 trial_used_by_account` and `recordTrialAccounts` in the pick's commit; sub-domain 1 builds on 8. |
-| M5 | **RC-17 and RC-18** (Meta's deauthorize and data-deletion callbacks) are claimed by sub-domain 2 only (2.D, routes 16–17); sub-domain 5 serves RC-16 and RC-19 and names neither. |
-| M6 | **The failed-messages routes had two owners.** Part 1 numbered RC-37–RC-40 as 4's routes 36–37 and 3's 25–26; part 2 as 6's routes 65–68, with its own object shape. Settled by the main session's rule — **a route lives in the sub-domain whose path it has**: `/automations/{automation_id}/failed-messages/…` stays in 4 (36–37) and `/contacts/{contact_id}/failed-messages/…` in 3 (25–26), each calling sending's summary query and retry service; 6 keeps only its own paths (63–64). In 6: rows 65–68 removed from 6.4, 6.7 and 6.B (6.B.4, .6–.9 now point at 3.A and 4.A), the intro, SN1, SN18, WC-42's trigger, 6.12 and SNC14 point at 3's and 4's routes; numbers 65–68 stay unused (no renumbering). The objects are 3.A.6's (`failed_count`, `retryable_count`, `not_retryable`, `horizon_days`; `expected_retry_count`, `is_queued`); SN18's reason `window_closed` became 3.A.6's `chat_closed`. |
+| M5 | **RC-17 and RC-18** (Meta's deauthorize and data-deletion callbacks) are claimed by one sub-domain only — rev 1 sub-domain 2 (2.D), rev 2 sub-domain 1 (routes 16–17, MC14–MC16, M9); sub-domain 5 serves RC-16 and RC-19 and names neither. |
+| M6 | **The failed-messages routes had two owners.** Part 1 numbered RC-37–RC-40 as 4's routes 36–37 and 3's 25–26; part 2 as 6's routes 65–68, with its own object shape. Settled by the main session's rule — **a route lives in the sub-domain whose path it has**: `/social/instagram/automations/{automation_id}/failed-messages/…` stays in 4 (36–37) and `/social/instagram/contacts/{contact_id}/failed-messages/…` in 3 (25–26), each calling sending's summary query and retry service; 6 keeps only its own paths (63–64). In 6: rows 65–68 removed from 6.4, 6.7 and 6.B (6.B.4, .6–.9 now point at 3.A and 4.A), the intro, SN1, SN18, WC-42's trigger, 6.12 and SNC14 point at 3's and 4's routes; numbers 65–68 stay unused (no renumbering). The objects are 3.A.6's (`failed_count`, `retryable_count`, `not_retryable`, `horizon_days`; `expected_retry_count`, `is_queued`); SN18's reason `window_closed` became 3.A.6's `chat_closed`. |
 | M7 | **K3**: the header carries part 1's rewritten K3 (MGQ2). Part 2's 7.5 still cites the launch K3 ("so 76 and 82 too"), but under the rewrite routes 76 (cancels a broadcast's waiting messages) and 82 (may start the background count, WC-39) keep `req` all the same — no row changes. |
 | M8 | **Dropped** from the merged body: each part's "Header inputs" block (built into this header) and its own "Before you hand this part over" list (re-run on the whole file — see the end). Their lists of changes for `db-changes.md`, `route-changes.md` and `worker-changes.md` go to the change files' sync; this file edits none of them. |
+| M9 | **The channel split, P40–P47 (rev 2, 2026-11-23).** The owner chose a common core for the login and the account and Instagram-specific everything else. (1) Sub-domain 1 **Meta connection → Channel connection** (`channel-connection/`, `app.channel_connections` + `app.channel_connection_tokens`, `provider` `meta`; the Meta client moved into its adapter folder `channel-connection-meta/`, MC2); it gains the reconnect start (40), one connection (42), the ad accounts (41), the ads (15, from 2) and Meta's two callbacks (16–17, from 2.D — P46). (2) New **1B Channel account** (`channel-account/`, `app.channel_accounts`: channel, connection, status, display name, pause / suspend / plan stop, the automation switch — P42); routes 6–11 moved to it; numbered 1B so 2–12 keep their numbers and their citations. (3) Sub-domain 2 is the **Instagram extension** (`app.instagram_accounts` 1:1, settings, media; routes 12–14); 2.D removed. (4) P44: the product tables and folders of 3, 4 and 7 take the `instagram_` / `instagram-` prefix and their paths move under `/social/instagram/…`; path ids `{contact_id}`, `{automation_id}`, `{broadcast_id}`, `{segment_id}`, `{automation_backfill_id}` and reference columns (`contact_id`, `automation_id`) keep their short names. (5) P43: `meta_attachments` → `instagram_attachments`, `direct_message_month_counts` → `message_month_counts` (shared), features `message_month_limit`, `channel_accounts_max`. (6) P47: every `instagram_account_id` → `channel_account_id` (pointers → `app.channel_accounts`, filters, bodies — `stop_channel_account_id`, `keep_channel_account_ids`), job payloads `channelAccountPublicId`, reason `channel_account_not_found`, audit `app.channel_connection.*`, `app.channel_account.*`, `app.instagram_contact.*`, `app.instagram_automation.*`, `app.instagram_broadcast.*`, `app.instagram_segment.*`. (7) P45: webhook, queues and workers stay Instagram's; 5 adopts F3 and F5 (WH25, WH26). Permission codes unchanged (P47). Ids: MC kept (+ MC13–MC17: MC13 was IA16, MC14–MC16 were IA18–IA20), IAQ1 → MCQ3, IAQ2 → MCQ4; 1B's CA2–CA9 were IA1–IA5, IA9–IA11 (CA1, CA10 new; CA10 from IA7), CAC1–CAC4 were IAC1, IAC2, IAC4, IAC6 + IAC7; MCC8 took IAC9's ad part, MCC9 was IAC11; IA ids left in 2 keep their numbers. **Route numbers: none renumbered** — moved routes keep theirs; the three new routes take 40–42 (the gap after 39). Old → new: |
+
+M9's route table — numbers stay; what moved (rev 1 → rev 2, paths under `/api/v1/app`):
+
+| Route | Rev 1 path · sub-domain | Rev 2 path · sub-domain |
+| --- | --- | --- |
+| 1–5 | `social/meta/connect/start`, `…/connect/callback`, `social/meta/connections` (+ `{meta_connection_id}`, `…/accounts`) · 1 | `social/channel-connections/{provider}/start`, `…/{provider}/callback`, `social/channel-connections` (+ `{channel_connection_id}`, `…/accounts`) · 1 |
+| 6–11 | `social/instagram/accounts` (+ `{instagram_account_id}`, `pause`, `resume`, `activate`) · 2 | `social/channel-accounts` (+ `{channel_account_id}`, `pause`, `resume`, `activate`) · 1B |
+| 12–14 | `social/instagram/accounts/{instagram_account_id}/settings`, `media`, `stories` · 2 | `social/instagram/accounts/{channel_account_id}/settings`, `media`, `stories` · 2 |
+| 15 | `social/instagram/accounts/{instagram_account_id}/ads` · 2 | `social/channel-connections/{channel_connection_id}/ads` · 1 |
+| 16–17 | `social/instagram/deauthorize`, `social/instagram/data-deletion` · 2 | `social/channel-connections/{provider}/deauthorize`, `…/{provider}/data-deletion` · 1 |
+| 18–26 | `contacts…`, `social/instagram/accounts/{instagram_account_id}/contact-tags` · 3 | `social/instagram/contacts…`, `social/instagram/accounts/{channel_account_id}/contact-tags` · 3 |
+| 27–39 | `automations…` · 4 | `social/instagram/automations…` · 4 |
+| 63 | `social/instagram/accounts/{instagram_account_id}/sending-status` · 6 | `social/instagram/accounts/{channel_account_id}/sending-status` · 6 |
+| 70–82 | `broadcasts…`, `segments…` · 7 | `social/instagram/broadcasts…`, `social/instagram/segments…` · 7 |
+| 40, 41, 42 | — | **new**: `social/channel-connections/{channel_connection_id}/reconnect` (RC-113), `…/ad-accounts` (RC-114), `…/{channel_connection_id}` `GET` (RC-112) · 1 |
 
 ## Code layout and tables without routes
 
 Every app sub-domain is one folder, laid out like a domain; the domain's shared kernel stays at `src/domains/app/`
 (`app.routes.ts`, `app.container.ts`, `app.permissions.ts`, the app settings file with `APP_UNTESTED_META_FEATURES` — P4,
-owned by 6). Sub-domains 8–12 change the platform domains' own folders in place, with new migrations only (D48). A table with
-no routes of its own is a persistence part of its parent: schema and repository (and a service only when it holds logic) in
-the parent's folder, **no controller, no routes file**; the parent's service writes it.
+owned by 6). The common part (rev 2, P40–P47) is two sub-domains — `channel-connection/` (with the Meta adapter folder
+`channel-connection-meta/`, which holds the one Meta Graph client) and `channel-account/`; everything else is Instagram's:
+`instagram-account/`, `instagram-contact/`, `instagram-automation/`, `instagram-webhook/`, `instagram-sending/`,
+`instagram-broadcast/`, each table `app.instagram_*`, except the two shared counters `app.message_month_counts` and
+`app.sending_states` (P43). Sub-domains 8–12 change the platform domains' own folders in place, with new migrations only
+(D48). A table with no routes of its own is a persistence part of its parent: schema and repository (and a service only
+when it holds logic) in the parent's folder, **no controller, no routes file**; the parent's service writes it.
 
 | Sub-domain | Table | Lives in | Written by |
 | --- | --- | --- | --- |
-| 1 | `app.meta_connection_tokens` | `meta-connection/` (folder root) | the connection's token service — the callback (route 2; a reconnect replaces it); deleted when the connection is `revoked` (route 5, or 2's last account) |
-| 2 | `app.instagram_media` | `instagram-account/instagram-media/` | the media service only — intake's posts (5), "next post" links (4), the missed-comment watch; routes 13–15 read Meta live and never write it |
-| 3 | `app.contact_tag_events` | `contact/contact-tag-event/` | the tag change's commit (contact service, intake); its pick-up and retention workers |
-| 4 | `app.automation_counts`, `app.automation_reply_states` | `automation/` (folder root) | the run engine in the event's commit (AU19); the reply-state service, called back by 6 for the public-reply pacing |
-| 4 | `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs` | `automation/automation-run/` | the run engine (4.B), called by intake (5) |
+| 1 | `app.channel_connection_tokens` | `channel-connection/` (folder root) | the connection's token service — the callback (route 2; a reconnect replaces it); deleted when the connection is `revoked` (route 5, or 1B's last account) |
+| 2 | `app.instagram_accounts` | `instagram-account/` (folder root) | the extension service only — 1's pick, the profile refresh, the set-up job, the erasure; read inside 1B's routes |
+| 2 | `app.instagram_media` | `instagram-account/instagram-media/` | the media service only — intake's posts (5), "next post" links (4), the missed-comment watch; routes 13–14 read Meta live and never write it |
+| 3 | `app.instagram_contact_tag_events` | `instagram-contact/instagram-contact-tag-event/` | the tag change's commit (contact service, intake); its pick-up and retention workers |
+| 4 | `app.instagram_automation_counts`, `app.instagram_automation_reply_states` | `instagram-automation/` (folder root) | the run engine in the event's commit (AU19); the reply-state service, called back by 6 for the public-reply pacing |
+| 4 | `app.instagram_automation_runs`, `app.instagram_automation_run_events`, `app.instagram_automation_comment_logs` | `instagram-automation/instagram-automation-run/` | the run engine (4.B), called by intake (5) |
 | 5 | `app.instagram_webhook_event_keys` | `instagram-webhook/instagram-webhook-event/` | the store function (webhook, missed comments, past comments); the key clean-up |
-| 6 | `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.direct_message_month_counts`, `app.sending_states` | `instagram-sending/` (folder root) | the lanes, the claim, the repair duties; lanes created by 1's pick through `createLanesForAccount` |
+| 6 | `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.message_month_counts`, `app.sending_states` | `instagram-sending/` (folder root) | the lanes, the claim, the repair duties; lanes created by 1's pick through `createLanesForAccount` |
 | 6 | `app.instagram_send_attempts` | `instagram-sending/instagram-message/` | the claim and `saveSendResult` |
-| 6 | `app.meta_attachments` | `instagram-sending/meta-attachment/` | the attachment-upload task and the fast lane |
-| 7 | `app.broadcast_recipients` | `broadcast/broadcast-recipient/` | the audience task, intake (5), `saveSendResult` (6), the end duty, contact's erasure step |
+| 6 | `app.instagram_attachments` | `instagram-sending/instagram-attachment/` | the attachment-upload task and the fast lane |
+| 7 | `app.instagram_broadcast_recipients` | `instagram-broadcast/instagram-broadcast-recipient/` | the audience task, intake (5), `saveSendResult` (6), the end duty, contact's erasure step |
 | 8 | `billing.trial_accounts` | `billing/sub-domains/subscription/` (`trial-account.*`) | the subscription service (trial start); the trial port (1's pick during a trial) |
 | 10 | `auth.trusted_devices` | `auth/sub-domains/auth-trusted-device/` | the trusted-device service (route 126, sign-in, the early ends) |
 
@@ -144,29 +172,29 @@ The launch's K1–K10 carried forward; **rewritten** and **new** rules marked.
 
 | # | Rule |
 | --- | --- |
-| K1 | **Base and organization scope** (launch K1). App routes are under `/api/v1/app`, take the active organization from the token (no organization segment) and are team-only: on a personal organization a write answers `422` (`assertTeamOrganization`) and a read `404 team_organization_required`. Another organization's id → `404`, never `403`. Path ids `{<table singular>_id}` in `PARAM_NAME_TO_ENTITY`. Sub-domains 8–12 keep their domains' bases and as-built scope (`/tenancy/organization` singular, `/users/me`, `/auth/me`); team-only where their section says so (routes 105–106, 131). |
+| K1 | **Base and organization scope** (launch K1). App routes are under `/api/v1/app` — the common login and account routes under `/social/channel-connections` and `/social/channel-accounts`, Instagram's under `/social/instagram` (P47), `/usage` common — take the active organization from the token (no organization segment) and are team-only: on a personal organization a write answers `422` (`assertTeamOrganization`) and a read `404 team_organization_required`. Another organization's id → `404`, never `403`. Path ids `{<table singular>_id}` in `PARAM_NAME_TO_ENTITY`. Sub-domains 8–12 keep their domains' bases and as-built scope (`/tenancy/organization` singular, `/users/me`, `/auth/me`); team-only where their section says so (routes 105–106, 131). |
 | K2 | **Shape** (launch K2). Success `200` (`DELETE` → `204`) with `{ data, meta }`; keyset lists through `finishKeysetPage`; snake_case body keys; unknown fields → `400`; errors `{ error: { type, code, reason?, detail, errors[] } }` with stable reasons and i18n keys. **New**: the envelope gains `error.tries_left` and `error.retry_after_seconds` (AT3); `409 automation_not_ready` carries `errors[]` (AUQ1). Exceptions, each named in its sub-domain: Meta's and Stripe's own answer shapes; a failed provider signature is `400`; and — if ATQ2 is answered as recommended — the one method→status exemption, route 124 → `303`. |
-| K3 | **Idempotency — rewritten (MGQ2).** In the app, every signed-in `POST` that creates a row or starts background work requires `X-Idempotency-Key`; state actions (`go-live`, `pause`, `resume`) answer a repeat with the same state and take none; a `POST` that saves nothing (`keyword-test`, the login start's one-use Redis state) takes none; the PUBLIC Meta routes (16, 17, 60, 61) take none — Meta's own ids make them safe to repeat. Sub-domains 8–12 keep the as-built `idempotencyRequired` set (the `I` column of `docs/routes.txt`: 102, 103, 106, 111, 115, 117, 140); sign-in, step-up, `/users/me/*` and the provider webhooks take none. The launch's K3 said every signed-in `POST`. |
-| K4 | **Codes and roles — rewritten.** Ten app codes in `app.permissions.ts` — the launch's nine (launch IA2) and `contact:update` (CTC1): `instagram-account:read` · `:manage`, `instagram-webhook-event:read`, `automation:read` · `:create` · `:update` · `:delete`, `contact:read` · `:update` **(new, P20)** · `:delete`. Broadcasts and segments are gated by the `automation:*` codes (BC2); route 64 by the existing `organization:read`. Every team workspace holds four fixed roles — Owner, Admin, Editor (was Member), Viewer (new) — D55, sub-domain 9; custom roles are off (`TENANCY_CUSTOM_ROLES_ENABLED`, a code constant). |
+| K3 | **Idempotency — rewritten (MGQ2).** In the app, every signed-in `POST` that creates a row or starts background work requires `X-Idempotency-Key`; state actions (`go-live`, `pause`, `resume`) answer a repeat with the same state and take none; a `POST` that saves nothing (`keyword-test`, the login start's and the reconnect start's one-use Redis state — routes 1, 40) takes none; the PUBLIC Meta routes (16, 17, 60, 61) take none — Meta's own ids make them safe to repeat. Sub-domains 8–12 keep the as-built `idempotencyRequired` set (the `I` column of `docs/routes.txt`: 102, 103, 106, 111, 115, 117, 140); sign-in, step-up, `/users/me/*` and the provider webhooks take none. The launch's K3 said every signed-in `POST`. |
+| K4 | **Codes and roles — rewritten.** Ten app codes in `app.permissions.ts` — the launch's nine (launch IA2) and `contact:update` (CTC1): `instagram-account:read` · `:manage`, `instagram-webhook-event:read`, `automation:read` · `:create` · `:update` · `:delete`, `contact:read` · `:update` **(new, P20)** · `:delete`. The codes stay as they are in rev 2 (P47 — roles are product-wide): the `instagram-account:*` codes also gate the channel connection (1) and the channel account (1B). Broadcasts and segments are gated by the `automation:*` codes (BC2); route 64 by the existing `organization:read`. Every team workspace holds four fixed roles — Owner, Admin, Editor (was Member), Viewer (new) — D55, sub-domain 9; custom roles are off (`TENANCY_CUSTOM_ROLES_ENABLED`, a code constant). |
 | K5 | **Row-level security** (launch K5). Every table: `organization_id` → organizations `ON DELETE CASCADE`, RLS enabled and forced, an organization policy with `USING` and `WITH CHECK`. Lookups before the organization is known go through narrow `SECURITY DEFINER` resolvers that answer only an organization public id or a yes / no, then work in that organization's scope. **Named exceptions**: `billing.trial_accounts` outlives its workspace (`organization_id` nullable, `SET NULL` — D73; the resolver `billing.resolve_trialled_instagram_user_ids`, BL18); `app.sending_states` is one row with no organization, maintenance login only (P16); `auth.trusted_devices` has a user policy (AT17). |
 | K6 | **Who did it** (launch K6). `*_by_user_id` → users `ON DELETE SET NULL`; no membership pointers (table below). |
-| K7 | **Personal data** (launch K7). Contact email, phone, name, profile, note and message text are masked in logs and erased when the team erases the contact (3.A, CT11 — also her waiting messages, tag events and recipients); the Meta connection's token is encrypted and read only on the Instagram client's path (MC9). |
+| K7 | **Personal data** (launch K7). Contact email, phone, name, profile, note and message text are masked in logs and erased when the team erases the contact (3.A, CT11 — also her waiting messages, tag events and recipients); the channel connection's token is encrypted and read only on the Meta client's path (MC9). |
 | K8 | **Background work** (launch K8). Pull-based, in the worker registry, one job per organization (or account) where it touches tenant data (`organizationPublicId` in the payload), safe to repeat, never sends a message twice (D16, D17); only sub-domain 6 sends. |
-| K9 | **Audit** (launch K9). `<domain>.<resource>.<verb>` with the resource in snake_case: `app.meta_connection.connect`, `app.instagram_message.retry`, … |
-| K10 | **Outside calls — rewritten.** Meta's Graph API on `graph.facebook.com`, `META_GRAPH_VERSION = 'v27.0'` as a code constant (MC2), through the one client `src/infrastructure/social/instagram.client.ts` on the outbound pattern; the token only in `Authorization`, plus `appsecret_proof`; never inside a database context. Stripe through `stripe.client.ts` the same way, never inside a database context (8.10). |
-| K11 | **Plan entitlement — new.** Every plan decision reads sub-domain 8's `getPlanAccess` (state, typed features `direct_message_month_limit`, `instagram_accounts_max`, `is_pro_enabled`, `has_priority_support`, trial end — BL2, BL12); a PRO part refused on a plan without PRO → `403 plan_feature_required` (`assertPlanFeature`, 7 and 4); the plan ended → `403 organization_read_only` only where each section says (AU4, BC10); billing never reads app tables — it uses the app's ports (8.10). |
+| K9 | **Audit** (launch K9). `<domain>.<resource>.<verb>` with the resource in snake_case: `app.channel_connection.connect`, `app.channel_account.pause`, `app.instagram_automation.go_live`, `app.instagram_message.retry`, … |
+| K10 | **Outside calls — rewritten.** Meta's Graph API on `graph.facebook.com`, `META_GRAPH_VERSION = 'v27.0'` as a code constant (MC2), through the one client `meta-graph.client.ts` in sub-domain 1's adapter folder `app/sub-domains/channel-connection/channel-connection-meta/` (moved from `src/infrastructure/social/instagram.client.ts` in rev 2, MC2) on the outbound pattern, its circuit `metaGraphCircuit` checked per call (never a whole queue — WH25); the token only in `Authorization`, plus `appsecret_proof`; never inside a database context. Stripe through `stripe.client.ts` the same way, never inside a database context (8.10). |
+| K11 | **Plan entitlement — new.** Every plan decision reads sub-domain 8's `getPlanAccess` (state, typed features `message_month_limit`, `channel_accounts_max`, `is_pro_enabled`, `has_priority_support`, trial end — BL2, BL12); a PRO part refused on a plan without PRO → `403 plan_feature_required` (`assertPlanFeature`, 7 and 4); the plan ended → `403 organization_read_only` only where each section says (AU4, BC10); billing never reads app tables — it uses the app's ports (8.10). |
 | K12 | **Settings and switches — new.** Product switches are code constants (P4): `TENANCY_CUSTOM_ROLES_ENABLED`, `BILLING_SEAT_SYNC_ENABLED`, `APP_UNTESTED_META_FEATURES`; `BILLING_READ_ONLY_ENFORCED` stays an env var with its default flipped (BL4); the sending switch is the env var `SENDING_ENABLED` with `SENDING_ENVIRONMENT_ID` (SN7, SNQ2); `AUTH_PASSWORDS_ENABLED` does not exist (ATQ1). |
-| K13 | **Path params — new.** Non-entity params: `{provider}`, `{slug}` and — if BLQ2 is answered as recommended — `{payment_method_id}` (Stripe's `pm_…`). |
-| K14 | **Shared reasons — new.** One name each across sub-domains: `plan_feature_required` (403, PRO), `plan_account_limit` (409, 1 and 2), `instagram_account_not_found` (404), `direct_message_month_limit_reached` (409, 7), `trial_used_by_account` (409, 1 via 8), `team_organization_required` (404, now also route 131); `feature_not_offered` vs `instagram_feature_not_offered` as M2. Each new reason has its `errors:` key in `src/shared/locales/en/` and its row in `response-codes.md`. |
+| K13 | **Path params — new.** Non-entity params: `{provider}` (the auth providers, and `meta` on sub-domain 1's routes 1, 2, 16, 17), `{slug}` and — if BLQ2 is answered as recommended — `{payment_method_id}` (Stripe's `pm_…`). |
+| K14 | **Shared reasons — new.** One name each across sub-domains: `plan_feature_required` (403, PRO), `plan_account_limit` (409, 1 and 1B), `channel_account_not_found` (404, 1B, 2, 3, 6 — was `instagram_account_not_found`), `message_month_limit_reached` (409, 7), `trial_used_by_account` (409, 1 via 8), `team_organization_required` (404, now also route 131); `feature_not_offered` vs `instagram_feature_not_offered` as M2. Each new reason has its `errors:` key in `src/shared/locales/en/` and its row in `response-codes.md`. |
 
 Who-did-it pointers:
 
 | Sub-domain | Pointer | On delete | When the user is deleted |
 | --- | --- | --- | --- |
-| 1, 2 | `meta_connections.connected_by_user_id`, `instagram_accounts.connected_by_user_id`, `instagram_account_settings.updated_by_user_id` | `SET NULL` | the connection, account and settings stay; the pointer empties |
-| 3 | `contacts.automations_off_by_user_id` | `SET NULL` | the pause stays; the pointer empties |
-| 4 | `automations.created_by_user_id`, `updated_by_user_id`, `automation_backfills.requested_by_user_id` | `SET NULL` | the automation and its read stay; the pointer empties |
-| 7 | `broadcasts.created_by_user_id`, `updated_by_user_id` (and segments) | `SET NULL` | the broadcast stays; the pointer empties |
+| 1, 1B, 2 | `channel_connections.connected_by_user_id`, `channel_accounts.connected_by_user_id`, `channel_accounts.paused_by_user_id`, `instagram_account_settings.updated_by_user_id` | `SET NULL` | the connection, account, pause and settings stay; the pointer empties |
+| 3 | `instagram_contacts.automations_off_by_user_id` | `SET NULL` | the pause stays; the pointer empties |
+| 4 | `instagram_automations.created_by_user_id`, `updated_by_user_id`, `instagram_automation_backfills.requested_by_user_id` | `SET NULL` | the automation and its read stay; the pointer empties |
+| 7 | `instagram_broadcasts.created_by_user_id`, `updated_by_user_id` (and segments) | `SET NULL` | the broadcast stays; the pointer empties |
 | 5, 6, 8–12 | no new membership or user pointer (platform tables keep their as-built pointers) | — | — |
 
 ## How the sub-domains call each other
@@ -175,25 +203,27 @@ Always through the owner's service or a wired port, never its repository. Names 
 
 | Caller | Owner | What it calls |
 | --- | --- | --- |
-| 1 | 2 | create or reuse account rows and their settings at the pick; reconnect and break accounts; the profile refresh (P17); disconnect each account (route 5) |
-| 1, 2 | 6 | `createLanesForAccount`; pause, resume, stop (`plan_downgrade`, login), clear login stops, wake |
+| 1 | 1B, 2 | create or reuse channel accounts (1B) and their Instagram extension and settings rows (2) at the pick; reconnect and break accounts (1B); the profile refresh (2, P17); disconnect each account (1B, route 5); the callbacks' disconnect (1B) and Instagram erasure (2) |
+| 1, 1B | 6 | `createLanesForAccount`; wake, stop (login), clear login stops; the lane turn reads 1B's pause, suspend and plan stop (CA3) |
 | 1 (pick) | 8 (trial port) | `assertInstagramAccountsMayJoinTrial` → `409 trial_used_by_account`; `recordTrialAccounts` in the pick's commit |
-| 1, 2, 4, 6, 7 | 8 | `getPlanAccess` — `instagram_accounts_max`, PRO features, `direct_message_month_limit`, plan state, trial end |
-| 2 | 1 | `markConnectionBroken`, the connection's token, delete the token with the last account |
+| 1, 1B, 2, 4, 6, 7 | 8 | `getPlanAccess` — `channel_accounts_max`, PRO features, `message_month_limit`, plan state, trial end |
+| 1B, 2 | 1 | `markConnectionBroken`, the connection's token, delete the token with the last account; the Meta client (MC2) |
+| 1B | 2 | the account's Instagram part (read for routes 6–7; the disconnect's unsubscribe and starter-question removal) |
+| 2 | 1B | the account's status and the automation switch (route 12 writes the switch, IA12) |
 | 2 | 5 | the missed-comment look after a webhook field was off (WC-26) |
 | 3 | 4, 6 | the erase and pause steps (registered in `app.container.ts`); the run-event and message readers for "What happened"; 6's summary query and retry service (routes 25–26, WC-42) |
-| 4 | 2 | media, the starter-question sync, the account row lock at go-live |
+| 4 | 1B, 2 | the account state and its row lock at go-live (1B); media, the starter-question sync (2) |
 | 4 | 3 | `recordContactFirstRun`, `addContactTags` (+ tag events), `lockLiveContact`, `findContactSendState` |
 | 4 | 6 | message rows (never sends), the month count at go-live, the untested-feature list, cancel or skip waiting rows; the summary query and retry service (routes 36–37, WC-42) |
 | 4 (past comments) | 5 | the store function (events with `comment:` keys, low priority) |
-| 5 | 2, 3, 4 | account state and settings per event; `recordContactInteraction`, the profile save, the tag events' rows; the run engine's match, once keys and the P35 replacement (WH13, WH14) |
+| 5 | 1, 1B, 2, 3, 4 | the Meta signature check (1's adapter); account state and the automation switch (1B); the Instagram user id, settings and posts (2); `recordContactInteraction`, the profile save, the tag events' rows; the run engine's match, once keys and the P35 replacement (WH13, WH14) |
 | 5 | 6 | `InstagramMessageService` — `waiting` rows, lane moves, cancel (P35 `replaced`), `findOwnSentMessageIds` (WHQ1), a tap's `unknown` → `sent` through `saveSendResult`; lane wake after commit |
-| 5 | 7 | `BroadcastService.handleChatOpened`, recipients' `replied_at` and taps |
-| 6 | 1, 3, 4, 7 | the token; `recordContactOpeningMessage`; `recordMessageResult` and the reply-state service; the broadcast lane reads broadcasts and recipients through `BroadcastRecipientService` |
+| 5 | 7 | `InstagramBroadcastService.handleChatOpened`, recipients' `replied_at` and taps |
+| 6 | 1, 1B, 3, 4, 7 | the Meta client and the token (1); the account's pause, suspend and plan stop (1B); `recordContactOpeningMessage`; `recordMessageResult` and the reply-state service; the broadcast lane reads broadcasts and recipients through `InstagramBroadcastRecipientService` |
 | 6 | 9, 12 | the organization's `status` (`SUSPENDED` stops sending, TN5); `findUsableMessageFile` (attachment task) |
 | 7 | 6 | `InstagramMessageService` (recipients' first messages; cancel a broadcast's waiting messages); the month count (route 75) |
-| 8 | 6 | `PLAN_STATE_CHANGED` → the app's handler enqueues WC-38 (`plan_downgrade`, `plan_ended`, PRO off, broadcasts cancelled) |
-| 8 | 2 (accounts port) | `listActiveInstagramAccounts`, `countConnectedInstagramAccounts` (route 108) |
+| 8 | 6 | `PLAN_STATE_CHANGED` → the app's handler enqueues WC-38 (the accounts' plan stop on 1B, `plan_ended`, PRO off, broadcasts cancelled) |
+| 8 | 1B (accounts port) | `listActiveChannelAccounts`, `countConnectedChannelAccounts` (route 108) |
 | 3–9 (events) | 11 | `createAndDispatchNotification` with a `dedupe_key` (UNQ2); `noteContactDetailsLeft` |
 | 11 | app (three ports) | the chooser's counts (`app.list_organization_counts_for_user`), `readWeeklySummary`, `countContactsWithDetailsLeft` |
 | 4 | 12 | `findUsableMessageFile` (go-live check) |
@@ -204,93 +234,117 @@ Always through the owner's service or a wired port, never its repository. Names 
 1) WHO POINTS AT WHOM                         A ──► B = a column on A points at B
 
    tenancy.organizations ◄── every app table (K5) · billing.subscriptions · billing.trial_accounts (SET NULL, D73)
-   auth.users ◄───────────── connected_by, updated_by, created_by, requested_by, automations_off_by (K6)
+   auth.users ◄───────────── connected_by, paused_by, updated_by, created_by, requested_by, automations_off_by (K6)
                              auth_methods · webauthn_credentials · trusted_devices (new) · sessions · user_settings
 
-   1 META CONNECTION ──< token (1:1)
-      └──< 2 INSTAGRAM ACCOUNTS ──< settings (1:1) · stored posts
-             ├──< 3 CONTACTS ──< tag events
-             ├──< 4 AUTOMATIONS ──< counts · reply state · backfills
+   1 CHANNEL CONNECTION ──< token (1:1)                      ad accounts, ads: read live from Meta (MC13)
+      └──< 1B CHANNEL ACCOUNTS ──── 2 INSTAGRAM ACCOUNT (1:1) ──< settings (1:1) · stored posts
+             ├──< 3 INSTAGRAM CONTACTS ──< tag events
+             ├──< 4 INSTAGRAM AUTOMATIONS ──< counts · reply state · backfills
              │      └──< automation runs ──< run events · comment logs        runs ──► 3 contacts
              ├──< 6 lanes · stops · minute counts · attachments ┄┄ upload (12)
              │      └──< INSTAGRAM MESSAGES ──► 4 runs | 7 broadcasts (exactly one) ──< send attempts
-             ├──< 7 BROADCASTS ──< recipients ──► 3 contacts;  SEGMENTS ◄── broadcasts
+             ├──< 7 INSTAGRAM BROADCASTS ──< recipients ──► 3 contacts;  SEGMENTS ◄── broadcasts
              └──< 5 webhook events · event keys          (no key into 1–4, 6; matched by value)
+   tenancy.organizations ──< 6 message month counts (shared, every channel) · sending states (one row, no organization)
    8 plans ◄── subscriptions (plan, scheduled plan) · trial accounts ┄┄ Instagram user ids (no key into the app)
    9 roles ──< role permissions >── permissions (+ contact:update) · memberships ──< invitations
 
 2) THE GRAPH — each row points at the columns marked ●  (○ = writes there through its service; ◇ = reads through a port)
 
-                        Orgs  Users  1    2    3    4    5    6    7    8    12
-   1  Meta connection   ●     ●           ○                   ○         ◇
-   2  Instagram account ●     ●      ●                        ○         ◇
-   3  Contacts          ●     ●           ●         ●         ○
-   4  Automations       ●     ●           ●    ●○             ○         ◇    ◇
-   5  Instagram webhook ●                 ●    ○    ○         ○    ○
-   6  Instagram sending ●                 ●         ●              ●○   ◇    ◇
-   7  Broadcasts        ●     ●           ●    ●              ○         ◇
-   8  Billing           ●     ●           ◇
-   11 User and notify         ●      ◇ app counts, weekly summary, contact notes
+                          Orgs  Users  1    1B   2    3    4    5    6    7    8    12
+   1  Channel connection  ●     ●           ○    ○                   ○         ◇
+   1B Channel account     ●     ●      ●         ◇                   ○         ◇
+   2  Instagram account   ●     ●      ◇    ●                   ○              ◇
+   3  Instagram contacts  ●     ●           ●    ◇         ●         ○
+   4  Instagram autom.    ●     ●           ●    ◇    ●○             ○         ◇    ◇
+   5  Instagram webhook   ●            ◇    ●    ◇    ○    ○         ○    ○
+   6  Instagram sending   ●            ◇    ●    ◇         ●              ●○   ◇    ◇
+   7  Instagram broadc.   ●     ●           ●         ●    ●         ○         ◇
+   8  Billing             ●     ●           ◇
+   11 User and notify           ●      ◇ app counts, weekly summary, contact notes
 
 3) WHAT ONE ACTION SETS OFF (same transaction unless marked worker)
 
-   2 Meta callback ───────► connection + token in one commit; a reconnect re-attaches accounts (MC6) → the picker
-   3 pick accounts ───────► account rows + settings (2) · four lanes (6) · trial rows during a trial (8) · set-up job  [worker]
-   5 disconnect business ─► each account disconnected (2) · its lanes stopped (6) · the token deleted
-   16 / 17 Meta callbacks ► deauthorize · data deletion (2.D)
+   2 provider callback ───► connection + token in one commit; a reconnect re-attaches accounts (MC6) → the picker
+   40 reconnect ──────────► a one-use state bound to the connection → the login → route 2 (MC17)
+   3 pick accounts ───────► channel accounts (1B) + Instagram rows and settings (2) · four lanes (6) · trial rows during
+                            a trial (8) · set-up job                                                            [worker]
+   5 disconnect business ─► each account disconnected (1B) · its lanes stopped (6) · the token deleted
+   16 / 17 Meta callbacks ► deauthorize · data deletion (1, MC14–MC16)
    61 event received ─────► stored once (event keys), answered 200 → intake by kind                                 [worker]
                             → 3 contact first → 4 run engine → 6 `waiting` messages → a lane sends                  [worker]
    23 erase a contact ────► 4 comment-log copies erased · her waiting messages cancelled (6) · tag events gone (CT11)
    32 go live ────────────► the full check (AU13) · the starter questions synced after commit
    26 / 37 retry failed ──► the `retry-failed` job (6) puts the allowed ones back to `waiting`, each once          [worker]
    75 send a broadcast ───► the audience task builds recipients (WC-40) → the broadcast lane sends                   [worker]
-   8 plan state changes ──► PLAN_STATE_CHANGED → WC-38: `plan_downgrade` stops, PRO off, broadcasts cancelled         [worker]
+   8 plan state changes ──► PLAN_STATE_CHANGED → WC-38: accounts' plan stop (1B), PRO off, broadcasts cancelled     [worker]
    every minute ──────────► the sending repair (never sends) (6)                                                    [worker]
-   daily / hourly ────────► the token check (WC-34) · clean-ups · the weekly summary sweep (11)                      [worker]
+   daily / hourly ────────► the connection's token check (WC-34) · clean-ups · the weekly summary sweep (11)        [worker]
 ```
 
 ---
 
-## 1. Meta connection — rev 1 (2026-11-23) — no nested sub-domains; awaiting your OK
+## 1. Channel connection — rev 2 (2026-11-23) — no nested sub-domains (one nested adapter folder); awaiting your OK
 
-**Status: rev 1 — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: rev 2 (2026-11-23) — awaiting your OK** (one-pass review, [P31](decisions.md); the channel split, [P40–P47](decisions.md)).
 
-Code: the **`meta-connection` sub-domain folder** — `app/sub-domains/meta-connection/` (**new**, [P38](decisions.md)), the
-connection and its token at the folder root; no nested sub-domains.
+Code: the **`channel-connection` sub-domain folder** — `app/sub-domains/channel-connection/` (**new**, [P41](decisions.md)),
+the connection and its token at the folder root, and one nested folder **`channel-connection-meta/`** — the Meta provider
+adapter (the Graph client, its error map, the login calls, the two signature checks); it has no table and no route of its
+own, so it is not a nested sub-domain with sections (1.12).
 
 1.1 Decisions (whole sub-domain) · 1.2 Open questions · 1.3 Tables and relations · 1.4 Permissions · 1.5 Common to every route ·
 1.6 Objects returned · 1.7 Routes · 1.8 Request details · 1.9 Errors · 1.10 Rules worth knowing · 1.11 Code changes (whole sub-domain) ·
-1.12 Nested sub-domains (none).
+1.12 Nested sub-domains (none; one adapter folder).
 
-One Meta login (Unified Login, D24) of a workspace for one business portfolio: start the login, finish it (and reconnect —
-the same call), pick which of its Instagram accounts to connect under the plan's account limit (D25, D26), list the
-connections, and "Disconnect business". It owns the only token path from now on: one system-user token per connection,
-which never expires by default and is checked once a day (WC-34). The launch's Instagram Login (connect route, 60-day
-token, daily renewal, `app.instagram_account_tokens`) goes (RC-6, D24). Design read: plan §25 (plan:L4482–L4705),
-§19.10–19.11 (plan:L3517–L3574), §36 env (plan:L6531–L6535, L6808–L6812); `db-changes.md` › meta_connection,
-meta_connection_token, instagram_account_token; `route-changes.md` RC-1–RC-6; `worker-changes.md` WC-30, WC-34, WC-35, WC-46.
-Builds on: organizations, users, billing plans (sub-domain 8 — the `instagram_accounts_max` read), and sub-domain 2 for
-the account rows the pick writes (2 points at 1; 1's pick route writes 2 through 2's service). Route numbers run 1–5.
+One provider login of a workspace for one business: for Meta, **Unified Login** (D24) — one connection per business
+portfolio for Instagram, Facebook and ads, holding the granted scopes and its assets (Instagram accounts now; Facebook Pages
+and ad accounts through the same login later — D27, P41). This sub-domain starts the login, finishes it, starts a reconnect,
+picks which of its accounts to connect under the plan's account limit (D25, D26 — the account rows are sub-domain 1B's), lists
+the connections, "Disconnect business", reads the connection's ad accounts and ads (the ad picker, D41), and answers Meta's
+deauthorize and data-deletion callbacks (P46 — they are Meta-wide). It owns the only token path: one system-user token per
+connection, which never expires by default and is checked once a day by the connection's own scheduled job (WC-34, P47). The
+launch's Instagram Login (connect route, 60-day token, daily renewal, `app.instagram_account_tokens`) goes (RC-6, D24).
+Design read: plan §25 (plan:L4482–L4705), §19.10–19.11 (plan:L3517–L3574), §36 env (plan:L6531–L6535, L6808–L6812), the ad
+picker (plan:L876–L880); `db-changes.md` › channel_connection, channel_connection_token, instagram_account_token;
+`route-changes.md` RC-1–RC-6, RC-15, RC-17, RC-18, RC-112–RC-114; `worker-changes.md` WC-30, WC-34, WC-35, WC-46. Builds on:
+organizations, users, billing plans (sub-domain 8 — the `channel_accounts_max` read), sub-domain 1B for the account rows the
+pick writes and sub-domain 2 for their Instagram extension rows (1B and 2 point at 1; 1's pick writes them through their
+services). Route numbers: 1–5, 15–17, 40–42 (M9).
 
 ### 1.1 Decisions (whole sub-domain)
 
 Taken on your standing answer "go with the recommendation" — change any of them before you confirm. The launch's
-review is the "before" ([launch routes-final § 1](../../launch-2026-11-20-ujai/plans/routes-final.md)).
+review is the "before" ([launch routes-final § 1](../../launch-2026-11-20-ujai/plans/routes-final.md)). The ids stay MC… (the
+sub-domain was "Meta connection" in rev 1); MC13–MC16 came from rev 1's 2.C and 2.D.
+
+**rev 2 changes** (P40–P47, M9): renamed Meta connection → **Channel connection** (`channel-connection/`,
+`app.channel_connections`, `app.channel_connection_tokens`, `provider` = `meta`); paths under `/social/channel-connections/…`
+with `{provider}` (start, callback, Meta's callbacks) and `{channel_connection_id}` (pick, reconnect, disconnect, ads); a reconnect route (40, MC17) and a one-connection read (42, MC8); the ad picker moved here (routes 41 and 15, MC13); Meta's deauthorize and data deletion moved
+here (routes 16–17, MC14–MC16); the Meta client and adapter in `channel-connection-meta/` (MC2); the pick writes channel
+accounts (1B) and their Instagram extension (2) under `channel_accounts_max` (MC7); questions IAQ1 → MCQ3, IAQ2 → MCQ4, new
+MCQ5.
 
 | # | Decision |
 | --- | --- |
-| MC1 | **Folder, names, ids.** Today: no Meta login; the Instagram Login lives in `instagram-account/` (`connect`, the token schema / repository / service at its root, `INSTAGRAM_APP_*` env). After: a new sibling sub-domain `app/sub-domains/meta-connection/` (P38) with `meta-connection.{routes,controller,service,repository,schema,dto,validator,serializer,types,constants}.ts` and the token as a persistence part at the same root (`meta-connection-token.{schema,repository,service}.ts`, no controller, no routes — the launch's IA1 pattern). Tables `app.meta_connections`, `app.meta_connection_tokens` (P38). Public-id entity `metaConnection` (prefix chosen at kickoff, P22); path param `{meta_connection_id}` in `PARAM_NAME_TO_ENTITY` (route-changes finding 12). Paths under `/api/v1/app/social/meta/…` beside `social/instagram` (route-changes finding 9 — the plan's `/app/meta/…` gets the launch's `social/` segment). OpenAPI tag `Meta connection`. Other option: keep the login inside `instagram-account/` as a nested `instagram-account-meta-connection/` — but a connection owns accounts, not the other way round. |
-| MC2 | **The one Instagram client, moved to Unified Login (launch IA4 → after).** Today: `src/infrastructure/social/instagram.client.ts` speaks `api.instagram.com` / `graph.instagram.com` `v24.0`, puts the token in the query for the two exchanges and the renewal, and is the only caller of Instagram (outbound pattern, `instagramCircuit`, nock contract tests). After: the **same file** stays the only caller (reuse rule — no second client side by side), rebased on `graph.facebook.com`: the Instagram Login exchanges, renewal and `/me` go; it gains the Unified Login code exchange (`/oauth/access_token`, the app secret in the query, so that URL is redacted), `GET /me?fields=client_business_id`, `GET /me/assigned_instagram_accounts?fields=id,username`, the granted-permission read (plan:L4577 — which call shows a system-user token's permissions is a Meta test, §43) and `DELETE /{instagram_user_id}/subscribed_apps`; every call with a customer token sends it only in `Authorization` and adds `appsecret_proof` (plan:L7183–L7194, SE.M.14). The Graph version is a **code constant** `META_GRAPH_VERSION = 'v27.0'` beside `STRIPE_API_VERSION` — it does not vary by environment, so P4 keeps it out of env. The error map (`instagram-error.util.ts`) keeps its four classes; auth (190) now breaks the **connection** (MC7). Other option: the plan's env var `META_GRAPH_VERSION` (plan:L6531). |
+| MC1 | **Folder, names, ids (P41, P47).** Today: no provider login; the Instagram Login lives in `instagram-account/` (`connect`, the token schema / repository / service at its root, `INSTAGRAM_APP_*` env). After: a new sub-domain `app/sub-domains/channel-connection/` with `channel-connection.{routes,controller,service,repository,schema,dto,validator,serializer,types,constants}.ts` and the token as a persistence part at the same root (`channel-connection-token.{schema,repository,service}.ts`, no controller, no routes — the launch's IA1 pattern). Tables `app.channel_connections` (column `provider`, `meta` the only value this iteration) and `app.channel_connection_tokens` — they supersede the rev 1 `app.meta_connections` and `app.meta_connection_tokens` (P41). Public-id entity `channelConnection` (prefix chosen at kickoff, P22); path param `{channel_connection_id}` in `PARAM_NAME_TO_ENTITY`; `{provider}` is the existing non-entity param (K13), its one value `meta`. Paths under `/api/v1/app/social/channel-connections/…` (P47). OpenAPI tag `Channel connection`. Other option: rev 1's Meta-only `meta-connection/` — a later Facebook or WhatsApp login would need a second copy. |
+| MC2 | **The one Meta client, in the connection's adapter folder (launch IA4 → after).** Today: `src/infrastructure/social/instagram.client.ts` speaks `api.instagram.com` / `graph.instagram.com` `v24.0`, puts the token in the query for the two exchanges and the renewal, and is the only caller of Instagram (outbound pattern, `instagramCircuit`, nock contract tests). After: the **same client, moved** (reuse rule — moved, never copied) to the nested adapter folder `app/sub-domains/channel-connection/channel-connection-meta/` as `meta-graph.client.ts`, beside `meta-graph-error.util.ts` (was `instagram-error.util.ts`), `meta-login.ts` (login address, code exchange) and `meta-signature.ts` (the `signed_request` check of routes 16–17 and the `X-Hub-Signature-256` check sub-domain 5's receiver imports); rebased on `graph.facebook.com`: the Instagram Login exchanges, renewal and `/me` go; it gains the Unified Login code exchange (`/oauth/access_token`, the app secret in the query, so that URL is redacted), `GET /me?fields=client_business_id`, `GET /me/assigned_instagram_accounts?fields=id,username`, the granted-permission read (plan:L4577 — which call shows a system-user token's permissions is a Meta test, §43), `GET /me/adaccounts` and an ad account's ads (MC13), and `DELETE /{instagram_user_id}/subscribed_apps`; every call with a customer token sends it only in `Authorization` and adds `appsecret_proof` (plan:L7183–L7194, SE.M.14). The circuit becomes `metaGraphCircuit` — one per provider; only provider calls check it, never a whole queue (P47 F3, sub-domain 5). The Graph version is a **code constant** `META_GRAPH_VERSION = 'v27.0'` beside `STRIPE_API_VERSION` — it does not vary by environment, so P4 keeps it out of env. The error map keeps its four classes; auth (190) now breaks the **connection** (MC11). Sub-domains 2, 5 and 6 call Meta only through this folder. Other option: keep the client in `src/infrastructure/social/` — the adapter would then be split across two trees. |
 | MC3 | **Settings (env) — the Meta app, not the Instagram app (D24, P4).** Today: `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_REDIRECT_URI`, `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (env-schema `INSTAGRAM_VARS`); unset → `503 instagram_not_configured`; the secret needs 32 characters when set (launch D53). After: `META_APP_ID`, `META_APP_SECRET` (code exchange, `appsecret_proof`, the webhook signature and Meta's callbacks — one secret), `META_CONFIG_ID`, `META_REDIRECT_URI` (the frontend's return page), `META_WEBHOOK_VERIFY_TOKEN` (renamed; sub-domain 5 reads it) — the four `INSTAGRAM_*` leave in the same change (be-env-schema-add; `.env.example`, `harness-provider-env.ts`, the external-credentials fill, GitHub Environments). Unset → the same `503 instagram_not_configured` (the frontend already branches on it; the reason names the product, not the vendor). Login-state time `CONNECT_STATE_MINUTES` 10 and `PROFILE_READ_TIMEOUT_MILLISECONDS` 3000 are constants in the app domain's settings file (P4, P6: `_MILLISECONDS`). |
-| MC4 | **Start (route 1) — a one-use login state in Redis (P26).** Today: Instagram Login has no server state (launch IQ6: the frontend checks `state`); the OAuth sign-in keeps a one-use Redis state (`oauth-state.ts`: `randomBytes` → `SET … EX`, `GETDEL` on use). After: route 1 mints `state` (32 random bytes, base64url), stores `{ organization_public_id, user_public_id }` under a one-use key for 10 minutes, and answers the Meta login address `https://www.facebook.com/dialog/oauth?client_id&config_id&redirect_uri&response_type=code&state&prompt=login` (always asks her to log in again). The set / one-use read core of `oauth-state.ts` is lifted into one shared helper both call (reuse rule — never two copies); the key stays in Redis only — short-lived login state, nothing is lost if it goes (P26). No body, no `X-Idempotency-Key` (a repeat mints another harmless state). Other option: a Postgres row per login attempt. |
-| MC5 | **Callback (route 2) — the code, then one commit, then the picker; reconnect is the same call.** Today: the launch's `POST …/instagram/connect` exchanges a code and commits account + token + settings at once (launch IA12). After, in order (plan:L4570–L4578): (1) read-and-delete the state — missing, used, older than 10 minutes, another user's or another workspace's → `400 meta_connect_state_invalid`, nothing saved; (2) exchange the code on the server — refused → `422 meta_code_invalid`; Meta down before the exchange → `503 instagram_unavailable` with `Retry-After`; Meta failing after the one-time code was spent → `409 instagram_connect_restart_required` (launch D56, kept); (3) read `client_business_id` and the assigned Instagram accounts; (4) a missing required permission (`instagram_basic`, `instagram_manage_messages`, `instagram_manage_comments`) → `422 meta_permissions_missing`, nothing saved — `ads_read` is optional (route 15); (5) **one commit** in the caller's scope: insert or update the `(organization_id, client_business_id)` connection row (`connected`, `config_id`, `scopes`, `connected_by_user_id`, `connected_at`, `status_changed_at`, `last_checked_at` = now; clears `disconnected_at`), write the encrypted token (`system_user`, `expires_at` empty), and **reconnect** (plan:L4674–L4681, MC6); (6) after commit: the audit entry, one account-set-up job (WC-30) per reconnected account, and their lanes woken (sub-domain 6). Answers the picker (1.6). `X-Idempotency-Key` required: the state is one-use, so a network retry without a replay would answer `400`; the frontend uses `meta-connect:<state>` as the key. |
-| MC6 | **What a reconnect touches (plan:L4674–L4681).** In MC5's commit: every **not-revoked** account row of this workspace whose `instagram_user_id` is in the new assigned list is attached to this connection (`meta_connection_id` — an account that moved to this portfolio moves its row) and goes `error → connected`; its login stops end (`stop_cleared_at`, through sub-domain 6's lane service). Only an account whose Instagram id equals the row's ever takes the row (plan:L2622). A `revoked` row is not reconnected here — the owner picks it (route 3, its settings come back). A connection left with no not-revoked account by a move goes `revoked` and its token is deleted in the same commit (nothing uses it). Other option: attach moved accounts only when the owner picks them again (one more step for the owner, MCQ1). |
-| MC7 | **Pick accounts (route 3) — the plan limit under the workspace lock (D25, D26, plan:L4590–L4604).** Before the transaction: re-read the connection's assigned accounts with its token (a pick not in the list → that pick `not_assigned`; Meta down → `503 instagram_unavailable`) and one profile read per pick (3 s each, fails open — the username is enough). One commit: `pg_advisory_xact_lock` on the organization id first (two first connects of one workspace have no row to lock yet, plan:L3553); count the workspace's not-revoked accounts — that plus the new picks over the plan's `instagram_accounts_max` (billing, sub-domain 8) → `409 plan_account_limit`, nothing saved; each pick → a new account row or the workspace's own old row of that Instagram account back (a revoked row — its settings return), `meta_connection_id` set, `connected`, `connected_at` = now (the new-account limit); a pick live in **another** workspace → that pick `connected_elsewhere` (`idx_instagram_accounts_instagram_user_live`), the others still connect; a pick already connected here → `already_connected`, unchanged; for a new row its settings row (every owner value empty) and its four lanes (`slow`, `reply`, `fast`, `broadcast`, `ready` — sub-domain 6's service). After commit: one account-set-up job per connected pick (WC-30) and `app.instagram_account.connect` per account. Answers one result per pick. During a trial (`TRIALING`), the picks go through billing's trial port first (sub-domain 8 — 8.B, BL14, BL18): an Instagram account that already had a trial in any workspace → `409 trial_used_by_account`, nothing saved; the pick's commit records its `billing.trial_accounts` rows (`recordTrialAccounts`). A connection not `connected` → `409 meta_connection_not_connected`. Today: one not-revoked account per organization (launch D5) → many, up to the plan. |
-| MC8 | **List (route 4) and "Disconnect business" (route 5).** Route 4: the workspace's connections for the connections screen — business id, status, granted permissions, who connected and when, the last daily check and its error codes (never Meta's text), and its accounts (`id`, `username`, `connection_status`); revoked ones only with `include_revoked=true`; never a token; no paging (a workspace has a handful). Route 5 (plan:L4683–L4693, L2623): before the transaction, per account of the connection, the best-effort starter-question removal and unsubscribe (logged, never blocks); one commit, lock order of plan §35: each not-revoked account as route 8 (sub-domain 2, through its service), then the connection `revoked`, `disconnected_at`, its token deleted; after commit the accounts' Redis keys deleted and the audit entries. Automations, contacts and history stay; waiting messages stay and expire by the 7-day rule. Answers `204`. A revoked connection → `404 meta_connection_not_found` (a repeat). |
-| MC9 | **Token isolation (launch IA5–IA7, moved here).** Today: the token lives in `app.instagram_account_tokens`, read only by its repository through the token service and the daily check, decrypted only inside the Instagram client, pinned by `instagram-account-token-isolation.policy.unit.test.ts`; its RLS has no maintenance arm. After, unchanged in kind, moved to the connection: (1) only `encrypted_access_token` is stored; (2) the plain token exists only inside the client — it takes the ciphertext, decrypts right before the call, returns new tokens already encrypted; (3) only `meta-connection-token.repository.ts` reads `app.meta_connection_tokens`, used only by the token service, the sender (sub-domain 6, right before a call) and the token check — the policy test is renamed `meta-connection-token-isolation.policy.unit.test.ts` and lists exactly these files; (4) its policy has the organization arm only — no sweep reads a token; (5) never in Redis, a log, a job payload or an idempotency replay (`encrypted_access_token` stays in the secret-field lists). The secrets-key rotation re-encrypts this table instead of the old one (launch D37). |
-| MC10 | **The daily token check (WC-34, replaces the launch's daily account check, P17).** Today: once a day at 04:00 UTC per account — renew within 7 days of the end, refresh the profile, retry the subscription (`instagram-account-daily-check`). After: per **connection** every 24 h, spread by connection: an hourly sweep (maintenance scope, `idx_meta_connections_check_due`) hands one job per due connection to a provider-pausable worker on the `instagram-tasks` queue (D3), payload `organizationPublicId` + `metaConnectionPublicId`. The job, inside its organization: `GET /me/assigned_instagram_accounts`; OK → `last_checked_at`, `last_check_error` cleared, each connected account's profile refreshed (P17, through sub-domain 2), a connected account missing from the list → that account `error`, its lanes stopped (no end), its reconnect notice; 190 or another "token not valid" → MC11; Meta down or "too fast" → try again later, nothing changes. No renewal (WC-35 removed); the subscription check moves to WC-25 (sub-domain 2). |
-| MC11 | **A broken token breaks every account of its connection (plan:L4648–L4658, §33.1).** Today: the account service's guarded `markConnectionBroken` moves one account `connected → expired \| error` and only the winner enqueues the reconnect notice (launch IA9). After: `MetaConnectionService.markConnectionBroken` — one guarded change `connected → error` on the connection (`status_changed_at`, `last_check_error` codes only) and, in the same commit, every `connected` account of it → `error` and all their lanes stopped (login, no end — sub-domain 6); the winner enqueues one reconnect notice per account after commit (WC-46, the existing worker in sub-domain 2). Called by the token check and by any send or read that gets 190 (sub-domains 2, 6). `expired` is gone (the token never ends). |
-| MC12 | **Audit (launch K9 form).** `app.meta_connection.connect` (WARNING, `metadata.is_reconnect`, `reconnected_account_count`), `app.meta_connection.disconnect` (WARNING, `disconnected_account_count`), and per picked account `app.instagram_account.connect` (WARNING) — all after commit. Failed connects log the support record of plan:L4590 (app id, `config_id`, the step that failed, Meta's code, subcode, trace id) — never a token or the app secret. |
+| MC4 | **Start (route 1) — a one-use login state in Redis (P26).** Today: Instagram Login has no server state (launch IQ6: the frontend checks `state`); the OAuth sign-in keeps a one-use Redis state (`oauth-state.ts`: `randomBytes` → `SET … EX`, `GETDEL` on use). After: route 1 (`{provider}` = `meta`) mints `state` (32 random bytes, base64url), stores `{ provider, organization_public_id, user_public_id, channel_connection_public_id: null }` under a one-use key for 10 minutes, and answers the Meta login address `https://www.facebook.com/dialog/oauth?client_id&config_id&redirect_uri&response_type=code&state&prompt=login` (always asks her to log in again). The set / one-use read core of `oauth-state.ts` is lifted into one shared helper both call (reuse rule — never two copies); the key stays in Redis only — short-lived login state, nothing is lost if it goes (P26). No body, no `X-Idempotency-Key` (a repeat mints another harmless state). Other option: a Postgres row per login attempt. |
+| MC5 | **Callback (route 2) — the code, then one commit, then the picker; a reconnect finishes here too.** Today: the launch's `POST …/instagram/connect` exchanges a code and commits account + token + settings at once (launch IA12). After, in order (plan:L4570–L4578): (1) read-and-delete the state — missing, used, older than 10 minutes, another user's, another workspace's or another provider's → `400 channel_connect_state_invalid`, nothing saved; (2) exchange the code on the server — refused → `422 provider_code_invalid`; Meta down before the exchange → `503 instagram_unavailable` with `Retry-After`; Meta failing after the one-time code was spent → `409 instagram_connect_restart_required` (launch D56, kept); (3) read `client_business_id` and the assigned Instagram accounts; a state minted by route 40 for a connection of **another** business → `409 channel_connection_business_mismatch`, nothing saved; (4) a missing required permission (`instagram_basic`, `instagram_manage_messages`, `instagram_manage_comments`) → `422 provider_permissions_missing`, nothing saved — `ads_read` is optional (MC13); (5) **one commit** in the caller's scope: insert or update the `(organization_id, provider, client_business_id)` connection row (`connected`, `config_id`, `scopes`, `connected_by_user_id`, `connected_at`, `status_changed_at`, `last_checked_at` = now; clears `disconnected_at`), write the encrypted token (`system_user`, `expires_at` empty), and **reconnect** (plan:L4674–L4681, MC6); (6) after commit: the audit entry, one account-set-up job (WC-30, sub-domain 2) per reconnected account, and their lanes woken (sub-domain 6). Answers the picker (1.6). `X-Idempotency-Key` required: the state is one-use, so a network retry without a replay would answer `400`; the frontend uses `channel-connect:<state>` as the key. |
+| MC6 | **What a reconnect touches (plan:L4674–L4681).** In MC5's commit: every **not-revoked** channel account of this workspace (1B) whose `provider_account_id` is in the new assigned list is attached to this connection (`channel_connection_id` — an account that moved to this portfolio moves its row) and goes `error → connected`; its login stops end (`stop_cleared_at`, through sub-domain 6's lane service). Only an account whose Instagram id equals the row's ever takes the row (plan:L2622). A `revoked` row is not reconnected here — the owner picks it (route 3, its settings come back). A connection left with no not-revoked account by a move goes `revoked` and its token is deleted in the same commit (nothing uses it). Other option: attach moved accounts only when the owner picks them again (one more step for the owner, MCQ1). |
+| MC7 | **Pick accounts (route 3) — the plan limit under the workspace lock (D25, D26, plan:L4590–L4604).** Before the transaction: re-read the connection's assigned accounts with its token (a pick not in the list → that pick `not_assigned`; Meta down → `503 instagram_unavailable`) and one profile read per pick (3 s each, fails open — the username is enough). One commit: `pg_advisory_xact_lock` on the organization id first (two first connects of one workspace have no row to lock yet, plan:L3553); count the workspace's not-revoked channel accounts — that plus the new picks over the plan's `channel_accounts_max` (billing, sub-domain 8, P47) → `409 plan_account_limit`, nothing saved; each pick → a new channel account (1B, `channel` = `instagram`, `provider_account_id` = the Instagram user id, `display_name` = `@username`) with its Instagram extension row (2.A) and settings row (2.B, every owner value empty), or the workspace's own old row of that account back (a revoked row — its settings return), `channel_connection_id` set, `connected`, `connected_at` = now (the new-account limit); a pick live in **another** workspace → that pick `connected_elsewhere` (`idx_channel_accounts_provider_account_live`), the others still connect; a pick already connected here → `already_connected`, unchanged; for a new row its four lanes (`slow`, `reply`, `fast`, `broadcast`, `ready` — sub-domain 6's service). After commit: one account-set-up job per connected pick (WC-30) and `app.channel_account.connect` per account. Answers one result per pick. During a trial (`TRIALING`), the picks go through billing's trial port first (sub-domain 8 — 8.B, BL14, BL18): an Instagram account that already had a trial in any workspace → `409 trial_used_by_account`, nothing saved; the pick's commit records its `billing.trial_accounts` rows (`recordTrialAccounts`). A connection not `connected` → `409 channel_connection_not_connected`. Today: one not-revoked account per organization (launch D5) → many, up to the plan. |
+| MC8 | **List (route 4), one connection (route 42) and "Disconnect business" (route 5).** Route 42 (new in rev 2, RC-112): one connection as in the list, a revoked one included (its id is known). Route 4: the workspace's connections for the connections screen — provider, business id, status, granted permissions, who connected and when, the last daily check and its error codes (never Meta's text), and its channel accounts (`id`, `channel`, `display_name`, `connection_status`); revoked ones only with `include_revoked=true`; never a token; no paging (a workspace has a handful). Route 5 (plan:L4683–L4693, L2623): before the transaction, per account of the connection, the best-effort starter-question removal and unsubscribe (logged, never blocks); one commit, lock order of plan §35: each not-revoked account as route 8 (sub-domain 1B, through its service), then the connection `revoked`, `disconnected_at`, its token deleted; after commit the accounts' Redis keys deleted and the audit entries. Automations, contacts and history stay; waiting messages stay and expire by the 7-day rule. Answers `204`. A revoked connection → `404 channel_connection_not_found` (a repeat). |
+| MC9 | **Token isolation (launch IA5–IA7, moved here).** Today: the token lives in `app.instagram_account_tokens`, read only by its repository through the token service and the daily check, decrypted only inside the Instagram client, pinned by `instagram-account-token-isolation.policy.unit.test.ts`; its RLS has no maintenance arm. After, unchanged in kind, moved to the connection: (1) only `encrypted_access_token` is stored; (2) the plain token exists only inside the Meta client (MC2) — it takes the ciphertext, decrypts right before the call, returns new tokens already encrypted; (3) only `channel-connection-token.repository.ts` reads `app.channel_connection_tokens`, used only by the token service, the sender (sub-domain 6, right before a call) and the token check — the policy test is renamed `channel-connection-token-isolation.policy.unit.test.ts` and lists exactly these files; (4) its policy has the organization arm only — no sweep reads a token; (5) never in Redis, a log, a job payload or an idempotency replay (`encrypted_access_token` stays in the secret-field lists). The secrets-key rotation re-encrypts this table instead of the old one (launch D37). |
+| MC10 | **The daily token check — the connection's scheduled job (WC-34, P47; replaces the launch's daily account check, P17).** Today: once a day at 04:00 UTC per account — renew within 7 days of the end, refresh the profile, retry the subscription (`instagram-account-daily-check`). After: per **connection** every 24 h, spread by connection: an hourly sweep (maintenance scope, `idx_channel_connections_check_due`) hands one job per due connection to the `channel-connection-token-check` worker on the `instagram-tasks` queue (D3, P45 — the only queue a Meta job has this iteration), payload `organizationPublicId` + `channelConnectionPublicId`. The job, inside its organization: `GET /me/assigned_instagram_accounts`; OK → `last_checked_at`, `last_check_error` cleared, each connected account's Instagram profile refreshed (P17, through sub-domain 2, which also updates 1B's `display_name`), a connected account missing from the list → that account `error` (1B), its lanes stopped (no end), its reconnect notice; 190 or another "token not valid" → MC11; Meta down or "too fast" → try again later, nothing changes (the job checks `metaGraphCircuit` per call; the worker is never paused — F3). No renewal (WC-35 removed); the subscription check moves to WC-25 (sub-domain 2). |
+| MC11 | **A broken token breaks every account of its connection (plan:L4648–L4658, §33.1).** Today: the account service's guarded `markConnectionBroken` moves one account `connected → expired \| error` and only the winner enqueues the reconnect notice (launch IA9). After: `ChannelConnectionService.markConnectionBroken` — one guarded change `connected → error` on the connection (`status_changed_at`, `last_check_error` codes only) and, in the same commit, every `connected` channel account of it → `error` (1B) and all their lanes stopped (login, no end — sub-domain 6); the winner enqueues one reconnect notice per account after commit (WC-46, the existing Instagram worker in sub-domain 2). Called by the token check and by any send or read that gets 190 (sub-domains 2, 6 and routes 15, 41). `expired` is gone (the token never ends). |
+| MC12 | **Audit (launch K9 form).** `app.channel_connection.connect` (WARNING, `metadata.provider`, `is_reconnect`, `reconnected_account_count`), `app.channel_connection.disconnect` (WARNING, `disconnected_account_count`), per picked account `app.channel_account.connect` (WARNING), and `app.channel_connection.deauthorize` / `.data_deletion` (WARNING, `anonymousActor`, `metadata.source = 'meta'`, MC14) — all after commit. Failed connects log the support record of plan:L4590 (app id, `config_id`, the step that failed, Meta's code, subcode, trace id) — never a token or the app secret. |
+| MC13 | **The ad picker, read through the connection (routes 41 and 15, D41, plan:L876–L880; was rev 1's IA16 on the account).** The ads permission belongs to the login, not to one Instagram account (P41), so the picker reads the connection. Route 41: with `ads_read` on the connection, its ad accounts (`/me/adaccounts`: `ad_account_id`, `name`, `account_status`), no paging (Meta's first 100). Route 15: the ads of **one** ad account (`ad_account_id` required — MCQ4) with their Instagram post: `ad_id`, `name`, `status`, `instagram_media_id`, `channel_account_id` (the connected Instagram account the ad runs as, matched by its Instagram id, or null), `thumbnail_url`, `created_at`; Meta's cursor, `limit` 1–50. Without `ads_read`: both answer `data: []` and `meta.ad_access = 'missing'` — the screen says "Connect an ad account" (a new login), never an error. A connection in `error` → `404 instagram_reconnect_required`; a 190 calls MC11. Ad comments and the 7-day ad window stay refused at go-live while untested (P36, sub-domain 4). |
+| MC14 | **Meta's two callbacks, signed with the Meta app secret (routes 16–17, D24, P46; was rev 1's IA18 under the account).** Today (launch IA18): `signed_request` checked with `INSTAGRAM_APP_SECRET` (HMAC-SHA256, constant time), a route-scoped form parser, `WEBHOOK_RATE_LIMIT`, a body over 16 KB `413`, only connections older than `issued_at` (launch D53). After: the same plugin (`meta-signature.ts`, MC2) with `META_APP_SECRET`, on `/social/channel-connections/{provider}/deauthorize` and `…/data-deletion` (`{provider}` = `meta`; Meta's app dashboard takes one address of each per app, and the login is Meta-wide); unset → `503 instagram_not_configured`. No auth, no idempotency key (K3), always `200` once verified. |
+| MC15 | **Who is found (plan:L4695–L4705, MCQ3; was IA19).** Today: `app.resolve_organization_public_ids_for_instagram_app_user(text)` — every organization with a row of that app-scoped id. After: that resolver is **replaced** by `app.resolve_organization_public_ids_for_provider_account(text, text)` — every organization with a channel account of that provider's channel and `provider_account_id` (for `meta`: an Instagram account's `instagram_user_id`), any status (`SET search_path`, `GRANT EXECUTE` to `meepzo_be_app`, `REVOKE … FROM PUBLIC`, public ids only — launch IA6 pattern); each change runs in that organization's `VERIFIED` scope, and the connection resolves which accounts and people the callback reaches (P46). Route 16 (deauthorize): in each, the disconnect of CA8 (1B) without the unsubscribe call — `revoked`, lanes stopped, the connection's token deleted only with its last account. |
+| MC16 | **Data deletion and the unmatched id (route 17, plan:L4699–L4705; was IA20).** As route 16, plus in each organization the Instagram profile erased and the account's stored posts deleted (sub-domain 2's services; launch IA20 kept; contacts untouched, launch D22). An id that matches nothing still answers `200` (with its derived confirmation code), is logged and **emails the team** to handle the deletion by hand (the team-alert path of sub-domain 6, WC-57's team part). The answer shape is Meta's, as built. |
+| MC17 | **Reconnect (route 40) — start a login bound to this connection (new in rev 2, MCQ5).** The connections screen's "Reconnect" button: route 40 mints the same one-use state as route 1 with `channel_connection_public_id` set and answers the same login address; route 2 finishes it (MC5) and refuses a different business (`409 channel_connection_business_mismatch`). Allowed on a `connected` or `error` connection (a `connected` one re-grants permissions, e.g. `ads_read` for the ad picker); a `revoked` one → `404 channel_connection_not_found` (connect again with route 1). No body, no key (as route 1). A login started by route 1 for an already-connected business still reconnects at the callback (MC6). |
 
 ### 1.2 Open questions
 
@@ -298,6 +352,9 @@ review is the "before" ([launch routes-final § 1](../../launch-2026-11-20-ujai/
 | --- | --- | --- | --- |
 | MCQ1 | A reconnect from a portfolio an account moved to: attach its row at the callback, or only when the owner picks it? | at the callback (MC6) · only at a pick | **At the callback** — the account is the workspace's already, the owner pressed Reconnect for it, and it saves a step; the plan's "its account row moves to the new connection" (plan:L4676) reads the same |
 | MCQ2 | The pick re-reads the assigned accounts from Meta, or trusts the list the callback read? | re-read (MC7) · keep the callback's list in the login state | **Re-read** — the pick can come minutes later; a stale list could attach an account the business no longer shares; the cost is one Graph call per pick |
+| MCQ3 | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? (rev 1 IAQ1) | match the account's `provider_account_id` · also match `client_business_id` · a person-id column on the connection | **Match `provider_account_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (MC16); add a connection column only if the test says so — a new decision then |
+| MCQ4 | The ads list reads one ad account at a time, or every ad account of the connection in one list? (rev 1 IAQ2) | one at a time (`ad_account_id` required, route 41 lists them) · all merged | **One at a time** — Meta pages per ad account, so a merged list has no single cursor; the frontend shows an ad-account switcher fed by route 41 |
+| MCQ5 | Does "Reconnect" get its own route, or is it only a new login through route 1 (rev 1)? | its own route 40, bound to the connection (MC17) · route 1 only | **Its own route** — the callback can then refuse a login into another business instead of silently creating a second connection, and a `connected` connection can re-grant `ads_read` |
 
 Until you answer, the plan follows the recommendation.
 
@@ -305,22 +362,24 @@ Until you answer, the plan follows the recommendation.
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.meta_connections` | one Meta login of a workspace for one business portfolio | one row per organization and business, a revoked one reused (MC5); status by actions only (MC5, MC8, MC11); no soft delete — `revoked` stands in |
-| `app.meta_connection_tokens` | its encrypted system-user token | one per connection; read only on the client path (MC9); deleted when the connection is `revoked` |
+| `app.channel_connections` | one provider login of a workspace for one business (Meta: a business portfolio) | one row per organization, provider and business, a revoked one reused (MC5); status by actions only (MC5, MC8, MC11); no soft delete — `revoked` stands in |
+| `app.channel_connection_tokens` | its encrypted system-user token | one per connection; read only on the client path (MC9); deleted when the connection is `revoked` |
 | ~~`app.instagram_account_tokens`~~ | **removed** (D24) | its rows, repository, service, policy test and the daily renewal go; no data moves (plan:L2924) |
 
 ```text
 tenancy.organizations
    │
-   └──< app.meta_connections ──┬──< app.meta_connection_tokens (1:1)     ciphertext only (MC9)
-                               ├──< app.instagram_accounts (2)          the accounts it brings in (D25)
-                               └──> auth.users (connected by)
+   └──< app.channel_connections ──┬──< app.channel_connection_tokens (1:1)   ciphertext only (MC9)
+                                  ├──< app.channel_accounts (1B)            the accounts it brings in (D25)
+                                  │       └──< app.instagram_accounts (2, 1:1)
+                                  └──> auth.users (connected by)
+   ad accounts and ads: read live from Meta through the connection (MC13) — not stored
 
 A ──< B   one A has many B     A ──> B   a column on A points at one B
 ```
 
-Pointing at these from other sub-domains: `instagram_accounts.meta_connection_id` (2 — composite
-`(organization_id, meta_connection_id)` → `(organization_id, id)`, `ON DELETE RESTRICT`: a connection is never deleted,
+Pointing at these from other sub-domains: `channel_accounts.channel_connection_id` (1B — composite
+`(organization_id, channel_connection_id)` → `(organization_id, id)`, `ON DELETE RESTRICT`: a connection is never deleted,
 only `revoked`). Branch rule: none. Membership pointers: none; `connected_by_user_id` → users `ON DELETE SET NULL` (K6).
 
 **PostgreSQL design**
@@ -328,210 +387,462 @@ only `revoked`). Branch rule: none. Membership pointers: none; `connected_by_use
 The launch's standard columns (launch § 1.3): `id bigserial`, `organization_id bigint NOT NULL` → organizations
 `ON DELETE CASCADE`, `created_at` / `updated_at` with `chk_<table>_updated`; value lists `varchar(n)` + a lowercase
 `CHECK`; Meta ids `varchar(64)` digits. Both tables in the `app` migrations changed in place (D1, P29) — they join the
-account migration `20261121064529_app_instagram_account.sql`, which loses the token table.
+account migration `20261121064529_app_instagram_account.sql`, which loses the token table (db-changes decides whether the
+two channel tables get a migration of their own).
 
-`app.meta_connections`
+`app.channel_connections`
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
-| `public_id` | `varchar(28)` | no | | `generatePublicId('metaConnection')` (prefix at kickoff, P22) |
-| `client_business_id` | `varchar(64)` | no | | digits; `GET /me?fields=client_business_id` |
+| `public_id` | `varchar(28)` | no | | `generatePublicId('channelConnection')` (prefix at kickoff, P22) |
+| `provider` | `varchar(20)` | no | `'meta'` | **new in rev 2**: `meta` (`chk_channel_connections_provider`) |
+| `client_business_id` | `varchar(64)` | no | | digits; Meta's `GET /me?fields=client_business_id` (the business portfolio) |
 | `config_id` | `varchar(64)` | no | | the login configuration used; not secret |
-| `login_type` | `varchar(20)` | no | `'unified'` | `unified` (room for a Facebook Pages login, D27) |
+| `login_type` | `varchar(20)` | no | `'unified'` | `unified` (Instagram, Facebook Pages and ads through one login, D27) |
 | `status` | `varchar(10)` | no | `'connected'` | `connected` · `error` · `revoked` |
 | `status_changed_at` | `timestamptz` | no | `now()` | every status change |
-| `scopes` | `text[]` | no | `'{}'` | granted permissions; `cardinality(scopes) <= 20` (moved from the account) |
+| `scopes` | `text[]` | no | `'{}'` | granted permissions (P41); `cardinality(scopes) <= 20` (moved from the account) |
 | `connected_by_user_id` | `bigint` | yes | | → users `ON DELETE SET NULL` |
 | `connected_at` | `timestamptz` | no | `now()` | the latest connect or reconnect |
 | `last_checked_at` | `timestamptz` | yes | | the last daily token check (MC10) |
 | `last_check_error` | `varchar(500)` | yes | | Meta's code, subcode, HTTP status — never its text |
 | `disconnected_at` | `timestamptz` | yes | | `(status = 'revoked') = (disconnected_at IS NOT NULL)` |
 
-Indexes: unique `idx_meta_connections_public_id`; unique `idx_meta_connections_organization_id_id` `(organization_id, id)` —
-the parent key of accounts and tokens; unique `idx_meta_connections_organization_business` `(organization_id,
-client_business_id)`; `idx_meta_connections_check_due` `(last_checked_at) WHERE status = 'connected'` — the sweep across
-organizations; `idx_meta_connections_connected_by_user_id` `WHERE connected_by_user_id IS NOT NULL`. Checks
-`chk_meta_connections_status`, `_login_type`, `_client_business_id`, `_disconnected`, `_scopes`, `_updated`. RLS: enabled and
-forced, `meta_connections_tenant_isolation` `FOR ALL` — `USING` the organization arm OR
+Indexes: unique `idx_channel_connections_public_id`; unique `idx_channel_connections_organization_id_id` `(organization_id,
+id)` — the parent key of accounts and tokens; unique `idx_channel_connections_organization_business` `(organization_id,
+provider, client_business_id)`; `idx_channel_connections_check_due` `(last_checked_at) WHERE status = 'connected'` — the sweep
+across organizations; `idx_channel_connections_connected_by_user_id` `WHERE connected_by_user_id IS NOT NULL`. Checks
+`chk_channel_connections_provider`, `_status`, `_login_type`, `_client_business_id`, `_disconnected`, `_scopes`, `_updated`.
+RLS: enabled and forced, `channel_connections_tenant_isolation` `FOR ALL` — `USING` the organization arm OR
 `maintenanceBypassArm('app.global_retention_cleanup')` (the sweep), `WITH CHECK` the organization arm only.
 
-`app.meta_connection_tokens` (no public id; a persistence part — no routes)
+`app.channel_connection_tokens` (no public id; a persistence part — no routes)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
-| `meta_connection_id` | `bigint` | no | | composite → connections `ON DELETE CASCADE`; one per connection |
+| `channel_connection_id` | `bigint` | no | | composite → connections `ON DELETE CASCADE`; one per connection |
 | `encrypted_access_token` | `text` | no | | `encryptFieldSecret` output, `length > 0` |
 | `token_type` | `varchar(20)` | no | `'system_user'` | `system_user` |
 | `expires_at` | `timestamptz` | yes | | empty = never ends (D24) |
 
-Indexes: unique `idx_meta_connection_tokens_organization_connection` `(organization_id, meta_connection_id)` (one per
-connection, and the composite key's index). Checks `chk_meta_connection_tokens_token_type`,
+Indexes: unique `idx_channel_connection_tokens_organization_connection` `(organization_id, channel_connection_id)` (one per
+connection, and the composite key's index). Checks `chk_channel_connection_tokens_token_type`,
 `_encrypted_access_token_not_empty`, `_updated`. RLS: the organization arm in `USING` and `WITH CHECK`, **no** bypass arm
 (MC9); enabled and forced. Both tables in `EXPECTED_FORCE_RLS_TABLES` (+2; the token table of the launch −1).
 
 ### 1.4 Permissions
 
-No new codes (P20). Held by default per the four roles (D55, sub-domain 9).
+No new codes (P20; codes stay product-wide, P47). Held by default per the four roles (D55, sub-domain 9).
 
 | Code | Roles matrix | Allows | Routes | Held by default |
 | --- | --- | --- | --- | --- |
-| `instagram-account:manage` | Workspace · Connect and remove Instagram accounts | start, finish, pick, disconnect business | 1, 2, 3, 5 | Owner, Admin |
-| `instagram-account:read` | Automations · See automations | the connections list | 4 | Owner, Admin, Editor, Viewer |
+| `instagram-account:manage` | Workspace · Connect and remove Instagram accounts | start, finish, reconnect, pick, disconnect business | 1, 2, 3, 5, 40 | Owner, Admin |
+| `instagram-account:read` | Automations · See automations | the connections list, one connection, the ad accounts and ads | 4, 15, 41, 42 | Owner, Admin, Editor, Viewer |
+
+Routes 16–17 are PUBLIC (Meta's signed request).
 
 ### 1.5 Common to every route
 
 | Item | Value |
 | --- | --- |
-| Base | `/api/v1/app` (K1) |
-| Auth | `Authorization: Bearer <access token>`; the active organization from the token; no organization segment |
-| Organization | team-only (K1): writes 1, 2, 3, 5 → `422` (`assertTeamOrganization`, the `INSTAGRAM` capability); read 4 → `404 team_organization_required`; `403 missing_permission` comes first (a personal Owner holds no app code) |
-| Writes | routes 2 and 3 need `X-Idempotency-Key` (MC5, MC7); route 1 takes none (MC4) |
-| Success | `200` with `{ data, meta }`; route 5 → `204` |
+| Base | `/api/v1/app` (K1), under `/social/channel-connections` |
+| Auth | routes 1–5, 15, 40–42: `Authorization: Bearer <access token>`; the active organization from the token; no organization segment. Routes 16–17: PUBLIC, Meta's `signed_request` (MC14) |
+| Path params | `{provider}` (non-entity, K13; `meta` only — another value → `400 provider`) on 1, 2, 16, 17; `{channel_connection_id}` on 3, 5, 15, 40–42 — another organization's → `404 channel_connection_not_found`. The two share the segment after `channel-connections/`; the next segment always tells them apart (MCC10) |
+| Organization | team-only (K1): writes 1, 2, 3, 5, 40 → `422` (`assertTeamOrganization`, the `INSTAGRAM` capability); reads 4, 15, 41, 42 → `404 team_organization_required`; `403 missing_permission` comes first (a personal Owner holds no app code) |
+| Writes | routes 2 and 3 need `X-Idempotency-Key` (MC5, MC7); routes 1 and 40 take none (MC4, MC17); 16–17 none (K3) |
+| Success | `200` with `{ data, meta }`; route 5 → `204`; route 17 answers Meta's own shape |
+| Lists | route 4: all, no paging; route 41: Meta's first 100, no paging; route 15: Meta's cursor, `limit` 1–50 (default 25), `after`, no `estimated_total` |
 | Errors | `{ error: { type, code, reason?, detail, errors[] } }` — `400`, `401`, `403`, `404`, `409`, `422`, `429`, `503 instagram_unavailable` (with `Retry-After`) / `instagram_not_configured` |
 
 ### 1.6 Objects returned
 
-**Meta connection**: `id` (prefix at kickoff), `client_business_id`, `login_type`, `status` (`connected` · `error` ·
-`revoked`), `status_changed_at`, `scopes`, `has_ads_access` (`ads_read` granted), `connected_by_user_id` (`usr_…` or null),
-`connected_at`, `last_checked_at`, `last_check_error` (codes only), `disconnected_at`, `instagram_accounts`
-(`[{ id, username, profile_picture_url, connection_status }]`), `created_at`, `updated_at`. Never the token.
+**Channel connection**: `id` (prefix at kickoff), `provider` (`meta`), `client_business_id`, `login_type`, `status`
+(`connected` · `error` · `revoked`), `status_changed_at`, `scopes`, `has_ads_access` (`ads_read` granted),
+`connected_by_user_id` (`usr_…` or null), `connected_at`, `last_checked_at`, `last_check_error` (codes only),
+`disconnected_at`, `channel_accounts` (`[{ id, channel, display_name, profile_picture_url, connection_status }]`),
+`created_at`, `updated_at`. Never the token.
 
-**Meta connect start** (route 1): `login_url`, `state_expires_at`.
+**Channel connect start** (routes 1, 40): `login_url`, `state_expires_at`.
 
-**Meta connect result** (route 2): `is_reconnect` (the business was connected before), `meta_connection` (Meta
-connection), `instagram_accounts` (`[{ instagram_user_id, username, profile_picture_url, state, instagram_account_id }]`,
-`state` = `connected_here` · `connected_elsewhere` (cannot be picked) · `free`; `instagram_account_id` = `iga_…` when
-`connected_here`), `reconnected_account_ids` (`iga_…` set back to `connected`), `plan_room` (`{ accounts_max,
-accounts_used, accounts_free }`).
+**Channel connect result** (route 2): `is_reconnect` (the business was connected before), `channel_connection` (Channel
+connection), `accounts` (`[{ channel, provider_account_id, username, profile_picture_url, state, channel_account_id }]`,
+`channel` = `instagram`, `state` = `connected_here` · `connected_elsewhere` (cannot be picked) · `free`;
+`channel_account_id` = `cha_…` when `connected_here`), `reconnected_account_ids` (`cha_…` set back to `connected`),
+`plan_room` (`{ accounts_max, accounts_used, accounts_free }`).
 
-**Instagram account pick result** (route 3): `meta_connection_id`, `results` (`[{ instagram_user_id, result,
-instagram_account }]`, `result` = `connected` · `already_connected` · `connected_elsewhere` · `not_assigned`,
-`instagram_account` = the Instagram account (2.A.6) when `connected` or `already_connected`), `plan_room`.
+**Channel account pick result** (route 3): `channel_connection_id`, `results` (`[{ provider_account_id, result,
+channel_account }]`, `result` = `connected` · `already_connected` · `connected_elsewhere` · `not_assigned`,
+`channel_account` = the Channel account (1B.6) when `connected` or `already_connected`), `plan_room`.
 
-### 1.7 Routes (1–5)
+**Meta ad account** (route 41): `ad_account_id`, `name`, `account_status`; list `meta.ad_access` (`granted` · `missing`).
+
+**Meta ad** (route 15): `ad_id`, `name`, `status`, `ad_account_id`, `instagram_media_id` (or null for an ad that is not an
+Instagram post), `channel_account_id` (`cha_…` or null), `thumbnail_url`, `created_at`; list `meta.ad_access`.
+
+**Meta data-deletion answer** (route 17): unchanged — `url`, `confirmation_code`.
+
+### 1.7 Routes (1–5, 15–17, 40–42)
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 1 | POST | `/social/meta/connect/start` | Start the Meta login **(new, RC-1)** | `instagram-account:manage` | none (MC4) |
-| 2 | POST | `/social/meta/connect/callback` | Finish the login, or reconnect; answers the picker **(new, RC-2)** | `instagram-account:manage` | req |
-| 3 | POST | `/social/meta/connections/{meta_connection_id}/accounts` | Connect the picked accounts **(new, RC-3)** | `instagram-account:manage` | req |
-| 4 | GET | `/social/meta/connections` | The workspace's Meta connections **(new, RC-4)** | `instagram-account:read` | |
-| 5 | DELETE | `/social/meta/connections/{meta_connection_id}` | Disconnect business **(new, RC-5)** | `instagram-account:manage` | |
+| 1 | POST | `/social/channel-connections/{provider}/start` | Start the provider's login (Meta's Unified Login) **(new, RC-1)** | `instagram-account:manage` | none (MC4) |
+| 2 | POST | `/social/channel-connections/{provider}/callback` | Finish the login, or a reconnect; answers the picker **(new, RC-2)** | `instagram-account:manage` | req |
+| 40 | POST | `/social/channel-connections/{channel_connection_id}/reconnect` | Start a reconnect of this connection **(new, RC-113 — MC17)** | `instagram-account:manage` | none (MC17) |
+| 3 | POST | `/social/channel-connections/{channel_connection_id}/accounts` | Connect the picked accounts **(new, RC-3)** | `instagram-account:manage` | req |
+| 4 | GET | `/social/channel-connections` | The workspace's connections **(new, RC-4)** | `instagram-account:read` | |
+| 42 | GET | `/social/channel-connections/{channel_connection_id}` | One connection **(new, RC-112 — MC8)** | `instagram-account:read` | |
+| 5 | DELETE | `/social/channel-connections/{channel_connection_id}` | Disconnect business **(new, RC-5)** | `instagram-account:manage` | |
+| 41 | GET | `/social/channel-connections/{channel_connection_id}/ad-accounts` | Its ad accounts, for the ad picker **(new, RC-114 — MC13)** | `instagram-account:read` | |
+| 15 | GET | `/social/channel-connections/{channel_connection_id}/ads` | One ad account's ads, for ad automations **(new, RC-15; moved from the account in rev 2)** | `instagram-account:read` | |
+| 16 | POST | `/social/channel-connections/{provider}/deauthorize` | Meta: the app was removed **(changed, RC-17; moved in rev 2)** | PUBLIC (Meta signed request) | none (K3) |
+| 17 | POST | `/social/channel-connections/{provider}/data-deletion` | Meta: delete the data **(changed, RC-18; moved in rev 2)** | PUBLIC (Meta signed request) | none (K3) |
 | — | ~~POST~~ | ~~`/social/instagram/connect`~~ | **REMOVED (RC-6)** — Instagram Login goes (D24); replaced by 1 + 2 + 3 | — | — |
 
 ### 1.8 Request details
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 1 | — | — (strict empty) | Meta connect start |
-| 2 | — | `code*` (1–2000; a trailing `#_` stripped), `state*` (43 characters, base64url) | Meta connect result |
-| 3 | — | `instagram_user_ids*` (1–10, digits, no repeats) | Instagram account pick result |
-| 4 | `include_revoked` (`true` \| `false`, default `false`) | — | Meta connection[] |
+| 1, 40 | — | — (strict empty) | Channel connect start |
+| 2 | — | `code*` (1–2000; a trailing `#_` stripped), `state*` (43 characters, base64url) | Channel connect result |
+| 3 | — | `channel*` (`instagram`), `provider_account_ids*` (1–10, digits, no repeats) | Channel account pick result |
+| 4 | `include_revoked` (`true` \| `false`, default `false`) | — | Channel connection[] |
+| 42 | — | — | Channel connection |
 | 5 | — | — | 204 |
+| 41 | — | — | Meta ad account[] |
+| 15 | `ad_account_id*` (digits), `limit` (1–50, default 25), `after` (Meta's cursor, 1–1000) | — | Meta ad[] |
+| 16 | — | form `signed_request*` | `{ data: null, meta }` |
+| 17 | — | form `signed_request*` | Meta data-deletion answer |
 
 ### 1.9 Errors
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 2, 3 | `400` · `code` / `state` / `instagram_user_ids` | missing, empty, too long, a repeat, more than 10, not digits, an unknown field |
-| 2 | `400` · `meta_connect_state_invalid` | the state is missing, used, older than 10 minutes, or another user's or workspace's (nothing saved) |
-| 2 | `422` · `meta_code_invalid` | Meta refuses the code |
-| 2 | `422` · `meta_permissions_missing` | `instagram_basic`, `instagram_manage_messages` or `instagram_manage_comments` not granted |
+| 1, 2, 16, 17 | `400` · `provider` | not `meta` |
+| 2, 3 | `400` · `code` / `state` / `channel` / `provider_account_ids` | missing, empty, too long, a repeat, more than 10, not digits, an unknown channel or field |
+| 2 | `400` · `channel_connect_state_invalid` | the state is missing, used, older than 10 minutes, or another user's, workspace's or provider's (nothing saved) |
+| 2 | `422` · `provider_code_invalid` | Meta refuses the code |
+| 2 | `422` · `provider_permissions_missing` | `instagram_basic`, `instagram_manage_messages` or `instagram_manage_comments` not granted |
 | 2 | `409` · `instagram_connect_restart_required` | Meta failed after the one-time code was spent (launch D56) — start again |
-| 3 | `409` · `plan_account_limit` | not-revoked accounts + the picks exceed the plan's `instagram_accounts_max` (nothing saved) |
-| 3 | `409` · `meta_connection_not_connected` | the connection is `error` or `revoked` — reconnect first |
+| 2 | `409` · `channel_connection_business_mismatch` | a reconnect started by route 40 came back from another business (nothing saved) |
+| 3 | `409` · `plan_account_limit` | not-revoked accounts + the picks exceed the plan's `channel_accounts_max` (nothing saved) |
+| 3 | `409` · `channel_connection_not_connected` | the connection is `error` or `revoked` — reconnect first |
 | 3 | `409` · `trial_used_by_account` | during a trial, a picked account already had a trial in a workspace (sub-domain 8's trial port, BL18; nothing saved) |
-| 3, 5 | `404` · `meta_connection_not_found` | not in the organization, another organization's; route 5 also a revoked one |
-| 1, 2, 3, 5 | `422` | a personal organization; or the idempotency key missing, malformed or reused (2, 3) |
-| 4 | `404` · `team_organization_required` | a personal organization |
-| all | `403` · `missing_permission` | the caller lacks the gate |
-| 1–3 | `503` · `instagram_unavailable` / `instagram_not_configured` | Meta down or throttling (`Retry-After`) / a `META_*` setting unset |
+| 3, 5, 15, 40–42 | `404` · `channel_connection_not_found` | not in the organization, another organization's; routes 5 and 40 also a revoked one |
+| 15, 41 | `404` · `instagram_reconnect_required` | the connection is `error`, or Meta just refused the token |
+| 15 | `400` · `ad_account_id` / `limit` / `after` | missing, not digits, out of range, too long, an unknown field |
+| 15 | `404` · `ad_account_not_found` | `ad_account_id` is not one of the connection's |
+| 1, 2, 3, 5, 40 | `422` | a personal organization; or the idempotency key missing, malformed or reused (2, 3) |
+| 4, 15, 41, 42 | `404` · `team_organization_required` | a personal organization |
+| signed-in | `403` · `missing_permission` | the caller lacks the gate |
+| 1–3, 15, 40, 41 | `503` · `instagram_unavailable` / `instagram_not_configured` | Meta down or throttling (`Retry-After`) / a `META_*` setting unset |
+| 16, 17 | `400` · `instagram_signed_request_invalid`; `413`; `415`; `429`; `503` · `instagram_not_configured` | as built (launch § 1.D.9), now `META_APP_SECRET` |
 
 ### 1.10 Rules worth knowing
 
-- **What the later sub-domains take from here, never a copy**: the client (MC2) and the token path (MC9); `markConnectionBroken`
-  (MC11) for every 190 in sub-domains 2 and 6; the connection of an account for the sender (account → connection → token).
-- **No Meta call inside a database context** (`rls-context-network-isolation.global.test.ts`): routes 2, 3, 5 and the token
-  check read, close the unit of work, call Meta, then write in a new one.
+- **What the later sub-domains take from here, never a copy**: the Meta client and adapter (MC2) and the token path (MC9);
+  `markConnectionBroken` (MC11) for every 190 in sub-domains 2 and 6; the connection of an account for the sender (channel
+  account → connection → token); the signature check for sub-domain 5's receiver.
+- **No Meta call inside a database context** (`rls-context-network-isolation.global.test.ts`): routes 2, 3, 5, 15, 41 and
+  the token check read, close the unit of work, call Meta, then write in a new one.
 - **Status moves only these ways**: `connected → error` (MC11, the one guarded change); `error → connected` (a callback,
   MC5); any → `revoked` (route 5, or the last account leaving — route 8, Meta's callbacks); `revoked → connected` only by a
   callback of the same business in the same workspace.
+- **An unmatched id on 16–17 is `200` and a team email, never a `404`** — Meta must not retry.
 - **Frontend (meepzo-fe, later iteration, P30)**: the login page sends `state` back unchanged with the key
-  `meta-connect:<state>`; `error=access_denied` shows "You stopped the connection. Nothing changed." and calls nothing.
+  `channel-connect:<state>`; `error=access_denied` shows "You stopped the connection. Nothing changed." and calls nothing;
+  the connections screen's Reconnect calls route 40.
 
 ### 1.11 Code changes (whole sub-domain)
 
 | # | Change |
 | --- | --- |
-| MCC1 | MC1, MC9: `meta-connection/` folder; `meta-connection.schema.ts` + `meta-connection-token.schema.ts` (columns, keys, checks, policies as 1.3) in the account migration changed in place (D1); `EXPECTED_FORCE_RLS_TABLES` +2 −1; `PUBLIC_ID_PREFIXES.metaConnection`, `PARAM_NAME_TO_ENTITY.meta_connection_id`; repository (`createWorkerMetaConnectionRepository(databaseHandle)` for the token check), token repository and service; the renamed token-isolation policy test; `encrypted_access_token` kept in the response-secret and log-redaction lists; the secrets-key rotation's table list; OpenAPI tag `Meta connection`; `meta-connection.overview.md`; `src/domains/CLAUDE.md`'s app row |
-| MCC2 | MC2, MC3: `instagram.client.ts` on `graph.facebook.com` with `META_GRAPH_VERSION` (code constant), `appsecret_proof`, the Unified Login calls; Instagram Login functions, their URL redaction and their contract fixtures removed; `src/tests/contract/instagram.contract.test.ts` re-recorded (exchange, `/me`, assigned accounts, a 190 body, a throttled body); env `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `META_REDIRECT_URI`, `META_WEBHOOK_VERIFY_TOKEN` in, the four `INSTAGRAM_*` out (be-env-schema-add: schema with the 32-character secret refine, `.env.example`, fake values, credentials fill, GitHub Environments); `CONNECT_STATE_MINUTES`, `PROFILE_READ_TIMEOUT_MILLISECONDS` in the app settings file (P4) |
-| MCC3 | MC4: the one-use state helper lifted from `oauth-state.ts` (both callers use it); route 1 |
-| MCC4 | MC5–MC7: routes 2–3 (`config: { idempotencyRequired: true }` merged into the rate-limit config), controller, service (the callback steps, reconnect, the pick under `pg_advisory_xact_lock`), DTOs (strict), serializers; the account rows, settings rows and lanes through sub-domains 2 and 6's services; reasons `meta_connect_state_invalid`, `meta_code_invalid`, `meta_permissions_missing`, `plan_account_limit`, `meta_connection_not_connected`, `meta_connection_not_found` with `errors:` keys in `src/shared/locales/en/` and in `response-codes.md`; the launch reasons `instagram_code_invalid`, `instagram_account_not_professional`, `instagram_scopes_missing`, `organization_already_has_instagram_account` retired with RC-6 |
-| MCC5 | MC8: routes 4–5, the disconnect-business service over sub-domain 2's disconnect |
-| MCC6 | MC10, MC11: `meta-connection/queues/meta-connection-token-check.{queue,job.schema}.ts` (`organizationPublicId`, `metaConnectionPublicId`), `workers/meta-connection-token-check.{worker,processor}.ts` (provider-pausable, the hourly sweep as a second job name under `runGlobalRetentionWorkerJob`), registry, `WORKER_QUEUE_NAMES`, scheduler; the launch's `instagram-account-daily-check` queue, worker and tests removed (WC-35); `markConnectionBroken` on the connection; tests: due / not due, OK clears the error, a missing account → `error`, 190 → connection and every account `error` with one notice each, Meta down changes nothing, twice = once |
-| MCC7 | MC12, tests and seeds: the three audit actions; integration tests for every success and error of 1.9, two first connects racing (the advisory lock), a pick over the limit, one pick elsewhere while the others connect, a reconnect that moves an account; RLS test as `meepzo_be_app`; bulk seed — each demo team workspace gets one connection with a fake encrypted token (`meta-connection/seed/`); `pnpm routes:catalog`, success statuses, `docs:generate` |
+| MCC1 | MC1, MC9: `channel-connection/` folder; `channel-connection.schema.ts` + `channel-connection-token.schema.ts` (columns, keys, checks, policies as 1.3) in the account migration changed in place (D1); `EXPECTED_FORCE_RLS_TABLES` +2 −1; `PUBLIC_ID_PREFIXES.channelConnection`, `PARAM_NAME_TO_ENTITY.channel_connection_id`; repository (`createWorkerChannelConnectionRepository(databaseHandle)` for the token check), token repository and service; the renamed token-isolation policy test; `encrypted_access_token` kept in the response-secret and log-redaction lists; the secrets-key rotation's table list; OpenAPI tag `Channel connection`; `channel-connection.overview.md`; `src/domains/CLAUDE.md`'s app row |
+| MCC2 | MC2, MC3: `src/infrastructure/social/instagram.client.ts` **moved** to `channel-connection/channel-connection-meta/meta-graph.client.ts` (with `meta-graph-error.util.ts`, `meta-login.ts`, `meta-signature.ts`; every import updated, no copy left) on `graph.facebook.com` with `META_GRAPH_VERSION` (code constant), `appsecret_proof`, the Unified Login and ad calls; `instagramCircuit` → `metaGraphCircuit`; Instagram Login functions, their URL redaction and their contract fixtures removed; `src/tests/contract/instagram.contract.test.ts` → `meta-graph.contract.test.ts`, re-recorded (exchange, `/me`, assigned accounts, ad accounts, ads, a 190 body, a throttled body); env `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `META_REDIRECT_URI`, `META_WEBHOOK_VERIFY_TOKEN` in, the four `INSTAGRAM_*` out (be-env-schema-add: schema with the 32-character secret refine, `.env.example`, fake values, credentials fill, GitHub Environments); `CONNECT_STATE_MINUTES`, `PROFILE_READ_TIMEOUT_MILLISECONDS` in the app settings file (P4); `channel-connection-meta.overview.md` |
+| MCC3 | MC4, MC17: the one-use state helper lifted from `oauth-state.ts` (both callers use it); routes 1 and 40 |
+| MCC4 | MC5–MC7: routes 2–3 (`config: { idempotencyRequired: true }` merged into the rate-limit config), controller, service (the callback steps, reconnect, the pick under `pg_advisory_xact_lock`), DTOs (strict), serializers; the channel account rows (1B), the Instagram extension and settings rows (2) and lanes (6) through their services; reasons `channel_connect_state_invalid`, `provider_code_invalid`, `provider_permissions_missing`, `channel_connection_business_mismatch`, `plan_account_limit`, `channel_connection_not_connected`, `channel_connection_not_found` with `errors:` keys in `src/shared/locales/en/` and in `response-codes.md`; the launch reasons `instagram_code_invalid`, `instagram_account_not_professional`, `instagram_scopes_missing`, `organization_already_has_instagram_account` retired with RC-6 |
+| MCC5 | MC8: routes 4, 42 and 5, the disconnect-business service over sub-domain 1B's disconnect |
+| MCC6 | MC10, MC11: `channel-connection/queues/channel-connection-token-check.{queue,job.schema}.ts` (`organizationPublicId`, `channelConnectionPublicId`), `workers/channel-connection-token-check.{worker,processor}.ts` (on `instagram-tasks`, never paused; the hourly sweep as a second job name under `runGlobalRetentionWorkerJob`), registry, `WORKER_QUEUE_NAMES`, scheduler; the launch's `instagram-account-daily-check` queue, worker and tests removed (WC-35); `markConnectionBroken` on the connection; tests: due / not due, OK clears the error, a missing account → `error`, 190 → connection and every account `error` with one notice each, Meta down changes nothing, twice = once |
+| MCC7 | MC12, tests and seeds: the audit actions; integration tests for every success and error of 1.9, two first connects racing (the advisory lock), a pick over the limit, one pick elsewhere while the others connect, a reconnect that moves an account; RLS test as `meepzo_be_app`; bulk seed — each demo team workspace gets one connection with a fake encrypted token (`channel-connection/seed/`); `pnpm routes:catalog`, success statuses, `docs:generate` |
+| MCC8 | MC13: routes 41 and 15 (client calls for ad accounts and ads, DTO, serializer, `meta.ad_access`, the match of an ad to a channel account by Instagram id); reason `ad_account_not_found`; nock tests — paging passed through, no `ads_read` → empty lists, the break on 190, an `error` connection `404` |
+| MCC9 | MC14–MC16: the `signed_request` plugin on `META_APP_SECRET` at the two new paths; the new resolver in the account migration (the app-user one dropped), its security test as `meepzo_be_app`; the disconnect through CA8's path (token kept while another account uses the connection); the unmatched-id team email; integration tests — an unmatched id still `200` with a code and one team email, a connection's last account deletes its token, another organization's live account untouched |
+| MCC10 | MC1, MC17: a router test that `{provider}` and `{channel_connection_id}` resolve on the same segment (`meta/start`, `meta/deauthorize` vs `<id>/accounts`, `<id>/ads`, `DELETE <id>`); the route catalog and frontend map rows of routes 40–42 |
 
 ### 1.12 Nested sub-domains
 
-None — the token is a persistence part of the connection (no routes, no logic beyond the token service).
+None with sections. One nested folder, `channel-connection-meta/` (the Meta adapter — MC2, MCC2): the client, its error
+map, the login calls and the two signature checks; no table, no route of its own (routes 15–17, 41 and 42 are served at the folder root through it). A later provider adds a sibling folder (`channel-connection-<provider>/`).
 
 ---
 
-## 2. Instagram account — rev 1 (2026-11-23) — nested sub-domains 2.A–2.D; awaiting your OK
+## 1B. Channel account — rev 2 (2026-11-23) — no nested sub-domains; awaiting your OK
 
-**Status: rev 1 — awaiting your OK** (P31).
+**Status: rev 2 (2026-11-23) — awaiting your OK** (P31; new in rev 2, [P42](decisions.md)).
+
+Code: the **`channel-account` sub-domain folder** — `app/sub-domains/channel-account/` (**new**, P42), the channel account
+at the folder root; no nested sub-domains. Numbered 1B so that sub-domains 2–12 keep their numbers (M9).
+
+1B.1 Decisions (whole sub-domain) · 1B.2 Open questions · 1B.3 Tables and relations · 1B.4 Permissions · 1B.5 Common to every
+route · 1B.6 Objects returned · 1B.7 Routes · 1B.8 Request details · 1B.9 Errors · 1B.10 Rules worth knowing · 1B.11 Code
+changes (whole sub-domain) · 1B.12 Nested sub-domains (none).
+
+**Ids are new in rev 2**: decisions `CA1`…, code changes `CAC1`…, questions `CAQ1`… — most moved from rev 1's sub-domain 2
+(IA1–IA5, IA9–IA11, IAC1, IAC2, IAC4, IAC7; the map is in M9).
+
+The common part of every connected inbox, whatever its channel: a workspace now holds **many** accounts (Free 1, Creator 3,
+Studio 10 — D26), each brought in by a channel connection (sub-domain 1); `channel` is `instagram` this iteration (a
+Facebook Page later, D27). This sub-domain lists and reads them, disconnects one, pauses and resumes its sending, swaps which
+accounts are active within the plan (D57), and holds the account's status, display name, its pause / suspend / plan-stop
+state and the automation switch (P42). The Instagram-only part — user id, username, profile, settings, posts — is sub-domain
+2's extension, reached through `channel_account_id`. Every product and sending table now points at `app.channel_accounts`
+(`channel_account_id`, P47). Design read: plan §15.4, §15.8, §18.1, §25.5–25.12 (plan:L2593–L2684, L4590–L4705);
+`db-changes.md` › channel_account, instagram_account; `route-changes.md` RC-7–RC-11, RC-60; `worker-changes.md` WC-38,
+WC-46. Builds on 1 (the connection); routes 9–11 and the lane part of route 8 are **built with sub-domain 6** (the lanes'
+owner — CA5). Route numbers run 6–11.
+
+### 1B.1 Decisions (whole sub-domain)
+
+Taken on your standing answer "go with the recommendation" — change any of them before you confirm.
+
+**rev 2 changes** (new sub-domain, P42, P47): the common account table `app.channel_accounts` split out of
+`app.instagram_accounts`; routes 6–11 moved from `/social/instagram/accounts/{instagram_account_id}…` to
+`/social/channel-accounts/{channel_account_id}…`; the list filters by `channel`; pause, suspend and plan stop and the
+automation switch now live on the account (CA3) instead of the lanes and the settings; the limit is `channel_accounts_max`.
+
+| # | Decision |
+| --- | --- |
+| CA1 | **Folder, table, ids (P42, P47).** Today: the account is `instagram-account/`'s root (`app.instagram_accounts`, `iga_…`). After: a new sub-domain `app/sub-domains/channel-account/` with `channel-account.{routes,controller,service,repository,schema,dto,validator,serializer,types,constants}.ts`, owning `app.channel_accounts`; the Instagram columns stay on `app.instagram_accounts`, now a 1:1 extension (sub-domain 2). Public-id entity `channelAccount` (prefix `cha` proposed, confirmed at kickoff — P22; the account's one public id, P47: Instagram routes take `{channel_account_id}` too, no second Instagram id); path param `{channel_account_id}` in `PARAM_NAME_TO_ENTITY` (`instagram_account_id` leaves it). Every pointer that was `instagram_account_id` on a product or sending table becomes `channel_account_id` → `app.channel_accounts` (P47), and every job payload's `instagramAccountPublicId` becomes `channelAccountPublicId`. Paths under `/api/v1/app/social/channel-accounts/…`. OpenAPI tag `Channel account`. Other option: keep one Instagram table — a later channel would copy every column and route. |
+| CA2 | **Many accounts: path ids, the singular routes go (P1, D26; was IA1).** Today: one not-revoked account per organization (launch D5), so the account routes are singular with no path id — `GET` / `DELETE /social/instagram/account`, `PATCH …/account/settings`, `GET …/media`, `…/stories`. After: the common routes nest under `/social/channel-accounts/{channel_account_id}` (6–11) and the Instagram ones under `/social/instagram/accounts/{channel_account_id}` (12–14, 63); the five singular routes are **moved** (CHANGED in route-changes), never kept beside the new ones. The unique index "one per organization" is dropped; one workspace per account stays (`idx_channel_accounts_provider_account_live`, CAQ1). Other option: singular routes plus an active-account claim or query — rejected in P1. |
+| CA3 | **The account holds its pause, suspend and plan stop (P42, D57, P18; was IA2, which kept them on the lanes).** Today: the account has only `connection_status`. After: `app.channel_accounts` holds `paused_at` (the owner's pause, route 9), `suspended_at` (the team's suspend, P18 — no route this iteration) and `plan_stopped_at` ("not in your plan", D57 — written by route 11, the pick's limit and WC-38), plus `is_automation_enabled` (the automation switch, moved from the Instagram settings, P42). These are **the** copy: the Instagram lanes no longer carry a pause, a suspend or a `plan_downgrade` stop — a lane turn reads its account's three columns in the same unit of work (sub-domain 6, SN12). The workspace-wide plan stops (`plan_limit`, `plan_ended`) and every error stop stay on the lanes (6). The object shows `is_paused`, `is_suspended`, `is_in_plan`, `is_automation_enabled` from the row and `active_stop` through sub-domain 6's lane service in the same unit of work. Other option: rev 1's IA2 — the state on four lane rows per account, which a second channel would have to copy. |
+| CA4 | **Status loses `expired`; the connection breaks accounts (D24; was IA3).** Today: `connection_status` `connected` · `expired` · `error` · `revoked`; `expired` = the 60-day token ended (subcode 463); one account breaks alone (launch IA9). After: `connected` · `error` · `revoked`. An account goes `connected → error` either with its connection (sub-domain 1, MC11) or alone (missing from the assigned list, became personal, §25.9 — plan:L4660–L4672), through this service's guarded `markAccountBroken`; the winner enqueues the reconnect notice (WC-46, the Instagram `instagram-reconnect-notice` worker of sub-domain 2 — every job but the token check is Instagram's, P47 — addressed to Owners and Admins, `instagram-account:manage`). `error → connected` only by a reconnect (sub-domain 1). |
+| CA5 | **Routes that act on lanes are built with sub-domain 6 (was IA4).** Pause, resume, activate (routes 9–11) and the "lanes stopped" part of disconnect (route 8) and pick (sub-domain 1, route 3) wake or stop `app.instagram_send_lanes` through sub-domain 6's lane service in the caller's transaction. The lanes table comes with sub-domain 6, so these three routes are built in 6's ROUTE row and route 8's lane step lands then (the launch's CT5 pattern). Other option: build the lane table early — it then has no reader for several rows. |
+| CA6 | **Team-only and personal organizations (launch IA3 kept; was IA5).** Writes 8–11 → `422` through `assertTeamOrganization({ capability: 'INSTAGRAM' })`; reads 6, 7 → `404 team_organization_required`; `403 missing_permission` first. Another organization's account or a revoked one → `404 channel_account_not_found` (new reason, P47 — the launch's `instagram_not_connected` meant "this organization has none"; it stays only as automation create's `409`, sub-domain 4). |
+| CA7 | **List, read, pause, resume (routes 6, 7, 9, 10, plan:L2599–L2600; was IA9).** Route 6: every not-revoked account, oldest-connected first (the account menu; at most 10), filter `channel` (one or more; default every channel), each a Channel account summary. Route 7: one account with its Instagram extension and settings (`instagram`, through sub-domain 2's service) and sending state (CA3) — database only, never Meta. Route 9: `paused_at` = now (and `paused_by_user_id`); comments and taps are still saved, nothing goes; an already paused account answers the same. Route 10: clears only the owner's pause — error stops, a team suspend and a plan stop stay; each lane with waiting messages gets one turn again and fast tickets come back in pieces of 500 over 5 minutes (sub-domain 6). Both answer the Channel account. A repeat lands in the same state, so neither takes an idempotency key. Pausing a `revoked` account is a `404`; an `error` account may be paused and resumed (the owner may stop it before reconnecting). |
+| CA8 | **Disconnect one account (route 8, plan:L4683–L4693; was IA10).** Today (launch IA14): best-effort unsubscribe, then `revoked`, token row deleted, `token_expires_at` and `webhook_subscribed_at` emptied. After: before the transaction, best-effort removal of its starter questions and `DELETE /{instagram_user_id}/subscribed_apps` (sub-domain 2's Instagram step; logged, never blocks); one commit: `revoked`, `disconnected_at`; the extension's `webhook_subscribed_at` and `starter_questions_set_at` emptied (sub-domain 2's service); its four lanes `stopped` with no turn (sub-domain 6); **the connection's token is deleted only when no other not-revoked account uses that connection** — then the connection is `revoked` too (sub-domain 1); after commit its Redis keys go (`cnt:*`, `acct:`, `auto:`, `banner:`, `estimate:`, `tags:` — each owner's cache module invalidates its own). Automations stay `live`, contacts and history stay; waiting messages stay waiting and expire by the 7-day rule, or go on if the same account reconnects (launch IQ1 kept). The organization frees one slot of its plan. |
+| CA9 | **Choose active accounts (route 11, D57, plan:L2631; was IA11).** An account is "not in your plan" while `plan_stopped_at` is set (CA3). Route 11 makes such an account active: under `pg_advisory_xact_lock` on the organization (the same lock as the pick, MC7), count the active accounts (not revoked, no plan stop); at the plan's `channel_accounts_max` the body must name `stop_channel_account_id` — an active account of the same organization — which gets `plan_stopped_at` in the same commit; below the limit (an active account was disconnected) none is needed. The activated account's `plan_stopped_at` clears and its lanes wake after commit. Already active → `409 channel_account_already_active`; at the limit with no account named → `409 plan_account_limit`; the named account not active or another organization's → `400 stop_channel_account_id`. `X-Idempotency-Key` required: a network retry must replay the swap's answer, not a `409`. A pending move-down's kept list is billing's (sub-domain 8, RC-59) and is not changed here. |
+| CA10 | **Audit (launch K9; from IA7).** `app.channel_account.connect` (WARNING, written by sub-domain 1's pick — MC12), `.disconnect` (WARNING), `.pause`, `.resume` (INFO), `.activate` (WARNING, `metadata.stopped_channel_account_public_id`). All after commit. |
+
+### 1B.2 Open questions
+
+| # | Question | Options | Recommendation |
+| --- | --- | --- | --- |
+| CAQ1 | Where does "one workspace per account" live, now that the status is on `app.channel_accounts` and the Instagram user id on the extension (a partial unique index cannot read two tables)? | `provider_account_id` on the channel account (unique per channel while not revoked) · keep the id only on the extension and add a status copy there | **`provider_account_id` on the channel account** — the provider's own id is common to every channel (Instagram user id, Page id), written once at the pick in the same commit as the extension's `instagram_user_id`; the service keeps the two equal and a DB test pins it |
+
+Until you answer, the plan follows the recommendation.
+
+### 1B.3 Tables and relations
+
+| Table | Holds | Key rules |
+| --- | --- | --- |
+| `app.channel_accounts` | one connected inbox of a workspace (an Instagram professional account now) | many per organization (the plan's limit, checked at the pick); one not-revoked row per provider account across organizations (CAQ1); status by actions only (CA4); no soft delete — `revoked` |
+
+```text
+tenancy.organizations
+   │
+   └──< app.channel_connections (1) ──< app.channel_accounts ──┬──── app.instagram_accounts (2, 1:1) ──< settings (1:1) · stored posts
+                                                              ├──< app.instagram_send_lanes (6)    4 per account
+                                                              ├──< contacts, automations, broadcasts, segments, messages … (3–7)
+                                                              └──> auth.users (connected by, paused by)
+```
+
+Pointing at it from other sub-domains: `instagram_accounts.channel_account_id` (2, 1:1), and every
+`channel_account_id` of sub-domains 2–7 — `instagram_account_settings`, `instagram_media`, `instagram_contacts`,
+`instagram_contact_tag_events`, `instagram_automations`, `instagram_automation_backfills`,
+`instagram_automation_reply_states`, `instagram_segments`, `instagram_broadcasts`, the webhook events and keys, and sub-domain
+6's lanes, stops, minute counts, attachments and messages — composite `(organization_id, channel_account_id)`, `ON DELETE
+RESTRICT` (an account is never deleted, only `revoked`), or by value on the split tables. Branch rule: none. Membership
+pointers: none; `connected_by_user_id`, `paused_by_user_id` → users `ON DELETE SET NULL` (K6).
+
+**PostgreSQL design**
+
+The launch's standard columns (launch § 1.3). A new table in the account migration `20261121064529_app_instagram_account.sql`
+changed in place (D1, P29; db-changes decides the file).
+
+`app.channel_accounts`
+
+| Column | Type | Null | Default | Rule |
+| --- | --- | --- | --- | --- |
+| `public_id` | `varchar(28)` | no | | `generatePublicId('channelAccount')` (prefix `cha` proposed, P22) — moved from the Instagram account |
+| `channel` | `varchar(20)` | no | `'instagram'` | `instagram` (`chk_channel_accounts_channel`; Facebook later, D27) |
+| `channel_connection_id` | `bigint` | no | | composite `(organization_id, channel_connection_id)` → `app.channel_connections (organization_id, id)` `ON DELETE RESTRICT`; a reconnect from another portfolio moves it (MC6) |
+| `provider_account_id` | `varchar(64)` | no | | the account's id at the provider — for Instagram its `instagram_user_id` (CAQ1); digits |
+| `display_name` | `varchar(100)` | no | | what the app shows (Instagram: `@username`); refreshed with the profile (P17) |
+| `connection_status` | `varchar(20)` | no | `'connected'` | `connected` · `error` · `revoked` (moved from the Instagram account) |
+| `is_automation_enabled` | `boolean` | no | `true` | the automation switch (moved from `instagram_account_settings`, P42): off = new events skipped, not saved for later |
+| `paused_at` | `timestamptz` | yes | | the owner's pause (route 9); moved from the lanes (CA3) |
+| `paused_by_user_id` | `bigint` | yes | | → users `ON DELETE SET NULL`; only while `paused_at` is set |
+| `suspended_at` | `timestamptz` | yes | | the team's suspend (P18); moved from the lanes |
+| `plan_stopped_at` | `timestamptz` | yes | | "not in your plan" (D57); replaces rev 1's `plan_downgrade` lane stop |
+| `connected_by_user_id` | `bigint` | yes | | → users `ON DELETE SET NULL` (moved) |
+| `connected_at` | `timestamptz` | no | `now()` | the latest pick or reconnect; starts the new-account limit (150 an hour for 7 days unless the owner set `opening_hour_limit`, D5) (moved) |
+| `disconnected_at` | `timestamptz` | yes | | `(connection_status = 'revoked') = (disconnected_at IS NOT NULL)` (moved) |
+
+Indexes: unique `idx_channel_accounts_public_id`; unique `idx_channel_accounts_organization_id_id` `(organization_id, id)` —
+the parent key of every `channel_account_id`; unique `idx_channel_accounts_provider_account_live` `(channel,
+provider_account_id) WHERE connection_status <> 'revoked'` (one workspace per account — was
+`idx_instagram_accounts_instagram_user_live`); `idx_channel_accounts_organization_channel` `(organization_id, channel,
+connected_at) WHERE connection_status <> 'revoked'` (route 6); `idx_channel_accounts_connection` `(organization_id,
+channel_connection_id)` — the composite key's index and "the accounts of a connection" (reconnect, break, disconnect
+business); `idx_channel_accounts_connected_check` `(id) WHERE connection_status = 'connected'` — the 10-minute subscription
+check pages it across organizations (sub-domain 2); `idx_channel_accounts_connected_by_user_id` and
+`idx_channel_accounts_paused_by_user_id` (`WHERE … IS NOT NULL`). Checks: `chk_channel_accounts_channel`,
+`_connection_status` (three values), `_disconnected`, `_paused_by` (`paused_by_user_id IS NULL OR paused_at IS NOT NULL`),
+`_provider_account_id`, `_updated`. RLS: enabled and forced, the organization policy with `USING` + `WITH CHECK`, the
+maintenance arm in `USING` (the 10-minute check and the plan-change sweep read across organizations); in
+`EXPECTED_FORCE_RLS_TABLES` (+1).
+
+### 1B.4 Permissions
+
+No new codes (P47 — codes stay as they are; the Instagram ones gate the channel account while Instagram is its only channel).
+
+| Code | Roles matrix | Allows | Routes | Held by default |
+| --- | --- | --- | --- | --- |
+| `instagram-account:read` | Automations · See automations and their numbers | the accounts | 6, 7 | Owner, Admin, Editor, Viewer |
+| `instagram-account:manage` | Workspace · Connect and remove Instagram accounts | disconnect, pause, resume, choose active accounts; receives the reconnect notice | 8, 9, 10, 11 | Owner, Admin |
+
+Pause and resume stay with `instagram-account:manage` (plan §45.5 row 7 names connecting and removing; the plan names no
+other holder — an Editor cannot stop an account's sending).
+
+### 1B.5 Common to every route
+
+| Item | Value |
+| --- | --- |
+| Base | `/api/v1/app` (K1), under `/social/channel-accounts` |
+| Auth | `Authorization: Bearer`, the active organization from the token |
+| Organization | team-only (CA6): writes 8–11 → `422`; reads 6, 7 → `404 team_organization_required` |
+| Path id | `{channel_account_id}` (`cha_…`); another organization's or a revoked account → `404 channel_account_not_found` |
+| Writes | route 11 needs `X-Idempotency-Key` (it swaps two accounts); 8–10 take none — a repeat lands in the same state |
+| Success | `200` with `{ data, meta }`; route 8 → `204` |
+| Lists | route 6: all accounts, no paging (at most 10 not revoked) |
+| Errors | as 1.5, plus `404 channel_account_not_found` |
+
+### 1B.6 Objects returned
+
+**Channel account summary** (route 6): `id` (`cha_…`), `channel`, `display_name`, `profile_picture_url` (from the extension),
+`connection_status`, `channel_connection_id`, `is_paused`, `is_suspended`, `is_in_plan`, `is_automation_enabled`,
+`has_sending_stop`, `connected_at`.
+
+**Channel account** (routes 7, 9–11): the launch's Instagram account object (launch § 1.A.6) re-cut — `id`, `channel`,
+`display_name`, `connection_status`, `channel_connection` (`{ id, provider, status }`), `is_automation_enabled`, `is_paused`,
+`paused_at`, `is_suspended`, `is_in_plan`, `plan_stopped_at`, `active_stop` (`{ lane, reason, stop_until }` of the stop that
+holds most lanes, or null — the banners read sub-domain 6's sending status, RC-35), `new_account_limit_ends_at`
+(`connected_at` + 7 days, null once the owner set `opening_hour_limit` or the 7 days passed), `connected_by_user_id`,
+`connected_at`, `disconnected_at`, and `instagram` — the Instagram extension (2.A.6) with its `settings` (2.B.6) when
+`channel` is `instagram`. Gone against the launch: `access_expires_at`, `scopes`.
+
+### 1B.7 Routes (6–11)
+
+| # | Method | Path | Purpose | Gate | Idem |
+| --- | --- | --- | --- | --- | --- |
+| 6 | GET | `/social/channel-accounts` | The workspace's accounts — the account menu **(new, RC-7)** | `instagram-account:read` | |
+| 7 | GET | `/social/channel-accounts/{channel_account_id}` | One account **(moved from `/social/instagram/account`, RC-8)** | `instagram-account:read` | |
+| 8 | DELETE | `/social/channel-accounts/{channel_account_id}` | Disconnect one account **(moved, RC-9)** | `instagram-account:manage` | |
+| 9 | POST | `/social/channel-accounts/{channel_account_id}/pause` | Pause its sending **(new, RC-10)** | `instagram-account:manage` | none (CA7) |
+| 10 | POST | `/social/channel-accounts/{channel_account_id}/resume` | Resume it **(new, RC-11)** | `instagram-account:manage` | none (CA7) |
+| 11 | POST | `/social/channel-accounts/{channel_account_id}/activate` | Choose active accounts — swap one in **(new, RC-60)** | `instagram-account:manage` | req |
+
+### 1B.8 Request details
+
+| # | Query | Body | Response |
+| --- | --- | --- | --- |
+| 6 | `channel` (comma-separated: `instagram`; default every channel) | — | Channel account summary[] |
+| 7, 9, 10 | — | — (strict empty on 9, 10) | Channel account |
+| 8 | — | — | 204 |
+| 11 | — | optional `stop_channel_account_id` (`cha_…`, required at the plan's limit) | Channel account |
+
+### 1B.9 Errors
+
+| Route | Status · reason | When |
+| --- | --- | --- |
+| 6 | `400` · `channel` | not a known channel, an unknown field |
+| 7–11 | `400` · `channel_account_id` | not a well-formed public id |
+| 7–11 | `404` · `channel_account_not_found` | not in the organization, another organization's, or `revoked` |
+| 11 | `409` · `channel_account_already_active` | it has no plan stop |
+| 11 | `409` · `plan_account_limit` | at the plan's limit and no `stop_channel_account_id` |
+| 11 | `400` · `stop_channel_account_id` | not well formed, the same account, not active, or not in the organization |
+| 8–11 | `422` | a personal organization; route 11's idempotency key missing, malformed or reused |
+| 6, 7 | `404` · `team_organization_required` | a personal organization |
+| 6–11 | `403` · `missing_permission` | the gate |
+
+### 1B.10 Rules worth knowing
+
+- **What the other sub-domains take from here**: the account's status, connection, pause / suspend / plan stop and the
+  automation switch for every event (5) and every lane turn (6); the guarded `markAccountBroken` (1, 5, 6); the accounts
+  port for billing (`listActiveChannelAccounts`, `countConnectedChannelAccounts`, route 108); the account id every product
+  table points at.
+- **A disconnect never starts a plan-stopped account by itself** (D57) — only route 11 does.
+- **No Meta call inside a database context**: route 8 reads, closes, calls (sub-domain 2's Instagram step), then writes; a
+  Meta failure before it is logged and the disconnect goes on.
+- **Frontend (later, P30)**: the account menu reads route 6 and switches the whole app; every list in sub-domains 3, 4 and
+  7 takes the chosen `channel_account_id`.
+
+### 1B.11 Code changes (whole sub-domain)
+
+| # | Change |
+| --- | --- |
+| CAC1 | CA1, CA2: `channel-account/` folder; `channel-account.schema.ts` (columns, indexes, checks, policy as 1B.3) in the account migration changed in place; `PUBLIC_ID_PREFIXES.channelAccount`, `PARAM_NAME_TO_ENTITY.channel_account_id` (the `instagram_account_id` entry removed); every route file under the new paths; the singular routes removed from the route catalog, `route-organization-scope.json`, `route-success-statuses.json`, OpenAPI examples and the frontend route map; `EXPECTED_FORCE_RLS_TABLES` +1; OpenAPI tag `Channel account`; `channel-account.overview.md`; `src/domains/CLAUDE.md`'s app row (was IAC1) |
+| CAC2 | CA3, CA4: `connection_status` values without `expired` (constants, the check, the serializer); `markAccountBroken` (guarded `connected → error`); the pause, suspend and plan-stop columns and the automation switch read by intake (5) and the lane turn (6) — the lane columns they replace removed with sub-domain 6; the reconnect-notice recipients (`instagram-account:manage`) and copy keys ("@account is no longer shared", "Switch @account back to Creator or Business") (was IAC2) |
+| CAC3 | CA6, CA10: the audit actions; reasons `channel_account_not_found`, `channel_account_already_active` (`errors:` keys, `response-codes.md`); `instagram_not_connected` kept for automation create only (was IAC4) |
+| CAC4 | CA7–CA9: routes 6–11 with schemas (`idempotencyRequired` on 11), controller, service, DTOs (strict), serializers (summary and full, the Instagram part through sub-domain 2's serializer); repository — accounts of a connection, active count under the lock, the guarded break, revoke; the lane calls through sub-domain 6's service (built with 6, CA5); integration tests — every success and error of 1B.9, a pause that leaves error stops, a disconnect that keeps the token while another account uses the connection and deletes it with the last, a swap at the limit, two swaps racing (the lock), the `channel` filter, the `test:rls-role` lane (was IAC6, IAC7) |
+| CAC5 | CAQ1: the pick writes `provider_account_id` and the extension's `instagram_user_id` in one commit; a DB test that the two stay equal and that a second live row of one account in another workspace is refused |
+
+### 1B.12 Nested sub-domains
+
+None — one table, no persistence parts.
+
+---
+
+## 2. Instagram account — rev 2 (2026-11-23) — nested sub-domains 2.A–2.C; awaiting your OK
+
+**Status: rev 2 (2026-11-23) — awaiting your OK** (P31).
 
 **Ids restart for this iteration**: decisions `IA1`…, code changes `IAC1`…, questions `IAQ1`… are this iteration's; the
-frozen launch's ids are cited as "launch IA5" (its § 1).
+frozen launch's ids are cited as "launch IA5" (its § 1). Rev 2 moved IA1–IA5, IA9–IA11 and their code changes to 1B
+(CA…), and IA16, IA18–IA20 and their code changes to 1 (MC13–MC16); the ids left here keep their numbers (M9).
 
-Code: the **`instagram-account` sub-domain folder** — `app/sub-domains/instagram-account/` (the account at the folder root;
-its token leaves for sub-domain 1) with `instagram-account-settings/`, `instagram-media/` and
-`instagram-account-meta-callback/`, as built.
+Code: the **`instagram-account` sub-domain folder** — `app/sub-domains/instagram-account/` (the Instagram extension at the
+folder root; its token left for sub-domain 1, its common part for 1B) with `instagram-account-settings/` and
+`instagram-media/`, as built; `instagram-account-meta-callback/` goes (its routes moved to sub-domain 1).
 
 2.1 Decisions (whole sub-domain) · 2.2 Open questions · 2.3 Tables and relations · 2.4 Permissions · 2.5 Common to every route ·
 2.6 Objects returned · 2.7 Routes · 2.8 Request details · 2.9 Errors · 2.10 Rules worth knowing · 2.11 Code changes (whole sub-domain) ·
-2.12 Nested sub-domains · then **2.A Instagram account · 2.B Instagram account settings · 2.C Instagram media · 2.D Meta callbacks**
-— each with the same eleven sections.
+2.12 Nested sub-domains · then **2.A Instagram account · 2.B Instagram account settings · 2.C Instagram media** — each with
+the same eleven sections.
 
-A workspace now holds **many** Instagram accounts (Free 1, Creator 3, Studio 10 — D26), each brought in by a Meta
-connection (sub-domain 1). This sub-domain lists and reads them, disconnects one, pauses and resumes its sending, swaps
-which accounts are active within the plan (D57), owns each account's sending limits and behaviour (settings v8,
-D64–D67), the post / story / ad pickers (ads gated, P36), and Meta's two callbacks, now signed with the Meta app secret.
-Design read: plan §15.4, §15.8, §18.1–18.3, §25.5–25.12 (plan:L2593–L2684, L2895–L2958, L4590–L4705); `db-changes.md` ›
-instagram_account, instagram_account_setting, instagram_media; `route-changes.md` RC-7–RC-15, RC-17, RC-18, RC-60;
-`worker-changes.md` WC-25, WC-30, WC-31, WC-34 (profile part), WC-46. Builds on 1 (the connection, the client, the token
-path); routes 9–11 and the lane part of route 8 are **built with sub-domain 6** (the lanes' owner — IA4). Route numbers
-run 6–17.
+The Instagram extension of a channel account (P42): one `app.instagram_accounts` row per channel account whose channel is
+`instagram` — its Instagram user id, username, account type, private flag, followers, picture and starter-question time —
+plus each account's sending limits and behaviour (settings v8, D64–D67), the stored posts and the post and story pickers.
+It owns the Instagram background work around an account (set-up, the webhook subscription check, the starter-question
+sync, the reconnect notice). Every Instagram route takes the account's one id, `{channel_account_id}` (P47). Design read:
+plan §15.4, §15.8, §18.1–18.3 (plan:L2593–L2684, L2895–L2958); `db-changes.md` › instagram_account,
+instagram_account_setting, instagram_media; `route-changes.md` RC-12–RC-14; `worker-changes.md` WC-25, WC-30, WC-31,
+WC-34 (profile part), WC-46. Builds on 1 (the connection, the Meta client, the token path) and 1B (the account). Route
+numbers run 12–14.
 
 ### 2.1 Decisions (whole sub-domain)
 
 Taken on your standing answer "go with the recommendation" — change any of them before you confirm. A decision that
 belongs to one table is in its nested sub-domain.
 
+**rev 2 changes** (P42, P46, P47): the sub-domain is now the **Instagram extension** — the common account and routes 6–11
+moved to 1B, the ad picker (route 15) and Meta's callbacks (routes 16–17, nested 2.D) moved to 1; routes 12–14 under
+`/social/instagram/accounts/{channel_account_id}/…`; `app.instagram_accounts` 1:1 with `app.channel_accounts` (2.A); the
+automation switch moved from the settings to the channel account (IA12); every job payload carries
+`channelAccountPublicId`; IAQ1 and IAQ2 moved to 1 (MCQ3, MCQ4).
+
 | # | Decision |
 | --- | --- |
-| IA1 | **Many accounts: path ids, the singular routes go (P1, D26).** Today: one not-revoked account per organization (launch D5), so the account routes are singular with no path id — `GET` / `DELETE /social/instagram/account`, `PATCH …/account/settings`, `GET …/media`, `…/stories` — and `PARAM_NAME_TO_ENTITY` has no account entry. After: every account route nests under `/social/instagram/accounts/{instagram_account_id}` (`iga_…`), `instagram_account_id` → `instagramAccount` in `PARAM_NAME_TO_ENTITY`; the five singular routes are **moved** (CHANGED in route-changes), never kept beside the new ones. The unique index `idx_instagram_accounts_organization_live` (one per organization) is dropped; one workspace per Instagram account stays (`idx_instagram_accounts_instagram_user_live`). Other option: singular routes plus an active-account claim or query — rejected in P1. |
-| IA2 | **An account's sending state is read from its lanes, never copied onto the account (D57, P18).** Today: the account has only `connection_status`. After: "paused" (`paused_at`), "suspended by the team" (`suspended_at`, P18 — no route this iteration), "not in your plan" (a `plan_downgrade` lane stop) and every other stop live on `app.instagram_send_lanes` / `app.instagram_send_stops` (sub-domain 6). The account object shows them as `is_paused`, `is_suspended`, `is_in_plan` and `active_stop` through sub-domain 6's lane service in the same unit of work. No new account column for them. Other option: an account-level `sending_status` column — a second copy the lanes would have to keep in step. |
-| IA3 | **Status loses `expired`; the connection breaks accounts (D24).** Today: `connection_status` `connected` · `expired` · `error` · `revoked`; `expired` = the 60-day token ended (subcode 463); one account breaks alone (launch IA9). After: `connected` · `error` · `revoked`. An account goes `connected → error` either with its connection (sub-domain 1, MC11) or alone (missing from the assigned list, became personal, §25.9 — plan:L4660–L4672), through the account service's guarded `markAccountBroken`; the winner enqueues the reconnect notice (WC-46, the existing `instagram-reconnect-notice` worker, now addressed to Owners and Admins — `instagram-account:manage`). `error → connected` only by a reconnect (sub-domain 1). |
-| IA4 | **Routes that act on lanes are built with sub-domain 6.** Pause, resume, activate (routes 9–11) and the "lanes stopped" part of disconnect (route 8) and pick (sub-domain 1, route 3) write `app.instagram_send_lanes` through sub-domain 6's lane service in the caller's transaction. The lanes table comes with sub-domain 6, so these three routes are built in 6's ROUTE row and route 8's lane step lands then (the launch's CT5 pattern: a param that "lands with sub-domain 3"). Other option: build the lane table early with sub-domain 2 — it then has no reader for several rows. |
-| IA5 | **Team-only and personal organizations (launch IA3 kept).** Writes 8–12 → `422` through `assertTeamOrganization({ capability: 'INSTAGRAM' })`; reads 6, 7, 13–15 → `404 team_organization_required`; `403 missing_permission` first. Routes 16–17 are PUBLIC. Another organization's account or a revoked one → `404 instagram_account_not_found` (new reason — the launch's `instagram_not_connected` meant "this organization has none"; it stays only as automation create's `409`, sub-domain 4). |
-| IA6 | **Background work owned here, all pull-based on `instagram-tasks` (D3), one job per organization and account (`organizationPublicId`, `instagramAccountPublicId` in the payload), safe to repeat.** (1) **Account set-up** (WC-30): after a connect or reconnect commit — `POST /{instagram_user_id}/subscribed_apps` with the six fields (`comments`, `live_comments`, `messages`, `messaging_postbacks`, `messaging_referral`, `message_reactions`, plan:L4627–L4646) → `webhook_subscribed_at`; the account's starter questions (WC-31); one read-only "Allow access to messages" probe (plan:L4725–L4730); retried after 1, 5, 15, 60 minutes, then a banner and one owner email. (2) **Webhook subscription check** (WC-25): every 10 minutes per connected account, spread; a field off → the set-up again and the missed-comment look (WC-26, sub-domain 5). (3) **Starter-question sync** (WC-31): after a go-live, pause, delete or question change of a starter-question automation (sub-domain 4 enqueues it after commit) — rewrite the account's whole ice-breaker list (`messenger_profile`) from its live starter-question automations, set `starter_questions_set_at`. (4) **Profile refresh** inside the token check (P17, sub-domain 1). (5) **Reconnect notice** (WC-46, kept). The launch's daily check (renewal, WC-35) goes. |
-| IA7 | **Audit (launch K9).** `app.instagram_account.disconnect` (WARNING), `app.instagram_account.pause`, `.resume` (INFO), `.activate` (WARNING, `metadata.stopped_instagram_account_public_id`), `app.instagram_account_settings.update` (INFO, the changed field names), `app.instagram_account.deauthorize` and `.data_deletion` (WARNING, `anonymousActor`, `metadata.source = 'meta'`); `app.instagram_account.connect` moves to sub-domain 1's pick (MC12). All after commit. |
+| IA6 | **Background work owned here, all pull-based on `instagram-tasks` (D3, P45), one job per organization and account (`organizationPublicId`, `channelAccountPublicId` in the payload), safe to repeat.** (1) **Account set-up** (WC-30): after a connect or reconnect commit — `POST /{instagram_user_id}/subscribed_apps` with the six fields (`comments`, `live_comments`, `messages`, `messaging_postbacks`, `messaging_referral`, `message_reactions`, plan:L4627–L4646) → `webhook_subscribed_at`; the account's starter questions (WC-31); one read-only "Allow access to messages" probe (plan:L4725–L4730); retried after 1, 5, 15, 60 minutes, then a banner and one owner email. (2) **Webhook subscription check** (WC-25): every 10 minutes per connected Instagram account, spread; a field off → the set-up again and the missed-comment look (WC-26, sub-domain 5). (3) **Starter-question sync** (WC-31): after a go-live, pause, delete or question change of a starter-question automation (sub-domain 4 enqueues it after commit) — rewrite the account's whole ice-breaker list (`messenger_profile`) from its live starter-question automations, set `starter_questions_set_at`. (4) **Profile refresh** inside the connection's token check (P17, sub-domain 1) — it also writes 1B's `display_name`. (5) **Reconnect notice** (WC-46, kept; called by 1 and 1B). Every Meta call through sub-domain 1's adapter (MC2). The launch's daily check (renewal, WC-35) goes. |
+| IA7 | **Audit (launch K9).** `app.instagram_account_settings.update` (INFO, the changed field names). The account's own actions are 1B's (CA10); the callbacks' are 1's (MC12). After commit. |
 
 ### 2.2 Open questions
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| IAQ1 | Which id does Meta sign on the Unified Login callbacks — the person, the Instagram account or the business (plan:L4699–L4705, a §43 test)? | match `instagram_user_id` · also match `client_business_id` · a person-id column on the connection | **Match `instagram_user_id` now** (the plan's step 3a); an unmatched id is answered with its code and the team is emailed (IA20); add a connection column only if the test says so — a new decision then |
-| IAQ2 | The ad picker reads one ad account at a time, or every ad account of the connection in one list? | one at a time (`ad_account_id`, the first by default; the answer lists her ad accounts) · all merged | **One at a time** — Meta pages per ad account, so a merged list has no single cursor; the frontend shows an ad-account switcher |
-
-Until you answer, the plan follows the recommendation.
+None — rev 1's IAQ1 and IAQ2 moved to sub-domain 1 (MCQ3, MCQ4).
 
 ### 2.3 Tables and relations
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.instagram_accounts` | one Instagram professional account a workspace connected through a Meta connection | many per organization (the plan's limit, checked at the pick); one not-revoked row per Instagram account across organizations; status by actions only (IA3); no soft delete — `revoked` |
+| `app.instagram_accounts` | the Instagram part of one channel account (P42) | exactly one per Instagram channel account (1:1); no public id of its own — reached through `channel_account_id`; written only through this sub-domain's service (the pick, the profile refresh, set-up, erasure) |
 | `app.instagram_account_settings` | its limits, stop words and behaviour | one per account; made at the first pick with every owner value empty, kept on a reconnect |
 | `app.instagram_media` | a post an automation ran on, and its missed-comment watch | one per organization and Instagram media id; written through the media service |
 | ~~`app.instagram_account_tokens`~~ | removed (sub-domain 1, D24) | |
@@ -539,110 +850,92 @@ Until you answer, the plan follows the recommendation.
 ```text
 tenancy.organizations
    │
-   └──< app.meta_connections (1) ──< app.instagram_accounts ──┬──< app.instagram_account_settings (1:1) ──> auth.users (updated by)
-                                                             ├──< app.instagram_media                      stored posts, comment watch
-                                                             ├──< app.instagram_send_lanes (6)              4 per account (IA2)
-                                                             └──> auth.users (connected by)
+   └──< app.channel_accounts (1B) ──── app.instagram_accounts (1:1)
+                                   ├──< app.instagram_account_settings (1:1) ──> auth.users (updated by)
+                                   └──< app.instagram_media                      stored posts, comment watch
 ```
 
-Pointing at these from other sub-domains: `meta_connection_id` → 1; `contacts.instagram_account_id` (3),
-`automations.instagram_account_id` (4), `contact_tag_events`, `automation_backfills`, `automation_reply_states` (3, 4 —
-copies), and sub-domain 6's lanes, stops and messages — composite `(organization_id, instagram_account_id)`,
-`ON DELETE RESTRICT` (an account is never deleted, only `revoked`). Branch rule: none. Membership pointers: none;
-`connected_by_user_id`, `updated_by_user_id` → users `ON DELETE SET NULL` (K6).
+Pointing at these from other sub-domains: nothing points at `app.instagram_accounts` — every product and sending table
+points at `app.channel_accounts` (1B, P47) and reaches the extension through `channel_account_id`. These three point at
+1B: composite `(organization_id, channel_account_id)` → `app.channel_accounts (organization_id, id)`, `ON DELETE RESTRICT`.
+Branch rule: none. Membership pointers: none; `updated_by_user_id` → users `ON DELETE SET NULL` (K6).
 
 **PostgreSQL design**
 
 The launch's standard columns (launch § 1.3). Changed in place in `20261121064529_app_instagram_account.sql` and
 `20261121094404_app_instagram_media.sql` (D1, P29). Each table's design is in its nested sub-domain. RLS unchanged in kind:
-enabled and forced, the organization policy with `USING` + `WITH CHECK`, the maintenance arm in `USING` on accounts,
+enabled and forced, the organization policy with `USING` + `WITH CHECK`, the maintenance arm in `USING` on the extension,
 settings and media (the 10-minute subscription check and the missed-comment watch read across organizations).
 
 ### 2.4 Permissions
 
 | Code | Roles matrix | Allows | Routes | Held by default |
 | --- | --- | --- | --- | --- |
-| `instagram-account:read` | Automations · See automations and their numbers | the accounts, posts, stories, ads | 6, 7, 13, 14, 15 | Owner, Admin, Editor, Viewer |
-| `instagram-account:manage` | Workspace · Connect and remove Instagram accounts | disconnect, pause, resume, choose active accounts, change settings; receives the reconnect notice | 8, 9, 10, 11, 12 | Owner, Admin |
-
-Routes 16–17 are PUBLIC (Meta's signed request). Pause and resume stay with `instagram-account:manage` (plan §45.5 row 7
-names connecting and removing; the plan names no other holder — an Editor cannot stop an account's sending).
+| `instagram-account:read` | Automations · See automations and their numbers | posts, stories | 13, 14 | Owner, Admin, Editor, Viewer |
+| `instagram-account:manage` | Workspace · Connect and remove Instagram accounts | change settings | 12 | Owner, Admin |
 
 ### 2.5 Common to every route
 
 | Item | Value |
 | --- | --- |
-| Base | `/api/v1/app` (K1) |
-| Auth | routes 6–15: `Authorization: Bearer`, the active organization from the token; routes 16–17: PUBLIC, Meta's `signed_request` (2.D) |
-| Organization | team-only (IA5): writes 8–12 → `422`; reads 6, 7, 13–15 → `404 team_organization_required` |
-| Path id | `{instagram_account_id}` (`iga_…`); another organization's or a revoked account → `404 instagram_account_not_found` |
-| Writes | route 11 needs `X-Idempotency-Key` (it swaps two accounts' lanes); 8–10 and 12 take none — a repeat lands in the same state; 12 takes an optional `expected_updated_at` (`409 record_changed`); 16–17 none (K3) |
-| Success | `200` with `{ data, meta }`; route 8 → `204`; route 17 answers Meta's own shape |
-| Lists | route 6: all accounts, no paging (at most 10 not revoked); routes 13–15: Meta's cursor, `limit` 1–50 (default 25), `after`, no `estimated_total` |
-| Errors | as 1.5, plus `404 instagram_account_not_found`, `404 instagram_reconnect_required` |
+| Base | `/api/v1/app` (K1), under `/social/instagram/accounts/{channel_account_id}` |
+| Auth | `Authorization: Bearer`, the active organization from the token |
+| Organization | team-only (CA6): write 12 → `422`; reads 13, 14 → `404 team_organization_required` |
+| Path id | `{channel_account_id}` (`cha_…`, P47); another organization's, a revoked one, or one whose channel is not `instagram` → `404 channel_account_not_found` |
+| Writes | route 12 takes no key — a repeat lands in the same state; an optional `expected_updated_at` (`409 record_changed`) |
+| Success | `200` with `{ data, meta }` |
+| Lists | routes 13–14: Meta's cursor, `limit` 1–50 (default 25), `after`, no `estimated_total` |
+| Errors | as 1.5, plus `404 channel_account_not_found`, `404 instagram_reconnect_required` |
 
 ### 2.6 Objects returned
 
 | Object | Where |
 | --- | --- |
-| Instagram account · Instagram account summary | 2.A.6 |
+| Instagram account (the extension, inside the Channel account of 1B.6) | 2.A.6 |
 | Instagram account settings | 2.B.6 |
-| Instagram media item · Instagram story · Instagram ad | 2.C.6 |
-| Meta data-deletion answer | 2.D.6 (unchanged) |
+| Instagram media item · Instagram story | 2.C.6 |
 
-### 2.7 Routes (6–17)
+### 2.7 Routes (12–14)
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 6 | GET | `/social/instagram/accounts` | The workspace's accounts — the account menu **(new, RC-7)** | `instagram-account:read` | |
-| 7 | GET | `/social/instagram/accounts/{instagram_account_id}` | One account **(moved from `…/account`, RC-8)** | `instagram-account:read` | |
-| 8 | DELETE | `/social/instagram/accounts/{instagram_account_id}` | Disconnect one account **(moved, RC-9)** | `instagram-account:manage` | |
-| 9 | POST | `/social/instagram/accounts/{instagram_account_id}/pause` | Pause its sending **(new, RC-10)** | `instagram-account:manage` | none (IA9) |
-| 10 | POST | `/social/instagram/accounts/{instagram_account_id}/resume` | Resume it **(new, RC-11)** | `instagram-account:manage` | none (IA9) |
-| 11 | POST | `/social/instagram/accounts/{instagram_account_id}/activate` | Choose active accounts — swap one in **(new, RC-60)** | `instagram-account:manage` | req |
-| 12 | PATCH | `/social/instagram/accounts/{instagram_account_id}/settings` | Limits, stop words, behaviour **(moved + changed, RC-12)** | `instagram-account:manage` | |
-| 13 | GET | `/social/instagram/accounts/{instagram_account_id}/media` | Posts and reels, live **(moved, RC-13)** | `instagram-account:read` | |
-| 14 | GET | `/social/instagram/accounts/{instagram_account_id}/stories` | Live stories **(moved, RC-14)** | `instagram-account:read` | |
-| 15 | GET | `/social/instagram/accounts/{instagram_account_id}/ads` | Her ads, for ad automations **(new, RC-15)** | `instagram-account:read` | |
-| 16 | POST | `/social/instagram/deauthorize` | Meta: the app was removed **(changed, RC-17)** | PUBLIC (Meta signed request) | none (K3) |
-| 17 | POST | `/social/instagram/data-deletion` | Meta: delete the data **(changed, RC-18)** | PUBLIC (Meta signed request) | none (K3) |
+| 12 | PATCH | `/social/instagram/accounts/{channel_account_id}/settings` | Limits, stop words, behaviour **(moved + changed, RC-12)** | `instagram-account:manage` | |
+| 13 | GET | `/social/instagram/accounts/{channel_account_id}/media` | Posts and reels, live **(moved, RC-13)** | `instagram-account:read` | |
+| 14 | GET | `/social/instagram/accounts/{channel_account_id}/stories` | Live stories **(moved, RC-14)** | `instagram-account:read` | |
+
+The account's sending status (route 63, `…/{channel_account_id}/sending-status`) shares the path and is sub-domain 6's.
 
 ### 2.8 Request details
 
-In each nested sub-domain (2.A to 2.D, section .8).
+In each nested sub-domain (2.B and 2.C, section .8; 2.A has no routes).
 
 ### 2.9 Errors
 
-Every route can answer the errors in 2.5; each route's own errors are in its nested sub-domain (2.A to 2.D, section .9).
+Every route can answer the errors in 2.5; each route's own errors are in its nested sub-domain (2.B and 2.C, section .9).
 
 ### 2.10 Rules worth knowing
 
-- **What the other sub-domains take from here**: the account's status, connection and settings for every event (5); the
-  guarded `markAccountBroken` (5, 6); `InstagramMediaService.upsertFromInstagram` and the comment-watch fields (4, 5); the
-  starter-question sync (4); the account set-up (1); the profile refresh (1).
-- **A disconnect never starts a `plan_downgrade`-stopped account by itself** (D57) — only route 11 does.
-- **No Meta call inside a database context**: routes 7–8 and 13–15 and every job read, close, call, then write.
-- **Frontend (later, P30)**: the account menu reads route 6 and switches the whole app; every list in sub-domains 3, 4 and
-  7 takes the chosen `instagram_account_id`.
+- **What the other sub-domains take from here**: the Instagram user id and settings for every event (5) and every send (6);
+  `InstagramMediaService.upsertFromInstagram` and the comment-watch fields (4, 5); the starter-question sync (4); the account
+  set-up (1); the profile refresh and the Instagram erasure step (1's callbacks); the disconnect's Instagram step (1B).
+- **No Meta call inside a database context**: routes 13–14 and every job read, close, call, then write.
 
 ### 2.11 Code changes (whole sub-domain)
 
 | # | Change |
 | --- | --- |
-| IAC1 | IA1: `PARAM_NAME_TO_ENTITY.instagram_account_id`; every route file under the new paths; the singular routes removed from the route catalog, `route-organization-scope.json`, `route-success-statuses.json`, OpenAPI examples and the frontend route map |
-| IAC2 | IA3: `connection_status` values without `expired` (constants, the check, the serializer); `markAccountBroken` (guarded `connected → error`); the reconnect-notice recipients (`instagram-account:manage`) and copy keys ("@account is no longer shared", "Switch @account back to Creator or Business") |
-| IAC3 | IA6: `instagram-account/queues/` + `workers/` for `instagram-account-setup`, `instagram-webhook-subscription-check`, `instagram-starter-question-sync` on `instagram-tasks` (registry, `WORKER_QUEUE_NAMES`, scheduler for the 10-minute check, DLQ); the launch's `instagram-account-daily-check` removed (sub-domain 1 takes the profile refresh); tests: retries 1/5/15/60, a field off re-runs set-up, a sync writes the whole list, twice = once |
-| IAC4 | IA7: the audit actions; reason `instagram_account_not_found` (`errors:` key, `response-codes.md`); `instagram_not_connected` kept for automation create only |
-| IAC5 | `instagram-account-erasure.service.ts` (team delete, launch D54) loops every account of the organization and erases each connection's token through sub-domain 1; `instagram-account.overview.md` and the four nested overviews; `src/FLOWS.md` (connect with Meta, pick, reconnect, choose active accounts) |
+| IAC3 | IA6: `instagram-account/queues/` + `workers/` for `instagram-account-setup`, `instagram-webhook-subscription-check`, `instagram-starter-question-sync`, `instagram-reconnect-notice` on `instagram-tasks` (payloads with `channelAccountPublicId`; registry, `WORKER_QUEUE_NAMES`, scheduler for the 10-minute check, DLQ); the launch's `instagram-account-daily-check` removed (sub-domain 1 takes the profile refresh); tests: retries 1/5/15/60, a field off re-runs set-up, a sync writes the whole list, twice = once |
+| IAC5 | `instagram-account-erasure.service.ts` (team delete, launch D54) loops every Instagram account of the organization and erases each connection's token through sub-domain 1; `instagram-account.overview.md` and the two nested overviews (the `instagram-account-meta-callback` one removed); `src/FLOWS.md` (connect with Meta, pick, reconnect, choose active accounts — across 1, 1B and 2) |
 
 ### 2.12 Nested sub-domains
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-account/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 2.A Instagram account | folder root | `app.instagram_accounts` | 6–11 | awaiting your OK |
+| 2.A Instagram account | folder root | `app.instagram_accounts` | — (background work, IA6) | awaiting your OK |
 | 2.B Instagram account settings | `instagram-account-settings/` | `app.instagram_account_settings` | 12 | awaiting your OK |
-| 2.C Instagram media | `instagram-media/` | `app.instagram_media` | 13–15 | awaiting your OK |
-| 2.D Meta callbacks | `instagram-account-meta-callback/` | — | 16–17 | awaiting your OK |
+| 2.C Instagram media | `instagram-media/` | `app.instagram_media` | 13–14 | awaiting your OK |
+
+Rev 1's 2.D Meta callbacks (`instagram-account-meta-callback/`, routes 16–17) moved to sub-domain 1 (MC14–MC16).
 
 ---
 
@@ -652,14 +945,11 @@ Every route can answer the errors in 2.5; each route's own errors are in its nes
 
 | # | Decision |
 | --- | --- |
-| IA8 | **Fields.** Today (`instagram-account.schema.ts`): `instagram_user_id`, `instagram_app_user_id`, the profile, `scopes`, `connection_status` (4 values), `token_expires_at`, `webhook_subscribed_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`, `profile_synced_at`, `profile_erased_at`. After (plan:L2922–L2944): **added** `meta_connection_id` (required, composite → connections `RESTRICT`) and `starter_questions_set_at` (emptied when a starter-question automation goes live, pauses or changes its questions — WC-31 sets it); **removed** `instagram_app_user_id` (+ check, index — Unified Login has none), `scopes` (+ check — on the connection), `token_expires_at` (the token is the connection's and never ends). `instagram_user_id` now comes from `assigned_instagram_accounts` — the id the webhooks send — and is used for API paths, webhook routing and the resolvers. `connected_at` also starts the new-account limit (150 an hour for 7 days unless the owner set `opening_hour_limit`, D5). |
-| IA9 | **List, read, pause, resume (routes 6, 7, 9, 10, plan:L2599–L2600).** Route 6: every not-revoked account, oldest-connected first (the account menu; at most 10), each an Instagram account summary. Route 7: one account with its settings and sending state (IA2) — database only, never Meta. Route 9: `paused_at` = now on its four lanes; comments and taps are still saved, nothing goes; an already paused account answers the same. Route 10: clears only the owner's pause — error stops, a team suspend and a `plan_downgrade` stop stay; each lane with waiting messages gets one turn again and fast tickets come back in pieces of 500 over 5 minutes (sub-domain 6). Both answer the Instagram account. A repeat lands in the same state, so neither takes an idempotency key. Pausing a `revoked` account is a `404`; an `error` account may be paused and resumed (the owner may stop it before reconnecting). |
-| IA10 | **Disconnect one account (route 8, plan:L4683–L4693).** Today (launch IA14): best-effort unsubscribe, then `revoked`, token row deleted, `token_expires_at` and `webhook_subscribed_at` emptied. After: before the transaction, best-effort removal of its starter questions and `DELETE /{instagram_user_id}/subscribed_apps` (logged, never blocks); one commit: `revoked`, `disconnected_at`, `webhook_subscribed_at` and `starter_questions_set_at` emptied, its four lanes `stopped` with no turn (sub-domain 6); **the connection's token is deleted only when no other not-revoked account uses that connection** — then the connection is `revoked` too (sub-domain 1); after commit its Redis keys go (`cnt:*`, `acct:`, `auto:`, `banner:`, `estimate:`, `tags:` — each owner's cache module invalidates its own). Automations stay `live`, contacts and history stay; waiting messages stay waiting and expire by the 7-day rule, or go on if the same account reconnects (launch IQ1 kept). The organization frees one slot of its plan. |
-| IA11 | **Choose active accounts (route 11, D57, plan:L2631).** An account is "not in your plan" while its lanes carry a `plan_downgrade` stop (IA2). Route 11 makes such an account active: under `pg_advisory_xact_lock` on the organization (the same lock as the pick, MC7), count the active accounts (not revoked, no `plan_downgrade` stop); at the plan's `instagram_accounts_max` the body must name `stop_instagram_account_id` — an active account of the same organization — which gets `plan_downgrade` on its four lanes in the same commit; below the limit (an active account was disconnected) none is needed. The activated account's `plan_downgrade` stops end and its lanes wake after commit. Already active → `409 instagram_account_already_active`; at the limit with no account named → `409 plan_account_limit`; the named account not active or another organization's → `400 stop_instagram_account_id`. `X-Idempotency-Key` required: a network retry must replay the swap's answer, not a `409`. A pending move-down's kept list is billing's (sub-domain 8, RC-59) and is not changed here. |
+| IA8 | **Fields — the 1:1 extension (P42).** Today (`instagram-account.schema.ts`): `public_id`, `instagram_user_id`, `instagram_app_user_id`, the profile, `scopes`, `connection_status` (4 values), `token_expires_at`, `webhook_subscribed_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`, `profile_synced_at`, `profile_erased_at`. After (plan:L2922–L2944, P42): **added** `channel_account_id` (required, unique, composite → `app.channel_accounts` `RESTRICT`) and `starter_questions_set_at` (emptied when a starter-question automation goes live, pauses or changes its questions — WC-31 sets it); **moved to 1B** `public_id`, `connection_status`, `connected_by_user_id`, `connected_at`, `disconnected_at` and the display name (`name` → `display_name`); **removed** `instagram_app_user_id` (+ check, index — Unified Login has none), `scopes` (+ check — on the connection), `token_expires_at` (the token is the connection's and never ends). **Kept** (the Instagram part): `instagram_user_id` — now from `assigned_instagram_accounts`, the id the webhooks send, used for API paths, webhook routing and the resolvers, equal to 1B's `provider_account_id` (CAQ1) — `username`, `account_type`, `is_private`, `followers_count`, `profile_picture_url`, `webhook_subscribed_at`, `profile_synced_at`, `profile_erased_at`. |
 
 #### 2.A.2 Open questions
 
-None.
+None (CAQ1, 1B.2, decides where the one-live-row rule lives).
 
 #### 2.A.3 Tables and relations
 
@@ -667,87 +957,57 @@ None.
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
-| `meta_connection_id` | `bigint` | no | | **added**; composite `(organization_id, meta_connection_id)` → `app.meta_connections (organization_id, id)` `ON DELETE RESTRICT`; a reconnect from another portfolio moves it (MC6) |
+| `channel_account_id` | `bigint` | no | | **added**; composite `(organization_id, channel_account_id)` → `app.channel_accounts (organization_id, id)` `ON DELETE RESTRICT`; unique (1:1) |
 | `starter_questions_set_at` | `timestamptz` | yes | | **added**; the last send of its starter questions to Meta (D42) |
-| `connection_status` | `varchar(20)` | no | `'connected'` | **changed**: `connected` · `error` · `revoked` |
+| ~~`public_id`~~ · ~~`connection_status`~~ · ~~`connected_by_user_id`~~ · ~~`connected_at`~~ · ~~`disconnected_at`~~ · ~~`name`~~ | | | | **moved** to `app.channel_accounts` (1B.3) |
 | ~~`instagram_app_user_id`~~ · ~~`scopes`~~ · ~~`token_expires_at`~~ | | | | **removed** (IA8) |
 
-Indexes: **dropped** `idx_instagram_accounts_organization_live` (one per organization) and
-`idx_instagram_accounts_instagram_app_user_id`; **added** `idx_instagram_accounts_meta_connection`
-`(organization_id, meta_connection_id)` — the composite key's index and "the accounts of a connection" (reconnect, break,
-disconnect business); `idx_instagram_accounts_connected_check` `(id) WHERE connection_status = 'connected'` — the 10-minute
-subscription check pages it across organizations; kept: `public_id`, `(organization_id, id)`,
-`(organization_id, instagram_user_id)`, `idx_instagram_accounts_instagram_user_live`, `connected_by_user_id`. Checks:
-`chk_instagram_accounts_connection_status` (three values), `chk_instagram_accounts_instagram_app_user_id` and
-`chk_instagram_accounts_scopes` dropped; the rest kept. RLS: as 2.3. The resolver
-`app.resolve_organization_public_id_for_instagram_user(text)` (webhook routing, not-revoked) stays; the app-user resolver
-is replaced in 2.D.
+Indexes: **dropped** `idx_instagram_accounts_public_id`, `idx_instagram_accounts_organization_live` (one per organization),
+`idx_instagram_accounts_instagram_app_user_id`, `idx_instagram_accounts_instagram_user_live` (now 1B's
+`idx_channel_accounts_provider_account_live`) and the `connected_by_user_id` index; **added** unique
+`idx_instagram_accounts_channel_account` `(organization_id, channel_account_id)` — the 1:1 and the composite key's index;
+kept: `(organization_id, id)`, `(organization_id, instagram_user_id)`. Checks: `chk_instagram_accounts_connection_status`,
+`chk_instagram_accounts_disconnected`, `chk_instagram_accounts_instagram_app_user_id` and `chk_instagram_accounts_scopes`
+dropped; the profile checks kept. RLS: as 2.3. The resolver `app.resolve_organization_public_id_for_instagram_user(text)`
+(webhook routing — sub-domain 5) stays, joining the channel account for "not revoked"; the app-user resolver is replaced
+in sub-domain 1 (MC15).
 
 #### 2.A.4 Permissions
 
-| Code | Routes |
-| --- | --- |
-| `instagram-account:read` | 6, 7 |
-| `instagram-account:manage` | 8, 9, 10, 11 |
+None — no routes; the extension is read inside 1B's routes 7, 9–11 (their gates).
 
 #### 2.A.5 Common to every route
 
-As 2.5.
+No routes.
 
 #### 2.A.6 Objects returned
 
-**Instagram account summary** (route 6): `id` (`iga_…`), `username`, `name`, `profile_picture_url`, `connection_status`,
-`meta_connection_id`, `is_paused`, `is_suspended`, `is_in_plan`, `has_sending_stop`, `connected_at`.
+**Instagram account** (the `instagram` part of 1B's Channel account): `instagram_user_id`, `username`, `account_type`,
+`is_private`, `followers_count`, `profile_picture_url`, `starter_questions_set_at`, `is_webhook_subscribed`,
+`profile_synced_at`, `settings` (2.B.6).
 
-**Instagram account** (routes 7, 9–11): the launch's object (launch § 1.A.6) **minus** `access_expires_at` and `scopes`,
-**plus** `meta_connection` (`{ id, status }`), `is_paused`, `paused_at`, `is_suspended`, `is_in_plan`, `active_stop`
-(`{ lane, reason, stop_until }` of the stop that holds most lanes, or null — the banners read sub-domain 6's sending
-status, RC-35), `starter_questions_set_at`, `new_account_limit_ends_at` (`connected_at` + 7 days, null once the owner set
-`opening_hour_limit` or the 7 days passed), `is_webhook_subscribed`, `settings` (2.B.6).
+#### 2.A.7 Routes
 
-#### 2.A.7 Routes (6–11)
-
-| # | Method | Path | Purpose | Gate | Idem |
-| --- | --- | --- | --- | --- | --- |
-| 6 | GET | `/social/instagram/accounts` | The workspace's accounts **(new, RC-7)** | `instagram-account:read` | |
-| 7 | GET | `/social/instagram/accounts/{instagram_account_id}` | One account **(moved, RC-8)** | `instagram-account:read` | |
-| 8 | DELETE | `/social/instagram/accounts/{instagram_account_id}` | Disconnect one account **(moved, RC-9)** | `instagram-account:manage` | |
-| 9 | POST | `/social/instagram/accounts/{instagram_account_id}/pause` | Pause its sending **(new, RC-10)** | `instagram-account:manage` | none |
-| 10 | POST | `/social/instagram/accounts/{instagram_account_id}/resume` | Resume it **(new, RC-11)** | `instagram-account:manage` | none |
-| 11 | POST | `/social/instagram/accounts/{instagram_account_id}/activate` | Choose active accounts **(new, RC-60)** | `instagram-account:manage` | req |
+None — the account's routes are 1B's (6–11).
 
 #### 2.A.8 Request details
 
-| # | Query | Body | Response |
-| --- | --- | --- | --- |
-| 6 | — | — | Instagram account summary[] |
-| 7, 9, 10 | — | — (strict empty on 9, 10) | Instagram account |
-| 8 | — | — | 204 |
-| 11 | — | optional `stop_instagram_account_id` (`iga_…`, required at the plan's limit) | Instagram account |
+None.
 
 #### 2.A.9 Errors
 
-| Route | Status · reason | When |
-| --- | --- | --- |
-| 7–11 | `400` · `instagram_account_id` | not a well-formed public id |
-| 7–11 | `404` · `instagram_account_not_found` | not in the organization, another organization's, or `revoked` |
-| 11 | `409` · `instagram_account_already_active` | it has no `plan_downgrade` stop |
-| 11 | `409` · `plan_account_limit` | at the plan's limit and no `stop_instagram_account_id` |
-| 11 | `400` · `stop_instagram_account_id` | not well formed, the same account, not active, or not in the organization |
-| 8–11 | `422` | a personal organization; route 11's idempotency key missing, malformed or reused |
-| 6, 7 | `404` · `team_organization_required` | a personal organization |
-| 6–11 | `403` · `missing_permission` | the gate |
+None of its own.
 
 #### 2.A.10 Rules worth knowing
 
-- Route 8 never calls Meta inside its transaction; a Meta failure before it is logged and the disconnect goes on.
+- Written only through `InstagramAccountExtensionService` — by 1's pick (create or bring back), the profile refresh, the
+  set-up job and the erasure; never by 1B's repository.
 
 #### 2.A.11 Code changes
 
 | # | Change |
 | --- | --- |
-| IAC6 | IA8: `instagram-account.schema.ts` and its migration changed in place (columns, indexes, checks as 2.A.3); repository — accounts of a connection, active count under the lock, the guarded break, revoke |
-| IAC7 | IA9–IA11: routes 6–11 with schemas (`idempotencyRequired` on 11), controller, service, DTOs (strict), serializers (summary and full); the lane calls through sub-domain 6's service (built with 6, IA4); integration tests — every success and error of 2.A.9, a pause that leaves error stops, a disconnect that keeps the token while another account uses the connection and deletes it with the last, a swap at the limit, two swaps racing (the lock), the `test:rls-role` lane |
+| IAC6 | IA8: `instagram-account.schema.ts` and its migration changed in place (columns, indexes, checks as 2.A.3; the moved columns dropped with 1B's table in the same migration — no data, P29); repository and service for the extension (create at the pick, refresh, erase); the serializer of the `instagram` part used by 1B |
 
 ---
 
@@ -757,7 +1017,7 @@ status, RC-35), `starter_questions_set_at`, `new_account_limit_ends_at` (`connec
 
 | # | Decision |
 | --- | --- |
-| IA12 | **The settings v8 (D22, D64–D68, plan:L2895–L2920).** Today: `is_automation_enabled` plus five public-reply-safety columns (`is_public_reply_safety_enabled`, `public_reply_chance_percent` 0–100, `public_reply_hour_limit` 1–1000, gap min / max 5–3600). After: the five reply columns **go** (per automation now — D14, D32; sub-domain 4); **added** — every number nullable, empty = the settings file's value (D22, P4): `opening_hour_limit` (database 1–750, API 1–700), `opening_day_limit` (API from the hour limit to 24 × it; read only while `DAY_LIMIT_ENABLED` is on — accepted and stored when it is off, the answer says `is_day_limit_enabled: false`), `fast_hour_limit` (1–20,000), `person_hour_limit` (5–100), `broadcast_hour_limit` (1–2,000), `is_automatic_notice_enabled` (off), `extra_stop_words` (0–50, each 1–50 characters, trimmed, lowercased, no repeats — added to `STOP_WORDS`, D49), `is_comment_reply_trigger_enabled` (on, D64), `is_once_per_person_per_post_enabled` (on, D65), `is_mark_seen_after_reply_enabled` (off, D66), `extra_delay_seconds_min` / `_max` (1–20, both or neither, min ≤ max on the merged result, D67). Names take the `is_` form (P21; the plan's `trigger_on_comment_replies` …). `is_automation_enabled` stays: off = new events of the account are skipped, not saved for later. |
+| IA12 | **The settings v8 (D22, D64–D68, plan:L2895–L2920).** Today: `is_automation_enabled` plus five public-reply-safety columns (`is_public_reply_safety_enabled`, `public_reply_chance_percent` 0–100, `public_reply_hour_limit` 1–1000, gap min / max 5–3600). After: the five reply columns **go** (per automation now — D14, D32; sub-domain 4); `is_automation_enabled` **moves to the channel account** (P42, 1B.3) — route 12 still accepts it and writes it through 1B's service in the same commit (no channel-account `PATCH` this iteration); **added** — every number nullable, empty = the settings file's value (D22, P4): `opening_hour_limit` (database 1–750, API 1–700), `opening_day_limit` (API from the hour limit to 24 × it; read only while `DAY_LIMIT_ENABLED` is on — accepted and stored when it is off, the answer says `is_day_limit_enabled: false`), `fast_hour_limit` (1–20,000), `person_hour_limit` (5–100), `broadcast_hour_limit` (1–2,000), `is_automatic_notice_enabled` (off), `extra_stop_words` (0–50, each 1–50 characters, trimmed, lowercased, no repeats — added to `STOP_WORDS`, D49), `is_comment_reply_trigger_enabled` (on, D64), `is_once_per_person_per_post_enabled` (on, D65), `is_mark_seen_after_reply_enabled` (off, D66), `extra_delay_seconds_min` / `_max` (1–20, both or neither, min ≤ max on the merged result, D67). Names take the `is_` form (P21; the plan's `trigger_on_comment_replies` …). The settings row's key is `channel_account_id` (P47). |
 | IA13 | **What a save refuses.** A bound outside the API range → `400` naming the field; min above max on the merged result → `400 extra_delay_seconds_max`. **PRO** (D35, D67): setting the extra delay on a plan without PRO → `403 plan_feature_required` (sub-domain 8's plan-feature read; clearing it is always allowed). **Meta-test-gated** (P36): turning `is_mark_seen_after_reply_enabled` on while the untested-feature list holds `mark_seen` → `422 instagram_feature_not_offered` (a deploy changes the list, not the request). A read-only plan does not refuse a save (P10). Optional `expected_updated_at` → `409 record_changed` (launch IA15 kept). Works on an `error` account; `revoked` → `404`. |
 | IA14 | **What a save sets off (plan:L2610–L2611, L2673–L2684).** A limit change: after commit, the slow and reply lanes get a new turn (a working lane keeps going and moves the turn at its save — sub-domain 6); the behaviour switches and stop words count for new events only — messages already waiting keep their time. The worker reads every number again and uses the settings-file value for a bad one (plan:L1991). Event processing (sub-domain 5) reads the settings through this service on every event; no cache (launch IA15). The answer shows each limit's owner value and its effective value. |
 
@@ -771,6 +1031,7 @@ None.
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
+| `channel_account_id` | `bigint` | no | | **renamed** from `instagram_account_id`; composite → `app.channel_accounts` `RESTRICT`; one per account |
 | `opening_hour_limit` | `smallint` | yes | | 1–750 (`chk_…_opening_hour_limit`); API ≤ 700 |
 | `opening_day_limit` | `integer` | yes | | `> 0` |
 | `fast_hour_limit` | `integer` | yes | | `> 0`; API ≤ 20,000 |
@@ -783,11 +1044,12 @@ None.
 | `is_mark_seen_after_reply_enabled` | `boolean` | no | `false` | D66 |
 | `extra_delay_seconds_min` | `smallint` | yes | | 1–20 |
 | `extra_delay_seconds_max` | `smallint` | yes | | 1–20; `(min IS NULL) = (max IS NULL)` and `min <= max` |
+| ~~`is_automation_enabled`~~ | | | | **moved** to `app.channel_accounts` (P42) |
 | ~~`is_public_reply_safety_enabled`~~ · ~~`public_reply_chance_percent`~~ · ~~`public_reply_hour_limit`~~ · ~~`public_reply_gap_min_seconds`~~ · ~~`public_reply_gap_max_seconds`~~ | | | | **removed** with their five checks (D32) |
 
 Checks added: `chk_instagram_account_settings_opening_hour_limit`, `_opening_day_limit`, `_fast_hour_limit`,
 `_person_hour_limit`, `_broadcast_hour_limit`, `_extra_stop_words`, `_extra_delay` (both or neither, range, order).
-Indexes unchanged. RLS unchanged. Branch: none.
+Indexes: the account key re-led on `channel_account_id`. RLS unchanged. Branch: none.
 
 #### 2.B.4 Permissions
 
@@ -801,24 +1063,25 @@ As 2.5.
 
 #### 2.B.6 Objects returned
 
-**Instagram account settings**: `is_automation_enabled`, `opening_hour_limit`, `opening_day_limit`, `fast_hour_limit`,
-`person_hour_limit`, `broadcast_hour_limit` (each the owner value or null), `effective_limits` (`{ opening_hour_limit,
-opening_day_limit, fast_hour_limit, person_hour_limit, broadcast_hour_limit }` — what the lanes use now, the new-account
-limit included), `is_day_limit_enabled` (the settings file), `is_automatic_notice_enabled`, `extra_stop_words`,
-`is_comment_reply_trigger_enabled`, `is_once_per_person_per_post_enabled`, `is_mark_seen_after_reply_enabled`,
-`extra_delay_seconds_min`, `extra_delay_seconds_max`, `updated_by_user_id`, `updated_at`. The five reply fields leave.
+**Instagram account settings**: `is_automation_enabled` (the channel account's, P42), `opening_hour_limit`,
+`opening_day_limit`, `fast_hour_limit`, `person_hour_limit`, `broadcast_hour_limit` (each the owner value or null),
+`effective_limits` (`{ opening_hour_limit, opening_day_limit, fast_hour_limit, person_hour_limit, broadcast_hour_limit }` —
+what the lanes use now, the new-account limit included), `is_day_limit_enabled` (the settings file),
+`is_automatic_notice_enabled`, `extra_stop_words`, `is_comment_reply_trigger_enabled`,
+`is_once_per_person_per_post_enabled`, `is_mark_seen_after_reply_enabled`, `extra_delay_seconds_min`,
+`extra_delay_seconds_max`, `updated_by_user_id`, `updated_at`. The five reply fields leave.
 
 #### 2.B.7 Routes (12)
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 12 | PATCH | `/social/instagram/accounts/{instagram_account_id}/settings` | Limits, stop words, behaviour **(moved + changed, RC-12)** | `instagram-account:manage` | |
+| 12 | PATCH | `/social/instagram/accounts/{channel_account_id}/settings` | Limits, stop words, behaviour **(moved + changed, RC-12)** | `instagram-account:manage` | |
 
 #### 2.B.8 Request details
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 12 | — | at least one of the 14 fields of 2.B.3 (numbers nullable — `null` = the settings file); optional `expected_updated_at` | Instagram account settings |
+| 12 | — | at least one of the 14 fields of 2.B.6 after `is_automation_enabled`, or `is_automation_enabled` itself (numbers nullable — `null` = the settings file); optional `expected_updated_at` | Instagram account settings |
 
 #### 2.B.9 Errors
 
@@ -828,7 +1091,7 @@ limit included), `is_day_limit_enabled` (the settings file), `is_automatic_notic
 | 12 | `403` · `plan_feature_required` | the extra delay set on a plan without PRO |
 | 12 | `422` · `instagram_feature_not_offered` | mark as seen turned on while untested (P36) — the **settings-field reason**; an automation that uses an untested feature is the go-live problem code `feature_not_offered` instead (4.A, AU4) |
 | 12 | `409` · `record_changed` | `expected_updated_at` older than the saved settings |
-| 12 | `404` · `instagram_account_not_found` | as 2.5 |
+| 12 | `404` · `channel_account_not_found` | as 2.5 |
 | 12 | `422` | a personal organization |
 
 #### 2.B.10 Rules worth knowing
@@ -839,7 +1102,7 @@ limit included), `is_day_limit_enabled` (the settings file), `is_automatic_notic
 
 | # | Change |
 | --- | --- |
-| IAC8 | IA12–IA14: schema and migration changed in place (2.B.3); DTO (14 optional fields, nullable numbers, strict, at least one), validator (merged min ≤ max, PRO, the untested list), serializer with `effective_limits` (the settings file's defaults, sub-domain 6's new-account rule), service (lane wake after commit), the audit's changed fields; reasons `plan_feature_required`, `instagram_feature_not_offered` (`errors:` keys, `response-codes.md`); integration tests for every error of 2.B.9 and the null-clears-to-default case |
+| IAC8 | IA12–IA14: schema and migration changed in place (2.B.3, the key renamed, `is_automation_enabled` moved); DTO (the 14 optional fields + `is_automation_enabled`, nullable numbers, strict, at least one), validator (merged min ≤ max, PRO, the untested list), serializer with `effective_limits` (the settings file's defaults, sub-domain 6's new-account rule), service (the switch through 1B's service in the same commit, lane wake after commit), the audit's changed fields; reasons `plan_feature_required`, `instagram_feature_not_offered` (`errors:` keys, `response-codes.md`); integration tests for every error of 2.B.9, the null-clears-to-default case and the switch landing on the channel account |
 
 ---
 
@@ -849,13 +1112,12 @@ limit included), `is_day_limit_enabled` (the settings file), `is_automatic_notic
 
 | # | Decision |
 | --- | --- |
-| IA15 | **Pickers on Unified Login (routes 13–14).** Today (launch IA16): the one account's posts and stories read live through `graph.instagram.com` with its own token; `404 instagram_reconnect_required` when not `connected`; `503 instagram_unavailable` with `Retry-After`. After: the same live read for the named account, through the connection's token (`/{instagram_user_id}/media`, `/stories` on `graph.facebook.com`); `instagram_reconnect_required` when the account **or its connection** is `error`, and a 190 calls sub-domain 1's `markConnectionBroken`; each media item gains `kind` (`post` · `reel` · `ad_post`, from `media_product_type`), and a missing `media_url` falls back to `thumbnail_url`, then `permalink` (plan:L811, L2946–L2958). Stories: unchanged in shape; a story way to start is refused at go-live while untested (P36, sub-domain 4) — the picker itself is open. |
-| IA16 | **The ad picker (route 15, D41, plan:L876–L880).** With `ads_read` on the connection: her ad accounts (`/me/adaccounts`) in `meta.ad_accounts`, and the ads of one of them (`ad_account_id`, default the first) with their Instagram post: `ad_id`, `name`, `status`, `instagram_media_id`, `thumbnail_url`, `created_at`; Meta's cursor. Without `ads_read`: `data: []` and `meta.ad_access = 'missing'` — the screen says "Connect an ad account" (a new login, sub-domain 1), never an error. Ad comments and the 7-day ad window stay refused at go-live while untested (P36). |
-| IA17 | **Stored posts gain the missed-comment watch (D40, plan:L2946–L2958).** `app.instagram_media` adds `comments_checked_at`, `comments_next_check_at` (empty = not watched), `last_comment_at`, `live_ended_at`; `media_product_type` adds Meta's Live value (a §43 test names it; Live comments are gated, P36). Written only through `InstagramMediaService` — the missed-comment look (WC-26, sub-domain 5), the Live check (WC-16, sub-domain 6), "next post" linking (WC-43, sub-domain 4); routes 13–15 never write it (launch IA17 kept). |
+| IA15 | **Pickers on Unified Login (routes 13–14).** Today (launch IA16): the one account's posts and stories read live through `graph.instagram.com` with its own token; `404 instagram_reconnect_required` when not `connected`; `503 instagram_unavailable` with `Retry-After`. After: the same live read for the named account, through sub-domain 1's Meta client with the connection's token (`/{instagram_user_id}/media`, `/stories` on `graph.facebook.com`); `instagram_reconnect_required` when the channel account **or its connection** is `error`, and a 190 calls sub-domain 1's `markConnectionBroken`; each media item gains `kind` (`post` · `reel` · `ad_post`, from `media_product_type`), and a missing `media_url` falls back to `thumbnail_url`, then `permalink` (plan:L811, L2946–L2958). Stories: unchanged in shape; a story way to start is refused at go-live while untested (P36, sub-domain 4) — the picker itself is open. The ad picker is the connection's now (routes 41, 15 — MC13). |
+| IA17 | **Stored posts gain the missed-comment watch (D40, plan:L2946–L2958).** `app.instagram_media` adds `comments_checked_at`, `comments_next_check_at` (empty = not watched), `last_comment_at`, `live_ended_at`; `media_product_type` adds Meta's Live value (a §43 test names it; Live comments are gated, P36); its account key is `channel_account_id` (P47). Written only through `InstagramMediaService` — the missed-comment look (WC-26, sub-domain 5), the Live check (WC-16, sub-domain 6), "next post" linking (WC-43, sub-domain 4); routes 13–14 never write it (launch IA17 kept). |
 
 #### 2.C.2 Open questions
 
-IAQ2 (2.2) — one ad account at a time.
+None.
 
 #### 2.C.3 Tables and relations
 
@@ -863,6 +1125,7 @@ IAQ2 (2.2) — one ad account at a time.
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
+| `channel_account_id` | `bigint` | no | | **renamed** from `instagram_account_id`; composite → `app.channel_accounts` `RESTRICT` |
 | `comments_checked_at` | `timestamptz` | yes | | when the watch last read its comments |
 | `comments_next_check_at` | `timestamptz` | yes | | empty = not watched |
 | `last_comment_at` | `timestamptz` | yes | | the newest comment known |
@@ -877,7 +1140,7 @@ the watch reads it across organizations (maintenance arm). Check changed: `chk_i
 
 | Code | Routes |
 | --- | --- |
-| `instagram-account:read` | 13, 14, 15 |
+| `instagram-account:read` | 13, 14 |
 
 #### 2.C.5 Common to every route
 
@@ -890,129 +1153,59 @@ As 2.5.
 
 **Instagram story** (route 14): unchanged.
 
-**Instagram ad** (route 15): `ad_id`, `name`, `status`, `ad_account_id`, `instagram_media_id` (or null for an ad that is not
-an Instagram post), `thumbnail_url`, `created_at`; list `meta.ad_access` (`granted` · `missing`), `meta.ad_accounts`
-(`[{ ad_account_id, name }]`).
-
-#### 2.C.7 Routes (13–15)
+#### 2.C.7 Routes (13–14)
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 13 | GET | `/social/instagram/accounts/{instagram_account_id}/media` | Posts and reels **(moved, RC-13)** | `instagram-account:read` | |
-| 14 | GET | `/social/instagram/accounts/{instagram_account_id}/stories` | Live stories **(moved, RC-14)** | `instagram-account:read` | |
-| 15 | GET | `/social/instagram/accounts/{instagram_account_id}/ads` | Her ads **(new, RC-15)** | `instagram-account:read` | |
+| 13 | GET | `/social/instagram/accounts/{channel_account_id}/media` | Posts and reels **(moved, RC-13)** | `instagram-account:read` | |
+| 14 | GET | `/social/instagram/accounts/{channel_account_id}/stories` | Live stories **(moved, RC-14)** | `instagram-account:read` | |
 
 #### 2.C.8 Request details
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
 | 13, 14 | `limit` (1–50, default 25), `after` (Meta's cursor, 1–1000) | — | Instagram media item[] / Instagram story[] |
-| 15 | as 13, plus `ad_account_id` (digits, optional) | — | Instagram ad[] |
 
 #### 2.C.9 Errors
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 13–15 | `400` · `limit` / `after` / `ad_account_id` | out of range, empty, too long, not digits, an unknown field |
-| 13–15 | `404` · `instagram_account_not_found` | as 2.5 |
-| 13–15 | `404` · `instagram_reconnect_required` | the account or its connection is `error`, or Meta just refused the token |
-| 15 | `404` · `ad_account_not_found` | `ad_account_id` is not one of hers |
-| 13–15 | `404` · `team_organization_required` | a personal organization |
-| 13–15 | `503` · `instagram_unavailable` | Meta down or throttling (`Retry-After`) |
+| 13, 14 | `400` · `limit` / `after` | out of range, empty, too long, an unknown field |
+| 13, 14 | `404` · `channel_account_not_found` | as 2.5 |
+| 13, 14 | `404` · `instagram_reconnect_required` | the account or its connection is `error`, or Meta just refused the token |
+| 13, 14 | `404` · `team_organization_required` | a personal organization |
+| 13, 14 | `503` · `instagram_unavailable` | Meta down or throttling (`Retry-After`) |
 
 #### 2.C.10 Rules worth knowing
 
-- Routes 13–15 read Meta only; the stored posts are written by sub-domains 4–6 through the media service.
+- Routes 13–14 read Meta only; the stored posts are written by sub-domains 4–6 through the media service.
 
 #### 2.C.11 Code changes
 
 | # | Change |
 | --- | --- |
-| IAC9 | IA15, IA16: routes 13–15 under the new paths, `kind` and the picture fallback in the serializer, the ad picker (client calls for ad accounts and ads, DTO, serializer, `meta.ad_access`); reason `ad_account_not_found`; nock tests — paging passed through, both 404s, the break on 190, no `ads_read` → an empty list |
-| IAC10 | IA17: the four columns, the Live value and the watch index in the media migration changed in place; `InstagramMediaService` methods for the watch and the Live end (used by sub-domains 5, 6) |
+| IAC9 | IA15: routes 13–14 under the new paths, `kind` and the picture fallback in the serializer; nock tests — paging passed through, both 404s, the break on 190 (the ad picker's part moved to MCC8) |
+| IAC10 | IA17: the four columns, the Live value, the renamed key and the watch index in the media migration changed in place; `InstagramMediaService` methods for the watch and the Live end (used by sub-domains 5, 6) |
 
 ---
 
-### 2.D Meta callbacks — `instagram-account/instagram-account-meta-callback/` — awaiting your OK
+## 3. Instagram contacts — rev 2 (2026-11-23) — nested sub-domains 3.A–3.B; awaiting your OK
 
-#### 2.D.1 Decisions
+**Status: rev 2 (2026-11-23) — awaiting your OK** (P31).
 
-| # | Decision |
-| --- | --- |
-| IA18 | **Signed with the Meta app secret (D24).** Today (launch IA18): `signed_request` checked with `INSTAGRAM_APP_SECRET` (HMAC-SHA256, constant time), a route-scoped form parser, `WEBHOOK_RATE_LIMIT`, a body over 16 KB `413`, only connections older than `issued_at` (launch D53). After: the same plugin with `META_APP_SECRET`; unset → `503 instagram_not_configured`. No auth, no idempotency key (K3), always `200` once verified. |
-| IA19 | **Who is found (plan:L4695–L4705, IAQ1).** Today: `app.resolve_organization_public_ids_for_instagram_app_user(text)` — every organization with a row of that app-scoped id. After: that resolver is **replaced** by `app.resolve_organization_public_ids_for_instagram_user(text)` — every organization with an account row of that `instagram_user_id`, any status (`SET search_path`, `GRANT EXECUTE` to `meepzo_be_app`, `REVOKE … FROM PUBLIC`, public ids only — launch IA6 pattern); each change runs in that organization's `VERIFIED` scope. Route 16 (deauthorize): in each, the disconnect of IA10 without the unsubscribe call — `revoked`, lanes stopped, the connection's token deleted only with its last account. |
-| IA20 | **Data deletion and the unmatched id (route 17, plan:L4699–L4705).** As route 16, plus in each organization the profile erased and the account's stored posts deleted (launch IA20 kept; contacts untouched, launch D22). An id that matches nothing still answers `200` (route 17 with its derived confirmation code), is logged and **emails the team** to handle the deletion by hand (the team-alert path of sub-domain 6, WC-57's team part). The answer shape is Meta's, as built. |
-
-#### 2.D.2 Open questions
-
-IAQ1 (2.2) — which id Meta signs.
-
-#### 2.D.3 Tables and relations
-
-None of its own. Writes `app.instagram_accounts`, `app.instagram_media`, the lanes (6) and the connection token (1)
-through their services, one transaction per organization the resolver names.
-
-#### 2.D.4 Permissions
-
-None — PUBLIC; Meta's signed request proves the caller.
-
-#### 2.D.5 Common to every route
-
-As 2.5, except: PUBLIC, form-encoded, no idempotency key (K3), `WEBHOOK_RATE_LIMIT`; route 17 answers outside the envelope.
-
-#### 2.D.6 Objects returned
-
-**Meta data-deletion answer** (route 17): unchanged — `url`, `confirmation_code`.
-
-#### 2.D.7 Routes (16–17)
-
-| # | Method | Path | Purpose | Gate | Idem |
-| --- | --- | --- | --- | --- | --- |
-| 16 | POST | `/social/instagram/deauthorize` | Meta: the app was removed **(changed, RC-17)** | PUBLIC (Meta signed request) | none (K3) |
-| 17 | POST | `/social/instagram/data-deletion` | Meta: delete the data **(changed, RC-18)** | PUBLIC (Meta signed request) | none (K3) |
-
-#### 2.D.8 Request details
-
-| # | Query | Body | Response |
-| --- | --- | --- | --- |
-| 16 | — | form `signed_request*` | `{ data: null, meta }` |
-| 17 | — | form `signed_request*` | Meta data-deletion answer |
-
-#### 2.D.9 Errors
-
-As built (launch § 1.D.9): `400 instagram_signed_request_invalid`, `413`, `415`, `429`, `503 instagram_not_configured`
-(now `META_APP_SECRET`).
-
-#### 2.D.10 Rules worth knowing
-
-- An unmatched id is `200` and a team email, never a `404` — Meta must not retry.
-
-#### 2.D.11 Code changes
-
-| # | Change |
-| --- | --- |
-| IAC11 | IA18–IA20: the plugin on `META_APP_SECRET`; the new resolver in the account migration (the app-user one dropped), its security test as `meepzo_be_app`; the disconnect through IA10's path (token kept while another account uses the connection); the unmatched-id team email; integration tests — an unmatched id still `200` with a code and one team email, a connection's last account deletes its token, another organization's live account untouched |
-
----
-
-## 3. Contacts — rev 1 (2026-11-23) — nested sub-domains 3.A–3.B; awaiting your OK
-
-**Status: rev 1 — awaiting your OK** (P31).
-
-Code: the **`contact` sub-domain folder** — `app/sub-domains/contact/` (the contact at the folder root, as built) with a
-new nested `contact-tag-event/` (a table, its service and two workers; no routes — the launch's `automation-run/` shape).
+Code: the **`instagram-contact` sub-domain folder** — `app/sub-domains/instagram-contact/` (the launch's `contact/`, renamed — P44; the contact at the folder root) with a
+new nested `instagram-contact-tag-event/` (a table, its service and two workers; no routes — the launch's `instagram-automation-run/` shape).
 
 3.1 Decisions (whole sub-domain) · 3.2 Open questions · 3.3 Tables and relations · 3.4 Permissions · 3.5 Common to every route ·
 3.6 Objects returned · 3.7 Routes · 3.8 Request details · 3.9 Errors · 3.10 Rules worth knowing · 3.11 Code changes (whole sub-domain) ·
-3.12 Nested sub-domains · then **3.A Contacts · 3.B Contact tag events** — each with the same eleven sections.
+3.12 Nested sub-domains · then **3.A Instagram contacts · 3.B Instagram contact tag events** — each with the same eleven sections.
 
 The people who wrote to or commented on one of the workspace's accounts. The launch lists them and erases one (launch
 § 2); now the team also opens one, writes a private note, tags them (one or many), pauses automations for one person
 (D71), sees "What happened" (P13), and retries her failed messages (D72); a stop word she writes opts her out (D49), and
 every tag change is an event that can start a tag automation (D45). Design read: plan §14.4, §14.7, §15.4, §18.4, §19.16
 (plan:L2416–L2508, L2593–L2633, L2960–L2993, L3685–L3717); `db-changes.md` › contact, contact_tag_event;
-`route-changes.md` RC-20–RC-25, RC-36, RC-39, RC-40; `worker-changes.md` WC-4, WC-27, WC-36, WC-42, WC-54. Builds on 2
-(the account); 4 and 6 register steps it runs (pause, erase) and give it runs and messages for "What happened" and the
+`route-changes.md` RC-20–RC-25, RC-36, RC-39, RC-40; `worker-changes.md` WC-4, WC-27, WC-36, WC-42, WC-54. Builds on 1B (the account) and 2 (its stop words); 4 and 6 register steps it runs (pause, erase) and give it runs and messages for "What happened" and the
 retry. Route numbers run 18–26.
 
 ### 3.1 Decisions (whole sub-domain)
@@ -1020,18 +1213,20 @@ retry. Route numbers run 18–26.
 Taken on your standing answer "go with the recommendation" — change any of them before you confirm. The launch's
 review is the "before" ([launch routes-final § 2](../../launch-2026-11-20-ujai/plans/routes-final.md)).
 
+**rev 2 changes** (P44, P47, M9): renamed Contacts → **Instagram contacts** — folder `instagram-contact/` (+ `instagram-contact-tag-event/`), tables `app.instagram_contacts`, `app.instagram_contact_tag_events`; routes under `/social/instagram/contacts…` (route 22 at `/social/instagram/accounts/{channel_account_id}/contact-tags`); the account filter, body field and pointer `instagram_account_id` → `channel_account_id` (→ `app.channel_accounts`, 1B); `{contact_id}` and the `contact_id` columns keep their names; audit `app.instagram_contact.*`; job payloads `channelAccountPublicId`.
+
 | # | Decision |
 | --- | --- |
-| CT1 | **Folder, the new code, names.** Today: `contact/` with list and erase only (`contact:read`, `contact:delete`); writes come only from event processing (launch CT2). After: the same folder, plus `contact/contact-tag-event/` (3.B); **one new code** `contact:update` (P20 — note, tags, pause, retry for a contact), Owner, Admin and Editor (plan §45.5 row 5); the constant in `app.permissions.ts`, its catalog row and grants by sub-domain 9's role change (Editor, Viewer). Route-level writes now exist, so the launch's "only event processing writes contacts" (launch CT2) becomes "only this service writes contacts" — the owner's routes and event processing both call it; sub-domains 4–6 still never import the contact repository or schema. Public id `con_…`, `{contact_id}` as built. |
-| CT2 | **Contacts belong to one account and every list names it (D26, P1, CTQ2).** Today: `instagram_account_id` is an optional filter (default every account); the sort indexes lead with `organization_id` alone. After: `instagram_account_id` is **required** on route 18 (and on the bulk action and tag list) — the app is switched per account (plan:L2527) — and the four sort indexes lead with `(organization_id, instagram_account_id, …)` (plan:L2982). Other option: keep it optional and keep organization-wide indexes beside the per-account ones. |
+| CT1 | **Folder, the new code, names.** Today: `contact/` with list and erase only (`contact:read`, `contact:delete`); writes come only from event processing (launch CT2). After: the folder renamed `instagram-contact/` and its table `app.instagram_contacts` (P44), plus `instagram-contact/instagram-contact-tag-event/` (3.B); **one new code** `contact:update` (P20 — note, tags, pause, retry for a contact), Owner, Admin and Editor (plan §45.5 row 5); the constant in `app.permissions.ts`, its catalog row and grants by sub-domain 9's role change (Editor, Viewer). Route-level writes now exist, so the launch's "only event processing writes contacts" (launch CT2) becomes "only this service writes contacts" — the owner's routes and event processing both call it; sub-domains 4–6 still never import the contact repository or schema. Public id `con_…`, `{contact_id}` as built. |
+| CT2 | **Contacts belong to one account and every list names it (D26, P1, CTQ2).** Today: `instagram_account_id` is an optional filter (default every account); the sort indexes lead with `organization_id` alone. After: `channel_account_id` is **required** on route 18 (and on the bulk action and tag list) — the app is switched per account (plan:L2527) — and the four sort indexes lead with `(organization_id, channel_account_id, …)` (plan:L2982). Other option: keep it optional and keep organization-wide indexes beside the per-account ones. |
 | CT3 | **New columns, each set in the commit of the event that moves it (plan:L2960–L2993).** `last_opening_message_at` (an opening DM `sent` or `unknown` — sub-domain 6), `opted_out_at` (CT6), `channel` (`instagram`, D27), `first_automation_id` + `came_in_via` (a `trigger_type`) + `came_in_ref` (ref code or ad id, ≤ 64) — set once by her first run (4.B), `note` (CT5), `first_message_at` (her first DM in the chat, set once — the "first message" start reads it), `automations_off_at` + `automations_off_by_user_id` (CT5), `last_comment_at` and `comment_count` (each comment's intake commit), `last_story_activity_at` (a story reply or mention), `last_broadcast_at` (a broadcast message `sent` — sub-domain 7). They are written through new contact-service operations (3.A.10), never by another sub-domain's repository. |
 | CT4 | **Personal data and the log (launch CT12, D38).** `note` joins `phone`, `full_name`, `username`, `profile_picture` in the contact log-redaction list; the audit never carries the note text or a tag list (field names only). `automations_off_by_user_id` → users `ON DELETE SET NULL` (K6) — the first user pointer on contacts. |
 | CT5 | **The owner's changes on one contact (route 20, D46, D71).** `note` (1–2,000 characters, `CONTACT_NOTE_MAX_CHARACTERS` (P6: the plan's `_CHARS`); `null` clears; nothing is sent); `add_tags` / `remove_tags` (each 1–20 tags, 1–50 characters, a comma becomes a space; at most 50 held — past 50 → `422 contact_tag_limit`); `is_automations_paused` — `true` sets `automations_off_at` and `_by_user_id` and, **in the same commit**, runs the registered pause steps: her waiting messages `skipped` (`contact_excluded`, sub-domain 6) and her open runs `cancelled` (`contact_excluded`, 4.B); `false` clears both and restarts nothing — her next own action starts normally. Each tag change writes one tag event (3.B, `source` `owner`) in that commit; after commit the events are handed to intake (WC-4, sub-domain 5) and the account's tag-list copy is invalidated (CT8). Optional `expected_updated_at` → `409 record_changed`. An opted-out contact can be noted, tagged and paused; her opt-out cannot be changed by anyone but her (CT6). |
 | CT6 | **Stop words (D49, plan:L2416–L2439).** Today: none. After: intake (sub-domain 5) calls `recordContactOptOut` when her whole cleaned message equals a stop word (`STOP_WORDS` plus the account's `extra_stop_words`, 2.B) — `opted_out_at` = now and, in the same commit, the pause steps with reason `opted_out` (messages `skipped`, runs `cancelled`). `clearContactOptOut` is called only by intake on her own new action of the kinds D49 lists (a keyword comment, a keyword DM, a starter-question tap, an ig.me link) in the commit that starts that run. No route sets or clears it — the owner can't (D49). The contact object shows `is_opted_out` and `opted_out_at`. |
-| CT7 | **Many contacts at once (route 21, D45, plan:L1039, L2615, L2625).** One action — `add_tag`, `remove_tag`, `pause_automations`, `resume_automations` — on contacts of one account named by `contact_ids` (1–500) **or** by `filter` (the list's filters, every match — CTQ3). The route counts the matches (capped at 100,000 → `422 contact_bulk_too_many`), then enqueues one bulk job (WC-36, extended from tags to pause and resume) with `organizationPublicId`, `instagramAccountPublicId`, the action and the selection; the job works in pieces of 500, one short commit per piece, each change as on route 20 (tag events, pause steps). Answers `matched_count`. Safe to repeat: a piece re-run finds the tag in place or the pause set and writes nothing twice. `X-Idempotency-Key` required (it starts background work). |
-| CT8 | **The tag list with counts (route 22, D45, P5).** Today: none. After: the account's tags with how many live contacts carry each (`unnest(tags)`, `count(*)`), sorted by count then name, all of them (an account holds few distinct tags; capped at 1,000 rows). Cached 60 s in a `contact-tags.cache.ts` under be-read-cache-guard: key `app:contact_tags:<organization public id>:<instagram account public id>`, the account id taken from the row the service read inside the organization's scope, never from the raw path (CTQ1); invalidated by tombstone after every tag commit — routes 20, 21, the tag step (4.B) and the erase; fails open to Postgres. |
-| CT9 | **Field rules, before → after.** Tags: launch 1–255 (an automation's name became the tag when it had none) → **1–50** (the tag step names its tags, `steps.tags`, and the go-live check refuses an empty one — sub-domain 4; the plan's tag limit, plan:L1029); at most 50 per contact, as built. Email: plus addresses refused (launch) → **accepted** (P19); `chk_contacts_email` becomes the plan's strict shape, ≤ 254 (plan:L2976). Phone: unchanged. |
-| CT10 | **Audit (K9).** `app.contact.update` (INFO; `changed_fields`, never values), `app.contact.automations_pause` and `.automations_resume` (WARNING — D71 asks for each change), `app.contact.bulk_action` (INFO; action, `matched_count`), `app.contact.failed_messages_retry` (INFO), `app.contact.delete` as built. |
+| CT7 | **Many contacts at once (route 21, D45, plan:L1039, L2615, L2625).** One action — `add_tag`, `remove_tag`, `pause_automations`, `resume_automations` — on contacts of one account named by `contact_ids` (1–500) **or** by `filter` (the list's filters, every match — CTQ3). The route counts the matches (capped at 100,000 → `422 contact_bulk_too_many`), then enqueues one bulk job (WC-36, extended from tags to pause and resume) with `organizationPublicId`, `channelAccountPublicId`, the action and the selection; the job works in pieces of 500, one short commit per piece, each change as on route 20 (tag events, pause steps). Answers `matched_count`. Safe to repeat: a piece re-run finds the tag in place or the pause set and writes nothing twice. `X-Idempotency-Key` required (it starts background work). |
+| CT8 | **The tag list with counts (route 22, D45, P5).** Today: none. After: the account's tags with how many live contacts carry each (`unnest(tags)`, `count(*)`), sorted by count then name, all of them (an account holds few distinct tags; capped at 1,000 rows). Cached 60 s in a `instagram-contact-tags.cache.ts` under be-read-cache-guard: key `app:contact_tags:<organization public id>:<channel account public id>`, the account id taken from the row the service read inside the organization's scope, never from the raw path (CTQ1); invalidated by tombstone after every tag commit — routes 20, 21, the tag step (4.B) and the erase; fails open to Postgres. |
+| CT9 | **Field rules, before → after.** Tags: launch 1–255 (an automation's name became the tag when it had none) → **1–50** (the tag step names its tags, `steps.tags`, and the go-live check refuses an empty one — sub-domain 4; the plan's tag limit, plan:L1029); at most 50 per contact, as built. Email: plus addresses refused (launch) → **accepted** (P19); `chk_instagram_contacts_email` becomes the plan's strict shape, ≤ 254 (plan:L2976). Phone: unchanged. |
+| CT10 | **Audit (K9).** `app.instagram_contact.update` (INFO; `changed_fields`, never values), `app.instagram_contact.automations_pause` and `.automations_resume` (WARNING — D71 asks for each change), `app.instagram_contact.bulk_action` (INFO; action, `matched_count`), `app.instagram_contact.failed_messages_retry` (INFO), `app.instagram_contact.delete` as built. |
 
 ### 3.2 Open questions
 
@@ -1047,22 +1242,22 @@ Until you answer, the plan follows the recommendation.
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.contacts` | one person of one account | as built (launch § 2.3) + the 14 columns of CT3; erased in place (CT11) |
-| `app.contact_tag_events` | one tag added to or removed from a contact | written in the tag change's commit; kept 8 days; no public id (3.B) |
+| `app.instagram_contacts` | one person of one account | as built (launch § 2.3) + the 14 columns of CT3; erased in place (CT11) |
+| `app.instagram_contact_tag_events` | one tag added to or removed from a contact | written in the tag change's commit; kept 8 days; no public id (3.B) |
 
 ```text
 tenancy.organizations
    │
-   └──< app.instagram_accounts (2) ──< app.contacts ──┬──< app.contact_tag_events (3.B)
-                                                      ├──> app.automations (4)          first_automation_id — lands with 4
-                                                      ├──> auth.users                   automations_off_by_user_id
-                                                      ├──< app.automation_runs (4)      RESTRICT
-                                                      └──< app.instagram_messages (6)   contact_id copy, no key (P33)
+   └──< app.channel_accounts (1B) ──< app.instagram_contacts ──┬──< app.instagram_contact_tag_events (3.B)
+                                                               ├──> app.instagram_automations (4)          first_automation_id — lands with 4
+                                                               ├──> auth.users                   automations_off_by_user_id
+                                                               ├──< app.instagram_automation_runs (4)      RESTRICT
+                                                               └──< app.instagram_messages (6)   contact_id copy, no key (P33)
 ```
 
-Pointing at it from other sub-domains: `automation_runs.contact_id` (4, RESTRICT), `automation_comment_logs.contact_id`
-(4), `broadcast_recipients.contact_id` (7), the messages' copy (6, no foreign key into a split table). It points at
-`app.instagram_accounts` (2, RESTRICT), `app.automations` (4 — `first_automation_id`, composite, `ON DELETE SET NULL
+Pointing at it from other sub-domains: `instagram_automation_runs.contact_id` (4, RESTRICT), `instagram_automation_comment_logs.contact_id`
+(4), `instagram_broadcast_recipients.contact_id` (7), the messages' copy (6, no foreign key into a split table). It points at
+`app.channel_accounts` (1B, RESTRICT), `app.instagram_automations` (4 — `first_automation_id`, composite, `ON DELETE SET NULL
 (first_automation_id)`; **the constraint is added by sub-domain 4's migration**, since 3 comes before 4 and 4's runs point
 back at 3 — the launch's CT5 pattern) and `auth.users` (`SET NULL`). Branch rule: none.
 
@@ -1086,7 +1281,7 @@ enabled and forced, the organization policy (`USING` + the maintenance arm; `WIT
 | Base | `/api/v1/app` (K1) |
 | Auth | `Authorization: Bearer`; the active organization from the token |
 | Organization | team-only: writes 20, 21, 23, 26 → `422`; reads 18, 19, 22, 24, 25 → `404 team_organization_required` |
-| Path id | `{contact_id}` (`con_…`); `{instagram_account_id}` on route 22; another organization's or an erased contact → `404 contact_not_found` |
+| Path id | `{contact_id}` (`con_…`); `{channel_account_id}` on route 22; another organization's or an erased contact → `404 contact_not_found` |
 | Writes | routes 21 and 26 need `X-Idempotency-Key` (they start background work); route 20 takes an optional `expected_updated_at` |
 | Success | `200` with `{ data, meta }`; route 23 → `204` |
 | Lists | routes 18, 24: `limit` (1–100, default 25), `after`; route 18 `estimated_total` on page one (as built) |
@@ -1103,15 +1298,15 @@ enabled and forced, the organization policy (`USING` + the maintenance arm; `WIT
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 18 | GET | `/contacts` | One account's contacts **(changed, RC-20)** | `contact:read` | |
-| 19 | GET | `/contacts/{contact_id}` | Open one contact **(new, RC-21)** | `contact:read` | |
-| 20 | PATCH | `/contacts/{contact_id}` | Note, tags, pause automations for her **(new, RC-22)** | `contact:update` | |
-| 21 | POST | `/contacts/bulk-actions` | One tag or pause on many **(new, RC-23)** | `contact:update` | req |
-| 22 | GET | `/social/instagram/accounts/{instagram_account_id}/contact-tags` | The account's tags with counts **(new, RC-24)** | `contact:read` | |
-| 23 | DELETE | `/contacts/{contact_id}` | Erase one contact **(changed, RC-25)** | `contact:delete` | |
-| 24 | GET | `/contacts/{contact_id}/activity` | What happened **(new, RC-36)** | `contact:read` | |
-| 25 | GET | `/contacts/{contact_id}/failed-messages/summary` | Her failed messages, counted **(new, RC-39)** | `contact:read` | |
-| 26 | POST | `/contacts/{contact_id}/failed-messages/retry` | Retry them **(new, RC-40)** | `contact:update` | req |
+| 18 | GET | `/social/instagram/contacts` | One account's contacts **(changed, RC-20)** | `contact:read` | |
+| 19 | GET | `/social/instagram/contacts/{contact_id}` | Open one contact **(new, RC-21)** | `contact:read` | |
+| 20 | PATCH | `/social/instagram/contacts/{contact_id}` | Note, tags, pause automations for her **(new, RC-22)** | `contact:update` | |
+| 21 | POST | `/social/instagram/contacts/bulk-actions` | One tag or pause on many **(new, RC-23)** | `contact:update` | req |
+| 22 | GET | `/social/instagram/accounts/{channel_account_id}/contact-tags` | The account's tags with counts **(new, RC-24)** | `contact:read` | |
+| 23 | DELETE | `/social/instagram/contacts/{contact_id}` | Erase one contact **(changed, RC-25)** | `contact:delete` | |
+| 24 | GET | `/social/instagram/contacts/{contact_id}/activity` | What happened **(new, RC-36)** | `contact:read` | |
+| 25 | GET | `/social/instagram/contacts/{contact_id}/failed-messages/summary` | Her failed messages, counted **(new, RC-39)** | `contact:read` | |
+| 26 | POST | `/social/instagram/contacts/{contact_id}/failed-messages/retry` | Retry them **(new, RC-40)** | `contact:update` | req |
 
 ### 3.8 Request details
 
@@ -1136,28 +1331,28 @@ Every route can answer the errors in 3.5; each route's own errors are in 3.A.9.
 
 | # | Change |
 | --- | --- |
-| CTC1 | CT1, CT10: `CONTACT_UPDATE` in `app.permissions.ts`, its catalog row and grants with sub-domain 9; the routes' gates; the audit actions; `contact.overview.md`, `contact-tag-event.overview.md` |
-| CTC2 | CT2: `instagram_account_id` required in `listContactsQueryDto` (and the OpenAPI query map); the four sort indexes re-led with the account |
+| CTC1 | CT1, CT10: `CONTACT_UPDATE` in `app.permissions.ts`, its catalog row and grants with sub-domain 9; the routes' gates; the audit actions; `instagram-contact.overview.md`, `instagram-contact-tag-event.overview.md` |
+| CTC2 | CT2: `channel_account_id` required in `listContactsQueryDto` (and the OpenAPI query map); the four sort indexes re-led with the account |
 | CTC3 | CT4: `note` in the contact log-redaction list with its unit test |
 | CTC4 | The pause-step type beside `ContactErasureStep`; both lists filled in `app.container.ts` by sub-domains 3.B, 4 and 6 |
 
 ### 3.12 Nested sub-domains
 
-| Nested sub-domain | Folder (`src/domains/app/sub-domains/contact/…`) | Tables | Routes | Status |
+| Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-contact/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 3.A Contacts | folder root | `app.contacts` | 18–26 | awaiting your OK |
-| 3.B Contact tag events | `contact-tag-event/` | `app.contact_tag_events` | — | awaiting your OK |
+| 3.A Instagram contacts | folder root | `app.instagram_contacts` | 18–26 | awaiting your OK |
+| 3.B Instagram contact tag events | `instagram-contact-tag-event/` | `app.instagram_contact_tag_events` | — | awaiting your OK |
 
 ---
 
-### 3.A Contacts — `contact/` (folder root) — awaiting your OK
+### 3.A Instagram contacts — `instagram-contact/` (folder root) — awaiting your OK
 
 #### 3.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| CT11 | **Erase also cancels her messages and her tag events (RC-25, plan:L2628).** Today (launch CT7, CT8): lock, run the erasure steps (4's run copies), clear every personal column, keep the row; `chk_contacts_erased`. After: the same, with two more steps (3.10) and more columns cleared — `note`, `opted_out_at`, `last_opening_message_at`, `automations_off_at`, `automations_off_by_user_id`, `came_in_ref`, `first_message_at`, `last_comment_at`, `last_story_activity_at`, `last_broadcast_at` emptied and `comment_count` 0 (her activity is personal data too); `first_automation_id`, `came_in_via` and `channel` stay (they name the workspace's own automation, not her). `chk_contacts_erased` lists them. No body, no key, a repeat `404` — as built. |
-| CT12 | **The list (route 18).** Today: `q` over username, full name, email; `tags`, `has_email`, `has_phone`, `is_following_account`, `first_seen_from` / `_to`, `automation_id`, `instagram_account_id`; sorts `last_message_received_at` · `first_seen_at` · `username`. After: `instagram_account_id` required (CT2); `q` also over `phone` (the trigram expression adds `coalesce(phone, '')`, plan:L2980); new filters `is_opted_out`, `is_automations_paused`, `came_in_via` (one or more `trigger_type` values), `first_automation_id` (`aut_…`); the sorts as built. Each row is a Contact (no note). |
+| CT11 | **Erase also cancels her messages and her tag events (RC-25, plan:L2628).** Today (launch CT7, CT8): lock, run the erasure steps (4's run copies), clear every personal column, keep the row; `chk_instagram_contacts_erased`. After: the same, with two more steps (3.10) and more columns cleared — `note`, `opted_out_at`, `last_opening_message_at`, `automations_off_at`, `automations_off_by_user_id`, `came_in_ref`, `first_message_at`, `last_comment_at`, `last_story_activity_at`, `last_broadcast_at` emptied and `comment_count` 0 (her activity is personal data too); `first_automation_id`, `came_in_via` and `channel` stay (they name the workspace's own automation, not her). `chk_instagram_contacts_erased` lists them. No body, no key, a repeat `404` — as built. |
+| CT12 | **The list (route 18).** Today: `q` over username, full name, email; `tags`, `has_email`, `has_phone`, `is_following_account`, `first_seen_from` / `_to`, `automation_id`, `instagram_account_id`; sorts `last_message_received_at` · `first_seen_at` · `username`. After: `channel_account_id` required (CT2); `q` also over `phone` (the trigram expression adds `coalesce(phone, '')`, plan:L2980); new filters `is_opted_out`, `is_automations_paused`, `came_in_via` (one or more `trigger_type` values), `first_automation_id` (`aut_…`); the sorts as built. Each row is a Contact (no note). |
 | CT13 | **Open one contact (route 19).** A Contact detail: the row plus `note`, `automations_paused_by_user_id`, `last_opening_message_at`, `first_automation` `{ id, name }` (a deleted automation shows its name until purged, then null), `open_run_count`. Database only. |
 | CT14 | **What happened (route 24, D46, D50, P13).** Our messages to her (sub-domain 6, kept about 30 days — split by run-start week, P13) and her runs' history (4.B run events, 90 days: started, step changes, `email_received`, `phone_received`, `hello_tapped`, `follow_tapped`, ended), merged newest first. Never her own free text, never the email or phone values (they are on the contact, launch AU23). Paging by keyset `(occurred_at, source, id)` — each source reads `limit + 1` after the cursor, the service merges and `finishKeysetPage` cuts. `meta.message_horizon_days` = 30 tells the screen why older entries show only run history. |
 | CT15 | **Her failed messages (routes 25–26, D72).** Route 25 counts her `failed` messages of about the last 30 days: how many can go again now and why the others cannot (too old, chat closed, final for her, text still refused, broadcast, already retried once) — sub-domain 6's retry service, the same rules as an automation's (sub-domain 4, routes 36–37). Route 26 enqueues the `retry-failed` job (WC-42) for her and answers the count it expects; the job puts each allowed one back to `waiting` at most once (`owner_retry_at`), and the result banner follows. An opted-out or paused contact: every one counts as "final for her", and route 26 queues nothing. |
@@ -1168,7 +1363,7 @@ CTQ1 (3.2, the cache key), CTQ2 (the required account), CTQ3 (bulk by filter).
 
 #### 3.A.3 Tables and relations
 
-`app.contacts` — changes only (launch § 2.3 is the rest)
+`app.instagram_contacts` — changes only (launch § 2.3 is the rest)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
@@ -1178,7 +1373,7 @@ CTQ1 (3.2, the cache key), CTQ2 (the required account), CTQ3 (bulk by filter).
 | `first_automation_id` | `bigint` | yes | | composite → automations `ON DELETE SET NULL (first_automation_id)` — added with sub-domain 4 |
 | `came_in_via` | `varchar(20)` | yes | | one of the 15 `trigger_type` values; set with `first_automation_id` |
 | `came_in_ref` | `varchar(64)` | yes | | ref code or ad id |
-| `note` | `text` | yes | | 1–2,000 characters (`chk_contacts_note`) |
+| `note` | `text` | yes | | 1–2,000 characters (`chk_instagram_contacts_note`) |
 | `first_message_at` | `timestamptz` | yes | | set once |
 | `automations_off_at` | `timestamptz` | yes | | D71 |
 | `automations_off_by_user_id` | `bigint` | yes | | → users `ON DELETE SET NULL`; set with `automations_off_at`; check `automations_off_by_user_id IS NULL OR automations_off_at IS NOT NULL` (a deleted user empties the pointer, so the two are not tied both ways) |
@@ -1187,15 +1382,15 @@ CTQ1 (3.2, the cache key), CTQ2 (the required account), CTQ3 (bulk by filter).
 | `last_story_activity_at` | `timestamptz` | yes | | |
 | `last_broadcast_at` | `timestamptz` | yes | | the 24-hour broadcast gap (D68) |
 
-Checks changed: `chk_contacts_email` (the strict shape, ≤ 254 — CT9), `chk_contacts_erased` (CT11); added
-`chk_contacts_channel`, `chk_contacts_came_in_via`, `chk_contacts_note`, `chk_contacts_comment_count`,
-`chk_contacts_automations_off`. Indexes: the four sort indexes **re-led** `(organization_id, instagram_account_id, <sort>,
-id) WHERE deleted_at IS NULL`; `idx_contacts_search_trgm` adds `coalesce(phone, '')` (the repository's search uses the
-expression verbatim); **added** `idx_contacts_first_automation` `(organization_id, first_automation_id) WHERE
-first_automation_id IS NOT NULL` (the key), `idx_contacts_chat_open` `(organization_id, instagram_account_id,
+Checks changed: `chk_instagram_contacts_email` (the strict shape, ≤ 254 — CT9), `chk_instagram_contacts_erased` (CT11); added
+`chk_instagram_contacts_channel`, `chk_instagram_contacts_came_in_via`, `chk_instagram_contacts_note`, `chk_instagram_contacts_comment_count`,
+`chk_instagram_contacts_automations_off`. Indexes: the four sort indexes **re-led** `(organization_id, channel_account_id, <sort>,
+id) WHERE deleted_at IS NULL`; `idx_instagram_contacts_search_trgm` adds `coalesce(phone, '')` (the repository's search uses the
+expression verbatim); **added** `idx_instagram_contacts_first_automation` `(organization_id, first_automation_id) WHERE
+first_automation_id IS NOT NULL` (the key), `idx_instagram_contacts_chat_open` `(organization_id, channel_account_id,
 last_direct_message_received_at) WHERE deleted_at IS NULL AND opted_out_at IS NULL AND automations_off_at IS NULL`
-(broadcasts, 7), `idx_contacts_last_comment` `(organization_id, instagram_account_id, last_comment_at) WHERE
-last_comment_at IS NOT NULL AND deleted_at IS NULL` (segments, 7), `idx_contacts_automations_off_by_user_id` `WHERE
+(broadcasts, 7), `idx_instagram_contacts_last_comment` `(organization_id, channel_account_id, last_comment_at) WHERE
+last_comment_at IS NOT NULL AND deleted_at IS NULL` (instagram_segments, 7), `idx_instagram_contacts_automations_off_by_user_id` `WHERE
 automations_off_by_user_id IS NOT NULL` (the user key). No index for the two new yes/no filters — they narrow one
 account's rows already reached by the sort index (launch CT10's rule).
 
@@ -1243,10 +1438,10 @@ As 3.7.
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 18 | `instagram_account_id*`, `q` (1–200; username, name, email, phone), `tags`, `has_email`, `has_phone`, `is_following_account`, `is_opted_out`, `is_automations_paused`, `came_in_via` (comma-separated), `first_automation_id`, `automation_id`, `first_seen_from` / `_to`, `sort`, `order`, `limit`, `after` | — | Contact[] |
+| 18 | `channel_account_id*`, `q` (1–200; username, name, email, phone), `tags`, `has_email`, `has_phone`, `is_following_account`, `is_opted_out`, `is_automations_paused`, `came_in_via` (comma-separated), `first_automation_id`, `automation_id`, `first_seen_from` / `_to`, `sort`, `order`, `limit`, `after` | — | Contact[] |
 | 19 | — | — | Contact detail |
 | 20 | — | at least one of `note` (1–2,000 or `null`), `add_tags` (1–20), `remove_tags` (1–20), `is_automations_paused`; optional `expected_updated_at` | Contact detail |
-| 21 | — | `instagram_account_id*`, `action*` (`add_tag` \| `remove_tag` \| `pause_automations` \| `resume_automations`), `tag` (1–50, required for the tag actions, absent otherwise), exactly one of `contact_ids` (1–500 `con_…`, no repeats) or `filter` (the filters of 18 except `sort`, `order`, `limit`, `after`) | Contact bulk action result |
+| 21 | — | `channel_account_id*`, `action*` (`add_tag` \| `remove_tag` \| `pause_automations` \| `resume_automations`), `tag` (1–50, required for the tag actions, absent otherwise), exactly one of `contact_ids` (1–500 `con_…`, no repeats) or `filter` (the filters of 18 except `sort`, `order`, `limit`, `after`) | Contact bulk action result |
 | 22 | `limit` (1–1000, default 1000) | — | Contact tag count[] |
 | 23 | — | — | 204 |
 | 24 | `limit` (1–100, default 50), `after` | — | Contact activity item[] |
@@ -1257,7 +1452,7 @@ As 3.7.
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 18 | `400` · `instagram_account_id` | missing or not well formed; an unknown one is an empty page |
+| 18 | `400` · `channel_account_id` | missing or not well formed; an unknown one is an empty page |
 | 18, 21 | `400` · a filter's name | as built, plus the new filters |
 | 20 | `400` · `note` / `add_tags` / `remove_tags` | out of range, a tag in both lists, an empty body, an unknown field |
 | 20, 21 | `422` · `contact_tag_limit` | the tag would make more than 50 (route 21: those contacts are skipped and counted in the job's log, never a 422) |
@@ -1265,7 +1460,7 @@ As 3.7.
 | 21 | `400` · `contact_ids` / `filter` / `tag` | both or neither selection, a repeat, a tag for a pause action |
 | 21 | `422` · `contact_bulk_too_many` | more than 100,000 matches |
 | 19, 20, 23–26 | `404` · `contact_not_found` | not in the organization, another organization's, or erased |
-| 22 | `404` · `instagram_account_not_found` | as 2.5 |
+| 22 | `404` · `channel_account_not_found` | as 1B.5 |
 | 20, 21, 23, 26 | `422` | a personal organization; the idempotency key missing, malformed or reused (21, 26) |
 | reads | `404` · `team_organization_required` | a personal organization |
 | all | `403` · `missing_permission` | the gate (a Viewer on 20, 21, 26; an Editor on 23) |
@@ -1290,22 +1485,22 @@ As 3.7.
 
 | # | Change |
 | --- | --- |
-| CTC5 | CT3, CT9, CT11, CT12: `contact.schema.ts` and its migration changed in place (columns, checks, indexes as 3.A.3); the `first_automation_id` constraint with sub-domain 4; DTO filters; the trigram expression with phone (schema and repository verbatim); `INTERNATIONAL_PHONE_NUMBER_PATTERN` kept; the plus-address refusal removed from the contact email path (P19) |
+| CTC5 | CT3, CT9, CT11, CT12: `instagram-contact.schema.ts` and its migration changed in place (columns, checks, indexes as 3.A.3); the `first_automation_id` constraint with sub-domain 4; DTO filters; the trigram expression with phone (schema and repository verbatim); `INTERNATIONAL_PHONE_NUMBER_PATTERN` kept; the plus-address refusal removed from the contact email path (P19) |
 | CTC6 | CT5, CT13: routes 19–20 (schemas, controller, service, DTO strict, validator, serializer), the pause steps in the same commit; reasons `contact_tag_limit`; integration tests — note set and cleared, tags added and removed with their events, a pause cancels her runs and skips her messages, an off restarts nothing, a Viewer `403` |
-| CTC7 | CT7: route 21 (`idempotencyRequired`), the selection count, the WC-36 job extended to pause and resume (`contact/queues/`, `contact/workers/contact-bulk-action.*`, `instagram-tasks`, registry, DLQ), its tests (pieces of 500, a re-run writes nothing twice); reason `contact_bulk_too_many` |
-| CTC8 | CT8: `contact-tags.cache.ts` (key, 60 s, tombstone after commit, fail open, `read_cache_requests_total`), route 22, and the five cache tests be-read-cache-guard asks for |
+| CTC7 | CT7: route 21 (`idempotencyRequired`), the selection count, the WC-36 job extended to pause and resume (`instagram-contact/queues/`, `instagram-contact/workers/instagram-contact-bulk-action.*`, `instagram-tasks`, registry, DLQ), its tests (pieces of 500, a re-run writes nothing twice); reason `contact_bulk_too_many` |
+| CTC8 | CT8: `instagram-contact-tags.cache.ts` (key, 60 s, tombstone after commit, fail open, `read_cache_requests_total`), route 22, and the five cache tests be-read-cache-guard asks for |
 | CTC9 | CT14, CT15: routes 24–26 over sub-domain 4's run-event reader and 6's message reader and retry service (built with 6); keyset merge tests |
-| CTC10 | The erasure (CT11): the two new steps, `chk_contacts_erased`, the erase test extended to every new column; the data-lifecycle doc row; seeds — demo contacts with notes, tags, a paused and an opted-out one |
+| CTC10 | The erasure (CT11): the two new steps, `chk_instagram_contacts_erased`, the erase test extended to every new column; the data-lifecycle doc row; seeds — demo contacts with notes, tags, a paused and an opted-out one |
 
 ---
 
-### 3.B Contact tag events — `contact/contact-tag-event/` — awaiting your OK
+### 3.B Instagram contact tag events — `instagram-contact/instagram-contact-tag-event/` — awaiting your OK
 
 #### 3.B.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| CT16 | **One event per tag change, in the change's commit (D45, plan:L3685–L3717).** Today: none — tags change only inside a run's completion. After: every tag added or removed — by the tag step (4.B, `source` `automation`, `source_automation_id`) or by the owner (routes 20, 21, `source` `owner`) — writes one `app.contact_tag_events` row in the same commit, so a tag start is never lost; `chain_number` is how many tag starts led to it (intake starts nothing at 3 or more — the loop guard, sub-domain 5); its `id` is part of a tag start's once key (`tag:<tag>:<event id>`). After commit the service hands the event to intake (WC-4, sets `queued_at`); intake sets `done_at`. A nested sub-domain (not a persistence part) because it has its own service and two workers. No routes, no public id. |
+| CT16 | **One event per tag change, in the change's commit (D45, plan:L3685–L3717).** Today: none — tags change only inside a run's completion. After: every tag added or removed — by the tag step (4.B, `source` `automation`, `source_automation_id`) or by the owner (routes 20, 21, `source` `owner`) — writes one `app.instagram_contact_tag_events` row in the same commit, so a tag start is never lost; `chain_number` is how many tag starts led to it (intake starts nothing at 3 or more — the loop guard, sub-domain 5); its `id` is part of a tag start's once key (`tag:<tag>:<event id>`). After commit the service hands the event to intake (WC-4, sets `queued_at`); intake sets `done_at`. A nested sub-domain (not a persistence part) because it has its own service and two workers. No routes, no public id. |
 | CT17 | **Its two workers (pull-based, `retention` and `instagram-tasks` families).** (1) **Pick-up** (WC-27): every minute a scan across organizations (maintenance scope) finds events not handed over after 1 minute, or handed over 1 hour ago, not done and under 24 hours old; per organization it hands them to intake again (`organizationPublicId` in the job) — intake's once key makes a second hand-over start nothing twice. (2) **Retention** (WC-54, its tag part): events older than 8 days deleted in batches (`deleteInBatchesByCondition`). An erased contact's events go with the erase (CT11). |
 
 #### 3.B.2 Open questions
@@ -1314,13 +1509,13 @@ None.
 
 #### 3.B.3 Tables and relations
 
-`app.contact_tag_events` (no public id; append-only except `queued_at` / `done_at`)
+`app.instagram_contact_tag_events` (no public id; append-only except `queued_at` / `done_at`)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `id` | `bigserial` | no | | primary key; part of the tag start's once key |
 | `organization_id` | `bigint` | no | | → organizations `ON DELETE CASCADE` |
-| `instagram_account_id` | `bigint` | no | | composite → accounts `RESTRICT` (a copy of the contact's) |
+| `channel_account_id` | `bigint` | no | | composite → accounts `RESTRICT` (a copy of the contact's) |
 | `contact_id` | `bigint` | no | | composite → contacts `ON DELETE CASCADE` |
 | `tag` | `varchar(50)` | no | | 1–50, trimmed, no comma |
 | `kind` | `varchar(10)` | no | | `added` · `removed` |
@@ -1330,10 +1525,10 @@ None.
 | `created_at` | `timestamptz` | no | `now()` | |
 | `queued_at`, `done_at` | `timestamptz` | yes | | |
 
-Indexes: `idx_contact_tag_events_contact` `(organization_id, contact_id)` — the erase and the composite key;
-`idx_contact_tag_events_pickup` `(created_at) WHERE done_at IS NULL` — the pick-up scan; `idx_contact_tag_events_created`
-`(created_at)` — retention; `idx_contact_tag_events_source_automation` `(organization_id, source_automation_id) WHERE
-source_automation_id IS NOT NULL` — the key. Checks: `chk_contact_tag_events_kind`, `_source`, `_source_automation`,
+Indexes: `idx_instagram_contact_tag_events_contact` `(organization_id, contact_id)` — the erase and the composite key;
+`idx_instagram_contact_tag_events_pickup` `(created_at) WHERE done_at IS NULL` — the pick-up scan; `idx_instagram_contact_tag_events_created`
+`(created_at)` — retention; `idx_instagram_contact_tag_events_source_automation` `(organization_id, source_automation_id) WHERE
+source_automation_id IS NOT NULL` — the key. Checks: `chk_instagram_contact_tag_events_kind`, `_source`, `_source_automation`,
 `_chain_number`, `_tag`. RLS: enabled and forced, organization policy (`USING` + the maintenance arm for the scan and
 retention, `WITH CHECK` the organization). In `EXPECTED_FORCE_RLS_TABLES`. Plain table, batch deletes (P33).
 
@@ -1370,21 +1565,21 @@ None of its own.
 
 | # | Change |
 | --- | --- |
-| CTC11 | CT16, CT17: `contact-tag-event.{schema,repository,service,types}.ts` in the contacts migration (the automation key with sub-domain 4); `createWorkerContactTagEventRepository(databaseHandle)`; the hand-over after commit (`runEnqueueAfterCommit`); `contact-tag-event/workers/` pick-up and retention (registry, scheduler, `WORKER_QUEUE_NAMES`, the scan in the maintenance-confinement allowlist); tests — written in the tag's commit, a rollback writes none, a re-hand-over starts nothing twice, 8-day retention |
+| CTC11 | CT16, CT17: `instagram-contact-tag-event.{schema,repository,service,types}.ts` in the contacts migration (the automation key with sub-domain 4); `createWorkerContactTagEventRepository(databaseHandle)`; the hand-over after commit (`runEnqueueAfterCommit`); `instagram-contact-tag-event/workers/` pick-up and retention (registry, scheduler, `WORKER_QUEUE_NAMES`, the scan in the maintenance-confinement allowlist); tests — written in the tag's commit, a rollback writes none, a re-hand-over starts nothing twice, 8-day retention |
 
 ---
 
-## 4. Automations — rev 1 (2026-11-23) — nested sub-domains 4.A–4.C; awaiting your OK
+## 4. Instagram automations — rev 2 (2026-11-23) — nested sub-domains 4.A–4.C; awaiting your OK
 
-**Status: rev 1 — awaiting your OK** (P31).
+**Status: rev 2 (2026-11-23) — awaiting your OK** (P31).
 
-Code: the **`automation` sub-domain folder** — `app/sub-domains/automation/` (the automation, its counters and its
-public-reply pacing at the folder root) with `automation-run/` (as built) and a new `automation-backfill/` (past comments,
+Code: the **`instagram-automation` sub-domain folder** — `app/sub-domains/instagram-automation/` (the launch's `automation/`, renamed — P44; the automation, its counters and its
+public-reply pacing at the folder root) with `instagram-automation-run/` (as built) and a new `instagram-automation-backfill/` (past comments,
 nested under automation — P38).
 
 4.1 Decisions (whole sub-domain) · 4.2 Open questions · 4.3 Tables and relations · 4.4 Permissions · 4.5 Common to every route ·
 4.6 Objects returned · 4.7 Routes · 4.8 Request details · 4.9 Errors · 4.10 Rules worth knowing · 4.11 Code changes (whole sub-domain) ·
-4.12 Nested sub-domains · then **4.A Automations · 4.B Automation runs · 4.C Automation backfills** — each with the same
+4.12 Nested sub-domains · then **4.A Instagram automations · 4.B Instagram automation runs · 4.C Instagram automation backfills** — each with the same
 eleven sections.
 
 An automation of one account: `draft` → `live` ⇄ `paused` (D28), started by one of 15 ways (D37, the untested ones
@@ -1396,7 +1591,7 @@ can be answered too (D69). Design read: plan §4–§5 (plan:L448–L1131), §15
 §18.5–18.8 (plan:L2995–L3205), §19.12–19.13, §19.20; `db-changes.md` › automation, automation_count,
 automation_reply_state, automation_backfill, automation_run, automation_run_event, automation_comment_log;
 `route-changes.md` RC-26–RC-34, RC-37, RC-38, RC-54, RC-55; `worker-changes.md` WC-41, WC-43–WC-45, WC-47, WC-51, WC-52.
-Builds on 2 (the account, its media), 3 (contacts — and it adds 3's two keys into automations); sends nothing itself
+Builds on 1B (the account), 2 (its media), 3 (contacts — and it adds 3's two keys into automations); sends nothing itself
 (sub-domain 6 sends, WC-9 removed). Route numbers run 27–39.
 
 ### 4.1 Decisions (whole sub-domain)
@@ -1404,15 +1599,17 @@ Builds on 2 (the account, its media), 3 (contacts — and it adds 3's two keys i
 Taken on your standing answer "go with the recommendation" — change any of them before you confirm. The launch's
 review is the "before" ([launch routes-final § 3](../../launch-2026-11-20-ujai/plans/routes-final.md)).
 
+**rev 2 changes** (P44, P47, M9): renamed Automations → **Instagram automations** — folders `instagram-automation/` (+ `instagram-automation-run/`, `instagram-automation-backfill/`), tables `app.instagram_automations`, `app.instagram_automation_runs`, `app.instagram_automation_run_events`, `app.instagram_automation_comment_logs`, `app.instagram_automation_counts`, `app.instagram_automation_reply_states`, `app.instagram_automation_backfills`; routes under `/social/instagram/automations…`; `instagram_account_id` → `channel_account_id` (→ `app.channel_accounts`, 1B); `{automation_id}`, `{automation_backfill_id}` and the `automation_id` columns keep their names; audit `app.instagram_automation.*`; go-live reads the account state from 1B and media and starter questions from 2.
+
 | # | Decision |
 | --- | --- |
-| AU1 | **Folders, names, ids (P38).** Today: `automation/` (routes 11–15 of the launch) and `automation-run/` (no routes; runs, run events, comment logs, the engine). After: both kept; a new nested `automation-backfill/` (routes 38–39, `app.automation_backfills`, the past-comments worker); `app.automation_counts` and `app.automation_reply_states` are persistence parts at the folder root (`automation-count.*`, `automation-reply-state.*` — schema, repository, a small service each; no controller). The plan's singular `automation_reply_state` becomes the plural table name (db-changes). Public id of a backfill: prefix at kickoff (P22); **its path id is `{automation_backfill_id}`** (the table's singular — the template's rule), not route-changes' `{backfill_id}`, registered in `PARAM_NAME_TO_ENTITY`. |
+| AU1 | **Folders, names, ids (P38).** Today: `automation/` (routes 11–15 of the launch) and `automation-run/` (no routes; runs, run events, comment logs, the engine). After: both renamed `instagram-automation/` and `instagram-automation/instagram-automation-run/` with their tables `app.instagram_*` (P44); a new nested `instagram-automation-backfill/` (routes 38–39, `app.instagram_automation_backfills`, the past-comments worker); `app.instagram_automation_counts` and `app.instagram_automation_reply_states` are persistence parts at the folder root (`instagram-automation-count.*`, `instagram-automation-reply-state.*` — schema, repository, a small service each; no controller). The plan's singular `automation_reply_state` becomes the plural table name (db-changes). Public id of a backfill: prefix at kickoff (P22); **its path id is `{automation_backfill_id}`** (the table's singular — the template's rule), not route-changes' `{backfill_id}`, registered in `PARAM_NAME_TO_ENTITY`. |
 | AU2 | **Codes — no new ones (P20, D55).** `automation:read` · `create` · `update` · `delete` as built; past comments and the automation's failed-message retry reuse them (D69, D72). The Member role becomes **Editor** and gains `automation:delete` (D55, sub-domain 9) — Editors may create, edit, go live, pause and delete. Viewer reads. |
 | AU3 | **Status by actions only (P8, D28).** Today: `live` · `inactive`, set by `PATCH status`. After: `draft` · `live` · `paused` (`inactive` → `paused` in the migration changed in place — no data, P29); `PATCH` saves content only; route 32 goes live from `draft` or `paused`, route 33 pauses a `live` one; delete from any status. Going live when already `live`, or pausing an already `paused` automation with the same mode, answers `200` and changes nothing (a repeat is safe, so neither takes a key); pausing a `draft` → `409 transition_not_allowed`. An automatic stop (`stopped_reason` `bad_text` · `post_deleted`, set by sub-domains 5–6) keeps it `live` and sends nothing until fixed (route 30). A plan change never stops one (D57). |
 | AU4 | **Plans: read-only, PRO, untested features (P10, D35, D57, P36).** Today: `app-plan-access.ts`'s preHandler refuses create, edit and delete with `403 organization_read_only` while `BILLING_READ_ONLY_ENFORCED` is on; no PRO, no feature list. After: (1) **plan ended or workspace suspended** → only go-live is refused (`403 organization_read_only`, the same reason; the preHandler moves from create / edit / delete to route 32); create, edit, pause, duplicate and delete stay open (P10); (2) **PRO** (email, phone, "Reply like a person", more than one reply line, a second version, past comments): a draft may hold them; going live with one on a plan without PRO is a go-live problem; a save of a live or paused automation that turns one on (off in the saved row) → `403 plan_feature_required`; past comments → `403 plan_feature_required`; PRO parts already on before a move down stay saved and the engine ignores them (4.B); (3) **untested Meta features** — the code list `APP_UNTESTED_META_FEATURES` in the app domain's settings file (P4, owned by sub-domain 6): `story_repost`, `live_comment`, `ad_comment`, the 7-day ad window, `quick_replies` and `cards` on Unified Login, `mark_seen` — a go-live that uses one is a problem (`feature_not_offered` — the go-live **problem code**, one item of `409 automation_not_ready`'s `errors[]`; the settings field's refusal is the separate reason `422 instagram_feature_not_offered`, 2.B); drafts may hold them; removing an item is a deploy after its §43 test. Plan features come from sub-domain 8's plan read. |
 | AU5 | **Idempotency.** `X-Idempotency-Key` required on 28 (create), 34 (duplicate), 37 (retry) and 38 (past comments) — each makes a row or background work; routes 32, 33 (state no-ops, AU3) and 35 (saves nothing) take none. |
 | AU6 | **Background work owned here** (all pull-based, `organizationPublicId` in every job, safe to repeat): **next-post linking** (WC-43, changed — every 15 minutes, per account with a live waiting "my next post" automation, read the posts published since its go-live and link the first, once; no window, no dates); **next-post expiry** (WC-44) **removed** — "my next post" never expires (P12); **deleted-automation purge** (WC-47, changed — counters, reply state and backfills go by cascade, file links through sub-domain 6); the run workers (4.B) and the past-comments read (4.C). After a go-live, pause, delete or question change of a starter-question automation, it enqueues sub-domain 2's starter-question sync (IA6) after commit. |
-| AU7 | **Audit (K9).** As built `app.automation.create` · `.update` (changed fields) · `.delete`; new `app.automation.go_live`, `.pause` (`metadata.mode`), `.duplicate` (`metadata.source_automation_public_id`), `.failed_messages_retry`, `app.automation_backfill.start` — all after commit. |
+| AU7 | **Audit (K9).** As built `app.instagram_automation.create` · `.update` (changed fields) · `.delete`; new `app.instagram_automation.go_live`, `.pause` (`metadata.mode`), `.duplicate` (`metadata.source_automation_public_id`), `.failed_messages_retry`, `app.instagram_automation_backfill.start` — all after commit. |
 
 ### 4.2 Open questions
 
@@ -1421,7 +1618,7 @@ review is the "before" ([launch routes-final § 3](../../launch-2026-11-20-ujai/
 | AUQ1 | Go-live answers a list of problems, each with its step (plan §5.1). Which status? | `409 automation_not_ready` with `errors[]` · `422` with `errors[]` | **409** — the request (no body) is fine; the automation's saved state conflicts with going live and the same call passes once it is fixed (response-codes' 409 vs 422 rule); `errors[]` on this one 409 is new and is documented in `response-codes.md` |
 | AUQ2 | A save of a live or paused automation "runs the same full check" (plan:L670) — does that include the account, plan and month checks? | content checks only (AU12) · the full list | **Content only** — a month-limit or plan-ended workspace must still be able to fix a refused text (P10); the account, plan and month checks run at go-live |
 | AUQ3 | A draft "needs only a name" (D28) — is the way to start chosen at create? | `trigger_type` required at create · optional until go-live | **Required** — the editor opens on a chosen way, a later change must stay in the same group (plan:L687), and every database check keys on it |
-| AUQ4 | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | drop — the launch's one-open-run index does it · keep the key table | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so the partial unique index `idx_automation_runs_one_open` is the whole rule; WC-45 then frees no key |
+| AUQ4 | Drop the plan's `app.automation_run_open_key` (db-changes' proposal under P35)? | drop — the launch's one-open-run index does it · keep the key table | **Drop** — with P35 a new allowed start cancels the open run in the same commit, so the partial unique index `idx_instagram_automation_runs_one_open` is the whole rule; WC-45 then frees no key |
 
 Until you answer, the plan follows the recommendation.
 
@@ -1429,28 +1626,28 @@ Until you answer, the plan follows the recommendation.
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.automations` | one automation of one account | status by actions (AU3); go-live rules as `status = 'draft' OR (…)` checks (4.A); soft delete, reason optional (AU16) |
-| `app.automation_counts` | all-time counters in 16 slots | primary key `(organization_id, automation_id, slot)`; written in the event's commit (AU19) |
-| `app.automation_reply_states` | the "Reply like a person" pacing | one per automation, made at its first public reply |
-| `app.automation_runs` | one person going through one automation | one open run per automation and person (AU23); once key (AU22); 90 days |
-| `app.automation_run_events` | a run's append-only history | + two tap events; cascades with its run |
-| `app.automation_comment_logs` | one comment an automation saw | the message-list and hide steps; 90 days |
-| `app.automation_backfills` | one past-comments read | one queued or reading per automation (4.C) |
+| `app.instagram_automations` | one automation of one account | status by actions (AU3); go-live rules as `status = 'draft' OR (…)` checks (4.A); soft delete, reason optional (AU16) |
+| `app.instagram_automation_counts` | all-time counters in 16 slots | primary key `(organization_id, automation_id, slot)`; written in the event's commit (AU19) |
+| `app.instagram_automation_reply_states` | the "Reply like a person" pacing | one per automation, made at its first public reply |
+| `app.instagram_automation_runs` | one person going through one automation | one open run per automation and person (AU23); once key (AU22); 90 days |
+| `app.instagram_automation_run_events` | a run's append-only history | + two tap events; cascades with its run |
+| `app.instagram_automation_comment_logs` | one comment an automation saw | the message-list and hide steps; 90 days |
+| `app.instagram_automation_backfills` | one past-comments read | one queued or reading per automation (4.C) |
 
 ```text
 tenancy.organizations
    │
-   └──< app.instagram_accounts (2) ──< app.automations ──┬──< app.automation_counts (16 slots)
-                                                        ├──< app.automation_reply_states (1:1)
-                                                        ├──< app.automation_backfills (4.C)
-                                                        ├──< app.automation_runs (4.B) ──┬──< app.automation_run_events
-                                                        │        └──> app.contacts (3)   └──< app.automation_comment_logs
-                                                        ├──< app.contacts.first_automation_id (3, SET NULL)
-                                                        └──< app.contact_tag_events.source_automation_id (3.B, SET NULL)
+   └──< app.channel_accounts (1B) ──< app.instagram_automations ──┬──< app.instagram_automation_counts (16 slots)
+                                                                  ├──< app.instagram_automation_reply_states (1:1)
+                                                                  ├──< app.instagram_automation_backfills (4.C)
+                                                                  ├──< app.instagram_automation_runs (4.B) ──┬──< app.instagram_automation_run_events
+                                                                  │        └──> app.instagram_contacts (3)   └──< app.instagram_automation_comment_logs
+                                                                  ├──< app.instagram_contacts.first_automation_id (3, SET NULL)
+                                                                  └──< app.instagram_contact_tag_events.source_automation_id (3.B, SET NULL)
 ```
 
 Pointing at these from other sub-domains: the messages' copies (6, no keys into a split table), broadcasts' "start
-automation X" button (7), `contacts.first_automation_id` and `contact_tag_events.source_automation_id` (3 — **their two
+automation X" button (7), `instagram_contacts.first_automation_id` and `instagram_contact_tag_events.source_automation_id` (3 — **their two
 constraints are added by this sub-domain's migration**). Branch rule: none. Membership pointers: none; `created_by_user_id`,
 `updated_by_user_id`, `requested_by_user_id` → users `ON DELETE SET NULL` (K6).
 
@@ -1497,19 +1694,19 @@ in `EXPECTED_FORCE_RLS_TABLES` (+3).
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 27 | GET | `/automations` | One account's automations **(changed, RC-26)** | `automation:read` | |
-| 28 | POST | `/automations` | Save a draft **(changed, RC-27)** | `automation:create` | req |
-| 29 | GET | `/automations/{automation_id}` | One automation, new shape **(changed, RC-28)** | `automation:read` | |
-| 30 | PATCH | `/automations/{automation_id}` | Save content **(changed, RC-29)** | `automation:update` | |
-| 31 | DELETE | `/automations/{automation_id}` | Delete, reason optional **(changed, RC-30)** | `automation:delete` | |
-| 32 | POST | `/automations/{automation_id}/go-live` | Go live **(new, RC-31)** | `automation:update` | none (AU3) |
-| 33 | POST | `/automations/{automation_id}/pause` | Pause, keep or cancel **(new, RC-32)** | `automation:update` | none (AU3) |
-| 34 | POST | `/automations/{automation_id}/duplicate` | A draft copy **(new, RC-33)** | `automation:create` | req |
-| 35 | POST | `/automations/{automation_id}/keyword-test` | Try it **(new, RC-34)** | `automation:read` | none (saves nothing) |
-| 36 | GET | `/automations/{automation_id}/failed-messages/summary` | Its failed messages, counted **(new, RC-37)** | `automation:read` | |
-| 37 | POST | `/automations/{automation_id}/failed-messages/retry` | Retry them **(new, RC-38)** | `automation:update` | req |
-| 38 | POST | `/automations/{automation_id}/backfills` | Also answer past comments **(new, RC-54)** | `automation:update` | req |
-| 39 | GET | `/automations/{automation_id}/backfills/{automation_backfill_id}` | One past-comments read **(new, RC-55)** | `automation:read` | |
+| 27 | GET | `/social/instagram/automations` | One account's automations **(changed, RC-26)** | `automation:read` | |
+| 28 | POST | `/social/instagram/automations` | Save a draft **(changed, RC-27)** | `automation:create` | req |
+| 29 | GET | `/social/instagram/automations/{automation_id}` | One automation, new shape **(changed, RC-28)** | `automation:read` | |
+| 30 | PATCH | `/social/instagram/automations/{automation_id}` | Save content **(changed, RC-29)** | `automation:update` | |
+| 31 | DELETE | `/social/instagram/automations/{automation_id}` | Delete, reason optional **(changed, RC-30)** | `automation:delete` | |
+| 32 | POST | `/social/instagram/automations/{automation_id}/go-live` | Go live **(new, RC-31)** | `automation:update` | none (AU3) |
+| 33 | POST | `/social/instagram/automations/{automation_id}/pause` | Pause, keep or cancel **(new, RC-32)** | `automation:update` | none (AU3) |
+| 34 | POST | `/social/instagram/automations/{automation_id}/duplicate` | A draft copy **(new, RC-33)** | `automation:create` | req |
+| 35 | POST | `/social/instagram/automations/{automation_id}/keyword-test` | Try it **(new, RC-34)** | `automation:read` | none (saves nothing) |
+| 36 | GET | `/social/instagram/automations/{automation_id}/failed-messages/summary` | Its failed messages, counted **(new, RC-37)** | `automation:read` | |
+| 37 | POST | `/social/instagram/automations/{automation_id}/failed-messages/retry` | Retry them **(new, RC-38)** | `automation:update` | req |
+| 38 | POST | `/social/instagram/automations/{automation_id}/backfills` | Also answer past comments **(new, RC-54)** | `automation:update` | req |
+| 39 | GET | `/social/instagram/automations/{automation_id}/backfills/{automation_backfill_id}` | One past-comments read **(new, RC-55)** | `automation:read` | |
 
 ### 4.8 Request details
 
@@ -1533,31 +1730,31 @@ Every route can answer the errors in 4.5; each route's own errors are in 4.A.9 a
 
 | # | Change |
 | --- | --- |
-| AUC1 | AU1: `automation-backfill/` folder; `automation-count.*`, `automation-reply-state.*` at the root; `PUBLIC_ID_PREFIXES.automationBackfill` (at kickoff), `PARAM_NAME_TO_ENTITY.automation_backfill_id`; the two contact constraints in this migration; OpenAPI tag `Automation backfill`; overviews |
+| AUC1 | AU1: `instagram-automation-backfill/` folder; `instagram-automation-count.*`, `instagram-automation-reply-state.*` at the root; `PUBLIC_ID_PREFIXES.automationBackfill` (at kickoff), `PARAM_NAME_TO_ENTITY.automation_backfill_id`; the two contact constraints in this migration; OpenAPI tag `Automation backfill`; overviews |
 | AUC2 | AU3, AU4: status values and the action routes; `app-plan-access.ts` preHandler moved to route 32; `plan_feature_required` and the untested-feature check over sub-domain 8's plan read and 6's settings file; reasons `transition_not_allowed` (reused), `automation_not_ready`, `plan_feature_required`, `feature_not_offered` in `errors:` keys and `response-codes.md` (with `errors[]` on `automation_not_ready`, AUQ1) |
-| AUC3 | AU6: WC-43 rewritten as the 15-minute linking sweep (`automation/workers/automation-next-post-linking.*`, scan then per organization); `automation-next-post-expiry` queue, worker, scheduler entry and tests removed; WC-47 purge extended; the starter-sync enqueue |
+| AUC3 | AU6: WC-43 rewritten as the 15-minute linking sweep (`instagram-automation/workers/instagram-automation-next-post-linking.*`, scan then per organization); `automation-next-post-expiry` queue, worker, scheduler entry and tests removed; WC-47 purge extended; the starter-sync enqueue |
 | AUC4 | AU7: the five new audit actions |
 
 ### 4.12 Nested sub-domains
 
-| Nested sub-domain | Folder (`src/domains/app/sub-domains/automation/…`) | Tables | Routes | Status |
+| Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-automation/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 4.A Automations | folder root | `app.automations`, `app.automation_counts`, `app.automation_reply_states` | 27–37 | awaiting your OK |
-| 4.B Automation runs | `automation-run/` | `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs` | — | awaiting your OK |
-| 4.C Automation backfills | `automation-backfill/` | `app.automation_backfills` | 38–39 | awaiting your OK |
+| 4.A Instagram automations | folder root | `app.instagram_automations`, `app.instagram_automation_counts`, `app.instagram_automation_reply_states` | 27–37 | awaiting your OK |
+| 4.B Instagram automation runs | `instagram-automation-run/` | `app.instagram_automation_runs`, `app.instagram_automation_run_events`, `app.instagram_automation_comment_logs` | — | awaiting your OK |
+| 4.C Instagram automation backfills | `instagram-automation-backfill/` | `app.instagram_automation_backfills` | 38–39 | awaiting your OK |
 
 ---
 
-### 4.A Automations — `automation/` (folder root) — awaiting your OK
+### 4.A Instagram automations — `instagram-automation/` (folder root) — awaiting your OK
 
 #### 4.A.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| AU8 | **The new shape (plan:L2995–L3145).** Today: the launch's columns — `opening_message`, `is_follow_required`, `follow_request_message`, email / phone switches and messages, one `final_message`, `tags`, `is_dm_keyword_trigger_enabled`, `next_post_starts_at` / `_ends_at`, `completed_run_count`, three trigger types. After: flat start fields — `trigger_type` (15: `comment`, `live_comment`, `story_reply`, `story_mention`, `story_repost`, `dm_keyword` (was `dm`), `first_message`, `shared_post`, `starter_question`, `ref_link`, `default_reply`, `ad_comment`, `ad_message`, `tag_added`, `tag_removed`), `channel`, `also_start_from` (`story_reply`, `dm`, at most 2 — replaces the DM switch, D38), `target_scope` (+ `between`), `target_starts_at` / `target_ends_at`, `next_post_status` (`waiting` · `linked`), `ref_code`, `starter_questions`, `ad_id`, `trigger_tag`, `default_reply_mode`, `keywords` (as built); the public reply per automation — `is_public_reply_enabled` (kept, P21), `public_reply_texts` (kept), `is_public_reply_mention_enabled` (on, D63), `is_reply_like_person_enabled` (D59), `public_reply_hour_limit` (10 · 20 · 30 · 60 · 100, empty = 60), `is_hide_comment_after_direct_message_enabled` (D33); **`steps`** — one object (≤ 64 KB) with `hello`, `follow`, `email`, `phone`, `messages[]` (7 kinds, 1–10, waits 0 or 1–1,380 minutes), `tags` — validated by one zod schema (`automation-steps.dto.ts`), files by upload public id in the same workspace that passed the type and content checks (P34, P25); `stopped_reason` / `stopped_at`; `cancelled_before_at`. The 13 launch message columns, the DM switch, `tags`, `completed_run_count` (+ its check and index) and the two next-post dates go. |
-| AU9 | **Two levels of database checks (plan:L3096–L3120).** Every save (drafts too): lists, lengths, counts, ranges, `steps` is an object under 64 KB. Go-live rules written `status = 'draft' OR (…)`, so a `live` or `paused` row must pass them: `chk_automations_live_trigger_fields`, `_live_target`, `_live_also_start_from`, `_live_next_post`, `_live_between`, `_live_public_reply`, `_live_hide`, `_live_messages`, `_live_hello_next_button` (replaces `chk_automations_comment_opening_button`; P2 — a hello always has a "sends your next step" button, since the message list always has one). The API checks the rest (the full `steps` shape, PRO, starter-question totals, `nudge` only where she messaged first, `trigger_tag` not in `steps.tags`, one live catch-all, the comment-without-hello rule, the month limit, warnings). |
-| AU10 | **The list (route 27).** Today: every automation of the organization, `instagram_account_id` optional, sorts `created_at` · `name` · `last_triggered_at` · `completed_run_count`. After: `instagram_account_id` **required** (CT2's reason); filters `status` (several), `trigger_type` (several), `q` (name); sorts `created_at` · `name` · `last_triggered_at` (the run-count sort goes — the plan shows counts, it does not sort by them, plan:L3042); each row with its all-time `runs_started` and `tapped_percent` ((taps + typed answers) / runs, D61 — the sum of its 16 count slots, at most 400 small rows for a page of 25); a draft shows `updated_at` ("edited 1h ago"). `meta.totals` = `{ live_count, runs_started }` for the account (the top bar, plan:L2527). The launch's follow-up — an index for `last_triggered_at` descending — lands here. |
-| AU11 | **Create a draft (route 28, D28).** Today: a complete automation, every rule checked, the account implied (the one connected). After: `name*` (1–255), `instagram_account_id*` (an account of the organization that is not revoked — an `error` one is fine for a draft), `trigger_type*` (AUQ3); everything else optional and checked for shape only (AU9's every-save level); `status` `draft`; `is_reply_like_person_enabled` defaults to `true` when the plan has PRO (D59); a `ref_link` draft gets a free `ref_code` when none is given. Nothing is sent, nothing else is checked. A read-only plan may create (P10). |
+| AU8 | **The new shape (plan:L2995–L3145).** Today: the launch's columns — `opening_message`, `is_follow_required`, `follow_request_message`, email / phone switches and messages, one `final_message`, `tags`, `is_dm_keyword_trigger_enabled`, `next_post_starts_at` / `_ends_at`, `completed_run_count`, three trigger types. After: flat start fields — `trigger_type` (15: `comment`, `live_comment`, `story_reply`, `story_mention`, `story_repost`, `dm_keyword` (was `dm`), `first_message`, `shared_post`, `starter_question`, `ref_link`, `default_reply`, `ad_comment`, `ad_message`, `tag_added`, `tag_removed`), `channel`, `also_start_from` (`story_reply`, `dm`, at most 2 — replaces the DM switch, D38), `target_scope` (+ `between`), `target_starts_at` / `target_ends_at`, `next_post_status` (`waiting` · `linked`), `ref_code`, `starter_questions`, `ad_id`, `trigger_tag`, `default_reply_mode`, `keywords` (as built); the public reply per automation — `is_public_reply_enabled` (kept, P21), `public_reply_texts` (kept), `is_public_reply_mention_enabled` (on, D63), `is_reply_like_person_enabled` (D59), `public_reply_hour_limit` (10 · 20 · 30 · 60 · 100, empty = 60), `is_hide_comment_after_direct_message_enabled` (D33); **`steps`** — one object (≤ 64 KB) with `hello`, `follow`, `email`, `phone`, `messages[]` (7 kinds, 1–10, waits 0 or 1–1,380 minutes), `tags` — validated by one zod schema (`instagram-automation-steps.dto.ts`), files by upload public id in the same workspace that passed the type and content checks (P34, P25); `stopped_reason` / `stopped_at`; `cancelled_before_at`. The 13 launch message columns, the DM switch, `tags`, `completed_run_count` (+ its check and index) and the two next-post dates go. |
+| AU9 | **Two levels of database checks (plan:L3096–L3120).** Every save (drafts too): lists, lengths, counts, ranges, `steps` is an object under 64 KB. Go-live rules written `status = 'draft' OR (…)`, so a `live` or `paused` row must pass them: `chk_instagram_automations_live_trigger_fields`, `_live_target`, `_live_also_start_from`, `_live_next_post`, `_live_between`, `_live_public_reply`, `_live_hide`, `_live_messages`, `_live_hello_next_button` (replaces `chk_instagram_automations_comment_opening_button`; P2 — a hello always has a "sends your next step" button, since the message list always has one). The API checks the rest (the full `steps` shape, PRO, starter-question totals, `nudge` only where she messaged first, `trigger_tag` not in `steps.tags`, one live catch-all, the comment-without-hello rule, the month limit, warnings). |
+| AU10 | **The list (route 27).** Today: every automation of the organization, `instagram_account_id` optional, sorts `created_at` · `name` · `last_triggered_at` · `completed_run_count`. After: `channel_account_id` **required** (CT2's reason); filters `status` (several), `trigger_type` (several), `q` (name); sorts `created_at` · `name` · `last_triggered_at` (the run-count sort goes — the plan shows counts, it does not sort by them, plan:L3042); each row with its all-time `runs_started` and `tapped_percent` ((taps + typed answers) / runs, D61 — the sum of its 16 count slots, at most 400 small rows for a page of 25); a draft shows `updated_at` ("edited 1h ago"). `meta.totals` = `{ live_count, runs_started }` for the account (the top bar, plan:L2527). The launch's follow-up — an index for `last_triggered_at` descending — lands here. |
+| AU11 | **Create a draft (route 28, D28).** Today: a complete automation, every rule checked, the account implied (the one connected). After: `name*` (1–255), `channel_account_id*` (an account of the organization that is not revoked — an `error` one is fine for a draft), `trigger_type*` (AUQ3); everything else optional and checked for shape only (AU9's every-save level); `status` `draft`; `is_reply_like_person_enabled` defaults to `true` when the plan has PRO (D59); a `ref_link` draft gets a free `ref_code` when none is given. Nothing is sent, nothing else is checked. A read-only plan may create (P10). |
 | AU12 | **Save content (route 30, RC-29).** A draft saves anything that passes AU9's every-save level. A `live` or `paused` one must also pass the go-live **content** checks (AU13's 1, 5–17 — AUQ2) on the merged result; problems → `400` with one `errors[]` item per problem, its `field` the step path (`body.steps.hello.versions.0.buttons`) so the editor jumps there; turning a PRO part on without PRO → `403 plan_feature_required`. `trigger_type` may change only inside its group (plan §4.1) → else `400 trigger_type`. Side effects in the same commit (sub-domain 6): waiting rows of a removed step or message cancelled (`cancelled_by_owner`); a fixed text clears `stopped_reason` and puts its bad-text failures under 7 days back to `waiting`; a reply-step change empties the reply state's box (it starts again). New runs use the new steps. Optional `expected_updated_at`. |
 | AU13 | **Go live (route 32, D28, P2, P36).** From `draft` or `paused`. The checks, all run, answered together as `409 automation_not_ready` with `errors[]` (AUQ1), each `{ field, reason, detail }`: 1 name · 2 the account `connected` and its connection not `error` / `revoked` · 3 plan not ended, workspace not suspended (`403 organization_read_only` instead of a list item — AU4) · 4 the month limit not reached (sub-domain 6's month count) · 5 PRO · 6 the way to start complete, and not on the untested list (AU4) · 7 keywords where needed · 8 starter questions 1–4 and the account's live total ≤ 4, counted under `FOR UPDATE` on the account row · 9 `ref_code` valid and free on the account · 10 one live `first_message` and one live `default_reply` per account · 11 the hello (text ≤ 640, 1–3 buttons, `https://` links, a next-step button — P2) · 12 the comment-without-hello rule · 13 follow · 14 email / phone wordings · 15 messages complete, files checked · 16 public reply lines (≥ 3 with "Reply like a person") · 17 tags. Warnings, never refusals, in `meta.warnings`: a keyword another live automation of the account uses; a private account on a comment kind. All good → `live`; a `next` automation gets `target_starts_at` = now and `next_post_status` `waiting`; from `paused`, its waiting DMs under 7 days go on; its lanes wake (6); a starter-question one enqueues the sync (IA6). |
 | AU14 | **Pause (route 33).** `mode*` = `keep` (waiting DMs stay, people in the middle finish) or `cancel` (`cancelled_before_at` = now: its waiting messages count as cancelled from now and the helper marks them, 500 a round — WC-19, sub-domain 6; the lanes already skip them). A starter-question one enqueues the sync. `paused` with `keep` then `cancel` sets `cancelled_before_at`; the same mode again is a no-op (AU3). No undo route — the client replays (P15). |
@@ -1565,7 +1762,7 @@ Every route can answer the errors in 4.5; each route's own errors are in 4.A.9 a
 | AU16 | **Delete (route 31, P11).** Today: `reason` and `note` required in the query (`recordDeleteQuerySchema`). After: `reason` optional (`mistake` · `duplicate` · `not_needed` · `other`; `other` needs `note`) — an `isReasonOptional` option on the shared `recordDeleteQuerySchemaOf` factory (`record-fields.util.ts`, reuse rule), not a second schema; stops at once in one commit: open runs `cancelled` (`automation_deleted`, 4.B), waiting messages `cancelled` (`automation_deleted`, 6); contacts it collected stay; a starter-question one enqueues the sync after commit; purged later (WC-47). |
 | AU17 | **Read one and try it (routes 29, 35).** Route 29: the full Automation (4.A.6) with its counters per version, its stop, its `link_url` for a `ref_link` (`https://ig.me/m/<username>?ref=<ref_code>`), its open past-comments read. Route 35 (D39, plan:L845, L5008–L5027): `text*` (1–1,000) and an optional `source` (`comment` · `dm` · `story_reply`, default from its way to start) run through the **same** matching function intake uses (4.B, `automation-run-matching.util.ts` — contains, plus one wrong letter in words of 5+ letters, several-word keywords together and in order) over this automation and the account's live ones; answers whether it matches, the word and `exact` / `close`, and which automation would answer first by the match order. Saves and sends nothing; the organization rate limit. |
 | AU18 | **Its failed messages (routes 36–37, D72).** As the contact's (CT15), for this automation: `failed` messages of about the last 30 days, never `unknown`, `skipped`, `expired`, `cancelled` or broadcast; route 37 enqueues WC-42 (sub-domain 6) — not while its text is still refused (those count as `text_refused`). |
-| AU19 | **Counters (D36, D61) and the reply pacing (D32).** `app.automation_counts`: 16 slot rows per automation (slot = the run's id mod 16, `AUTOMATION_COUNT_SLOTS`), `runs_started`, `taps`, `typed_answers` and the same per step version (`{"hello.1": 650}`), each `+1` with `INSERT … ON CONFLICT DO UPDATE` in the event's own commit, last in the lock order (4.B writes through this root's count service); they survive the 90-day run delete; `last_triggered_at` moves only when over 60 s old (`LAST_TRIGGERED_UPDATE_SECONDS`) and never moves `updated_at` (launch D30 kept). `app.automation_reply_states`: one per automation — `box_start`, `last_text_number`, `waiting_count` — written by sub-domain 6's reply lane and result save through this root's reply-state service. |
+| AU19 | **Counters (D36, D61) and the reply pacing (D32).** `app.instagram_automation_counts`: 16 slot rows per automation (slot = the run's id mod 16, `AUTOMATION_COUNT_SLOTS`), `runs_started`, `taps`, `typed_answers` and the same per step version (`{"hello.1": 650}`), each `+1` with `INSERT … ON CONFLICT DO UPDATE` in the event's own commit, last in the lock order (4.B writes through this root's count service); they survive the 90-day run delete; `last_triggered_at` moves only when over 60 s old (`LAST_TRIGGERED_UPDATE_SECONDS`) and never moves `updated_at` (launch D30 kept). `app.instagram_automation_reply_states`: one per automation — `box_start`, `last_text_number`, `waiting_count` — written by sub-domain 6's reply lane and result save through this root's reply-state service. |
 | AU20 | **"My next post" never expires (P12).** Today: a 24-hour start grace and an end date; WC-6 expires an ended window; sub-domain 4 links on each comment; `409 next_post_window_overlap` keeps keyword clashes apart. After: no window — `target_starts_at` is the go-live time; WC-43 links the first post published after it (AU6); `next_post_status` loses `expired`; the overlap `409` is retired (the shared-keyword warning covers it); `409 next_post_already_linked` stays (a save that changes a linked one's target). |
 
 #### 4.A.2 Open questions
@@ -1574,7 +1771,7 @@ AUQ1 (the go-live status), AUQ2 (save checks), AUQ3 (way to start at create).
 
 #### 4.A.3 Tables and relations
 
-`app.automations` — changes only (launch § 3.A.3 is the rest)
+`app.instagram_automations` — changes only (launch § 3.A.3 is the rest)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
@@ -1601,15 +1798,15 @@ AUQ1 (the go-live status), AUQ2 (save checks), AUQ3 (way to start at create).
 | `delete_reason` | `varchar(20)` | yes | | **changed**: optional once deleted; `other` needs `delete_note` |
 | ~~13 message columns~~, ~~`is_dm_keyword_trigger_enabled`~~, ~~`tags`~~, ~~`completed_run_count`~~, ~~`next_post_starts_at`~~, ~~`next_post_ends_at`~~ | | | | **removed** (AU8) |
 
-Indexes: **removed** `idx_automations_organization_id_completed_run_count_id`, `idx_automations_next_post_expiry`;
-**changed** `idx_automations_next_post_waiting` (no end date — the linking sweep's `(organization_id, instagram_account_id)
+Indexes: **removed** `idx_instagram_automations_organization_id_completed_run_count_id`, `idx_instagram_automations_next_post_expiry`;
+**changed** `idx_instagram_automations_next_post_waiting` (no end date — the linking sweep's `(organization_id, channel_account_id)
 WHERE next_post_status = 'waiting' AND status = 'live' AND deleted_at IS NULL`); the three sort indexes re-led
-`(organization_id, instagram_account_id, <sort>, id) WHERE deleted_at IS NULL`, `last_triggered_at` both directions
-(launch follow-up 2); **added** unique `idx_automations_account_ref_code` `(organization_id, instagram_account_id, ref_code)
-WHERE ref_code IS NOT NULL AND deleted_at IS NULL` (drafts included — D43); `idx_automations_live_triggers` kept (intake;
-sub-domain 5 may copy it in Redis under P5). Checks: AU9's two levels, each `chk_automations_<rule>`.
+`(organization_id, channel_account_id, <sort>, id) WHERE deleted_at IS NULL`, `last_triggered_at` both directions
+(launch follow-up 2); **added** unique `idx_instagram_automations_account_ref_code` `(organization_id, channel_account_id, ref_code)
+WHERE ref_code IS NOT NULL AND deleted_at IS NULL` (drafts included — D43); `idx_instagram_automations_live_triggers` kept (intake;
+sub-domain 5 may copy it in Redis under P5). Checks: AU9's two levels, each `chk_instagram_automations_<rule>`.
 
-`app.automation_counts` (no public id)
+`app.instagram_automation_counts` (no public id)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
@@ -1621,18 +1818,18 @@ sub-domain 5 may copy it in Redis under P5). Checks: AU9's two levels, each `chk
 
 Primary key `(organization_id, automation_id, slot)`. RLS: organization policy, enabled and forced.
 
-`app.automation_reply_states` (no public id)
+`app.instagram_automation_reply_states` (no public id)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `organization_id`, `automation_id` | `bigint` | no | | primary key; composite → automations `ON DELETE CASCADE` |
-| `instagram_account_id` | `bigint` | no | | composite → accounts `RESTRICT` (a copy: the reply pick reads the account's rows) |
+| `channel_account_id` | `bigint` | no | | composite → accounts `RESTRICT` (a copy: the reply pick reads the account's rows) |
 | `box_start` | `timestamptz` | yes | | |
 | `last_text_number` | `smallint` | yes | | the plan's `last_text_no` (P6) |
 | `waiting_count` | `integer` | no | `0` | `>= 0` |
 | `updated_at` | `timestamptz` | no | `now()` | |
 
-Index `(organization_id, instagram_account_id)`. RLS: organization policy, enabled and forced.
+Index `(organization_id, channel_account_id)`. RLS: organization policy, enabled and forced.
 
 #### 4.A.4 Permissions
 
@@ -1649,7 +1846,7 @@ As 4.5.
 
 #### 4.A.6 Objects returned
 
-**Automation** (routes 28–30, 32–34): `id` (`aut_…`), `instagram_account_id` (`iga_…`), `name`, `status`, `channel`,
+**Automation** (routes 28–30, 32–34): `id` (`aut_…`), `channel_account_id` (`cha_…`), `name`, `status`, `channel`,
 `trigger_type`, `also_start_from`, `target_scope`, `target_instagram_media_id`, `target_instagram_story_id`,
 `target_starts_at`, `target_ends_at`, `next_post_status`, `next_post_linked_at`, `keywords`, `ref_code`, `link_url`
 (`ref_link` only), `starter_questions`, `ad_id`, `trigger_tag`, `default_reply_mode`, `is_public_reply_enabled`,
@@ -1660,7 +1857,7 @@ typed_answers } } }`), `pro_parts_off` (the PRO parts the plan ignores now — t
 `open_backfill` (Automation backfill or null), `last_triggered_at`, `created_by_user_id`, `updated_by_user_id`,
 `created_at`, `updated_at`. The launch's message fields, `tags` and `completed_run_count` leave.
 
-**Automation list row** (route 27): `id`, `instagram_account_id`, `name`, `status`, `trigger_type`, `stopped_reason`,
+**Automation list row** (route 27): `id`, `channel_account_id`, `name`, `status`, `trigger_type`, `stopped_reason`,
 `runs_started`, `tapped_percent`, `last_triggered_at`, `updated_at`, `created_at`; list `meta.totals`.
 
 **Keyword test result** (route 35): `is_match`, `matched_keyword`, `match_kind` (`exact` · `close` · null),
@@ -1674,10 +1871,10 @@ As 4.7, rows 27–37.
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 27 | `instagram_account_id*`, `status` (comma-separated), `trigger_type` (comma-separated), `q` (1–200), `sort` = `created_at` (default) \| `name` \| `last_triggered_at`, `order`, `limit`, `after` | — | Automation list row[] |
-| 28 | — | `name*`, `instagram_account_id*`, `trigger_type*`; optional: every other writable field of the Automation and `steps` | Automation |
+| 27 | `channel_account_id*`, `status` (comma-separated), `trigger_type` (comma-separated), `q` (1–200), `sort` = `created_at` (default) \| `name` \| `last_triggered_at`, `order`, `limit`, `after` | — | Automation list row[] |
+| 28 | — | `name*`, `channel_account_id*`, `trigger_type*`; optional: every other writable field of the Automation and `steps` | Automation |
 | 29 | — | — | Automation |
-| 30 | — | any writable field (never `status`, `instagram_account_id`); optional `expected_updated_at` | Automation (+ `meta.warnings`) |
+| 30 | — | any writable field (never `status`, `channel_account_id`); optional `expected_updated_at` | Automation (+ `meta.warnings`) |
 | 31 | optional `reason` (`mistake` \| `duplicate` \| `not_needed` \| `other`), `note` (up to `RECORD_DELETE_NOTE_MAX_LENGTH`, required for `other`) | — | 204 |
 | 32 | — | — (strict empty) | Automation (+ `meta.warnings`) |
 | 33 | — | `mode*` (`keep` \| `cancel`) | Automation |
@@ -1690,8 +1887,8 @@ As 4.7, rows 27–37.
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 27 | `400` · `instagram_account_id` | missing or not well formed; unknown → an empty page |
-| 28 | `400` · `instagram_account_id` | not an account of the organization |
+| 27 | `400` · `channel_account_id` | missing or not well formed; unknown → an empty page |
+| 28 | `400` · `channel_account_id` | not an account of the organization |
 | 28 | `409` · `instagram_not_connected` | the account is `revoked` (as built, launch AU27) |
 | 28, 30 | `400` · a field's name / a `steps` path | shape, lengths, lists; on 30 for a live or paused one the content checks (AU12) |
 | 30 | `400` · `trigger_type` | a change to another group |
@@ -1716,22 +1913,22 @@ As 4.7, rows 27–37.
 
 | # | Change |
 | --- | --- |
-| AUC5 | AU8, AU9: `automation.schema.ts` and its migration changed in place (4.A.3's columns, checks at both levels, indexes); `automation-steps.dto.ts` (one zod schema for `steps`, each kind's fields — plan:L3060–L3092); constants (15 kinds, scopes, statuses, limits with full names — P6) |
+| AUC5 | AU8, AU9: `instagram-automation.schema.ts` and its migration changed in place (4.A.3's columns, checks at both levels, indexes); `instagram-automation-steps.dto.ts` (one zod schema for `steps`, each kind's fields — plan:L3060–L3092); constants (15 kinds, scopes, statuses, limits with full names — P6) |
 | AUC6 | AU10–AU18: routes 27–37 (`idempotencyRequired` on 28, 34, 37), controller, service, validator (the go-live list, content-only on save), serializers; the shared delete-query schema with an optional reason (P11) and its unit test; `automation_ref_code_exists` and the other reasons; integration tests — each success and each error of 4.A.9, every go-live check alone, a warning that does not refuse, pause keep and cancel, a duplicate's new `ref_code`, a live edit cancelling a removed step's waiting rows (with 6) |
-| AUC7 | AU19: `automation-count.*` and `automation-reply-state.*` (schemas, repositories with `createWorker…Repository`, services); the list's slot sums; tests — 16 slots sum, a run delete keeps the counts |
+| AUC7 | AU19: `instagram-automation-count.*` and `instagram-automation-reply-state.*` (schemas, repositories with `createWorker…Repository`, services); the list's slot sums; tests — 16 slots sum, a run delete keeps the counts |
 | AUC8 | AU20: the next-post columns, `expired` removed; seeds — demo automations across the 15 kinds, drafts, a paused one, counts |
 
 ---
 
-### 4.B Automation runs — `automation/automation-run/` — awaiting your OK
+### 4.B Instagram automation runs — `instagram-automation/instagram-automation-run/` — awaiting your OK
 
 #### 4.B.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| AU21 | **Run columns (plan:L3147–L3173).** Added `trigger_occurred_at` (the 7-day clock — a comment's `entry.time`, its own `timestamp` when the webhook came over 1 h late), `once_key` (the plan's `post_key`, ≤ 255, D13), `direct_message_sent_at` (first DM `sent` or `unknown`), `last_message_number` (1–10), `version_numbers` (`{"hello": 2}`); removed `trigger_text` (her free text is never kept — D46; the erase step loses that part), `sending_message_kind`, `sending_started_at` (+ `chk_automation_runs_sending` — the claim moves to the message row, sub-domain 6). `trigger_type` = how this run started (the 15 kinds; may differ through "also start from"); `current_step` `final_dm` → `messages`; `waiting_for` + `any`; `cancel_reason` + `expired` · `opted_out` · `window_closed` · `contact_excluded` · `replaced`. Kept 90 days after it ends (was 180, D16). |
+| AU21 | **Run columns (plan:L3147–L3173).** Added `trigger_occurred_at` (the 7-day clock — a comment's `entry.time`, its own `timestamp` when the webhook came over 1 h late), `once_key` (the plan's `post_key`, ≤ 255, D13), `direct_message_sent_at` (first DM `sent` or `unknown`), `last_message_number` (1–10), `version_numbers` (`{"hello": 2}`); removed `trigger_text` (her free text is never kept — D46; the erase step loses that part), `sending_message_kind`, `sending_started_at` (+ `chk_instagram_automation_runs_sending` — the claim moves to the message row, sub-domain 6). `trigger_type` = how this run started (the 15 kinds; may differ through "also start from"); `current_step` `final_dm` → `messages`; `waiting_for` + `any`; `cancel_reason` + `expired` · `opted_out` · `window_closed` · `contact_excluded` · `replaced`. Kept 90 days after it ends (was 180, D16). |
 | AU22 | **The once rule (D13, D65).** Each way to start has its once key (plan:L478–L498: the media id, `live:…`, `story:…`, `dm:<date>`, `first`, `share:…`, `starter:<date>`, `ref:<date>`, `default:<date>` or `default:<message id>`, `ad:<ad id>`, `tag:<tag>:<event id>`; `<date>` the workspace's day). A start whose `(automation, contact, once_key)` already had a DM is logged `ignored` · `once_per_post` (comment log) or its message `skipped` · `once_per_post`. The account switch "once per person per post" off makes the key the event's own id (D65). It frees itself when the old run is deleted (~90 days). Today: once per person per automation, ever (`previous_run_final`). |
-| AU23 | **One open run per automation and person; an allowed comment replaces it (P35, AUQ4).** The launch's partial unique index `idx_automation_runs_one_open` stays the whole rule. A comment (or an ad or Live comment) that may start a new run — another post, or "every time" — cancels her open run of that automation (`cancelled` · `replaced`; its waiting messages `cancelled` · `replaced` through 6; its comment log `cancelled`) and starts the new run **in the same commit**. A second comment on the same post with "once" on → `ignored` · `once_per_post`. Every other way to start while her run is open → `ignored` · `run_in_progress`. No `automation_run_open_key` table. |
+| AU23 | **One open run per automation and person; an allowed comment replaces it (P35, AUQ4).** The launch's partial unique index `idx_instagram_automation_runs_one_open` stays the whole rule. A comment (or an ad or Live comment) that may start a new run — another post, or "every time" — cancels her open run of that automation (`cancelled` · `replaced`; its waiting messages `cancelled` · `replaced` through 6; its comment log `cancelled`) and starts the new run **in the same commit**. A second comment on the same post with "once" on → `ignored` · `once_per_post`. Every other way to start while her run is open → `ignored` · `run_in_progress`. No `automation_run_open_key` table. |
 | AU24 | **The engine decides; it never sends (WC-9 removed, D3).** Today: the run engine sends inline from the event job (claim on the run, 200–1,000 ms pauses, reply safety counted from comment logs). After: each step writes its message row (`waiting`, its lane and channel, `not_before` for a list wait) through sub-domain 6, and 6's lanes send; 6 calls back with the result (`sent`, `failed`, `unknown`, a tap) and the engine moves the run on in that result's commit. Step order (plan §5.2): hello → (comments: public reply → hide) → wait for a tap or any text (one nudge after 60 min, D30) → follow → email → phone → messages 1–N (a window check before each; closed → that message `skipped` `window_closed`, no rows for the rest, the run `cancelled` `window_closed`, D29) → tags (with tag events, 3.B) → `completed`. The run, the contact's "via" columns (3) and the counts (4.A) move in the same commits. |
 | AU25 | **A result we cannot know (D17).** Today: an unknown outcome fails the step (launch AQ5). After: an `unknown` message is never sent again by itself; its run waits for `any`; only her next message or tap may send that step once more (the same row back to `waiting`, sub-domain 6); a tap proves only the message that carries that button. |
 | AU26 | **PRO at run time (D57).** Each step reads the plan's PRO features (sub-domain 8, read once per job): email and phone steps are skipped (a run waiting for her email or phone moves on), "Reply like a person" works as off, only the first reply line, only version A of the hello and the follow ask; v2+ versions are picked only on PRO. Nothing is deleted; a move up works again by itself. |
@@ -1746,7 +1943,7 @@ AUQ4 (4.2) — no open-run key table.
 
 #### 4.B.3 Tables and relations
 
-`app.automation_runs` — changes only (launch § 3.B.3 is the rest)
+`app.instagram_automation_runs` — changes only (launch § 3.B.3 is the rest)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
@@ -1758,14 +1955,14 @@ AUQ4 (4.2) — no open-run key table.
 | `trigger_type`, `current_step`, `waiting_for`, `cancel_reason` | | | | **changed** value lists (AU21) |
 | ~~`trigger_text`~~ · ~~`sending_message_kind`~~ · ~~`sending_started_at`~~ | | | | **removed** |
 
-Indexes: kept `idx_automation_runs_one_open` (AU23), `_automation_contact`, `_contact`, `_contact_waiting`,
-`_waiting_since`; **added** `idx_automation_runs_once` `(organization_id, automation_id, contact_id, once_key) WHERE
-direct_message_sent_at IS NOT NULL` (AU22); `idx_automation_runs_ended` kept for the 90-day batches (plain table, P33).
-Checks: the value lists, `chk_automation_runs_trigger_targets` per kind, `chk_automation_runs_last_message_number`.
+Indexes: kept `idx_instagram_automation_runs_one_open` (AU23), `_automation_contact`, `_contact`, `_contact_waiting`,
+`_waiting_since`; **added** `idx_instagram_automation_runs_once` `(organization_id, automation_id, contact_id, once_key) WHERE
+direct_message_sent_at IS NOT NULL` (AU22); `idx_instagram_automation_runs_ended` kept for the 90-day batches (plain table, P33).
+Checks: the value lists, `chk_instagram_automation_runs_trigger_targets` per kind, `chk_instagram_automation_runs_last_message_number`.
 
-`app.automation_run_events` — `event_type` adds `hello_tapped`, `follow_tapped`; no `automation_run_started_at` copy (P33).
+`app.instagram_automation_run_events` — `event_type` adds `hello_tapped`, `follow_tapped`; no `automation_run_started_at` copy (P33).
 
-`app.automation_comment_logs` — columns and value lists of AU28; index `idx_automation_comment_logs_automation_comment`
+`app.instagram_automation_comment_logs` — columns and value lists of AU28; index `idx_instagram_automation_comment_logs_automation_comment`
 unique → plain; `(contact_id)` kept (the erase).
 
 RLS unchanged: enabled and forced, the organization policy with the maintenance arm for the sweeps.
@@ -1812,7 +2009,7 @@ failed, unknown), plus the erase and pause steps (AU29). Every unit locks the co
 
 ---
 
-### 4.C Automation backfills — `automation/automation-backfill/` — awaiting your OK
+### 4.C Instagram automation backfills — `instagram-automation/instagram-automation-backfill/` — awaiting your OK
 
 #### 4.C.1 Decisions
 
@@ -1828,12 +2025,12 @@ None.
 
 #### 4.C.3 Tables and relations
 
-`app.automation_backfills`
+`app.instagram_automation_backfills`
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `public_id` | `varchar(28)` | no | | prefix at kickoff (P22) |
-| `instagram_account_id` | `bigint` | no | | composite → accounts `RESTRICT` (a copy — one read at a time per account) |
+| `channel_account_id` | `bigint` | no | | composite → accounts `RESTRICT` (a copy — one read at a time per account) |
 | `automation_id` | `bigint` | no | | composite → automations `ON DELETE CASCADE` |
 | `days` | `smallint` | no | | 1–7 |
 | `status` | `varchar(10)` | no | `'queued'` | `queued` · `reading` · `done` · `failed` |
@@ -1843,11 +2040,11 @@ None.
 | `requested_by_user_id` | `bigint` | yes | | → users `ON DELETE SET NULL` |
 | `started_at`, `done_at` | `timestamptz` | yes | | |
 
-Indexes: unique `idx_automation_backfills_public_id`; unique `idx_automation_backfills_open` `(organization_id,
-automation_id) WHERE status IN ('queued', 'reading')`; `idx_automation_backfills_watch` `(status, updated_at) WHERE status
-IN ('queued', 'reading')` (the 10-minute watch across organizations); `idx_automation_backfills_account_queued`
-`(organization_id, instagram_account_id, created_at) WHERE status = 'queued'` (the next read of an account);
-`idx_automation_backfills_requested_by_user_id` `WHERE requested_by_user_id IS NOT NULL`. Checks: days, status,
+Indexes: unique `idx_instagram_automation_backfills_public_id`; unique `idx_instagram_automation_backfills_open` `(organization_id,
+automation_id) WHERE status IN ('queued', 'reading')`; `idx_instagram_automation_backfills_watch` `(status, updated_at) WHERE status
+IN ('queued', 'reading')` (the 10-minute watch across organizations); `idx_instagram_automation_backfills_account_queued`
+`(organization_id, channel_account_id, created_at) WHERE status = 'queued'` (the next read of an account);
+`idx_instagram_automation_backfills_requested_by_user_id` `WHERE requested_by_user_id IS NOT NULL`. Checks: days, status,
 `fail_reason` set exactly when `failed`, counters, `_updated`. RLS: enabled and forced, organization policy with the
 maintenance arm (the watch). Kept with its automation (a few rows each).
 
@@ -1872,8 +2069,8 @@ As 4.5.
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 38 | POST | `/automations/{automation_id}/backfills` | Also answer past comments **(new, RC-54)** | `automation:update` | req |
-| 39 | GET | `/automations/{automation_id}/backfills/{automation_backfill_id}` | One read **(new, RC-55)** | `automation:read` | |
+| 38 | POST | `/social/instagram/automations/{automation_id}/backfills` | Also answer past comments **(new, RC-54)** | `automation:update` | req |
+| 39 | GET | `/social/instagram/automations/{automation_id}/backfills/{automation_backfill_id}` | One read **(new, RC-55)** | `automation:read` | |
 
 #### 4.C.8 Request details
 
@@ -1904,13 +2101,13 @@ As 4.5.
 
 | # | Change |
 | --- | --- |
-| AUC12 | AU31–AU33: `automation-backfill/` — schema (4.C.3) in the automations migration, repository, service, controller, routes with schemas (`idempotencyRequired` on 38), DTO, serializer; `automation-backfill/workers/automation-backfill-read.*` and the 10-minute watch (`instagram-tasks`, provider-pausable, registry, scheduler, DLQ); the `automation.backfill_done` notification type with copy keys (with sub-domain 11); reasons `automation_not_live`, `automation_backfill_not_supported`, `automation_backfill_in_progress`, `automation_backfill_not_found`; tests — one open per automation, one read per account at a time, a stuck read restarted, a move down → `failed` `plan_feature_off`, a repeat key replays |
+| AUC12 | AU31–AU33: `instagram-automation-backfill/` — schema (4.C.3) in the automations migration, repository, service, controller, routes with schemas (`idempotencyRequired` on 38), DTO, serializer; `instagram-automation-backfill/workers/instagram-automation-backfill-read.*` and the 10-minute watch (`instagram-tasks`, provider-pausable, registry, scheduler, DLQ); the `automation.backfill_done` notification type with copy keys (with sub-domain 11); reasons `automation_not_live`, `automation_backfill_not_supported`, `automation_backfill_in_progress`, `automation_backfill_not_found`; tests — one open per automation, one read per account at a time, a stuck read restarted, a move down → `failed` `plan_feature_off`, a repeat key replays |
 
 ---
 
-## 5. Instagram webhook — rev 1 (2026-11-23) — nested sub-domains 5.A–5.B; awaiting your OK
+## 5. Instagram webhook — rev 2 (2026-11-23) — nested sub-domains 5.A–5.B; awaiting your OK
 
-Status: `rev 1 — awaiting your OK`
+Status: `rev 2 (2026-11-23) — awaiting your OK`
 
 Code: the **`instagram-webhook` sub-domain folder** — `app/sub-domains/instagram-webhook/` (the receiver and intake at the
 folder root) with `instagram-webhook-event/` (the events, their keys, the list).
@@ -1926,8 +2123,7 @@ and their new kinds, a key table for repeats, an 8-day day-split events table wh
 **intake that decides and saves only** — three jobs per account by kind plus the tag-event job, never a send (sending moves
 to sub-domain 6). Design read: plan §26 (plan:L4732–L4815), §27 (plan:L4817–L5175), §18.9 (plan:L3207–L3225), §19.5
 (plan:L3453–L3461), §24.2 (plan:L4392–L4406), §9.2 (plan:L1856–L1876); D13, D15, D24, D64, D65; P24, P32, P33, P35.
-Builds on: instagram-account (resolver, account state, posts, contacts' account), meta-connection (the Meta app secret and
-verify token), contact (`recordContactInteraction`, the tag events), automation (the run engine — match order, once keys,
+Builds on: channel-account (account state, the automation switch), instagram-account (resolver, posts, settings), channel-connection (the Meta app secret, verify token and the signature check of its adapter), contact (`recordContactInteraction`, the tag events), automation (the run engine — match order, once keys,
 P35), and sub-domain 6 for the message rows intake writes and the own-message lookup. Route numbers run 60–62.
 
 ### 5.1 Decisions (whole sub-domain)
@@ -1935,22 +2131,26 @@ P35), and sub-domain 6 for the message rows intake writes and the own-message lo
 Taken on the standing answer "go with the recommendation" (P31: reviewed with every sub-domain in one pass). A decision that
 belongs to one part is in its nested sub-domain.
 
+**rev 2 changes** (P45–P47, M9): stays Instagram's — `/social/instagram/webhook`, `app.instagram_webhook_events` + keys, the `instagram-webhook` queue; Meta's deauthorize and data-deletion callbacks are sub-domain 1's (M5); the account pointer `channel_account_id` (→ `app.channel_accounts`), payloads `channelAccountPublicId`; account state and the automation switch read from 1B, the signature check from 1's adapter; the webhook review's F3 and F5 adopted (WH25, WH26).
+
 | # | Decision |
 | --- | --- |
 | WH1 | **Folders stay; intake grows at the root.** Today (launch WH1): `instagram-webhook/` holds the receiver and the per-account processing (`workers/instagram-webhook.processor.ts`, 856 lines, which also sends through the run engine); `instagram-webhook-event/` owns the events table, the list and the clean-up. → Same two folders. The root keeps the receiver (routes 60–61) and becomes **intake**: `workers/instagram-webhook-intake.processor.ts` (the three kind jobs), `workers/instagram-tag-event-intake.processor.ts` (tag events), the stuck-event pick-up and the missed-comment check. The nested `instagram-webhook-event/` also owns the new **`app.instagram_webhook_event_keys`** — a persistence part with no routes (schema + repository, written through the event service). No new folder: intake has no route of its own (`src/domains/CLAUDE.md`: flatten a folder with no distinct routes). Other option: a nested `instagram-webhook-intake/` folder — it would hold workers only. |
 | WH2 | **Store first; Postgres down answers 500 / 503 — no Redis buffer (P32).** Today (launch WH10): events are stored before the answer; a store failure is `500`/`503` and Meta delivers again. The plan (§26.3, plan:L4799–L4807) pushes events to a Redis `webhook-buffer` when Postgres is down or slow. → **Launch behaviour kept** (P32): nothing Postgres does not have lives in Redis. New: the store unit runs with `SET LOCAL statement_timeout` = 3 s (plan `WEBHOOK_SAVE_TIMEOUT_MS`), so a slow Postgres answers `503` inside Meta's 5-second budget instead of timing out. **No webhook pool of its own** (plan §26.4 rule 1): the API and the workers already run in separate processes (AS-BUILT "Queues, workers and order"), so busy workers never hold the receiver's connections. What Meta does not redeliver (a tap after its "few more times") is caught for comments by the missed-comment check (WH17); taps are lost only when Postgres is down longer than Meta retries — the risk P32 accepted. Other option: a 5-connection pool for the receiver (plan `WEBHOOK_DB_POOL_SIZE`). |
-| WH3 | **Which accounts' events are saved.** Today: an unknown or `revoked` account → nothing stored (launch WH4); `expired`/`error` → stored `skipped account_disconnected`; the automation switch off → `skipped automation_disabled`. → Unknown or `revoked`: unchanged (200, a log line, the metric). **An `error` account, a paused, suspended or stopped account, a workspace at its month limit or whose plan ended: saved `received` and taken in by intake** — its messages wait in its stopped lanes (plan:L4744–L4746, RC-16), so the owner's comments are answered once she reconnects or the stop ends. `expired` no longer exists (the Meta token never expires — instagram-account's change). The switch off still stores `skipped automation_disabled` (the plan keeps `is_automation_enabled`, plan:L2912). `account_disconnected` stays only for intake: an account `revoked` between store and intake. |
-| WH4 | **Meta's proofs and settings.** Today: route 61's HMAC key is `INSTAGRAM_APP_SECRET` and route 60's token `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (env-schema.ts:330–360). → the **Meta app secret** and the **Meta webhook verify token** — the env rename (`META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, plan §36.26) is meta-connection's change; this sub-domain only reads them through its existing config accessor. Everything else of the launch's proof stays: the ingress plugin, the shared raw-body registry, nothing parsed before the signature, 5 MB, `INSTAGRAM_WEBHOOK_RATE_LIMIT` 1,200 a minute, `400 invalid_webhook_signature` / `invalid_webhook_verify_token`, `503 instagram_webhook_not_configured`. |
-| WH5 | **Intake layout (D3, plan §24.2).** Today (launch WH5): one queue `instagram-webhook`, one deduplicated job per account working through **all** its events in order, built with `createProviderPausableWorker` (an Instagram outage pauses it). → Same queue, four job names: `intake-messages`, `intake-live`, `intake-comments` (one per account each, deduplicated per kind and account with `keepLastIfActive`, the launch's pattern) and `intake-tag-events` (one per contact, WH15); priorities 1 · 1 · 5, and **10** for an account with more than 500 waiting comment events or for comments a past-comments read added (plan `INTAKE_LOW_PRIORITY`) — **taps and typed answers never wait behind comments**. Each job takes the account's oldest waiting event **of its kind group** (5-minute lease, as today), handles it, and after 25 events (`INSTAGRAM_WEBHOOK_EVENTS_PER_JOB`, kept) adds one follow-up job. **No longer provider-pausable** (plan:L4477–L4478): intake calls Meta only for a new contact's profile and a late comment's time, each 3 s and failing open. Job data: `organizationPublicId`, `instagramAccountPublicId` (or `contactPublicId` for tags), `intakeKind`, `requestId`, trace fields — public ids only (K8). |
+| WH3 | **Which accounts' events are saved.** Today: an unknown or `revoked` account → nothing stored (launch WH4); `expired`/`error` → stored `skipped account_disconnected`; the automation switch off → `skipped automation_disabled`. → Unknown or `revoked`: unchanged (200, a log line, the metric). **An `error` account, a paused, suspended or stopped account, a workspace at its month limit or whose plan ended: saved `received` and taken in by intake** — its messages wait in its stopped lanes (plan:L4744–L4746, RC-16), so the owner's comments are answered once she reconnects or the stop ends. `expired` no longer exists (the Meta token never expires — channel-connection's change). The switch off still stores `skipped automation_disabled` (the plan keeps `is_automation_enabled`, plan:L2912 — now on the channel account, P42). `account_disconnected` stays only for intake: an account `revoked` between store and intake. |
+| WH4 | **Meta's proofs and settings.** Today: route 61's HMAC key is `INSTAGRAM_APP_SECRET` and route 60's token `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (env-schema.ts:330–360). → the **Meta app secret** and the **Meta webhook verify token** — the env rename (`META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, plan §36.26) is channel-connection's change; this sub-domain only reads them through its existing config accessor. Everything else of the launch's proof stays: the ingress plugin, the shared raw-body registry, nothing parsed before the signature, 5 MB, `INSTAGRAM_WEBHOOK_RATE_LIMIT` 1,200 a minute, `400 invalid_webhook_signature` / `invalid_webhook_verify_token`, `503 instagram_webhook_not_configured`. |
+| WH5 | **Intake layout (D3, plan §24.2).** Today (launch WH5): one queue `instagram-webhook`, one deduplicated job per account working through **all** its events in order, built with `createProviderPausableWorker` (an Instagram outage pauses it). → Same queue, four job names: `intake-messages`, `intake-live`, `intake-comments` (one per account each, deduplicated per kind and account with `keepLastIfActive`, the launch's pattern) and `intake-tag-events` (one per contact, WH15); priorities 1 · 1 · 5, and **10** for an account with more than 500 waiting comment events or for comments a past-comments read added (plan `INTAKE_LOW_PRIORITY`) — **taps and typed answers never wait behind comments**. Each job takes the account's oldest waiting event **of its kind group** (5-minute lease, as today), handles it, and after 25 events (`INSTAGRAM_WEBHOOK_EVENTS_PER_JOB`, kept) adds one follow-up job. **No longer provider-pausable** (plan:L4477–L4478): intake calls Meta only for a new contact's profile and a late comment's time, each 3 s and failing open. Job data: `organizationPublicId`, `channelAccountPublicId` (or `contactPublicId` for tags), `intakeKind`, `requestId`, trace fields — public ids only (K8). |
 | WH6 | **Personal data and logs.** Today (launch WH6): the payload is never logged; the list masks it; a contact erase leaves the person's events to the 30-day clean-up. → Unchanged rules, shorter life: the body is **cleared when the event is done** (WH22) and the whole row goes after 8 days (WH24), so no erasure step is needed now either. A story mention's media link is never copied out of the body (plan:L4791). The new flood count (WH16) and own-message check (WH9) carry ids only. |
-| WH7 | **Who it calls (through services, never repositories).** Today: processing calls instagram-account, contact and the run engine, and the run engine sends. → Intake calls: instagram-account (resolver, account state, posts), contact (`recordContactInteraction`, profile save, the tag events' reads), the **run engine** (automation-run: match, once keys, P35 replacement — WH13, WH14), **sub-domain 6** (`InstagramMessageService` — the message rows a start or an answer makes, and the own-message lookup of WH9) and **sub-domain 7** (`BroadcastService.handleChatOpened` — "when her chat opens", plan §27.15). Every write of one event happens in **one** organization transaction (WH12). Build order: the receiver and the events table first; the new intake lands after sub-domain 6's message table (it writes there). |
+| WH7 | **Who it calls (through services, never repositories).** Today: processing calls instagram-account, contact and the run engine, and the run engine sends. → Intake calls: channel-account (account state, the switch), instagram-account (resolver, posts, settings), contact (`recordContactInteraction`, profile save, the tag events' reads), the **run engine** (automation-run: match, once keys, P35 replacement — WH13, WH14), **sub-domain 6** (`InstagramMessageService` — the message rows a start or an answer makes, and the own-message lookup of WH9) and **sub-domain 7** (`InstagramBroadcastService.handleChatOpened` — "when her chat opens", plan §27.15). Every write of one event happens in **one** organization transaction (WH12). Build order: the receiver and the events table first; the new intake lands after sub-domain 6's message table (it writes there). |
+| WH25 | **Intake is never paused by a provider outage (P47, the webhook review's F3).** Today (launch): the intake worker is built with `createProviderPausableWorker`, so an Instagram outage pauses the whole queue although most events need no Meta call. → Intake is a plain tenant worker (WH5) and is **never** paused: an outage only fails the two optional Meta reads intake may make (a new contact's profile, a late comment's time — 3 s, failing open), each checking `metaGraphCircuit` per call (sub-domain 1's adapter, MC2); events keep being saved and decided, and their messages wait in the lanes, which stop by their own rules (sub-domain 6). The same holds for the tag-event job and the missed-comment check. |
+| WH26 | **One lock order in every intake path, tested racing (P47, the webhook review's F5).** Today: the plan's order (contact → automation → runs, plan §35) is written for the comment path. → Every intake path — `intake-messages`, `intake-live`, `intake-comments`, `intake-tag-events`, the missed-comment and past-comment events — takes its locks in that one order inside the event's transaction (`lockLiveContact` first, then the automation's row, then the open runs), so her DM and her comment handled by two jobs at once never deadlock and never start two runs. A DB test runs two intake jobs (messages and comments) for one contact at the same time and checks one open run, no deadlock and no lost event; a code-review rule and the intake overview name the order. |
 
 ### 5.2 Open questions
 
 | # | Question | Options | Recommendation |
 | --- | --- | --- | --- |
 | WHQ1 | How is "our own sent message" recognised before saving (plan step 3, the Redis `mid:` note)? | **a Postgres lookup** of the echo's `mid` in `app.instagram_messages` inside the store unit · the plan's Redis `mid:` note (10 min; with P5's 60-second cap) | **Postgres** — the message row already holds `instagram_message_id` (sub-domain 6); one index probe per echo, no data only Redis has (P32). An echo that arrives before the send's result is saved is stored `received` and intake matches it within 10 minutes (plan §27.13), which can also turn an `unknown` message `sent` |
-| WHQ2 | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **intake counts her message events of the last minute in Postgres** · the webhook adds 1 to a Redis counter | **Postgres** — the events are saved anyway; an index on (`instagram_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" (plan §27.6 rule 1) without a second store; the webhook only saves |
+| WHQ2 | The inbound flood count (`inbound:{account}:{contact}`, 1 minute, plan §26.4 rule 5) | **intake counts her message events of the last minute in Postgres** · the webhook adds 1 to a Redis counter | **Postgres** — the events are saved anyway; an index on (`channel_account_id`, `contact_instagram_user_id`, `created_at`) answers "more than 20 in the last minute" (plan §27.6 rule 1) without a second store; the webhook only saves |
 
 Until answered, the plan follows the recommendation and every row that rests on it says so.
 
@@ -1964,11 +2164,11 @@ Until answered, the plan follows the recommendation and every row that rests on 
 ```text
 tenancy.organizations
    │
-   └──< app.instagram_accounts ──┬──< app.instagram_webhook_events        every event saved for the account (by day)
-                                 └──< app.instagram_webhook_event_keys    every key seen (8 days)
+   └──< app.channel_accounts ──┬──< app.instagram_webhook_events        every event saved for the account (by day)
+                               └──< app.instagram_webhook_event_keys    every key seen (8 days)
 
    app.instagram_webhook_events ┄┄ app.instagram_messages (6)   echo mid matched by value (WHQ1), no foreign key
-   app.instagram_webhook_events ┄┄ app.contacts                 by contact_instagram_user_id, no foreign key
+   app.instagram_webhook_events ┄┄ app.instagram_contacts                 by contact_instagram_user_id, no foreign key
 
 A ──< B   one A has many B     ┄┄  matched by value, no foreign key
 ```
@@ -1978,7 +2178,7 @@ Pointing at these from other sub-domains: nothing (a partitioned table takes no 
 **PostgreSQL design**
 
 Standard columns (launch K5): `organization_id bigint` → organizations `ON DELETE CASCADE`, the composite key
-(`organization_id`, `instagram_account_id`) → `app.instagram_accounts` `ON DELETE CASCADE`; RLS enabled and forced,
+(`organization_id`, `channel_account_id`) → `app.channel_accounts` `ON DELETE CASCADE`; RLS enabled and forced,
 organization policy with `USING` and `WITH CHECK`. No `*_by_user_id`, no soft delete, no branch rule. Each table's design
 is in 5.B.3.
 
@@ -2053,8 +2253,9 @@ What one action sets off (same request or transaction unless marked worker):
 | --- | --- |
 | WHC1 | WH1, WH7: `instagram-webhook.overview.md` and `instagram-webhook-event.overview.md` rewritten (receiver → keys → events → intake per kind → sub-domain 6; the lifecycle diagram with `next_attempt_at`); the `app` row of `src/domains/CLAUDE.md`'s sub-domain map; TSDoc on every export; the launch's "sends inline" wording removed from `src/FLOWS.md` |
 | WHC2 | WH2: the store unit's `SET LOCAL statement_timeout` (3 s constant in the app-domain constants file, P4); a statement timeout or lost connection mapped to `503` by the error handler (test: a slow insert answers `503`, stores nothing, Meta's repeat stores once); no Redis buffer, no drain job |
-| WHC3 | WH4: the receiver and route 60 read the Meta app secret and verify token through meta-connection's config accessor (`isMetaConfigured()` replaces `isInstagramConfigured()` in the worker's `isEnabled`); tests and `src/tests/setup.ts` values follow the rename |
-| WHC4 | WH5: four job names on `instagram-webhook` (`queues/instagram-webhook.queue.ts`, `.job.schema.ts` with `intakeKind` and `contactPublicId`); per-kind deduplication ids `intake-<kind>-<iga_…>`, tag ids `intake-tag-events-<con_…>`; priorities from the constants file; the worker moves from `createProviderPausableWorker` to the plain tenant worker; `worker-registration.registry.unit.test.ts` and `scheduler.unit.test.ts` pinned counts; `workers-and-events.md`, `worker-scaling.md` |
+| WHC3 | WH4: the receiver and route 60 read the Meta app secret and verify token through channel-connection's config accessor (`isMetaConfigured()` replaces `isInstagramConfigured()` in the worker's `isEnabled`); tests and `src/tests/setup.ts` values follow the rename |
+| WHC4 | WH5: four job names on `instagram-webhook` (`queues/instagram-webhook.queue.ts`, `.job.schema.ts` with `intakeKind` and `contactPublicId`); per-kind deduplication ids `intake-<kind>-<cha_…>`, tag ids `intake-tag-events-<con_…>`; priorities from the constants file; the worker moves from `createProviderPausableWorker` to the plain tenant worker; `worker-registration.registry.unit.test.ts` and `scheduler.unit.test.ts` pinned counts; `workers-and-events.md`, `worker-scaling.md` |
+| WHC16 | WH25, WH26: no `createProviderPausableWorker` on `instagram-webhook` (a registry test pins it); the two Meta reads through `metaGraphCircuit` with their fail-open path tested (circuit open → event processed without the profile or with the received time); the lock helper used by every intake path in the order contact → automation → runs; the racing test of two intake jobs on one contact; `instagram-webhook.overview.md` names the order |
 
 ### 5.12 Nested sub-domains
 
@@ -2077,8 +2278,8 @@ What one action sets off (same request or transaction unless marked worker):
 | WH11 | **Intake per kind; taps before comments (plan §24.2).** Today: one job per account, all kinds in one order (launch WQ3: a failing event holds back the account's later events). → three kind groups (5.A.10): `messages`, `live`, `comments`, each with its own job and its own order (`created_at`, `id`) inside the group; a stored `intake_group` column (generated from `event_kind`, 5.B.3) lets each job claim only its own rows. A failing event holds back only its own group, and only until its 5th try (WH12). Order across groups is not kept — a tap can only follow a message intake already saved. An account with more than 500 waiting comment events (`INTAKE_ACCOUNT_SOFT_LIMIT`) runs its `comments` job at priority 10; its messages and Live keep priority 1. |
 | WH12 | **One event, one transaction (plan §27.1, §27.16).** Today (launch WH12–WH14): claim, then each step in its own short unit because sends ran between them; 5 attempts then a final `failed`. → Intake makes no send, so one event's writes are **one transaction**: (1) claim the oldest waiting row of the group (lease 5 minutes, `attempt_count` + 1); (2) **outside any transaction**, the two Meta reads it may need — a new contact's profile, a comment's own time when its webhook came over 1 hour late — 3 s each, failing open (plan:L4478); (3) one organization transaction whose **first statement** marks the event `processed` only while it is `received`/`queued` (0 rows → done already, stop), then contact, run engine, message rows, counts, comment log, in the one lock order (contact → automation → run → message → counts slot, plan §35); (4) after the commit, wake the lanes and add fast tickets (sub-domain 6). Failures: a database error or a lost connection tries again **without using a try**; a deadlock or lock timeout retries 3 times; any other error uses a try; the **5th** failed try marks the event `failed` with `next_attempt_at` = 1 hour later, and the pick-up tries it again hourly while its comment (or message) is under 7 days old (WH17). A permanent refusal (the run engine rejects it) fails it at once with no `next_attempt_at`. `error_message` keeps a code only, never text. |
 | WH13 | **Match order and once keys (plan §27.2–27.5, §9.2, D13, D65).** Today (launch AU16, WH13): a comment matches one automation (post-linked first, then any post); a DM goes to a waiting email/phone run first, else the first DM keyword automation; a story reply to the first story-reply automation; a tap continues its run; no once key — a second start is ignored while a run exists. → **Chat events** in this order, the first hit ends the search: (1) her own waiting run takes it (a tap by its payload; a typed email or phone only while a run waits for it; a stop word opts her out first); (2) the exact source — a starter question's payload, a link's `ref` code, an ad's `ad_id`; (3) kind and keyword (+ "also start from", D38; contains, plus one-edit spelling for words of 5+ letters); (4) her first message ever; (5) "no other automation answered" (never on a reaction, a read receipt, a deleted message, or within the owner's quiet time). **Comments**: the live comment automation of this account whose keywords match, post-linked first then any post; an ad comment by its ad. **A match stopped by its once key still ends the search** (logged `ignored` · `once_per_post`). The once key per way to start is in 5.A.10 (D13); with the account's `once_per_person_per_post` OFF it becomes the event's own id (D65). Where it lives: the kind → operation dispatch here (`instagram-webhook-event-dispatch.util.ts`); the match, the keys and the run rows in the run engine (automation-run), which must state the same table. |
-| WH14 | **One open run per automation and person — a new comment replaces it (P35).** Today: `idx_automation_runs_one_open` allows one `running`/`waiting` run per automation and contact; a second comment is logged `run_in_progress`. → When a **comment** (or a Live comment) may start a new run — a different post, or "every time" mode (D13 / D65 decide) — her open run of that automation is **cancelled** (`cancel_reason` `replaced`, its `waiting` messages `cancelled` · `replaced`) and the new run starts, **in the same intake transaction**, so the partial unique index still holds. A second comment on the same post with "once" ON is still `ignored` · `once_per_post`. **Every other way to start** is ignored while her run is open (`run_in_progress`). No `automation_run_open_keys` table (the plan's §19.6): the launch's partial unique index does the job (db-changes proposal, confirmed here). |
-| WH15 | **Tag events into intake (plan §24.2 rule 5, §27.9, D45).** Today: nothing — tags start nothing. → A tag added or removed (by an automation or the owner) writes an `app.contact_tag_events` row in the same commit (contact's table). After that commit the contact's `intake-tag-events` job is added (one per contact, deduplicated — the row has no public id, so the job names the contact and reads her undone rows oldest first). Its first statement sets `done_at` only while empty; it starts the account's tag automations (`tag:<tag>:<event id>`, `untag:<tag>:<event id>`), only while her window is open, a chain of tag starts stopping at 3 (`chain_number`), ignored while her run of that automation is open (`run_in_progress`). Priority 5 for one change, 10 for the rows of a bulk change. Tag events are **never** saved as webhook events. The 1-minute / hourly pick-up of rows not queued or not done is WC-27 (5.A.10). |
+| WH14 | **One open run per automation and person — a new comment replaces it (P35).** Today: `idx_instagram_automation_runs_one_open` allows one `running`/`waiting` run per automation and contact; a second comment is logged `run_in_progress`. → When a **comment** (or a Live comment) may start a new run — a different post, or "every time" mode (D13 / D65 decide) — her open run of that automation is **cancelled** (`cancel_reason` `replaced`, its `waiting` messages `cancelled` · `replaced`) and the new run starts, **in the same intake transaction**, so the partial unique index still holds. A second comment on the same post with "once" ON is still `ignored` · `once_per_post`. **Every other way to start** is ignored while her run is open (`run_in_progress`). No `automation_run_open_keys` table (the plan's §19.6): the launch's partial unique index does the job (db-changes proposal, confirmed here). |
+| WH15 | **Tag events into intake (plan §24.2 rule 5, §27.9, D45).** Today: nothing — tags start nothing. → A tag added or removed (by an automation or the owner) writes an `app.instagram_contact_tag_events` row in the same commit (contact's table). After that commit the contact's `intake-tag-events` job is added (one per contact, deduplicated — the row has no public id, so the job names the contact and reads her undone rows oldest first). Its first statement sets `done_at` only while empty; it starts the account's tag automations (`tag:<tag>:<event id>`, `untag:<tag>:<event id>`), only while her window is open, a chain of tag starts stopping at 3 (`chain_number`), ignored while her run of that automation is open (`run_in_progress`). Priority 5 for one change, 10 for the rows of a bulk change. Tag events are **never** saved as webhook events. The 1-minute / hourly pick-up of rows not queued or not done is WC-27 (5.A.10). |
 | WH16 | **Inbound flood guard (plan §26.4 rule 5, §27.6 rule 1).** Today: none. → Per WHQ2's recommendation: intake counts her message events of the last minute in `app.instagram_webhook_events` (the index of 5.B.3); more than 20 (`INBOUND_FLOOD_PER_MINUTE`) → that event is `skipped` · `flood` (new reason) and starts nothing; a stop word still opts her out. The webhook does not count. Other option: the plan's Redis counter written by the webhook. |
 | WH17 | **Pick-ups and missed comments (WC-12, WC-26).** Today (launch WH15): every minute, events still waiting 5 minutes after arrival and not claimed in 5 minutes → their account's job again. → every minute: waiting over **1 minute** and not leased → the job of that kind again; `failed` with `next_attempt_at` due → back to `received` and its job (the 5 tries start again), until its comment is 7 days old — read ids across organizations under `runGlobalRetentionWorkerJob`, jobs added after the context closes (launch pattern). **Missed comments** every 30 minutes, and one full pass after an outage (webhook off, Redis or Postgres down, a server starting after downtime): for each connected account's watched posts (a live comment or ad-comment automation, post or last comment under 7 days), read comments newest first until one is older than the last seen minus 10 minutes (replies only when comment replies are on, D64); new ones saved through **the same store function** with key `comment:<id>`, so a comment Meta also delivers is saved once. At most 25 posts per account a round, 1 call a second, skipped at Meta usage ≥ 80 %. |
 
@@ -2207,10 +2408,10 @@ contact's, the job is intake's) · WC-48 event and key clean-up (5.B) · WC-55 t
 | --- | --- |
 | WH18 | **Fields (plan §18.9).** Today (launch WH16, `instagram-webhook-event.schema.ts`): kinds `comment` … `unknown` with `read`; skip reasons `automation_disabled` · `account_disconnected` · `echo` · `read_receipt` · `reaction` · `edit` · `unsupported`; `payload` required. → `event_kind` adds `live_comment`, `story_mention`, `shared_post`, `ice_breaker`, `referral` and drops `read` (13 values; `varchar(20)` holds them); `skip_reason` drops `read_receipt` and `reaction`, adds `own_comment` and `flood` (WH16); **added** `next_attempt_at` (a failed event's next try) and `intake_group` (generated from `event_kind`: `comments` · `live` · `messages`, WH11); `payload` becomes nullable (WH22). Everything else stays (`contact_instagram_user_id`, `attempt_count`, `last_attempted_at`, `occurred_at`, `request_id`, `created_at` = received time). |
 | WH19 | **Split by day, kept 8 days (P33, D15).** Today: one plain table, a unique key `(organization_id, instagram_account_id, event_key)` and a 30-day batch delete (launch WH19: "no partitioning — the repeat key must hold across the whole table"). → `PARTITION BY RANGE (created_at)`, **one part per UTC day**; the repeat key moves to the key table (WH20), which is what makes the split possible. Primary key `(id, created_at)`; unique `(public_id, created_at)` (no route reads an event by id; `generatePublicId` makes a clash negligible). Parts are made 3 days ahead and dropped after 8 days by the shared partition upkeep (WC-55), under a maintenance scope, never the migration login (P33): a `SECURITY DEFINER` function owned by the table owner, `EXECUTE` granted to the maintenance role only, called under a new `MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP`. RLS on the parent, enabled and forced (`EXPECTED_FORCE_RLS_TABLES` lists partitioned parents, as `audit.logs`); app code reads only through the parent and the app roles get no grant on the parts. Other option: stay plain with 8-day batch deletes — simpler, but P33 chose the split for this table. |
-| WH20 | **The key table (plan §19.5, P33).** Today: the event row's unique key. → `app.instagram_webhook_event_keys`, a plain table: primary key **`(organization_id, instagram_account_id, event_key)`** — organization first, as the launch's child keys (AS-BUILT "Index and key names"; db-changes draws `(instagram_account_id, event_key)`), so it also serves the composite foreign key's cascade; `received_at`; index `(received_at)` for the delete. Inserted `ON CONFLICT DO NOTHING` before the events (WH9). Deleted in batches once older than 8 days (WC-48, daily). The plan's 16 hash parts are not used (P33). |
+| WH20 | **The key table (plan §19.5, P33).** Today: the event row's unique key. → `app.instagram_webhook_event_keys`, a plain table: primary key **`(organization_id, channel_account_id, event_key)`** — organization first, as the launch's child keys (AS-BUILT "Index and key names"; db-changes draws `(channel_account_id, event_key)`), so it also serves the composite foreign key's cascade; `received_at`; index `(received_at)` for the delete. Inserted `ON CONFLICT DO NOTHING` before the events (WH9). Deleted in batches once older than 8 days (WC-48, daily). The plan's 16 hash parts are not used (P33). |
 | WH21 | **Retry of a failed event.** Today: `failed` is final after 5 attempts. → `next_attempt_at` set on the 5th failed try (WH12); the pick-up (WH17) puts it back to `received` hourly (attempt count from 0) until its trigger is 7 days old; then `next_attempt_at` empties and it stays `failed` until its day part is dropped. Index `(next_attempt_at) WHERE status = 'failed' AND next_attempt_at IS NOT NULL` (plan:L3219). |
 | WH22 | **Body cleared when done (D15, plan:L3215).** Today: the payload stays 30 days, masked only in the list. → the guarded update that makes an event `processed` or `skipped` sets `payload` to **null** in the same statement; rows born `skipped` (own comment, edit, unsupported, the switch off) are **stored without a body**. Check: `(status IN ('received', 'queued', 'failed')) = (payload IS NOT NULL)`. So only waiting and failed events keep a body, and they are masked in route 62 as today. Other option: `{}` as the plan writes — keeps the `NOT NULL` but leaves an empty object that means nothing. |
-| WH23 | **Route 62 — 8 days, many accounts (RC-19).** Today (launch WH17): newest first, filters `status`, `event_kind`, `received_from`/`received_to`, `include_total`; payload masked. → the same list over at most 8 days, plus **`instagram_account_id`** (a filter and a field — a workspace now holds many accounts, D26), `next_attempt_at` and the new kinds and reasons; `payload` is `null` once the event is done. A `received_from` older than 8 days is accepted and simply finds nothing. |
+| WH23 | **Route 62 — 8 days, many accounts (RC-19).** Today (launch WH17): newest first, filters `status`, `event_kind`, `received_from`/`received_to`, `include_total`; payload masked. → the same list over at most 8 days, plus **`channel_account_id`** (a filter and a field — a workspace now holds many accounts, D26), `next_attempt_at` and the new kinds and reasons; `payload` is `null` once the event is done. A `received_from` older than 8 days is accepted and simply finds nothing. |
 | WH24 | **Clean-up (WC-48, WC-55).** Today: daily 03:00 UTC batch delete of events older than 30 days (`instagram-webhook-event-retention`). → the events go by **dropping day parts** older than 8 days (WC-55); the 03:00 job now deletes **keys** older than 8 days in batches. A contact erase still registers no erasure step (launch WH18) — her events go within 8 days, their bodies earlier (WH22). |
 
 #### 5.B.2 Open questions
@@ -2236,16 +2437,16 @@ the launch review)
 Indexes (each declared in the schema file; local to every part):
 
 - unique `(public_id, created_at)`.
-- `(organization_id, created_at DESC, id DESC)` and `(organization_id, instagram_account_id, created_at DESC, id DESC)` — route 62, all accounts or one (**new**).
+- `(organization_id, created_at DESC, id DESC)` and `(organization_id, channel_account_id, created_at DESC, id DESC)` — route 62, all accounts or one (**new**).
 - `(organization_id, status, created_at DESC, id DESC)` — route 62 by status (kept).
-- `(instagram_account_id, intake_group, created_at, id) WHERE status IN ('received', 'queued')` — the claim and the pick-up, per group (**was without `intake_group`**).
+- `(channel_account_id, intake_group, created_at, id) WHERE status IN ('received', 'queued')` — the claim and the pick-up, per group (**was without `intake_group`**).
 - `(next_attempt_at) WHERE status = 'failed' AND next_attempt_at IS NOT NULL` — the hourly retry (**new**).
-- `(instagram_account_id, contact_instagram_user_id, created_at) WHERE intake_group = 'messages'` — the flood count (**new**, WHQ2).
+- `(channel_account_id, contact_instagram_user_id, created_at) WHERE intake_group = 'messages'` — the flood count (**new**, WHQ2).
 - **Removed:** `idx_instagram_webhook_events_organization_account_event_key` (moves to the key table) and `idx_instagram_webhook_events_created_at` (parts are dropped).
 
 Checks: the kind, skip-reason and payload checks above; the launch's `status`, `skipped`, `failed`, `final`,
 `attempt_count`, `instagram_ids`, `updated` checks kept. Foreign keys: organization `ON DELETE CASCADE`; composite
-(`organization_id`, `instagram_account_id`) → `app.instagram_accounts` `ON DELETE CASCADE` (kept; allowed from a
+(`organization_id`, `channel_account_id`) → `app.channel_accounts` `ON DELETE CASCADE` (kept; allowed from a
 partitioned table). RLS: the launch policy kept on the parent — `USING` the organization GUC or the
 `app.global_retention_cleanup` arm (the pick-up's cross-organization id read), `WITH CHECK` the organization GUC only;
 enabled and forced. Migration: the launch's `20261121094626_app_instagram_webhook_events.sql` changes in place (D1, P29) —
@@ -2256,11 +2457,11 @@ the table is created partitioned from the start.
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `organization_id` | `bigint` | no | | → organizations `ON DELETE CASCADE` |
-| `instagram_account_id` | `bigint` | no | | composite (`organization_id`, `instagram_account_id`) → `app.instagram_accounts` `ON DELETE CASCADE` |
+| `channel_account_id` | `bigint` | no | | composite (`organization_id`, `channel_account_id`) → `app.channel_accounts` `ON DELETE CASCADE` |
 | `event_key` | `varchar(512)` | no | | the same key as the event's |
 | `received_at` | `timestamptz` | no | `now()` | |
 
-Primary key `(organization_id, instagram_account_id, event_key)`; index `(received_at)`. No public id, no `updated_at` (never
+Primary key `(organization_id, channel_account_id, event_key)`; index `(received_at)`. No public id, no `updated_at` (never
 changed). RLS: organization policy `USING` + `WITH CHECK`, plus the `app.global_retention_cleanup` arm in `USING` only (the
 batch delete); enabled and forced; in `EXPECTED_FORCE_RLS_TABLES`. Branch rule: none. User pointers: none.
 
@@ -2276,7 +2477,7 @@ As 5.5 (signed-in route).
 
 #### 5.B.6 Objects returned
 
-**Instagram webhook event**: `id` (`iwe_…`), `instagram_account_id` (`iga_…`, **new**), `instagram_user_id`,
+**Instagram webhook event**: `id` (`iwe_…`), `channel_account_id` (`cha_…`, **new**), `instagram_user_id`,
 `contact_instagram_user_id`, `event_kind` (the 13 values of 5.B.3), `event_key`, `status`, `skip_reason` (the 6 values, or
 null), `error_message`, `attempt_count`, `next_attempt_at` (**new**), `payload` (masked; **null once done**), `occurred_at`,
 `received_at`, `processed_at`. Internal ids, `intake_group`, `last_attempted_at` and `request_id` are never returned.
@@ -2291,18 +2492,18 @@ null), `error_message`, `attempt_count`, `next_attempt_at` (**new**), `payload` 
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 62 | `instagram_account_id` (**new**), `status`, `event_kind` (one value each), `received_from` / `received_to` (ISO 8601 with an offset; `to` exclusive), `limit` (1–100, default 25), `after`, `include_total` | — | Instagram webhook event[] |
+| 62 | `channel_account_id` (**new**), `status`, `event_kind` (one value each), `received_from` / `received_to` (ISO 8601 with an offset; `to` exclusive), `limit` (1–100, default 25), `after`, `include_total` | — | Instagram webhook event[] |
 
 #### 5.B.9 Errors
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 62 | `400` · `status` / `event_kind` / `instagram_account_id` | not one of its values, or not an `iga_…` id |
+| 62 | `400` · `status` / `event_kind` / `channel_account_id` | not one of its values, or not an `cha_…` id |
 | 62 | `400` · `received_from` / `received_to` / `limit` / `after` / `include_total` | as the launch |
 | 62 | `403` · `missing_permission` | no `instagram-webhook-event:read` (Editor, Viewer) |
 | 62 | `404` · `team_organization_required` | a personal organization |
 
-An `instagram_account_id` of another organization finds nothing (an empty page, not a `404` — a filter, not a path id).
+An `channel_account_id` of another organization finds nothing (an empty page, not a `404` — a filter, not a path id).
 
 #### 5.B.10 Rules worth knowing
 
@@ -2317,23 +2518,23 @@ An `instagram_account_id` of another organization finds nothing (an empty page, 
 | WHC11 | WH18, WH19, WH21, WH22: the launch migration changed in place — partitioned parent, new columns and checks, the index set above; `instagram-webhook-event.schema.ts` (Drizzle declares the parent; the part DDL lives in the upkeep function); constants (kinds, skip reasons, groups); repository: insert of new keys' events, claim by group, guarded marks that clear the body, `failed` with `next_attempt_at`, the list with the account filter; the composite-key test list; DB tests: a done event has no body, a failed one keeps it |
 | WHC12 | WH20: `instagram-webhook-event-key.schema.ts` and `.repository.ts` in the nested folder (no routes); its migration beside the events'; `EXPECTED_FORCE_RLS_TABLES`; an RLS test as `meepzo_be_app` (another organization's keys never seen or blocking) |
 | WHC13 | WH19, WH24: the shared partition upkeep (worker-changes WC-55) — `app.fn_manage_time_partitions` (`SECURITY DEFINER`, fixed `search_path`, `REVOKE … FROM PUBLIC`, `EXECUTE` to `meepzo_be_maintenance`), `MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP` in `database-context.ts`, the worker `src/domains/app/workers/app-partition-upkeep.*` (daily at a quiet hour and at worker start; a missing part made at once and the team told) with the events' spec (day, 3 ahead, keep 8); sub-domain 6 adds its two specs; `context-directory-standard` and `verified-scope-usage` policy tests updated |
-| WHC14 | WH23: route 62's DTO (`instagram_account_id`), validator, serializer (new kinds and reasons, `next_attempt_at`, null payload), the masking util's new kinds; the route schema description; `pnpm routes:catalog`, `docs:generate` |
+| WHC14 | WH23: route 62's DTO (`channel_account_id`), validator, serializer (new kinds and reasons, `next_attempt_at`, null payload), the masking util's new kinds; the route schema description; `pnpm routes:catalog`, `docs:generate` |
 | WHC15 | WH24: `instagram-webhook-event-retention` now deletes keys older than 8 days (`deleteInBatchesByCondition`, 03:00 UTC kept); `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS` 30 → the 8-day constant (one constant for the replay guard, the keys and the parts); seeds (`seed/instagram-webhook-event.bulk.seed.ts`: the new kinds, bodies null when done, keys); `docs/reference/data/data-lifecycle-deletion.md` row; i18n labels for the new kinds and reasons |
 
 ---
-## 6. Instagram sending — rev 1 (2026-11-23) — nested sub-domains 6.A–6.C; awaiting your OK
+## 6. Instagram sending — rev 2 (2026-11-23) — nested sub-domains 6.A–6.C; awaiting your OK
 
-Status: `rev 1 — awaiting your OK`
+Status: `rev 2 (2026-11-23) — awaiting your OK`
 
 Code: the **`instagram-sending` sub-domain folder** — `app/sub-domains/instagram-sending/` (the lanes, gates, counts, stops,
-the global sending state and the repair duties at the folder root) with `instagram-message/` and `meta-attachment/`.
+the global sending state and the repair duties at the folder root) with `instagram-message/` and `instagram-attachment/`.
 
 6.1 Decisions (whole sub-domain) · 6.2 Open questions · 6.3 Tables and relations · 6.4 Permissions · 6.5 Common to every route ·
 6.6 Objects returned · 6.7 Routes · 6.8 Request details · 6.9 Errors · 6.10 Rules worth knowing · 6.11 Code changes (whole sub-domain) ·
-6.12 Nested sub-domains · then **6.A Instagram sending · 6.B Instagram messages · 6.C Meta attachments** — each with the same eleven sections.
+6.12 Nested sub-domains · then **6.A Instagram sending · 6.B Instagram messages · 6.C Instagram attachments** — each with the same eleven sections.
 
 **NEW** (P38). Today the launch sends inside event processing: the run engine claims a send on the run
-(`automation_runs.sending_message_kind`, `sending_started_at`), waits a fixed 200–1,000 ms and calls Instagram
+(`instagram_automation_runs.sending_message_kind`, `sending_started_at`), waits a fixed 200–1,000 ms and calls Instagram
 (`automation-run-message.service.ts`; AS-BUILT "Sending again on a retry", "Reply safety order, counts and memory"). Here
 intake only saves `waiting` messages (sub-domain 5) and this sub-domain **sends them**: four lanes per account (slow,
 reply, fast, broadcast), two gates and the month count in the claim's commit, one shared result save, the Instagram error
@@ -2342,8 +2543,8 @@ worker-changes row. Two routes read it: the account's sending status (banners an
 DM meter; the summary and retry of failed messages per automation and per contact are sub-domains 4's and 3's routes
 (36–37, 25–26), over this sub-domain's retry service (Merge notes M6). Design read: plan §24 (L4344–L4480),
 §28–§35 (L5177–L6168), §19.1–19.16 (L3226–L3640), §15.2–15.3 (L2530–L2591), §15.11 (L2700–L2733), §39 (L7044–L7091); D3–D9,
-D16–D21, D34, D35, D50, D57, D62, D68, D72; P3–P7, P13, P14, P16, P25, P32–P34. Builds on: instagram-account (accounts,
-settings, the Instagram client), meta-connection (the token, `appsecret_proof`), contact, automation (runs, counts, reply
+D16–D21, D34, D35, D50, D57, D62, D68, D72; P3–P7, P13, P14, P16, P25, P32–P34. Builds on: channel-account (accounts, pause, suspend, plan stop), instagram-account (
+settings, the Instagram client), channel-connection (the token, `appsecret_proof`), contact, automation (runs, counts, reply
 state), billing (the plan's features and DM limit), upload (message files). Route numbers run 63–64 (65–68 left unused — Merge notes M6).
 
 ### 6.1 Decisions (whole sub-domain)
@@ -2351,17 +2552,19 @@ state), billing (the plan's features and DM limit), upload (message files). Rout
 Taken on the standing answer "go with the recommendation" (P31). A decision that belongs to one table is in its nested
 sub-domain.
 
+**rev 2 changes** (P43, P47, M9): `meta_attachments` → `app.instagram_attachments` (`instagram-attachment/`); `direct_message_month_counts` → the shared `app.message_month_counts`, the limit `message_month_limit`, the account count `channel_accounts_max`; `app.sending_states` shared; pause, suspend and the account's plan stop moved from the lanes to the channel account (1B — SN9, SN12); the account pointer `channel_account_id`; route 63 under `…/{channel_account_id}/sending-status`; the Meta client from 1's adapter. Everything else stays Instagram's.
+
 | # | Decision |
 | --- | --- |
-| SN1 | **Folder and names (P38).** Today: nothing. → `instagram-sending/` at the root holds the engine — `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.direct_message_month_counts` (P6 name), `app.sending_states` — none with routes of its own, so persistence parts of the root (launch layout rule); routes 63–64. Nested `instagram-message/` owns `app.instagram_messages` and `app.instagram_send_attempts` (an attempt belongs to its message) and the retry service behind 3's routes 25–26 and 4's 36–37 (M6). Nested `meta-attachment/` is a persistence module with no routes (the `auth/verification-token` precedent) owning `app.meta_attachments`. Folder names carry the resource's name like the launch's `instagram-account/instagram-media/`. Public id: only the message has one (proposal `igm`, P22 — kickoff confirms); path params are the existing `instagram_account_id`, `automation_id`, `contact_id`. Other option: one flat folder — nine tables and four lanes' workers in one place. |
-| SN2 | **Queues (D3, plan §24).** Today: one Instagram queue (`instagram-webhook`, family `instagram`), concurrency `WORKER_CONCURRENCY_INSTAGRAM` (max 20). → three new queues in family `instagram`: **`instagram-send-slow`** (one ticket per lane turn of `slow`, `reply`, `broadcast`; job id `<lane>-<iga_…>-<turn_number>`, broadcast at priority 10), **`instagram-send-fast`** (one ticket per fast message, `fast-<igm_…>-<tries>`, up to 20 at once per account), **`instagram-tasks`** (the jobs around sending, D3 — defined here, its job names registered by their owners: account set-up and starter questions by meta-connection / instagram-account, file upload and retry-failed here, segment count and broadcast audience by sub-domain 7, past comments by automation). Tickets carry ids only (`organizationPublicId`, account public id, lane and turn, or message public id + its run's start time + try) — text and person are read from Postgres at the last moment (plan §24.4). BullMQ rules (plan §24.6): no worker ever waits (a delay or `moveToDelayed`), 1 attempt per ticket, `removeOnComplete`/`removeOnFail` on, never BullMQ's rate limiter, **not paused by the `instagram` circuit** (our stops decide). Concurrency: `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW`, `_SEND_FAST`, `_TASKS` (env, deploy-varying, each falling back to `WORKER_CONCURRENCY_INSTAGRAM`; be-env-schema-add), inside the Postgres budget (`worker-connection-budget.ts`). |
+| SN1 | **Folder and names (P38).** Today: nothing. → `instagram-sending/` at the root holds the engine — `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.message_month_counts` (P6 name), `app.sending_states` — none with routes of its own, so persistence parts of the root (launch layout rule); routes 63–64. Nested `instagram-message/` owns `app.instagram_messages` and `app.instagram_send_attempts` (an attempt belongs to its message) and the retry service behind 3's routes 25–26 and 4's 36–37 (M6). Nested `instagram-attachment/` is a persistence module with no routes (the `auth/verification-token` precedent) owning `app.instagram_attachments`. Folder names carry the resource's name like the launch's `instagram-account/instagram-media/`; `app.message_month_counts` and `app.sending_states` are shared by every channel (P43) but live here while Instagram is the only sender. Public id: only the message has one (proposal `igm`, P22 — kickoff confirms); path params are the existing `channel_account_id`, `automation_id`, `contact_id`. Other option: one flat folder — nine tables and four lanes' workers in one place. |
+| SN2 | **Queues (D3, plan §24).** Today: one Instagram queue (`instagram-webhook`, family `instagram`), concurrency `WORKER_CONCURRENCY_INSTAGRAM` (max 20). → three new queues in family `instagram`: **`instagram-send-slow`** (one ticket per lane turn of `slow`, `reply`, `broadcast`; job id `<lane>-<cha_…>-<turn_number>`, broadcast at priority 10), **`instagram-send-fast`** (one ticket per fast message, `fast-<igm_…>-<tries>`, up to 20 at once per account), **`instagram-tasks`** (the jobs around sending, D3 — defined here, its job names registered by their owners: account set-up and starter questions by channel-connection / instagram-account, file upload and retry-failed here, segment count and broadcast audience by sub-domain 7, past comments by automation). Tickets carry ids only (`organizationPublicId`, account public id, lane and turn, or message public id + its run's start time + try) — text and person are read from Postgres at the last moment (plan §24.4). BullMQ rules (plan §24.6): no worker ever waits (a delay or `moveToDelayed`), 1 attempt per ticket, `removeOnComplete`/`removeOnFail` on, never BullMQ's rate limiter, **not paused by the `instagram` circuit** (our stops decide). Concurrency: `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW`, `_SEND_FAST`, `_TASKS` (env, deploy-varying, each falling back to `WORKER_CONCURRENCY_INSTAGRAM`; be-env-schema-add), inside the Postgres budget (`worker-connection-budget.ts`). |
 | SN3 | **The gates (D18, plan §31).** Today: reply safety counted from comment logs in Postgres; no send limit. → before a send: **gate 1**, an advisory Redis count per account and count group (a sorted set per minute, organization-scoped keys, 100 ms timeout, skipped for 30 s after 3 timeouts — never inside a transaction); then **one** Postgres commit that (a) checks **gate 2**, the account's `app.instagram_send_minute_counts` summed over the last 61 minutes against the group's hour limit, (b) checks the **month count** (D34), (c) adds 1 to both, (d) marks the message `sending` with a 120 s lease and writes its attempt row. Postgres decides; Redis only saves a wasted claim. Count groups: `open` (slow), `reply`, `fast`, `broadcast`; `none` for follow checks. The person limit (60 an hour) is read from Postgres (her `sent` messages of the last hour). |
 | SN4 | **One shared result save, retried inside the send — no save-result jobs (P32, plan §28.4).** Today: the run engine books its own send result. → one function `saveSendResult` (6.B) owns every effect of an answer: the message's status and Instagram id, give-backs of counts on a sure "not sent", the run's next step and its fast ticket, the opening DM's bookkeeping (`last_opening_message_at`, the run's `direct_message_sent_at`), the public reply / hide / nudge rows, list message N+1, tags, completion, the stop rules, and the lane's release (only while `working_turn` is this turn). It is called by the four lanes, the repair duties and intake (a tap's `unknown` → `sent`). **After Meta answered, a failed save is retried inside the same job** — deadlock or lock timeout 3 times, a lost connection after 1, 2, 4, 8 s — while the message keeps its lease; if it still fails, the message stays `sending`, its lease runs out and WC-14 settles it `unknown` (never sent again by itself, D17). The Instagram message id is logged (an id, never text), so an echo or a tap can still prove it `sent`. Other option: the plan's Redis save-result jobs — refused by P32. |
-| SN5 | **Instagram errors and stops (D19, plan §33).** Today: auth errors set the account `error`/`expired` (AS-BUILT "Instagram auth errors"); other errors only fail that send. → every answer maps to **one group** (6.A.10): `too_fast` stops that lane (Meta's time, else 15 → 360 minutes; a broadcast lane twice as long), `blocked` all lanes with tests after 24, 48, then every 72 hours, `account_flagged` that lane, `login_expired` every account of the Meta connection (no end, reconnect notice), `account_not_shared` / not business that account, `access_off` and `app_not_approved` all lanes with hourly tests, `app_limit` all accounts when 2 accounts get it within 5 minutes; per-message groups (`person`, `window_closed`, `bad_text`, `wrong_permission`, `comment_gone`, `live_ended`, `attachment_failed`, `try_later`, `no_answer`, `never_connected`, `already_sent`). A stop never fails a DM: it goes back to `waiting` with no try used. "In a row" and "30 % bad" are counted from `app.instagram_send_attempts`, never Redis. **Sending starts again by itself** when a stop ends (D19). Every stop is a row in `app.instagram_send_stops`. The code lists come from constants (P4); codes Meta tests must still name (`CODES_ALREADY_SENT`, `CODES_LIVE_ENDED`, `CODES_ATTACHMENT_GONE`) start empty and their features stay refused at go-live (P36). |
+| SN5 | **Instagram errors and stops (D19, plan §33).** Today: auth errors set the account `error`/`expired` (AS-BUILT "Instagram auth errors"); other errors only fail that send. → every answer maps to **one group** (6.A.10): `too_fast` stops that lane (Meta's time, else 15 → 360 minutes; a broadcast lane twice as long), `blocked` all lanes with tests after 24, 48, then every 72 hours, `account_flagged` that lane, `login_expired` every account of the channel connection (no end, reconnect notice), `account_not_shared` / not business that account, `access_off` and `app_not_approved` all lanes with hourly tests, `app_limit` all accounts when 2 accounts get it within 5 minutes; per-message groups (`person`, `window_closed`, `bad_text`, `wrong_permission`, `comment_gone`, `live_ended`, `attachment_failed`, `try_later`, `no_answer`, `never_connected`, `already_sent`). A stop never fails a DM: it goes back to `waiting` with no try used. "In a row" and "30 % bad" are counted from `app.instagram_send_attempts`, never Redis. **Sending starts again by itself** when a stop ends (D19). Every stop is a row in `app.instagram_send_stops`. The code lists come from constants (P4); codes Meta tests must still name (`CODES_ALREADY_SENT`, `CODES_LIVE_ENDED`, `CODES_ATTACHMENT_GONE`) start empty and their features stay refused at go-live (P36). |
 | SN6 | **Repair duties on the existing scheduler (P7).** Today: one cron per job in `scheduler.ts` (minute granularity, `upsertJobScheduler` with `pattern`). → one queue **`instagram-sending-repair`** (family `instagram`, `retentionDefinition`-style, `holdsConnectionDuringExternalIo: false`) with **one repeat job per rule group**: `repair-every-minute` (WC-13, 14, 15, 17, 18, 19, 20, 37's month check, 56's backup, 57), `outage-check` every **10 seconds** (WC-22), `waiting-estimate` every 10 minutes (WC-24), `live-check` every minute (WC-16, calls Meta), and the daily clean-ups (WC-53, 54). Each duty handles at most 500 rows a round, is safe to run twice, reads ids across organizations under the `app.global_retention_cleanup` arm and changes each organization in its own `runOrganizationScopedWorkerJob`. The 10-second repeat needs **`every`** in the scheduler: `ScheduledJob` takes `cronPattern` **or** `everyMilliseconds` (one change, `scheduler.ts` and its unit test). Two duties cannot ride BullMQ and run **in each worker process** instead: the clock check (WC-23 — every server's own clock) and the "Redis lost or emptied" watch (SN10). So the plan's 16 helper slots are not needed (SNQ1). |
 | SN7 | **The global switch and the environment id (D20, P4) and the settings version (D21).** Today: nothing stops a restored copy from sending. → (1) env **`SENDING_ENABLED`** (boolean, static default `false`; be-env-schema-add — the one flag for "this deployment may send"): `false` → the send workers, the tasks that call Meta and the repair duties are not registered (`isEnabled`); the webhook still saves. (2) env **`SENDING_ENVIRONMENT_ID`** (text, 1–64; a production `.refine()` requires it when `SENDING_ENABLED` is on): must equal `app.sending_states.environment_id`, read at worker start and once a minute — a mismatch stops this server's sending and alerts the team, so a Neon branch or restore of production (which carries production's id) never sends from a test server. The row is created by `prepareDatabase` with the server's id **only when missing**, never overwritten. (3) **`SENDING_SETTINGS_VERSION`** (a constant in the app-domain constants file, P4): a server whose version is older than `app.sending_states.settings_version` takes no tickets; a newer one raises it. Runtime code reads `env.SENDING_ENABLED` alone, never combined (CLAUDE.md env rule 2). |
-| SN8 | **The month limit (D34, D62, P3).** Today: no limit. → every message into her chat counts (`is_counted_as_direct_message`: DMs, private replies, broadcast messages; not public replies, hides, follow checks), in `app.direct_message_month_counts` per workspace and calendar month **in the workspace's time zone** (`tenancy.organizations.timezone`), 16 slots by account so accounts never wait on each other. The limit is the plan's `direct_message_month_limit` (billing, P37 placeholders: Free 1,000, Creator 10,000, Studio 50,000). At 100 %: a plan stop `plan_limit` on the **slow, fast and broadcast** lanes of every account of the workspace — the reply lane goes on (P3, D62); a DM whose 7 days end behind it is `expired` · `plan_limit`. 80 % and 100 % send one notice and one email each per month (WC-56). The 1st of the month (her time zone) or an upgrade wakes them (WC-37). Intake never checks the limit; the claim does (plan:L4831). |
-| SN9 | **Plan states and PRO at run time (D35, D57).** Today: the read-only plan refuses automation writes only (AS-BUILT "Read-only plan"). → a plan stop `plan_ended` (all four lanes) for a cancelled paid plan at its period end or a grace that ended; `plan_downgrade` on the four lanes of an account the smaller plan does not keep; a suspended workspace or a team suspend (`suspended_at`, P18) stops every lane. The engine reads the plan's features **at run time**: PRO parts the plan lacks are ignored, never deleted (email and phone steps skipped, "Reply like a person" as OFF, one reply line, version A only, no extra delay). Plan stops sit **beside** an error stop and both must end (plan §33.2 rule 4) — so a lane row holds the two apart (SN12). |
+| SN8 | **The month limit (D34, D62, P3).** Today: no limit. → every message into her chat counts (`is_counted_as_direct_message`: DMs, private replies, broadcast messages; not public replies, hides, follow checks), in `app.message_month_counts` per workspace and calendar month **in the workspace's time zone** (`tenancy.organizations.timezone`), 16 slots by account so accounts never wait on each other. The limit is the plan's `message_month_limit` (billing, P37 placeholders: Free 1,000, Creator 10,000, Studio 50,000). At 100 %: a plan stop `plan_limit` on the **slow, fast and broadcast** lanes of every account of the workspace — the reply lane goes on (P3, D62); a DM whose 7 days end behind it is `expired` · `plan_limit`. 80 % and 100 % send one notice and one email each per month (WC-56). The 1st of the month (her time zone) or an upgrade wakes them (WC-37). Intake never checks the limit; the claim does (plan:L4831). |
+| SN9 | **Plan states and PRO at run time (D35, D57).** Today: the read-only plan refuses automation writes only (AS-BUILT "Read-only plan"). → a plan stop `plan_ended` (all four lanes) for a cancelled paid plan at its period end or a grace that ended; an account the smaller plan does not keep carries `plan_stopped_at` on its channel account (1B, CA3 — P42; rev 1 put a `plan_downgrade` stop on its four lanes); a suspended workspace, or a team suspend (`suspended_at` on the channel account, P18), stops every lane. The engine reads the plan's features **at run time**: PRO parts the plan lacks are ignored, never deleted (email and phone steps skipped, "Reply like a person" as OFF, one reply line, version A only, no extra delay). Plan stops sit **beside** an error stop and both must end (plan §33.2 rule 4) — so a lane row holds the two apart (SN12). |
 | SN10 | **Redis lost, emptied or replaced (plan §31.5, WC-21).** Today: the scheduler registers its repeat jobs once at boot; an emptied Redis loses them until a restart. → each worker process watches its BullMQ connection (reconnect events and the server's `run_id`): when Redis comes back new or empty, it re-registers the job schedulers (`registerScheduledJobs` is an idempotent upsert), rebuilds the gate-1 counts from the minute counts under one rebuild lock, and the next repair round puts the lanes' turns back with a small spread. Postgres decides throughout, so gate counts stay safe. The team is emailed after 1 minute down (through the mail outbox). |
 | SN11 | **Short-lived Redis copies (P5, be-read-cache-guard).** Today: none here. → three copies, each organization-scoped, built from Postgres, fail-open to Postgres, TTL ≤ 60 s, tombstoned after the commit that changes them: the account's **sending status** (route 63, 10 s), the workspace's **month count** (route 64 and the claim's quick look, 10 s — the claim itself always reads the slots), and the **waiting estimate** (WC-24, written every 10 minutes but kept 60 s and rebuilt on a miss by route 63). Nothing in Redis that Postgres does not have (P32). |
 
@@ -2378,25 +2581,25 @@ Until answered, the plan follows the recommendation and every row that rests on 
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.instagram_send_lanes` | one row per account and lane — its turn, lease, box, limits, pause, suspend, error stop and plan stop | four rows per account, made at connect (meta-connection writes them through this sub-domain's service); never deleted while the account lives |
+| `app.instagram_send_lanes` | one row per account and lane — its turn, lease, box, limits, error stop and workspace plan stop (pause, suspend and the account's plan stop are 1B's) | four rows per account, made at connect (channel-connection writes them through this sub-domain's service); never deleted while the account lives |
 | `app.instagram_send_stops` | the history of every stop of a lane or of all lanes | plain; batch-deleted after 90 days (WC-53) |
 | `app.instagram_send_minute_counts` | messages sent per account, count group and minute — gate 2 | raised in the claim's commit; rows over 2 hours old deleted (WC-20) |
-| `app.direct_message_month_counts` | DMs sent per workspace, month (its time zone) and slot | raised in the claim's commit; kept 13 months (WC-54); never recounted |
+| `app.message_month_counts` | DMs sent per workspace, month (its time zone) and slot | raised in the claim's commit; kept 13 months (WC-54); never recounted |
 | `app.sending_states` | one row for the whole system — environment id, settings version, the all-accounts stop and test | **no organization** (P16): maintenance login only |
 | `app.instagram_messages` | one message we send or plan to send, of a run or a broadcast | **split by week** of its run's start, about 30 days (P33, P13); public id |
 | `app.instagram_send_attempts` | one call to Meta for a message | **split by day**, 8 days (P33, D16) |
-| `app.meta_attachments` | Meta's id for an uploaded file, per account | one per account and upload; the upload by public id only (P25) |
+| `app.instagram_attachments` | Meta's id for an uploaded file, per account | one per account and upload; the upload by public id only (P25) |
 
 ```text
-tenancy.organizations ──< app.direct_message_month_counts                      the month meter (16 slots)
+tenancy.organizations ──< app.message_month_counts                      the month meter (16 slots)
    │
-   └──< app.instagram_accounts ──┬──< app.instagram_send_lanes (4)              slow · reply · fast · broadcast
-                                 ├──< app.instagram_send_stops                  every stop, 90 days
-                                 ├──< app.instagram_send_minute_counts          gate 2
-                                 ├──< app.meta_attachments ┄┄ upload.uploads    by public id (P25)
-                                 └──< app.instagram_messages ──┬──> app.automation_runs (3)   or …
-                                         (by week)             ├──> app.broadcasts (7)        … exactly one
-                                                               └──< app.instagram_send_attempts ┄┄ (by day; copies, no key)
+   └──< app.channel_accounts ──┬──< app.instagram_send_lanes (4)              slow · reply · fast · broadcast
+                               ├──< app.instagram_send_stops                  every stop, 90 days
+                               ├──< app.instagram_send_minute_counts          gate 2
+                               ├──< app.instagram_attachments ┄┄ upload.uploads    by public id (P25)
+                               └──< app.instagram_messages ──┬──> app.instagram_automation_runs (3)   or …
+                                         (by week)           ├──> app.instagram_broadcasts (7)        … exactly one
+                                                             └──< app.instagram_send_attempts ┄┄ (by day; copies, no key)
    app.sending_states (one row, no organization)
 
 A ──< B   one A has many B     A ──> B   a column on A points at one B     ┄┄  by value, no foreign key
@@ -2408,7 +2611,7 @@ reference on messages and attempts: account, automation, contact (db-changes).
 **PostgreSQL design**
 
 Standard columns on every tenant table: `organization_id bigint` → organizations `ON DELETE CASCADE`, the composite
-(`organization_id`, `instagram_account_id`) → `app.instagram_accounts` `ON DELETE CASCADE` where the row belongs to an
+(`organization_id`, `channel_account_id`) → `app.channel_accounts` `ON DELETE CASCADE` where the row belongs to an
 account; RLS enabled and forced, an organization policy with `USING` and `WITH CHECK`, plus the
 `app.global_retention_cleanup` arm in `USING` only where a repair duty reads ids across organizations. No soft delete, no
 `*_by_user_id` (nobody signed in writes here, except the retry's audit), no branch rule. Hot counter rows (`lanes`, minute
@@ -2446,11 +2649,11 @@ failed-messages routes it serves are gated in 4 (`automation:read` · `:update`)
 
 | # | Method | Path | Purpose | Gate | Idem | RC |
 | --- | --- | --- | --- | --- | --- | --- |
-| 63 | GET | `/social/instagram/accounts/{instagram_account_id}/sending-status` | What the account's banners need **(new)** | `instagram-account:read` | — | RC-35 |
+| 63 | GET | `/social/instagram/accounts/{channel_account_id}/sending-status` | What the account's banners need **(new)** | `instagram-account:read` | — | RC-35 |
 | 64 | GET | `/usage` | The workspace's DM meter, accounts used and notices **(new)** | `organization:read` | — | RC-56 |
 
 The failed-messages routes (RC-37–RC-40) live in the sub-domains whose paths they have — 4's routes 36–37
-(`/automations/{automation_id}/failed-messages/…`) and 3's routes 25–26 (`/contacts/{contact_id}/failed-messages/…`) —
+(`/social/instagram/automations/{automation_id}/failed-messages/…`) and 3's routes 25–26 (`/social/instagram/contacts/{contact_id}/failed-messages/…`) —
 and call this sub-domain's summary query and retry service (6.B, SN18; Merge notes M6).
 
 ### 6.8 Request details
@@ -2466,7 +2669,7 @@ Every route can answer the errors in 6.5; each route's own errors are in its nes
 **A lane turn** (slow, reply, broadcast; plan §28.1) — each ticket is one turn, one send at most:
 
 ```text
-ticket <lane>-<iga>-<turn> ──► lock the lane row (skip locked) · this turn? lease free? · stops, pause, suspend, test
+ticket <lane>-<cha>-<turn> ──► lock the lane row (skip locked) · this turn? lease free? · stops, the account's pause / suspend / plan stop (1B), test
    ──► box second reached? (else re-delay to it) ──► pick one message (6.A.10) ──► re-check her, the run, the automation
    ──► gate 1 (Redis, advisory) ──► ONE commit: gate 2 + month + `sending` + attempt + lease 120 s
    ──► Meta call (≤ 15 s, no transaction open) ──► saveSendResult (retried inside, SN4) ──► next ticket at the next box
@@ -2496,7 +2699,7 @@ fast message (plan §30): ticket fast-<igm>-<tries> at not_before ──► her 
 | WC-24 | "will go / may expire" estimate per account with waiting opening DMs [17] | `waiting-estimate` | every 10 min |
 | WC-32 | upload a message file to Meta once per account (6.C) | `instagram-tasks` · `attachment-upload` | go-live, file change, or at send |
 | WC-37 | month wake at the 1st (workspace time zone) or an upgrade [24] | found by `repair-every-minute`, job `month-wake` on `instagram-tasks` | every minute |
-| WC-38 | plan change at period end: `plan_downgrade`, `plan_ended`, PRO parts off; backup every 15 min [29] | `instagram-tasks` · `plan-change` (billing reports it) | on billing's event |
+| WC-38 | plan change at period end: the accounts' plan stop (1B), `plan_ended`, PRO parts off; backup every 15 min [29] | `instagram-tasks` · `plan-change` (billing reports it) | on billing's event |
 | WC-42 | retry failed messages, 500 at a time, once each (6.B) | `instagram-tasks` · `retry-failed` | 4's route 37, 3's route 26 |
 | WC-49 | send attempts' day parts past 8 days dropped | shared partition upkeep (5.B WHC13) | daily |
 | WC-50 | messages' week parts past about 30 days dropped | shared partition upkeep | daily |
@@ -2514,13 +2717,13 @@ one.
 
 | # | Change |
 | --- | --- |
-| SNC1 | SN1: folders `app/sub-domains/instagram-sending/`, `…/instagram-message/`, `…/meta-attachment/`; `instagram-sending.overview.md` (the lane turn, the gates, the stop groups, the WC map) and one per nested folder; the app container wiring (services exposed to sub-domains 5 and 7 and to meta-connection); `PUBLIC_ID_PREFIXES.instagramMessage` (`igm`, P22); OpenAPI tag `Instagram Sending`; `src/domains/CLAUDE.md` sub-domain map; `src/FLOWS.md` "a comment → a DM" rewritten |
+| SNC1 | SN1: folders `app/sub-domains/instagram-sending/`, `…/instagram-message/`, `…/instagram-attachment/`; `instagram-sending.overview.md` (the lane turn, the gates, the stop groups, the WC map) and one per nested folder; the app container wiring (services exposed to sub-domains 5 and 7 and to channel-connection); `PUBLIC_ID_PREFIXES.instagramMessage` (`igm`, P22); OpenAPI tag `Instagram Sending`; `src/domains/CLAUDE.md` sub-domain map; `src/FLOWS.md` "a comment → a DM" rewritten |
 | SNC2 | SN2: queues `instagram-send-slow`, `instagram-send-fast`, `instagram-tasks` (`queues/*.queue.ts`, `.job.schema.ts` — `organizationPublicId` in every payload); their workers in `worker-registration.registry.ts` (`criticality: 'throughput'`, `isEnabled: () => env.SENDING_ENABLED`, not provider-pausable); env `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW` / `_SEND_FAST` / `_TASKS` (env schema, `.env.example`, `src/tests/setup.ts`, be-env-schema-add); the pinned registry counts; `resource-limits.md`, `worker-scaling.md`, `redis-topology.md`, `workers-and-events.md` |
 | SNC3 | SN3, SN4: `instagram-send-gate.service.ts` (gate 1 with its timeout skip, gate 2, the month check — one commit), `saveSendResult` in 6.B; tests: two servers racing one minute never pass the hour limit; a failed save after Meta answered is retried and, when it keeps failing, ends `unknown` and is never sent again |
 | SNC4 | SN5: `instagram-send-error.util.ts` — the code → group table (6.A.10) as constants (P4), one group per code checked by `validate:constants`; the stop rules in the lane service; the `in a row` and `30 %` reads on the attempts; nock contract tests per group |
 | SNC5 | SN6: `ScheduledJob.everyMilliseconds` in `scheduler.ts` (exactly one of `cronPattern` / `everyMilliseconds`), its unit test; queue `instagram-sending-repair` and its scheduler entries (`repair-every-minute` `* * * * *`, `outage-check` 10,000 ms, `live-check` `* * * * *`, `waiting-estimate` `*/10 * * * *`, the daily clean-up at 03:50 UTC after the app's 03:xx ones); each duty a function with its 500-row cap and a DB test that running it twice changes nothing; the `tenant-scoped-job-data` exemptions for the cross-organization reads |
 | SNC6 | SN7: env `SENDING_ENABLED` (default `false`) and `SENDING_ENVIRONMENT_ID` (production `.refine()`: required when sending is on) — env schema, `.env.example` (SNQ2), `src/tests/setup.ts`, GitHub environments through `pnpm github:sync`; the environment-id and settings-version check at worker start and per minute; `prepareDatabase` creating the `app.sending_states` row when missing; a test that a copy with another id sends nothing |
-| SNC7 | SN8, SN9: the month count in the claim; the plan's `direct_message_month_limit` and features read through billing's service (cross-domain, a service import); the plan stops and their wake (WC-37, WC-38 handlers on `instagram-tasks`); PRO parts read at run time; tests at 79 %, 80 %, 100 % and across a time-zone midnight on the 1st |
+| SNC7 | SN8, SN9: the month count in the claim; the plan's `message_month_limit` and features read through billing's service (cross-domain, a service import); the plan stops and their wake (WC-37, WC-38 handlers on `instagram-tasks`); PRO parts read at run time; tests at 79 %, 80 %, 100 % and across a time-zone midnight on the 1st |
 | SNC8 | SN10, SN11: the Redis watch in the worker bootstrap (`src/infrastructure/queue/bootstrap.ts`), its rebuild lock; the three copies as `*.cache.ts` files following be-read-cache-guard (keys from the verified scope, tombstone after commit, fail-open, TTL ≤ 60 s, the five tests each) |
 | SNC9 | `/health` readiness adds sending checks (repair age, late tickets, clock skew, settings version) — `health.middleware.ts` (plan §40.1); metrics for the alerts of plan §40.3 |
 
@@ -2528,9 +2731,9 @@ one.
 
 | Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-sending/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 6.A Instagram sending | folder root | `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.direct_message_month_counts`, `app.sending_states` | 63–64, the four lanes, the repair duties | awaiting your OK |
+| 6.A Instagram sending | folder root | `app.instagram_send_lanes`, `app.instagram_send_stops`, `app.instagram_send_minute_counts`, `app.message_month_counts`, `app.sending_states` | 63–64, the four lanes, the repair duties | awaiting your OK |
 | 6.B Instagram messages | `instagram-message/` | `app.instagram_messages`, `app.instagram_send_attempts` | — (`saveSendResult`, the retry service behind 3's 25–26 and 4's 36–37) | awaiting your OK |
-| 6.C Meta attachments | `meta-attachment/` | `app.meta_attachments` | — (file upload task) | awaiting your OK |
+| 6.C Instagram attachments | `instagram-attachment/` | `app.instagram_attachments` | — (file upload task) | awaiting your OK |
 
 ---
 
@@ -2540,10 +2743,10 @@ one.
 
 | # | Decision |
 | --- | --- |
-| SN12 | **Lanes (D4, plan §19.10).** Four rows per account made in meta-connection's connect commit (RC-3) through `InstagramSendLaneService.createLanesForAccount`, the reconnect reusing them. `state`: `ready` · `working` · `sleeping` · `stopped` (fast: `ready`, `stopped` only). The **error stop** (`stop_reason` one of the stop groups, `stop_until` — empty = the owner must act, `stop_count`, codes, `stop_cleared_at`) and the **plan stop** (**new**: `plan_stop_reason` `plan_limit` · `plan_ended` · `plan_downgrade`, `plan_stopped_at`) are separate columns, so both can hold at once (SN9; db-changes has one `stop_reason` for both). The owner's pause (`paused_at`, written on all four by the account's pause action) and the team's suspend (`suspended_at`, P18) are their own columns too. The slow row also holds the account's one test claim (`testing_lane`, `testing_until`); the fast row its `sending_count` (≤ 20). |
+| SN12 | **Lanes (D4, plan §19.10).** Four rows per account made in channel-connection's connect commit (RC-3) through `InstagramSendLaneService.createLanesForAccount`, the reconnect reusing them. `state`: `ready` · `working` · `sleeping` · `stopped` (fast: `ready`, `stopped` only). The **error stop** (`stop_reason` one of the stop groups, `stop_until` — empty = the owner must act, `stop_count`, codes, `stop_cleared_at`) and the **plan stop** (**new**: `plan_stop_reason` `plan_limit` · `plan_ended` — the workspace-wide plan stops, `plan_stopped_at`) are separate columns, so both can hold at once (SN9; db-changes has one `stop_reason` for both). The owner's pause, the team's suspend and the account's plan stop live on the channel account (1B — `paused_at`, `suspended_at`, `plan_stopped_at`, P42) and a lane turn reads them in its unit of work; the lanes carry no copy (rev 1 had `paused_at` and `suspended_at` here). The slow row also holds the account's one test claim (`testing_lane`, `testing_until`); the fast row its `sending_count` (≤ 20). |
 | SN13 | **Stops history (plan §33.2 rule 9).** Every stop that starts writes an `app.instagram_send_stops` row (lane, or `all` for a plan stop or an account-wide one; reason; codes; `started_at`; `stop_until`) in the same commit, and its end sets `ended_at` and `ended_by` (`time` · `test` · `owner` · `team`). Route 63 shows each lane's current stop from the lane row; the history serves the team and the "stop over 1 hour" email (WC-57). |
-| SN14 | **Route 63, the sending status (RC-35).** Today: none. → one object for the account's banners (plan §15.2): per lane the waiting count, state, wait reason, next send time and its current stops; paused, suspended, the new-account limit and its end (connect + 7 days), the estimate (about how many will go, how many may expire, done at about), today's line (sent, not sure, skipped and of those "chat closed", expired — in the workspace's day), the per-automation "chat closed" lines, and the last broadcast, past-comments and retry results (read from `app.broadcasts`, `app.automation_backfills` and the messages' `owner_retry_at` — no table of results). Read through the 10-second copy (SN11). |
-| SN15 | **Route 64, the DM meter (RC-56, P14).** Today: `GET /auth/me/context` carries plan access only. → `GET /usage`: the month's `used` (sum of the 16 slots), `limit` (the plan's `direct_message_month_limit`), `resets_on` (the 1st of next month in the workspace's time zone), `state` `ok` · `nearly` (80 %) · `reached` (100 %); Instagram accounts used against the plan's maximum; and the workspace notices to show (limit nearly reached, reached, payment failed, plan ended, trial ends soon, being set up, paused) — billing's and tenancy's states read through their services. Dismissing a notice is the browser's (P27). |
+| SN14 | **Route 63, the sending status (RC-35).** Today: none. → one object for the account's banners (plan §15.2): per lane the waiting count, state, wait reason, next send time and its current stops; paused, suspended, the new-account limit and its end (connect + 7 days), the estimate (about how many will go, how many may expire, done at about), today's line (sent, not sure, skipped and of those "chat closed", expired — in the workspace's day), the per-automation "chat closed" lines, and the last broadcast, past-comments and retry results (read from `app.instagram_broadcasts`, `app.instagram_automation_backfills` and the messages' `owner_retry_at` — no table of results). Read through the 10-second copy (SN11). |
+| SN15 | **Route 64, the DM meter (RC-56, P14).** Today: `GET /auth/me/context` carries plan access only. → `GET /usage`: the month's `used` (sum of the 16 slots), `limit` (the plan's `message_month_limit`), `resets_on` (the 1st of next month in the workspace's time zone), `state` `ok` · `nearly` (80 %) · `reached` (100 %); channel accounts used against the plan's `channel_accounts_max`; and the workspace notices to show (limit nearly reached, reached, payment failed, plan ended, trial ends soon, being set up, paused) — billing's and tenancy's states read through their services. Dismissing a notice is the browser's (P27). |
 
 #### 6.A.2 Open questions
 
@@ -2556,33 +2759,32 @@ SNQ1 (6.2) — `app.sending_helper_slots`; SNQ2 (6.2) — `.env.example`.
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `id` | `bigint` (bigserial) | no | identity | primary key |
-| `lane` | `varchar(9)` | no | | `slow` · `reply` · `fast` · `broadcast`; unique (`organization_id`, `instagram_account_id`, `lane`) |
+| `lane` | `varchar(9)` | no | | `slow` · `reply` · `fast` · `broadcast`; unique (`organization_id`, `channel_account_id`, `lane`) |
 | `state` | `varchar(8)` | no | `'ready'` | `ready` · `working` · `sleeping` · `stopped`; fast only `ready` · `stopped` |
 | `next_run_at`, `lease_until`, `box_start`, `last_sent_at`, `half_speed_until` | `timestamptz` | yes | | `lease_until` set exactly while `working` |
 | `wait_reason` | `varchar(12)` | yes | | `box` · `gap` · `hour_limit` · `day_limit` · `not_before` · `stop` · `test` |
 | `turn_number`, `working_turn` | `bigint` | no / yes | `0` / | `working_turn` set exactly while `working` |
 | `pick_count` | `smallint` | no | `0` | slow only: 1–5 in the new : old mix |
 | `day_date`, `day_count` | `date`, `integer` | yes | | slow, day limit only (off by default) |
-| `paused_at`, `suspended_at` | `timestamptz` | yes | | owner pause; team or workspace suspend |
 | `stop_reason` | `varchar(24)` | yes | | an error stop group; `stop_until`, `stop_count` (`smallint`, ≥ 0), `stop_error_code`, `stop_error_subcode` (`integer`), `stop_cleared_at` |
-| `plan_stop_reason` | `varchar(14)` | yes | | **new (SN12)** `plan_limit` · `plan_ended` · `plan_downgrade`; `plan_stopped_at` set exactly with it |
+| `plan_stop_reason` | `varchar(14)` | yes | | **new (SN12)** `plan_limit` · `plan_ended` (the account's own plan stop is 1B's `plan_stopped_at`); `plan_stopped_at` set exactly with it |
 | `testing_lane`, `testing_until` | `varchar(9)`, `timestamptz` | yes | | slow row only |
 | `sending_count` | `smallint` | no | `0` | fast row only, 0–20 |
 | `updated_at` | `timestamptz` | no | `now()` | |
 
-Indexes: unique (`organization_id`, `instagram_account_id`, `lane`); `(next_run_at) WHERE state IN ('ready', 'sleeping')` and
+Indexes: unique (`organization_id`, `channel_account_id`, `lane`); `(next_run_at) WHERE state IN ('ready', 'sleeping')` and
 `(lease_until) WHERE state = 'working'` — the repair's cross-organization reads. `fillfactor = 80`.
 
 `app.instagram_send_stops`: `id`; account (composite); `lane` `slow` · `reply` · `fast` · `broadcast` · `all`; `reason`
 (`varchar(24)`); `error_code`, `error_subcode`; `started_at` (default `now()`), `stop_until`, `ended_at`; `ended_by` `time` ·
-`test` · `owner` · `team` (set exactly with `ended_at`). Indexes `(organization_id, instagram_account_id, started_at DESC)`,
+`test` · `owner` · `team` (set exactly with `ended_at`). Indexes `(organization_id, channel_account_id, started_at DESC)`,
 `(started_at)` (the 90-day delete).
 
-`app.instagram_send_minute_counts`: primary key (`organization_id`, `instagram_account_id`, `count_group`, `minute_start`);
+`app.instagram_send_minute_counts`: primary key (`organization_id`, `channel_account_id`, `count_group`, `minute_start`);
 `count_group` `open` · `reply` · `fast` · `broadcast`; `minute_start` (Postgres clock, to the minute); `count integer ≥ 0`.
 Index `(minute_start)`. `fillfactor = 80`.
 
-`app.direct_message_month_counts`: primary key (`organization_id`, `month_start`, `slot`); `month_start date` (the 1st in the
+`app.message_month_counts`: primary key (`organization_id`, `month_start`, `slot`); `month_start date` (the 1st in the
 workspace's time zone); `slot smallint` 0–15 (from the account's id); `count integer ≥ 0`; `updated_at`. No account
 column (P6 name; db-changes). Index `(month_start)` (the 13-month delete). `fillfactor = 80`.
 
@@ -2609,7 +2811,7 @@ As 6.5.
 
 #### 6.A.6 Objects returned
 
-**Instagram sending status** (route 63): `instagram_account_id`, `is_paused`, `is_suspended`, `new_account_limit_until`,
+**Instagram sending status** (route 63): `channel_account_id`, `is_paused`, `is_suspended`, `new_account_limit_until`,
 `lanes[]` (`lane`, `state`, `waiting_count`, `wait_reason`, `next_send_at`, `stop` `{ reason, until, started_at }` or null,
 `plan_stop` `{ reason, since }` or null), `all_accounts_stop` `{ reason, until }` or null, `estimate` `{ waiting, will_go,
 may_expire, done_at }` or null, `today` `{ sent, unknown, skipped, skipped_window_closed, expired }`, `window_closed_by_automation[]`
@@ -2617,7 +2819,7 @@ may_expire, done_at }` or null, `today` `{ sent, unknown, skipped, skipped_windo
 `last_backfill` `{ automation_id, status, found, matched, queued }` or null, `last_retry` `{ automation_id | contact_id,
 retried, cannot, at }` or null, `as_of`.
 
-**App usage** (route 64): `direct_messages` `{ used, limit, resets_on, state }`, `instagram_accounts` `{ used, maximum }`,
+**App usage** (route 64): `direct_messages` `{ used, limit, resets_on, state }`, `channel_accounts` `{ used, maximum }`,
 `notices[]` (`kind` `direct_message_limit_nearly` · `direct_message_limit_reached` · `payment_failed` · `plan_ended` ·
 `trial_ending` · `being_set_up` · `paused`, `ends_on` or null).
 
@@ -2625,7 +2827,7 @@ retried, cannot, at }` or null, `as_of`.
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 63 | GET | `/social/instagram/accounts/{instagram_account_id}/sending-status` | What the account's banners need **(new)** | `instagram-account:read` | — |
+| 63 | GET | `/social/instagram/accounts/{channel_account_id}/sending-status` | What the account's banners need **(new)** | `instagram-account:read` | — |
 | 64 | GET | `/usage` | The DM meter, accounts used, notices **(new)** | `organization:read` | — |
 
 #### 6.A.8 Request details
@@ -2639,7 +2841,7 @@ retried, cannot, at }` or null, `as_of`.
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 63 | `400` · `instagram_account_id` | not an `iga_…` id |
+| 63 | `400` · `channel_account_id` | not an `cha_…` id |
 | 63 | `404` · `instagram_not_connected` | no account of this organization by that id, or it is `revoked` (the launch reason) |
 | 63, 64 | `403` · `missing_permission` | no `instagram-account:read` / `organization:read` |
 | 63, 64 | `404` · `team_organization_required` | a personal organization |
@@ -2670,7 +2872,7 @@ of a paused, stopped or deleted automation, an opted-out or excluded contact, or
 
 | # | Change |
 | --- | --- |
-| SNC10 | SN12, SN13: the lane and stop schemas and repositories (guarded updates of turn, lease and stops; the two stop slots); `createLanesForAccount` for meta-connection; the migration for the five root tables (new dated files after the launch's, in build order); `EXPECTED_FORCE_RLS_TABLES`; the `SENDING_STATE` maintenance scope; DB tests: a stronger stop wins, a plan stop and an error stop both hold, a lane is never worked by two turns |
+| SNC10 | SN12, SN13: the lane and stop schemas and repositories (guarded updates of turn, lease and stops; the two stop slots); `createLanesForAccount` for channel-connection; the migration for the five root tables (new dated files after the launch's, in build order); `EXPECTED_FORCE_RLS_TABLES`; the `SENDING_STATE` maintenance scope; DB tests: a stronger stop wins, a plan stop and an error stop both hold, a lane is never worked by two turns |
 | SNC11 | SN14, SN15: routes 63–64 — controller, serializer, the read service and its cache file; the route schemas (summary, description, tag); `pnpm routes:catalog` (O column `team`), success statuses, `docs:generate`; integration tests: every banner field from seeded rows, a personal organization `404`, another organization's account `404` (and as `meepzo_be_app`) |
 | SNC12 | Seeds: `instagram-sending/seed/` — four lanes per seeded account, stops, minute and month counts for the meter; no reference seed |
 
@@ -2683,8 +2885,8 @@ of a paused, stopped or deleted automation, an opted-out or excluded contact, or
 | # | Decision |
 | --- | --- |
 | SN16 | **One row per message, of a run or a broadcast (plan §19.1).** Today: the run holds a send claim and sends inline (launch D16). → `app.instagram_messages` — written by intake (sub-domain 5) and the broadcast audience (7) through `InstagramMessageService`, sent by the lanes, finished by `saveSendResult`. Exactly one of `automation_run_id` / `broadcast_id` (`num_nonnulls = 1`; `message_type = 'broadcast'` exactly with a broadcast). **Moving between lanes** (an opening DM from slow to fast when her chat opens, plan §27.13) changes the same row while it is `waiting` (a conditional update). Status machine (plan §20.7): `waiting` → `sending` → `sent` · `unknown` · `failed`; `waiting` → `skipped` · `cancelled` · `expired`; `unknown` → `waiting` once, only on her next message or tap (D17); `failed` → `waiting` once by the owner's retry (SN18). `reason` (about 30 values, plan:L3287–L3317) adds `replaced` (P35). |
-| SN17 | **Split by week of the run's start, about 30 days (P33, P13, D50).** `PARTITION BY RANGE (automation_run_started_at)`, one part per ISO week; a broadcast row puts its recipient's creation time there. Primary key `(id, automation_run_started_at)`, unique `(public_id, automation_run_started_at)`; tickets carry both, so every lookup prunes to one part. Foreign keys **out**: (`organization_id`, `automation_run_id`) → `app.automation_runs` `ON DELETE CASCADE` (runs stay plain, P33; a run is deleted 90 days after it ended, long after its messages' part went); (`organization_id`, `broadcast_id`) → `app.broadcasts` `ON DELETE CASCADE` — **added by sub-domain 7's migration**, since broadcasts build after this table. Parts are dropped once their week ends more than 30 days ago (WC-50), so "what happened" and "retry" read about the last 30 days (P13). |
-| SN18 | **Retry failed messages (D72) — the service behind 4's routes 36–37 and 3's routes 25–26.** Today: none. → the summary (36, 25) counts this automation's (or contact's) `failed` messages of the last 30 days: how many can go again now and how many cannot, by reason — `too_old` (an opening private reply past comment + 7 days − 30 min), `chat_closed` (any other DM while her window is closed), `final_for_person` (she blocked us, user not found, no consent, opted out, paused by the owner), `text_refused` (the automation still stopped `bad_text`), `already_retried` (`owner_retry_at` set), `broadcast` (never retried). The retry (37, 26) answers at once with the same counts and adds one `retry-failed` job on `instagram-tasks` (job id `retry-failed-<aut_…|con_…>`, so a second press while it runs adds nothing); the job moves the allowed ones back to `waiting` 500 at a time with `owner_retry_at` = now, re-checking each under its contact lock; they go through the normal lanes, gates, limits and the month count. One audit entry per press (`app.instagram_message.retry`, with the counts). Other option: retry inside the request — up to thousands of rows in one call. |
+| SN17 | **Split by week of the run's start, about 30 days (P33, P13, D50).** `PARTITION BY RANGE (automation_run_started_at)`, one part per ISO week; a broadcast row puts its recipient's creation time there. Primary key `(id, automation_run_started_at)`, unique `(public_id, automation_run_started_at)`; tickets carry both, so every lookup prunes to one part. Foreign keys **out**: (`organization_id`, `automation_run_id`) → `app.instagram_automation_runs` `ON DELETE CASCADE` (runs stay plain, P33; a run is deleted 90 days after it ended, long after its messages' part went); (`organization_id`, `broadcast_id`) → `app.instagram_broadcasts` `ON DELETE CASCADE` — **added by sub-domain 7's migration**, since broadcasts build after this table. Parts are dropped once their week ends more than 30 days ago (WC-50), so "what happened" and "retry" read about the last 30 days (P13). |
+| SN18 | **Retry failed messages (D72) — the service behind 4's routes 36–37 and 3's routes 25–26.** Today: none. → the summary (36, 25) counts this automation's (or contact's) `failed` messages of the last 30 days: how many can go again now and how many cannot, by reason — `too_old` (an opening private reply past comment + 7 days − 30 min), `chat_closed` (any other DM while her window is closed), `final_for_person` (she blocked us, user not found, no consent, opted out, paused by the owner), `text_refused` (the automation still stopped `bad_text`), `already_retried` (`owner_retry_at` set), `broadcast` (never retried). The retry (37, 26) answers at once with the same counts and adds one `retry-failed` job on `instagram-tasks` (job id `retry-failed-<aut_… or con_…>`, so a second press while it runs adds nothing); the job moves the allowed ones back to `waiting` 500 at a time with `owner_retry_at` = now, re-checking each under its contact lock; they go through the normal lanes, gates, limits and the month count. One audit entry per press (`app.instagram_message.retry`, with the counts). Other option: retry inside the request — up to thousands of rows in one call. |
 | SN19 | **Send attempts (plan §19.2, D16).** One row per call to Meta, written in the claim's commit (`started_at`, lane, count group) and finished by `saveSendResult` (`result_group`, HTTP status, codes, `duration_milliseconds`). The source of "in a row", "30 % bad" and the outage check (SN5). Split by day of `started_at`, 8 days (P33); primary key `(id, started_at)`; copies of message, automation and contact ids without a reference. |
 
 #### 6.B.2 Open questions
@@ -2698,7 +2900,7 @@ None.
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `id`, `public_id` | `bigint`, `varchar(28)` | no | | `igm_…` (P22); keys as SN17 |
-| `instagram_account_id`, `automation_id`, `contact_id` | `bigint` | no / yes / no | | copies, no reference; `automation_id` empty only for a broadcast |
+| `channel_account_id`, `automation_id`, `contact_id` | `bigint` | no / yes / no | | copies, no reference; `automation_id` empty only for a broadcast |
 | `automation_run_id`, `broadcast_id` | `bigint` | yes | | exactly one (SN16) |
 | `automation_run_started_at` | `timestamptz` | no | | the partition key |
 | `message_type` | `varchar(16)` | no | | the 11 values of db-changes |
@@ -2715,18 +2917,18 @@ None.
 | `error_code`, `error_subcode` | `integer` | yes | | codes only, never Meta's text |
 | `created_at`, `updated_at` | `timestamptz` | no | `now()` | |
 
-Indexes (local to each part): unique `(public_id, automation_run_started_at)`; the pick — `(instagram_account_id, lane,
+Indexes (local to each part): unique `(public_id, automation_run_started_at)`; the pick — `(channel_account_id, lane,
 not_before) WHERE status = 'waiting'`; per run `(automation_run_id) WHERE automation_run_id IS NOT NULL`; per broadcast
-`(broadcast_id, status) WHERE broadcast_id IS NOT NULL`; the own-message lookup (5, WHQ1) `(instagram_account_id,
+`(broadcast_id, status) WHERE broadcast_id IS NOT NULL`; the own-message lookup (5, WHQ1) `(channel_account_id,
 instagram_message_id) WHERE instagram_message_id IS NOT NULL`; the person limit `(contact_id, sent_at) WHERE status =
 'sent'`; the retry summaries `(organization_id, automation_id, created_at) WHERE status = 'failed'` and
 `(organization_id, contact_id, created_at) WHERE status = 'failed'`; the expiry `(trigger_occurred_at) WHERE status =
 'waiting' AND lane IN ('slow', 'reply')`. RLS: organization policy + the retention arm in `USING`; enabled and forced.
 
-`app.instagram_send_attempts` — split by day of `started_at`: `id`, `organization_id`, copies `instagram_account_id`,
+`app.instagram_send_attempts` — split by day of `started_at`: `id`, `organization_id`, copies `channel_account_id`,
 `instagram_message_id` (our message's id, not Meta's), `automation_id`, `contact_id`; `lane`; `count_group` (`open` ·
 `reply` · `fast` · `broadcast` · `none`); `started_at`; `result_group` (`sent` or a group of 6.A.10; empty while the call
-runs); `http_status`, `error_code`, `error_subcode`; `duration_milliseconds`. Indexes `(instagram_account_id, started_at
+runs); `http_status`, `error_code`, `error_subcode`; `duration_milliseconds`. Indexes `(channel_account_id, started_at
 DESC)` ("in a row", the outage check), `(started_at)`. RLS as messages.
 
 #### 6.B.4 Permissions
@@ -2769,13 +2971,13 @@ None of its own — 3.A.9 and 4.A.9.
 
 ---
 
-### 6.C Meta attachments — `instagram-sending/meta-attachment/` — awaiting your OK
+### 6.C Instagram attachments — `instagram-sending/instagram-attachment/` — awaiting your OK
 
 #### 6.C.1 Decisions
 
 | # | Decision |
 | --- | --- |
-| SN20 | **Upload once per account; the upload by public id only (P25, D29).** Today: the launch sends text and links only. → a message file (image, audio, PDF) is uploaded to Meta **once per account** and Meta's id kept in `app.meta_attachments` (one row per account and upload); at go-live or a file change of a live automation (WC-32 on `instagram-tasks`), or just before a send when the row is missing (3 tries, then the message `failed` · `attachment_failed`, not counted). The row names the upload by its **public id** (`upl_…`), read through `UploadService` — no foreign key into `upload.uploads` (P25). When Meta says the file is gone (`attachment_failed` group), the row is deleted, the counts given back and the message goes back to `waiting` to upload again. |
+| SN20 | **Upload once per account; the upload by public id only (P25, D29).** Today: the launch sends text and links only. → a message file (image, audio, PDF) is uploaded to Meta **once per account** and Meta's id kept in `app.instagram_attachments` (one row per account and upload); at go-live or a file change of a live automation (WC-32 on `instagram-tasks`), or just before a send when the row is missing (3 tries, then the message `failed` · `attachment_failed`, not counted). The row names the upload by its **public id** (`upl_…`), read through `UploadService` — no foreign key into `upload.uploads` (P25). When Meta says the file is gone (`attachment_failed` group), the row is deleted, the counts given back and the message goes back to `waiting` to upload again. |
 | SN21 | **Type and content checks now, the scan later (P34, D58 deviation).** Only an upload that is `confirmed` with the message-file purpose (upload's change, RC-61: image 8 MB, audio 25 MB, PDF 25 MB, type and magic-byte checks on confirm) may be sent. There is **no malware scan** this iteration — the D58 deviation recorded in AS-BUILT; "only files scanned clean" comes with the scan. |
 
 #### 6.C.2 Open questions
@@ -2784,9 +2986,9 @@ None.
 
 #### 6.C.3 Tables and relations
 
-`app.meta_attachments`: `id`; account (composite → `app.instagram_accounts` `ON DELETE CASCADE`); **`upload_public_id`
+`app.instagram_attachments`: `id`; account (composite → `app.channel_accounts` `ON DELETE CASCADE`); **`upload_public_id`
 `varchar(28)`** (db-changes calls it `upload_id` — renamed, since it holds a public id and no key); `attachment_id`
-`varchar(128)` (Meta's id); `created_at`, `updated_at`. Unique (`organization_id`, `instagram_account_id`,
+`varchar(128)` (Meta's id); `created_at`, `updated_at`. Unique (`organization_id`, `channel_account_id`,
 `upload_public_id`). RLS: organization policy, enabled and forced; the retention arm in `USING` for the automation purge
 (WC-47). No public id, no routes. Branch rule: none.
 
@@ -2823,19 +3025,19 @@ None of its own; a send that cannot upload ends its message `failed` · `attachm
 
 | # | Change |
 | --- | --- |
-| SNC15 | SN20, SN21: schema, repository and `MetaAttachmentService` (find or upload, delete on "gone"); the `attachment-upload` task handler; the Instagram client's attachment upload (meta-connection's client, `appsecret_proof`); nock contract tests; a test that an unconfirmed or wrong-purpose upload is never sent |
+| SNC15 | SN20, SN21: schema, repository and `InstagramAttachmentService` (find or upload, delete on "gone"); the `attachment-upload` task handler; the Instagram client's attachment upload (channel-connection's client, `appsecret_proof`); nock contract tests; a test that an unconfirmed or wrong-purpose upload is never sent |
 
 ---
-## 7. Broadcasts — rev 1 (2026-11-23) — nested sub-domains 7.A–7.C; awaiting your OK
+## 7. Instagram broadcasts — rev 2 (2026-11-23) — nested sub-domains 7.A–7.C; awaiting your OK
 
-Status: `rev 1 — awaiting your OK`
+Status: `rev 2 (2026-11-23) — awaiting your OK`
 
-Code: the **`broadcast` sub-domain folder** — `app/sub-domains/broadcast/` (the broadcast at the folder root) with
-`broadcast-segment/` and `broadcast-recipient/`.
+Code: the **`instagram-broadcast` sub-domain folder** — `app/sub-domains/instagram-broadcast/` (P44) (the broadcast at the folder root) with
+`instagram-broadcast-segment/` and `instagram-broadcast-recipient/`.
 
 7.1 Decisions (whole sub-domain) · 7.2 Open questions · 7.3 Tables and relations · 7.4 Permissions · 7.5 Common to every route ·
 7.6 Objects returned · 7.7 Routes · 7.8 Request details · 7.9 Errors · 7.10 Rules worth knowing · 7.11 Code changes (whole sub-domain) ·
-7.12 Nested sub-domains · then **7.A Broadcasts · 7.B Broadcast segments · 7.C Broadcast recipients** — each with the same eleven sections.
+7.12 Nested sub-domains · then **7.A Instagram broadcasts · 7.B Instagram broadcast segments · 7.C Instagram broadcast recipients** — each with the same eleven sections.
 
 **NEW** (P38, D68, PRO). Today nothing in the code sends to many people at once. A broadcast is 1 to 3 messages the owner
 sends to the contacts of **one** Instagram account who match an audience — a saved segment or its own conditions — and
@@ -2852,14 +3054,16 @@ Route numbers run 70–82.
 
 Taken on the standing answer "go with the recommendation" (P31).
 
+**rev 2 changes** (P44, P47, M9): renamed Broadcasts → **Instagram broadcasts** — folders `instagram-broadcast/` (+ `instagram-broadcast-segment/`, `instagram-broadcast-recipient/`), tables `app.instagram_broadcasts`, `app.instagram_segments`, `app.instagram_broadcast_recipients`; routes under `/social/instagram/broadcasts…` and `/social/instagram/segments…`; `instagram_account_id` → `channel_account_id` (→ `app.channel_accounts`, 1B); `{broadcast_id}`, `{segment_id}` keep their names; audit `app.instagram_broadcast.*`, `app.instagram_segment.*`.
+
 | # | Decision |
 | --- | --- |
-| BC1 | **Folder and names (P38).** Today: nothing. → `broadcast/` holds `app.broadcasts` and routes 70–76 at its root; nested `broadcast-segment/` owns `app.segments` and routes 77–82; nested `broadcast-recipient/` is a persistence module with no routes owning `app.broadcast_recipients` (written by the broadcast service, the audience job, intake and sub-domain 6). The segment table keeps the plan's name `app.segments` (P38) although its folder carries the parent's prefix. Paths: `/broadcasts`, and **`/segments` top-level**, because a segment is reused by many broadcasts — it is not one broadcast's child (RC-41–46). Path ids `{broadcast_id}`, `{segment_id}` in `PARAM_NAME_TO_ENTITY`; public-id prefixes proposed `brc`, `seg` (P22 — kickoff confirms; the broadcast's goes in its button payloads). Build order: segments, then broadcasts, then recipients; the foreign key from `app.instagram_messages.broadcast_id` lands in this sub-domain's migration (SN17). |
+| BC1 | **Folder and names (P38).** Today: nothing. → `instagram-broadcast/` holds `app.instagram_broadcasts` and routes 70–76 at its root; nested `instagram-broadcast-segment/` owns `app.instagram_segments` and routes 77–82; nested `instagram-broadcast-recipient/` is a persistence module with no routes owning `app.instagram_broadcast_recipients` (written by the broadcast service, the audience job, intake and sub-domain 6). The segment table keeps the plan's name `app.instagram_segments` (P38) although its folder carries the parent's prefix. Paths: `/social/instagram/broadcasts`, and **`/social/instagram/segments` top-level**, because a segment is reused by many broadcasts — it is not one broadcast's child (RC-41–46). Path ids `{broadcast_id}`, `{segment_id}` in `PARAM_NAME_TO_ENTITY`; public-id prefixes proposed `brc`, `seg` (P22 — kickoff confirms; the broadcast's goes in its button payloads). Build order: segments, then broadcasts, then recipients; the foreign key from `app.instagram_messages.broadcast_id` lands in this sub-domain's migration (SN17). |
 | BC2 | **Codes: the automation set (P20, D68).** Today: `automation:read` · `create` · `update` · `delete` (launch K4). → reused, no new code: `automation:read` lists and reads broadcasts and segments and counts an audience; `create` makes a draft or a segment; `update` edits, sends and cancels; `delete` deletes. Holders after the role change (Member → Editor, new Viewer): Owner, Admin and Editor make, send and cancel; Viewer only reads (plan:L2690). Other option: own `broadcast:*` codes — refused by D68 / P20. |
-| BC3 | **PRO gate (D35, D57).** Today: `createAppPlanAccessPreHandler` refuses automation writes on a read-only plan with `403 organization_read_only`. → a **feature** check beside it: `assertPlanFeature({ feature: 'broadcasts' })` reads the plan's typed features (billing, through its service) — Free → **`403 plan_feature_required`** ("Broadcasts are on Creator and Studio", i18n) on **create (71) and send (75)** only; reading, editing a draft, cancelling, deleting and segments stay open, so drafts and segments survive a move down (D57). A plan ended (read-only) refuses send with the existing `403 organization_read_only`. Reuse: one helper in `app-plan-access.ts`, which the automation's PRO steps use too. |
+| BC3 | **PRO gate (D35, D57).** Today: `createAppPlanAccessPreHandler` refuses automation writes on a read-only plan with `403 organization_read_only`. → a **feature** check beside it: `assertPlanFeature({ feature: 'instagram_broadcasts' })` reads the plan's typed features (billing, through its service) — Free → **`403 plan_feature_required`** ("Broadcasts are on Creator and Studio", i18n) on **create (71) and send (75)** only; reading, editing a draft, cancelling, deleting and segments stay open, so drafts and segments survive a move down (D57). A plan ended (read-only) refuses send with the existing `403 organization_read_only`. Reuse: one helper in `app-plan-access.ts`, which the automation's PRO steps use too. |
 | BC4 | **Soft delete, then purge (P9).** Today: automations soft-delete and are purged 180 days later (launch). → broadcasts and segments carry `deleted_at`; deleted rows leave every list and read (`404`). A **daily purge** removes for good the ones deleted more than **90 days** ago (BCQ1) — a broadcast's recipients and messages go with it by cascade; a segment once no live broadcast points at it (`segment_id` is set null on its drafts at delete, BC17). No delete reason (the plan names none; P11 made the automation's optional). |
-| BC5 | **One account each (D26).** A segment and a broadcast belong to one Instagram account, named in the create body (`instagram_account_id`) and fixed; the lists require it as a filter (one account's screen, RC-41, RC-47). The conditions read only that account's contacts; a button may only start that account's automations. A `revoked` account's drafts stay; sending is refused (`409 instagram_not_connected`). |
-| BC6 | **Audit (launch K9).** `app.broadcast.create` · `update` · `delete` · `send` · `cancel` and `app.segment.create` · `update` · `delete`, written after commit; the plan requires send and cancel (plan:L4088), the rest follow the automation's pattern. |
+| BC5 | **One account each (D26).** A segment and a broadcast belong to one Instagram account, named in the create body (`channel_account_id`) and fixed; the lists require it as a filter (one account's screen, RC-41, RC-47). The conditions read only that account's contacts; a button may only start that account's automations. A `revoked` account's drafts stay; sending is refused (`409 instagram_not_connected`). |
+| BC6 | **Audit (launch K9).** `app.instagram_broadcast.create` · `update` · `delete` · `send` · `cancel` and `app.instagram_segment.create` · `update` · `delete`, written after commit; the plan requires send and cancel (plan:L4088), the rest follow the automation's pattern. |
 | BC7 | **Background work (be-workers-events).** On the task queue `instagram-tasks` (sub-domain 6): `broadcast-audience` (WC-40) and `segment-count` (WC-39), tenant jobs with `organizationPublicId`, safe to repeat. Two duties run in sub-domain 6's every-minute repair group, their code here: start scheduled broadcasts (WC-28) and end broadcasts (WC-29). A new daily **purge** (BC4). Sending itself is sub-domain 6's broadcast lane (WC-8). |
 
 ### 7.2 Open questions
@@ -2875,17 +3079,17 @@ Until answered, the plan follows the recommendation and every row that rests on 
 
 | Table | Holds | Key rules |
 | --- | --- | --- |
-| `app.broadcasts` | one message set of one account and its audience | status by actions (BC9); mode chosen at send; soft delete + purge (BC4) |
-| `app.segments` | a saved audience of one account | conditions validated, ≤ 2 levels, ≤ 20 conditions; soft delete + purge |
-| `app.broadcast_recipients` | one person a broadcast goes to and what happened | **plain** (P33): unique per broadcast and contact — "once per person" is a real key now; batch-deleted 90 days after it was made |
+| `app.instagram_broadcasts` | one message set of one account and its audience | status by actions (BC9); mode chosen at send; soft delete + purge (BC4) |
+| `app.instagram_segments` | a saved audience of one account | conditions validated, ≤ 2 levels, ≤ 20 conditions; soft delete + purge |
+| `app.instagram_broadcast_recipients` | one person a broadcast goes to and what happened | **plain** (P33): unique per broadcast and contact — "once per person" is a real key now; batch-deleted 90 days after it was made |
 
 ```text
 tenancy.organizations
    │
-   └──< app.instagram_accounts ──┬──< app.segments
-                                 └──< app.broadcasts ──┬──> app.segments                  the saved audience (or none)
-                                                       ├──< app.broadcast_recipients ──> app.contacts
-                                                       └──< app.instagram_messages (6)   its messages (by week)
+   └──< app.channel_accounts ──┬──< app.instagram_segments
+                               └──< app.instagram_broadcasts ──┬──> app.instagram_segments                  the saved audience (or none)
+                                                               ├──< app.instagram_broadcast_recipients ──> app.instagram_contacts
+                                                               └──< app.instagram_messages (6)   its messages (by week)
    auth.users ◄── created_by, updated_by (SET NULL)
 ```
 
@@ -2895,7 +3099,7 @@ contacts' `last_broadcast_at` (contact, set by sub-domain 6's result save).
 **PostgreSQL design**
 
 Standard columns: `id bigint` (identity), `public_id varchar(28)` unique where it has one, `organization_id` → organizations
-`ON DELETE CASCADE`, composite (`organization_id`, `instagram_account_id`) → `app.instagram_accounts` `ON DELETE CASCADE`,
+`ON DELETE CASCADE`, composite (`organization_id`, `channel_account_id`) → `app.channel_accounts` `ON DELETE CASCADE`,
 unique (`organization_id`, `id`) as the children's parent key, `created_at` / `updated_at`, `created_by_user_id` /
 `updated_by_user_id` → `auth.users` `ON DELETE SET NULL`, `deleted_at` where it soft-deletes; RLS enabled and forced,
 organization policy with `USING` and `WITH CHECK`, plus the `app.global_retention_cleanup` arm in `USING` for the
@@ -2920,7 +3124,7 @@ Plus the PRO feature on 71 and 75 (BC3).
 | Auth | `Authorization: Bearer <access token>`; organization from the token |
 | Writes | every `POST` needs `X-Idempotency-Key` (launch K3 — so 76 and 82 too); `PATCH` takes an optional `expected_updated_at` (a stale save → `409 record_changed`, launch) |
 | Success | `200` with `{ data, meta }`; lists `{ data: [...], meta: { pagination: { per_page, next, has_more, estimated_total } } }` through `finishKeysetPage`; `DELETE` → `204` |
-| Lists | `instagram_account_id*`, `limit` (1–100, default 25), `after`, `q` (name, 1–200), `sort`, `order` |
+| Lists | `channel_account_id*`, `limit` (1–100, default 25), `after`, `q` (name, 1–200), `sort`, `order` |
 | Errors | `{ error: { type, code, reason?, detail, errors[] } }` — `400`, `401`, `403`, `404`, `409`, `422` |
 
 ### 7.6 Objects returned
@@ -2935,19 +3139,19 @@ Plus the PRO feature on 71 and 75 (BC3).
 
 | # | Method | Path | Purpose | Gate | Idem | RC |
 | --- | --- | --- | --- | --- | --- | --- |
-| 70 | GET | `/broadcasts` | One account's broadcasts with their numbers | `automation:read` | — | RC-47 |
-| 71 | POST | `/broadcasts` | Make a draft (PRO) | `automation:create` | req | RC-48 |
-| 72 | GET | `/broadcasts/{broadcast_id}` | One broadcast | `automation:read` | — | RC-49 |
-| 73 | PATCH | `/broadcasts/{broadcast_id}` | Edit a draft | `automation:update` | — | RC-50 |
-| 74 | DELETE | `/broadcasts/{broadcast_id}` | Delete one that is not active | `automation:delete` | — | RC-51 |
-| 75 | POST | `/broadcasts/{broadcast_id}/send` | Send now, at a time, or when her chat opens (PRO) | `automation:update` | req | RC-52 |
-| 76 | POST | `/broadcasts/{broadcast_id}/cancel` | Cancel | `automation:update` | req | RC-53 |
-| 77 | GET | `/segments` | One account's saved segments | `automation:read` | — | RC-41 |
-| 78 | POST | `/segments` | Save a segment | `automation:create` | req | RC-42 |
-| 79 | GET | `/segments/{segment_id}` | One segment | `automation:read` | — | RC-43 |
-| 80 | PATCH | `/segments/{segment_id}` | Change its name or conditions | `automation:update` | — | RC-44 |
-| 81 | DELETE | `/segments/{segment_id}` | Delete it | `automation:delete` | — | RC-45 |
-| 82 | POST | `/segments/audience-count` | Count conditions, saved or not | `automation:read` | req | RC-46 |
+| 70 | GET | `/social/instagram/broadcasts` | One account's broadcasts with their numbers | `automation:read` | — | RC-47 |
+| 71 | POST | `/social/instagram/broadcasts` | Make a draft (PRO) | `automation:create` | req | RC-48 |
+| 72 | GET | `/social/instagram/broadcasts/{broadcast_id}` | One broadcast | `automation:read` | — | RC-49 |
+| 73 | PATCH | `/social/instagram/broadcasts/{broadcast_id}` | Edit a draft | `automation:update` | — | RC-50 |
+| 74 | DELETE | `/social/instagram/broadcasts/{broadcast_id}` | Delete one that is not active | `automation:delete` | — | RC-51 |
+| 75 | POST | `/social/instagram/broadcasts/{broadcast_id}/send` | Send now, at a time, or when her chat opens (PRO) | `automation:update` | req | RC-52 |
+| 76 | POST | `/social/instagram/broadcasts/{broadcast_id}/cancel` | Cancel | `automation:update` | req | RC-53 |
+| 77 | GET | `/social/instagram/segments` | One account's saved segments | `automation:read` | — | RC-41 |
+| 78 | POST | `/social/instagram/segments` | Save a segment | `automation:create` | req | RC-42 |
+| 79 | GET | `/social/instagram/segments/{segment_id}` | One segment | `automation:read` | — | RC-43 |
+| 80 | PATCH | `/social/instagram/segments/{segment_id}` | Change its name or conditions | `automation:update` | — | RC-44 |
+| 81 | DELETE | `/social/instagram/segments/{segment_id}` | Delete it | `automation:delete` | — | RC-45 |
+| 82 | POST | `/social/instagram/segments/audience-count` | Count conditions, saved or not | `automation:read` | req | RC-46 |
 
 ### 7.8 Request details
 
@@ -2977,30 +3181,30 @@ move down (billing) ────► scheduled and waiting-for-chats broadcasts `
 ```
 
 - **Always left out of an audience**: opted-out, paused (`automations_off_at`) and deleted contacts, and anyone who got a
-  broadcast in the last 24 hours (`contacts.last_broadcast_at`, a hard cap) — at build and again just before each send.
+  broadcast in the last 24 hours (`instagram_contacts.last_broadcast_at`, a hard cap) — at build and again just before each send.
 - Every broadcast message counts in the month count and the person limit (D68), through sub-domain 6's claim.
 
 ### 7.11 Code changes (whole sub-domain)
 
 | # | Change |
 | --- | --- |
-| BCC1 | BC1: folders `app/sub-domains/broadcast/`, `…/broadcast-segment/`, `…/broadcast-recipient/` with their overviews (the status machine diagram in `broadcast.overview.md`); routes mounted by `app.routes.ts`; `PUBLIC_ID_PREFIXES` `broadcast` · `segment` and `PARAM_NAME_TO_ENTITY` `broadcast_id` · `segment_id`; OpenAPI tags `Broadcasts`, `Segments`; `tooling/openapi/query-schema-map.ts`; `src/domains/CLAUDE.md` map; migrations (new dated files after sub-domain 6's, in the order segments → broadcasts → recipients → the messages' foreign key) |
-| BCC2 | BC2, BC3: gates on every route (the domain permissions file, no catalog change — the codes exist); `assertPlanFeature` in `app-plan-access.ts` reading billing's typed features, the new reasons `plan_feature_required`, `transition_not_allowed`, `broadcast_not_draft`, `broadcast_active`, `broadcast_incomplete`, `broadcast_not_found`, `segment_not_found` and `direct_message_month_limit_reached` registered in `response-codes.md` (`AppError.withReason`) with their keys in `src/shared/locales/en/errors.json` first; tests: a Free workspace `403` on 71 and 75 and `200` on the rest, a Viewer `403` on every write, an ended plan `403 organization_read_only` on 75 |
-| BCC3 | BC4, BC7: the purge worker `broadcast/workers/broadcast-tombstone-retention.*` (daily, after the app's 03:xx clean-ups, `retentionDefinition`, family `instagram`) with constant `BROADCAST_TOMBSTONE_RETENTION_DAYS` = 90 in the app-domain constants file; the two repair duties (WC-28, WC-29) registered in sub-domain 6's group; the two task handlers (WC-39, WC-40); a DB test per duty that running it twice changes nothing |
+| BCC1 | BC1: folders `app/sub-domains/instagram-broadcast/`, `…/instagram-broadcast-segment/`, `…/instagram-broadcast-recipient/` with their overviews (the status machine diagram in `instagram-broadcast.overview.md`); routes mounted by `app.routes.ts`; `PUBLIC_ID_PREFIXES` `broadcast` · `segment` and `PARAM_NAME_TO_ENTITY` `broadcast_id` · `segment_id`; OpenAPI tags `Broadcasts`, `Segments`; `tooling/openapi/query-schema-map.ts`; `src/domains/CLAUDE.md` map; migrations (new dated files after sub-domain 6's, in the order segments → broadcasts → recipients → the messages' foreign key) |
+| BCC2 | BC2, BC3: gates on every route (the domain permissions file, no catalog change — the codes exist); `assertPlanFeature` in `app-plan-access.ts` reading billing's typed features, the new reasons `plan_feature_required`, `transition_not_allowed`, `broadcast_not_draft`, `broadcast_active`, `broadcast_incomplete`, `broadcast_not_found`, `segment_not_found` and `message_month_limit_reached` registered in `response-codes.md` (`AppError.withReason`) with their keys in `src/shared/locales/en/errors.json` first; tests: a Free workspace `403` on 71 and 75 and `200` on the rest, a Viewer `403` on every write, an ended plan `403 organization_read_only` on 75 |
+| BCC3 | BC4, BC7: the purge worker `instagram-broadcast/workers/instagram-broadcast-tombstone-retention.*` (daily, after the app's 03:xx clean-ups, `retentionDefinition`, family `instagram`) with constant `BROADCAST_TOMBSTONE_RETENTION_DAYS` = 90 in the app-domain constants file; the two repair duties (WC-28, WC-29) registered in sub-domain 6's group; the two task handlers (WC-39, WC-40); a DB test per duty that running it twice changes nothing |
 | BCC4 | BC6: audit actions in the audit action list; i18n for the in-app "broadcast done" notice (notify's type, P28's notification kinds) |
-| BCC5 | Seeds and docs: `broadcast/seed/` (segments, drafts and done broadcasts with recipients per seeded account); `pnpm routes:catalog`, success statuses (`200` ×11, `204` ×2), `validate:route-organization-scope`, `docs:generate`, Postman; `docs/reference/data/data-lifecycle-deletion.md` rows |
+| BCC5 | Seeds and docs: `instagram-broadcast/seed/` (segments, drafts and done broadcasts with recipients per seeded account); `pnpm routes:catalog`, success statuses (`200` ×11, `204` ×2), `validate:route-organization-scope`, `docs:generate`, Postman; `docs/reference/data/data-lifecycle-deletion.md` rows |
 
 ### 7.12 Nested sub-domains
 
-| Nested sub-domain | Folder (`src/domains/app/sub-domains/broadcast/…`) | Tables | Routes | Status |
+| Nested sub-domain | Folder (`src/domains/app/sub-domains/instagram-broadcast/…`) | Tables | Routes | Status |
 | --- | --- | --- | --- | --- |
-| 7.A Broadcasts | folder root | `app.broadcasts` | 70–76, start and end duties, purge | awaiting your OK |
-| 7.B Broadcast segments | `broadcast-segment/` | `app.segments` | 77–82, the segment count | awaiting your OK |
-| 7.C Broadcast recipients | `broadcast-recipient/` | `app.broadcast_recipients` | — (the audience job, the recipient clean-up) | awaiting your OK |
+| 7.A Instagram broadcasts | folder root | `app.instagram_broadcasts` | 70–76, start and end duties, purge | awaiting your OK |
+| 7.B Instagram broadcast segments | `instagram-broadcast-segment/` | `app.instagram_segments` | 77–82, the segment count | awaiting your OK |
+| 7.C Instagram broadcast recipients | `instagram-broadcast-recipient/` | `app.instagram_broadcast_recipients` | — (the audience job, the recipient clean-up) | awaiting your OK |
 
 ---
 
-### 7.A Broadcasts — `broadcast/` (folder root) — awaiting your OK
+### 7.A Instagram broadcasts — `instagram-broadcast/` (folder root) — awaiting your OK
 
 #### 7.A.1 Decisions
 
@@ -3008,7 +3212,7 @@ move down (billing) ────► scheduled and waiting-for-chats broadcasts `
 | --- | --- |
 | BC8 | **Fields (plan §19.18).** `name` 1–255 after trim (duplicates allowed — the plan is silent); `messages` 1–3 in the **automation's message-list shape** (its DTO schema reused, not copied: kinds, versions A/B, `{name}`, files by confirmed upload public id; at most 64 KB) — a draft may hold 0; a button may **start an automation** (`start_automation_id`, a live automation of the same account); the audience is `segment_id` **or** `conditions` (one-off), never both, either may be empty in a draft; numbers `matched`, `sent`, `skipped`, `failed`, `replies` (once per recipient), `taps` — moved only in the commits of their results, one row is enough (≤ 2,000 sends an hour). |
 | BC9 | **Status by actions only (plan §20.9).** `draft` → `sending` (send now) · `scheduled` (at a time) · `waiting_for_chats` (when her chat opens); `scheduled` → `sending` at `scheduled_at` (WC-28); `sending` → `done` once every recipient has a result and the audience is built; `waiting_for_chats` → `done` at `ends_at`; `draft`, `scheduled`, `sending`, `waiting_for_chats` → `cancelled` (owner, route 76; or `plan_feature_off` after a move down, only from `scheduled` and `waiting_for_chats`). Anything else → `409 transition_not_allowed`. `PATCH` only in `draft` (`409 broadcast_not_draft`). |
-| BC10 | **Send (route 75, RC-52).** The mode is chosen **at send** in its body: `now`; `scheduled` with `scheduled_at` (in the future, at most 30 days ahead); `when_chat_opens` with `open_wait_days` 1–7 (`ends_at` = now + N days). In one transaction under the broadcast's row lock: PRO and plan checks (BC3); the account still connected; the month limit not reached (`409 direct_message_month_limit_reached` — the reason sub-domain 6's meter uses); the draft complete (`422 broadcast_incomplete` with `errors[]` naming `messages` or the audience); the **copy of the conditions** taken (a segment's, so a later segment edit never changes it — plan:L3748); `started_at`; the status; audit. After the commit: `now` adds the `broadcast-audience` task; `when_chat_opens` adds a `segment-count` for `matched`. |
+| BC10 | **Send (route 75, RC-52).** The mode is chosen **at send** in its body: `now`; `scheduled` with `scheduled_at` (in the future, at most 30 days ahead); `when_chat_opens` with `open_wait_days` 1–7 (`ends_at` = now + N days). In one transaction under the broadcast's row lock: PRO and plan checks (BC3); the account still connected; the month limit not reached (`409 message_month_limit_reached` — the reason sub-domain 6's meter uses); the draft complete (`422 broadcast_incomplete` with `errors[]` naming `messages` or the audience); the **copy of the conditions** taken (a segment's, so a later segment edit never changes it — plan:L3748); `started_at`; the status; audit. After the commit: `now` adds the `broadcast-audience` task; `when_chat_opens` adds a `segment-count` for `matched`. |
 | BC11 | **Cancel and delete (RC-53, RC-51).** Cancel sets `cancelled`, `cancelled_at`, `cancel_reason` `owner`; the waiting recipients and messages are settled by the end duty, 500 a round (WC-29), and until then sub-domain 6's lane skips a cancelled broadcast's messages. Delete is allowed for `draft`, `done` and `cancelled` only — an active one (`scheduled`, `sending`, `waiting_for_chats`) is `409 broadcast_active` ("cancel it first"). |
 
 #### 7.A.2 Open questions
@@ -3017,15 +3221,15 @@ BCQ1 (7.2) — the purge horizon.
 
 #### 7.A.3 Tables and relations
 
-`app.broadcasts`
+`app.instagram_broadcasts`
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
-| `instagram_account_id` | `bigint` | no | | composite → accounts `ON DELETE CASCADE`; fixed |
+| `channel_account_id` | `bigint` | no | | composite → accounts `ON DELETE CASCADE`; fixed |
 | `name` | `varchar(255)` | no | | 1–255 after trim |
 | `status` | `varchar(17)` | no | `'draft'` | `draft` · `scheduled` · `sending` · `waiting_for_chats` · `done` · `cancelled` |
 | `mode` | `varchar(15)` | no | `'now'` | `now` · `scheduled` · `when_chat_opens`; set by send |
-| `segment_id` | `bigint` | yes | | composite (`organization_id`, `segment_id`) → `app.segments` `ON DELETE SET NULL (segment_id)` |
+| `segment_id` | `bigint` | yes | | composite (`organization_id`, `segment_id`) → `app.instagram_segments` `ON DELETE SET NULL (segment_id)` |
 | `conditions` | `jsonb` | yes | | the one-off conditions, then the copy; set whenever `status <> 'draft'` |
 | `messages` | `jsonb` | no | `'[]'` | an array; 1–3 when `status <> 'draft'`; ≤ 64 KB |
 | `scheduled_at` | `timestamptz` | yes | | `(mode = 'scheduled') = (scheduled_at IS NOT NULL)` when not `draft` |
@@ -3036,8 +3240,8 @@ BCQ1 (7.2) — the purge horizon.
 | `deleted_at` | `timestamptz` | yes | | soft delete (BC4); only in `draft`, `done`, `cancelled` |
 
 Indexes: unique `public_id`; unique (`organization_id`, `id`); `WHERE deleted_at IS NULL`: (`organization_id`,
-`instagram_account_id`, `created_at DESC`, `id DESC`) — the list; `(scheduled_at) WHERE status = 'scheduled'` — the start
-duty; (`organization_id`, `instagram_account_id`) `WHERE status = 'waiting_for_chats'` — intake's "does a broadcast wait for
+`channel_account_id`, `created_at DESC`, `id DESC`) — the list; `(scheduled_at) WHERE status = 'scheduled'` — the start
+duty; (`organization_id`, `channel_account_id`) `WHERE status = 'waiting_for_chats'` — intake's "does a broadcast wait for
 her"; `(ends_at) WHERE status = 'waiting_for_chats'` and `(organization_id, id) WHERE status IN ('sending', 'cancelled')` —
 the end duty; `(deleted_at) WHERE deleted_at IS NOT NULL` — the purge; `(segment_id) WHERE segment_id IS NOT NULL` — the
 foreign key. RLS as 7.3; in `EXPECTED_FORCE_RLS_TABLES`.
@@ -3058,7 +3262,7 @@ As 7.5.
 
 #### 7.A.6 Objects returned
 
-**Broadcast**: `id` (`brc_…`), `instagram_account_id`, `name`, `status`, `mode`, `segment_id`, `conditions` (the one-off
+**Broadcast**: `id` (`brc_…`), `channel_account_id`, `name`, `status`, `mode`, `segment_id`, `conditions` (the one-off
 conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at`, `started_at`, `finished_at`,
 `cancelled_at`, `cancel_reason`, `numbers` `{ matched, sent, skipped, failed, replies, taps }`, `created_by_user_id`,
 `created_at`, `updated_at`.
@@ -3067,20 +3271,20 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 70 | GET | `/broadcasts` | One account's broadcasts | `automation:read` | — |
-| 71 | POST | `/broadcasts` | Make a draft (PRO) | `automation:create` | req |
-| 72 | GET | `/broadcasts/{broadcast_id}` | One broadcast | `automation:read` | — |
-| 73 | PATCH | `/broadcasts/{broadcast_id}` | Edit a draft | `automation:update` | — |
-| 74 | DELETE | `/broadcasts/{broadcast_id}` | Delete one that is not active | `automation:delete` | — |
-| 75 | POST | `/broadcasts/{broadcast_id}/send` | Send (PRO) | `automation:update` | req |
-| 76 | POST | `/broadcasts/{broadcast_id}/cancel` | Cancel | `automation:update` | req |
+| 70 | GET | `/social/instagram/broadcasts` | One account's broadcasts | `automation:read` | — |
+| 71 | POST | `/social/instagram/broadcasts` | Make a draft (PRO) | `automation:create` | req |
+| 72 | GET | `/social/instagram/broadcasts/{broadcast_id}` | One broadcast | `automation:read` | — |
+| 73 | PATCH | `/social/instagram/broadcasts/{broadcast_id}` | Edit a draft | `automation:update` | — |
+| 74 | DELETE | `/social/instagram/broadcasts/{broadcast_id}` | Delete one that is not active | `automation:delete` | — |
+| 75 | POST | `/social/instagram/broadcasts/{broadcast_id}/send` | Send (PRO) | `automation:update` | req |
+| 76 | POST | `/social/instagram/broadcasts/{broadcast_id}/cancel` | Cancel | `automation:update` | req |
 
 #### 7.A.8 Request details
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 70 | `instagram_account_id*`, `status` (several), `mode`, `q`, `sort` = `created_at` (default, newest first) \| `name`, `order`, `limit`, `after` | — | Broadcast[] |
-| 71 | — | `instagram_account_id*`, `name*`; optional: `segment_id` or `conditions`, `messages` (0–3) | Broadcast |
+| 70 | `channel_account_id*`, `status` (several), `mode`, `q`, `sort` = `created_at` (default, newest first) \| `name`, `order`, `limit`, `after` | — | Broadcast[] |
+| 71 | — | `channel_account_id*`, `name*`; optional: `segment_id` or `conditions`, `messages` (0–3) | Broadcast |
 | 72 | — | — | Broadcast |
 | 73 | — | optional: `name`, `segment_id` or `conditions` (sending one clears the other), `messages`; `expected_updated_at` | Broadcast |
 | 74 | — | — | 204 |
@@ -3091,7 +3295,7 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 70, 71 | `400` · `instagram_account_id` | missing, or not an `iga_…` id |
+| 70, 71 | `400` · `channel_account_id` | missing, or not an `cha_…` id |
 | 71, 73 | `400` · `name` / `messages` / `conditions` / `segment_id` | out of range; both audiences; a message's own errors (the automation's message checks); a `start_automation_id` that is not a live automation of this account; a segment of another account |
 | 71 | `404` · `instagram_not_connected` | the account is not this organization's, or `revoked` |
 | 71, 75 | `403` · `plan_feature_required` | a Free workspace (BC3) |
@@ -3100,7 +3304,7 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | 74 | `409` · `broadcast_active` | `scheduled`, `sending` or `waiting_for_chats` — cancel first |
 | 75 | `400` · `mode` / `scheduled_at` / `open_wait_days` | not one of its values, the time in the past or over 30 days ahead, out of 1–7, or a field of another mode |
 | 75 | `409` · `transition_not_allowed` | not a `draft` |
-| 75 | `409` · `direct_message_month_limit_reached` | the workspace's DMs of this month are used up |
+| 75 | `409` · `message_month_limit_reached` | the workspace's DMs of this month are used up |
 | 75 | `409` · `instagram_not_connected` | the account is `revoked` or `error` |
 | 75 | `422` · `broadcast_incomplete` | no messages, or no audience (its segment was deleted) |
 | 76 | `409` · `transition_not_allowed` | already `done` or `cancelled` |
@@ -3117,18 +3321,18 @@ conditions in a draft, the copy once sent), `messages`, `scheduled_at`, `ends_at
 | # | Change |
 | --- | --- |
 | BCC6 | BC8–BC11: schema, repository, service, DTOs (the automation's message schema imported from its DTO — reuse, one schema), validators, serializer, controller and routes 70–76 with their schema blocks; the transitions in one guarded `UPDATE … WHERE status = <from>` each; the send transaction (copy, checks, audit after commit, the task add after commit); integration tests for every row of 7.A.9, a cursor across pages, and another organization's broadcast `404` (also as `meepzo_be_app` and in the `test:rls-role` lane) |
-| BCC7 | The repair duties: `workers/broadcast-start.duty.ts` (WC-28: due `scheduled` → `sending` + audience task) and `workers/broadcast-end.duty.ts` (WC-29: `done` and the cancelled settle, 500 a round; the in-app notice); intake's hook `BroadcastService.handleChatOpened` for `when_chat_opens` (called by sub-domain 5 in its event transaction) |
+| BCC7 | The repair duties: `workers/broadcast-start.duty.ts` (WC-28: due `scheduled` → `sending` + audience task) and `workers/broadcast-end.duty.ts` (WC-29: `done` and the cancelled settle, 500 a round; the in-app notice); intake's hook `InstagramBroadcastService.handleChatOpened` for `when_chat_opens` (called by sub-domain 5 in its event transaction) |
 
 ---
 
-### 7.B Broadcast segments — `broadcast/broadcast-segment/` — awaiting your OK
+### 7.B Instagram broadcast segments — `instagram-broadcast/instagram-broadcast-segment/` — awaiting your OK
 
 #### 7.B.1 Decisions
 
 | # | Decision |
 | --- | --- |
 | BC12 | **Conditions (plan §19.17, D68).** A JSON tree validated by one zod schema (`segmentConditionsSchema`): a group `{ op: 'and' \| 'or', items: [...] }`, **at most 2 levels** and **at most 20 conditions** in all; each condition `{ field, … }` with snake_case keys, one of eight fields — `tags` (`match` any · all · none, `values`), `automation` (`automation_id`, `state` started · finished · in_progress · never · tapped_hello · got_message, `message_number`; runs of the last 90 days), `came_in` (`via` first_automation · ref · starter_question · ad · story_mention · first_message, `value`), `commented` (`post` a media id or `any`, `days`, `keyword`, `at_least`), `active` (`last_message_within_hours` or `_days`, `first_seen_within_days`), `details` (`has` email · phone · neither · follows_account), `story_activity` (`days`), `no_broadcast` (`days`). Ids inside are public ids (`aut_…`) or Instagram media ids, each checked to be this account's (`400`). Names 1–255 after trim, duplicates allowed. |
-| BC13 | **The audience query.** One builder turns conditions into a query over the account's `app.contacts` (and, for `automation`, `app.automation_runs`; for `commented` keywords, `app.automation_comment_logs`) — the contact columns the plan names are kept in the same commits as the events (contact's change). Always left out: opted out, paused, deleted, a broadcast in the last 24 hours. "Can get it now" adds her open window (`last_direct_message_received_at` within 24 hours − 15 minutes). The builder lives in the segment repository (it may read the same domain's schemas for joins). |
+| BC13 | **The audience query.** One builder turns conditions into a query over the account's `app.instagram_contacts` (and, for `automation`, `app.instagram_automation_runs`; for `commented` keywords, `app.instagram_automation_comment_logs`) — the contact columns the plan names are kept in the same commits as the events (contact's change). Always left out: opted out, paused, deleted, a broadcast in the last 24 hours. "Can get it now" adds her open window (`last_direct_message_received_at` within 24 hours − 15 minutes). The builder lives in the segment repository (it may read the same domain's schemas for joins). |
 | BC14 | **Audience count (route 82, RC-46).** For saved or unsaved conditions: counted inline under `SET LOCAL statement_timeout = '2s'`; on a timeout the `segment-count` task (WC-39) counts it in the background (deduplicated by account and a hash of the conditions) and writes a 60-second organization-scoped Redis copy (P5 — derived from Postgres); the answer then says `is_counting: true` and the client asks again. |
 | BC15 | **Edit and delete (RC-44, RC-45).** `PATCH` changes name or conditions; drafts that use the segment follow it, sent broadcasts keep their copy. Delete is soft (BC4) and, in the same transaction, empties `segment_id` on this account's **drafts** that use it — they need a new audience before send (`422 broadcast_incomplete`); scheduled and later broadcasts already hold their copy. |
 
@@ -3138,17 +3342,17 @@ BCQ2 (7.2) — segments on Free.
 
 #### 7.B.3 Tables and relations
 
-`app.segments`
+`app.instagram_segments`
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
-| `instagram_account_id` | `bigint` | no | | composite → accounts `ON DELETE CASCADE`; fixed |
+| `channel_account_id` | `bigint` | no | | composite → accounts `ON DELETE CASCADE`; fixed |
 | `name` | `varchar(255)` | no | | 1–255 after trim |
 | `conditions` | `jsonb` | no | | `jsonb_typeof(conditions) = 'object'`; the tree of BC12 (checked in the validator) |
 | `deleted_at` | `timestamptz` | yes | | soft delete (BC4) |
 
 Plus the standard columns of 7.3. Indexes: unique `public_id`; unique (`organization_id`, `id`); `WHERE deleted_at IS NULL`:
-(`organization_id`, `instagram_account_id`, `name`, `id`) — the list by name, (`organization_id`, `instagram_account_id`,
+(`organization_id`, `channel_account_id`, `name`, `id`) — the list by name, (`organization_id`, `channel_account_id`,
 `created_at DESC`, `id DESC`) — newest first; `(deleted_at) WHERE deleted_at IS NOT NULL` — the purge. RLS as 7.3.
 
 #### 7.B.4 Permissions
@@ -3166,7 +3370,7 @@ As 7.5.
 
 #### 7.B.6 Objects returned
 
-**Segment**: `id` (`seg_…`), `instagram_account_id`, `name`, `conditions`, `condition_count`, `created_by_user_id`,
+**Segment**: `id` (`seg_…`), `channel_account_id`, `name`, `conditions`, `condition_count`, `created_by_user_id`,
 `created_at`, `updated_at`.
 
 **Audience count** (route 82): `matched`, `can_receive_now` (both null while counting), `is_counting`, `counted_at`.
@@ -3175,29 +3379,29 @@ As 7.5.
 
 | # | Method | Path | Purpose | Gate | Idem |
 | --- | --- | --- | --- | --- | --- |
-| 77 | GET | `/segments` | One account's saved segments | `automation:read` | — |
-| 78 | POST | `/segments` | Save a segment | `automation:create` | req |
-| 79 | GET | `/segments/{segment_id}` | One segment | `automation:read` | — |
-| 80 | PATCH | `/segments/{segment_id}` | Change its name or conditions | `automation:update` | — |
-| 81 | DELETE | `/segments/{segment_id}` | Delete it | `automation:delete` | — |
-| 82 | POST | `/segments/audience-count` | Count conditions, saved or not | `automation:read` | req |
+| 77 | GET | `/social/instagram/segments` | One account's saved segments | `automation:read` | — |
+| 78 | POST | `/social/instagram/segments` | Save a segment | `automation:create` | req |
+| 79 | GET | `/social/instagram/segments/{segment_id}` | One segment | `automation:read` | — |
+| 80 | PATCH | `/social/instagram/segments/{segment_id}` | Change its name or conditions | `automation:update` | — |
+| 81 | DELETE | `/social/instagram/segments/{segment_id}` | Delete it | `automation:delete` | — |
+| 82 | POST | `/social/instagram/segments/audience-count` | Count conditions, saved or not | `automation:read` | req |
 
 #### 7.B.8 Request details
 
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
-| 77 | `instagram_account_id*`, `q`, `sort` = `name` (default) \| `created_at`, `order`, `limit`, `after` | — | Segment[] |
-| 78 | — | `instagram_account_id*`, `name*`, `conditions*` | Segment |
+| 77 | `channel_account_id*`, `q`, `sort` = `name` (default) \| `created_at`, `order`, `limit`, `after` | — | Segment[] |
+| 78 | — | `channel_account_id*`, `name*`, `conditions*` | Segment |
 | 79 | — | — | Segment |
 | 80 | — | optional: `name`, `conditions`; `expected_updated_at` | Segment |
 | 81 | — | — | 204 |
-| 82 | — | `instagram_account_id*`; `segment_id` or `conditions` (exactly one) | Audience count |
+| 82 | — | `channel_account_id*`; `segment_id` or `conditions` (exactly one) | Audience count |
 
 #### 7.B.9 Errors
 
 | Route | Status · reason | When |
 | --- | --- | --- |
-| 77, 78, 82 | `400` · `instagram_account_id` | missing, or not an `iga_…` id |
+| 77, 78, 82 | `400` · `channel_account_id` | missing, or not an `cha_…` id |
 | 78, 80, 82 | `400` · `conditions` | not the tree of BC12: an unknown field or key, over 2 levels, over 20 conditions, an id that is not this account's |
 | 78, 80 | `400` · `name` | empty or over 255 after trim |
 | 82 | `400` · `segment_id` / `conditions` | neither or both; a segment of another account |
@@ -3217,7 +3421,7 @@ As 7.5.
 
 ---
 
-### 7.C Broadcast recipients — `broadcast/broadcast-recipient/` — awaiting your OK
+### 7.C Instagram broadcast recipients — `instagram-broadcast/instagram-broadcast-recipient/` — awaiting your OK
 
 #### 7.C.1 Decisions
 
@@ -3232,15 +3436,15 @@ None.
 
 #### 7.C.3 Tables and relations
 
-`app.broadcast_recipients` (no public id, no soft delete, no `*_by_user_id`)
+`app.instagram_broadcast_recipients` (no public id, no soft delete, no `*_by_user_id`)
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
 | `id` | `bigint` (bigserial) | no | identity | primary key |
 | `organization_id` | `bigint` | no | | → organizations `ON DELETE CASCADE` |
-| `instagram_account_id` | `bigint` | no | | a copy for the lane's pick, no key of its own (the broadcast holds the account) |
-| `broadcast_id` | `bigint` | no | | composite (`organization_id`, `broadcast_id`) → `app.broadcasts` `ON DELETE CASCADE` |
-| `contact_id` | `bigint` | no | | composite (`organization_id`, `contact_id`) → `app.contacts` `ON DELETE RESTRICT` (contacts are erased in place, launch) |
+| `channel_account_id` | `bigint` | no | | a copy for the lane's pick, no key of its own (the broadcast holds the account) |
+| `broadcast_id` | `bigint` | no | | composite (`organization_id`, `broadcast_id`) → `app.instagram_broadcasts` `ON DELETE CASCADE` |
+| `contact_id` | `bigint` | no | | composite (`organization_id`, `contact_id`) → `app.instagram_contacts` `ON DELETE RESTRICT` (contacts are erased in place, launch) |
 | `status` | `varchar(7)` | no | `'waiting'` | `waiting` · `sent` · `skipped` · `failed` · `unknown` |
 | `reason` | `varchar(30)` | yes | | `recent_broadcast` · `owner_chat` · `window_closed` · `opted_out` · `contact_excluded` · `broadcast_cancelled` · `plan_feature_off` · `contact_deleted`, plus the message reasons; set whenever `status IN ('skipped', 'failed')` |
 | `version_number` | `smallint` | yes | | 1–3, the version picked for her |
@@ -3285,13 +3489,13 @@ None of its own.
 
 | # | Change |
 | --- | --- |
-| BCC9 | BC16, BC17: schema, repository and `BroadcastRecipientService` (create on conflict, put back `owner_chat`, settle); the audience task handler (WC-40, 500 a piece, chained); the recipient clean-up in sub-domain 6's daily group (WC-53, `deleteInBatchesByCondition`, 90 days); contact's erasure step registered by the app container; DB tests: a second audience build makes no second row, `owner_chat` comes back once, the 90-day delete |
+| BCC9 | BC16, BC17: schema, repository and `InstagramBroadcastRecipientService` (create on conflict, put back `owner_chat`, settle); the audience task handler (WC-40, 500 a piece, chained); the recipient clean-up in sub-domain 6's daily group (WC-53, `deleteInBatchesByCondition`, 90 days); contact's erasure step registered by the app container; DB tests: a second audience build makes no second row, `owner_chat` comes back once, the 90-day delete |
 
 ---
 
-## 8. Billing — Flowdm plans, plan states, trial — rev 1 (2026-11-23) — nested sub-domains 8.A–8.D; awaiting your OK
+## 8. Billing — Flowdm plans, plan states, trial — rev 2 (2026-11-23) — nested sub-domains 8.A–8.D; awaiting your OK
 
-**Status: rev 1 — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: rev 2 (2026-11-23) — awaiting your OK** (one-pass review, [P31](decisions.md)).
 
 Code: the **billing domain's own sub-domains**, changed in place in `src/domains/billing/sub-domains/` — `plan/` (8.A),
 `subscription/` (8.B subscriptions, plan states and the trial; 8.C cards — the payment-method code lives in the same
@@ -3307,7 +3511,7 @@ What the sending engine needs from billing: the three Flowdm plans with four typ
 priority support), one plan state per workspace that the app reads and is told about when it changes, the move down at the
 period end with the accounts kept, a 7-day no-card trial, and two card routes. Design read: plan §46 (plan:L7911–L8113), §47.8
 (plan:L8214–L8236), §50.5 B3 (plan:L8441), §50.6 (plan:L8467–L8481), §53.3 item 4 (plan:L8805); `db-changes.md` › plan,
-subscription, trial_account; `route-changes.md` RC-57–RC-59, RC-64–RC-69 (RC-60 is served by sub-domain 2, route 11);
+subscription, trial_account; `route-changes.md` RC-57–RC-59, RC-64–RC-69 (RC-60 is served by sub-domain 1B, route 11);
 `worker-changes.md` WC-38 (app), WC-59. Builds on: organizations (tenancy), users, the app's Instagram accounts (read through
 a port, 8.10). Route numbers run 100–108.
 
@@ -3316,18 +3520,20 @@ a port, 8.10). Route numbers run 100–108.
 Taken on your standing answer "go with the recommendation" — change any of them before you confirm. There is no launch review
 for billing (the launch built the `app` domain only); every "today" is the code in `main`.
 
+**rev 2 changes** (P47, M9): plan features `instagram_accounts_max` → `channel_accounts_max` and `direct_message_month_limit` → `message_month_limit`; the accounts port is 1B's (`listActiveChannelAccounts`, `countConnectedChannelAccounts`); `keep_channel_account_ids` (route 103), `channel_accounts_count` (route 108), `kept_channel_account_public_ids` on `PLAN_STATE_CHANGED`; route 11 is 1B's. No route or table of billing changes shape.
+
 | # | Decision |
 | --- | --- |
 | BL1 | **Where things live (P38).** Today: `plan/`, `subscription/` (with the payment-method routes and the Stripe customer), `stripe-webhook/`, the seat-sync and seat-reconcile workers. After: the same folders; the trial's table is a persistence part of `subscription/` (`trial-account.{schema,repository}.ts`, no controller, no routes — the trial is started through `POST /billing/subscriptions`); the plan-state check (WC-59) is a new worker in `subscription/workers/`. No new sub-domain folder. Other option: a `subscription/subscription-trial/` nested folder — but it would own one table and no route. |
-| BL2 | **One plan read for every decision (reuse).** Today: `SubscriptionService.getPlanAccess` answers `{ state, graceEndsAt }` and `assertOrganizationWritable` refuses product writes (`403 organization_read_only`); nothing reads `plan.features` (plan:L7918). After: `getPlanAccess` is extended in place (not a second reader) to answer the workspace's **plan entitlement** — `state` (`active` · `grace` · `read_only`), `grace_ends_at`, `trial_ends_at`, the plan's public id and name, and its typed `features` (8.A) — the one read the app's checks use: the account limit (sub-domain 1 MC7, sub-domain 2 IA11), `assertPlanFeature` / the PRO gate (sub-domains 4, 6, 7), the month limit (sub-domain 6), the meter (RC-56). It reads Postgres only (one query, as today); P5's Redis copy is the app's concern. |
+| BL2 | **One plan read for every decision (reuse).** Today: `SubscriptionService.getPlanAccess` answers `{ state, graceEndsAt }` and `assertOrganizationWritable` refuses product writes (`403 organization_read_only`); nothing reads `plan.features` (plan:L7918). After: `getPlanAccess` is extended in place (not a second reader) to answer the workspace's **plan entitlement** — `state` (`active` · `grace` · `read_only`), `grace_ends_at`, `trial_ends_at`, the plan's public id and name, and its typed `features` (8.A) — the one read the app's checks use: the account limit (sub-domain 1 MC7, sub-domain 1B CA9), `assertPlanFeature` / the PRO gate (sub-domains 4, 6, 7), the month limit (sub-domain 6), the meter (RC-56). It reads Postgres only (one query, as today); P5's Redis copy is the app's concern. |
 | BL3 | **Plan states (plan:L7951–L7985, D35).** Today: `resolvePlanAccess` gives a never-paid TEAM workspace a 14-day grace from `created_at` (`NEW_ORGANIZATION_TRIAL_DAYS`), then `read_only`; a lapsed paid plan gets `current_period_end + BILLING_DUNNING_GRACE_DAYS`. After: **Free never ends** — no live paid subscription and no ended paid plan → `active` on Free; `NEW_ORGANIZATION_TRIAL_DAYS` and its POLICIES.md row go (reuse rule — not left beside the new rule). Paid or trialing → `active` (`trial_ends_at` while `TRIALING`). `PAST_DUE` / `UNPAID` → `grace` until `current_period_end + 14 days` (`BILLING_DUNNING_GRACE_DAYS` 14, as built), then `read_only`. A **cancelled paid plan** ends at its period end with no grace → `read_only` ("plan ended", plan:L7973). A move to Free or an unpaid trial end is not "plan ended" — both leave a live **local Free row** (BL5, BL7), so they read `active`. PERSONAL stays `active`. |
 | BL4 | **`BILLING_READ_ONLY_ENFORCED` default flips to `true` (plan:L7976).** Today: default `false`, because on, a never-paid workspace locked itself after 14 days with no way to pay. After: with Free never ending (BL3) only a lapsed or cancelled **paid** plan reaches `read_only`, so on is the production-safe value — the env var stays (one flag, the env layer owns it), its default becomes `true`, `.env.example` and the test harness set it explicitly (the harness keeps `false` for the suites that do not test billing). Other option: keep the default `false` and set `true` in each hosted environment file. |
 | BL5 | **Moving down at the period end (D57, plan:L7987–L8027).** Today: `change-plan` swaps the Stripe price at once (proration) and suspends members above the new seat count. After: **up** (a dearer plan) — at once, as built; **down** — at the period end: a paid → smaller paid move is a Stripe subscription schedule (the current phase to `current_period_end`, then the new price — Stripe stays the truth for payments), a paid → Free move is `cancel_at_period_end` on Stripe plus our scheduled Free; the row records `scheduled_plan_id`, `scheduled_change_at` and the owner's `downgrade_keep` (BLQ1 — two columns db-changes does not list yet). At the period end the Stripe webhook (8.D) applies it: the row's `plan_id` follows Stripe's price (paid → paid), or the Stripe row ends `CANCELED` and a **local `ACTIVE` Free row** (no Stripe id) is inserted in the same commit (paid → Free); `PLAN_STATE_CHANGED` (BL8) carries the kept accounts. A second `change-plan` before then replaces the pick or the target; a `change-plan` back to the current plan releases the schedule. The member suspension on downgrade goes (BL9). |
-| BL6 | **The kept accounts (`downgrade_keep`, D57).** `keep_instagram_account_ids` on `change-plan` (route 103): a list of `iga_…` of this workspace's active accounts, at most the new plan's `instagram_accounts_max`; saved with the scheduled change as a JSON list of public ids (db-changes); empty or absent → the oldest-connected stay (applied by the app at the period end, WC-38). Billing checks the ids through the **accounts port** (8.10) — never the app's tables. The pick is a hint the app applies at the end: an account disconnected meanwhile is skipped and the next oldest fills its place. The pick is also used by an unpaid trial end (BL7). |
-| BL7 | **The 7-day no-card trial (D73, plan:L8081–L8113).** Today: `POST /billing/subscriptions` takes `plan_id`, `billing_cycle`; Stripe trials are not used (`trial_end` is only synced). After: the body takes `is_trial: true` (Creator or Studio, monthly or yearly). Refused `409 trial_already_used` when the workspace ever had a trial (a subscription row of the organization with `trial_end` set — rows are never deleted, billing ledgers) or when one of its not-revoked Instagram accounts had one (`billing.trial_accounts`, 8.B). Stripe: `trial_period_days` 7 (`PAID_TRIAL_DAYS` 7, a billing constant — not environment-varying, P4), no payment method, `trial_settings.end_behavior.missing_payment_method = cancel`, the default card saved on the subscription when one is added (plan §53.3 item 4 — the exact settings checked when building, against the Stripe sandbox). In the same commit as the row: one `billing.trial_accounts` row per not-revoked account. Unpaid end: Stripe cancels; the webhook (8.D) ends the row `CANCELED` and inserts the local Free row — the moving-down rule (accounts above Free's 1 get `plan_downgrade`, the pick of BL6 or the oldest). Paid end: the plan goes on. A plan change during the trial keeps its end date. |
-| BL8 | **`PLAN_STATE_CHANGED` (plan:L7977).** Today: billing emits `subscription.created` / `.updated` / `.cancelled` (webhooks to customers, notify). After: a new event `subscription.plan_state_changed` in `SUBSCRIPTION_EVENT`, emitted **after commit** whenever the entitlement of BL2 changes: Stripe events (8.D), an upgrade (route 103), a trial start (route 102), a scheduled move applied (8.D), a grace that ended (WC-59). Payload: `organizationPublicId`, `change` (`upgraded` · `moved_down` · `plan_ended` · `resumed` · `trial_started` · `trial_ended`), the previous and current `{ state, plan_public_id }`, the current `features`, `kept_instagram_account_public_ids` (on `moved_down` / `trial_ended`). The app's handler (sub-domain 6) only enqueues the plan-change task (WC-38, one per organization and change); billing never touches app tables. |
+| BL6 | **The kept accounts (`downgrade_keep`, D57).** `keep_channel_account_ids` on `change-plan` (route 103): a list of `cha_…` of this workspace's active accounts, at most the new plan's `channel_accounts_max`; saved with the scheduled change as a JSON list of public ids (db-changes); empty or absent → the oldest-connected stay (applied by the app at the period end, WC-38). Billing checks the ids through the **accounts port** (8.10) — never the app's tables. The pick is a hint the app applies at the end: an account disconnected meanwhile is skipped and the next oldest fills its place. The pick is also used by an unpaid trial end (BL7). |
+| BL7 | **The 7-day no-card trial (D73, plan:L8081–L8113).** Today: `POST /billing/subscriptions` takes `plan_id`, `billing_cycle`; Stripe trials are not used (`trial_end` is only synced). After: the body takes `is_trial: true` (Creator or Studio, monthly or yearly). Refused `409 trial_already_used` when the workspace ever had a trial (a subscription row of the organization with `trial_end` set — rows are never deleted, billing ledgers) or when one of its not-revoked Instagram accounts had one (`billing.trial_accounts`, 8.B). Stripe: `trial_period_days` 7 (`PAID_TRIAL_DAYS` 7, a billing constant — not environment-varying, P4), no payment method, `trial_settings.end_behavior.missing_payment_method = cancel`, the default card saved on the subscription when one is added (plan §53.3 item 4 — the exact settings checked when building, against the Stripe sandbox). In the same commit as the row: one `billing.trial_accounts` row per not-revoked account. Unpaid end: Stripe cancels; the webhook (8.D) ends the row `CANCELED` and inserts the local Free row — the moving-down rule (accounts above Free's 1 get the account plan stop — 1B's `plan_stopped_at`, the pick of BL6 or the oldest). Paid end: the plan goes on. A plan change during the trial keeps its end date. |
+| BL8 | **`PLAN_STATE_CHANGED` (plan:L7977).** Today: billing emits `subscription.created` / `.updated` / `.cancelled` (webhooks to customers, notify). After: a new event `subscription.plan_state_changed` in `SUBSCRIPTION_EVENT`, emitted **after commit** whenever the entitlement of BL2 changes: Stripe events (8.D), an upgrade (route 103), a trial start (route 102), a scheduled move applied (8.D), a grace that ended (WC-59). Payload: `organizationPublicId`, `change` (`upgraded` · `moved_down` · `plan_ended` · `resumed` · `trial_started` · `trial_ended`), the previous and current `{ state, plan_public_id }`, the current `features`, `kept_channel_account_public_ids` (on `moved_down` / `trial_ended`). The app's handler (sub-domain 6) only enqueues the plan-change task (WC-38, one per organization and change); billing never touches app tables. |
 | BL9 | **Seats off (D55, plan:L7943).** Today: `included_seats` 1 / 5 / 15 / 25; the member add reserves a seat (`409 seat_limit_reached`); the seat-sync job pushes the member count to Stripe as the quantity; the seat-reconcile worker and the downgrade suspension follow it. After: `included_seats` empty on every plan (unlimited, the migration sets it); the seat sync is off — a billing **code constant** `BILLING_SEAT_SYNC_ENABLED = false` (not environment-varying, P4) read at the enqueue sites and the reconcile worker's registration; Stripe's quantity stays 1; `suspendExcessMembersForDowngrade` is removed from `changePlan` (unreachable with no seat ceiling); `seat_limit_reached` stays in the code (still thrown if a plan ever carries seats) but unreachable. Other option: remove the seat machinery now — a larger change with no product effect; left for a clean-up. |
-| BL10 | **Audit (K9 form, after commit).** `billing.subscription.trial_start` (WARNING, `metadata.plan_public_id`, `instagram_account_count`), `billing.subscription.change_plan` gains `metadata.is_scheduled`, `scheduled_change_at`, `kept_instagram_account_count`; `billing.payment_method.delete`, `billing.payment_method.set_default` (WARNING) — never a card number, only brand and last 4. |
+| BL10 | **Audit (K9 form, after commit).** `billing.subscription.trial_start` (WARNING, `metadata.plan_public_id`, `channel_account_count`), `billing.subscription.change_plan` gains `metadata.is_scheduled`, `scheduled_change_at`, `kept_channel_account_count`; `billing.payment_method.delete`, `billing.payment_method.set_default` (WARNING) — never a card number, only brand and last 4. |
 
 ### 8.2 Open questions
 
@@ -3335,7 +3541,7 @@ for billing (the launch built the `app` domain only); every "today" is the code 
 | --- | --- | --- | --- |
 | BLQ1 | How the move down waits for the period end | a Stripe subscription schedule + our two mirror columns `scheduled_plan_id`, `scheduled_change_at` · keep the target only on our row and change Stripe's price ourselves at renewal | **The Stripe schedule** — Stripe invoices the renewal itself, so changing the price "at renewal" from our side races the invoice; the two columns let route 103 and the billing screen show the change without a Stripe call. db-changes must add both columns to `subscription` |
 | BLQ2 | `{payment_method_id}` is Stripe's `pm_…` id, not one of our public ids | add it as the third non-entity param beside `{provider}` and `{slug}` · mint our own ids (a new table of cards) | **A third non-entity param** — cards live only in Stripe (no table, plan:L8069); the param is checked by shape (`pm_` + 1–250 letters and digits) and by ownership (the card's customer is the workspace's); be-api-contract-guard's list and the param policy test name it |
-| BLQ3 | The feature key `dm_month_limit` (db-changes open item) | `direct_message_month_limit` (full names, P6) · the plan's `dm_month_limit` | **`direct_message_month_limit`** — P6 already renamed the table to `direct_message_month_counts`; "dm" is an abbreviation the naming rule refuses; sub-domain 6 (SN15, SNC7) follows — applied at merge (M1) |
+| BLQ3 | The feature key `dm_month_limit` (db-changes open item) | `message_month_limit` (full names, P6) · the plan's `dm_month_limit` | **`message_month_limit`** — P6 already renamed the table to `message_month_counts`; "dm" is an abbreviation the naming rule refuses; sub-domain 6 (SN15, SNC7) follows — applied at merge (M1) |
 | BLQ4 | The features of the turned-off rows Starter, Growth and Pro (a typed read refuses their old keys) | map them: Starter → Creator's, Growth and Pro → Studio's · give them Free's | **Map them up** — a workspace still paying an old plan keeps paid powers until it moves; a typed read never meets an old key; no Stripe change |
 
 Until you answer, the plan follows the recommendation and every row that rests on it says so.
@@ -3357,7 +3563,7 @@ tenancy.organizations
    └──< billing.trial_accounts ──> billing.plans                          one trial per Instagram account, ever
 
 app.instagram_accounts ·····> billing.trial_accounts.instagram_user_id    a copied Instagram id, no key (P25 form)
-app.instagram_accounts ·····> billing.subscriptions.downgrade_keep        public ids in a JSON list, no key
+app.channel_accounts ·······> billing.subscriptions.downgrade_keep        public ids in a JSON list, no key
 
 A ──< B   one A has many B     A ──> B   a column on A points at one B     A ·····> B   a copied value, no foreign key
 ```
@@ -3415,7 +3621,7 @@ No new codes. Held by default per the four roles (D55, sub-domain 9): billing is
 | 105 | DELETE | `/billing/payment-methods/{payment_method_id}` | Remove a card **(new)** | `subscription:manage` | | RC-68 |
 | 106 | POST | `/billing/payment-methods/{payment_method_id}/default` | Make it the default card **(new)** | `subscription:manage` | req | RC-69 |
 | 107 | POST | `/billing/webhook` | Stripe's events — an unpaid trial and a scheduled move down end here **(changed)** | Stripe-Signature | | RC-66 |
-| 108 | GET | `/auth/me/context` | `plan_access` adds `trial_ends_at`; the workspace adds `instagram_accounts_count` **(changed)** | AUTH | | RC-64 |
+| 108 | GET | `/auth/me/context` | `plan_access` adds `trial_ends_at`; the workspace adds `channel_accounts_count` **(changed)** | AUTH | | RC-64 |
 
 ### 8.8 Request details
 
@@ -3428,8 +3634,8 @@ Every route can answer the errors in 8.5; each route's own errors are in its nes
 ### 8.10 Rules worth knowing
 
 - **Billing never reads app tables.** Two ports are wired in `src/routes.ts` (the launch's erase-step pattern, so no container
-  cycle): the **accounts port** the app implements — `listActiveInstagramAccounts(organizationPublicId)` → `[{ public_id,
-  instagram_user_id, connected_at }]` (routes 102, 103; WC-59) and `countConnectedInstagramAccounts` (route 108); and the
+  cycle): the **accounts port** the app implements — `listActiveChannelAccounts(organizationPublicId)` → `[{ public_id,
+  instagram_user_id, connected_at }]` (routes 102, 103; WC-59) and `countConnectedChannelAccounts` (route 108); and the
   **trial port** billing implements for the app — `assertInstagramAccountsMayJoinTrial` / `recordTrialAccounts` (sub-domain 1's
   pick writes a row for an account connected during a trial, `409 trial_used_by_account`, plan:L8102).
 - **No Stripe call inside a database context** (as built): every route reads, closes the unit of work, calls Stripe, then writes.
@@ -3445,7 +3651,7 @@ Every route can answer the errors in 8.5; each route's own errors are in its nes
 | BLC1 | BL1, BL9: one new billing migration per plan:L8462–L8464 sketch — `billing_flowdm_plans` (8.A), `billing_trial_accounts` (8.B), `billing_subscriptions_downgrade_keep` (+ `scheduled_plan_id`, `scheduled_change_at`, BLQ1); `EXPECTED_FORCE_RLS_TABLES` +1 (`billing.trial_accounts`); `PUBLIC_ID_PREFIXES.trialAccount` (prefix at kickoff, P22); the seat-sync constant and the removed downgrade suspension; `src/domains/billing/billing.overview.md`, `plan.overview.md`, `src/POLICIES.md` (`NEW_ORGANIZATION_TRIAL_DAYS` out, `PAID_TRIAL_DAYS`, `TRIAL_NOTICE_DAYS`, `PLAN_STATE_CHECK_MINUTES` in) |
 | BLC2 | BL2, BL3, BL4: `resolvePlanAccess` rewritten (Free never ends, the local Free row, cancelled paid → `read_only`); `getPlanAccess` answers the entitlement; `PlanAccessOutput` + `trial_ends_at`; the env default flip (be-env-schema-add: schema, `.env.example`, `src/tests/setup.ts`, the refine comment); unit tests for every state of plan:L7966–L7973 |
 | BLC3 | BL8: `SUBSCRIPTION_EVENT.PLAN_STATE_CHANGED`, its payload type, emitted after commit from 8.B and 8.D and WC-59; an event test per `change` value; the app's handler is sub-domain 6's (WC-38) |
-| BLC4 | BL10 and the ports of 8.10: the audit actions; `InstagramAccountsPort` / `TrialPort` types, wired in `src/routes.ts` and the worker bootstrap; i18n keys for every new reason (`src/shared/locales/en/errors.json`) and their rows in `docs/reference/api/response-codes.md` |
+| BLC4 | BL10 and the ports of 8.10: the audit actions; `ChannelAccountsPort` / `TrialPort` types, wired in `src/routes.ts` and the worker bootstrap; i18n keys for every new reason (`src/shared/locales/en/errors.json`) and their rows in `docs/reference/api/response-codes.md` |
 | BLC5 | Tests and seeds: the reference seed = the migration's rows (8.A); bulk seed — demo team workspaces on Free, Creator (one trialing) and Studio (`subscription/seed/`); integration tests for every success and error in 8.A–8.D; contract tests (`src/tests/contract/stripe*`) for the schedule, the trial create, detach and default; `pnpm routes:catalog`, `validate:route-success-statuses`, `docs:generate` |
 
 ### 8.12 Nested sub-domains
@@ -3466,7 +3672,7 @@ Every route can answer the errors in 8.5; each route's own errors are in its nes
 | # | Decision |
 | --- | --- |
 | BL11 | **The three plans (plan:L7932–L7949, P37).** Today: Free, Starter, Growth, Pro; `features` a loose map (`priority_support`, `audit_log`, `sso`), `included_seats` 1 / 5 / 15 / 25. After, one new migration `billing_flowdm_plans` and the reference seed in step: **Free** updated ($0, $0); **Creator** added ($29 a month, $276 a year — placeholders, P37); **Studio** added ($79, $756 — placeholders); Starter, Growth, Pro `is_active = false` (billing rows are never deleted), their features mapped (BLQ4); `included_seats` empty on all seven rows (D55). Stripe product and price ids stay empty until ops creates them at go-live (P37) — until then a paid plan answers `422 planNotAvailableForBillingCycle` on subscribe (as built: no Stripe price for the cycle). |
-| BL12 | **Typed features (plan:L7944).** Today: `PlanFeatures = Record<string, boolean \| number \| string>`, nothing checks it. After: one zod object `planFeaturesSchema` with exactly `direct_message_month_limit` (integer ≥ 0; BLQ3), `instagram_accounts_max` (integer 1–100), `is_pro_enabled` (boolean — the plan's `pro_features`, P21 form), `has_priority_support` (boolean — `priority_support`, P21 form), `.strict()`: checked when a row is written (seed, migration-backed tests) and parsed on every read in the repository — an unknown or missing key is a loud error, never a silent default. The table keeps `jsonb`; a `CHECK` pins the four keys and their JSON types (the database refuses a bad row too). Values: Free 1,000 / 1 / no / no; Creator 10,000 / 3 / yes / no; Studio 50,000 / 10 / yes / yes. Other option: the plan's names `pro_features`, `priority_support` — not the `is_` / `has_` form P21 asks for. |
+| BL12 | **Typed features (plan:L7944).** Today: `PlanFeatures = Record<string, boolean \| number \| string>`, nothing checks it. After: one zod object `planFeaturesSchema` with exactly `message_month_limit` (integer ≥ 0; BLQ3), `channel_accounts_max` (integer 1–100), `is_pro_enabled` (boolean — the plan's `pro_features`, P21 form), `has_priority_support` (boolean — `priority_support`, P21 form), `.strict()`: checked when a row is written (seed, migration-backed tests) and parsed on every read in the repository — an unknown or missing key is a loud error, never a silent default. The table keeps `jsonb`; a `CHECK` pins the four keys and their JSON types (the database refuses a bad row too). Values: Free 1,000 / 1 / no / no; Creator 10,000 / 3 / yes / no; Studio 50,000 / 10 / yes / yes. Other option: the plan's names `pro_features`, `priority_support` — not the `is_` / `has_` form P21 asks for. |
 | BL13 | **The plan object (RC-57, RC-58).** Today: `features` verbatim, `limits: { seats }`, `price_yearly` the yearly total (or null without a yearly price), `billing_cycles`. After: `features` the typed four; `price_yearly_per_month` = `price_yearly` ÷ 12, two decimals (plan:L7949); `limits` goes (seats are unlimited on every plan — the field would always read `null`). The one-minute in-process catalog memo stays (as built); the decision reads (`requireActivePlanByPublicId`, the entitlement) never use it (as built). Other option: keep `limits: { seats: null }` for old clients — meepzo-fe changes with this contract anyway (P30). |
 
 #### 8.A.2 Open questions
@@ -3500,7 +3706,7 @@ As 8.5; PUBLIC with the catalog cache headers (as built).
 #### 8.A.6 Objects returned
 
 **Plan**: `id` (`pln_…`), `name`, `description`, `price_monthly`, `price_yearly` (or null), `price_yearly_per_month` (or null),
-`billing_cycles`, `currency`, `is_active`, `features` (`{ direct_message_month_limit, instagram_accounts_max, is_pro_enabled,
+`billing_cycles`, `currency`, `is_active`, `features` (`{ message_month_limit, channel_accounts_max, is_pro_enabled,
 has_priority_support }`), `created_at`, `updated_at`.
 
 #### 8.A.7 Routes (100–101)
@@ -3543,8 +3749,8 @@ has_priority_support }`), `created_at`, `updated_at`.
 | # | Decision |
 | --- | --- |
 | BL14 | **Subscribe and trial (route 102, RC-65).** Today: `plan_id`, `billing_cycle`; a Free plan creates a local row, a paid plan a Stripe subscription (`payment_behavior: default_incomplete`) with a Redis lock per organization. After: + `is_trial` (optional, default `false`). With `is_trial`: the plan must be paid (`422 plan_has_no_trial` for Free); the checks of BL7 before Stripe (`409 trial_already_used`); the Stripe call with the trial settings; the row `TRIALING`, `trial_end` = now + 7 days; in the same commit the `billing.trial_accounts` rows (a unique-key race with another workspace → `409 trial_already_used`, nothing kept — the Stripe subscription is cancelled as the existing compensation does); after commit `PLAN_STATE_CHANGED` (`trial_started`) and the audit entry. Without `is_trial` as built, plus `PLAN_STATE_CHANGED` (`upgraded`) once Stripe says paid (8.D) — a Free local row emits `resumed` when it ends a plan-ended state. |
-| BL15 | **Change plan (route 103, RC-59).** Today: `plan_id` only; immediate. After: `plan_id*`, `keep_instagram_account_ids` (BL6). Dearer → as built (immediate Stripe price swap with proration), clears any scheduled change, emits `upgraded`. Cheaper or Free → scheduled (BL5): checks the pick (each a not-revoked, active account of this workspace — through the port; at most the new plan's `instagram_accounts_max`; no repeats), creates or updates the Stripe schedule (or `cancel_at_period_end` for Free), then writes `scheduled_plan_id`, `scheduled_change_at` (= `current_period_end`), `downgrade_keep`. The same plan as the current one → releases the schedule and clears the three columns. During a trial the end date stays (plan:L8104). The answer is the Subscription with its `scheduled_change` (8.B.6). The Redis lock per subscription stays (as built). |
-| BL16 | **Plan state for the app and the context (route 108, RC-64).** Today: `active_organization.plan_access` = `{ state, grace_ends_at }`. After: `{ state, grace_ends_at, trial_ends_at, plan: { id, name }, features }` (the BL2 entitlement, serialized), and `active_organization.instagram_accounts_count` (the not-revoked accounts, through the accounts port — the "being set up" notice, plan:L8227). "Workspace paused" is the organization's existing `status` (`SUSPENDED`, plan:L7907) — already in the answer, no new field. The DM meter is not here (RC-56, P14). |
+| BL15 | **Change plan (route 103, RC-59).** Today: `plan_id` only; immediate. After: `plan_id*`, `keep_channel_account_ids` (BL6). Dearer → as built (immediate Stripe price swap with proration), clears any scheduled change, emits `upgraded`. Cheaper or Free → scheduled (BL5): checks the pick (each a not-revoked, active account of this workspace — through the port; at most the new plan's `channel_accounts_max`; no repeats), creates or updates the Stripe schedule (or `cancel_at_period_end` for Free), then writes `scheduled_plan_id`, `scheduled_change_at` (= `current_period_end`), `downgrade_keep`. The same plan as the current one → releases the schedule and clears the three columns. During a trial the end date stays (plan:L8104). The answer is the Subscription with its `scheduled_change` (8.B.6). The Redis lock per subscription stays (as built). |
+| BL16 | **Plan state for the app and the context (route 108, RC-64).** Today: `active_organization.plan_access` = `{ state, grace_ends_at }`. After: `{ state, grace_ends_at, trial_ends_at, plan: { id, name }, features }` (the BL2 entitlement, serialized), and `active_organization.channel_accounts_count` (the not-revoked accounts, through the accounts port — the "being set up" notice, plan:L8227). "Workspace paused" is the organization's existing `status` (`SUSPENDED`, plan:L7907) — already in the answer, no new field. The DM meter is not here (RC-56, P14). |
 | BL17 | **The plan-state check (WC-59, plan:L7978, L8106).** Every 15 minutes (`PLAN_STATE_CHECK_MINUTES` 15, a billing constant), a sweep under a maintenance scope (`MAINTENANCE_SCOPE.BILLING_PLAN_STATE_CHECK`, new, frozen) finds (a) dunning subscriptions whose `current_period_end + 14 days` has passed and that no event has marked yet, and (b) trialing subscriptions 3 days and 1 day before `trial_end` (`TRIAL_NOTICE_DAYS` 3, 1); one job per organization on the billing queue, payload `organizationPublicId` (+ `subscriptionPublicId`). Inside its organization the job re-reads the row: (a) emits `PLAN_STATE_CHANGED` (`plan_ended`) — once in effect, because the app's handler enqueues WC-38 with the job id `plan-change:<organization>:plan_ended:<period end>` (a repeat is dropped; no marker column); (b) sends `billing.trial_ending` to the billing recipients (sub-domain 11) with the dedupe key `trial-ending:<subscription>:<days>`. Safe to repeat; safe to skip (the next run catches up). Other option: a Stripe `customer.subscription.trial_will_end` event for the 3-day notice — Stripe sends it once, 3 days ahead, and never the 1-day one. |
 | BL18 | **One trial per Instagram account, across workspaces, without reading them.** The pre-check needs rows of every workspace, which RLS hides: a `SECURITY DEFINER` function `billing.resolve_trialled_instagram_user_ids(text[])` answers only which of the given ids already had a trial (yes / no, no organization) — the launch's resolver form (`app.resolve_organization_public_id_for_instagram_user`); the unique key is the final guard. |
 
@@ -3558,7 +3764,7 @@ BLQ1 (how the move down waits) — 8.2.
 
 | Column | Type | Null | Default | Rule |
 | --- | --- | --- | --- | --- |
-| `downgrade_keep` | `jsonb` | yes | | **new**: a JSON list of 0–10 `iga_…` strings; set only with `scheduled_plan_id`; `CHECK (jsonb_typeof(downgrade_keep) = 'array')` |
+| `downgrade_keep` | `jsonb` | yes | | **new**: a JSON list of 0–10 `cha_…` strings; set only with `scheduled_plan_id`; `CHECK (jsonb_typeof(downgrade_keep) = 'array')` |
 | `scheduled_plan_id` | `bigint` | yes | | **new** (BLQ1): → plans `ON DELETE RESTRICT`; the plan it moves to at `scheduled_change_at` |
 | `scheduled_change_at` | `timestamptz` | yes | | **new** (BLQ1): `(scheduled_plan_id IS NULL) = (scheduled_change_at IS NULL)`; `downgrade_keep IS NULL OR scheduled_plan_id IS NOT NULL` |
 | `trial_end` | `timestamptz` | yes | | as built; now also the "had a trial" mark (BL7) |
@@ -3604,11 +3810,11 @@ As 8.5.
 
 **Subscription** (as built: `id`, `plan_id`, `status`, `billing_cycle`, `current_period_start`, `current_period_end`, `trial_end`,
 `cancel_at_period_end`, `canceled_at`, `created_at`, `updated_at`; the seat fields go with BL9) + `scheduled_change` (`null`, or
-`{ plan_id, change_at, keep_instagram_account_ids }`) + `is_trial` (`status = 'TRIALING'`).
+`{ plan_id, change_at, keep_channel_account_ids }`) + `is_trial` (`status = 'TRIALING'`).
 
 **Plan access** (`active_organization.plan_access` on route 108 and on the two switch routes, as built): `state`, `grace_ends_at`,
 `trial_ends_at`, `plan` (`{ id, name }`), `features` (8.A.6). Route 108's `active_organization` also carries
-`instagram_accounts_count` (integer).
+`channel_accounts_count` (integer).
 
 #### 8.B.7 Routes (102, 103, 108)
 
@@ -3623,7 +3829,7 @@ As 8.5.
 | # | Query | Body | Response |
 | --- | --- | --- | --- |
 | 102 | — | `plan_id*`, `billing_cycle*` (`monthly` \| `yearly`); optional: `is_trial` (boolean) | Subscription |
-| 103 | — | `plan_id*`; optional: `keep_instagram_account_ids` (0–10 `iga_…`, no repeats; only on a move down) | Subscription |
+| 103 | — | `plan_id*`; optional: `keep_channel_account_ids` (0–10 `cha_…`, no repeats; only on a move down) | Subscription |
 | 108 | — | — | the context (as built) with BL16's fields |
 
 #### 8.B.9 Errors
@@ -3633,7 +3839,7 @@ As 8.5.
 | 102 | `422` · `plan_has_no_trial` | `is_trial` on the Free plan |
 | 102 | `409` · `trial_already_used` | the workspace had a trial, or one of its accounts had one (anywhere) |
 | 102 | `409` · `subscription_already_exists` / `subscription_create_in_progress` | as built |
-| 103 | `400` · `keep_instagram_account_ids` | not this workspace's active accounts, a repeat, more than the new plan allows, or given on a move up |
+| 103 | `400` · `keep_channel_account_ids` | not this workspace's active accounts, a repeat, more than the new plan allows, or given on a move up |
 | 103 | `422` · `subscription_not_mutable` / `planNotAvailableForBillingCycle` | as built (terminal subscription; no price for the cycle) |
 | 103 | `409` · `subscription_change_in_progress` | as built |
 | 102, 103 | `422` | a personal organization; the idempotency key missing, malformed or reused |
@@ -3646,15 +3852,15 @@ As 8.5.
   Free (by name — the one row the reference seed guarantees). A plan the row points at that is off (Starter …) still answers its
   mapped features (BLQ4).
 - **Downgrade at the period end is billing's moment, the stops are the app's**: billing changes the plan row and emits the event;
-  WC-38 (sub-domain 6) sets `plan_downgrade`, ends broadcasts and past-comment reads — within the same 15-minute backup.
+  WC-38 (sub-domain 6) sets the accounts' plan stop (1B's `plan_stopped_at`), ends broadcasts and past-comment reads — within the same 15-minute backup.
 
 #### 8.B.11 Code changes
 
 | # | Change |
 | --- | --- |
 | BLC7 | BL14, BL18: `CreateSubscriptionDto` + `is_trial`; the trial path in `SubscriptionService.create` (the checks, the trial rows in the create commit, the compensation); `createStripeSubscription` gains the trial options (`trial_period_days`, `trial_settings`, `payment_settings`); `trial-account.{schema,repository}.ts`; the resolver function in the trial migration; `PAID_TRIAL_DAYS` in `subscription.constants.ts`; the trial port for sub-domain 1 |
-| BLC8 | BL5, BL6, BL15: `ChangePlanDto` + `keep_instagram_account_ids`; the move-down path (Stripe subscription schedule create / update / release in `stripe.client.ts` and the payment-provider port, `cancel_at_period_end` for Free); the three columns and their checks in the `billing_subscriptions_downgrade_keep` migration; `scheduled_change` in `subscription.serializer.ts`; `suspendExcessMembersForDowngrade` removed |
-| BLC9 | BL16: `AuthMeContextService` takes the accounts port; `PlanAccessOutput` + `trial_ends_at`, `plan`, `features`; `instagram_accounts_count`; the switch routes' answers follow (one serializer) |
+| BLC8 | BL5, BL6, BL15: `ChangePlanDto` + `keep_channel_account_ids`; the move-down path (Stripe subscription schedule create / update / release in `stripe.client.ts` and the payment-provider port, `cancel_at_period_end` for Free); the three columns and their checks in the `billing_subscriptions_downgrade_keep` migration; `scheduled_change` in `subscription.serializer.ts`; `suspendExcessMembersForDowngrade` removed |
+| BLC9 | BL16: `AuthMeContextService` takes the accounts port; `PlanAccessOutput` + `trial_ends_at`, `plan`, `features`; `channel_accounts_count`; the switch routes' answers follow (one serializer) |
 | BLC10 | BL17: `subscription/workers/subscription-plan-state-check.{worker,processor,constants}.ts`, its queue and job schema (`organizationPublicId`, `subscriptionPublicId`), the sweep under `MAINTENANCE_SCOPE.BILLING_PLAN_STATE_CHECK` (registered in `database-context.ts`; the subscriptions policy's bypass arm); registry, scheduler (every 15 minutes), DLQ; tests — a grace that ended emits once, a trial at 3 and 1 days notifies once each, a repeat sends nothing twice |
 
 ---
@@ -4617,9 +4823,9 @@ None beyond 10.10.
 
 ---
 
-## 11. User and notify — profile, settings, notifications — rev 1 (2026-11-23) — nested sub-domains 11.A–11.D; awaiting your OK
+## 11. User and notify — profile, settings, notifications — rev 2 (2026-11-23) — nested sub-domains 11.A–11.D; awaiting your OK
 
-**Status: rev 1 — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: rev 2 (2026-11-23) — awaiting your OK** (one-pass review, [P31](decisions.md)).
 
 Code: the **user domain** (`src/domains/user/` — the person at the root, `sub-domains/user-settings/`,
 `sub-domains/user-notification-preferences/`) and the **notify domain** (`src/domains/notify/sub-domains/notification/`, its
@@ -4641,6 +4847,8 @@ app (counts through ports). Route numbers run 130–136.
 ### 11.1 Decisions (whole sub-domain)
 
 Taken on your standing answer "go with the recommendation" — change any of them before you confirm. "Today" is the code in `main`.
+
+**rev 2 changes** (P44, P47, M9): names follow the app's renamed tables (`app.channel_accounts`, `app.instagram_automations`, `app.instagram_automation_counts`, `app.message_month_counts`); the chooser's `channel_accounts_count`; job payloads `channelAccountPublicId`. No route changes shape.
 
 | # | Decision |
 | --- | --- |
@@ -4760,7 +4968,7 @@ Every route can answer the errors in 11.5; each route's own errors are in its ne
 | --- | --- |
 | UN3 | **Onboarding fields (route 130, plan:L7802–L7826).** Today: `first_name`, `last_name`, `job_title`, `avatar_key`. After: + `instagram_handle` (input may carry a leading `@` and capitals; saved without `@`, lower case; letters, digits, `.` and `_`, 1–30 — Instagram's rule; `null` clears) and `goal` (`capture_leads` · `drive_sales` · `grow_community`, or `null`). Both may stay empty ("Skip for now", plan:L7824); the handle is a profile note and connects nothing (plan:L7826). `GET /users/me` answers both. |
 | UN4 | **Reduce motion and the default workspace (route 131, plan:L7857, L8204).** + `is_reduce_motion_enabled` (boolean, default false — the plan's `reduce_motion` in the P21 form, next to `is_dark_mode_enabled`). `default_organization_id` naming a personal workspace → `422 team_organization_required` (today it is allowed; the existing `422 default_organization_unavailable` stays for one the caller does not belong to). |
-| UN5 | **The workspace chooser (route 132, RC-83, plan:L7849–L7859).** Today: `organizationService.listForUser` — every organization the caller owns or actively belongs to, the personal one included, cursor paging. After: the personal workspace is hidden (Flowdm never shows or opens it, plan:L7857); `q` searches by name (1–100, case-insensitive); each row adds `role` (the main role's `{ id, name }`), `members_count`, `instagram_accounts_count`, `live_automations_count`. The counts come from **one** `SECURITY DEFINER` function owned by the app, `app.list_organization_counts_for_user(user_public_id text, organization_public_ids text[])`, which answers only organizations where that user has an active membership (so it reads across organizations without opening RLS — the same form as `tenancy.user_has_active_membership_for_organization`), called once per page through the counts port (UN1). The migration is the app's (plan:L8460: "a migration file next to the app ones") — a new app migration `app_member_organization_counts` (the plan's `app_member_workspace_counts`, full names), not a change to the seven launch files. Paging stays cursor-based (as built). |
+| UN5 | **The workspace chooser (route 132, RC-83, plan:L7849–L7859).** Today: `organizationService.listForUser` — every organization the caller owns or actively belongs to, the personal one included, cursor paging. After: the personal workspace is hidden (Flowdm never shows or opens it, plan:L7857); `q` searches by name (1–100, case-insensitive); each row adds `role` (the main role's `{ id, name }`), `members_count`, `channel_accounts_count`, `live_automations_count`. The counts come from **one** `SECURITY DEFINER` function owned by the app, `app.list_organization_counts_for_user(user_public_id text, organization_public_ids text[])`, which answers only organizations where that user has an active membership (so it reads across organizations without opening RLS — the same form as `tenancy.user_has_active_membership_for_organization`), called once per page through the counts port (UN1). The migration is the app's (plan:L8460: "a migration file next to the app ones") — a new app migration `app_member_organization_counts` (the plan's `app_member_workspace_counts`, full names), not a change to the seven launch files. Paging stays cursor-based (as built). |
 
 #### 11.A.2 Open questions
 
@@ -4779,8 +4987,8 @@ None.
 
 The app function (app migration `app_member_organization_counts`): `SECURITY DEFINER`, `SET search_path` pinned, `STABLE`, owned by
 the migration role, `EXECUTE` granted to `meepzo_be_app` only; for each given organization with an active membership of the user:
-`members_count` (active members), `instagram_accounts_count` (not revoked), `live_automations_count` (`status = 'live'`, not
-deleted). It reads `tenancy.memberships`, `app.instagram_accounts`, `app.automations` through their existing organization indexes.
+`members_count` (active members), `channel_accounts_count` (not revoked), `live_automations_count` (`status = 'live'`, not
+deleted). It reads `tenancy.memberships`, `app.channel_accounts`, `app.instagram_automations` through their existing organization indexes.
 No index change. RLS unchanged.
 
 #### 11.A.4 Permissions
@@ -4797,7 +5005,7 @@ As 11.5.
 
 **Me** (as built) + `instagram_handle`, `goal`. **Settings** (as built) + `is_reduce_motion_enabled`. **Organization summary**
 (route 132): `id`, `name`, `slug`, `logo_color` (9.A), `logo_url`, `role` (`{ id, name }`), `members_count`,
-`instagram_accounts_count`, `live_automations_count`.
+`channel_accounts_count`, `live_automations_count`.
 
 #### 11.A.7 Routes (130–132)
 
@@ -4985,8 +5193,8 @@ in the screen's order (UN9).
 
 | # | Decision |
 | --- | --- |
-| UN12 | **The weekly summary (WC-58, plan:L8184–L8192).** An hourly sweep under a maintenance scope (`MAINTENANCE_SCOPE.NOTIFY_WEEKLY_SUMMARY`, new, frozen) lists the team workspaces where it is now Monday 09:00–09:59 in their time zone (`tenancy.organizations.timezone`; `WEEKLY_SUMMARY_WEEKDAY` 1, `WEEKLY_SUMMARY_HOUR` 9 — notify constants) and enqueues one job per workspace (job id `weekly-summary:<organization>:<iso year-week>`, payload `organizationPublicId`, `weekStart`). The job, inside its organization: the app's `readWeeklySummary` port (UN1) — per Instagram account for the last 7 days: runs started, DMs sent, % tapped, new contacts, emails and phones collected, the top automation, plus the month count (`app.automation_counts`, `app.direct_message_month_counts`, the runs — one read); nothing happened → no email; else one email per member with the kind's email on (default on), through the mail outbox, dedupe `weekly:<organization>:<year-week>:<user>` — a restart never sends twice. In-app default off (D54). Pull-based (scheduler → queue → worker), safe to repeat and to skip an hour. |
-| UN13 | **Grouped "new contact details" (plan:L8157, plan:L8162 example).** At most one note per Instagram account per hour (`CONTACT_DETAILS_NOTICE_EVERY_MINUTES` 60). After the commit that saves a contact's email or phone, the app calls notify's `noteContactDetailsLeft({ organizationPublicId, instagramAccountPublicId, at })`, which adds a delayed job (job id `contact-details:<account>` — BullMQ keeps one pending job per id, so the 2nd and 3rd detail in the hour add nothing) due 60 minutes after the first; the job counts, through the app's `countContactsWithDetailsLeft` port, the account's contacts whose details were saved since the window's start, and writes one `contact.details_left` notification ("3 new contacts left details on @account_a") to the kind's recipients — in-app by default, email off. Zero (all erased meanwhile) → nothing. Postgres holds the truth (the contacts' times); the job holds only the window start. |
+| UN12 | **The weekly summary (WC-58, plan:L8184–L8192).** An hourly sweep under a maintenance scope (`MAINTENANCE_SCOPE.NOTIFY_WEEKLY_SUMMARY`, new, frozen) lists the team workspaces where it is now Monday 09:00–09:59 in their time zone (`tenancy.organizations.timezone`; `WEEKLY_SUMMARY_WEEKDAY` 1, `WEEKLY_SUMMARY_HOUR` 9 — notify constants) and enqueues one job per workspace (job id `weekly-summary:<organization>:<iso year-week>`, payload `organizationPublicId`, `weekStart`). The job, inside its organization: the app's `readWeeklySummary` port (UN1) — per Instagram account for the last 7 days: runs started, DMs sent, % tapped, new contacts, emails and phones collected, the top automation, plus the month count (`app.instagram_automation_counts`, `app.message_month_counts`, the runs — one read); nothing happened → no email; else one email per member with the kind's email on (default on), through the mail outbox, dedupe `weekly:<organization>:<year-week>:<user>` — a restart never sends twice. In-app default off (D54). Pull-based (scheduler → queue → worker), safe to repeat and to skip an hour. |
+| UN13 | **Grouped "new contact details" (plan:L8157, plan:L8162 example).** At most one note per Instagram account per hour (`CONTACT_DETAILS_NOTICE_EVERY_MINUTES` 60). After the commit that saves a contact's email or phone, the app calls notify's `noteContactDetailsLeft({ organizationPublicId, channelAccountPublicId, at })`, which adds a delayed job (job id `contact-details:<account>` — BullMQ keeps one pending job per id, so the 2nd and 3rd detail in the hour add nothing) due 60 minutes after the first; the job counts, through the app's `countContactsWithDetailsLeft` port, the account's contacts whose details were saved since the window's start, and writes one `contact.details_left` notification ("3 new contacts left details on @account_a") to the kind's recipients — in-app by default, email off. Zero (all erased meanwhile) → nothing. Postgres holds the truth (the contacts' times); the job holds only the window start. |
 
 #### 11.D.2 Open questions
 
@@ -5029,13 +5237,13 @@ None (job failures retry with the notify queue's backoff and land in the DLQ, as
 | # | Change |
 | --- | --- |
 | UNC9 | UN12: `notify/sub-domains/notification/workers/notification-weekly-summary.{worker,processor,constants}.ts`, queue and job schema (`organizationPublicId`, `weekStart`), the sweep under the new maintenance scope (`database-context.ts`), registry, scheduler (hourly), DLQ; the email template; tests — a workspace at Monday 09:30 local gets one job, at 10:00 none, a quiet week sends nothing, twice = once |
-| UNC10 | UN13: the delayed job `notification-contact-details` (queue, job schema with `organizationPublicId`, `instagramAccountPublicId`, `windowStartedAt`), `noteContactDetailsLeft`; tests — three details in an hour → one note of 3, a detail after the note starts a new window |
+| UNC10 | UN13: the delayed job `notification-contact-details` (queue, job schema with `organizationPublicId`, `channelAccountPublicId`, `windowStartedAt`), `noteContactDetailsLeft`; tests — three details in an hour → one note of 3, a detail after the note starts a new window |
 
 ---
 
-## 12. Upload — message files — rev 1 (2026-11-23) — no nested sub-domains; awaiting your OK
+## 12. Upload — message files — rev 2 (2026-11-23) — no nested sub-domains; awaiting your OK
 
-**Status: rev 1 — awaiting your OK** (one-pass review, [P31](decisions.md)).
+**Status: rev 2 (2026-11-23) — awaiting your OK** (one-pass review, [P31](decisions.md)).
 
 Code: the **upload domain** (`src/domains/upload/`, one folder, no sub-domains — as built), changed in place: its constants, DTO,
 validator, content-type and magic-byte checks, and one new read for the sending engine. No migration (the purpose list is a code
@@ -5047,14 +5255,16 @@ constant, plan:L8445; no `scan_status`, P34).
 
 The files a message carries — a picture, a voice note, a PDF — are uploaded by the owner's team through the existing presigned
 flow under a new purpose, checked by type and content on confirm, and read by the sending engine's attachment step (sub-domain 6,
-`app.meta_attachments` by the upload's public id — P25). **No malware scan this iteration** (P34): a D58 deviation, recorded in
+`app.instagram_attachments` by the upload's public id — P25). **No malware scan this iteration** (P34): a D58 deviation, recorded in
 `AS-BUILT.md`'s Standing deviations. Design read: plan §50.5 B6 (plan:L8443–L8446), §5.9 / D58 (plan:L984, L269), `db-changes.md` ›
-upload (EXISTING), meta_attachment; `route-changes.md` RC-61 (RC-62, RC-63 out of scope — P34). Builds on: organizations, the
+upload (EXISTING), instagram_attachment; `route-changes.md` RC-61 (RC-62, RC-63 out of scope — P34). Builds on: organizations, the
 `upload:manage` code (Owner, Admin, Editor — sub-domain 9). Route number 140.
 
 ### 12.1 Decisions (whole sub-domain)
 
 Taken on your standing answer "go with the recommendation" — change any of them before you confirm. "Today" is the code in `main`.
+
+**rev 2 changes** (P43, M9): the message-file reference is `app.instagram_attachments` (was `meta_attachments`). No route changes shape.
 
 | # | Decision |
 | --- | --- |
@@ -5076,7 +5286,7 @@ built).
 
 ```text
 tenancy.organizations ──< upload.uploads (purpose = 'message-media')
-                                 ·····> app.meta_attachments.upload_public_id    the public id only, no key (P25)
+                                 ·····> app.instagram_attachments.upload_public_id    the public id only, no key (P25)
 ```
 
 ### 12.4 Permissions
@@ -5150,19 +5360,26 @@ None — the upload domain is one folder.
 
 ## Before you hand a sub-domain over for its OK
 
-Run on the whole merged file (rev 1, 2026-11-23), by script where it can be:
+Run on the whole file (rev 2, 2026-11-23, after the channel split M9), by script where it can be:
 
-- Every table row has its header's number of columns — **checked by script: 0 rows off** across every table of the file;
-  every sub-domain has sections 1–12 and every nested sub-domain 1–11.
+- Every table row has its header's number of columns — **checked by script: 0 rows off** across every table of the file
+  (rev 2 fixed one row, SN18's job id, whose `|` split a cell); every sub-domain (1, 1B, 2–12) has sections 1–12 and every
+  nested sub-domain 1–11 — **checked by script**.
 - No decision, code-change or question id is used twice, and every id the text cites exists — **checked by script** for the
-  prefixes MC, IA, CT, AU, WH, SN, BC, BL, TN, AT, UN, UP (decisions, `…C` code changes, `…Q` questions), K and M: no repeat,
-  none dangling. Launch ids are cited "launch …" and are the frozen launch review's.
-- The route numbers never repeat; gaps fall only between sub-domains and at 65–68 (M6); each sub-domain's count
-  in its section 7 matches the sub-domains table (5, 12, 9, 13, 3, 2, 13, 9, 9, 9, 7, 1) and the domain total (92) —
-  **checked by script**. Every RC row is served by exactly one sub-domain (RC-17, RC-18 by 2 only; RC-37, RC-38 by 4 and RC-39, RC-40 by 3 only).
+  prefixes MC, CA, IA, CT, AU, WH, SN, BC, BL, TN, AT, UN, UP (decisions, `…C` code changes, `…Q` questions), K and M: no repeat
+  (each question sits once in the header table and once in its section 2, by design), none dangling. Launch ids are cited
+  "launch …"; rev 1 ids that moved (IA1–IA5, IA9–IA11, IA16, IA18–IA20, IAC1, IAC2, IAC4, IAC7, IAQ1, IAQ2) are cited only
+  as "was …" / "rev 1 …" and mapped in M9.
+- The route numbers never repeat; gaps fall only between sub-domains, at 43–59 and at 65–68 (M6); rev 2 renumbered nothing
+  and added 40–42 (M9); each sub-domain's count in its section 7 matches the sub-domains table (11, 6, 3, 9, 13, 3, 2, 13,
+  9, 9, 9, 7, 1 for 1, 1B, 2–12) and the domain total (95: 49 new, 44 changed, 1 as built, 1 unchanged) — **checked by
+  script**. Every RC row is served by exactly one sub-domain (RC-15, RC-17, RC-18 and RC-112–RC-114 by 1; RC-7–RC-11 and
+  RC-60 by 1B; RC-37, RC-38 by 4 and RC-39, RC-40 by 3 only).
 - Every route has a gate and an Idem cell; every `POST` without `req` names its reason (K3, MGQ2): 1, 9, 10, 16, 17, 32,
-  33, 35, 61 in the app; 107, 118, 120, 121, 124, 126, 127, 133, 134 as built in the platform domains.
+  33, 35, 40, 61 in the app; 107, 118, 120, 121, 124, 126, 127, 133, 134 as built in the platform domains.
 - Every table states its RLS, its branch rule (none — this product has no branches) and every pointer's `ON DELETE`;
-  no membership pointer is added (K5, K6).
-- `plans/route-changes.md`, `plans/db-changes.md` and `plans/worker-changes.md` say the same as the sub-domains — **done** (synced
-  2026-11-23 from M8; every RC / WC row cites its section and route number). Open: SNQ1 keeps `sending_helper_slot` until answered.
+  no membership pointer is added (K5, K6); every product and sending pointer to an account is `channel_account_id` →
+  `app.channel_accounts` (P47).
+- `plans/route-changes.md`, `plans/db-changes.md` and `plans/worker-changes.md` say the same as the sub-domains — rev 1
+  **done** (synced 2026-11-23 from M8); rev 2's channel split is synced by the change-files pass of the same day (RC-112–RC-114
+  cited here). Open: SNQ1 keeps `sending_helper_slot` until answered.

@@ -3,6 +3,8 @@ import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { ChannelAccountRepository } from './sub-domains/channel-account/channel-account.repository.js';
 import { ChannelAccountService } from './sub-domains/channel-account/channel-account.service.js';
+import { ChannelAccountPlanStopService } from './sub-domains/channel-account/channel-account-plan-stop.service.js';
+import type { ChannelConnectionTrialPort } from './sub-domains/channel-connection/channel-connection.types.js';
 import { ChannelConnectionRepository } from './sub-domains/channel-connection/channel-connection.repository.js';
 import {
   type ChannelConnectionPlanAccessService,
@@ -83,17 +85,53 @@ export type AppContainer = {
 };
 
 /**
+ * The channel connection service (routes 1–5, 40, 42): its accounts through the channel account
+ * (P111 → R5) and a trial pick through billing's trial port (R24); no lane port until R18 builds it.
+ */
+function createChannelConnectionService(options: {
+  channelConnectionRepository: ChannelConnectionRepository;
+  channelConnectionTokenService: ChannelConnectionTokenService;
+  channelConnectionUsageService: ChannelConnectionUsageService;
+  channelAccountService: ChannelAccountService;
+  organizationService: OrganizationService;
+  planAccessService: ChannelConnectionPlanAccessService;
+  trialPort: ChannelConnectionTrialPort;
+}): ChannelConnectionService {
+  return new ChannelConnectionService(
+    options.channelConnectionRepository,
+    options.channelConnectionTokenService,
+    options.channelConnectionUsageService,
+    options.channelAccountService,
+    options.organizationService,
+    options.planAccessService,
+    redisConnection,
+    undefined,
+    options.trialPort,
+  );
+}
+
+/**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
- * team check, user id resolution; billing's plan read: the channel account limit).
+ * team check, user id resolution; billing's plan read: the channel account limit; billing's trial
+ * port: a pick during a trial).
+ *
+ * @remarks
+ * The channel account (1B, R5) is also billing's accounts port (R24); its plan-stop port answers
+ * `plan_ended` (R24) and gains `plan_limit` at R18. The connection reaches accounts through the
+ * channel account (P111 → R5) and records a trial pick through billing's trial port (R24). Neither
+ * takes a lane port until R18 builds it.
  */
 export function createAppContainer({
   organizationService,
   planAccessService,
+  trialPort,
 }: {
   organizationService: OrganizationService;
   /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
   planAccessService: ChannelConnectionPlanAccessService;
+  /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
+  trialPort: ChannelConnectionTrialPort;
 }): AppContainer {
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
@@ -116,9 +154,6 @@ export function createAppContainer({
     instagramAccountSettingsService,
     organizationService,
   );
-  // The channel account (1B, ROUTE row R5): routes 6–11, the one feature check, and the
-  // connection's account port over `app.channel_accounts` with its Instagram extension. Its lane
-  // port (R18) and plan-stop port (R18, R24) are not passed until their rows build them.
   const channelAccountService = new ChannelAccountService(
     new ChannelAccountRepository(),
     instagramAccountRepository,
@@ -128,18 +163,18 @@ export function createAppContainer({
     channelConnectionTokenService,
     organizationService,
     planAccessService,
+    undefined,
+    new ChannelAccountPlanStopService(planAccessService),
   );
-  // The connection reaches accounts through the channel account (P111 → R5). The lane port (R18)
-  // and the trial port (R24) are not passed until their rows build them.
-  const channelConnectionService = new ChannelConnectionService(
+  const channelConnectionService = createChannelConnectionService({
     channelConnectionRepository,
     channelConnectionTokenService,
     channelConnectionUsageService,
     channelAccountService,
     organizationService,
     planAccessService,
-    redisConnection,
-  );
+    trialPort,
+  });
   const instagramMediaService = new InstagramMediaService(
     new InstagramMediaRepository(),
     instagramAccountService,
@@ -227,6 +262,7 @@ export function registerAppContainer(application: FastifyInstance): void {
     createAppContainer({
       organizationService,
       planAccessService: application.billingDomain.subscriptionService,
+      trialPort: application.billingDomain.subscriptionTrialService,
     }),
   );
 }

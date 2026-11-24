@@ -21,13 +21,18 @@ function readIdempotencyKey(request: FastifyRequest): string | undefined {
     : undefined;
 }
 
-/** Records a subscription change in the organization's audit log, naming the subscription and its plan. */
+/**
+ * Records a subscription change in the organization's audit log, naming the subscription and its plan,
+ * plus any action-specific metadata (feat-instagram-dm-sending BL10).
+ */
 async function recordSubscriptionAuditEvent(options: {
   request: FastifyRequest;
   auth: AuthContext;
   organizationPublicId: string;
   action: string;
   subscription: { id: string; plan_id: string | null };
+  severity?: 'WARNING';
+  metadata?: Record<string, unknown>;
 }): Promise<void> {
   await recordScopedAuditEvent({
     request: options.request,
@@ -36,9 +41,11 @@ async function recordSubscriptionAuditEvent(options: {
       action: options.action,
       resource_type: 'subscription',
       organizationPublicId: options.organizationPublicId,
+      ...(options.severity ? { severity: options.severity } : {}),
       metadata: {
         subscription_public_id: options.subscription.id,
         plan_public_id: options.subscription.plan_id,
+        ...options.metadata,
       },
     },
   });
@@ -93,20 +100,26 @@ export function createSubscriptionController(service: SubscriptionService) {
       const auth = requirePrincipal(request);
       const scope = requireOrganizationScope(request);
       const idempotencyKey = readIdempotencyKey(request);
-      const subscription = SubscriptionSerializer.one(
-        await service.create({
-          scope,
-          body: request.body,
-          created_by_user_public_id: getActingUserPublicId(auth),
-          idempotencyKey,
-        }),
-      );
+      const created = await service.create({
+        scope,
+        body: request.body,
+        created_by_user_public_id: getActingUserPublicId(auth),
+        idempotencyKey,
+      });
+      const subscription = SubscriptionSerializer.one(created);
+      // BL10: a trial start is its own WARNING entry with the accounts it covers.
       await recordSubscriptionAuditEvent({
         request,
         auth,
         organizationPublicId: scope.organizationPublicId,
-        action: 'billing.subscription.create',
         subscription,
+        ...(subscription.is_trial
+          ? {
+              action: 'billing.subscription.trial_start',
+              severity: 'WARNING' as const,
+              metadata: { channel_account_count: created.trial_channel_account_count },
+            }
+          : { action: 'billing.subscription.create' }),
       });
       return successResponse({ data: subscription, request_id: getRequestIdentifier(request) });
     },
@@ -127,12 +140,19 @@ export function createSubscriptionController(service: SubscriptionService) {
           idempotencyKey: readIdempotencyKey(request),
         }),
       );
+      // BL10: a move down names when it applies and how many accounts the owner kept.
       await recordSubscriptionAuditEvent({
         request,
         auth,
         organizationPublicId: scope.organizationPublicId,
         action: 'billing.subscription.change_plan',
         subscription,
+        metadata: {
+          is_scheduled: subscription.scheduled_change !== null,
+          scheduled_change_at: subscription.scheduled_change?.change_at ?? null,
+          kept_channel_account_count:
+            subscription.scheduled_change?.keep_channel_account_ids.length ?? 0,
+        },
       });
       return successResponse({ data: subscription, request_id: getRequestIdentifier(request) });
     },

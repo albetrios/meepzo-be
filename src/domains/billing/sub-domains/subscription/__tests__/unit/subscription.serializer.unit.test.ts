@@ -44,6 +44,8 @@ describe('subscription.serializer', () => {
       plan_id: 'pln_publicpublicpublic',
       seats_total: 25,
       seats_used: 4,
+      scheduled_change: null,
+      is_trial: false,
       created_at: '2026-06-01T00:00:00.000Z',
       updated_at: '2026-06-05T00:00:00.000Z',
     });
@@ -58,5 +60,33 @@ describe('subscription.serializer', () => {
     expect(out).not.toHaveProperty('created_by_user_id');
     expect(out).not.toHaveProperty('updated_by_user_id');
     expect(SubscriptionSerializer.many([input as never])).toEqual([out]);
+  });
+
+  it('R24: surfaces the scheduled move down and the trial (8.B.6)', () => {
+    const out = SubscriptionSerializer.one({
+      public_id: 'sub_publicpublicpublic',
+      status: 'TRIALING',
+      billing_cycle: 'MONTHLY',
+      current_period_start: new Date('2026-06-01T00:00:00.000Z'),
+      current_period_end: new Date('2026-06-08T00:00:00.000Z'),
+      trial_end: new Date('2026-06-08T00:00:00.000Z'),
+      cancel_at_period_end: false,
+      canceled_at: null,
+      provider: 'stripe',
+      plan_public_id: 'pln_studiostudiostudio',
+      seats_total: null,
+      seats_used: 1,
+      scheduled_plan_public_id: 'pln_creatorcreatorcre',
+      scheduled_change_at: new Date('2026-06-08T00:00:00.000Z'),
+      downgrade_keep: null,
+      created_at: new Date('2026-06-01T00:00:00.000Z'),
+      updated_at: new Date('2026-06-01T00:00:00.000Z'),
+    });
+    expect(out.is_trial).toBe(true);
+    expect(out.scheduled_change).toEqual({
+      plan_id: 'pln_creatorcreatorcre',
+      change_at: '2026-06-08T00:00:00.000Z',
+      keep_channel_account_ids: [],
+    });
   });
 });

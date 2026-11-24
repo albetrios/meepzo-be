@@ -4034,7 +4034,7 @@ As 8.5.
 | 102 | `422` · `plan_has_no_trial` | `is_trial` on the Free plan |
 | 102 | `409` · `trial_already_used` | the organization had a trial, or one of its accounts had one (anywhere) |
 | 102 | `409` · `subscription_already_exists` / `subscription_create_in_progress` | as built |
-| 103 | `400` · `keep_channel_account_ids` | not this organization's active accounts, a repeat, more than the new plan allows, or given on a move up |
+| 103 | `400` · `keep_channel_account_ids` | not this organization's active accounts, a repeat, more than the new plan allows, or given on a move up or a release (as built, [P403](decisions.md)) |
 | 103 | `422` · `subscription_not_mutable` / `planNotAvailableForBillingCycle` | as built (terminal subscription; no price for the cycle) |
 | 103 | `409` · `subscription_change_in_progress` | as built |
 | 102, 103 | `422` | a personal organization; the idempotency key missing, malformed or reused |
@@ -4057,6 +4057,7 @@ As 8.5.
 | BLC8 | BL5, BL6, BL15: `ChangePlanDto` + `keep_channel_account_ids`; the move-down path (Stripe subscription schedule create / update / release in `stripe.client.ts` and the payment-provider port, `cancel_at_period_end` for Free); the three columns and their checks in the `billing_subscriptions_downgrade_keep` migration; `scheduled_change` in `subscription.serializer.ts`; `suspendExcessMembersForDowngrade` removed |
 | BLC9 | BL16: `AuthMeContextService` takes the accounts port; `PlanAccessOutput` + `trial_ends_at`, `plan`, `features`; `channel_accounts_count`; the switch routes' answers follow (one serializer) |
 | BLC10 | BL17: `subscription/workers/subscription-plan-state-check.{worker,processor,constants}.ts`, its queue and job schema (`organizationPublicId`, `subscriptionPublicId`), the sweep under `MAINTENANCE_SCOPE.BILLING_PLAN_STATE_CHECK` (registered in `database-context.ts`; the subscriptions policy's bypass arm); registry, scheduler (every 15 minutes), DLQ; tests — a grace that ended emits once, a trial at 3 and 1 days notifies once each, a repeat sends nothing twice |
+| R24 | As built ([P403](decisions.md)): three migrations (`billing_subscriptions_downgrade_keep`, `billing_subscriptions_plan_state_indexes` — the 8.B.3 indexes CONCURRENTLY —, `billing_trial_accounts`); trial prefix `tra`, `instagram_user_id` VARCHAR(30) + an index on `plan_id`; route 103's direction by the subscription cycle's price (an off plan always up); `PLAN_STATE_CHANGED` only when the entitlement moved; route 108 reads the account count through billing (`countConnectedChannelAccounts`), the switch routes carry it too; the plan stop `plan_ended` in the app's `ChannelAccountPlanStopService` |
 | BLC13 | BL24: the off rows' features in `billing_flowdm_plans` (Free's); `is_plan_choice_required` on the entitlement and `PlanAccessOutput`; WC-59's third finding (subscriptions on an off plan, once per subscription) with the `moved_down` event and the `billing.plan_choice_required` email; tests — an organization on Growth reads Free's limits and switches, gets one email and one event however often the check runs, route 103 to Creator clears the flag, Stripe is never called for it |
 
 ---

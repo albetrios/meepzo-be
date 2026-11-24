@@ -35,7 +35,15 @@ const baseData = (overrides: Partial<AuthMeContextData> = {}): AuthMeContextData
     updated_at: '2026-01-01T00:00:00.000Z',
   },
   activeOrganization: organization('org_active', 'TEAM'),
-  planAccess: { state: 'active', graceEndsAt: null, trialEndsAt: null, plan: null, features: null },
+  planAccess: {
+    state: 'active',
+    graceEndsAt: null,
+    trialEndsAt: null,
+    plan: null,
+    features: null,
+    isPlanChoiceRequired: false,
+  },
+  channelAccountsCount: 0,
   membershipId: 'mem_active',
   myPermissions: ['organization:read', 'membership:manage'],
   myRoleIds: ['rol_admin'],
@@ -76,21 +84,56 @@ describe('serializeAuthMeContext', () => {
       state: 'active',
       grace_ends_at: null,
       trial_ends_at: null,
+      plan: null,
+      features: null,
+      is_plan_choice_required: false,
     });
     const graceEndsAt = new Date('2026-10-31T09:30:00.000Z');
     for (const state of ['grace', 'read_only'] as const) {
       const output = serializeAuthMeContext(
         baseData({
-          planAccess: { state, graceEndsAt, trialEndsAt: null, plan: null, features: null },
+          planAccess: {
+            state,
+            graceEndsAt,
+            trialEndsAt: null,
+            plan: null,
+            features: null,
+            isPlanChoiceRequired: false,
+          },
         }),
       );
       expect(output.active_organization?.plan_access).toEqual({
         state,
         grace_ends_at: '2026-10-31T09:30:00.000Z',
         trial_ends_at: null,
+        plan: null,
+        features: null,
+        is_plan_choice_required: false,
       });
       expect(output.active_organization?.id).toBe('org_active');
     }
+  });
+
+  it('adds the plan, its features, the choice flag and the account count (BL16, BL24)', () => {
+    const output = serializeAuthMeContext(
+      baseData({
+        planAccess: {
+          state: 'active',
+          graceEndsAt: null,
+          trialEndsAt: new Date('2026-12-01T00:00:00.000Z'),
+          plan: { publicId: 'pln_creator', name: 'Creator' },
+          features: null,
+          isPlanChoiceRequired: true,
+        },
+        channelAccountsCount: 2,
+      }),
+    );
+    expect(output.active_organization?.plan_access).toMatchObject({
+      trial_ends_at: '2026-12-01T00:00:00.000Z',
+      plan: { id: 'pln_creator', name: 'Creator' },
+      is_plan_choice_required: true,
+    });
+    expect(output.active_organization?.channel_accounts_count).toBe(2);
   });
 
   it('reads plan_access active when none was resolved for the active organization', () => {
@@ -99,6 +142,9 @@ describe('serializeAuthMeContext', () => {
       state: 'active',
       grace_ends_at: null,
       trial_ends_at: null,
+      plan: null,
+      features: null,
+      is_plan_choice_required: false,
     });
   });
 

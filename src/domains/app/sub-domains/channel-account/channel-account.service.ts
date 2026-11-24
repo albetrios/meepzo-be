@@ -1,5 +1,6 @@
 import {
   type OrganizationPrincipalDatabaseScope,
+  PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
@@ -27,6 +28,7 @@ import { serializeInstagramAccountSettings } from '@/domains/app/sub-domains/ins
 import { CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN } from '@/domains/app/sub-domains/channel-connection/channel-connection.constants.js';
 import { planAccountLimitError } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
 import {
+  CHANNEL_ACCOUNT_CHANNELS,
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
   CHANNEL_ACCOUNT_STATUS,
   type ChannelAccountChannel,
@@ -652,6 +654,60 @@ export class ChannelAccountService implements ChannelConnectionAccountPort {
           if (row !== null) broken.push(row);
         }
         return this.toConnectionAccounts({ organizationId, accounts: broken });
+      },
+    });
+  }
+
+  /**
+   * Billing's accounts port (routes-final § 8.10, `BillingChannelAccountsPort`): the organization's
+   * not-revoked channel accounts, oldest connected first, as `{ publicId, instagramUserId,
+   * connectedAt }` — the trial's accounts (route 102) and the kept accounts of a move down (route 103).
+   *
+   * @remarks
+   * One read under the organization's verified scope (a surrounding unit of the same organization
+   * lends its transaction). The provider account id is the Instagram user id (CAC5). An organization
+   * that does not exist answers `[]`.
+   */
+  async listActiveChannelAccounts({
+    organizationPublicId,
+  }: {
+    organizationPublicId: string;
+  }): Promise<{ publicId: string; instagramUserId: string; connectedAt: Date }[]> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
+      callback: async () => {
+        const organization =
+          await this.organizationService.findOrganizationByPublicId(organizationPublicId);
+        if (!organization) return [];
+        const accounts = await this.accountRepository.listLive({
+          organizationId: organization.id,
+          channels: CHANNEL_ACCOUNT_CHANNELS,
+        });
+        return accounts.map((account) => ({
+          publicId: account.public_id,
+          instagramUserId: account.provider_account_id,
+          connectedAt: account.connected_at,
+        }));
+      },
+    });
+  }
+
+  /**
+   * Billing's accounts port (routes-final § 8.10): how many not-revoked channel accounts the
+   * organization has — route 108's `active_organization.channel_accounts_count` (BL16). `0` for an
+   * organization that does not exist.
+   */
+  async countConnectedChannelAccounts({
+    organizationPublicId,
+  }: {
+    organizationPublicId: string;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId }),
+      callback: async () => {
+        const organization =
+          await this.organizationService.findOrganizationByPublicId(organizationPublicId);
+        return organization ? this.accountRepository.countLive(organization.id) : 0;
       },
     });
   }

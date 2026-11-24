@@ -91,6 +91,22 @@ export const subscriptionSchema = {
     current_period_end: { type: 'string', format: 'date-time' },
     cancel_at_period_end: { type: 'boolean' },
     trial_end: { type: 'string', format: 'date-time', nullable: true },
+    is_trial: {
+      type: 'boolean',
+      description: 'The 7-day no-card trial runs (`status` is `TRIALING`).',
+    },
+    scheduled_change: {
+      type: 'object',
+      nullable: true,
+      description:
+        'A move to a smaller plan waiting for the period end (null when none): the plan it moves to, when, and the channel accounts kept active after it (empty: the oldest connected stay).',
+      properties: {
+        plan_id: { type: 'string' },
+        change_at: { type: 'string', format: 'date-time' },
+        keep_channel_account_ids: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['plan_id', 'change_at', 'keep_channel_account_ids'],
+    },
     created_at: { type: 'string', format: 'date-time' },
     updated_at: { type: 'string', format: 'date-time' },
   },
@@ -106,6 +122,12 @@ export const subscriptionExample = {
   current_period_end: '2026-03-01T00:00:00.000Z',
   cancel_at_period_end: false,
   trial_end: null,
+  is_trial: false,
+  scheduled_change: {
+    plan_id: 'pln_k2m8q4r6t1v3x5z7a1b2c',
+    change_at: '2026-03-01T00:00:00.000Z',
+    keep_channel_account_ids: ['cha_a1b2c3d4e5f6g7h8i9j0k'],
+  },
   created_at: '2026-01-15T10:30:00.000Z',
   updated_at: '2026-02-01T00:00:00.000Z',
 };
@@ -136,14 +158,41 @@ export const planAccessSchema = {
       nullable: true,
       description: 'When the 7-day trial ends while it runs; null otherwise.',
     },
+    plan: {
+      type: 'object',
+      nullable: true,
+      description: 'The plan whose features apply; null only with no Free plan in the catalog.',
+      properties: { id: { type: 'string' }, name: { type: 'string' } },
+      required: ['id', 'name'],
+    },
+    features: {
+      ...planSchema.properties.features,
+      nullable: true,
+      description: "That plan's typed features; null exactly when `plan` is.",
+    },
+    is_plan_choice_required: {
+      type: 'boolean',
+      description:
+        'True while the subscription is on a switched-off plan (Starter, Growth, Pro): the organization is held to Free until it picks Creator or Studio.',
+    },
   },
-  required: ['state', 'grace_ends_at', 'trial_ends_at'],
+  required: [
+    'state',
+    'grace_ends_at',
+    'trial_ends_at',
+    'plan',
+    'features',
+    'is_plan_choice_required',
+  ],
 };
 
 export const planAccessExample = {
   state: 'grace',
   grace_ends_at: '2026-10-31T09:30:00.000Z',
   trial_ends_at: null,
+  plan: { id: 'pln_j5h8t3rwy6m1k9n2a1b2c', name: 'Creator' },
+  features: planExample.features,
+  is_plan_choice_required: false,
 };
 
 export const webhookReceivedSchema = {

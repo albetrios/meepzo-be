@@ -86,7 +86,8 @@ through a resolver that sees deleted organizations.
 | Action | Resource type | When |
 | ------ | ------------- | ---- |
 | `billing.subscription.create` | `subscription` | Subscription started (`metadata.plan_public_id`) |
-| `billing.subscription.change_plan` | `subscription` | Plan changed (`metadata.plan_public_id` is the new plan) |
+| `billing.subscription.trial_start` | `subscription` | The 7-day no-card trial started (WARNING; `metadata.plan_public_id`, `channel_account_count` — the Instagram accounts it covers) |
+| `billing.subscription.change_plan` | `subscription` | Plan changed (`metadata.plan_public_id` is the plan now; `is_scheduled` — a move down waiting for the period end; `scheduled_change_at`; `kept_channel_account_count`) |
 | `billing.subscription.cancel` | `subscription` | Cancellation requested |
 | `billing.subscription.resume` | `subscription` | Cancellation withdrawn |
 

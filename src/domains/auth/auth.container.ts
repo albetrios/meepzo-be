@@ -47,7 +47,7 @@ export function createAuthContainer({
   /** Launch ROUTE #4: the caller's roles for /auth/me/context; the worker process omits it. */
   membershipService?: MembershipService;
   /** Owner decision D3: the active organization's `plan_access` for /auth/me/context; the worker omits it. */
-  planAccessService?: Pick<SubscriptionService, 'getPlanAccess'>;
+  planAccessService?: Pick<SubscriptionService, 'getPlanAccess' | 'countConnectedChannelAccounts'>;
 }): AuthContainer {
   const authMethodRepository = new AuthMethodRepository();
   const verificationTokenRepository = new VerificationTokenRepository();

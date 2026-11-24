@@ -62,7 +62,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         schema: {
           summary: 'Create subscription',
           description:
-            'Creates a new subscription for the organization. Only one active subscription is allowed. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.',
+            "Creates a new subscription for the organization — or, with `is_trial: true`, starts the 7-day no-card trial of a paid plan (Creator or Studio): the plan's features at once, `trial_end` 7 days ahead, Stripe cancels it at the end unless a card was added. One trial per organization and per Instagram account, ever (`409 trial_already_used`); `422 plan_has_no_trial` on Free. Only one active subscription is allowed. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.",
           tags: ['Subscription'],
           body: CreateSubscriptionDto,
         },
@@ -81,7 +81,7 @@ export function subscriptionRoutes(service: SubscriptionService): FastifyPluginA
         schema: {
           summary: 'Change subscription plan',
           description:
-            'Upgrades or downgrades the subscription to a different plan. Proration is applied automatically. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.',
+            "Changes the subscription's plan. A dearer plan applies at once with proration. A cheaper plan or Free waits for the period end (a Stripe subscription schedule; Free cancels at the period end) — the answer carries `scheduled_change`, and `keep_channel_account_ids` (0–10 of this organization's connected `cha_…` accounts, at most the new plan's limit) picks the accounts that stay active (none given: the oldest connected). The current plan again takes the scheduled move back. Requires SUBSCRIPTION_MANAGE permission. Send an `X-Idempotency-Key` header (min 16 characters) on this write — the key is forwarded to Stripe when billing is configured. See docs/reference/reliability/idempotency.md.",
           tags: ['Subscription'],
           params: subscriptionIdParamsDto,
           body: ChangePlanDto,

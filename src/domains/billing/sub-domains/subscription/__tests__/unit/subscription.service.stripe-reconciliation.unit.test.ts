@@ -111,6 +111,7 @@ describe('SubscriptionService — Stripe reconciliation (sec-B1+B2+B3+B4)', () =
 
   const repository = {
     findActiveByOrganization: vi.fn().mockResolvedValue(null),
+    findPlanAccessSubject: vi.fn().mockResolvedValue(null),
     findByPublicId: vi.fn().mockResolvedValue(subscription),
     create: vi.fn().mockResolvedValue(subscription),
     update: vi.fn().mockResolvedValue(subscription),

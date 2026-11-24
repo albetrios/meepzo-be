@@ -13,6 +13,7 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { uploads } from '@/domains/upload/upload.schema.js';
 import { notifications } from '@/domains/notify/sub-domains/notification/notification.schema.js';
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
+import { trial_accounts } from '@/domains/billing/sub-domains/subscription/trial-account.schema.js';
 import { logs } from '@/domains/audit/audit.schema.js';
 import { organization_settings } from '@/domains/tenancy/sub-domains/organization/organization-settings/organization-settings.schema.js';
 import { organization_notification_policies } from '@/domains/tenancy/sub-domains/organization/organization-notification-policy/organization-notification-policy.schema.js';
@@ -473,6 +474,32 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(tableKey({ schemaName: 'billing', tableName: 'subscriptions' }), {
     organizationA: subscriptionA!.id,
     organizationB: subscriptionB!.id,
+  });
+
+  // feat-instagram-dm-sending R24 (BL7): one trial account row per organization.
+  const [trialAccountA] = await database
+    .insert(trial_accounts)
+    .values({
+      public_id: generatePublicId('trialAccount'),
+      organization_id: organizationA.id,
+      instagram_user_id: '17841400000000771',
+      plan_id: plan.id,
+      subscription_id: subscriptionA!.id,
+    })
+    .returning();
+  const [trialAccountB] = await database
+    .insert(trial_accounts)
+    .values({
+      public_id: generatePublicId('trialAccount'),
+      organization_id: organizationB.id,
+      instagram_user_id: '17841400000000772',
+      plan_id: plan.id,
+      subscription_id: subscriptionB!.id,
+    })
+    .returning();
+  rowIdsByTable.set(tableKey({ schemaName: 'billing', tableName: 'trial_accounts' }), {
+    organizationA: trialAccountA!.id,
+    organizationB: trialAccountB!.id,
   });
 
   const [auditA] = await database

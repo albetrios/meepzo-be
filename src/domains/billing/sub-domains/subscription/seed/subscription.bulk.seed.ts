@@ -8,6 +8,11 @@
  * dataset still covers every live status) and the remaining rows are `CANCELED`. Across the run
  * every value of the `chk_subs_status` constraint is exercised.
  *
+ * feat-instagram-dm-sending (R24): a `TRIALING` live row also gets its `billing.trial_accounts` row (a
+ * synthetic Instagram user id derived from the organization id — the table keeps a copied id, no key),
+ * and an `ACTIVE` live row of every third organization carries a scheduled move down to the cheapest
+ * plan at its period end (`scheduled_plan_id`, `scheduled_change_at`, `downgrade_keep` `[]`).
+ *
  * Idempotency: every bulk row carries a deterministic marker `provider_subscription_id` of the
  * form `sub_bulk_<organizationId>_<index>`. The seeder counts existing markers per organization and only
  * creates the missing higher indices, so a re-run with the same counts is a no-op.
@@ -16,6 +21,7 @@ import { and, eq, like } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { plans } from '@/domains/billing/sub-domains/plan/plan.schema.js';
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
+import { trial_accounts } from '@/domains/billing/sub-domains/subscription/trial-account.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import type { SeedContext, SeededOrg } from '@/scripts/seed/seed-contract.js';
 import { generateBulkSubscriptionWindow } from './subscription.faker.js';
@@ -66,7 +72,10 @@ export async function seedSubscriptionsBulk(context: SeedContext): Promise<void>
     return;
   }
 
-  const planPool: PlanReference[] = await database.select({ id: plans.id }).from(plans);
+  const planPool: PlanReference[] = await database
+    .select({ id: plans.id })
+    .from(plans)
+    .orderBy(plans.price_monthly, plans.id);
   if (planPool.length === 0) {
     context.logger.warn(
       'seed.bulk.subscription: empty plan catalog; run the plan reference seed first',
@@ -124,22 +133,46 @@ async function seedSubscriptionsForOrganization(options: {
     const plan = planPool[(organizationIndex + index) % planPool.length] as PlanReference;
     const window = generateBulkSubscriptionWindow(context.faker);
 
-    await database.insert(subscriptions).values({
-      public_id: generatePublicId('subscription'),
-      organization_id: organization.id,
-      plan_id: plan.id,
-      provider: BULK_PROVIDER,
-      provider_subscription_id: `${bulkPrefixForOrganization(organization.id)}${index}`,
-      provider_customer_id: `cus_bulk_${organization.id}`,
-      billing_cycle: window.billing_cycle,
-      status,
-      current_period_start: window.current_period_start,
-      current_period_end: window.current_period_end,
-      trial_end: status === 'TRIALING' ? window.current_period_end : null,
-      cancel_at_period_end: status === 'CANCELED',
-      canceled_at: status === 'CANCELED' ? window.current_period_start : null,
-      created_by_user_id: organization.ownerUserId,
-    });
+    // R24: every third organization's ACTIVE row waits to move down to the cheapest plan.
+    const scheduledPlan =
+      status === 'ACTIVE' && organizationIndex % 3 === 0 && plan.id !== planPool[0]?.id
+        ? planPool[0]
+        : undefined;
+    const [inserted] = await database
+      .insert(subscriptions)
+      .values({
+        public_id: generatePublicId('subscription'),
+        organization_id: organization.id,
+        plan_id: plan.id,
+        provider: BULK_PROVIDER,
+        provider_subscription_id: `${bulkPrefixForOrganization(organization.id)}${index}`,
+        provider_customer_id: `cus_bulk_${organization.id}`,
+        billing_cycle: window.billing_cycle,
+        status,
+        current_period_start: window.current_period_start,
+        current_period_end: window.current_period_end,
+        trial_end: status === 'TRIALING' ? window.current_period_end : null,
+        cancel_at_period_end: status === 'CANCELED',
+        canceled_at: status === 'CANCELED' ? window.current_period_start : null,
+        created_by_user_id: organization.ownerUserId,
+        scheduled_plan_id: scheduledPlan?.id ?? null,
+        scheduled_change_at: scheduledPlan ? window.current_period_end : null,
+        downgrade_keep: scheduledPlan ? [] : null,
+      })
+      .returning({ id: subscriptions.id });
+    if (status === 'TRIALING' && inserted) {
+      await database
+        .insert(trial_accounts)
+        .values({
+          public_id: generatePublicId('trialAccount'),
+          organization_id: organization.id,
+          instagram_user_id: `178414${String(organization.id).padStart(9, '0')}`,
+          plan_id: plan.id,
+          subscription_id: inserted.id,
+          started_at: window.current_period_start,
+        })
+        .onConflictDoNothing({ target: trial_accounts.instagram_user_id });
+    }
     created += 1;
   }
 

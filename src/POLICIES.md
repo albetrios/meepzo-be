@@ -194,6 +194,26 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → a broken event retries longer before anyone is told.
 - **Last reviewed**: 2026-10-05
 
+## PAID_TRIAL_DAYS
+
+- **Value**: 7 days
+- **Source**: [src/domains/billing/sub-domains/subscription/subscription.constants.ts](src/domains/billing/sub-domains/subscription/subscription.constants.ts)
+- **Rationale**: The no-card trial of a paid plan (Creator or Studio — feat-instagram-dm-sending routes-final § 8 BL7, D73): `POST /billing/subscriptions` with `is_trial` sends it to Stripe as `trial_period_days`, writes `trial_end` = now + 7 days and gives the plan's features at once. One trial per organization and per Instagram account, ever (`billing.trial_accounts`). Not environment-varying (P4).
+- **Consequences of change**:
+  - Decreasing → less time to try the paid switches before Stripe cancels an unpaid trial.
+  - Increasing → longer free use of the paid plans; the plan-state check's notices (`TRIAL_NOTICE_DAYS`) still fire 3 and 1 days before the end.
+- **Last reviewed**: 2026-11-24
+
+## TRIAL_NOTICE_DAYS
+
+- **Value**: 3 and 1 days before `trial_end`
+- **Source**: [src/domains/billing/sub-domains/subscription/subscription.constants.ts](src/domains/billing/sub-domains/subscription/subscription.constants.ts)
+- **Rationale**: The days on which a trial's billing recipients get the "trial ending" notice (BL17), sent once per subscription and day by the plan-state check (WC-59). Stripe's own `trial_will_end` fires only once, 3 days ahead, so the check sends both.
+- **Consequences of change**:
+  - Adding a day → one more notice per trial (its own dedupe key).
+  - Removing the 1-day notice → an owner who missed the first may lose the plan without warning.
+- **Last reviewed**: 2026-11-24
+
 ## INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS
 
 - **Value**: 5 attempts

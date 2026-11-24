@@ -17,4 +17,17 @@ export const ACTIVE_PLAN_ACCESS: Readonly<PlanAccess> = Object.freeze({
   trialEndsAt: null,
   plan: null,
   features: null,
+  isPlanChoiceRequired: false,
 });
+
+/**
+ * Length of the no-card trial of a paid plan, in days (routes-final § 8 BL7, D73) — Stripe's
+ * `trial_period_days`. A billing constant, not environment-varying (P4).
+ */
+export const PAID_TRIAL_DAYS = 7;
+
+/**
+ * Days before a trial's end on which its billing recipients get the "trial ending" notice (BL17) —
+ * sent by the plan-state check (WC-59, ROUTE row R52), once per subscription and day.
+ */
+export const TRIAL_NOTICE_DAYS: readonly number[] = Object.freeze([3, 1]);

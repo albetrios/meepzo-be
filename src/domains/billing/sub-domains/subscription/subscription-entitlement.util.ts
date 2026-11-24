@@ -98,14 +98,39 @@ function planEntitlement(plan: PlanAccessPlan | null): Pick<PlanAccess, 'plan' |
  *   {@link entitlementGraceEndsAt} (`current_period_end + BILLING_DUNNING_GRACE_DAYS`), then
  *   `read_only` on Free. A **cancelled paid plan** ends at its period end with no grace: `active` on
  *   its plan until `current_period_end`, then `read_only` on Free ("plan ended"). A switched-off old
- *   plan row carries Free's features itself (P80), so it needs no case here. A missing plan row
+ *   plan row carries Free's features itself (P80), so it needs no case here — only
+ *   `isPlanChoiceRequired` names it (BL24: a live row on a switched-off plan). A missing plan row
  *   reads as Free.
  * - **`isReadOnlyEnforced` false** (`BILLING_READ_ONLY_ENFORCED` off): the state is always `active`
  *   with no grace date; the plan and features are decided as above.
  * - **Failure modes:** none — pure. `plan` and `features` are `null` only when the catalog has no
  *   Free plan and the subscription grants none.
  */
-export function resolvePlanAccess({
+export function resolvePlanAccess(options: {
+  subject: PlanAccessSubject | null;
+  now: Date;
+  isReadOnlyEnforced: boolean;
+}): PlanAccess {
+  return {
+    ...resolvePlanEntitlement(options),
+    isPlanChoiceRequired: isPlanChoiceRequired(options.subject),
+  };
+}
+
+/**
+ * BL24 (P80): the organization's live subscription points at a switched-off plan row (Starter,
+ * Growth, Pro) — it is held to Free's features until it picks Creator or Studio. A terminal row, no
+ * row or a PERSONAL organization never requires a choice.
+ */
+function isPlanChoiceRequired(subject: PlanAccessSubject | null): boolean {
+  const subscription = subject?.subscription;
+  if (!(subject && subscription?.plan) || isPersonalOrganization(subject.organization)) {
+    return false;
+  }
+  return !(TERMINAL_STATUSES.has(subscription.status) || subscription.plan.is_active);
+}
+
+function resolvePlanEntitlement({
   subject,
   now,
   isReadOnlyEnforced,
@@ -113,7 +138,7 @@ export function resolvePlanAccess({
   subject: PlanAccessSubject | null;
   now: Date;
   isReadOnlyEnforced: boolean;
-}): PlanAccess {
+}): Omit<PlanAccess, 'isPlanChoiceRequired'> {
   if (!subject) return ACTIVE_PLAN_ACCESS;
   const onFree = planEntitlement(subject.freePlan);
   const active = ({
@@ -122,7 +147,7 @@ export function resolvePlanAccess({
   }: {
     entitlement: Pick<PlanAccess, 'plan' | 'features'>;
     trialEndsAt?: Date | null;
-  }): PlanAccess => ({
+  }): Omit<PlanAccess, 'isPlanChoiceRequired'> => ({
     state: PLAN_ACCESS_STATE.ACTIVE,
     graceEndsAt: null,
     trialEndsAt,
@@ -136,7 +161,7 @@ export function resolvePlanAccess({
   if (!(subscriptionPlan && isPaidPlan({ plan: subscriptionPlan })))
     return active({ entitlement: onFree });
   const onPlan = planEntitlement(subscriptionPlan);
-  const ended = (graceEndsAt: Date): PlanAccess =>
+  const ended = (graceEndsAt: Date): Omit<PlanAccess, 'isPlanChoiceRequired'> =>
     isReadOnlyEnforced
       ? { state: PLAN_ACCESS_STATE.READ_ONLY, graceEndsAt, trialEndsAt: null, ...onFree }
       : active({ entitlement: onFree });

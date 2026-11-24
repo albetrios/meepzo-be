@@ -31,8 +31,23 @@ interface SubscriptionRow {
    * {@link SubscriptionService}.
    */
   seats_used: number;
+  /** BL5: the scheduled plan's public id (joined), `null` with no scheduled change. */
+  scheduled_plan_public_id?: string | null;
+  scheduled_change_at?: Date | string | null;
+  /** BL6: the `cha_…` ids kept active after the move down. */
+  downgrade_keep?: string[] | null;
   created_at: Date | string;
   updated_at: Date | string;
+}
+
+/** The move down waiting for the period end (8.B.6), or `null`. */
+function serializeScheduledChange(row: SubscriptionRow) {
+  if (!(row.scheduled_plan_public_id && row.scheduled_change_at)) return null;
+  return {
+    plan_id: row.scheduled_plan_public_id,
+    change_at: toIsoString(row.scheduled_change_at),
+    keep_channel_account_ids: row.downgrade_keep ?? [],
+  };
 }
 
 function toIsoString(value: Date | string | null | undefined): string | null {
@@ -73,6 +88,9 @@ function serializeOne<T extends SubscriptionRow>(row: T) {
     // ACTIVE + INVITED memberships so the FE can render "N of M seats used".
     seats_total: row.seats_total ?? null,
     seats_used: row.seats_used,
+    // feat-instagram-dm-sending 8.B.6: the move down waiting for the period end, and the trial.
+    scheduled_change: serializeScheduledChange(row),
+    is_trial: row.status === 'TRIALING',
     created_at: toIsoString(row.created_at),
     updated_at: toIsoString(row.updated_at),
   };
@@ -94,14 +112,18 @@ export const SubscriptionSerializer = {
 
 /**
  * Serializes an organization's {@link PlanAccess} into the public `plan_access` body
- * (`active_organization.plan_access` on `GET /auth/me/context`): snake_case keys, an ISO 8601
- * `grace_ends_at` (`null` when the organization is `active`) and `trial_ends_at` (`null` unless a
- * trial runs).
+ * (`active_organization.plan_access` on `GET /auth/me/context` and the organization switches,
+ * routes-final BL16): snake_case keys, an ISO 8601 `grace_ends_at` (`null` when the organization is
+ * `active`) and `trial_ends_at` (`null` unless a trial runs), the plan (`{ id, name }`), its typed
+ * `features` and `is_plan_choice_required` (BL24).
  */
 export function serializePlanAccess(access: PlanAccess): PlanAccessOutput {
   return {
     state: access.state,
     grace_ends_at: toIsoString(access.graceEndsAt),
     trial_ends_at: toIsoString(access.trialEndsAt),
+    plan: access.plan ? { id: access.plan.publicId, name: access.plan.name } : null,
+    features: access.features,
+    is_plan_choice_required: access.isPlanChoiceRequired,
   };
 }

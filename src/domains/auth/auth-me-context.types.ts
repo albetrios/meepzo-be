@@ -13,6 +13,11 @@ export interface AuthMeContextData {
   activeOrganization: OrganizationOutput | null;
   /** The active organization's plan access (owner decision D3); `null` without an active organization. */
   planAccess: PlanAccess | null;
+  /**
+   * The active organization's not-revoked channel accounts (feat-instagram-dm-sending BL16, billing's
+   * accounts port); `null` without an active organization.
+   */
+  channelAccountsCount: number | null;
   /** The caller's membership in the active organization (`mem_…`); `null` without one (N10). */
   membershipId: string | null;
   myPermissions: string[];
@@ -33,6 +38,11 @@ export type AuthMeContextActiveOrganizationOutput = OrganizationOutput & {
    * launch D27).
    */
   plan_access: PlanAccessOutput;
+  /**
+   * How many not-revoked channel accounts the organization has (feat-instagram-dm-sending BL16) — the
+   * "being set up" notice of the billing screen.
+   */
+  channel_accounts_count: number;
 };
 
 /** Public response body for `GET /api/v1/auth/me/context`. */

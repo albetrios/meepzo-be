@@ -34,11 +34,15 @@ const APP_PREFIX = `${buildPublicApiPrefix(PUBLIC_API_VERSION_SEGMENT_V1)}/app`;
 describe('app domain wiring', () => {
   const organizationService = {} as OrganizationService;
   const planAccessService = { getPlanAccess: vi.fn() };
+  const trialPort = { assertAccountsMayTrial: vi.fn(), recordTrialAccounts: vi.fn() };
 
   it('registerAppContainer decorates appDomain with the Instagram account, contact, automation, run engine and webhook services', async () => {
     const application = Fastify();
     application.decorate('tenancyDomain', { organizationService } as never);
-    application.decorate('billingDomain', { subscriptionService: planAccessService } as never);
+    application.decorate('billingDomain', {
+      subscriptionService: planAccessService,
+      subscriptionTrialService: trialPort,
+    } as never);
     registerAppContainer(application);
 
     expect(Object.keys(application.appDomain).sort()).toEqual([
@@ -66,7 +70,7 @@ describe('app domain wiring', () => {
     );
     expect(application.appDomain.instagramWebhookService).toBeInstanceOf(InstagramWebhookService);
     expect(
-      createAppContainer({ organizationService, planAccessService })
+      createAppContainer({ organizationService, planAccessService, trialPort })
         .instagramAccountSettingsService,
     ).toBeInstanceOf(InstagramAccountSettingsService);
     expect(application.appDomain.instagramMediaService).toBeInstanceOf(InstagramMediaService);
@@ -87,7 +91,7 @@ describe('app domain wiring', () => {
     application.decorate('authenticate', async () => undefined);
     application.decorate(
       'appDomain',
-      createAppContainer({ organizationService, planAccessService }),
+      createAppContainer({ organizationService, planAccessService, trialPort }),
     );
     // The automation writes' read-only guard reads billing's subscription service (AQ8).
     application.decorate('billingDomain', {
@@ -113,6 +117,8 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/social/channel-accounts/:channel_account_id`,
       `GET ${APP_PREFIX}/social/channel-connections`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
+      `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ad-accounts`,
+      `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id/ads`,
       `GET ${APP_PREFIX}/social/instagram/media`,
       `GET ${APP_PREFIX}/social/instagram/stories`,
       `GET ${APP_PREFIX}/social/instagram/webhook`,

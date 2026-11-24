@@ -145,6 +145,7 @@ src/
     │   │   │   │   └── index.ts
     │   │   │   ├── channel-account-capabilities.constants.ts
     │   │   │   ├── channel-account-error.util.ts
+    │   │   │   ├── channel-account-plan-stop.service.ts
     │   │   │   ├── channel-account.constants.ts
     │   │   │   ├── channel-account.controller.ts
     │   │   │   ├── channel-account.dto.ts
@@ -833,6 +834,7 @@ src/
     │   │   │       │   ├── subscription-refusals.integration.test.ts
     │   │   │       │   ├── subscription-seat-ceiling.integration.test.ts
     │   │   │       │   ├── subscription-seat-entitlement.integration.test.ts
+    │   │   │       │   ├── subscription-trial-move-down.integration.test.ts
     │   │   │       │   └── subscription.integration.test.ts
     │   │   │       └── unit/
     │   │   │       │   ├── billing-account.serializer.unit.test.ts
@@ -840,11 +842,13 @@ src/
     │   │   │       │   ├── stripe-payment-provider.email.unit.test.ts
     │   │   │       │   ├── subscription-entitlement.util.unit.test.ts
     │   │   │       │   ├── subscription-period.util.unit.test.ts
+    │   │   │       │   ├── subscription-plan-change.util.unit.test.ts
     │   │   │       │   ├── subscription-routes-rate-limit.policy.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.job.schema.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.processor.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.queue.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.worker.unit.test.ts
+    │   │   │       │   ├── subscription-trial.service.unit.test.ts
     │   │   │       │   ├── subscription.controller.auth-matrix.unit.test.ts
     │   │   │       │   ├── subscription.controller.unit.test.ts
     │   │   │       │   ├── subscription.repository.db.unit.test.ts
@@ -879,6 +883,8 @@ src/
     │   │   │   ├── stripe-payment-provider.ts
     │   │   │   ├── subscription-entitlement.util.ts
     │   │   │   ├── subscription-period.util.ts
+    │   │   │   ├── subscription-plan-change.util.ts
+    │   │   │   ├── subscription-trial.service.ts
     │   │   │   ├── subscription.constants.ts
     │   │   │   ├── subscription.controller.ts
     │   │   │   ├── subscription.dto.ts
@@ -889,7 +895,9 @@ src/
     │   │   │   ├── subscription.serializer.ts
     │   │   │   ├── subscription.service.ts
     │   │   │   ├── subscription.types.ts
-    │   │   │   └── subscription.validator.ts
+    │   │   │   ├── subscription.validator.ts
+    │   │   │   ├── trial-account.repository.ts
+    │   │   │   └── trial-account.schema.ts
     │   ├── billing.container.ts
     │   ├── billing.overview.md
     │   ├── billing.permissions.ts

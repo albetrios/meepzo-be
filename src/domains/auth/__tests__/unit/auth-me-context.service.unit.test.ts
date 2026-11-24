@@ -242,7 +242,16 @@ describe('AuthMeContextService.getActiveOrganizationContext', () => {
       // No plan access service in this harness: the organization reads `active` (owner decision D3).
       active_organization: {
         ...activeOrganization,
-        plan_access: { state: 'active', grace_ends_at: null, trial_ends_at: null },
+        plan_access: {
+          state: 'active',
+          grace_ends_at: null,
+          trial_ends_at: null,
+          plan: null,
+          features: null,
+          is_plan_choice_required: false,
+        },
+        // No billing in this harness: no accounts port, so no accounts (BL16).
+        channel_accounts_count: 0,
       },
       my_permissions: ['organization:read', 'membership:manage'],
       global_role: null,
@@ -263,7 +272,15 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
     },
     authorizationService: { resolveUserOrganizationPermissions: vi.fn().mockResolvedValue([]) },
     planAccessService: {
-      getPlanAccess: vi.fn().mockResolvedValue({ state: 'read_only', graceEndsAt }),
+      getPlanAccess: vi.fn().mockResolvedValue({
+        state: 'read_only',
+        graceEndsAt,
+        trialEndsAt: null,
+        plan: null,
+        features: null,
+        isPlanChoiceRequired: false,
+      }),
+      countConnectedChannelAccounts: vi.fn().mockResolvedValue(3),
     },
   });
 
@@ -282,7 +299,8 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
     expect(wired.planAccessService.getPlanAccess).toHaveBeenCalledExactlyOnceWith({
       organizationPublicId: 'org_active',
     });
-    expect(data.planAccess).toEqual({ state: 'read_only', graceEndsAt });
+    expect(data.planAccess).toMatchObject({ state: 'read_only', graceEndsAt });
+    expect(data.channelAccountsCount).toBe(3);
   });
 
   it('getContext reads none without an active organization', async () => {
@@ -324,6 +342,10 @@ describe('AuthMeContextService plan access (owner decision D3)', () => {
       state: 'read_only',
       grace_ends_at: '2026-10-31T09:30:00.000Z',
       trial_ends_at: null,
+      plan: null,
+      features: null,
+      is_plan_choice_required: false,
     });
+    expect(data.active_organization.channel_accounts_count).toBe(3);
   });
 });

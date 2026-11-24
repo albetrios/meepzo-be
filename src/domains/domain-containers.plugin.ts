@@ -40,6 +40,12 @@ async function registerDomainContainers(application: FastifyInstance): Promise<v
     webhookPayloadErasure: application.notifyDomain.webhookService,
   });
 
+  // feat-instagram-dm-sending § 8.10: billing never reads app tables — its accounts port is the app's
+  // channel account service, built after billing, so it is wired here (no container cycle).
+  application.billingDomain.subscriptionService.wireChannelAccounts(
+    application.appDomain.channelAccountService,
+  );
+
   application.tenancyDomain.organizationService.wireOffboardingUploadService({
     uploadService: application.uploadDomain.uploadService,
     subscriptionService: application.billingDomain.subscriptionService,

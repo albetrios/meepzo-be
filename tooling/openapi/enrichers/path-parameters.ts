@@ -33,6 +33,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   automation: 'automation',
   automationRun: 'automation run',
   automationCommentLog: 'automation comment log',
+  trialAccount: 'trial account',
 };
 
 /** Stable, realistic 21-char example core (alphabet [a-z0-9]). */

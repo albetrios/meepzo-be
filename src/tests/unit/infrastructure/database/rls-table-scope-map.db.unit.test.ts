@@ -100,6 +100,7 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'auth.users': ['app.current_user_public_id', 'app.global_admin', 'app.global_retention_cleanup'],
   'auth.webauthn_credentials': ['app.current_user_public_id'],
   'billing.subscriptions': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  'billing.trial_accounts': ['app.current_organization_public_id'],
   'notify.notifications': [
     'app.current_organization_public_id',
     'app.current_user_public_id',

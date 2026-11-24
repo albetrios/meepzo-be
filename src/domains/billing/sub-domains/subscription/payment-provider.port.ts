@@ -37,6 +37,8 @@ export interface PaymentProvider {
     /** Seats billed from the first invoice (the organization's current members, at least 1). */
     quantity?: number;
     trialEnd?: string;
+    /** The no-card trial of a paid plan, in days (feat-instagram-dm-sending BL7); omitted otherwise. */
+    trialPeriodDays?: number;
     idempotencyKey?: string;
   }): Promise<PaymentProviderCreateResult>;
 
@@ -72,6 +74,22 @@ export interface PaymentProvider {
   updateSubscriptionQuantity(options: {
     providerSubscriptionId: string;
     quantity: number;
+    idempotencyKey?: string | undefined;
+  }): Promise<void>;
+
+  /**
+   * Moves the subscription to `providerPriceId` at the end of its current period (a move down, BL5 —
+   * a Stripe subscription schedule, P77); a second call replaces the target.
+   */
+  schedulePriceChangeAtPeriodEnd(options: {
+    providerSubscriptionId: string;
+    providerPriceId: string;
+    idempotencyKey?: string | undefined;
+  }): Promise<void>;
+
+  /** Takes back a scheduled price change, if any (BL5, BL15); the current price and period stay. */
+  releaseScheduledPriceChange(options: {
+    providerSubscriptionId: string;
     idempotencyKey?: string | undefined;
   }): Promise<void>;
 

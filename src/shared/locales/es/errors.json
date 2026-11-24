@@ -295,5 +295,9 @@
   "emailCodeUsedUp": "Demasiados intentos fallidos con este código. Pide un código nuevo.",
   "emailCodeDayLimit": "Demasiados códigos incorrectos para este correo hoy. Inténtalo más tarde o entra de otra forma.",
   "emailCodeResendTooSoon": "Acabamos de enviar un código. Espera un momento antes de pedir otro.",
-  "emailCodeAlwaysOn": "El acceso con código por correo siempre está activo y no se puede quitar."
+  "emailCodeAlwaysOn": "El acceso con código por correo siempre está activo y no se puede quitar.",
+  "trialAlreadyUsed": "Este espacio de trabajo, o una de sus cuentas de Instagram, ya tuvo una prueba gratuita.",
+  "planHasNoTrial": "Solo un plan de pago tiene prueba gratuita.",
+  "trialUsedByAccount": "Una de estas cuentas de Instagram ya tuvo una prueba gratuita, así que no puede unirse a esta.",
+  "keepChannelAccountsInvalid": "Elige solo cuentas conectadas de este espacio de trabajo, como máximo las que permite el nuevo plan, y solo al pasar a un plan menor."
 }

@@ -1,3 +1,4 @@
+import { readChannelAccountRows } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
@@ -174,7 +175,11 @@ describe('Channel connection ad picker (routes 41, 15)', () => {
 
   it("lists one ad account's ads with Meta's paging and the account each runs as (AC-1.13, P57)", async () => {
     const { channelConnectionPublicId, accounts, rows } = await connectTwoAccounts();
-    const runningAs = rows.find((row) => row.instagram_user_id === accounts[0]?.id);
+    // Since R5 an ad runs as the channel account (`cha_…`), found by its provider id.
+    void rows;
+    const runningAs = (await readChannelAccountRows(team.organization.id)).find(
+      (row) => row.provider_account_id === accounts[0]?.id,
+    );
     mockAdAccounts();
     const adsCall = nock(META_GRAPH_BASE_URL)
       .get(`${GRAPH_PATH}/act_${AD_ACCOUNT_ID}/ads`)

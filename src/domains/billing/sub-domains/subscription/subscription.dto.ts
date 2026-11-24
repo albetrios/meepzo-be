@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { PAGINATION } from '@/shared/constants/pagination.constants.js';
 import { trimmedString, trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
+import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
+
+/** The most channel accounts a move down may keep — Studio's limit (routes-final § 8.B.8). */
+const KEEP_CHANNEL_ACCOUNT_IDS_MAX = 10;
 
 /** Zod schema for the `:subscription_id` path param (get/update/change-plan/cancel/resume). */
 export const subscriptionIdParamsDto = z
@@ -9,11 +13,15 @@ export const subscriptionIdParamsDto = z
   })
   .strict();
 
-/** Zod schema for `POST /api/v1/billing/subscriptions` request body. */
+/**
+ * Zod schema for `POST /api/v1/billing/subscriptions` request body — with `is_trial: true` it starts
+ * the 7-day no-card trial of a paid plan (routes-final § 8.B BL14).
+ */
 export const CreateSubscriptionDto = z
   .object({
     plan_id: trimmedString().max(255),
     billing_cycle: z.enum(['monthly', 'yearly']),
+    is_trial: z.boolean().optional(),
   })
   .strict();
 
@@ -21,12 +29,22 @@ export const CreateSubscriptionDto = z
 export type CreateSubscriptionInput = z.infer<typeof CreateSubscriptionDto>;
 
 /**
- * Zod schema for `POST /api/v1/billing/subscriptions/:subscription_id/change-plan`
- * — accepts the target plan's `public_id`.
+ * Zod schema for `POST /api/v1/billing/subscriptions/:subscription_id/change-plan` — the target plan's
+ * `public_id` and, on a move down, the channel accounts to keep active after the period end
+ * (`keep_channel_account_ids`: 0–10 `cha_…` ids, no repeats — routes-final § 8.B BL6, BL15).
  */
 export const ChangePlanDto = z
   .object({
     plan_id: trimmedString().max(255),
+    keep_channel_account_ids: z
+      .array(
+        z.string().regex(publicIdPatternFor('channelAccount'), 'errors:validation.invalidPublicId'),
+      )
+      .max(KEEP_CHANNEL_ACCOUNT_IDS_MAX)
+      .refine((identifiers) => new Set(identifiers).size === identifiers.length, {
+        message: 'errors:validation.eachValueOnce',
+      })
+      .optional(),
   })
   .strict();
 

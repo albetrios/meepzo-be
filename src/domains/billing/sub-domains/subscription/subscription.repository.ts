@@ -30,6 +30,7 @@ import type {
 function toPlanAccessPlan(columns: {
   public_id: string | null;
   name: string | null;
+  is_active: boolean | null;
   price_monthly: string | null;
   price_yearly: string | null;
   features: unknown;
@@ -37,6 +38,7 @@ function toPlanAccessPlan(columns: {
   if (
     columns.public_id === null ||
     columns.name === null ||
+    columns.is_active === null ||
     columns.price_monthly === null ||
     columns.price_yearly === null
   ) {
@@ -45,6 +47,7 @@ function toPlanAccessPlan(columns: {
   return {
     public_id: columns.public_id,
     name: columns.name,
+    is_active: columns.is_active,
     price_monthly: columns.price_monthly,
     price_yearly: columns.price_yearly,
     features: planFeaturesSchema.parse(columns.features),
@@ -94,6 +97,13 @@ const subscriptionRowWithPlanPublicId = {
   created_by_user_id: subscriptions.created_by_user_id,
   updated_by_user_id: subscriptions.updated_by_user_id,
   last_stripe_event_created_at: subscriptions.last_stripe_event_created_at,
+  scheduled_plan_id: subscriptions.scheduled_plan_id,
+  scheduled_change_at: subscriptions.scheduled_change_at,
+  downgrade_keep: subscriptions.downgrade_keep,
+  /** The scheduled plan's public id (BL5), read through a sub-select — `null` with no scheduled change. */
+  scheduled_plan_public_id: sql<
+    string | null
+  >`(SELECT scheduled_plan.public_id FROM billing.plans AS scheduled_plan WHERE scheduled_plan.id = ${subscriptions.scheduled_plan_id})`,
   plan_public_id: plans.public_id,
   // REQ-4: the joined plan's seat allowance — the fallback for seats_total when the
   // subscription has no Stripe-synced `seats` yet.
@@ -280,6 +290,24 @@ export class SubscriptionRepository {
    *   when the catalog has no Free plan.
    * - **Side effects:** none — read-only, under the caller's organization context.
    */
+  /**
+   * Whether the organization ever had a trial (BL7): a subscription row of it with `trial_end` set —
+   * rows are never deleted (billing ledgers). Served by `idx_subscriptions_org_trialled`.
+   */
+  async hasOrganizationTrialled(organization_id: number): Promise<boolean> {
+    const rows = await this.db()
+      .select({ id: subscriptions.id })
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.organization_id, organization_id),
+          sql`${subscriptions.trial_end} IS NOT NULL`,
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   async findPlanAccessSubject(organization_public_id: string): Promise<PlanAccessSubject | null> {
     const freePlan = alias(plans, 'free_plan');
     const rows = await this.db()
@@ -290,11 +318,13 @@ export class SubscriptionRepository {
         subscription_trial_end: subscriptions.trial_end,
         plan_public_id: plans.public_id,
         plan_name: plans.name,
+        plan_is_active: plans.is_active,
         plan_price_monthly: plans.price_monthly,
         plan_price_yearly: plans.price_yearly,
         plan_features: plans.features,
         free_plan_public_id: freePlan.public_id,
         free_plan_name: freePlan.name,
+        free_plan_is_active: freePlan.is_active,
         free_plan_price_monthly: freePlan.price_monthly,
         free_plan_price_yearly: freePlan.price_yearly,
         free_plan_features: freePlan.features,
@@ -331,6 +361,7 @@ export class SubscriptionRepository {
               plan: toPlanAccessPlan({
                 public_id: row.plan_public_id,
                 name: row.plan_name,
+                is_active: row.plan_is_active,
                 price_monthly: row.plan_price_monthly,
                 price_yearly: row.plan_price_yearly,
                 features: row.plan_features,
@@ -339,6 +370,7 @@ export class SubscriptionRepository {
       freePlan: toPlanAccessPlan({
         public_id: row.free_plan_public_id,
         name: row.free_plan_name,
+        is_active: row.free_plan_is_active,
         price_monthly: row.free_plan_price_monthly,
         price_yearly: row.free_plan_price_yearly,
         features: row.free_plan_features,

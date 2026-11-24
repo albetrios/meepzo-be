@@ -281,6 +281,7 @@ export class InstagramAccountService {
         });
         return {
           instagramAccount,
+          channelAccountId: account.channel_account_id,
           instagramAccountPublicId: account.public_id,
           instagramUserId: account.instagram_user_id,
           username: account.username,

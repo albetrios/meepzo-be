@@ -74,13 +74,17 @@ export type AutomationRunSendingMessageKind = (typeof AUTOMATION_RUN_SENDING_MES
 
 /**
  * Why a run was cancelled: its automation was deleted (AU12), it waited 7 days (AU25), or its
- * contact was erased (AU26). A disconnect cancels nothing (IQ1), so there is no
- * `account_disconnected`. Mirrors `chk_automation_runs_cancel_reason`.
+ * contact was erased (AU26), the team paused automations for her (`contact_excluded`, D71) or she
+ * wrote a stop word (`opted_out`, D49) — the contact's pause steps (routes-final § 3.10, ROUTE R10).
+ * A disconnect cancels nothing (IQ1), so there is no `account_disconnected`. Mirrors
+ * `chk_automation_runs_cancel_reason`.
  */
 export const AUTOMATION_RUN_CANCEL_REASONS = [
   'automation_deleted',
   'wait_expired',
   'contact_deleted',
+  'contact_excluded',
+  'opted_out',
 ] as const;
 
 /** One value of {@link AUTOMATION_RUN_CANCEL_REASONS}. */

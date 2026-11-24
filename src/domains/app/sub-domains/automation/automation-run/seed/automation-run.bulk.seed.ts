@@ -197,7 +197,10 @@ async function seedRunsForOrganization(organization: SeededOrg): Promise<number>
     .where(eq(automation_runs.organization_id, organization.id));
   if ((existing?.total ?? 0) > 0) return 0;
   const [account] = await database
-    .select({ id: instagram_accounts.id })
+    .select({
+      id: instagram_accounts.id,
+      channel_account_id: instagram_accounts.channel_account_id,
+    })
     .from(instagram_accounts)
     .innerJoin(
       channel_accounts,
@@ -232,7 +235,7 @@ async function seedRunsForOrganization(organization: SeededOrg): Promise<number>
     .where(
       and(
         eq(contacts.organization_id, organization.id),
-        eq(contacts.instagram_account_id, account.id),
+        eq(contacts.channel_account_id, account.channel_account_id),
         isNull(contacts.deleted_at),
       ),
     )

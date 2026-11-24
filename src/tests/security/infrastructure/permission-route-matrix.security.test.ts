@@ -96,8 +96,22 @@ function materializeOrganizationScopedPath(
   if (route.method === 'DELETE' && route.path.includes('/app/automations/')) {
     return `${path}?reason=mistake`;
   }
+  // The contact list and the tag list name their channel account (feat-instagram-dm-sending CT2).
+  if (route.method === 'GET' && /\/app\/(contacts|contact-tags)$/.test(route.path)) {
+    return `${path}?channel_account_id=${publicIdPlaceholderFor('channelAccount')}`;
+  }
   return path;
 }
+
+/** The contact writes (feat-instagram-dm-sending R10): the smallest body each schema accepts. */
+const CONTACT_WRITE_PAYLOADS: Readonly<Record<string, Record<string, unknown>>> = {
+  'PATCH /contacts/:contact_id': { note: 'Matrix note' },
+  'POST /contacts/bulk-actions': {
+    channel_account_id: publicIdPlaceholderFor('channelAccount'),
+    action: 'pause_automations',
+    contact_ids: [publicIdPlaceholderFor('contact')],
+  },
+};
 
 function payloadForPermissionRoute(
   route: (typeof organizationPermissionRoutes)[number],
@@ -161,6 +175,9 @@ function payloadForPermissionRoute(
   if (route.path.includes('/roles/:role_id')) {
     return { name: 'Matrix role updated' };
   }
+  const contactPayload =
+    CONTACT_WRITE_PAYLOADS[`${route.method} ${route.path.replace(/^.*\/app/, '')}`];
+  if (contactPayload !== undefined) return contactPayload;
   if (route.path.endsWith('/app/social/instagram/accounts/:channel_account_id/settings')) {
     // A setting in range, so body validation (400) does not preempt the permission check (403).
     return { is_automation_enabled: false };

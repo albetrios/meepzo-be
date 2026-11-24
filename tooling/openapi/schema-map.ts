@@ -6,6 +6,10 @@
  *
  * When adding a new route with a body, add its mapping here.
  */
+import {
+  contactBulkActionBodyDto,
+  updateContactBodyDto,
+} from '@/domains/app/sub-domains/contact/contact.dto.js';
 import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
@@ -213,4 +217,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // ── App: automations ──
   'POST /api/v1/app/automations': createAutomationDto,
   'PATCH /api/v1/app/automations/{automation_id}': updateAutomationDto,
+  // App: contacts (DM-sending routes-final § 3.A.8, routes 20 and 21).
+  'PATCH /api/v1/app/contacts/{contact_id}': updateContactBodyDto,
+  'POST /api/v1/app/contacts/bulk-actions': contactBulkActionBodyDto,
 };

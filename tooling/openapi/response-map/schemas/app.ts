@@ -490,36 +490,54 @@ export const metaDataDeletionAnswerSchema = {
 };
 
 // ── Contact ──
-// Mirrors serializeContact key for key (routes-final § 2.6). Never the internal ids or deleted_at.
+// Mirrors serializeContact key for key (routes-final § 3.A.6). Never the internal ids, the note or
+// deleted_at.
+const contactProperties = {
+  id: { type: 'string' },
+  channel_account_id: { type: 'string' },
+  channel: { type: 'string', enum: ['instagram'] },
+  instagram_user_id: { type: 'string' },
+  username: { type: 'string', nullable: true },
+  full_name: { type: 'string', nullable: true },
+  profile_picture_url: { type: 'string', nullable: true },
+  followers_count: { type: 'integer', minimum: 0, nullable: true },
+  is_following_account: { type: 'boolean', nullable: true },
+  follow_checked_at: { type: 'string', format: 'date-time', nullable: true },
+  email: { type: 'string', format: 'email', nullable: true },
+  email_collected_at: { type: 'string', format: 'date-time', nullable: true },
+  phone: { type: 'string', nullable: true },
+  phone_collected_at: { type: 'string', format: 'date-time', nullable: true },
+  tags: { type: 'array', items: { type: 'string' } },
+  is_opted_out: { type: 'boolean' },
+  opted_out_at: { type: 'string', format: 'date-time', nullable: true },
+  is_automations_paused: { type: 'boolean' },
+  automations_paused_at: { type: 'string', format: 'date-time', nullable: true },
+  came_in_via: { type: 'string', nullable: true },
+  came_in_ref: { type: 'string', nullable: true },
+  first_automation_id: { type: 'string', nullable: true },
+  first_seen_at: { type: 'string', format: 'date-time' },
+  last_message_received_at: { type: 'string', format: 'date-time' },
+  last_direct_message_received_at: { type: 'string', format: 'date-time', nullable: true },
+  last_message_sent_at: { type: 'string', format: 'date-time', nullable: true },
+  first_message_at: { type: 'string', format: 'date-time', nullable: true },
+  last_comment_at: { type: 'string', format: 'date-time', nullable: true },
+  comment_count: { type: 'integer', minimum: 0 },
+  last_story_activity_at: { type: 'string', format: 'date-time', nullable: true },
+  last_broadcast_at: { type: 'string', format: 'date-time', nullable: true },
+  is_chat_open: { type: 'boolean' },
+  created_at: { type: 'string', format: 'date-time' },
+  updated_at: { type: 'string', format: 'date-time' },
+};
+
 export const contactSchema = {
   type: 'object',
-  properties: {
-    id: { type: 'string' },
-    instagram_account_id: { type: 'string' },
-    instagram_user_id: { type: 'string' },
-    username: { type: 'string', nullable: true },
-    full_name: { type: 'string', nullable: true },
-    profile_picture_url: { type: 'string', nullable: true },
-    followers_count: { type: 'integer', minimum: 0, nullable: true },
-    is_following_account: { type: 'boolean', nullable: true },
-    follow_checked_at: { type: 'string', format: 'date-time', nullable: true },
-    email: { type: 'string', format: 'email', nullable: true },
-    email_collected_at: { type: 'string', format: 'date-time', nullable: true },
-    phone: { type: 'string', nullable: true },
-    phone_collected_at: { type: 'string', format: 'date-time', nullable: true },
-    tags: { type: 'array', items: { type: 'string' } },
-    first_seen_at: { type: 'string', format: 'date-time' },
-    last_message_received_at: { type: 'string', format: 'date-time' },
-    last_direct_message_received_at: { type: 'string', format: 'date-time', nullable: true },
-    last_message_sent_at: { type: 'string', format: 'date-time', nullable: true },
-    created_at: { type: 'string', format: 'date-time' },
-    updated_at: { type: 'string', format: 'date-time' },
-  },
+  properties: contactProperties,
 };
 
 export const contactExample = {
   id: 'con_p3k8w2m9x4r7n1v5a1b2c',
-  instagram_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  channel_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
+  channel: 'instagram',
   instagram_user_id: '17841455500000001',
   username: 'jordan.lee',
   full_name: 'Jordan Lee',
@@ -532,12 +550,81 @@ export const contactExample = {
   phone: '+15550100123',
   phone_collected_at: '2026-11-21T09:06:20.000Z',
   tags: ['giveaway'],
+  is_opted_out: false,
+  opted_out_at: null,
+  is_automations_paused: false,
+  automations_paused_at: null,
+  came_in_via: 'comment',
+  came_in_ref: null,
+  first_automation_id: 'aut_m4q8x2k9p7r3n1v5a1b2c',
   first_seen_at: '2026-11-21T09:00:00.000Z',
   last_message_received_at: '2026-11-21T09:06:20.000Z',
   last_direct_message_received_at: '2026-11-21T09:06:20.000Z',
   last_message_sent_at: '2026-11-21T09:06:30.000Z',
+  first_message_at: '2026-11-21T09:06:20.000Z',
+  last_comment_at: '2026-11-21T09:00:00.000Z',
+  comment_count: 1,
+  last_story_activity_at: null,
+  last_broadcast_at: null,
+  is_chat_open: true,
   created_at: '2026-11-21T09:00:00.000Z',
   updated_at: '2026-11-21T09:06:30.000Z',
+};
+
+// Mirrors serializeContactDetail (routes 19, 20): the Contact plus the owner-only fields (CT13).
+export const contactDetailSchema = {
+  type: 'object',
+  properties: {
+    ...contactProperties,
+    note: { type: 'string', nullable: true },
+    automations_paused_by_user_id: { type: 'string', nullable: true },
+    last_opening_message_at: { type: 'string', format: 'date-time', nullable: true },
+    first_automation: {
+      type: 'object',
+      nullable: true,
+      properties: { id: { type: 'string' }, name: { type: 'string' } },
+    },
+    open_run_count: { type: 'integer', minimum: 0 },
+  },
+};
+
+export const contactDetailExample = {
+  ...contactExample,
+  note: 'Asked about sizes',
+  automations_paused_by_user_id: null,
+  last_opening_message_at: '2026-11-21T09:01:00.000Z',
+  first_automation: { id: 'aut_m4q8x2k9p7r3n1v5a1b2c', name: 'Price reply' },
+  open_run_count: 1,
+};
+
+// Mirrors serializeContactTagCount (route 22).
+export const contactTagCountSchema = {
+  type: 'object',
+  properties: {
+    tag: { type: 'string' },
+    contact_count: { type: 'integer', minimum: 1 },
+  },
+};
+
+export const contactTagCountExample = { tag: 'giveaway', contact_count: 312 };
+
+// Route 21's answer (CT7).
+export const contactBulkActionResultSchema = {
+  type: 'object',
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['add_tag', 'remove_tag', 'pause_automations', 'resume_automations'],
+    },
+    matched_count: { type: 'integer', minimum: 0 },
+    is_queued: { type: 'boolean' },
+  },
+};
+
+export const contactBulkActionResultExample = {
+  action: 'add_tag',
+  matched_count: 1240,
+  is_queued: true,
 };
 
 // ── Instagram webhook event ──

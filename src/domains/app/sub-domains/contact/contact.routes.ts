@@ -5,18 +5,28 @@ import { requireOrganizationPermission } from '@/shared/utils/auth/authorization
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import type { ContactService } from './contact.service.js';
 import { createContactController } from './contact.controller.js';
-import { contactIdParamsDto, listContactsQueryDto } from './contact.dto.js';
+import {
+  contactBulkActionBodyDto,
+  contactIdParamsDto,
+  listContactTagsQueryDto,
+  listContactsQueryDto,
+  updateContactBodyDto,
+} from './contact.dto.js';
+
+/** The OpenAPI tag of every contact route. */
+const CONTACT_TAG = 'Contact';
 
 /**
- * Returns the Fastify plugin that registers the contact routes (routes-final § 2.7), mounted under
- * `/api/v1/app`: the list (route 9, `GET /contacts`) and the erase (route 10,
- * `DELETE /contacts/{contact_id}`).
+ * Returns the Fastify plugin that registers the contact routes (routes-final § 3.7, routes 18–23),
+ * mounted under `/api/v1/app`: the list (18), open one (19), the owner's change (20), the bulk
+ * action (21), the tag list (22) and the erase (23).
  *
  * @remarks
- * Gates: `contact:read` on 9, `contact:delete` on 10 (2.4 — a Member holds the first only). No
- * route adds or edits a contact (CT2), so neither takes a body or `X-Idempotency-Key` (K3). The
- * erase carries the organization-scoped rate limit; the list rides the global limiter, as every
- * plain authenticated read does.
+ * Gates (3.4): `contact:read` on 18, 19, 22; `contact:update` on 20, 21 (Owner, Admin, Editor — P20);
+ * `contact:delete` on 23 (Owner, Admin). Route 21 starts background work, so it needs
+ * `X-Idempotency-Key` (`idempotencyRequired`); route 20 takes an optional `expected_updated_at`. The
+ * writes carry the organization-scoped rate limit; the reads ride the global limiter. Routes 24–26
+ * ("What happened", the failed messages) are ROUTE row R19's.
  */
 export function contactRoutes(service: ContactService): FastifyPluginAsync {
   const controller = createContactController(service);
@@ -31,12 +41,75 @@ export function contactRoutes(service: ContactService): FastifyPluginAsync {
         schema: {
           summary: 'List contacts',
           description:
-            "Lists the people who commented on, messaged, replied to a story of or clicked a button of one of the organization's Instagram accounts — each with its Instagram account, profile, follow status, the email and phone they shared, tags and message times. Search q (username, full name or email, any case, every word anywhere); filter by tags (holds all, up to 10), has_email, has_phone, is_following_account (a never-checked contact matches neither value), first_seen_from / first_seen_to (to exclusive), instagram_account_id (an unknown one gives an empty page) and automation_id (the contacts that had a run of that automation, a deleted one included; an unknown one gives an empty page); sort by last_message_received_at (default, newest first), first_seen_at or username (A to Z, contacts without a username last), order asc or desc. The first page carries an estimated total. A deleted contact is never listed. Team organizations only. Requires CONTACT_READ permission.",
-          tags: ['Contact'],
+            "Lists one channel account's contacts — the people who commented on, messaged, replied to a story of or tapped a button of it — each with its profile, the email and phone they shared, tags, whether they opted out or their automations are paused, how they came in, and their message, comment, story and broadcast times. channel_account_id is required (an unknown one gives an empty page). Search q (username, full name, email or phone, at least 3 characters, every word anywhere); filter by tags (holds all, up to 10), has_email, has_phone, is_following_account (a never-checked contact matches neither value), is_opted_out, is_automations_paused, came_in_via (one or more ways to start), first_automation_id, first_seen_from / first_seen_to (to exclusive) and automation_id (the contacts that had a run of that automation, a deleted one included; an unknown one gives an empty page); sort by last_message_received_at (default, newest first), first_seen_at or username (A to Z, contacts without a username last), order asc or desc. The first page carries an estimated total. A deleted contact is never listed. Team organizations only. Requires CONTACT_READ permission.",
+          tags: [CONTACT_TAG],
           querystring: listContactsQueryDto,
         },
       },
       controller.listContacts,
+    );
+    zodApplication.get<{ Params: { contact_id: string } }>(
+      '/contacts/:contact_id',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_READ)],
+        schema: {
+          summary: 'Get a contact',
+          description:
+            "Opens one contact: the list's contact plus the team's private note, who paused her automations, her last opening message time, the automation she came in through (a deleted one keeps its name until purged) and how many of her automation runs are open. 404 contact_not_found when it is not this organization's or was deleted. Team organizations only. Requires CONTACT_READ permission.",
+          tags: [CONTACT_TAG],
+          params: contactIdParamsDto,
+        },
+      },
+      controller.getContact,
+    );
+    zodApplication.patch<{ Params: { contact_id: string } }>(
+      '/contacts/:contact_id',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_UPDATE)],
+        ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT,
+        schema: {
+          summary: 'Update a contact',
+          description:
+            "Changes the team's side of one contact: note (1–2,000 characters; null clears it; nothing is sent to her), add_tags / remove_tags (1–20 tags each, 1–50 characters, a comma becomes a space; a tag may not be in both lists; at most 50 held — past it 422 contact_tag_limit) and is_automations_paused (true stops every automation for her: her open runs are cancelled and her waiting messages skipped in the same commit; false clears it and restarts nothing). Each tag change is recorded for tag-started automations. Send at least one field; optional expected_updated_at answers 409 record_changed when the contact changed since it was read. Her opt-out cannot be changed here. Answers the contact detail. Team organizations only. Requires CONTACT_UPDATE permission.",
+          tags: [CONTACT_TAG],
+          params: contactIdParamsDto,
+          body: updateContactBodyDto,
+        },
+      },
+      controller.updateContact,
+    );
+    zodApplication.post(
+      '/contacts/bulk-actions',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_UPDATE)],
+        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        schema: {
+          summary: 'Run a bulk action on contacts',
+          description:
+            "Adds or removes one tag, or pauses or resumes automations, for many contacts of one channel account: name them by contact_ids (1–500, no repeats) or select every match of filter (the list's filters, without sort and paging) — exactly one. tag is required for add_tag and remove_tag and absent for the pause actions. The matches are counted (more than 100,000 answer 422 contact_bulk_too_many) and the work is queued; it runs in pieces of 500, each change as on a single contact, and a contact that would pass 50 tags is skipped. Answers the action, matched_count and is_queued. 404 channel_account_not_found when the account is not this organization's. Needs X-Idempotency-Key. Team organizations only. Requires CONTACT_UPDATE permission.",
+          tags: [CONTACT_TAG],
+          body: contactBulkActionBodyDto,
+        },
+      },
+      controller.startContactBulkAction,
+    );
+    zodApplication.get(
+      '/contact-tags',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_READ)],
+        schema: {
+          summary: 'List contact tags',
+          description:
+            "Lists one channel account's tags with how many live contacts hold each, most first, then A to Z — up to limit (1–1,000, default 1,000). The counts move in the same commit as every tag change. channel_account_id is required; 404 channel_account_not_found when it is not this organization's. Team organizations only. Requires CONTACT_READ permission.",
+          tags: [CONTACT_TAG],
+          querystring: listContactTagsQueryDto,
+        },
+      },
+      controller.listContactTags,
     );
     zodApplication.delete<{ Params: { contact_id: string } }>(
       '/contacts/:contact_id',
@@ -47,8 +120,8 @@ export function contactRoutes(service: ContactService): FastifyPluginAsync {
         schema: {
           summary: 'Delete a contact',
           description:
-            "Erases one contact's personal data at the person's request: their Instagram id, username, name, picture, followers, follow status, email, phone and tags are cleared in one transaction, together with the copies other features hold. The record stays without personal data so its automation runs stay, is never listed again and cannot be restored; a later comment or message from the same Instagram user starts a fresh contact. A repeat answers 404 contact_not_found. Team organizations only. Requires CONTACT_DELETE permission.",
-          tags: ['Contact'],
+            "Erases one contact's personal data at the person's request: their provider id, username, name, picture, followers, follow status, email, phone, tags, the team's note, their opt-out and pause, how they came in and their activity times are cleared in one transaction, together with the copies other features hold; their open automation runs are cancelled. The record stays without personal data so its automation runs stay, is never listed again and cannot be restored; a later comment or message from the same person starts a fresh contact. A repeat answers 404 contact_not_found. Team organizations only. Requires CONTACT_DELETE permission.",
+          tags: [CONTACT_TAG],
           params: contactIdParamsDto,
         },
       },

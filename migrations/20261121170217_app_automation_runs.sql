@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS app.automation_runs (
   CONSTRAINT chk_automation_runs_current_step CHECK (current_step IN ('keyword_match', 'comment_reply', 'follow_check', 'email_collect', 'phone_collect', 'final_dm')),
   CONSTRAINT chk_automation_runs_waiting_for CHECK (waiting_for IN ('opening_message_button', 'follow', 'email', 'phone')),
   CONSTRAINT chk_automation_runs_sending_message_kind CHECK (sending_message_kind IN ('public_reply', 'opening_message', 'follow_request', 'email_question', 'invalid_email', 'phone_question', 'final_message')),
-  CONSTRAINT chk_automation_runs_cancel_reason CHECK (cancel_reason IN ('automation_deleted', 'wait_expired', 'contact_deleted')),
+  CONSTRAINT chk_automation_runs_cancel_reason CHECK (cancel_reason IN ('automation_deleted', 'wait_expired', 'contact_deleted', 'contact_excluded', 'opted_out')),
   CONSTRAINT chk_automation_runs_waiting CHECK ((status = 'waiting') = (waiting_for IS NOT NULL AND waiting_since_at IS NOT NULL)),
   CONSTRAINT chk_automation_runs_completed CHECK ((status = 'completed') = (completed_at IS NOT NULL)),
   CONSTRAINT chk_automation_runs_failed CHECK ((status = 'failed') = (failed_at IS NOT NULL)),

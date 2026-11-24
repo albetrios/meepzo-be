@@ -389,13 +389,19 @@ export class AutomationRunRepository {
   async cancelOpenRunsOfContact({
     organizationId,
     contactId,
+    reason = 'contact_deleted',
   }: {
     organizationId: number;
     contactId: number;
+    /** `contact_deleted` (the erase) or the pause's `contact_excluded` / `opted_out` (CTC4). */
+    reason?: Extract<
+      AutomationRunCancelReason,
+      'contact_deleted' | 'contact_excluded' | 'opted_out'
+    >;
   }): Promise<number[]> {
     return this.cancelOpenRuns({
       organizationId,
-      reason: 'contact_deleted',
+      reason,
       narrowing: eq(automation_runs.contact_id, contactId),
     });
   }

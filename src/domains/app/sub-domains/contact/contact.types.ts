@@ -1,18 +1,25 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
-import type { ContactInteractionKind, ContactSortField } from './contact.constants.js';
+import type {
+  ContactBulkAction,
+  ContactInteractionKind,
+  ContactPauseReason,
+  ContactSortField,
+} from './contact.constants.js';
 import type { ContactRow } from './contact.repository.js';
 
 /**
- * The contact object every route returns (routes-final § 2.6): its public id, its Instagram
- * account's public id and every stored field — never the internal ids or `deleted_at` (an erased
- * contact is never returned at all).
+ * The Contact object (routes-final § 3.A.6, route 18): its public id, its channel account's public id,
+ * every stored identity field, her activity times and the owner's and her own choices — never the
+ * internal ids, the note (the detail's) or `deleted_at` (an erased contact is never returned).
  */
 export interface ContactOutput {
   /** `con_…`. */
   id: string;
-  /** `cha_…` — the account the contact came from (CT13). */
-  instagram_account_id: string;
+  /** `cha_…` — the account the contact came from (CT2). */
+  channel_account_id: string;
+  /** `instagram` (D27). */
+  channel: string;
   instagram_user_id: string;
   username: string | null;
   full_name: string | null;
@@ -26,13 +33,57 @@ export interface ContactOutput {
   phone: string | null;
   phone_collected_at: string | null;
   tags: string[];
+  /** She wrote a stop word (CT6). */
+  is_opted_out: boolean;
+  opted_out_at: string | null;
+  /** The team paused automations for her (CT5). */
+  is_automations_paused: boolean;
+  automations_paused_at: string | null;
+  /** The way to start of her first run, or `null`. */
+  came_in_via: string | null;
+  came_in_ref: string | null;
+  /** `aut_…` of her first run's automation, or `null`. */
+  first_automation_id: string | null;
   first_seen_at: string;
-  /** Never null (CT10). */
+  /** Never null. */
   last_message_received_at: string;
   last_direct_message_received_at: string | null;
   last_message_sent_at: string | null;
+  first_message_at: string | null;
+  last_comment_at: string | null;
+  comment_count: number;
+  last_story_activity_at: string | null;
+  last_broadcast_at: string | null;
+  /** Her last DM, story reply or tap + 24 h − 15 min is still ahead. */
+  is_chat_open: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** The Contact detail object (routes 19, 20): the Contact plus the owner-only fields (CT13). */
+export interface ContactDetailOutput extends ContactOutput {
+  note: string | null;
+  /** `usr_…` of who paused her, or `null`. */
+  automations_paused_by_user_id: string | null;
+  last_opening_message_at: string | null;
+  /** Her first run's automation — a deleted one keeps its name until purged — or `null`. */
+  first_automation: { id: string; name: string } | null;
+  /** Her `running` and `waiting` runs. */
+  open_run_count: number;
+}
+
+/** One row of route 22 (CT8). */
+export interface ContactTagCountOutput {
+  tag: string;
+  contact_count: number;
+}
+
+/** Route 21's answer (CT7). */
+export interface ContactBulkActionOutput {
+  action: ContactBulkAction;
+  matched_count: number;
+  /** Always `true`: the job is queued. */
+  is_queued: true;
 }
 
 /** The contact list's parsed query (route 9, routes-final § 2.8) as the service reads it. */
@@ -52,16 +103,29 @@ export interface ContactListQuery {
   firstSeenFrom: Date | undefined;
   /** Exclusive upper bound on `first_seen_at`. */
   firstSeenTo: Date | undefined;
-  /** `cha_…` — one account's contacts (CT13); an unknown one gives an empty page. */
-  instagramAccountPublicId: string | undefined;
+  /** `cha_…` — the account whose contacts are listed (CT2, required); an unknown one gives an empty page. */
+  channelAccountPublicId: string;
   /** `aut_…` — the contacts that had a run of this automation (CT5); an unknown one gives an empty page. */
   automationPublicId: string | undefined;
+  /** Opted out (`true`) or not (`false`) (CT12). */
+  isOptedOut: boolean | undefined;
+  /** Automations paused (`true`) or not (`false`) (CT12). */
+  isAutomationsPaused: boolean | undefined;
+  /** One or more ways to start of her first run; empty = no filter (CT12). */
+  cameInVia: readonly string[];
+  /** `aut_…` of her first run's automation (CT12); an unknown one gives an empty page. */
+  firstAutomationPublicId: string | undefined;
 }
 
 /** What the repository's list takes: the query with the sort and order already resolved. */
-export interface ContactRepositoryListQuery extends Omit<ContactListQuery, 'sort' | 'order'> {
+export interface ContactRepositoryListQuery
+  extends Omit<ContactListQuery, 'sort' | 'order' | 'channelAccountPublicId'> {
   sort: ContactSortField;
   order: 'asc' | 'desc';
+  /** The internal id of the listed account (the service resolved `channelAccountPublicId`). */
+  channelAccountId: number;
+  /** As `automationId`, for `firstAutomationPublicId`. */
+  firstAutomationId: number | null | undefined;
   /**
    * The internal id `automationPublicId` names (CT5): `undefined` = no automation filter; `null` =
    * no such automation in the organization, so the page is empty.
@@ -129,10 +193,10 @@ export interface ContactWorkerKey extends ContactWorkerTarget {
   contactId: number;
 }
 
-/** Input of `recordContactInteraction` (routes-final § 2.10). */
+/** Input of `recordContactInteraction` (routes-final § 2.10, CT18). */
 export interface RecordContactInteractionInput extends ContactWorkerTarget {
-  /** `app.instagram_accounts.id` — the account the event came to (CT13). */
-  instagramAccountId: number;
+  /** `app.channel_accounts.id` — the account the event came to (CT2). */
+  channelAccountId: number;
   /** The webhook's `sender.id` / `from.id`. */
   instagramUserId: string;
   /** The username the event carried, when it carried one. */
@@ -164,15 +228,138 @@ export type ContactCollectedValueResult =
   | { outcome: 'saved'; contact: ContactRow }
   | { outcome: 'invalid' };
 
-/** Input of route 9's service call. */
+/** Input of route 18's service call. */
 export interface ContactListInput {
   scope: OrganizationPrincipalDatabaseScope;
   query: ContactListQuery;
 }
 
-/** Input of route 10's service call. */
+/** Input of route 23's (and route 19's) service call. */
 export interface ContactDeleteInput {
   scope: OrganizationPrincipalDatabaseScope;
   /** `con_…` from the path. */
   contactPublicId: string;
+}
+
+/**
+ * What one registered pause step receives (routes-final § 3.10, CTC4): the contact whose automations
+ * stop, inside the commit that sets her pause (route 20, the bulk job) or her opt-out (CT6).
+ */
+export interface ContactPauseStepInput {
+  /** `tenancy.organizations.id`. */
+  organizationId: number;
+  /** `app.contacts.id`. */
+  contactId: number;
+  /** `contact_excluded` (the owner's pause) or `opted_out` (her stop word). */
+  reason: ContactPauseReason;
+  /**
+   * The job's handle when the pause runs in a worker unit (the opt-out, the bulk job); `undefined`
+   * on a route, whose repositories join the request's unit of work.
+   */
+  databaseHandle?: WorkerDatabaseHandle;
+}
+
+/**
+ * A step another sub-domain registers through the app container to stop what it holds for a contact
+ * whose automations are paused (CTC4, beside {@link ContactErasureStep}): 4.B cancels her open runs,
+ * 6 skips her waiting messages — each with the reason given. It runs inside the pausing unit of work,
+ * so a throw rolls the pause back.
+ */
+export type ContactPauseStep = (input: ContactPauseStepInput) => Promise<void>;
+
+/**
+ * One tag change as the tag-event recorder receives it (CT5; the table is 3.B's, ROUTE row R11).
+ */
+export interface ContactTagChangeEvent {
+  organizationId: number;
+  channelAccountId: number;
+  contactId: number;
+  tag: string;
+  kind: 'added' | 'removed';
+  /** `owner` (routes 20, 21) or `automation` (the tag step). */
+  source: 'owner' | 'automation';
+  /** The automation of a tag step; `null` for the owner. */
+  sourceAutomationId: number | null;
+  /** How many tag starts led to this change (0 for the owner). */
+  chainNumber: number;
+}
+
+/**
+ * The tag-event port (routes-final § 3.B, CT5, D45): writes one `app.contact_tag_events` row per
+ * change inside the tag change's unit of work and hands the events to intake after commit. ROUTE
+ * row R11 builds 3.B and the app container passes it then; until then tag changes write no event.
+ */
+export interface ContactTagEventRecorder {
+  /** Writes the events in the caller's unit of work (the request's, or the job's handle). */
+  recordContactTagEvents(input: {
+    events: readonly ContactTagChangeEvent[];
+    databaseHandle?: WorkerDatabaseHandle;
+  }): Promise<void>;
+}
+
+/** One bulk action as route 21 hands it to the job (CT7, WC-36). */
+export interface ContactBulkActionJobInput {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  action: ContactBulkAction;
+  /** The tag of `add_tag` / `remove_tag`; `null` for the pause actions. */
+  tag: string | null;
+  /** Exactly one of the two selections. */
+  contactPublicIds: readonly string[] | null;
+  /** The list filters (route 18's, without sort and paging), as validated. */
+  filter: ContactBulkActionFilter | null;
+  /** The acting user's public id — the pause's `automations_off_by_user_id`. */
+  actorUserPublicId: string;
+}
+
+/** The list filters a bulk action may select by (route 21's `filter`, CT7). */
+export type ContactBulkActionFilter = Omit<
+  ContactListQuery,
+  'limit' | 'after' | 'sort' | 'order' | 'channelAccountPublicId'
+>;
+
+/**
+ * The bulk-action queue port (CT7, WC-36): enqueues one `contact-bulk-action` job on
+ * `instagram-tasks`, after route 21's commit, which works the selection in pieces of 500. ROUTE row
+ * R46 builds the job and the app container passes this port then; until then route 21 validates and
+ * counts, and answers `503 contact_bulk_action_unavailable` instead of queueing.
+ */
+export interface ContactBulkActionQueue {
+  enqueueContactBulkAction(input: ContactBulkActionJobInput): Promise<void>;
+}
+
+/**
+ * The detail's automation summary (CT13): the `{ id, name }` of her first run's automation — a
+ * deleted one included until purged — or `null`.
+ */
+export interface ContactFirstAutomationSummary {
+  id: string;
+  name: string;
+}
+
+/** What `findContactSendState` answers (3.A.10): every send's gate re-reads it. */
+export interface ContactSendState {
+  isErased: boolean;
+  isOptedOut: boolean;
+  isAutomationsPaused: boolean;
+  lastDirectMessageReceivedAt: Date | null;
+}
+
+/** Route 20's parsed body (CT5). */
+export interface ContactUpdateInput {
+  /** `undefined` = unchanged; `null` = cleared. */
+  note: string | null | undefined;
+  addTags: readonly string[];
+  removeTags: readonly string[];
+  isAutomationsPaused: boolean | undefined;
+  expectedUpdatedAt: Date | undefined;
+}
+
+/** Route 21's parsed body (CT7). */
+export interface ContactBulkActionInput {
+  channelAccountPublicId: string;
+  action: ContactBulkAction;
+  tag: string | null;
+  contactPublicIds: readonly string[] | null;
+  filter: ContactBulkActionFilter | null;
 }

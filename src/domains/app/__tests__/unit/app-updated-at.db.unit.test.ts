@@ -262,7 +262,7 @@ describe('app tables: updated_at when the row was created after this transaction
         change: (inserted) =>
           repository.upsertInteraction({
             organizationId: organization.id,
-            instagramAccountId: account.id,
+            channelAccountId: inserted.channel_account_id,
             instagramUserId: inserted.instagram_user_id as string,
             username: 'jordan.lee',
             occurredAt: new Date(),

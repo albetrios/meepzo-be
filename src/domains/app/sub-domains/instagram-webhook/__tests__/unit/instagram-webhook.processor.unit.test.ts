@@ -376,7 +376,7 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(contactService.recordContactInteraction).toHaveBeenCalledWith({
       databaseHandle: { handle: 'job' },
       organizationId: 11,
-      instagramAccountId: 22,
+      channelAccountId: 33,
       instagramUserId: SENDER,
       username: 'acme_customer',
       occurredAt: event.occurred_at,

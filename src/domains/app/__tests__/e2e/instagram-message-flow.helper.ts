@@ -533,9 +533,9 @@ export class InstagramMessageFlow {
   /** Moves the contact's last DM from the account 25 hours back — past the opening message's 24. */
   async ageLastSentMessage(): Promise<void> {
     await operatorQuery`
-      UPDATE app.contacts SET last_message_sent_at = last_message_sent_at - interval '25 hours'
+      UPDATE app.contact_activities SET last_message_sent_at = last_message_sent_at - interval '25 hours'
       WHERE organization_id = ${this.team.organization.id}
-        AND instagram_account_id = ${this.account.id}`;
+        AND channel_account_id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${this.account.id})`;
   }
 
   /** Every run of the organization, oldest first. */

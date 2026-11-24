@@ -1347,6 +1347,8 @@ review is the "before" ([launch routes-final § 2](../../launch-2026-11-20-ujai/
 
 **rev 5 changes** (P97, M13): markers only — CT3, CT8 and route 18's `q` point at the scale review's kickoff defaults S5 (`contact_activities`), S7 (`contact_tag_counts`) and S6 (search of ≥ 3 characters). Routes 18–26 unchanged.
 
+**As built (ROUTE R10, [P123](decisions.md), [AS-BUILT](../AS-BUILT.md))**: S5 — `app.contact_activities` (1:1) holds every activity time and count (the launch's three message times included); CT3's `idx_contacts_chat_open` / `idx_contacts_last_comment` are `idx_contact_activities_chat_open` / `_last_comment` (no opt-out / pause predicates); the erase deletes the activity row. S7 — `app.contact_tag_counts`, kept in the tag commit, serves route 22; CT8's 60 s Redis copy and its cache tests (CTC8) are not built. S6 — `q` 3–200, a 2 s statement timeout, the trigram and tags indexes led by the account (`btree_gin`). Route 21 answers `503 contact_bulk_action_unavailable` until the bulk job (R46) is wired; tag events go through the `ContactTagEventRecorder` port (R11). `first_automation_id`'s key stays with sub-domain 4 (R13); the provider id column keeps `instagram_user_id`.
+
 | # | Decision |
 | --- | --- |
 | CT1 | **Folder, the new code, names.** Today: `contact/` with list and erase only (`contact:read`, `contact:delete`); writes come only from event processing (launch CT2). After: the folder stays `contact/` and its table `app.contacts`, shared by every channel (P48 — rev 2's `instagram-contact/` and `app.instagram_contacts`, P44, are undone), plus `contact/contact-tag-event/` (3.B); **one new code** `contact:update` (P20 — note, tags, pause, retry for a contact), Owner, Admin and Editor (plan §45.5 row 5); the constant in `app.permissions.ts`, its catalog row and grants by sub-domain 9's role change (Editor, Viewer). Route-level writes now exist, so the launch's "only event processing writes contacts" (launch CT2) becomes "only this service writes contacts" — the owner's routes and event processing both call it; sub-domains 4–6 still never import the contact repository or schema. Public id `con_…`, `{contact_id}` as built. |
@@ -1593,6 +1595,7 @@ As 3.7.
 | 20 | `409` · `record_changed` | `expected_updated_at` older than the contact |
 | 21 | `400` · `contact_ids` / `filter` / `tag` | both or neither selection, a repeat, a tag for a pause action |
 | 21 | `422` · `contact_bulk_too_many` | more than 100,000 matches |
+| 21 | `503` · `contact_bulk_action_unavailable` | the bulk job is not wired yet (until ROUTE R46, P123) — valid and counted, nothing queued |
 | 19, 20, 23–26 | `404` · `contact_not_found` | not in the organization, another organization's, or erased |
 | 22 | `400` · `channel_account_id` | missing or not well formed |
 | 22 | `404` · `channel_account_not_found` | not an account of the organization (as 1B.5) |

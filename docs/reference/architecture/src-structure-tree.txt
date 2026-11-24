@@ -224,6 +224,8 @@ src/
     │   │   │   │   ├── contact.bulk.seed.ts
     │   │   │   │   ├── contact.faker.ts
     │   │   │   │   └── index.ts
+    │   │   │   ├── contact-activity.schema.ts
+    │   │   │   ├── contact-tag-count.schema.ts
     │   │   │   ├── contact.constants.ts
     │   │   │   ├── contact.controller.ts
     │   │   │   ├── contact.dto.ts

@@ -95,7 +95,7 @@ describe('Automation runs through the routes', () => {
   async function listedContactIds(query: string): Promise<string[]> {
     const response = await injectAuthenticated(app, {
       method: 'GET',
-      url: `${CONTACTS_PATH}?${query}&limit=100`,
+      url: `${CONTACTS_PATH}?channel_account_id=${account.public_id}&${query}&limit=100`,
       token: team.ownerToken,
     });
     expect(response.statusCode).toBe(200);
@@ -182,7 +182,7 @@ describe('Automation runs through the routes', () => {
 
       const firstPage = await injectAuthenticated(app, {
         method: 'GET',
-        url: `${CONTACTS_PATH}?automation_id=${automation.public_id}&limit=1`,
+        url: `${CONTACTS_PATH}?channel_account_id=${account.public_id}&automation_id=${automation.public_id}&limit=1`,
         token: team.ownerToken,
       });
       const body = firstPage.json() as {
@@ -193,7 +193,7 @@ describe('Automation runs through the routes', () => {
       expect(body.meta.pagination).toMatchObject({ has_more: true, estimated_total: 2 });
       const secondPage = await injectAuthenticated(app, {
         method: 'GET',
-        url: `${CONTACTS_PATH}?automation_id=${automation.public_id}&limit=1&after=${encodeURIComponent(body.meta.pagination.next ?? '')}`,
+        url: `${CONTACTS_PATH}?channel_account_id=${account.public_id}&automation_id=${automation.public_id}&limit=1&after=${encodeURIComponent(body.meta.pagination.next ?? '')}`,
         token: team.ownerToken,
       });
       expect(secondPage.statusCode).toBe(200);

@@ -47,6 +47,7 @@ function instagramError({
 
 const access: InstagramAutomationAccountAccess = {
   instagramAccount: { organizationId: 7, instagramAccountId: 3 },
+  channelAccountId: 3,
   instagramAccountPublicId: 'iga_k7x9m2pqr4w8n1v3a1b2c',
   instagramUserId: '17841400000000999',
   username: 'acme.shop',

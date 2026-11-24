@@ -10,7 +10,10 @@ import type { InstagramAccountService } from '@/domains/app/sub-domains/instagra
 import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import type { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
-import type { ContactErasureStepInput } from '@/domains/app/sub-domains/contact/contact.types.js';
+import type {
+  ContactErasureStepInput,
+  ContactPauseStepInput,
+} from '@/domains/app/sub-domains/contact/contact.types.js';
 import {
   AutomationRepository,
   type AutomationRow,
@@ -838,6 +841,48 @@ export class AutomationRunService {
   }
 
   /**
+   * This sub-domain's contact pause step (routes-final § 3.10, CTC4, D71, D49) — registered with the
+   * contact service by the app container; runs inside the commit that pauses her automations
+   * (`contact_excluded`) or records her opt-out (`opted_out`).
+   *
+   * @remarks
+   * Algorithm: as the erase's run cancel (lock order D47) — the automations of her open runs locked
+   * `FOR KEY SHARE`, then her `running` and `waiting` runs `cancelled` with the given reason, one
+   * `status_changed` event each and their comment logs `cancelled`; on the job's handle when one is
+   * given, else in the request's unit. Nothing personal is cleared (that is the erase's). Failure
+   * modes: a database error rolls the pause back. Side effects: the cancelled runs, events and logs.
+   */
+  async cancelContactOpenRuns({
+    organizationId,
+    contactId,
+    reason,
+    databaseHandle,
+  }: ContactPauseStepInput): Promise<void> {
+    const runs =
+      databaseHandle === undefined
+        ? new AutomationRunRepository()
+        : createWorkerAutomationRunRepository(databaseHandle);
+    const automationRepository =
+      databaseHandle === undefined
+        ? new AutomationRepository()
+        : createWorkerAutomationRepository(databaseHandle);
+    await automationRepository.lockForRunChanges({
+      organizationId,
+      automationIds: await runs.listOpenRunAutomationIds({ organizationId, contactId }),
+    });
+    const cancelledRunIds = await runs.cancelOpenRunsOfContact({
+      organizationId,
+      contactId,
+      reason,
+    });
+    await this.recordCancelledRuns({
+      organizationId,
+      runIds: cancelledRunIds,
+      ...(databaseHandle === undefined ? {} : { databaseHandle }),
+    });
+  }
+
+  /**
    * The 7-day wait's cancel (AU25, WC-13) — the hourly worker calls it for one organization's runs
    * its cross-organization scan found, inside that organization's job context
    * (`runOrganizationScopedWorkerJob`), and answers how many it cancelled.
@@ -1075,7 +1120,7 @@ export class AutomationRunService {
       access === null ||
       access.connectionStatus !== 'connected' ||
       access.encryptedAccessToken === null ||
-      contact.instagram_account_id !== access.instagramAccount.instagramAccountId ||
+      contact.channel_account_id !== access.channelAccountId ||
       contact.instagram_user_id === null
     ) {
       logger.info(

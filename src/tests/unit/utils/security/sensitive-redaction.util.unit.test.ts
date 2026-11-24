@@ -55,6 +55,8 @@ describe('the log list and the secret list (launch D38, D40)', () => {
     'commenter_username',
     'email_received',
     'phone_received',
+    // The team's private note on a contact (feat-instagram-dm-sending CT4, CTC3).
+    'note',
   ];
 
   it('derives the log list from the secret list and the personal data — one source, no drift', () => {

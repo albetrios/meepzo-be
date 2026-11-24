@@ -129,6 +129,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     };
     const access: InstagramAutomationAccountAccess = {
       instagramAccount: processingAccount.instagramAccount,
+      channelAccountId: processingAccount.channelAccountId,
       instagramAccountPublicId: account.public_id,
       instagramUserId: '17841400000000999',
       username: 'acme.shop',

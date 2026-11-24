@@ -29,9 +29,11 @@ export interface BulkContactProfile {
   isFollowingAccount: boolean | null;
   /** Lower case, on the reserved `example.com` domain; `null` when the contact never shared one. */
   email: string | null;
-  /** An optional `+` and 10–15 digits (CT10); `null` when never shared. */
+  /** An optional `+` and 10–15 digits (CT9); `null` when never shared. */
   phone: string | null;
   tags: string[];
+  /** The team's private note on about a quarter of the contacts (CT5); `null` otherwise. */
+  note: string | null;
 }
 
 /**
@@ -41,7 +43,7 @@ export interface BulkContactProfile {
  * Algorithm: about one in six contacts has no username and no profile (a DM-only contact whose
  * profile was never read — it sorts last by username); the rest get a username folded to
  * Instagram's alphabet, a name, an `example.com` picture link and a follower count; about half
- * were follow-checked; about a third shared an email, a quarter a phone; zero to three tags.
+ * were follow-checked; about a third shared an email, a quarter a phone; zero to three tags; about a quarter carry a note.
  * Failure modes: none. Side effects: advances the faker sequence.
  */
 export function generateBulkContactProfile(faker: Faker): BulkContactProfile {
@@ -69,5 +71,6 @@ export function generateBulkContactProfile(faker: Faker): BulkContactProfile {
         ? `+1${faker.string.numeric({ length: 10, allowLeadingZeros: false })}`
         : null,
     tags: faker.helpers.arrayElements(DEMO_CONTACT_TAGS, { min: 0, max: 3 }),
+    note: faker.number.int({ min: 1, max: 4 }) === 1 ? faker.lorem.sentence() : null,
   };
 }

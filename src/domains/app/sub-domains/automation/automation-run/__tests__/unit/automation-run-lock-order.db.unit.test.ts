@@ -90,7 +90,7 @@ async function waitForBlockedConnections(count: number): Promise<void> {
 
 describe('the lock order of the delete, the erase and the run engine (database, two connections)', () => {
   let organization: { id: number; public_id: string; type: string };
-  let account: { id: number; public_id: string };
+  let account: { id: number; public_id: string; channel_account_id: number };
   let contact: ContactFixtureRow;
   let sendInstagramMessage: ReturnType<
     typeof vi.fn<AutomationInstagramClient['sendInstagramMessage']>
@@ -122,6 +122,7 @@ describe('the lock order of the delete, the erase and the run engine (database, 
     } as unknown as OrganizationService;
     const access: InstagramAutomationAccountAccess = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
+      channelAccountId: account.channel_account_id,
       instagramAccountPublicId: account.public_id,
       instagramUserId: '17841400000000999',
       username: 'acme.shop',

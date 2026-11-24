@@ -413,6 +413,7 @@ describe('InstagramAccountService lookups', () => {
         service.findAutomationAccountAccess({ scope, instagramAccountPublicId: ACCOUNT_PUBLIC_ID }),
       ).resolves.toEqual({
         instagramAccount,
+        channelAccountId: 5,
         instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
         instagramUserId: INSTAGRAM_USER_ID,
         username: 'acme.shop',

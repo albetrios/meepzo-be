@@ -91,7 +91,7 @@
     "noteWhenReasonIsOther": "Añade una nota cuando el motivo es «otro»",
     "linkMustUseHttps": "El enlace debe usar HTTPS",
     "indianPhoneFormat": "Usa +91 y diez dígitos",
-    "contactTagsFilter": "Hasta 10 etiquetas, separadas por comas, de 1 a 255 caracteres cada una",
+    "contactTagsFilter": "Hasta 10 etiquetas, separadas por comas, de 1 a 50 caracteres cada una",
     "rangeStartBeforeEnd": "El inicio debe ser anterior al final",
     "eachStopWordOnce": "Cada palabra de parada una sola vez",
     "extraDelayBothOrNeither": "Indica los dos extremos de la pausa antes de cada mensaje, o ninguno",
@@ -110,7 +110,13 @@
     "dmNeedsKeyword": "Una automatización de DM necesita al menos una palabra clave",
     "dmKeywordTriggerRequired": "Una automatización de DM necesita activado el disparador por palabra clave en DM",
     "publicReplyOnlyForComments": "Las respuestas públicas solo funcionan en automatizaciones de comentarios, con 1–20 textos",
-    "openingButtonRequired": "Una automatización de comentarios con el mensaje de apertura activado necesita el título de un botón"
+    "openingButtonRequired": "Una automatización de comentarios con el mensaje de apertura activado necesita el título de un botón",
+    "contactCameInVia": "Una o más formas de inicio, separadas por comas",
+    "contactSearchTooShort": "Busca con al menos 3 caracteres",
+    "contactTagInBothLists": "Una etiqueta no puede añadirse y quitarse a la vez",
+    "contactIdsRepeated": "Cada contacto puede indicarse una sola vez",
+    "contactBulkSelection": "Envía contact_ids o filter, no ambos",
+    "contactBulkTag": "Envía una etiqueta para las acciones de etiqueta y ninguna para las de pausa"
   },
   "missingSessionCookie": "Falta la cookie de sesión",
   "disposableEmail": "Este dominio de correo no está permitido.",
@@ -298,5 +304,8 @@
   "emailCodeResendTooSoon": "Acabamos de enviar un código. Espera un momento antes de pedir otro.",
   "emailCodeAlwaysOn": "El acceso con código por correo siempre está activo y no se puede quitar.",
   "mfaCodeWrong": "Ese código no es correcto. Revisa tu app de autenticación e inténtalo de nuevo.",
-  "mfaLocked": "Demasiados códigos incorrectos. Espera unos minutos y vuelve a intentarlo o usa un código de recuperación."
+  "mfaLocked": "Demasiados códigos incorrectos. Espera unos minutos y vuelve a intentarlo o usa un código de recuperación.",
+  "contactTagLimit": "Un contacto puede tener como máximo {{max}} etiquetas.",
+  "contactBulkTooMany": "Esta acción alcanza más de {{max}} contactos. Acota el filtro.",
+  "contactBulkActionUnavailable": "Las acciones en bloque sobre contactos aún no están disponibles. Inténtalo más tarde."
 }

@@ -35,6 +35,8 @@ import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
+import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
+import { contact_tag_counts } from '@/domains/app/sub-domains/contact/contact-tag-count.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
@@ -672,8 +674,11 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     instagramWebhookEventIds,
   );
 
-  // The contact sub-domain (launch R8): one live contact of each organization's account.
+  // The contact sub-domain (launch R8, R10): one live contact of each organization's account, with
+  // its activity row (S5) and one tag count (S7).
   const contactIds = { organizationA: 0, organizationB: 0 };
+  const contactActivityIds = { organizationA: 0, organizationB: 0 };
+  const contactTagCountIds = { organizationA: 0, organizationB: 0 };
   for (const [side, organization] of [
     ['organizationA', organizationA],
     ['organizationB', organizationB],
@@ -683,16 +688,44 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       .values({
         public_id: generatePublicId('contact'),
         organization_id: organization.id,
-        instagram_account_id: instagramAccountIds[side],
+        channel_account_id: channelAccountIds[side],
         instagram_user_id: side === 'organizationA' ? '17841400000000101' : '17841400000000102',
         username: `rls_contact_${side.toLowerCase()}`,
+        tags: ['vip'],
         first_seen_at: new Date(),
-        last_message_received_at: new Date(),
       })
       .returning();
     contactIds[side] = contact!.id;
+    const [activity] = await database
+      .insert(contact_activities)
+      .values({
+        contact_id: contact!.id,
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        last_message_received_at: new Date(),
+      })
+      .returning();
+    contactActivityIds[side] = activity!.id;
+    const [tagCount] = await database
+      .insert(contact_tag_counts)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        tag: 'vip',
+        contact_count: 1,
+      })
+      .returning();
+    contactTagCountIds[side] = tagCount!.id;
   }
   rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'contacts' }), contactIds);
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'contact_activities' }),
+    contactActivityIds,
+  );
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'contact_tag_counts' }),
+    contactTagCountIds,
+  );
 
   // The automation sub-domain (launch R9): one inactive comment automation of each organization's
   // account — the smallest complete flow (the opening message with its button, the final message).

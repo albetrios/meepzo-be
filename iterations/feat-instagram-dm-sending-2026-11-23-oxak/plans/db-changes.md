@@ -722,6 +722,18 @@ past-comment runs. All of them are **shared across channels** ([P48](decisions.m
   → `channel_account_id` (P47). The table keeps its launch name — P44's rename to
   `app.instagram_contacts` is withdrawn (P48).
 - **Open:** none — columns and checks: routes-final § 3, 3.A.3.
+- **Built (R10, [AS-BUILT](../AS-BUILT.md), [P123](decisions.md)):** `app.contacts` keyed by
+  `channel_account_id`, + `channel`, `note`, `opted_out_at`, `automations_off_at`,
+  `automations_off_by_user_id`, `first_automation_id` (FK at R13), `came_in_via`, `came_in_ref`;
+  the activity times live in **`app.contact_activities`** (S5, NEW, 1:1 — unique per organization and contact,
+  `organization_id`, `channel_account_id`, `last_message_received_at`,
+  `last_direct_message_received_at`, `last_message_sent_at`, `last_opening_message_at`,
+  `first_message_at`, `last_comment_at`, `comment_count`, `last_story_activity_at`,
+  `last_broadcast_at`; deleted with the erase) and the tag counts in **`app.contact_tag_counts`**
+  (S7, NEW — `organization_id`, `channel_account_id`, `tag`, `contact_count`, unique per account and
+  tag); `idx_contacts_chat_open` / `idx_contacts_last_comment` became
+  `idx_contact_activities_chat_open` / `_last_comment`; search and tags indexes led by the account
+  through `btree_gin` (S6). Both new tables carry an `id`, no public id.
 
 ```mermaid
 erDiagram

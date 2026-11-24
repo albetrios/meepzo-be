@@ -216,17 +216,16 @@ export function createAppContainer({
     organizationService,
     automationOpenRunCancelSteps,
   );
-  // The contact erase's hook (routes-final § 2.10, CT8): every step registered here runs inside
-  // route 10's transaction, before the contact is anonymised. Sub-domain 3 registers its step below
-  // — the run cancel, the trigger texts and the comment-log copies (AU26); sub-domain 4 adds none
-  // (CQ1). The list's automation filter (CT5) resolves its `aut_…` id through the automation
-  // service, so contacts never import sub-domain 3.
+  // The contact's erase and pause steps (§ 3.10) run in the route's transaction — the run engine's
+  // below, 3.B's and 6's at their rows, as the tag-event port (R11) and the bulk queue (R46). The
+  // automation filters resolve through the automation service, so contacts never import it.
   const contactErasureSteps: ContactErasureStep[] = [];
   const contactService = new ContactService(
     new ContactRepository(),
     organizationService,
     contactErasureSteps,
     (input) => automationService.findAutomationIdForFilter(input),
+    { pauseSteps: [(input) => automationRunService.cancelContactOpenRuns(input)] },
   );
   const instagramWebhookEventService = new InstagramWebhookEventService(
     new InstagramWebhookEventRepository(),

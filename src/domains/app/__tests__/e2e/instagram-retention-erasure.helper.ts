@@ -479,6 +479,13 @@ export async function writeHistory({
         phone = ${person.phone}, phone_collected_at = ${now},
         is_following_account = true, follow_checked_at = ${now}, tags = ${[`Tag of ${name}`]}
     WHERE id = ${contact.id}`;
+  // The account's tag count the tag commit keeps (S7, ROUTE R10).
+  await operatorQuery`
+    INSERT INTO app.contact_tag_counts (organization_id, channel_account_id, tag, contact_count)
+    SELECT organization_id, channel_account_id, ${`Tag of ${name}`}, 1 FROM app.contacts
+    WHERE id = ${contact.id}
+    ON CONFLICT (organization_id, channel_account_id, tag)
+    DO UPDATE SET contact_count = app.contact_tag_counts.contact_count + 1`;
   const owner = { organizationId: team.organization.id, contactId: contact.id };
   const runningRun = await insertAutomationRun({
     ...owner,

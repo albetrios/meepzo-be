@@ -65,6 +65,10 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
   // Launch R8: contact.integration.test.ts erases another organization's contact → 404
   // contact_not_found, and reads the row back unchanged.
   'DELETE /api/v1/app/contacts/:contact_id': 'cross-organization-mutation: contact DELETE',
+  // feat-instagram-dm-sending R10: contact.integration.test.ts opens and changes another
+  // organization's contact → 404 contact_not_found, and reads the row back unchanged.
+  'GET /api/v1/app/contacts/:contact_id': 'cross-organization-resource: contact',
+  'PATCH /api/v1/app/contacts/:contact_id': 'cross-organization-mutation: contact PATCH',
   // Launch R9: automation.integration.test.ts reads, edits and deletes another organization's
   // automation → 404 automation_not_found, and reads the row back unchanged.
   'GET /api/v1/app/automations/:automation_id': 'cross-organization-resource: automation',

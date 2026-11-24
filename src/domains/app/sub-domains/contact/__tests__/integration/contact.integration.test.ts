@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
@@ -19,6 +20,8 @@ import {
   type InstagramTeamFixture,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import {
+  CONTACT_BULK_ACTIONS_PATH,
+  CONTACT_TAGS_PATH,
   CONTACTS_PATH,
   contactPath,
   type ContactFixtureRow,
@@ -30,18 +33,24 @@ import {
   automationPath,
   insertAutomation,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
+import {
+  insertAutomationRun,
+  readRunRow,
+} from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 
 /**
- * Routes 9 and 10 of the contacts (routes-final § 2, ROUTE R8) over HTTP: every filter, every sort
- * in both directions across pages, the search, paging and the estimated total; the erase clearing
- * every personal column, its audit entry and a repeat; team-only (CT3), the Editor role (D23), the
- * erase open on a read-only plan (D27) and another organization's contacts (K1). The database,
- * auth, permissions and audit are real.
+ * Routes 18–23 of the contacts (routes-final § 3.A, ROUTE R10; launch R8) over HTTP: the list of one
+ * account with every filter, every sort in both directions across pages, the search (≥ 3
+ * characters), paging and the estimated total; open one; the owner's note, tags and pause; the bulk
+ * action's validation; the tag list with counts; the erase clearing every personal column, its
+ * audit entry and a repeat; team-only (3.5), the Viewer and Editor gates (AC-5.11), the erase open
+ * on a read-only plan (D27) and another organization's contacts (K1). The database, auth,
+ * permissions and audit are real.
  */
-describe('Contact routes (list, erase)', () => {
+describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
   let app: FastifyInstance;
   let team: InstagramTeamFixture;
-  let account: { id: number; public_id: string };
+  let account: { id: number; public_id: string; channel_account_id: number };
 
   beforeAll(async () => {
     ({ app } = await createTestApp());
@@ -71,16 +80,23 @@ describe('Contact routes (list, erase)', () => {
     });
   }
 
+  /** Route 18 — of the team's account unless `accountPublicId` names another (`null`: none). */
   function list({
     token = team.ownerToken,
     query = '',
+    accountPublicId = account.public_id,
   }: {
     token?: string;
     query?: string;
+    accountPublicId?: string | null;
   } = {}): Promise<InjectHttpResult> {
+    const parts = [
+      accountPublicId === null ? '' : `channel_account_id=${accountPublicId}`,
+      query,
+    ].filter((part) => part !== '');
     return injectAuthenticated(app, {
       method: 'GET',
-      url: query === '' ? CONTACTS_PATH : `${CONTACTS_PATH}?${query}`,
+      url: parts.length === 0 ? CONTACTS_PATH : `${CONTACTS_PATH}?${parts.join('&')}`,
       token,
     });
   }
@@ -112,9 +128,14 @@ describe('Contact routes (list, erase)', () => {
   }
 
   /** The contact public ids `query` lists (one page of 100). */
-  async function listedIds(query = '', token = team.ownerToken): Promise<string[]> {
+  async function listedIds(
+    query = '',
+    token = team.ownerToken,
+    accountPublicId: string = account.public_id,
+  ): Promise<string[]> {
     const response = await list({
       token,
+      accountPublicId,
       query: query === '' ? 'limit=100' : `${query}&limit=100`,
     });
     expect(response.statusCode).toBe(200);
@@ -147,7 +168,7 @@ describe('Contact routes (list, erase)', () => {
 
   const day = (daysAgo: number) => new Date(Date.now() - daysAgo * MILLISECONDS_PER_DAY);
 
-  describe('GET /app/contacts (route 9)', () => {
+  describe('GET /app/contacts (route 18)', () => {
     it('lists each live contact with its account and every field, newest last message first (AC-4.1)', async () => {
       const older = await contactOfTeam({
         username: 'jordan.lee',
@@ -174,7 +195,8 @@ describe('Contact routes (list, erase)', () => {
       expect(body.data.map((contact) => contact.id)).toEqual([newer.public_id, older.public_id]);
       expect(body.data[1]).toMatchObject({
         id: older.public_id,
-        instagram_account_id: account.public_id,
+        channel_account_id: account.public_id,
+        channel: 'instagram',
         instagram_user_id: older.instagram_user_id,
         username: 'jordan.lee',
         full_name: 'Jordan Lee',
@@ -182,10 +204,18 @@ describe('Contact routes (list, erase)', () => {
         phone: '+15550100123',
         is_following_account: true,
         tags: ['vip'],
+        is_opted_out: false,
+        is_automations_paused: false,
+        came_in_via: null,
+        first_automation_id: null,
+        first_message_at: null,
+        last_comment_at: null,
+        comment_count: 0,
         first_seen_at: older.first_seen_at.toISOString(),
         last_message_received_at: older.last_message_received_at.toISOString(),
       });
       expect(body.data[1]).not.toHaveProperty('deleted_at');
+      expect(body.data[1]).not.toHaveProperty('note');
       expect(body.data[1]).not.toHaveProperty('organization_id');
       expect(body.meta.pagination).toMatchObject({ per_page: 25, has_more: false, next: null });
       expect(body.meta.pagination.estimated_total).toBe(2);
@@ -228,7 +258,19 @@ describe('Contact routes (list, erase)', () => {
       });
 
       expect(await listedIds()).toEqual([live.public_id]);
-      expect(await listedIds('', otherTeam.ownerToken)).toEqual([foreign.public_id]);
+      expect(await listedIds('', otherTeam.ownerToken, otherAccount.public_id)).toEqual([
+        foreign.public_id,
+      ]);
+    });
+
+    it('refuses a list without the account, or with a malformed one (CT2, AC-5.1)', async () => {
+      for (const accountPublicId of [null, 'cha_short']) {
+        const response = await list({ accountPublicId });
+        expect(response.statusCode).toBe(400);
+        expect(errorOf(response).errors?.map((item) => item.field)).toContain(
+          'querystring.channel_account_id',
+        );
+      }
     });
 
     it('answers 404 team_organization_required on a personal organization (CT3)', async () => {
@@ -242,7 +284,38 @@ describe('Contact routes (list, erase)', () => {
       expect(errorOf(response).reason).toBe('team_organization_required');
     });
 
-    describe('filters (CT4, CT13)', () => {
+    describe('filters (CT12)', () => {
+      it('is_opted_out, is_automations_paused, came_in_via and first_automation_id', async () => {
+        const automation = await insertAutomation({
+          organizationId: team.organization.id,
+          instagramAccountId: account.id,
+        });
+        const optedOut = await contactOfTeam({ opted_out_at: day(1) });
+        const paused = await contactOfTeam({ automations_off_at: day(1) });
+        const cameIn = await contactOfTeam({
+          first_automation_id: automation.id,
+          came_in_via: 'dm_keyword',
+        });
+
+        expect(await listedIds('is_opted_out=true')).toEqual([optedOut.public_id]);
+        expect(await listedIds('is_automations_paused=true')).toEqual([paused.public_id]);
+        expect((await listedIds('is_automations_paused=false')).sort()).toEqual(
+          [optedOut.public_id, cameIn.public_id].sort(),
+        );
+        expect(await listedIds('came_in_via=comment,dm_keyword')).toEqual([cameIn.public_id]);
+        expect(await listedIds(`first_automation_id=${automation.public_id}`)).toEqual([
+          cameIn.public_id,
+        ]);
+        expect(await listedIds(`first_automation_id=${generatePublicId('automation')}`)).toEqual(
+          [],
+        );
+        const shown = bodyOf(await list({ query: 'came_in_via=dm_keyword' })).data[0];
+        expect(shown).toMatchObject({
+          came_in_via: 'dm_keyword',
+          first_automation_id: automation.public_id,
+        });
+      });
+
       it('tags: the contact holds every one given, exact text', async () => {
         const both = await contactOfTeam({ tags: ['vip', 'giveaway', 'catalog'] });
         await contactOfTeam({ tags: ['vip'] });
@@ -302,7 +375,7 @@ describe('Contact routes (list, erase)', () => {
         expect(await listedIds('first_seen_from=2026-11-12T00:00:00Z')).toEqual([atEnd.public_id]);
       });
 
-      it('instagram_account_id: one account each — the same person is a contact per account (AC-4.7)', async () => {
+      it('channel_account_id: one account each — the same person is a contact per account (AC-4.7)', async () => {
         const instagramUserId = '17841499900000001';
         const first = await contactOfTeam({ instagram_user_id: instagramUserId });
         const secondAccount = await insertInstagramAccount({
@@ -315,17 +388,12 @@ describe('Contact routes (list, erase)', () => {
           instagram_user_id: instagramUserId,
         });
 
-        expect((await listedIds()).sort()).toEqual([first.public_id, second.public_id].sort());
-        expect(await listedIds(`instagram_account_id=${account.public_id}`)).toEqual([
-          first.public_id,
-        ]);
-        expect(await listedIds(`instagram_account_id=${secondAccount.public_id}`)).toEqual([
+        expect(await listedIds()).toEqual([first.public_id]);
+        expect(await listedIds('', team.ownerToken, secondAccount.public_id)).toEqual([
           second.public_id,
         ]);
-        const listed = bodyOf(
-          await list({ query: `instagram_account_id=${secondAccount.public_id}` }),
-        );
-        expect(listed.data[0]?.instagram_account_id).toBe(secondAccount.public_id);
+        const listed = bodyOf(await list({ accountPublicId: secondAccount.public_id }));
+        expect(listed.data[0]?.channel_account_id).toBe(secondAccount.public_id);
       });
 
       it("gives an empty page for an unknown or another organization's account", async () => {
@@ -335,20 +403,22 @@ describe('Contact routes (list, erase)', () => {
           organizationId: otherTeam.organization.id,
         });
 
-        expect(
-          await listedIds(`instagram_account_id=${generatePublicId('channelAccount')}`),
-        ).toEqual([]);
-        expect(await listedIds(`instagram_account_id=${otherAccount.public_id}`)).toEqual([]);
+        expect(await listedIds('', team.ownerToken, generatePublicId('channelAccount'))).toEqual(
+          [],
+        );
+        expect(await listedIds('', team.ownerToken, otherAccount.public_id)).toEqual([]);
       });
     });
 
-    describe('search q (CT4)', () => {
-      it('finds every word anywhere in username, full name or email, in any case (AC-4.2)', async () => {
+    describe('search q (CT12, S6)', () => {
+      it('finds every word anywhere in username, full name, email or phone, in any case (AC-5.2)', async () => {
         const jordan = await contactOfTeam({
           username: 'jordan.lee',
           full_name: 'Jordan Lee',
           email: 'jl.orders@example.com',
           email_collected_at: day(1),
+          phone: '+15550100123',
+          phone_collected_at: day(1),
         });
         const sam = await contactOfTeam({ username: 'sam_rivera', full_name: 'Sam Rivera' });
 
@@ -358,6 +428,13 @@ describe('Contact routes (list, erase)', () => {
         expect(await listedIds('q=rivera')).toEqual([sam.public_id]);
         expect(await listedIds('q=jordan%20rivera')).toEqual([]);
         expect(await listedIds('q=50%25_off')).toEqual([]);
+        expect(await listedIds('q=0100123')).toEqual([jordan.public_id]);
+      });
+
+      it('refuses a search under 3 characters (S6, AC-5.2)', async () => {
+        const response = await list({ query: 'q=jo' });
+        expect(response.statusCode).toBe(400);
+        expect(errorOf(response).errors?.map((item) => item.field)).toContain('querystring.q');
       });
     });
 
@@ -460,7 +537,8 @@ describe('Contact routes (list, erase)', () => {
         ['has_email=yes', 'has_email'],
         ['is_following_account=maybe', 'is_following_account'],
         ['first_seen_from=2026-11-10', 'first_seen_from'],
-        ['instagram_account_id=con_k7x9m2pqr4w8n1v3a1b2c', 'instagram_account_id'],
+        ['came_in_via=carrier_pigeon', 'came_in_via'],
+        ['is_opted_out=maybe', 'is_opted_out'],
         ['automation_id=con_k7x9m2pqr4w8n1v3a1b2c', 'automation_id'],
         ['tags=a,b,c,d,e,f,g,h,i,j,k', 'tags'],
         [
@@ -478,20 +556,20 @@ describe('Contact routes (list, erase)', () => {
 
       // The drop's `search` is `q` (CT4). The automation filter (CT5) is covered with the runs it
       // reads, in automation-run.integration.test.ts.
-      it.each([['search=jordan', 'search']])(
-        'refuses the unknown parameter %s',
-        async (query, field) => {
-          const response = await list({ query });
-          expect(response.statusCode).toBe(400);
-          expect(errorOf(response).errors?.map((item) => item.field)).toContain(
-            `querystring.${field}`,
-          );
-        },
-      );
+      it.each([
+        ['search=jordan', 'search'],
+        [`instagram_account_id=${generatePublicId('channelAccount')}`, 'instagram_account_id'],
+      ])('refuses the unknown parameter %s', async (query, field) => {
+        const response = await list({ query });
+        expect(response.statusCode).toBe(400);
+        expect(errorOf(response).errors?.map((item) => item.field)).toContain(
+          `querystring.${field}`,
+        );
+      });
     });
   });
 
-  describe('DELETE /app/contacts/{contact_id} (route 10)', () => {
+  describe('DELETE /app/contacts/{contact_id} (route 23)', () => {
     it('erases every personal column, keeps the row, writes the audit entry and never lists it again (AC-4.10, AC-4.14)', async () => {
       const contact = await contactOfTeam({
         username: 'jordan.lee',
@@ -505,8 +583,15 @@ describe('Contact routes (list, erase)', () => {
         phone: '+15550100123',
         phone_collected_at: day(1),
         tags: ['vip', 'giveaway'],
+        note: 'Asked about sizes',
+        opted_out_at: day(1),
+        automations_off_at: day(1),
+        automations_off_by_user_id: team.owner.id,
+        came_in_ref: 'SPRING',
         last_direct_message_received_at: day(1),
         last_message_sent_at: day(1),
+        last_comment_at: day(1),
+        comment_count: 4,
       });
 
       const response = await erase({ contactPublicId: contact.public_id });
@@ -516,7 +601,7 @@ describe('Contact routes (list, erase)', () => {
       const row = await readContactRow(contact.id);
       expect(row).toMatchObject({
         public_id: contact.public_id,
-        instagram_account_id: account.id,
+        channel_account_id: account.channel_account_id,
         instagram_user_id: null,
         username: null,
         full_name: null,
@@ -529,6 +614,15 @@ describe('Contact routes (list, erase)', () => {
         phone: null,
         phone_collected_at: null,
         tags: [],
+        note: null,
+        opted_out_at: null,
+        automations_off_at: null,
+        automations_off_by_user_id: null,
+        came_in_ref: null,
+        // Her activity row is deleted with the erase (CT11, S5).
+        last_message_received_at: null,
+        last_comment_at: null,
+        comment_count: null,
       });
       expect(row?.deleted_at).toBeInstanceOf(Date);
       expect(await listedIds()).toEqual([]);
@@ -610,6 +704,421 @@ describe('Contact routes (list, erase)', () => {
 
       expect(response.statusCode).toBe(422);
       expect(errorOf(response).code).toBe('unprocessable_entity');
+    });
+  });
+
+  /** One owner change (route 20). */
+  function update({
+    contactPublicId,
+    payload,
+    token = team.ownerToken,
+  }: {
+    contactPublicId: string;
+    payload: unknown;
+    token?: string;
+  }): Promise<InjectHttpResult> {
+    return injectAuthenticated(app, {
+      method: 'PATCH',
+      url: contactPath(contactPublicId),
+      token,
+      payload,
+    });
+  }
+
+  /** Route 22 of the team's account unless another is named. */
+  function tagList({
+    accountPublicId = account.public_id,
+    token = team.ownerToken,
+  }: {
+    accountPublicId?: string | null;
+    token?: string;
+  } = {}): Promise<InjectHttpResult> {
+    return injectAuthenticated(app, {
+      method: 'GET',
+      url:
+        accountPublicId === null
+          ? CONTACT_TAGS_PATH
+          : `${CONTACT_TAGS_PATH}?channel_account_id=${accountPublicId}`,
+      token,
+    });
+  }
+
+  function dataOf(response: InjectHttpResult): Record<string, unknown> {
+    return (response.json() as { data: Record<string, unknown> }).data;
+  }
+
+  describe('GET /app/contacts/{contact_id} (route 19)', () => {
+    it('opens one contact with her note, pause, first automation and open runs (AC-5.3)', async () => {
+      const automation = await insertAutomation({
+        organizationId: team.organization.id,
+        instagramAccountId: account.id,
+      });
+      const contact = await contactOfTeam({
+        username: 'jordan.lee',
+        email: 'jordan+shop@example.com',
+        email_collected_at: day(1),
+        phone: '+15550100123',
+        phone_collected_at: day(1),
+        tags: ['vip'],
+        note: 'Asked about sizes',
+        automations_off_at: day(1),
+        automations_off_by_user_id: team.owner.id,
+        first_automation_id: automation.id,
+        came_in_via: 'comment',
+        last_opening_message_at: day(1),
+      });
+      await insertAutomationRun({
+        organizationId: team.organization.id,
+        automationId: automation.id,
+        contactId: contact.id,
+      });
+
+      for (const token of [team.ownerToken, team.viewerToken]) {
+        const response = await injectAuthenticated(app, {
+          method: 'GET',
+          url: contactPath(contact.public_id),
+          token,
+        });
+        expect(response.statusCode).toBe(200);
+        expect(dataOf(response)).toMatchObject({
+          id: contact.public_id,
+          email: 'jordan+shop@example.com',
+          phone: '+15550100123',
+          tags: ['vip'],
+          note: 'Asked about sizes',
+          is_opted_out: false,
+          is_automations_paused: true,
+          automations_paused_by_user_id: team.owner.public_id,
+          first_automation: { id: automation.public_id, name: automation.name },
+          came_in_via: 'comment',
+          open_run_count: 1,
+        });
+      }
+    });
+
+    it("answers 404 contact_not_found for another organization's or an erased contact", async () => {
+      const otherTeam = await createInstagramTeam();
+      const otherAccount = await insertInstagramAccount({
+        organizationId: otherTeam.organization.id,
+      });
+      const foreign = await insertContact({
+        organizationId: otherTeam.organization.id,
+        instagramAccountId: otherAccount.id,
+      });
+      const erased = await contactOfTeam();
+      await erase({ contactPublicId: erased.public_id });
+
+      for (const contactPublicId of [foreign.public_id, erased.public_id]) {
+        const response = await injectAuthenticated(app, {
+          method: 'GET',
+          url: contactPath(contactPublicId),
+          token: team.ownerToken,
+        });
+        expect(response.statusCode).toBe(404);
+        expect(errorOf(response).reason).toBe('contact_not_found');
+      }
+    });
+  });
+
+  describe('PATCH /app/contacts/{contact_id} (route 20)', () => {
+    it('sets and clears the note, sends nothing, and audits field names only (AC-5.4, AC-5.14)', async () => {
+      const contact = await contactOfTeam();
+
+      const saved = await update({
+        contactPublicId: contact.public_id,
+        payload: { note: 'Prefers size M' },
+      });
+      expect(saved.statusCode).toBe(200);
+      expect(dataOf(saved).note).toBe('Prefers size M');
+
+      const cleared = await update({ contactPublicId: contact.public_id, payload: { note: null } });
+      expect(dataOf(cleared).note).toBeNull();
+
+      const audit = await readStagedAuditRows({
+        organizationPublicId: team.organization.public_id,
+        action: 'app.contact.update',
+      });
+      expect(audit).toHaveLength(2);
+      expect(audit[0]).toMatchObject({
+        severity: 'INFO',
+        resource_type: 'contact',
+        metadata: { contact_public_id: contact.public_id, changed_fields: ['note'] },
+      });
+      expect(JSON.stringify(audit)).not.toContain('size M');
+    });
+
+    it('refuses a note over 2,000 characters, an empty body and a tag in both lists with 400', async () => {
+      const contact = await contactOfTeam();
+      for (const payload of [
+        { note: 'x'.repeat(2001) },
+        {},
+        { add_tags: ['vip'], remove_tags: ['vip'] },
+        { opted_out: false },
+      ]) {
+        const response = await update({ contactPublicId: contact.public_id, payload });
+        expect(response.statusCode).toBe(400);
+      }
+    });
+
+    it('adds and removes tags, and the tag list counts them at once (CT5, S7)', async () => {
+      const jordan = await contactOfTeam({ tags: ['lead'] });
+      const avery = await contactOfTeam();
+
+      await update({
+        contactPublicId: jordan.public_id,
+        payload: { add_tags: ['vip', 'spring,sale'], remove_tags: ['lead'] },
+      });
+      const second = await update({
+        contactPublicId: avery.public_id,
+        payload: { add_tags: ['vip'] },
+      });
+
+      expect(dataOf(second).tags).toEqual(['vip']);
+      expect((await readContactRow(jordan.id))?.tags).toEqual(['vip', 'spring sale']);
+      const tags = await tagList();
+      expect(tags.statusCode).toBe(200);
+      expect(dataOf(tags)).toEqual([
+        { tag: 'vip', contact_count: 2 },
+        { tag: 'spring sale', contact_count: 1 },
+      ]);
+    });
+
+    it('refuses a 51st tag with 422 contact_tag_limit', async () => {
+      const contact = await contactOfTeam({
+        tags: Array.from({ length: 50 }, (_, index) => `tag${index}`),
+      });
+
+      const response = await update({
+        contactPublicId: contact.public_id,
+        payload: { add_tags: ['one-more'] },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(errorOf(response).reason).toBe('contact_tag_limit');
+    });
+
+    it('answers 409 record_changed for an older expected_updated_at', async () => {
+      const contact = await contactOfTeam();
+
+      const response = await update({
+        contactPublicId: contact.public_id,
+        payload: {
+          note: 'late',
+          expected_updated_at: new Date(contact.updated_at.getTime() - 60_000).toISOString(),
+        },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(errorOf(response).reason).toBe('record_changed');
+    });
+
+    it('a pause cancels her open runs (contact_excluded); switching it off restarts nothing (AC-5.8, AC-5.9)', async () => {
+      const automation = await insertAutomation({
+        organizationId: team.organization.id,
+        instagramAccountId: account.id,
+      });
+      const contact = await contactOfTeam();
+      const run = await insertAutomationRun({
+        organizationId: team.organization.id,
+        automationId: automation.id,
+        contactId: contact.id,
+      });
+
+      const paused = await update({
+        contactPublicId: contact.public_id,
+        payload: { is_automations_paused: true },
+        token: team.editorToken,
+      });
+
+      expect(paused.statusCode).toBe(200);
+      expect(dataOf(paused)).toMatchObject({
+        is_automations_paused: true,
+        automations_paused_by_user_id: team.editor.public_id,
+        open_run_count: 0,
+      });
+      expect(await readRunRow(run.id)).toMatchObject({
+        status: 'cancelled',
+        cancel_reason: 'contact_excluded',
+      });
+      const pauseAudit = await readStagedAuditRows({
+        organizationPublicId: team.organization.public_id,
+        action: 'app.contact.automations_pause',
+      });
+      expect(pauseAudit).toEqual([
+        {
+          severity: 'WARNING',
+          resource_type: 'contact',
+          metadata: { contact_public_id: contact.public_id },
+        },
+      ]);
+
+      const resumed = await update({
+        contactPublicId: contact.public_id,
+        payload: { is_automations_paused: false },
+      });
+      expect(dataOf(resumed)).toMatchObject({
+        is_automations_paused: false,
+        automations_paused_by_user_id: null,
+      });
+      expect((await readRunRow(run.id))?.status).toBe('cancelled');
+      expect(
+        await readStagedAuditRows({
+          organizationPublicId: team.organization.public_id,
+          action: 'app.contact.automations_resume',
+        }),
+      ).toHaveLength(1);
+    });
+
+    it("answers 404 contact_not_found for another organization's contact and changes nothing (K1)", async () => {
+      const otherTeam = await createInstagramTeam();
+      const otherAccount = await insertInstagramAccount({
+        organizationId: otherTeam.organization.id,
+      });
+      const foreign = await insertContact({
+        organizationId: otherTeam.organization.id,
+        instagramAccountId: otherAccount.id,
+      });
+
+      const response = await update({ contactPublicId: foreign.public_id, payload: { note: 'x' } });
+
+      expect(response.statusCode).toBe(404);
+      expect(errorOf(response).reason).toBe('contact_not_found');
+      expect((await readContactRow(foreign.id))?.note).toBeNull();
+    });
+
+    it('refuses a Viewer with 403 missing_permission (AC-5.11)', async () => {
+      const contact = await contactOfTeam();
+
+      const response = await update({
+        contactPublicId: contact.public_id,
+        payload: { note: 'hi' },
+        token: team.viewerToken,
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(errorOf(response).reason).toBe('missing_permission');
+    });
+
+    it('answers 422 on a personal organization', async () => {
+      const personal = await createPersonalOrganizationWithInstagramCodes({
+        permissionCodes: [APP_PERMISSIONS.CONTACT_UPDATE],
+      });
+
+      const response = await update({
+        contactPublicId: generatePublicId('contact'),
+        payload: { note: 'hi' },
+        token: personal.token,
+      });
+
+      expect(response.statusCode).toBe(422);
+    });
+  });
+
+  describe('POST /app/contacts/bulk-actions (route 21)', () => {
+    function bulk({
+      payload,
+      token = team.ownerToken,
+      idempotencyKey = `bulk-${randomUUID()}`,
+    }: {
+      payload: Record<string, unknown>;
+      token?: string;
+      idempotencyKey?: string | null;
+    }): Promise<InjectHttpResult> {
+      return injectAuthenticated(app, {
+        method: 'POST',
+        url: CONTACT_BULK_ACTIONS_PATH,
+        token,
+        payload: { channel_account_id: account.public_id, ...payload },
+        headers: idempotencyKey === null ? {} : { 'x-idempotency-key': idempotencyKey },
+      });
+    }
+
+    const ids = (count: number) =>
+      Array.from({ length: count }, (_, index) => `con_${String(index).padStart(21, '0')}`);
+
+    it('refuses more than 500 ids, neither selection, or both, with 400 (AC-5.6)', async () => {
+      for (const payload of [
+        { action: 'add_tag', tag: 'vip', contact_ids: ids(501) },
+        { action: 'add_tag', tag: 'vip' },
+        { action: 'add_tag', tag: 'vip', contact_ids: ids(1), filter: {} },
+        { action: 'pause_automations', tag: 'vip', contact_ids: ids(1) },
+      ]) {
+        expect((await bulk({ payload })).statusCode).toBe(400);
+      }
+    });
+
+    it('needs X-Idempotency-Key (it starts background work)', async () => {
+      const response = await bulk({
+        payload: { action: 'add_tag', tag: 'vip', contact_ids: ids(1) },
+        idempotencyKey: null,
+      });
+      expect(response.statusCode).toBe(422);
+    });
+
+    it("answers 404 channel_account_not_found for another organization's account", async () => {
+      const otherTeam = await createInstagramTeam();
+      const otherAccount = await insertInstagramAccount({
+        organizationId: otherTeam.organization.id,
+      });
+
+      const response = await bulk({
+        payload: {
+          channel_account_id: otherAccount.public_id,
+          action: 'add_tag',
+          tag: 'vip',
+          contact_ids: ids(1),
+        },
+      });
+
+      expect(response.statusCode, response.body).toBe(404);
+      expect(errorOf(response).reason).toBe('channel_account_not_found');
+    });
+
+    it('counts a good selection and, until the bulk job lands (R46), answers 503 contact_bulk_action_unavailable', async () => {
+      await contactOfTeam({ tags: ['vip'] });
+
+      const response = await bulk({
+        payload: { action: 'pause_automations', filter: { tags: 'vip' } },
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(errorOf(response).reason).toBe('contact_bulk_action_unavailable');
+    });
+
+    it('refuses a Viewer with 403 missing_permission (AC-5.11)', async () => {
+      const response = await bulk({
+        payload: { action: 'add_tag', tag: 'vip', contact_ids: ids(1) },
+        token: team.viewerToken,
+      });
+      expect(response.statusCode).toBe(403);
+      expect(errorOf(response).reason).toBe('missing_permission');
+    });
+  });
+
+  describe('GET /app/contact-tags (route 22)', () => {
+    it("refuses a list without the account with 400, and another organization's with 404 (AC-5.7)", async () => {
+      const missing = await tagList({ accountPublicId: null });
+      expect(missing.statusCode).toBe(400);
+
+      const otherTeam = await createInstagramTeam();
+      const otherAccount = await insertInstagramAccount({
+        organizationId: otherTeam.organization.id,
+      });
+      const foreign = await tagList({ accountPublicId: otherAccount.public_id });
+      expect(foreign.statusCode).toBe(404);
+      expect(errorOf(foreign).reason).toBe('channel_account_not_found');
+    });
+
+    it("drops an erased contact's tags from the counts", async () => {
+      const contact = await contactOfTeam();
+      await update({ contactPublicId: contact.public_id, payload: { add_tags: ['vip'] } });
+      expect(dataOf(await tagList({ token: team.viewerToken }))).toEqual([
+        { tag: 'vip', contact_count: 1 },
+      ]);
+
+      await erase({ contactPublicId: contact.public_id });
+
+      expect(dataOf(await tagList())).toEqual([]);
     });
   });
 

@@ -46,6 +46,8 @@ import {
 import {
   type ContactFixtureRow,
   nextInstagramUserId,
+  readAccountContactRows,
+  updateContactActivity,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
   AUTOMATIONS_PATH,
@@ -605,16 +607,12 @@ export class InstagramCommentFlow {
 
   /** The person's contact of the connected account. */
   async contactOf(person: TestInstagramPerson): Promise<ContactFixtureRow> {
-    const [contact] = await getOperatorDatabase()
-      .select()
-      .from(contacts)
-      .where(
-        and(
-          eq(contacts.organization_id, this.team.organization.id),
-          eq(contacts.instagram_account_id, this.account.id),
-          eq(contacts.instagram_user_id, person.instagramUserId),
-        ),
-      );
+    const contact = (
+      await readAccountContactRows({
+        organizationId: this.team.organization.id,
+        instagramAccountId: this.account.id,
+      })
+    ).find((row) => row.instagram_user_id === person.instagramUserId);
     if (contact === undefined) throw new Error('the person has no contact');
     return contact;
   }
@@ -628,7 +626,29 @@ export class InstagramCommentFlow {
     values: Partial<ContactFixtureRow>;
   }): Promise<void> {
     const contact = await this.contactOf(person);
-    await getOperatorDatabase().update(contacts).set(values).where(eq(contacts.id, contact.id));
+    const activityKeys = new Set([
+      'last_message_received_at',
+      'last_direct_message_received_at',
+      'last_message_sent_at',
+      'last_opening_message_at',
+      'first_message_at',
+      'last_comment_at',
+      'comment_count',
+      'last_story_activity_at',
+      'last_broadcast_at',
+    ]);
+    const entries = Object.entries(values);
+    const activityValues = Object.fromEntries(entries.filter(([key]) => activityKeys.has(key)));
+    const contactValues = Object.fromEntries(entries.filter(([key]) => !activityKeys.has(key)));
+    if (Object.keys(contactValues).length > 0) {
+      await getOperatorDatabase()
+        .update(contacts)
+        .set(contactValues)
+        .where(eq(contacts.id, contact.id));
+    }
+    if (Object.keys(activityValues).length > 0) {
+      await updateContactActivity({ contactId: contact.id, values: activityValues });
+    }
   }
 
   /** The organization's runs, oldest first. */

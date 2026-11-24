@@ -117,8 +117,8 @@ export async function useUpAttemptsOfLatestEvent(flow: InstagramMessageFlow): Pr
 /** The last DM the person sent is more than a day old: the messaging window is closed (3.B.10). */
 export async function closeMessagingWindow(flow: InstagramMessageFlow): Promise<void> {
   await operatorQuery`
-    UPDATE app.contacts
+    UPDATE app.contact_activities
     SET last_direct_message_received_at = now() - interval '25 hours'
     WHERE organization_id = ${flow.team.organization.id}
-      AND instagram_account_id = ${flow.account.id}`;
+      AND channel_account_id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${flow.account.id})`;
 }

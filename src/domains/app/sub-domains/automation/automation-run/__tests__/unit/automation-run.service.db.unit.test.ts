@@ -7,7 +7,6 @@ import type { OrganizationService } from '@/domains/tenancy/sub-domains/organiza
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
-import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
 import { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
@@ -22,6 +21,7 @@ import {
   insertContact,
   insertInstagramAccount,
   readContactRow,
+  updateContactActivity,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
   type AutomationFixtureRow,
@@ -107,7 +107,7 @@ function instagramError({
 
 describe('AutomationRunService (database, fake Instagram client)', () => {
   let organization: { id: number; public_id: string };
-  let account: { id: number; public_id: string };
+  let account: { id: number; public_id: string; channel_account_id: number };
   let contact: ContactFixtureRow;
   let instagram: ReturnType<typeof fakeInstagramClient>;
   let accountService: {
@@ -131,6 +131,7 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
     });
     const access: InstagramAutomationAccountAccess = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
+      channelAccountId: account.channel_account_id,
       instagramAccountPublicId: account.public_id,
       instagramUserId: '17841400000000999',
       username: 'acme.shop',
@@ -178,10 +179,10 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
 
   /** The contact DMed the account just now — its messaging window is open (CT10). */
   async function openMessagingWindow(): Promise<void> {
-    await getOperatorDatabase()
-      .update(contacts)
-      .set({ last_direct_message_received_at: new Date() })
-      .where(eq(contacts.id, contact.id));
+    await updateContactActivity({
+      contactId: contact.id,
+      values: { last_direct_message_received_at: new Date() },
+    });
   }
 
   function liveAutomation(
@@ -874,6 +875,7 @@ describe('AutomationRunService (database, fake Instagram client)', () => {
       await dmAutomation('catalog');
       accountService.findAutomationAccountAccess.mockResolvedValueOnce({
         instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
+        channelAccountId: account.channel_account_id,
         instagramAccountPublicId: account.public_id,
         instagramUserId: '1',
         username: 'acme.shop',

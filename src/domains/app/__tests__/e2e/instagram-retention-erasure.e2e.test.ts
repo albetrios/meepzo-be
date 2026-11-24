@@ -1096,7 +1096,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
     }): Promise<void> {
       for (const search of [JORDAN.email, JORDAN.username, JORDAN.fullName]) {
         const found = await injectAuthenticated(app, {
-          url: `${CONTACTS_PATH}?q=${encodeURIComponent(search)}`,
+          url: `${CONTACTS_PATH}?channel_account_id=${team.account.public_id}&q=${encodeURIComponent(search)}`,
           token: team.ownerToken,
         });
         expect((found.json() as { data: unknown[] }).data).toHaveLength(1);

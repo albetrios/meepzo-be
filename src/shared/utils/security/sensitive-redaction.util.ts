@@ -51,7 +51,8 @@ export const SECRET_KEY_FRAGMENTS = [
  * `is_email_collection_enabled` no longer stop its create from being replayed); and the text a
  * person wrote that the run engine keeps (launch AU26, AUC13) — a run's `trigger_text` and a
  * comment log's `comment_text` (its `commenter_username`, `email_received` and `phone_received` are
- * already hidden by the fragments above). Not a secret, so it never stops a response from being
+ * already hidden by the fragments above); and the team's private `note` on a contact
+ * (feat-instagram-dm-sending CT4, CTC3). Not a secret, so it never stops a response from being
  * cached or compressed; the substring match still hides incidental keys such as
  * `is_email_verified` in logs, an accepted fail-closed trade-off. A bare `text` is not listed — it
  * would hide every `context` key too (launch WH6).
@@ -64,6 +65,7 @@ export const PERSONAL_DATA_KEY_FRAGMENTS = [
   'email',
   'trigger_text',
   'comment_text',
+  'note',
 ] as const;
 
 /**

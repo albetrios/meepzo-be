@@ -91,7 +91,7 @@
     "noteWhenReasonIsOther": "Add a note when the reason is other",
     "linkMustUseHttps": "Link must use HTTPS",
     "indianPhoneFormat": "Use +91 and ten digits",
-    "contactTagsFilter": "Up to 10 tags, comma-separated, each 1–255 characters",
+    "contactTagsFilter": "Up to 10 tags, comma-separated, each 1–50 characters",
     "rangeStartBeforeEnd": "The start must come before the end",
     "eachStopWordOnce": "Each stop word once",
     "extraDelayBothOrNeither": "Set both ends of the delay before each message, or neither",
@@ -110,7 +110,13 @@
     "dmNeedsKeyword": "A DM automation needs at least one keyword",
     "dmKeywordTriggerRequired": "A DM automation needs the DM keyword trigger on",
     "publicReplyOnlyForComments": "Public replies work only on comment automations, with 1–20 reply texts",
-    "openingButtonRequired": "A comment automation with the opening message on needs a button title"
+    "openingButtonRequired": "A comment automation with the opening message on needs a button title",
+    "contactCameInVia": "One or more ways to start, comma-separated",
+    "contactSearchTooShort": "Search with at least 3 characters",
+    "contactTagInBothLists": "A tag cannot be both added and removed",
+    "contactIdsRepeated": "Each contact may be named once",
+    "contactBulkSelection": "Send either contact_ids or filter, not both",
+    "contactBulkTag": "Send a tag for the tag actions, and none for the pause actions"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -298,5 +304,8 @@
   "emailCodeResendTooSoon": "A code was just sent. Wait a moment before asking for a new one.",
   "emailCodeAlwaysOn": "Signing in with an email code is always on and cannot be removed.",
   "mfaCodeWrong": "That code is not right. Check your authenticator app and try again.",
-  "mfaLocked": "Too many wrong codes. Wait a few minutes, then try again or use a recovery code."
+  "mfaLocked": "Too many wrong codes. Wait a few minutes, then try again or use a recovery code.",
+  "contactTagLimit": "A contact can hold at most {{max}} tags.",
+  "contactBulkTooMany": "This action reaches more than {{max}} contacts. Narrow the filter.",
+  "contactBulkActionUnavailable": "Bulk actions on contacts are not available yet. Try again later."
 }

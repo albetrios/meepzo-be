@@ -19,18 +19,20 @@ interface SentStatement {
 }
 
 /**
- * The contact list's page query against the database (routes-final § 2.3, CT6, CQ2, D56): every sort
- * and direction reads its rows in order from an index, so a page never sorts the whole organization's
- * contacts. The statement planned is the repository's own, captured as the driver sends it.
+ * The contact list's page query against the database (routes-final § 3.A.3, CT2, S5, D56): every sort
+ * and direction reads one account's rows in order from an index — the "last message" sort from the
+ * activity table's — so a page never sorts the account's contacts. The statement planned is the repository's own, captured as the driver sends it.
  */
 describe('ContactRepository.list (database)', () => {
   let organizationId: number;
+  let channelAccountId: number;
 
   beforeEach(async () => {
     await cleanupDatabase();
     const organization = await createTestOrganization({ ownerUserId: (await createTestUser()).id });
     organizationId = organization.id;
     const account = await insertInstagramAccount({ organizationId });
+    channelAccountId = account.channel_account_id;
     for (const username of ['avery', null, 'jordan', 'river', null]) {
       await insertContact({ organizationId, instagramAccountId: account.id, username });
     }
@@ -59,9 +61,14 @@ describe('ContactRepository.list (database)', () => {
         isFollowingAccount: undefined,
         firstSeenFrom: undefined,
         firstSeenTo: undefined,
-        instagramAccountPublicId: undefined,
+        channelAccountId,
         automationPublicId: undefined,
         automationId: undefined,
+        isOptedOut: undefined,
+        isAutomationsPaused: undefined,
+        cameInVia: [],
+        firstAutomationPublicId: undefined,
+        firstAutomationId: undefined,
         ...query,
       },
     });
@@ -92,16 +99,12 @@ describe('ContactRepository.list (database)', () => {
   }
 
   it.each([
-    ['username', 'desc', 'idx_contacts_organization_id_username_desc_id'],
-    ['username', 'asc', 'idx_contacts_organization_id_username_id'],
-    [
-      'last_message_received_at',
-      'desc',
-      'idx_contacts_organization_id_last_message_received_at_id',
-    ],
-    ['last_message_received_at', 'asc', 'idx_contacts_organization_id_last_message_received_at_id'],
-    ['first_seen_at', 'desc', 'idx_contacts_organization_id_first_seen_at_id'],
-    ['first_seen_at', 'asc', 'idx_contacts_organization_id_first_seen_at_id'],
+    ['username', 'desc', 'idx_contacts_account_username_desc_id'],
+    ['username', 'asc', 'idx_contacts_account_username_id'],
+    ['last_message_received_at', 'desc', 'idx_contact_activities_account_last_message_received_at'],
+    ['last_message_received_at', 'asc', 'idx_contact_activities_account_last_message_received_at'],
+    ['first_seen_at', 'desc', 'idx_contacts_account_first_seen_at_id'],
+    ['first_seen_at', 'asc', 'idx_contacts_account_first_seen_at_id'],
   ] as const)('reads %s %s in order from %s, sorting nothing', async (sort, order, indexName) => {
     const plan = await readPlan(await capturePageStatement({ sort, order }));
 

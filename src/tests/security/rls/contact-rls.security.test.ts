@@ -29,8 +29,8 @@ describe('Security: app.contacts tenant isolation (meepzo_be_app)', () => {
   let organizationB: { id: number; public_id: string };
   let contactA: { id: number; public_id: string };
   let contactB: { id: number; public_id: string };
-  let accountA: { id: number };
-  let accountB: { id: number };
+  let accountA: { id: number; channel_account_id: number };
+  let accountB: { id: number; channel_account_id: number };
 
   beforeAll(async () => {
     await grantMeepzoBeAppRoleForTests();
@@ -99,10 +99,10 @@ describe('Security: app.contacts tenant isolation (meepzo_be_app)', () => {
     await expect(
       executeAsMeepzoBeAppTenant(organizationA.public_id, (transaction) =>
         transaction.execute(drizzleSql`
-          INSERT INTO app.contacts (public_id, organization_id, instagram_account_id, instagram_user_id,
-            first_seen_at, last_message_received_at)
-          VALUES (${generatePublicId('contact')}, ${organizationB.id}, ${accountB.id}, '17841400000000999',
-            now(), now())`),
+          INSERT INTO app.contacts (public_id, organization_id, channel_account_id, instagram_user_id,
+            first_seen_at)
+          VALUES (${generatePublicId('contact')}, ${organizationB.id}, ${accountB.channel_account_id},
+            '17841400000000999', now())`),
       ),
     ).rejects.toThrow();
   });

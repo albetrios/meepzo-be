@@ -292,14 +292,14 @@ async function recordContact({
   occurredAt: Date;
 }): Promise<ContactRow> {
   const { services, organizationPublicId } = context;
-  const { organizationId, instagramAccountId } = account.instagramAccount;
+  const { organizationId } = account.instagramAccount;
   const recorded = await runOrganizationScopedWorkerJob({
     job: { organizationPublicId },
     processor: (databaseHandle) =>
       services.contactService.recordContactInteraction({
         databaseHandle,
         organizationId,
-        instagramAccountId,
+        channelAccountId: account.channelAccountId,
         instagramUserId: dispatch.contactInstagramUserId,
         username: dispatch.kind === 'comment' ? dispatch.username : null,
         occurredAt,

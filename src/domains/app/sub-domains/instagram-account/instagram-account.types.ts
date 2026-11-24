@@ -188,8 +188,10 @@ export interface InstagramWebhookProcessingAccount {
  * The token stays ciphertext: only the Instagram client decrypts it, right before its call (IA5).
  */
 export interface InstagramAutomationAccountAccess {
-  /** Its organization and internal id — the key the automations, contacts and runs name. */
+  /** Its organization and internal id — the key the automations and runs name. */
   instagramAccount: InstagramAccountKey;
+  /** `app.channel_accounts.id` it extends — the key contacts name (ROUTE row R10). */
+  channelAccountId: number;
   /** `cha_…`. */
   instagramAccountPublicId: string;
   /** The Instagram user id send URLs take (`POST /{instagram_user_id}/messages`). */

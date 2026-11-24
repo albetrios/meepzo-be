@@ -58,6 +58,8 @@ const GLOBAL_LIMITER_ONLY_ALLOWLIST = new Set<string>([
   'src/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.routes.ts → GET /social/instagram/stories',
   'src/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.routes.ts → GET /social/instagram/webhook-events',
   'src/domains/app/sub-domains/contact/contact.routes.ts → GET /contacts',
+  // The tag list (feat-instagram-dm-sending R10, route 22): a plain authenticated read.
+  'src/domains/app/sub-domains/contact/contact.routes.ts → GET /contact-tags',
   // The automation reads (launch R9): plain authenticated reads of the organization's automations.
   'src/domains/app/sub-domains/automation/automation.routes.ts → GET /automations',
   'src/domains/app/sub-domains/automation/automation.routes.ts → GET /automations/:automation_id',

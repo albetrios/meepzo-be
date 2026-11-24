@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 163
+  Total routes: 167
 ================================================================================
 
 Legend:
@@ -13,7 +13,7 @@ Legend:
 
 ================================================================================
   DOMAIN: APP (/api/v1/app)
-  Routes: 28
+  Routes: 32
 ================================================================================
 
   — Sub Domains —
@@ -22,8 +22,12 @@ Legend:
   GET    /api/v1/app/automations/:automation_id                   200  -    team  PERM: automation:read
   PATCH  /api/v1/app/automations/:automation_id                   200  -    team  PERM: automation:update
   DELETE /api/v1/app/automations/:automation_id                   204  -    team  PERM: automation:delete
+  GET    /api/v1/app/contact-tags                                 200  -    team  PERM: contact:read
   GET    /api/v1/app/contacts                                     200  -    team  PERM: contact:read
+  GET    /api/v1/app/contacts/:contact_id                         200  -    team  PERM: contact:read
+  PATCH  /api/v1/app/contacts/:contact_id                         200  -    team  PERM: contact:update
   DELETE /api/v1/app/contacts/:contact_id                         204  -    team  PERM: contact:delete
+  POST   /api/v1/app/contacts/bulk-actions                        200  req  team  PERM: contact:update
   GET    /api/v1/app/social/channel-accounts                      200  -    team  PERM: channel-account:read
   GET    /api/v1/app/social/channel-accounts/:channel_account_id  200  -    team  PERM: channel-account:read
   DELETE /api/v1/app/social/channel-accounts/:channel_account_id  204  -    team  PERM: channel-account:manage
@@ -254,22 +258,23 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 163
+  Total routes    : 167
   Public          : 19
   Authenticated   : 53
   Role-guarded    : 9
-  Perm-guarded    : 77
+  Perm-guarded    : 81
   Token-guarded   : 5
-  Team-only (O)   : 34
+  Team-only (O)   : 38
 
 ================================================================================
-  IDEMPOTENCY-REQUIRED WRITES (22) — X-Idempotency-Key required
+  IDEMPOTENCY-REQUIRED WRITES (23) — X-Idempotency-Key required
 ================================================================================
 
   Routes flagged I = req reject a missing or reused key (422); every other write
   accepts an optional key (24h Redis cache).
 
     POST /api/v1/app/automations
+    POST /api/v1/app/contacts/bulk-actions
     POST /api/v1/app/social/channel-accounts/:channel_account_id/activate
     POST /api/v1/app/social/channel-connections/:channel_connection_id/accounts
     POST /api/v1/app/social/channel-connections/:provider/callback

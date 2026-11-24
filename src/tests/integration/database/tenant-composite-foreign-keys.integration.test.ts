@@ -73,6 +73,36 @@ const CONVERSIONS: readonly Conversion[] = [
     'restrict',
     'instagram_accounts_channel_account_fk',
   ),
+  // feat-instagram-dm-sending R10 (CT2, S5, S7): a contact names its channel account, RESTRICT; its
+  // activity row names the contact (CASCADE) and the account; a tag count names the account.
+  link(
+    'app.contacts',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'contacts_channel_account_fk',
+  ),
+  link(
+    'app.contact_activities',
+    'contact_id',
+    'app.contacts',
+    'cascade',
+    'contact_activities_contact_fk',
+  ),
+  link(
+    'app.contact_activities',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'contact_activities_channel_account_fk',
+  ),
+  link(
+    'app.contact_tag_counts',
+    'channel_account_id',
+    'app.channel_accounts',
+    'restrict',
+    'contact_tag_counts_channel_account_fk',
+  ),
   // launch R12 (WH16): an Instagram webhook event names its account through the composite key.
   link(
     'app.instagram_webhook_events',
@@ -228,15 +258,26 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
   // comment log (launch R10).
   const [contact] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(
-      `INSERT INTO app.contacts (public_id, organization_id, instagram_account_id, instagram_user_id, first_seen_at, last_message_received_at)
-       VALUES ($1, $2, $3, $4, now(), now()) RETURNING id`,
+      `INSERT INTO app.contacts (public_id, organization_id, channel_account_id, instagram_user_id, first_seen_at)
+       VALUES ($1, $2, $3, $4, now()) RETURNING id`,
       [
         `con_${String(organization.id).padStart(21, '0')}`,
         organization.id,
-        Number(account?.id),
+        Number(channelAccount?.id),
         `7${String(organization.id).padStart(15, '0')}`,
       ],
     ),
+  );
+  // The contact's activity row and one tag count of the account (R10, S5, S7).
+  await operatorQuery.unsafe(
+    `INSERT INTO app.contact_activities (contact_id, organization_id, channel_account_id, last_message_received_at)
+     VALUES ($1, $2, $3, now())`,
+    [Number(contact?.id), organization.id, Number(channelAccount?.id)],
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.contact_tag_counts (organization_id, channel_account_id, tag, contact_count)
+     VALUES ($1, $2, 'vip', 1)`,
+    [organization.id, Number(channelAccount?.id)],
   );
   const [run] = rowsOf<{ id: string }>(
     await operatorQuery.unsafe(

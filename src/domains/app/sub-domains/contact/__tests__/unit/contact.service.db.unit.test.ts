@@ -22,7 +22,7 @@ import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 
 /**
- * The contact service against the database (routes-final § 2.10, CT2, CT7–CT10, CT13): the worker
+ * The contact service against the database (routes-final § 3.A, 3.A.10; CT5, CT11, CT18; S5, S7): the worker
  * operations on an organization-scoped handle, exactly as event processing and the run engine call
  * them, and the erase with its registered steps in one transaction. Every statement runs inside the
  * organization's own context, so the suite also holds under `pnpm test:rls-role`.
@@ -34,7 +34,7 @@ const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
 
 describe('ContactService (database)', () => {
   let organization: TestOrganization;
-  let account: { id: number; public_id: string };
+  let account: { id: number; public_id: string; channel_account_id: number };
   let erasureSteps: ContactErasureStep[];
   let service: ContactService;
 
@@ -46,6 +46,8 @@ describe('ContactService (database)', () => {
     erasureSteps = [];
     const organizationService = {
       requireOrganizationByPublicId: async () => organization,
+      resolveUserInternalIdByPublicId: async () => null,
+      resolveUserPublicIdsByInternalIds: async () => new Map(),
     } as unknown as OrganizationService;
     service = new ContactService(
       new ContactRepository(),
@@ -67,7 +69,7 @@ describe('ContactService (database)', () => {
 
   function interact(
     overrides: Partial<{
-      instagramAccountId: number;
+      channelAccountId: number;
       instagramUserId: string;
       username: string | null;
       occurredAt: Date;
@@ -78,7 +80,7 @@ describe('ContactService (database)', () => {
       service.recordContactInteraction({
         databaseHandle,
         organizationId: organization.id,
-        instagramAccountId: account.id,
+        channelAccountId: account.channel_account_id,
         instagramUserId: '17841455500000001',
         username: 'jordan.lee',
         occurredAt: minutesAgo(10),
@@ -97,7 +99,8 @@ describe('ContactService (database)', () => {
       expect(isNewContact).toBe(true);
       expect(contact).toMatchObject({
         organization_id: organization.id,
-        instagram_account_id: account.id,
+        channel_account_id: account.channel_account_id,
+        channel: 'instagram',
         instagram_user_id: '17841455500000001',
         username: 'jordan.lee',
         tags: [],
@@ -157,13 +160,13 @@ describe('ContactService (database)', () => {
       );
     });
 
-    it('keys a contact per Instagram account: the same person on two accounts is two contacts (CT13)', async () => {
+    it('keys a contact per channel account: the same person on two accounts is two contacts (CT18)', async () => {
       const revoked = await insertInstagramAccount({
         organizationId: organization.id,
         connectionStatus: 'revoked',
       });
       const onFirst = await interact();
-      const onSecond = await interact({ instagramAccountId: revoked.id });
+      const onSecond = await interact({ channelAccountId: revoked.channel_account_id });
 
       expect(onSecond.isNewContact).toBe(true);
       expect(onSecond.contact.id).not.toBe(onFirst.contact.id);
@@ -389,6 +392,142 @@ describe('ContactService (database)', () => {
         instagram_user_id: '17841455500000001',
         username: 'jordan.lee',
       });
+    });
+  });
+
+  describe("the owner's routes and the activity row (R10, S5, S7)", () => {
+    const caller = () => ({ scope: scope(), userPublicId: '' });
+
+    async function tagCounts() {
+      return service.listContactTags({
+        scope: scope(),
+        channelAccountPublicId: account.public_id,
+        limit: 1000,
+      });
+    }
+
+    it('keeps the account tag counts in the tag commit: route 20, the tag step and the erase', async () => {
+      const jordan = (await interact()).contact;
+      const avery = (await interact({ instagramUserId: '17841455500000002' })).contact;
+
+      await service.updateContact({
+        caller: caller(),
+        contactPublicId: jordan.public_id,
+        input: {
+          note: undefined,
+          addTags: ['vip', 'lead'],
+          removeTags: [],
+          isAutomationsPaused: undefined,
+          expectedUpdatedAt: undefined,
+        },
+      });
+      await inJob((databaseHandle) =>
+        service.addContactTags({
+          databaseHandle,
+          organizationId: organization.id,
+          contactId: avery.id,
+          tags: ['vip'],
+        }),
+      );
+      expect(await tagCounts()).toEqual([
+        { tag: 'vip', contact_count: 2 },
+        { tag: 'lead', contact_count: 1 },
+      ]);
+
+      await service.updateContact({
+        caller: caller(),
+        contactPublicId: jordan.public_id,
+        input: {
+          note: undefined,
+          addTags: [],
+          removeTags: ['lead'],
+          isAutomationsPaused: undefined,
+          expectedUpdatedAt: undefined,
+        },
+      });
+      await service.deleteContact({ scope: scope(), contactPublicId: avery.public_id });
+
+      expect(await tagCounts()).toEqual([{ tag: 'vip', contact_count: 1 }]);
+    });
+
+    it('opens one contact with her note and pause, and the erase clears them with her activity (CT11)', async () => {
+      const contact = (await interact()).contact;
+      const updated = await service.updateContact({
+        caller: caller(),
+        contactPublicId: contact.public_id,
+        input: {
+          note: 'Asked about sizes',
+          addTags: [],
+          removeTags: [],
+          isAutomationsPaused: true,
+          expectedUpdatedAt: undefined,
+        },
+      });
+      expect(updated.contact).toMatchObject({
+        note: 'Asked about sizes',
+        is_automations_paused: true,
+        channel_account_id: account.public_id,
+        open_run_count: 0,
+        first_automation: null,
+      });
+      expect(updated.changedFields).toEqual(['note', 'is_automations_paused']);
+      await inJob((databaseHandle) =>
+        service.recordContactOptOut({
+          databaseHandle,
+          organizationId: organization.id,
+          contactId: contact.id,
+          optedOutAt: new Date(),
+        }),
+      );
+
+      await service.deleteContact({ scope: scope(), contactPublicId: contact.public_id });
+
+      expect(await readContactRow(contact.id)).toMatchObject({
+        note: null,
+        automations_off_at: null,
+        opted_out_at: null,
+        // The activity row is gone with the erase.
+        last_message_received_at: null,
+        comment_count: null,
+      });
+      await expect(
+        service.getContact({ scope: scope(), contactPublicId: contact.public_id }),
+      ).rejects.toMatchObject({ reason: 'contact_not_found' });
+    });
+
+    it('moves the activity times forward only, counts comments and sets the first message once', async () => {
+      const contact = (await interact()).contact;
+      const key = { organizationId: organization.id, contactId: contact.id };
+      const newer = minutesAgo(5);
+      const older = minutesAgo(50);
+
+      const final = await inJob(async (databaseHandle) => {
+        await service.recordContactComment({ databaseHandle, ...key, occurredAt: newer });
+        await service.recordContactComment({ databaseHandle, ...key, occurredAt: older });
+        await service.recordContactStoryActivity({ databaseHandle, ...key, occurredAt: newer });
+        await service.recordContactFirstMessage({ databaseHandle, ...key, occurredAt: older });
+        await service.recordContactFirstMessage({ databaseHandle, ...key, occurredAt: newer });
+        await service.recordContactOpeningMessage({ databaseHandle, ...key, sentAt: newer });
+        return service.recordContactBroadcastSent({ databaseHandle, ...key, sentAt: newer });
+      });
+
+      expect(final?.last_comment_at?.getTime()).toBe(newer.getTime());
+      expect(final?.comment_count).toBe(2);
+      expect(final?.last_story_activity_at?.getTime()).toBe(newer.getTime());
+      expect(final?.first_message_at?.getTime()).toBe(older.getTime());
+      expect(final?.last_opening_message_at?.getTime()).toBe(newer.getTime());
+      expect(final?.last_broadcast_at?.getTime()).toBe(newer.getTime());
+      const sendState = await inJob((databaseHandle) =>
+        service.findContactSendState({ databaseHandle, ...key }),
+      );
+      expect(sendState).toMatchObject({ isErased: false, isOptedOut: false });
+    });
+
+    it("a new event does not move updated_at, so the owner's expected_updated_at stays true (S5)", async () => {
+      const contact = (await interact()).contact;
+      const again = await interact({ occurredAt: minutesAgo(1), username: 'jordan.lee' });
+
+      expect(again.contact.updated_at.getTime()).toBe(contact.updated_at.getTime());
     });
   });
 

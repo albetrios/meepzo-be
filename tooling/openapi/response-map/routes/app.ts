@@ -125,6 +125,31 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: wrapPaginated(schemas.contactSchema, [schemas.contactExample]),
     example: null,
   },
+  'GET /api/v1/app/contacts/{contact_id}': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.contactDetailSchema, schemas.contactDetailExample),
+    example: null,
+  },
+  'PATCH /api/v1/app/contacts/{contact_id}': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.contactDetailSchema, schemas.contactDetailExample),
+    example: null,
+  },
+  'POST /api/v1/app/contacts/bulk-actions': {
+    statusCode: 200,
+    schema: wrapSuccess(
+      schemas.contactBulkActionResultSchema,
+      schemas.contactBulkActionResultExample,
+    ),
+    example: null,
+  },
+  'GET /api/v1/app/contact-tags': {
+    statusCode: 200,
+    schema: wrapSuccess({ type: 'array', items: schemas.contactTagCountSchema }, [
+      schemas.contactTagCountExample,
+    ]),
+    example: null,
+  },
   'DELETE /api/v1/app/contacts/{contact_id}': {
     statusCode: 204,
     schema: null,

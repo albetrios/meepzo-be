@@ -16,6 +16,8 @@ TableGroup app {
   app.channel_connection_tokens
   app.channel_connection_usages
   app.channel_connections
+  app.contact_activities
+  app.contact_tag_counts
   app.contacts
   app.instagram_account_settings
   app.instagram_accounts
@@ -309,23 +311,60 @@ Note app.channel_connections {
   'RLS: enabled\nPolicies: channel_connections_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
+Table app.contact_activities {
+  channel_account_id bigint [not null]
+  comment_count int [not null]
+  contact_id bigint [not null]
+  first_message_at timestamptz
+  id bigint [pk, increment]
+  last_broadcast_at timestamptz
+  last_comment_at timestamptz
+  last_direct_message_received_at timestamptz
+  last_message_received_at timestamptz [not null]
+  last_message_sent_at timestamptz
+  last_opening_message_at timestamptz
+  last_story_activity_at timestamptz
+  organization_id bigint [not null]
+}
+
+Note app.contact_activities {
+  'RLS: enabled\nPolicies: contact_activities_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.contact_tag_counts {
+  channel_account_id bigint [not null]
+  contact_count int [not null]
+  id bigint [pk, increment]
+  organization_id bigint [not null]
+  tag varchar(50) [not null]
+}
+
+Note app.contact_tag_counts {
+  'RLS: enabled\nPolicies: contact_tag_counts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
 Table app.contacts {
   AND cardinality
+  automations_off_at timestamptz
+  automations_off_by_user_id bigint
+  came_in_ref varchar(64)
+  came_in_via varchar(20)
+  channel varchar(10) [not null]
+  channel_account_id bigint [not null]
   created_at timestamptz [not null]
   deleted_at is
-  email varchar(255)
+  email varchar(254)
   email_collected_at timestamptz
+  first_automation_id bigint
   first_seen_at timestamptz [not null]
   follow_checked_at timestamptz
   followers_count int
   full_name varchar(255)
   id bigint [pk, increment]
-  instagram_account_id bigint [not null]
   instagram_user_id varchar(64)
   is_following_account boolean
-  last_direct_message_received_at timestamptz
-  last_message_received_at timestamptz [not null]
-  last_message_sent_at timestamptz
+  note text
+  opted_out_at timestamptz
   OR 
   organization_id bigint [not null]
   phone varchar(20)

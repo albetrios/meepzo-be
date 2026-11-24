@@ -54,6 +54,7 @@ function accountState(
 ): InstagramWebhookAccountState {
   return {
     instagramAccount: { organizationId: 7, instagramAccountId: 11 },
+    channelAccountId: 13,
     instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
     instagramUserId: INSTAGRAM_USER_ID,
     instagramAppUserId: '9000000000000001',
@@ -281,7 +282,7 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
     expect(eventService.recordReceivedEvents).toHaveBeenCalledTimes(1);
     expect(eventService.recordReceivedEvents.mock.calls[0]?.[0]).toMatchObject({
       scope,
-      instagramAccount: { organizationId: 7, instagramAccountId: 11 },
+      channelAccount: { organizationId: 7, channelAccountId: 13 },
       requestId: REQUEST_ID,
     });
     expect(
@@ -301,13 +302,13 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
       {
         eventKind: 'echo',
         eventKey: 'echo:m_echo',
-        skipReason: 'echo',
+        skipReason: 'unsupported',
         instagramUserId: INSTAGRAM_USER_ID,
       },
       {
-        eventKind: 'read',
+        eventKind: 'unknown',
         eventKey: 'read:m_echo',
-        skipReason: 'read_receipt',
+        skipReason: 'unsupported',
         instagramUserId: INSTAGRAM_USER_ID,
       },
     ]);
@@ -341,7 +342,7 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
 
       expect(storedEvents(eventService).map((event) => event.skipReason)).toEqual([
         reason,
-        'reaction',
+        'unsupported',
       ]);
     },
   );
@@ -570,7 +571,7 @@ describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => 
     });
     expect(eventService.markEventsQueued).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'verified' },
-      instagramAccount: { organizationId: 7, instagramAccountId: 11 },
+      channelAccount: { organizationId: 7, channelAccountId: 13 },
       eventIds: [100],
     });
   });

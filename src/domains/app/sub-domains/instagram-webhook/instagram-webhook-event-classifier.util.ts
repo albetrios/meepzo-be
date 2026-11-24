@@ -43,7 +43,7 @@ export interface ClassifiedInstagramWebhookEvent {
   eventKind: InstagramWebhookEventKind;
   /** At most 512 characters; unique per Instagram account, never across accounts. */
   eventKey: string;
-  /** `echo` · `read_receipt` · `reaction` · `edit` · `unsupported`, or `null` for an event to handle. */
+  /** `own_comment` · `edit` · `unsupported`, or `null` for an event to handle. */
   kindSkipReason: InstagramWebhookEventSkipReason | null;
   /** The sender (an echo: the recipient), digits only; `null` when the item names nobody else. */
   contactInstagramUserId: string | null;
@@ -201,7 +201,8 @@ function messageRule({
       eventKind: 'echo',
       prefix: 'echo',
       parts: [messageId],
-      kindSkipReason: 'echo',
+      // Stored skipped until intake takes echoes in (WHC5, ROUTE R17 — WH10's quiet time).
+      kindSkipReason: 'unsupported',
       contactIsRecipient: true,
     };
   }
@@ -248,16 +249,20 @@ function postbackRule({
   };
 }
 
-/** The 4.A.10 rule of a read receipt, a reaction or an edit — each skipped with its reason. */
+/**
+ * The rule of a read receipt, a reaction or an edit — each stored skipped (bodiless). A read receipt
+ * and a reaction are `unsupported` until the classifier's rev (WHC5, ROUTE R17) drops read receipts
+ * and takes reactions in (5.A.10).
+ */
 function skippedActivityRule(item: MetaObject): MessagingRule | null {
   // A read receipt keys on the message it read — `read:<mid>`, never `message:<mid>`.
   const readMessageId = readIdentifier(asMetaObject(item.read)?.mid);
   if (readMessageId !== null) {
     return {
-      eventKind: 'read',
+      eventKind: 'unknown',
       prefix: 'read',
       parts: [readMessageId],
-      kindSkipReason: 'read_receipt',
+      kindSkipReason: 'unsupported',
     };
   }
   const reaction = asMetaObject(item.reaction);
@@ -271,7 +276,7 @@ function skippedActivityRule(item: MetaObject): MessagingRule | null {
         readIdentifier(reaction.action) ?? '',
         readIdentifier(item.timestamp) ?? '',
       ],
-      kindSkipReason: 'reaction',
+      kindSkipReason: 'unsupported',
     };
   }
   const messageEdit = asMetaObject(item.message_edit);
@@ -348,7 +353,7 @@ function classifyChangeItem({
     return {
       eventKind: 'comment',
       eventKey: buildInstagramWebhookEventKey({ prefix: 'comment', parts: [commentId] }),
-      kindSkipReason: isOwnComment ? 'echo' : null,
+      kindSkipReason: isOwnComment ? 'own_comment' : null,
       contactInstagramUserId: isOwnComment ? null : fromId,
       occurredAt,
       payload: item,
@@ -372,14 +377,14 @@ function classifyChangeItem({
  * WH9) — the one pure classifier the receiver stores events by.
  *
  * @remarks
- * - **Algorithm:** a `changes[]` item — `comments` → `comment:<value.id>` (skipped `echo` when
- *   `from.id` is the account itself), `messages` → read as a `messaging[]` item (D18), any other
- *   field → `change:<field>:<SHA-256 of value>`, skipped `unsupported`. A `messaging[]` item — a
- *   message (`is_echo`, or sent by the account → `echo:<mid>` skipped `echo`; `is_deleted` →
+ * - **Algorithm:** a `changes[]` item — `comments` → `comment:<value.id>` (skipped `own_comment`
+ *   when `from.id` is the account itself, P24), `messages` → read as a `messaging[]` item (D18), any
+ *   other field → `change:<field>:<SHA-256 of value>`, skipped `unsupported`. A `messaging[]` item —
+ *   a message (`is_echo`, or sent by the account → `echo:<mid>` skipped `unsupported`; `is_deleted` →
  *   `deleted:<mid>` skipped `unsupported`; `reply_to.story.id` → `story_reply`; else `message`,
  *   both `message:<mid>`), a postback (`postback:<mid>`, or without `mid`
- *   `postback:<sender>:<timestamp>:<SHA-256 of payload>`), `read:<read.mid>` skipped
- *   `read_receipt`, `reaction:<mid>:<action>:<timestamp>` skipped `reaction`,
+ *   `postback:<sender>:<timestamp>:<SHA-256 of payload>`), `read:<read.mid>` (kind `unknown`) and
+ *   `reaction:<mid>:<action>:<timestamp>` skipped `unsupported` (until WHC5, ROUTE R17),
  *   `edit:<mid>:<num_edit>` skipped `edit`, anything else `messaging:<SHA-256 of item>` skipped
  *   `unsupported`. Keys longer than 512 characters become `<prefix>:sha256:<hash of parts>`.
  * - **Failure modes:** none — every object item gets a kind; an item missing the id its kind keys

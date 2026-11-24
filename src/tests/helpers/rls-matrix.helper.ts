@@ -616,13 +616,14 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
         published_at: new Date(),
       })
       .returning();
-    // One received comment event of the account (launch R12).
+    // One received comment event of the channel account (launch R12; keyed by the channel account
+    // since feat-instagram-dm-sending R16).
     const [webhookEvent] = await database
       .insert(instagram_webhook_events)
       .values({
         public_id: generatePublicId('instagramWebhookEvent'),
         organization_id: organization.id,
-        instagram_account_id: account!.id,
+        channel_account_id: channelAccount!.id,
         instagram_user_id: instagramUserId,
         contact_instagram_user_id: '17841400000000099',
         event_kind: 'comment',

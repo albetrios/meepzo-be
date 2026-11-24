@@ -20,6 +20,7 @@ TableGroup app {
   app.instagram_account_settings
   app.instagram_accounts
   app.instagram_media
+  app.instagram_webhook_event_keys
   app.instagram_webhook_events
 }
 
@@ -418,30 +419,51 @@ Note app.instagram_media {
   'RLS: enabled\nPolicies: instagram_media_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
+Table app.instagram_webhook_event_keys {
+  channel_account_id bigint [not null]
+  event_day date [not null]
+  event_key varchar(512) [not null]
+  organization_id bigint [not null]
+  received_at timestamptz [not null]
+  indexes {
+    (organization_id, channel_account_id, event_key, event_day) [pk]
+  }
+}
+
+Note app.instagram_webhook_event_keys {
+  'Partitioned BY RANGE (event_day)\nRLS: enabled\nPolicies: instagram_webhook_event_keys_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
 Table app.instagram_webhook_events {
   attempt_count smallint [not null]
+  CASE event
+  channel_account_id bigint [not null]
   contact_instagram_user_id varchar(64)
   created_at timestamptz [not null]
   error_message varchar(2000)
   event_key varchar(512) [not null]
   event_kind varchar(20) [not null]
-  id bigint [pk, increment]
-  instagram_account_id bigint [not null]
+  id bigint [increment, not null]
   instagram_user_id varchar(64) [not null]
+  intake_group varchar(8)
   last_attempted_at timestamptz
+  next_attempt_at timestamptz
   occurred_at timestamptz
   organization_id bigint [not null]
-  payload jsonb [not null]
+  payload jsonb
   processed_at timestamptz
   public_id varchar(28) [not null]
   request_id varchar(128)
   skip_reason varchar(30)
   status varchar(10) [not null]
   updated_at timestamptz [not null]
+  indexes {
+    (id, created_at) [pk]
+  }
 }
 
 Note app.instagram_webhook_events {
-  'RLS: enabled\nPolicies: instagram_webhook_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+  'Partitioned BY RANGE (created_at)\nRLS: enabled\nPolicies: instagram_webhook_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table audit.dead_letter_jobs {

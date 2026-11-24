@@ -24,7 +24,7 @@ function rowsOf<T>(result: unknown): T[] {
  *    longer index serves every lookup, range and ordering the shorter one can, so the shorter one
  *    only adds work to every insert and non-HOT update.
  * 3. The Drizzle schema declares exactly the indexes the database has — same name, uniqueness and
- *    key columns. An index that exists only in a migration is invisible to anyone reading the
+ *    key columns (a partitioned table's parts are skipped: their indexes are the parent's). An index that exists only in a migration is invisible to anyone reading the
  *    schema, and a drizzle-kit diff drafted from that schema would propose dropping it (the
  *    attribution FK indexes of `20260623000000` were in exactly that state).
  */
@@ -169,6 +169,9 @@ describe('Integration: index hygiene', () => {
         JOIN pg_class t ON t.oid = x.indrelid
         JOIN pg_namespace n ON n.oid = t.relnamespace
        WHERE n.nspname IN ${APPLICATION_SCHEMAS}
+         -- A part of a partitioned table carries its parent's indexes under generated names; the
+         -- schema declares them once, on the parent (Drizzle never sees a part).
+         AND NOT t.relispartition
          AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = x.indexrelid AND c.contype IN ('p', 'u', 'x'))
     `),
     );

@@ -6,96 +6,114 @@ Parent: [Instagram webhook](../instagram-webhook.overview.md)
 
 ## Purpose
 
-Every event Meta delivers for a connected Instagram account, stored once and kept 30 days with what
-happened to it (`app.instagram_webhook_events`, routes-final § 4.B, WH16–WH19). Route 18
-(`GET /api/v1/app/social/instagram/webhook-events`) lists them for an Owner or Admin — the
-debugging view (D13) — newest first, with the payload masked. The receiver (routes 16–17, ROUTE row
-R13) stores the rows and event processing (the parent's worker, R14) claims and marks them, both through this
-sub-domain's service: the parent folder never holds the table's SQL (WH1). A daily clean-up deletes
-every event received more than 30 days ago (WH19).
+Every event saved for a connected Instagram channel account — from a Meta delivery, and later the
+missed-comment check and a past-comments read — with what intake did with it
+(`app.instagram_webhook_events`), and every event key seen, so a repeat saves nothing
+(`app.instagram_webhook_event_keys`) — launch § 4.B, changed by feat-instagram-dm-sending § 5.B
+(WH18–WH24, ROUTE R16). Route 62 (`GET /api/v1/app/social/instagram/webhook-events`) lists the
+events for an Owner or Admin — the debugging view (D13) — newest first, filterable by channel account,
+with the payload masked while the event waits and `null` once it is done. The receiver stores the
+rows and intake claims and marks them, both through this sub-domain's service: the parent folder never
+holds the tables' SQL (WH1).
+
+Both tables are **split by day** while they are empty (P96): the events by the UTC day of
+`created_at` (the received time), the keys by the UTC day of Meta's own time for the item. They are
+kept 8 days (`INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS`); the day parts are made and dropped by the shared
+partition upkeep (WC-55, ROUTE R49) through `app.fn_create_daily_partitions` — the migration makes
+the first parts (8 days back to 14 ahead) and one DEFAULT part each. Until R49 retires it, the
+launch's daily 30-day batch clean-up still runs.
 
 ## Layout
 
-- `instagram-webhook-event.schema.ts` — the table, its composite key to the account, its checks,
-  six indexes and RLS policy
-- `instagram-webhook-event.constants.ts` — the kind, status and skip-reason lists, the 30 days
-- `instagram-webhook-event.repository.ts` — the store (`ON CONFLICT DO NOTHING`), the `queued` mark,
-  the claim (a `MATERIALIZED` CTE), the claim-guarded marks and release, route 18's keyset page, the
-  clean-up; a worker factory (processing) and a retention factory (the clean-up)
-- `instagram-webhook-event.service.ts` — route 18's list (team-only read) and the write path the
-  receiver and processing call
-- `instagram-webhook-event.dto.ts` / `.validator.ts` — route 18's query
+- `instagram-webhook-event.schema.ts` — the events parent (primary key `(id, created_at)`), its
+  composite key to the channel account, its checks, seven indexes and RLS policy; `intake_group` is a
+  generated column
+- `instagram-webhook-event-key.schema.ts` — the key table parent (primary key
+  `(organization_id, channel_account_id, event_key, event_day)`), RLS policy; no routes
+- `instagram-webhook-event.constants.ts` — the 13 kinds, the statuses, the 6 skip reasons, the 3
+  intake groups, the launch's 30 days
+- `instagram-webhook-event.repository.ts` — the insert of new events, the `queued` mark, the claim (a
+  `MATERIALIZED` CTE), the claim-guarded marks (which clear the body) and release, route 62's keyset
+  page, the stuck-event read, the launch clean-up; a worker factory and a retention factory
+- `instagram-webhook-event-key.repository.ts` — the one key write (`ON CONFLICT DO NOTHING RETURNING`)
+- `instagram-webhook-event.service.ts` — route 62's list (team-only read); **the store function**
+  (`recordReceivedEvents`: the 8-day replay guard, each key filed under its Meta day, keys first, then
+  only the new keys' events — the one write path for all three sources) and the intake marks
+- `instagram-webhook-event.dto.ts` / `.validator.ts` — route 62's query (`channel_account_id`, `status`,
+  `event_kind`, received window, page)
 - `instagram-webhook-event.serializer.ts` + `instagram-webhook-event-payload-masking.util.ts` — the
-  event object, its payload masked
-- `instagram-webhook-event.controller.ts` / `.routes.ts` — route 18's handler and its registration
+  event object (`channel_account_id`, `next_attempt_at`), its payload masked or `null`
+- `instagram-webhook-event.controller.ts` / `.routes.ts` — route 62's handler and its registration
   (the parent's `instagram-webhook.routes.ts` mounts it)
-- `workers/instagram-webhook-event-retention.*` — the daily 30-day clean-up (family `instagram`)
-- `seed/` — bulk: every kind and status for each seeded account, after the accounts
-- `__tests__/` — unit (masking, validator, serializer, controller, service, the clean-up's worker
-  and processor), database (repository, clean-up, seed), and the test factory; route 18's HTTP suite
-  sits in the parent's `__tests__/integration/`, beside the routes file that mounts it
+- `workers/instagram-webhook-event-retention.*` — the launch's daily clean-up (retired at R49)
+- `seed/` — bulk: every kind, status and skip reason for each seeded Instagram channel account, keys
+  first
+- `__tests__/` — unit (masking, validator, serializer, controller, service with the store function),
+  database (repository, the store function against the key table and the day parts, clean-up, seed),
+  and the test factory; route 62's HTTP suite sits in the parent's `__tests__/integration/`
 
 ## Key invariants
 
-- **Every row has an organization and an account** (WH4, WH16): events of an Instagram account no team
-  holds, or a revoked one, are never stored, so there is no RLS arm for rows without an organization.
-  The account is named through the composite key `(organization_id, instagram_account_id)` →
-  `app.instagram_accounts (organization_id, id)` `ON DELETE CASCADE`.
-- **One row per account and event key** (`idx_instagram_webhook_events_organization_account_event_key`):
-  a repeat delivery inserts nothing. Keys are unique per account, never across accounts (WH9).
+- **Every row has an organization and a channel account** (WH3): events of an account no team holds,
+  or a revoked one, are never stored. The account is named through the composite key
+  `(organization_id, channel_account_id)` → `app.channel_accounts (organization_id, id)`
+  `ON DELETE CASCADE` — on both tables.
+- **The key table is the repeat guard** (WH20): one row per organization, account, key and Meta event
+  day, inserted `ON CONFLICT DO NOTHING` before the events; only the keys it returned get an event row.
+  A redelivery carries the same Meta time, so it lands on the same day. An event whose Meta time is
+  over 8 days old is never saved (its key's part may be gone — the replay guard). An item without a
+  Meta time is filed under its received day.
+- **The body lives only while the event waits or failed** (WH22): `chk_instagram_webhook_events_body`
+  — `(status IN ('received', 'queued', 'failed')) = (payload IS NOT NULL)`; a row born `skipped` is
+  stored without it, and the guarded mark that makes an event `processed` or `skipped` clears it.
 - **Status pairings are CHECKs**: `skip_reason` exactly when `skipped`; `error_message` exactly when
-  `failed` (a code, never payload text); `processed_at` exactly when final (`processed`, `skipped`,
-  `failed`); `attempt_count ≥ 0`; `updated_at ≥ created_at` — every change writes
-  `greatest(created_at, now())`, since a processing transaction can start before the receiver's insert
-  commits. `created_at` is the received time — the API's `received_at`.
-- **Strict order per account** (WQ3): the claim takes the account's oldest `received` / `queued` event
-  and never skips a head another run holds (a 5-minute lease); its attempt count is the claim's token,
-  so a run whose lease ran out changes nothing.
-- **Route 18 changes nothing and masks the payload** (WH17): text cut to 40 characters, emails and
-  phone numbers masked, links replaced by `[link]`; ids, kinds and usernames kept. The stored payload
-  stays as received — processing needs the real text.
-- **A contact erase does not reach these rows** (WH18, contacts CQ1): no erasure step is registered;
-  the person's events go with the 30-day clean-up.
-- **RLS**: the organization policy in `USING` and `WITH CHECK`, plus the retention sweep arm
-  (maintenance role) in `USING` only — the clean-up and the stuck-event pick-up read across
-  organizations without opening any organization's data otherwise (WH3). No `*_by_user_id`, no audit
-  entry (WH6).
+  `failed` (a code, never payload text); `processed_at` exactly when final; `next_attempt_at` only while
+  `failed`; `attempt_count ≥ 0`; `updated_at ≥ created_at`.
+- **Intake groups** (WH11): `intake_group` is generated — `comments` for a `comment`, `live` for a
+  `live_comment`, `messages` for every other kind; the claim index leads with
+  `(channel_account_id, intake_group)`.
+- **Strict order per account** (launch WQ3, until R41's per-group claim): the claim takes the account's
+  oldest waiting event and never skips a head another run holds (a 5-minute lease); its attempt count
+  is the claim's token.
+- **Route 62 changes nothing** (5.B.10): the masking runs in the serializer only.
+- **RLS on both parents**: the organization policy in `USING` and `WITH CHECK`, plus the retention
+  sweep arm (maintenance role) in `USING` only. The parts carry **no grant** for the application
+  roles: app code reaches them only through the parent, whose policy applies.
 
 ## Lifecycle
 
 ```mermaid
 stateDiagram-v2
-    [*] --> received: delivery stored (route 17)
-    [*] --> skipped: stored skipped (echo, read, reaction, edit, unsupported, switch off, account expired or error)
-    received --> queued: processing job added
-    received --> processed: claimed and handled
-    queued --> processed: claimed and handled
-    received --> skipped: switch off or account not connected at processing
-    queued --> skipped: switch off or account not connected at processing
-    received --> failed: permanent failure, or 5 attempts spent
-    queued --> failed: permanent failure, or 5 attempts spent
-    processed --> [*]: 30 days after it was received (clean-up)
-    skipped --> [*]: 30 days after it was received (clean-up)
-    failed --> [*]: 30 days after it was received (clean-up)
+    [*] --> received: saved with its body (a new key)
+    [*] --> skipped: saved without a body (own comment, edit, unsupported, switch off)
+    received --> queued: intake job added
+    received --> processed: claimed and handled (body cleared)
+    queued --> processed: claimed and handled (body cleared)
+    received --> skipped: switch off or account revoked at intake (body cleared)
+    queued --> skipped: switch off or account revoked at intake (body cleared)
+    received --> failed: permanent failure, or 5 attempts spent (body kept)
+    queued --> failed: permanent failure, or 5 attempts spent (body kept)
+    processed --> [*]: its day part dropped after 8 days (R49)
+    skipped --> [*]: its day part dropped after 8 days (R49)
+    failed --> [*]: its day part dropped after 8 days (R49)
 ```
 
-A waiting event (`received`, `queued`) is claimed again after its 5-minute lease when a run died
-(WH15); an Instagram outage releases the claim without spending its attempt, and a temporary failure
-ends the lease but keeps its attempt so the job's backoff retry claims it again at once (WH14,
-`releaseClaim({ isAttemptSpent })`). The stuck-event pick-up reads the waiting accounts across
-organizations under the retention context (`listAccountsWithStuckEvents`).
+The hourly retry of a `failed` event through `next_attempt_at` (WH21) is intake's (ROUTE R41).
 
 ## Failure modes
 
-- **A cursor minted elsewhere, or under other filters** → `400` on `after` (4.B.9) — never a silent
-  restart.
-- **A personal organization** → `404 team_organization_required`; a Member → `403 missing_permission`
-  (D4).
-- **The store fails** → the receiver answers `500` / `503` and Meta delivers again; the part already
-  stored dedupes on its key (WH10).
-- **The clean-up stops at its batch cap** → the rest goes the next day; deleting twice changes nothing.
+- **A cursor minted elsewhere, or under other filters** → `400` on `after` (5.B.9).
+- **A `channel_account_id` that is not a `cha_…` id** → `400`; another organization's → an empty page.
+- **A personal organization** → `404 team_organization_required`; an Editor or Viewer →
+  `403 missing_permission`.
+- **The store fails** → the unit rolls back whole (keys and events), the receiver answers `500` / `503`
+  and Meta delivers again.
+- **A day with no part** (the upkeep fell behind) → the row lands in the DEFAULT part instead of failing;
+  the upkeep's alert (R49) reports it.
 
 ## Policy constants
 
-- `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS = 30` (D8) — a constant, not a setting; the clean-up runs
-  daily at 03:00 (`src/infrastructure/queue/scheduler.ts`, worker-changes rule 11).
+- `INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS = 8` (`src/shared/constants/instagram.constants.ts`) — the keep
+  time of events, keys and parts, and the replay guard.
+- `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS = 30` (D8) — the launch clean-up's cutoff, until R49 retires
+  it.

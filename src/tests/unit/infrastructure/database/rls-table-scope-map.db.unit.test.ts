@@ -66,6 +66,12 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'app.instagram_accounts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The stored posts (launch R5): organization-scoped, plus the retention sweep arm (1.3).
   'app.instagram_media': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // The Instagram webhook event keys (R16, WH20): organization-scoped (the store function), plus
+  // the upkeep's oldest-part check (the sweep arm in USING only).
+  'app.instagram_webhook_event_keys': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // The Instagram webhook events: organization-scoped (route 18, the receiver's verified scope,
   // processing), plus the stuck-event pick-up's and the 30-day clean-up's sweep (WH3, WH19).
   'app.instagram_webhook_events': [

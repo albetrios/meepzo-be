@@ -2685,6 +2685,13 @@ An `channel_account_id` of another organization finds nothing (an empty page, no
 | WHC14 | WH23: route 62's DTO (`channel_account_id`), validator, serializer (new kinds and reasons, `next_attempt_at`, null payload), the masking util's new kinds; the route schema description; `pnpm routes:catalog`, `docs:generate` |
 | WHC15 | WH24: `instagram-webhook-event-retention` retired — events and keys both expire by part drops (P96), so no batch delete and no 03:00 run remain (P92); `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS` 30 → the 8-day constant (one constant for the replay guard, the keys and the parts); seeds (`seed/instagram-webhook-event.bulk.seed.ts`: the new kinds, bodies null when done, keys); `docs/reference/data/data-lifecycle-deletion.md` row; i18n labels for the new kinds and reasons |
 
+**As built (R16, [P303](decisions.md)):** WHC11, WHC12 and WHC14 built; the key table sits in the events' migration; the
+first day parts (8 back, 14 ahead) and a DEFAULT part per table come from `app.fn_create_daily_partitions`, which
+WHC13's upkeep (R49) builds on; the replay guard (WH9 step 5) and the key day live in the store function
+(`recordReceivedEvents`) shared by all three paths, an item without a Meta time filed under its received day; until
+WHC5 (R17) the launch classifier saves read receipts `unknown` · `unsupported` and reactions and DM echoes
+`unsupported`; WHC15's seed part is done (every kind, status and reason).
+
 ---
 ## 6. Instagram sending — rev 5 (2026-11-24) — nested sub-domains 6.A–6.C; final (rev 5, confirmed 2026-11-24)
 

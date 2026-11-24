@@ -595,17 +595,20 @@ function claimNextEvent({
   scope,
   services,
   instagramAccount,
+  channelAccountId,
 }: {
   scope: OrganizationPrincipalDatabaseScope;
   services: InstagramWebhookProcessingServices;
   instagramAccount: InstagramWebhookProcessingAccount['instagramAccount'];
+  /** `app.channel_accounts.id` the events are claimed under (R16). */
+  channelAccountId: number;
 }): Promise<{ claimed: InstagramWebhookEventClaimResult | null; failedRunPublicIds: string[] }> {
   return withAppDatabaseContext({
     scope,
     callback: async () => {
       const claimed = await services.instagramWebhookEventService.claimNextEvent({
         scope,
-        instagramAccount,
+        channelAccount: { organizationId: instagramAccount.organizationId, channelAccountId },
         maxProcessingAttempts: INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS,
         claimLeaseMinutes: INSTAGRAM_WEBHOOK_EVENT_STUCK_AFTER_MINUTES,
       });
@@ -800,6 +803,7 @@ export async function processInstagramWebhookAccountJob({
       scope,
       services,
       instagramAccount: account.instagramAccount,
+      channelAccountId: account.channelAccountId,
     });
     if (claimed === null) {
       logger.info({ ...logFields, ...result }, 'app.instagram_webhook.account_job_completed');
@@ -829,7 +833,8 @@ export async function processInstagramWebhookAccountJob({
       instagramClient,
       event,
       claim: {
-        ...account.instagramAccount,
+        organizationId: account.instagramAccount.organizationId,
+        channelAccountId: account.channelAccountId,
         eventId: event.id,
         claimedAttemptCount: event.attempt_count,
       },

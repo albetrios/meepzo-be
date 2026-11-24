@@ -12,7 +12,8 @@ export type ForceRlsTableRef = {
  * or disabled tables), so the list can no longer silently drift from migration truth (audit #16).
  *
  * @remarks
- * - Includes partitioned parents (`audit.logs`, `notify.notifications`): PostgreSQL records
+ * - Includes partitioned parents (`audit.logs`, `notify.notifications`, `app.instagram_webhook_events`,
+ *   `app.instagram_webhook_event_keys`): PostgreSQL records
  *   `relforcerowsecurity` on the parent (`relkind = 'p'`), and the policy cascades to partitions.
  * - Keep alphabetical within each schema for reviewability.
  */
@@ -29,6 +30,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'instagram_account_settings' },
   { schemaName: 'app', tableName: 'instagram_accounts' },
   { schemaName: 'app', tableName: 'instagram_media' },
+  { schemaName: 'app', tableName: 'instagram_webhook_event_keys' },
   { schemaName: 'app', tableName: 'instagram_webhook_events' },
   { schemaName: 'audit', tableName: 'dead_letter_jobs' },
   { schemaName: 'audit', tableName: 'logs' },

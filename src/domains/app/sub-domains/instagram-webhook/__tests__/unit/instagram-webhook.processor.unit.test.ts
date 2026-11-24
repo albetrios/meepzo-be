@@ -214,6 +214,7 @@ function connectedAccount(
 ): InstagramWebhookProcessingAccount {
   return {
     instagramAccount: INSTAGRAM_ACCOUNT_KEY,
+    channelAccountId: 33,
     instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
     connectionStatus: 'connected',
     isAutomationEnabled: true,

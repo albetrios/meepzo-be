@@ -234,6 +234,16 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → one busy account can hold a slot (of `WORKER_CONCURRENCY_INSTAGRAM`) for longer while other accounts' events wait.
 - **Last reviewed**: 2026-11-22
 
+## INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS
+
+- **Value**: 8 days
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: One number for three rules (feat-instagram-dm-sending WH9 step 5, WH19, WH20, WH24; P33, D15): how long a saved Instagram webhook event and its event key are kept (their day parts are dropped after it — the shared upkeep), and the replay guard — an event whose Meta time is older is never saved, because its key's day part may already be gone and a repeat could no longer be recognised. Meta redelivers for at most a few days, and the event list is only a debugging view.
+- **Consequences of change**:
+  - Decreasing → a late Meta redelivery is refused as a replay sooner; the debugging list covers fewer days.
+  - Increasing → more day parts kept (storage), and the event body of a failed event lives longer.
+- **Last reviewed**: 2026-11-24
+
 ## INSTAGRAM_WEBHOOK_CHALLENGE_MAX_LENGTH
 
 - **Value**: 256 characters

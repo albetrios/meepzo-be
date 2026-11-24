@@ -701,15 +701,23 @@ export async function seedAgedOrganization(now: Date): Promise<AgedOrganization>
   };
 }
 
-/** The tables of the `app` schema that hold an organization's rows — read from the catalog. */
-async function listAppTenantTables(): Promise<string[]> {
-  const rows = await operatorQuery<Array<{ table_name: string }>>`
-    SELECT c.table_name FROM information_schema.columns c
-    JOIN information_schema.tables t USING (table_schema, table_name)
-    WHERE c.table_schema = 'app' AND c.column_name = 'organization_id'
-      AND t.table_type = 'BASE TABLE'
-    ORDER BY c.table_name`;
-  return rows.map((row) => row.table_name);
+/**
+ * The tables of the `app` schema that hold an organization's rows — read from the catalog. A
+ * partitioned table counts once, through its parent (its day parts are skipped, R16).
+ */
+async function listAppTenantTables(): Promise<Array<{ tableName: string; hasId: boolean }>> {
+  const rows = await operatorQuery<Array<{ table_name: string; has_id: boolean }>>`
+    SELECT c.table_name,
+           EXISTS (SELECT 1 FROM information_schema.columns id_column
+                    WHERE id_column.table_schema = 'app' AND id_column.table_name = c.table_name
+                      AND id_column.column_name = 'id') AS has_id
+      FROM information_schema.columns c
+      JOIN information_schema.tables t USING (table_schema, table_name)
+      JOIN pg_class class ON class.oid = format('app.%I', c.table_name)::regclass
+     WHERE c.table_schema = 'app' AND c.column_name = 'organization_id'
+       AND t.table_type = 'BASE TABLE' AND NOT class.relispartition
+     ORDER BY c.table_name`;
+  return rows.map((row) => ({ tableName: row.table_name, hasId: row.has_id }));
 }
 
 /**
@@ -720,12 +728,13 @@ export async function readAppRowsOfOrganization(
   organizationId: number,
 ): Promise<Record<string, Record<string, unknown>[]>> {
   const rowsOfTable: Record<string, Record<string, unknown>[]> = {};
-  for (const table of await listAppTenantTables()) {
+  for (const { tableName, hasId } of await listAppTenantTables()) {
     const rows = await operatorQuery.unsafe<Array<{ row: Record<string, unknown> }>>(
-      `SELECT to_jsonb(t) AS row FROM app.${table} t WHERE t.organization_id = $1 ORDER BY t.id`,
+      `SELECT to_jsonb(t) AS row FROM app.${tableName} t WHERE t.organization_id = $1
+        ORDER BY ${hasId ? 't.id' : 'to_jsonb(t)::text'}`,
       [organizationId],
     );
-    rowsOfTable[table] = rows.map(({ row }) => row);
+    rowsOfTable[tableName] = rows.map(({ row }) => row);
   }
   return rowsOfTable;
 }

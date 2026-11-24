@@ -77,19 +77,22 @@ describe('classifyInstagramWebhookItem — changes[] (4.A.10)', () => {
   it.each([
     ['webhook user id', ACCOUNT_IDS.instagramUserId],
     ['app-scoped id', ACCOUNT_IDS.instagramAppUserId],
-  ])('a comment by the account itself (its %s) is skipped `echo`, naming nobody', (_label, id) => {
-    const event = classifyChange({
-      field: 'comments',
-      value: { id: '18000000000000002', from: { id } },
-    });
+  ])(
+    'a comment by the account itself (its %s) is skipped `own_comment` (P24), naming nobody',
+    (_label, id) => {
+      const event = classifyChange({
+        field: 'comments',
+        value: { id: '18000000000000002', from: { id } },
+      });
 
-    expect(event).toMatchObject({
-      eventKind: 'comment',
-      eventKey: 'comment:18000000000000002',
-      kindSkipReason: 'echo',
-      contactInstagramUserId: null,
-    });
-  });
+      expect(event).toMatchObject({
+        eventKind: 'comment',
+        eventKey: 'comment:18000000000000002',
+        kindSkipReason: 'own_comment',
+        contactInstagramUserId: null,
+      });
+    },
+  );
 
   it('a `messages` change is read as a DM (D18), its payload the whole change item', () => {
     const item = {
@@ -180,7 +183,7 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     });
   });
 
-  it('an echo (`is_echo`) is `echo:<mid>`, skipped `echo`, the recipient as contact (WQ4)', () => {
+  it('an echo (`is_echo`) is `echo:<mid>`, skipped `unsupported` until R17, the recipient as contact (WQ4)', () => {
     const event = classifyMessaging({
       sender: { id: ACCOUNT_IDS.instagramUserId },
       recipient: { id: CONTACT_ID },
@@ -191,7 +194,7 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(event).toMatchObject({
       eventKind: 'echo',
       eventKey: 'echo:m_echo',
-      kindSkipReason: 'echo',
+      kindSkipReason: 'unsupported',
       contactInstagramUserId: CONTACT_ID,
     });
   });
@@ -206,7 +209,7 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(event).toMatchObject({
       eventKind: 'echo',
       eventKey: 'echo:m_own',
-      kindSkipReason: 'echo',
+      kindSkipReason: 'unsupported',
       contactInstagramUserId: CONTACT_ID,
     });
   });
@@ -280,19 +283,19 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(first.eventKey).not.toBe(second.eventKey);
   });
 
-  it('a read receipt is `read:<read.mid>`, never the key of the message it read (gap 2)', () => {
+  it('a read receipt is `read:<read.mid>` (kind `unknown`, skipped `unsupported` until R17), never the key of the message it read (gap 2)', () => {
     const read = classifyMessaging(fromContact({ read: { mid: 'm_text' } }));
     const message = classifyMessaging(fromContact({ message: { mid: 'm_text' } }));
 
     expect(read).toMatchObject({
-      eventKind: 'read',
+      eventKind: 'unknown',
       eventKey: 'read:m_text',
-      kindSkipReason: 'read_receipt',
+      kindSkipReason: 'unsupported',
     });
     expect(read.eventKey).not.toBe(message.eventKey);
   });
 
-  it('a reaction is `reaction:<mid>:<action>:<timestamp>`, skipped `reaction`', () => {
+  it('a reaction is `reaction:<mid>:<action>:<timestamp>`, skipped `unsupported` until R17', () => {
     const event = classifyMessaging(
       fromContact({ reaction: { mid: 'm_text', action: 'react', reaction: 'love' } }),
     );
@@ -300,7 +303,7 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(event).toMatchObject({
       eventKind: 'reaction',
       eventKey: `reaction:m_text:react:${ITEM_TIME_MILLISECONDS}`,
-      kindSkipReason: 'reaction',
+      kindSkipReason: 'unsupported',
     });
   });
 

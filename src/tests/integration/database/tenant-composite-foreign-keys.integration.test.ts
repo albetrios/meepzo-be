@@ -73,13 +73,21 @@ const CONVERSIONS: readonly Conversion[] = [
     'restrict',
     'instagram_accounts_channel_account_fk',
   ),
-  // launch R12 (WH16): an Instagram webhook event names its account through the composite key.
+  // launch R12 (WH16): an Instagram webhook event names its account through the composite key —
+  // the channel account since feat-instagram-dm-sending R16 (§ 5.B.3), as does its event key.
   link(
     'app.instagram_webhook_events',
-    'instagram_account_id',
-    'app.instagram_accounts',
+    'channel_account_id',
+    'app.channel_accounts',
     'cascade',
-    'instagram_webhook_events_instagram_account_fk',
+    'instagram_webhook_events_channel_account_fk',
+  ),
+  link(
+    'app.instagram_webhook_event_keys',
+    'channel_account_id',
+    'app.channel_accounts',
+    'cascade',
+    'instagram_webhook_event_keys_channel_account_fk',
   ),
   // launch R9 (AU27): an automation names its account through the composite key, RESTRICT — an
   // account is revoked, never deleted.
@@ -210,14 +218,19 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
     ),
   );
   await operatorQuery.unsafe(
-    `INSERT INTO app.instagram_webhook_events (public_id, organization_id, instagram_account_id, instagram_user_id, event_kind, event_key, payload)
+    `INSERT INTO app.instagram_webhook_events (public_id, organization_id, channel_account_id, instagram_user_id, event_kind, event_key, payload)
      VALUES ($1, $2, $3, $4, 'comment', 'comment:composite-key', '{"field":"comments"}'::jsonb)`,
     [
       `iwe_${String(organization.id).padStart(21, '0')}`,
       organization.id,
-      Number(account?.id),
+      Number(channelAccount?.id),
       instagramUserId,
     ],
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.instagram_webhook_event_keys (organization_id, channel_account_id, event_key, event_day)
+     VALUES ($1, $2, 'comment:composite-key', (now() AT TIME ZONE 'UTC')::date)`,
+    [organization.id, Number(channelAccount?.id)],
   );
   // One automation of the account (launch R9) — the smallest complete flow: a DM automation with
   // a keyword, the opening message on with its text, and the final message.
@@ -313,7 +326,9 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
                c.confdeltype::text AS delete_action,
                c.convalidated AS is_validated
           FROM pg_constraint c
-         WHERE c.contype = 'f' AND c.conname = ANY($1)
+         -- A partitioned table's parts carry a copy of its foreign key under the same name; the
+         -- parent's (conparentid = 0) is the one declared.
+         WHERE c.contype = 'f' AND c.conname = ANY($1) AND c.conparentid = 0
         `,
         [CONVERSIONS.map((conversion) => conversion.constraint)],
       ),

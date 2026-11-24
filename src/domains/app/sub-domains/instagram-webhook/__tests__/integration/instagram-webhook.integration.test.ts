@@ -26,6 +26,12 @@ import {
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 
 /**
+ * The delivery's Meta times: an hour ago, so the store function's 8-day replay guard (WH9 step 5,
+ * feat-instagram-dm-sending R16) keeps them.
+ */
+const ENTRY_TIME_SECONDS = Math.floor(Date.now() / 1000) - 3600;
+const ITEM_TIME_MILLISECONDS = ENTRY_TIME_SECONDS * 1000 + 1234;
+/**
  * Routes 16–17, Meta's Instagram webhook (routes-final § 4.A, ROUTE R13) over HTTP with the real
  * database: the subscription check (WH7), the signature first (WH8), each event stored once before
  * `OK` (WH9, WH10), the account no team holds (WH4), the skip reasons, the body rules — and the
@@ -147,7 +153,7 @@ describe('Instagram webhook — routes 16–17', () => {
   } = {}): string {
     return JSON.stringify({
       object: 'instagram',
-      entry: [{ id: instagramUserId, time: 1_763_726_400, changes, messaging }],
+      entry: [{ id: instagramUserId, time: ENTRY_TIME_SECONDS, changes, messaging }],
     });
   }
 
@@ -427,7 +433,7 @@ describe('Instagram webhook — routes 16–17', () => {
           {
             sender: { id: TEST_CONTACT_INSTAGRAM_USER_ID },
             recipient: { id: account.instagramUserId },
-            timestamp: 1_763_726_401_234,
+            timestamp: ITEM_TIME_MILLISECONDS,
             message: { mid: 'm_dm_1', text: 'hello' },
           },
         ],
@@ -479,7 +485,9 @@ describe('Instagram webhook — routes 16–17', () => {
         expect(event.request_id).toEqual(expect.any(String));
         expect(event.processed_at).toBeNull();
       }
-      expect(events[1]?.occurred_at?.toISOString()).toBe(new Date(1_763_726_401_234).toISOString());
+      expect(events[1]?.occurred_at?.toISOString()).toBe(
+        new Date(ITEM_TIME_MILLISECONDS).toISOString(),
+      );
     });
 
     it('a repeat delivery stores nothing new and still answers OK', async () => {
@@ -535,7 +543,7 @@ describe('Instagram webhook — routes 16–17', () => {
           { sender: { id: TEST_CONTACT_INSTAGRAM_USER_ID }, read: { mid: 'm_echo' } },
           {
             sender: { id: TEST_CONTACT_INSTAGRAM_USER_ID },
-            timestamp: 1_763_726_401_234,
+            timestamp: ITEM_TIME_MILLISECONDS,
             reaction: { mid: 'm_echo', action: 'react' },
           },
           {
@@ -551,11 +559,13 @@ describe('Instagram webhook — routes 16–17', () => {
       expect(
         events.map(({ event_kind, skip_reason, status }) => ({ event_kind, skip_reason, status })),
       ).toEqual([
-        { event_kind: 'comment', skip_reason: 'echo', status: 'skipped' },
+        // feat-instagram-dm-sending R16: the own comment is `own_comment` (P24); echoes, read
+        // receipts and reactions are `unsupported` until the classifier's rev (R17, WHC5).
+        { event_kind: 'comment', skip_reason: 'own_comment', status: 'skipped' },
         { event_kind: 'unknown', skip_reason: 'unsupported', status: 'skipped' },
-        { event_kind: 'echo', skip_reason: 'echo', status: 'skipped' },
-        { event_kind: 'read', skip_reason: 'read_receipt', status: 'skipped' },
-        { event_kind: 'reaction', skip_reason: 'reaction', status: 'skipped' },
+        { event_kind: 'echo', skip_reason: 'unsupported', status: 'skipped' },
+        { event_kind: 'unknown', skip_reason: 'unsupported', status: 'skipped' },
+        { event_kind: 'reaction', skip_reason: 'unsupported', status: 'skipped' },
         { event_kind: 'edit', skip_reason: 'edit', status: 'skipped' },
       ]);
       for (const event of events) expect(event.processed_at).not.toBeNull();
@@ -640,7 +650,7 @@ describe('Instagram webhook — routes 16–17', () => {
       }) {
         return {
           id: instagramUserId,
-          time: 1_763_726_400,
+          time: ENTRY_TIME_SECONDS,
           changes: [
             {
               field: 'comments',

@@ -1206,7 +1206,13 @@ move to a table of their own.
   stores none (WH22); read receipts, our own "sent" notices and tag events are never saved. Each
   event's intake group (messages, Live, comments) is worked out from its kind and stored (WH11). Kept 8
   days (D15; launch 30) — split by day (P33), one of the seven split tables (P96).
-- **Table:** `app.instagram_webhook_events` (live)
+- **Table:** `app.instagram_webhook_events` (live) — **Built R16** ([AS-BUILT](../AS-BUILT.md)): partitioned
+  by `created_at` (UTC day parts via `app.fn_create_daily_partitions`, 8 back to 14 ahead, plus
+  `instagram_webhook_events_default`), primary key `(id, created_at)`, unique `(public_id, created_at)`,
+  `channel_account_id` → `app.channel_accounts` (`instagram_webhook_events_channel_account_fk`),
+  `intake_group` generated, `next_attempt_at`, `payload` nullable with `chk_instagram_webhook_events_body`
+  and `chk_instagram_webhook_events_next_attempt`; indexes of 5.B.3 (`..._organization_account_created_at`,
+  `..._pending` by group, `..._next_attempt_at`, `..._flood`).
 - **Sources:** plan:L3207–L3225, plan:L3926–L3941; D15, D64; current schema
   `src/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.ts`.
 - **Added:** `next_attempt_at`; `intake_group`; five event kinds; `own_comment`, `flood`.
@@ -1242,7 +1248,11 @@ erDiagram
   table): the key carries that day; a redelivery carries the same time, so the dedupe rule holds, and the
   missed-comment and past-comment reads write the same day the webhook would. Expiry drops a day part. No
   public id.
-- **Table:** `app.instagram_webhook_event_keys` (P38; Instagram's, [P45](decisions.md))
+- **Table:** `app.instagram_webhook_event_keys` (P38; Instagram's, [P45](decisions.md)) — **Built R16**
+  ([AS-BUILT](../AS-BUILT.md)): `organization_id`, `channel_account_id`, `event_key`, `event_day` (date),
+  `received_at`; primary key `instagram_webhook_event_keys_pkey` `(organization_id, channel_account_id,
+  event_key, event_day)`; partitioned by `event_day` (day parts + `instagram_webhook_event_keys_default`);
+  FORCE RLS with the sweep arm in `USING`; the app roles hold `SELECT, INSERT` only.
 - **Sources:** plan:L3453–L3461; D15.
 - **Added:** new — the launch kept this key on the events, which now go after 8 days in whole days.
 - **Replaced:** the event's own key uniqueness.

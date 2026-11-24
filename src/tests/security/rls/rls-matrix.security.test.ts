@@ -60,6 +60,9 @@ const TENANT_CRUD_EXCLUDED_POLICY_SHAPES = new Set([
   'auth.users',
   'auth.verification_tokens',
   'auth.webauthn_credentials',
+  // No `id` column and insert-only (a day-split key table, R16): its isolation is proven in
+  // `instagram-webhook-events-rls.security.test.ts`.
+  'app.instagram_webhook_event_keys',
   'billing.plans',
   'billing.stripe_subscription_tombstones',
   'billing.stripe_webhook_events',

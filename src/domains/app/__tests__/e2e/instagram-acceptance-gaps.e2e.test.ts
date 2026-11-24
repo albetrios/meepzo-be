@@ -387,7 +387,8 @@ describe('Instagram acceptance across features (e2e)', () => {
       expect(await flow.eventOf(eventKey)).toMatchObject({
         event_kind: 'echo',
         status: 'skipped',
-        skip_reason: 'echo',
+        // `unsupported` until the classifier's rev (R17, WHC5) takes hand-typed echoes in.
+        skip_reason: 'unsupported',
         contact_instagram_user_id: person.instagramUserId,
         attempt_count: 0,
         error_message: null,

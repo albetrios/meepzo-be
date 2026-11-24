@@ -415,7 +415,7 @@ describe('Instagram comment automation flow (e2e)', () => {
       });
       expect(await flow.eventOf(`comment:${echoId}`)).toMatchObject({
         status: 'skipped',
-        skip_reason: 'echo',
+        skip_reason: 'own_comment',
       });
       expect(await flow.logsOf(echoId)).toEqual([]);
     });

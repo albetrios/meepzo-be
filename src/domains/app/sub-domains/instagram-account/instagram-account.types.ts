@@ -156,8 +156,10 @@ export interface InstagramAccountDisconnectChange {
  * two Instagram ids (WH9): the webhook user id (`entry.id`) and the app-scoped id used in send URLs.
  */
 export interface InstagramWebhookAccountState {
-  /** Its organization and internal id — the key the events are stored under. */
+  /** Its organization and internal id. */
   instagramAccount: InstagramAccountKey;
+  /** `app.channel_accounts.id` it extends — the key the events are stored under (R16, § 5.B.3). */
+  channelAccountId: number;
   /** `iga_…`. */
   instagramAccountPublicId: string;
   /** The webhook user id (`/me` `user_id`, the delivery entry's `id`). */
@@ -182,8 +184,10 @@ export interface InstagramWebhookAccountState {
  * pick-up would find them for ever. The token stays ciphertext (IA5).
  */
 export interface InstagramWebhookProcessingAccount {
-  /** Its organization and internal id — the key the events are claimed and marked under. */
+  /** Its organization and internal id. */
   instagramAccount: InstagramAccountKey;
+  /** `app.channel_accounts.id` it extends — the key the events are claimed under (R16, § 5.B.3). */
+  channelAccountId: number;
   /** `iga_…`. */
   instagramAccountPublicId: string;
   /** Any status — `connected`, `expired`, `error` or `revoked`. */

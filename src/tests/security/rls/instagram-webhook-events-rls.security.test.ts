@@ -13,6 +13,7 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { RequestScopedPostgresDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { InstagramWebhookEventRepository } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
 import {
   type TestInstagramAccount,
@@ -21,9 +22,11 @@ import {
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 
 /**
- * K5 / WH3 / WHC13 (launch-2026-11-20-ujai, routes-final § 4.B.3): `app.instagram_webhook_events`
- * is an ordinary tenant table — ENABLE + FORCE RLS, the organization arm in `USING` and `WITH
- * CHECK`, the retention sweep arm (maintenance role only) in `USING` only.
+ * K5 / WH3 / WHC13 (launch-2026-11-20-ujai, routes-final § 4.B.3) and WHC11 / WHC12
+ * (feat-instagram-dm-sending R16, § 5.B.3): `app.instagram_webhook_events` and
+ * `app.instagram_webhook_event_keys` are tenant tables split by day — ENABLE + FORCE RLS on the
+ * parent, the organization arm in `USING` and `WITH CHECK`, the retention sweep arm (maintenance
+ * role only) in `USING` only; the parts carry no grant for the application roles.
  *
  * Run as `meepzo_be_app` (the production role, subject to FORCE RLS): an organization reads and
  * writes only its own events, nothing is visible without a context, and only the maintenance role's
@@ -91,9 +94,10 @@ describe('Security: Instagram webhook events row-level security as meepzo_be_app
       await executeAsMeepzoBeAppTenant(organizationA.public_id, async (transaction) =>
         transaction.execute(drizzleSql`
           INSERT INTO app.instagram_webhook_events
-            (public_id, organization_id, instagram_account_id, instagram_user_id, event_kind,
+            (public_id, organization_id, channel_account_id, instagram_user_id, event_kind,
              event_key, payload)
-          VALUES (${generatePublicId('instagramWebhookEvent')}, ${organizationB.id}, ${accountB.id},
+          VALUES (${generatePublicId('instagramWebhookEvent')}, ${organizationB.id},
+                  ${accountB.channelAccountId},
                   ${accountB.instagramUserId}, 'comment', 'comment:cross-organization',
                   '{"field":"comments"}'::jsonb)
         `),
@@ -181,5 +185,110 @@ describe('Security: Instagram webhook events row-level security as meepzo_be_app
     expect(stuck.map((account) => account.organizationPublicId).sort()).toEqual(
       [organizationA.public_id, organizationB.public_id].sort(),
     );
+  });
+
+  describe('the event keys (WHC12)', () => {
+    const today = new Date().toISOString().slice(0, 10);
+
+    beforeEach(async () => {
+      for (const [organization, account] of [
+        [organizationA, accountA],
+        [organizationB, accountB],
+      ] as const) {
+        await operatorQuery`
+          INSERT INTO app.instagram_webhook_event_keys
+            (organization_id, channel_account_id, event_key, event_day)
+          VALUES (${organization.id}, ${account.channelAccountId}, 'comment:same-key', ${today})`;
+      }
+    });
+
+    function countKeysAs(organizationPublicId: string | null): Promise<number> {
+      return executeAsMeepzoBeAppTenant(organizationPublicId, async (transaction) => {
+        const [row] = rowsOf<{ count: number }>(
+          await transaction.execute(
+            drizzleSql`SELECT count(*)::int AS count FROM app.instagram_webhook_event_keys`,
+          ),
+        );
+        return Number(row?.count ?? 0);
+      });
+    }
+
+    it("never shows another organization's keys, and none without a context", async () => {
+      expect(await countKeysAs(organizationA.public_id)).toBe(1);
+      expect(await countKeysAs(organizationB.public_id)).toBe(1);
+      expect(await countKeysAs(null)).toBe(0);
+    });
+
+    it("is never blocked by another organization's key: the same key and day on its own account is new", async () => {
+      await operatorQuery`
+        DELETE FROM app.instagram_webhook_event_keys WHERE organization_id = ${organizationA.id}`;
+      const inserted = await executeAsMeepzoBeAppTenant(
+        organizationA.public_id,
+        async (transaction) =>
+          rowsOf<{ event_key: string }>(
+            await transaction.execute(drizzleSql`
+              INSERT INTO app.instagram_webhook_event_keys
+                (organization_id, channel_account_id, event_key, event_day)
+              VALUES (${organizationA.id}, ${accountA.channelAccountId}, 'comment:same-key', ${today})
+              ON CONFLICT DO NOTHING RETURNING event_key`),
+          ),
+      );
+      expect(inserted).toHaveLength(1);
+    });
+
+    it("refuses a key under another organization's id (WITH CHECK)", async () => {
+      let caught: unknown;
+      try {
+        await executeAsMeepzoBeAppTenant(organizationA.public_id, async (transaction) =>
+          transaction.execute(drizzleSql`
+            INSERT INTO app.instagram_webhook_event_keys
+              (organization_id, channel_account_id, event_key, event_day)
+            VALUES (${organizationB.id}, ${accountB.channelAccountId}, 'comment:cross', ${today})`),
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(flattenErrorChain(caught)).toMatch(/row-level security/i);
+    });
+
+    it("lets the maintenance role's retention context read every organization's keys", async () => {
+      const [row] = await withMaintenanceDatabaseContext({
+        scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
+        callback: async (databaseHandle) =>
+          rowsOf<{ count: number }>(
+            await databaseHandle.execute(
+              drizzleSql`SELECT count(*)::int AS count FROM app.instagram_webhook_event_keys`,
+            ),
+          ),
+        options: { useMaintenanceDatabaseRole: true },
+      });
+      expect(Number(row?.count)).toBe(2);
+    });
+  });
+
+  it('gives the app role no grant on a day part or the default part — only the parent, whose policy applies', async () => {
+    const [part] = await operatorQuery<Array<{ part_name: string }>>`
+      SELECT child.relname AS part_name
+        FROM pg_inherits
+        JOIN pg_class child ON child.oid = pg_inherits.inhrelid
+       WHERE pg_inherits.inhparent = 'app.instagram_webhook_events'::regclass
+         AND child.relname <> 'instagram_webhook_events_default'
+       LIMIT 1`;
+    expect(part?.part_name).toMatch(/^instagram_webhook_events_p\d{8}$/);
+    for (const qualified of [
+      `app.${part?.part_name}`,
+      'app.instagram_webhook_events_default',
+      'app.instagram_webhook_event_keys_default',
+    ]) {
+      let caught: unknown;
+      try {
+        await executeAsMeepzoBeAppTenant(organizationA.public_id, async (transaction) =>
+          transaction.execute(drizzleSql.raw(`SELECT count(*) FROM ${qualified}`)),
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(flattenErrorChain(caught), qualified).toMatch(/permission denied/i);
+    }
   });
 });

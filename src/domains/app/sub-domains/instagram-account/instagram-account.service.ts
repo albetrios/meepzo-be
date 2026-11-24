@@ -221,6 +221,7 @@ export class InstagramAccountService {
         const settings = await this.settingsService.findSettings({ scope, instagramAccount });
         return {
           instagramAccount,
+          channelAccountId: account.channel_account_id,
           instagramAccountPublicId: account.public_id,
           instagramUserId: account.instagram_user_id,
           instagramAppUserId: account.instagram_app_user_id,
@@ -328,6 +329,7 @@ export class InstagramAccountService {
             : null;
         return {
           instagramAccount,
+          channelAccountId: account.channel_account_id,
           instagramAccountPublicId: account.public_id,
           connectionStatus: account.connection_status as InstagramAccountConnectionStatus,
           isAutomationEnabled: settings?.is_automation_enabled ?? true,

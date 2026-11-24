@@ -338,7 +338,10 @@ export class InstagramWebhookService {
         );
         const rows = await this.eventService.recordReceivedEvents({
           scope,
-          instagramAccount: account.instagramAccount,
+          channelAccount: {
+            organizationId: account.instagramAccount.organizationId,
+            channelAccountId: account.channelAccountId,
+          },
           requestId,
           events: events.map((event) => ({
             instagramUserId,
@@ -403,7 +406,10 @@ export class InstagramWebhookService {
       });
       await this.eventService.markEventsQueued({
         scope,
-        instagramAccount: account.instagramAccount,
+        channelAccount: {
+          organizationId: account.instagramAccount.organizationId,
+          channelAccountId: account.channelAccountId,
+        },
         eventIds: receivedEventIds,
       });
     } catch (error) {

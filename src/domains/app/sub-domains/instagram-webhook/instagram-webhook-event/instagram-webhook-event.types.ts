@@ -6,17 +6,20 @@ import type {
 } from './instagram-webhook-event.constants.js';
 
 /**
- * The Instagram webhook event object (routes-final § 4.B.6) — route 18's list items.
+ * The Instagram webhook event object (feat-instagram-dm-sending routes-final § 5.B.6) — route 62's
+ * list items.
  *
  * @remarks
- * Snake_case wire keys; `id` is the `iwe_…` public id; the value lists are typed as lists, never
- * `string` (D19); timestamps ISO 8601. `payload` is the event item with personal data masked
- * (WH17) — the stored row keeps it as received. Internal ids, `last_attempted_at` and
- * `request_id` are never returned.
+ * Snake_case wire keys; `id` is the `iwe_…` public id, `channel_account_id` the `cha_…` one; the
+ * value lists are typed as lists, never `string` (D19); timestamps ISO 8601. `payload` is the event
+ * item with personal data masked (WH17) while the event waits or failed, `null` once it is done
+ * (WH22). Internal ids, `intake_group`, `last_attempted_at` and `request_id` are never returned.
  */
 export interface InstagramWebhookEventOutput {
   /** `iwe_…`. */
   id: string;
+  /** `cha_…` — the channel account the event was saved for. */
+  channel_account_id: string;
   /** The delivery entry's `id` — the account's webhook user id. */
   instagram_user_id: string;
   /** The person on the other side (the sender; an echo's recipient), or `null`. */
@@ -29,10 +32,12 @@ export interface InstagramWebhookEventOutput {
   skip_reason: InstagramWebhookEventSkipReason | null;
   /** A code and a short reason; set exactly when `status` is `failed`. */
   error_message: string | null;
-  /** How many times processing claimed the event. */
+  /** How many times intake claimed the event. */
   attempt_count: number;
-  /** The event item as received, personal data masked (WH17). */
-  payload: Record<string, unknown>;
+  /** A failed event's next try (WH21), else `null`. */
+  next_attempt_at: string | null;
+  /** The event item as received, personal data masked (WH17); `null` once the event is done (WH22). */
+  payload: Record<string, unknown> | null;
   /** Meta's own time, or `null`. */
   occurred_at: string | null;
   /** When the delivery was stored. */
@@ -42,10 +47,13 @@ export interface InstagramWebhookEventOutput {
 }
 
 /**
- * Route 18's filters and page (4.B.8), parsed: one status, one kind, a received window
- * (`receivedFrom` inclusive, `receivedTo` exclusive), the page size and cursor, the count opt-in.
+ * Route 62's filters and page (5.B.8), parsed: one channel account, one status, one kind, a received
+ * window (`receivedFrom` inclusive, `receivedTo` exclusive), the page size and cursor, the count
+ * opt-in.
  */
 export interface InstagramWebhookEventListFilters {
+  /** `cha_…` — only this channel account's events (WH23). */
+  channelAccountPublicId?: string | undefined;
   status?: InstagramWebhookEventStatus | undefined;
   eventKind?: InstagramWebhookEventKind | undefined;
   /** ISO 8601 with an offset; inclusive. */
@@ -67,7 +75,7 @@ export interface InstagramWebhookEventListInput {
   filters: InstagramWebhookEventListFilters;
 }
 
-/** One page of route 18: the serialized events and the keyset page facts. */
+/** One page of route 62: the serialized events and the keyset page facts. */
 export interface InstagramWebhookEventListResult {
   items: InstagramWebhookEventOutput[];
   /** The capped count when asked for, else `null`. */

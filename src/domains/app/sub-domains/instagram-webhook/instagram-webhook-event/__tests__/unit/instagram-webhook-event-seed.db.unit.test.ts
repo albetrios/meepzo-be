@@ -59,7 +59,7 @@ describe('Instagram webhook event bulk seed (database)', () => {
     await appSeedModule.seedBulk?.(seedContext([organization]));
 
     const events = await eventsOf(organization.id);
-    expect(events).toHaveLength(13);
+    expect(events).toHaveLength(19);
     expect(new Set(events.map((event) => event.event_kind))).toEqual(
       new Set(INSTAGRAM_WEBHOOK_EVENT_KINDS),
     );
@@ -69,8 +69,15 @@ describe('Instagram webhook event bulk seed (database)', () => {
     expect(new Set(events.map((event) => event.skip_reason).filter(Boolean))).toEqual(
       new Set(INSTAGRAM_WEBHOOK_EVENT_SKIP_REASONS),
     );
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    expect(events.every((event) => event.created_at.getTime() > thirtyDaysAgo)).toBe(true);
+    const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+    expect(events.every((event) => event.created_at.getTime() > eightDaysAgo)).toBe(true);
+    // A done event is stored without its body (WH22).
+    expect(
+      events.every(
+        (event) =>
+          (event.status === 'processed' || event.status === 'skipped') === (event.payload === null),
+      ),
+    ).toBe(true);
     // The DM carries an example.com email, so the list's masking has something to mask.
     expect(JSON.stringify(events.map((event) => event.payload))).toContain('@example.com');
   });
@@ -82,7 +89,7 @@ describe('Instagram webhook event bulk seed (database)', () => {
     await appSeedModule.seedBulk?.(context);
     await appSeedModule.seedBulk?.(context);
 
-    expect(await eventsOf(organization.id)).toHaveLength(13);
+    expect(await eventsOf(organization.id)).toHaveLength(19);
   });
 
   it('warns and writes nothing when the registry has no organizations', async () => {

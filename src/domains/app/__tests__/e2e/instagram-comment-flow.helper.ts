@@ -29,6 +29,7 @@ import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
+import { instagram_webhook_event_keys } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event-key.schema.js';
 import {
   type InstagramWebhookAccountJobResult,
   type InstagramWebhookProcessingInstagramClient,
@@ -594,7 +595,10 @@ export class InstagramCommentFlow {
     return event;
   }
 
-  /** Removes one stored event, as the 30-day clean-up does. */
+  /**
+   * Removes one stored event and its key, as the clean-up does — since R16 the key goes with its
+   * day part, at the same 8 days as the event.
+   */
   async removeEvent(eventKey: string): Promise<void> {
     await getOperatorDatabase()
       .delete(instagram_webhook_events)
@@ -602,6 +606,14 @@ export class InstagramCommentFlow {
         and(
           eq(instagram_webhook_events.organization_id, this.team.organization.id),
           eq(instagram_webhook_events.event_key, eventKey),
+        ),
+      );
+    await getOperatorDatabase()
+      .delete(instagram_webhook_event_keys)
+      .where(
+        and(
+          eq(instagram_webhook_event_keys.organization_id, this.team.organization.id),
+          eq(instagram_webhook_event_keys.event_key, eventKey),
         ),
       );
   }

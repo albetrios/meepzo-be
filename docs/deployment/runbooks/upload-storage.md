@@ -149,7 +149,7 @@ GET URL from that key (`resolveStoredMediaReadUrl`, TTL 1 hour), so the bucket k
 public access" on and needs no CDN or public distribution. **Do not** disable the public-access
 block to make images load — a broken image means the client is holding an expired signed URL;
 re-fetching the resource returns a fresh one. The one absolute URL a column can hold is an
-OAuth-provider avatar (Google / GitHub), which is returned as-is.
+OAuth-provider avatar (Google), which is returned as-is.
 
 ## Malware scanning — not done (known gap)
 

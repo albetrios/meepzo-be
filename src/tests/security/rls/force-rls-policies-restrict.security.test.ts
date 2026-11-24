@@ -14,7 +14,7 @@ function rowsOf<T>(result: unknown): T[] {
  *
  * `auth.verification_tokens` sat in the FORCE RLS list for months carrying one policy,
  * `TO public USING (true) WITH CHECK (true)`. FORCE RLS was on in name only: any role reaching
- * the table could read or tamper with every password-reset and email-OTP hash, and isolation
+ * the table could read or tamper with every email-code and email-verification hash, and isolation
  * rested entirely on the application remembering to scope by `user_id` in SQL. Nothing flagged
  * it, because the only question being asked was "is force RLS declared".
  *

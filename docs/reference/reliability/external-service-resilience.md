@@ -16,7 +16,7 @@ Notify **outbound webhooks** (customer URLs) use a separate **in-memory** [oposs
 | **Meta (Instagram)** | every call in [`meta-graph.client.ts`](../../../src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts) and [`meta-login.ts`](../../../src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-login.ts) — the one Meta client (`meta-graph` integration, 10 s timeout, `metaGraphCircuit` named `meta`); Meta refusing one request does not count against the circuit (`MetaGraphApiError.countsAsCircuitFailure`); every answer's usage headers go to the connection's usage service | `verifyMetaWebhookSignature` / `parseMetaSignedRequest` in [`meta-signature.ts`](../../../src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.ts) (local signature checks) |
 | **Notify webhooks** | `fetchWebhookWithCircuitBreaker` (opossum, per process) | — |
 
-OAuth provider `fetch` calls (Google/GitHub) are **not** circuit-wrapped today.
+OAuth provider `fetch` calls (Google/Apple) are **not** circuit-wrapped today.
 
 ---
 
@@ -56,7 +56,7 @@ When Redis is unavailable, breakers fall back to in-memory state per process.
 ## Mail worker and Resend
 
 - **Paced to Resend's rate limit.** The `mail` worker's BullMQ limiter caps sends at `RESEND_MAX_REQUESTS_PER_SECOND` (default 10 — Resend's per-team limit) across every replica, so a burst is spread out instead of rejected. A 429 `rate_limit_exceeded` that still arrives (another environment sending through the same team) is a **throttle**, not an outage: it does not count against the `resend` circuit (`ResendApiError.isRateLimited`), the outbox claim is released, and the queue pauses for Resend's `Retry-After` — seconds — without spending the job's attempt. The daily and monthly quota 429s do count: they last until the quota resets.
-- **Two lanes.** Notification fan-out is enqueued `bulk` (BullMQ priority); sign-in codes, password resets and invitations go `transactional` (no priority) and BullMQ always takes them first — a broadcast to an organization cannot hold a sign-in code behind it.
+- **Two lanes.** Notification fan-out is enqueued `bulk` (BullMQ priority); sign-in codes and invitations go `transactional` (no priority) and BullMQ always takes them first — a broadcast to an organization cannot hold a sign-in code behind it.
 - **Resend outage → the mail queue pauses.** While Resend is down (its circuit is open, or a send failure leaves it open or half-open) the whole `mail` queue pauses on every replica for five minutes, the failed job is parked without spending an attempt, and the next job after the pause is the probe — see [workers-and-events.md → Provider outage pause](../runtime/workers-and-events.md#provider-outage-pause). Emails wait for Resend however long the outage lasts, then all go out.
 - BullMQ mail jobs: **8 attempts** with **custom backoff** ([`mail.queue.ts`](../../../src/infrastructure/mail/queues/mail.queue.ts), [`mail-backoff.util.ts`](../../../src/infrastructure/mail/queues/mail-backoff.util.ts)), exponential from 5s, for send errors that are not an outage. The backoff's circuit branch (`CircuitBreakerOpenError.retryAfterMs`) only covers a job whose pause could not be applied.
 - `sendEmail` wraps the Resend HTTP call in `resendCircuit.execute()` plus bounded transient retries ([`retry-with-backoff.util.ts`](../../../src/infrastructure/resilience/retry-with-backoff.util.ts)); throws `CircuitBreakerOpenError` when the circuit is OPEN.

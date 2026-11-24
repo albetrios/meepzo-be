@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * `registerAuthEventHandlers` is the auth domain's event-handler aggregator. Its TSDoc claims it
  * is "idempotent — safe to call from multiple bootstraps", and a module-level `registered` flag
  * implements that claim, but nothing called it twice. Double registration would subscribe the
- * auth-method handlers a second time on the shared event bus — and every verification-code and
- * password-reset email would be enqueued (and sent) twice per request.
+ * auth-method handlers a second time on the shared event bus — and every verification-code
+ * email would be enqueued (and sent) twice per request.
  */
 
 const registerAuthMethodEventHandlersMock = vi.fn();

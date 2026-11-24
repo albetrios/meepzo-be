@@ -36,6 +36,7 @@ TableGroup auth {
   auth.mfa_methods
   auth.mfa_recovery_codes
   auth.sessions
+  auth.trusted_devices
   auth.user_bug_reports
   auth.user_data_exports
   auth.user_notification_preferences
@@ -342,16 +343,22 @@ Note app.contacts {
 }
 
 Table app.instagram_account_settings {
+  broadcast_hour_limit smallint
+  channel_account_id bigint [not null]
   created_at timestamptz [not null]
+  extra_delay_seconds_max smallint
+  extra_delay_seconds_min smallint
+  extra_stop_words text [not null]
+  fast_hour_limit int
   id bigint [pk, increment]
-  instagram_account_id bigint [not null]
-  is_automation_enabled boolean [not null]
-  is_public_reply_safety_enabled boolean [not null]
+  is_automatic_notice_enabled boolean [not null]
+  is_comment_reply_trigger_enabled boolean [not null]
+  is_mark_seen_after_reply_enabled boolean [not null]
+  is_once_per_person_per_post_enabled boolean [not null]
+  opening_day_limit int
+  opening_hour_limit smallint
   organization_id bigint [not null]
-  public_reply_chance_percent smallint [not null]
-  public_reply_gap_max_seconds smallint [not null]
-  public_reply_gap_min_seconds smallint [not null]
-  public_reply_hour_limit smallint [not null]
+  person_hour_limit smallint
   updated_at timestamptz [not null]
   updated_by_user_id bigint
 }
@@ -361,28 +368,21 @@ Note app.instagram_account_settings {
 }
 
 Table app.instagram_accounts {
+  account_type varchar(20)
   biography text
   channel_account_id bigint [not null]
-  connected_at timestamptz [not null]
-  connected_by_user_id bigint
-  connection_status varchar(20) [not null]
-  connection_status_changed_at timestamptz [not null]
   created_at timestamptz [not null]
-  disconnected_at timestamptz
   followers_count int [not null]
   follows_count int [not null]
   id bigint [pk, increment]
-  instagram_app_user_id varchar(64) [not null]
   instagram_user_id varchar(64) [not null]
+  is_private boolean [not null]
   media_count int [not null]
-  name varchar(255)
   organization_id bigint [not null]
   profile_erased_at timestamptz
   profile_picture_url text
   profile_synced_at timestamptz
-  public_id varchar(28) [not null]
-  scopes text [not null]
-  token_expires_at timestamptz
+  starter_questions_set_at timestamptz
   updated_at timestamptz [not null]
   username varchar(64)
   webhook_subscribed_at timestamptz
@@ -622,6 +622,8 @@ Table auth.sessions {
   last_active_at timestamptz [not null]
   mfa_verified_at timestamptz
   organization_id bigint
+  place_city varchar(100)
+  place_country varchar(2)
   previous_refresh_token_hash varchar(64)
   public_id varchar(28) [not null, unique]
   refresh_token_hash varchar(64)
@@ -633,6 +635,22 @@ Table auth.sessions {
 
 Note auth.sessions {
   'RLS: enabled\nPolicies: sessions_user_access\nFORCE ROW LEVEL SECURITY'
+}
+
+Table auth.trusted_devices {
+  created_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  id bigint [pk, increment]
+  last_used_at timestamptz
+  public_id varchar(28) [not null]
+  revoked_at timestamptz
+  token_hash varchar(64) [not null]
+  user_agent varchar(512)
+  user_id bigint [not null]
+}
+
+Note auth.trusted_devices {
+  'RLS: enabled\nPolicies: trusted_devices_user_access\nFORCE ROW LEVEL SECURITY'
 }
 
 Table auth.user_bug_reports {

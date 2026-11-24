@@ -9,7 +9,7 @@ import { WRITE_HTTP_METHODS } from '@/shared/constants/index.js';
  * emitted by the GLOBAL `onRequest` idempotency hook, which runs BEFORE route auth/validation — so a
  * test write to one of these without a key gets 422 instead of the 401/403/201 it intends to assert.
  * `injectRoute` auto-supplies a fresh key for exactly these create endpoints (scoped by an exact path
- * suffix so it never touches `:id` sub-routes, non-required writes like password change, or the
+ * suffix so it never touches `:id` sub-routes, non-required writes like a session revoke, or the
  * original idempotency routes whose tests pass explicit keys). An explicit key always wins.
  */
 const IDEMPOTENCY_REQUIRED_CREATE_PATH_SUFFIXES = [

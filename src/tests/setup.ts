@@ -1,5 +1,6 @@
 import '@/shared/config/load-env-files.js';
 import '@/tests/helpers/harness-provider-env.js';
+import { generateKeyPairSync } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
@@ -174,13 +175,19 @@ process.env.GLOBAL_ADMIN_EMAILS ??= 'ops@example.com';
 // have no sandbox apps configured. `??=` keeps real local sandbox values.
 process.env.OAUTH_GOOGLE_CLIENT_ID ??= 'test-google-client-id';
 process.env.OAUTH_GOOGLE_CLIENT_SECRET ??= 'test-google-client-secret';
-process.env.OAUTH_GITHUB_CLIENT_ID ??= 'test-github-client-id';
-process.env.OAUTH_GITHUB_CLIENT_SECRET ??= 'test-github-client-secret';
+// Sign in with Apple (AT11): all five or none. The private key is a fresh P-256 key per run, so the
+// ES256 client secret the code swap signs is real; Apple itself is only ever reached through nock.
+process.env.OAUTH_APPLE_CLIENT_ID ??= 'com.example.test.signin';
+process.env.OAUTH_APPLE_TEAM_ID ??= 'TESTTEAMID';
+process.env.OAUTH_APPLE_KEY_ID ??= 'TESTKEYID';
+process.env.OAUTH_APPLE_PRIVATE_KEY ??= generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  .privateKey.export({ type: 'pkcs8', format: 'pem' })
+  .toString();
 // The schema requires a redirect URI wherever a client ID is set — a client ID alone is an
 // invalid configuration that fails closed at boot rather than misdirecting the provider. The
 // fixture must therefore model a COMPLETE provider, not a half-configured one.
 process.env.OAUTH_GOOGLE_REDIRECT_URI ??= `${DEFAULT_FRONTEND_URL}/callback/google`;
-process.env.OAUTH_GITHUB_REDIRECT_URI ??= `${DEFAULT_FRONTEND_URL}/callback/github`;
+process.env.OAUTH_APPLE_REDIRECT_URI ??= 'http://localhost:3000/api/v1/auth/oauth/apple/callback';
 // The Instagram webhook's verify token (WH7) — Meta's subscription check compares hub.verify_token
 // with it; tests read the value back through getEnv(), never hard-code it.
 process.env.META_WEBHOOK_VERIFY_TOKEN ??= 'test-meta-webhook-verify-token-minimum-32-chars';

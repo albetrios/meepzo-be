@@ -15,7 +15,7 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
  * (`/social/channel-connections/…` — start, callback, reconnect, pick, list, one, disconnect
  * business), the channel account (`/social/channel-accounts/…` — list, one, disconnect, pause,
  * resume, choose active accounts), the Instagram account's settings
- * (`/social/instagram/account/settings`), its post and story pickers
+ * (`/social/instagram/accounts/{channel_account_id}/settings`), its post and story pickers
  * (`/social/instagram/media`, `/social/instagram/stories`) and Meta's two PUBLIC callbacks
  * (`/social/instagram/deauthorize`, `/social/instagram/data-deletion` — form-encoded, in their own
  * encapsulated plugin so their body parser reaches no other route), contacts (`/contacts`), the

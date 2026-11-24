@@ -444,8 +444,8 @@ type InstagramGraphListAnswer = {
 /** Options of {@link listInstagramMedia} and {@link listInstagramStories}. */
 export interface ListInstagramItemsOptions extends MetaGraphCallTracing {
   encryptedAccessToken: string;
-  /** The account's app-scoped id (`/me` `id`). */
-  instagramAppUserId: string;
+  /** The account's Instagram user id (the id the Graph paths take under Unified Login). */
+  instagramUserId: string;
   /** Page size, passed on as Instagram's `limit` (the route allows 1–50). */
   limit: number;
   /** Instagram's `after` cursor from the previous page. */
@@ -464,7 +464,7 @@ async function listInstagramEdge<TItem extends { id: string }>({
 }): Promise<InstagramGraphPage<TItem>> {
   const answer = await callMetaGraphWithToken<InstagramGraphListAnswer>({
     encryptedAccessToken: options.encryptedAccessToken,
-    path: `${encodeURIComponent(options.instagramAppUserId)}/${edge}`,
+    path: `${encodeURIComponent(options.instagramUserId)}/${edge}`,
     query: { fields, limit: String(options.limit), after: options.after },
     requestId: options.requestId,
     recordUsage: options.recordUsage,
@@ -482,7 +482,7 @@ async function listInstagramEdge<TItem extends { id: string }>({
 }
 
 /**
- * Lists one page of the account's posts and reels, live (`/{instagram_app_user_id}/media`, IA16).
+ * Lists one page of the account's posts and reels, live (`/{instagram_user_id}/media`, IA16).
  *
  * @remarks
  * - **Algorithm:** `GET /v27.0/{id}/media?fields=…&limit=…&after=…` with the token in the
@@ -503,7 +503,7 @@ export async function listInstagramMedia(
 }
 
 /**
- * Lists one page of the account's live stories (`/{instagram_app_user_id}/stories`, IA16).
+ * Lists one page of the account's live stories (`/{instagram_user_id}/stories`, IA16).
  *
  * @remarks
  * - **Algorithm:** `GET /v27.0/{id}/stories?fields=id,media_type,media_url,thumbnail_url,permalink,
@@ -558,8 +558,8 @@ export async function readInstagramMediaItem({
 /** Options of the webhook subscription calls. */
 export interface InstagramWebhookSubscriptionOptions extends MetaGraphCallTracing {
   encryptedAccessToken: string;
-  /** The account's app-scoped id (`/me` `id`). */
-  instagramAppUserId: string;
+  /** The account's Instagram user id (the id the Graph paths take under Unified Login). */
+  instagramUserId: string;
 }
 
 /** Fails unless Instagram answered `{ success: true }`. */
@@ -577,7 +577,7 @@ function assertInstagramSuccessAnswer({
 
 /**
  * Subscribes the account to the webhook fields `comments`, `messages`, `messaging_postbacks`
- * (`POST /{instagram_app_user_id}/subscribed_apps`, IA12 step 5, IA8).
+ * (`POST /{instagram_user_id}/subscribed_apps`, IA12 step 5, IA8).
  *
  * @remarks
  * - **Algorithm:** `POST /v27.0/{id}/subscribed_apps?subscribed_fields=comments,messages,
@@ -589,13 +589,13 @@ function assertInstagramSuccessAnswer({
  */
 export async function subscribeInstagramWebhookFields({
   encryptedAccessToken,
-  instagramAppUserId,
+  instagramUserId,
   requestId,
   recordUsage,
 }: InstagramWebhookSubscriptionOptions): Promise<void> {
   const answer = await callMetaGraphWithToken<{ success?: unknown }>({
     encryptedAccessToken,
-    path: `${encodeURIComponent(instagramAppUserId)}/subscribed_apps`,
+    path: `${encodeURIComponent(instagramUserId)}/subscribed_apps`,
     query: { subscribed_fields: INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS.join(',') },
     method: 'POST',
     requestId,
@@ -605,7 +605,7 @@ export async function subscribeInstagramWebhookFields({
 }
 
 /**
- * Unsubscribes the account from every webhook field (`DELETE /{instagram_app_user_id}/subscribed_apps`)
+ * Unsubscribes the account from every webhook field (`DELETE /{instagram_user_id}/subscribed_apps`)
  * — the disconnect (IA14).
  *
  * @remarks
@@ -617,13 +617,13 @@ export async function subscribeInstagramWebhookFields({
  */
 export async function unsubscribeInstagramWebhookFields({
   encryptedAccessToken,
-  instagramAppUserId,
+  instagramUserId,
   requestId,
   recordUsage,
 }: InstagramWebhookSubscriptionOptions): Promise<void> {
   const answer = await callMetaGraphWithToken<{ success?: unknown }>({
     encryptedAccessToken,
-    path: `${encodeURIComponent(instagramAppUserId)}/subscribed_apps`,
+    path: `${encodeURIComponent(instagramUserId)}/subscribed_apps`,
     method: 'DELETE',
     requestId,
     recordUsage,
@@ -656,7 +656,7 @@ export interface InstagramSentMessage {
 
 /**
  * Sends a direct message, or a private reply to a comment (`recipient.comment_id`), from the
- * account (`POST /{instagram_app_user_id}/messages`) — sub-domains 3–4.
+ * account (`POST /{instagram_user_id}/messages`) — sub-domains 3–4.
  *
  * @remarks
  * - **Algorithm:** `POST /v27.0/{id}/messages` with JSON `{ recipient, message }` and the token in
@@ -670,20 +670,20 @@ export interface InstagramSentMessage {
  */
 export async function sendInstagramMessage({
   encryptedAccessToken,
-  instagramAppUserId,
+  instagramUserId,
   recipient,
   message,
   requestId,
   recordUsage,
 }: {
   encryptedAccessToken: string;
-  instagramAppUserId: string;
+  instagramUserId: string;
   recipient: InstagramMessageRecipient;
   message: InstagramOutgoingMessage;
 } & MetaGraphCallTracing): Promise<InstagramSentMessage> {
   const answer = await callMetaGraphWithToken<{ message_id?: unknown; recipient_id?: unknown }>({
     encryptedAccessToken,
-    path: `${encodeURIComponent(instagramAppUserId)}/messages`,
+    path: `${encodeURIComponent(instagramUserId)}/messages`,
     method: 'POST',
     jsonBody: { recipient, message },
     requestId,

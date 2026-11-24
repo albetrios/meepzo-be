@@ -18,8 +18,10 @@ import {
 } from './sub-domains/channel-connection/channel-connection-usage.service.js';
 import { InstagramAccountRepository } from './sub-domains/instagram-account/instagram-account.repository.js';
 import { InstagramAccountService } from './sub-domains/instagram-account/instagram-account.service.js';
+import { InstagramAccountExtensionService } from './sub-domains/instagram-account/instagram-account-extension.service.js';
 import { InstagramAccountSettingsRepository } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
+import type { InstagramAccountSettingsChannelAccountPort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
 import { InstagramMediaRepository } from './sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramMediaService } from './sub-domains/instagram-account/instagram-media/instagram-media.service.js';
@@ -83,6 +85,51 @@ export type AppContainer = {
 };
 
 /**
+ * The Instagram account sub-domain's services (routes-final § 2): the extension's one writer
+ * (2.A.10, ROUTE row R6), the settings and the account service, over the channel account repository
+ * that moves the account's status (CA4, CA8).
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only, no side effects.
+ */
+function createInstagramAccountServices({
+  organizationService,
+  channelConnectionTokenService,
+  settingsChannelAccountPort,
+}: {
+  organizationService: OrganizationService;
+  channelConnectionTokenService: ChannelConnectionTokenService;
+  /** Route 12's channel account steps (P42, CA11) — the channel account service, built after. */
+  settingsChannelAccountPort: InstagramAccountSettingsChannelAccountPort;
+}) {
+  const instagramAccountRepository = new InstagramAccountRepository();
+  const channelAccountRepository = new ChannelAccountRepository();
+  const instagramAccountExtensionService = new InstagramAccountExtensionService(
+    instagramAccountRepository,
+  );
+  // The lane wake after a limit change (IA14) is sub-domain 6's — not passed until ROUTE row R18.
+  const instagramAccountSettingsService = new InstagramAccountSettingsService(
+    new InstagramAccountSettingsRepository(),
+    settingsChannelAccountPort,
+    organizationService,
+  );
+  const instagramAccountService = new InstagramAccountService(
+    instagramAccountRepository,
+    instagramAccountExtensionService,
+    channelAccountRepository,
+    channelConnectionTokenService,
+    instagramAccountSettingsService,
+    organizationService,
+  );
+  return {
+    channelAccountRepository,
+    instagramAccountExtensionService,
+    instagramAccountSettingsService,
+    instagramAccountService,
+  };
+}
+
+/**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
  * team check, user id resolution; billing's plan read: the channel account limit).
@@ -104,24 +151,30 @@ export function createAppContainer({
   const channelConnectionUsageService = createChannelConnectionUsageService({
     usageStore: createChannelConnectionUsagePostgresStore(new ChannelConnectionUsageRepository()),
   });
-  const instagramAccountRepository = new InstagramAccountRepository();
-  const instagramAccountSettingsService = new InstagramAccountSettingsService(
-    new InstagramAccountSettingsRepository(),
-    instagramAccountRepository,
-    organizationService,
-  );
-  const instagramAccountService = new InstagramAccountService(
-    instagramAccountRepository,
-    channelConnectionTokenService,
+  const {
+    channelAccountRepository,
+    instagramAccountExtensionService,
     instagramAccountSettingsService,
+    instagramAccountService,
+  } = createInstagramAccountServices({
     organizationService,
-  );
+    channelConnectionTokenService,
+    // The channel account service depends on the settings service, so route 12 reaches it through
+    // this port; each call runs at request time, after both are built.
+    settingsChannelAccountPort: {
+      requireLiveInstagramAccount: (input) =>
+        channelAccountService.requireLiveInstagramAccount(input),
+      setAutomationEnabled: (input) => channelAccountService.setAutomationEnabled(input),
+      canChannelAccountUseFeature: (input) =>
+        channelAccountService.canChannelAccountUseFeature(input),
+    },
+  });
   // The channel account (1B, ROUTE row R5): routes 6–11, the one feature check, and the
   // connection's account port over `app.channel_accounts` with its Instagram extension. Its lane
   // port (R18) and plan-stop port (R18, R24) are not passed until their rows build them.
   const channelAccountService = new ChannelAccountService(
-    new ChannelAccountRepository(),
-    instagramAccountRepository,
+    channelAccountRepository,
+    instagramAccountExtensionService,
     instagramAccountService,
     instagramAccountSettingsService,
     channelConnectionRepository,
@@ -144,7 +197,7 @@ export function createAppContainer({
     new InstagramMediaRepository(),
     instagramAccountService,
   );
-  // Meta's callbacks and the organization's delete erase through one service (D54).
+  // Meta's callbacks and the organization's delete (every account and connection, IAC5) erase here.
   const instagramAccountErasureService = new InstagramAccountErasureService(
     instagramAccountService,
     instagramMediaService,

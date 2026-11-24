@@ -38,6 +38,12 @@ export const sessions = authSchema
       refresh_token_rotated_at: timestamp('refresh_token_rotated_at', { withTimezone: true }),
       ip_address: inet('ip_address').notNull(),
       user_agent: varchar('user_agent', { length: 512 }),
+      // Where `ip_address` is (routes-final § 10.D AT18): the local IP-to-place file's English city
+      // name and the ISO 3166-1 alpha-2 country code, set at creation and when a refresh comes from
+      // a new IP; both null when the file has no match or there is no file. Added by migration
+      // 20261124120000.
+      place_city: varchar('place_city', { length: 100 }),
+      place_country: varchar('place_country', { length: 2 }),
       last_active_at: timestamp('last_active_at', { withTimezone: true }).notNull().defaultNow(),
       expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
       is_revoked: boolean('is_revoked').notNull().default(false),
@@ -71,6 +77,7 @@ export const sessions = authSchema
         .where(sql`${table.organization_id} IS NOT NULL`),
       check('chk_sessions_expires', sql`${table.expires_at} > ${table.created_at}`),
       check('chk_sessions_last_active', sql`${table.last_active_at} >= ${table.created_at}`),
+      check('chk_sessions_place_country', sql`${table.place_country} ~ '^[A-Z]{2}$'`),
       pgPolicy('sessions_user_access', {
         as: 'permissive',
         for: 'all',

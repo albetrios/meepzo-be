@@ -11,7 +11,7 @@ import { sessions } from '@/domains/auth/sub-domains/auth-session/auth-session.s
 import { databaseNowTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
-import type { AuthSessionCreateData } from './auth-session.types.js';
+import type { AuthSessionCreateData, AuthSessionNetworkUpdate } from './auth-session.types.js';
 
 /** Row shape returned by {@link AuthSessionRepository.listForUserDataExport}. */
 export interface AuthSessionUserDataExportRow {
@@ -179,6 +179,7 @@ export class AuthSessionRepository {
     currentRefreshTokenHash: string,
     nextTokenHash: string,
     nextRefreshTokenHash: string,
+    nextNetwork?: AuthSessionNetworkUpdate,
   ) {
     // audit-#2: accept either the CURRENT refresh hash or the immediately-PREVIOUS one within a
     // short grace window. Two concurrent legitimate refreshes presenting the same cookie race on
@@ -197,6 +198,8 @@ export class AuthSessionRepository {
         token_hash: nextTokenHash,
         refresh_token_hash: nextRefreshTokenHash,
         last_active_at: databaseNowTimestamp,
+        // A refresh from a new IP moves the session's address and place with it (§ 10.D AT18).
+        ...nextNetwork,
       })
       .where(
         and(
@@ -345,6 +348,8 @@ export class AuthSessionRepository {
             user_agent: data.user_agent,
             expires_at: data.expires_at,
             mfa_verified_at: data.mfa_verified_at,
+            place_city: data.place_city,
+            place_country: data.place_country,
           })
           .returning();
         return rows[0]!;

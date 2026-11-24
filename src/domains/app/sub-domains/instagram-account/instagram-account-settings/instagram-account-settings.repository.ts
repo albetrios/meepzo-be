@@ -6,7 +6,7 @@ import {
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { databaseUpdatedAtTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
-import type { InstagramAccountKey } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import { instagram_account_settings } from './instagram-account-settings.schema.js';
 import type { InstagramAccountSettingsChanges } from './instagram-account-settings.types.js';
 
@@ -19,19 +19,20 @@ const settingsUpdatedAtTimestamp = databaseUpdatedAtTimestamp(
 export type InstagramAccountSettingsRow = typeof instagram_account_settings.$inferSelect;
 
 /**
- * Drizzle access to `app.instagram_account_settings` (routes-final § 1.B.3): the default row a
- * connect creates, the row route 3 changes and the row event processing reads.
+ * Drizzle access to `app.instagram_account_settings` (feat-instagram-dm-sending routes-final
+ * § 2.B.3): the empty row a pick creates, the row route 12 changes and the row event processing
+ * reads.
  *
  * @remarks
- * - **Algorithm:** one row per account, keyed by `(organization_id, instagram_account_id)` — every
- *   statement names both. The defaults come from the column defaults (switch on, reply safety off,
- *   80 %, 60 an hour, 20–60 seconds).
+ * - **Algorithm:** one row per channel account, keyed by `(organization_id, channel_account_id)` —
+ *   every statement names both. The defaults come from the column defaults (every limit empty, the
+ *   switches as D64–D66, no stop words, no extra delay).
  * - **Failure modes:** none of its own; a write under another organization's context fails the
  *   policy's `WITH CHECK`, and an account of another organization fails the composite key.
  * - **Side effects:** writes `app.instagram_account_settings` only; the locked read takes a row
  *   lock held until the caller's transaction ends.
  * - **Notes:** written only through the settings service, never by the account's repository
- *   (1.B.10) — the defaults at connect, route 3's change (IA15).
+ *   (2.B.10) — the empty row at the pick, route 12's change (IA12).
  */
 export class InstagramAccountSettingsRepository {
   constructor(private readonly databaseHandle?: RequestScopedPostgresDatabase) {}
@@ -41,17 +42,17 @@ export class InstagramAccountSettingsRepository {
   }
 
   /** The account's settings row, or `null` when it has none. */
-  async findByInstagramAccount({
+  async findByChannelAccount({
     organizationId,
-    instagramAccountId,
-  }: InstagramAccountKey): Promise<InstagramAccountSettingsRow | null> {
+    channelAccountId,
+  }: ChannelAccountKey): Promise<InstagramAccountSettingsRow | null> {
     const rows = await this.db()
       .select()
       .from(instagram_account_settings)
       .where(
         and(
           eq(instagram_account_settings.organization_id, organizationId),
-          eq(instagram_account_settings.instagram_account_id, instagramAccountId),
+          eq(instagram_account_settings.channel_account_id, channelAccountId),
         ),
       )
       .limit(1);
@@ -64,15 +65,15 @@ export class InstagramAccountSettingsRepository {
    */
   async insertDefaults({
     organizationId,
-    instagramAccountId,
-  }: InstagramAccountKey): Promise<InstagramAccountSettingsRow | null> {
+    channelAccountId,
+  }: ChannelAccountKey): Promise<InstagramAccountSettingsRow | null> {
     const rows = await this.db()
       .insert(instagram_account_settings)
-      .values({ organization_id: organizationId, instagram_account_id: instagramAccountId })
+      .values({ organization_id: organizationId, channel_account_id: channelAccountId })
       .onConflictDoNothing({
         target: [
           instagram_account_settings.organization_id,
-          instagram_account_settings.instagram_account_id,
+          instagram_account_settings.channel_account_id,
         ],
       })
       .returning();
@@ -80,21 +81,21 @@ export class InstagramAccountSettingsRepository {
   }
 
   /**
-   * The account's settings row with a `FOR UPDATE` lock, or `null` when it has none — route 3 reads
-   * it so the stale-save check and the merged gap check see the latest saved row, and a concurrent
-   * change waits for this one (IA15). Must run inside the caller's transaction.
+   * The account's settings row with a `FOR UPDATE` lock, or `null` when it has none — route 12
+   * reads it so the stale-save check and the merged checks see the latest saved row, and a
+   * concurrent change waits for this one (IA13). Must run inside the caller's transaction.
    */
-  async findByInstagramAccountForUpdate({
+  async findByChannelAccountForUpdate({
     organizationId,
-    instagramAccountId,
-  }: InstagramAccountKey): Promise<InstagramAccountSettingsRow | null> {
+    channelAccountId,
+  }: ChannelAccountKey): Promise<InstagramAccountSettingsRow | null> {
     const rows = await this.db()
       .select()
       .from(instagram_account_settings)
       .where(
         and(
           eq(instagram_account_settings.organization_id, organizationId),
-          eq(instagram_account_settings.instagram_account_id, instagramAccountId),
+          eq(instagram_account_settings.channel_account_id, channelAccountId),
         ),
       )
       .limit(1)
@@ -103,16 +104,16 @@ export class InstagramAccountSettingsRepository {
   }
 
   /**
-   * Writes route 3's change (IA15): the settings sent, `updated_by_user_id` (the caller, `null` for
+   * Writes route 12's change (IA12): the settings sent, `updated_by_user_id` (the caller, `null` for
    * an API key) and `updated_at` (the database clock, as every app write). Returns the changed row,
    * or `null` when the account has no settings row.
    */
   async update({
     organizationId,
-    instagramAccountId,
+    channelAccountId,
     changes,
     updatedByUserId,
-  }: InstagramAccountKey & {
+  }: ChannelAccountKey & {
     /** Only the settings the body sent; the rest keep their saved values. */
     changes: InstagramAccountSettingsChanges;
     /** `auth.users.id` of the caller, or `null`. */
@@ -128,7 +129,7 @@ export class InstagramAccountSettingsRepository {
       .where(
         and(
           eq(instagram_account_settings.organization_id, organizationId),
-          eq(instagram_account_settings.instagram_account_id, instagramAccountId),
+          eq(instagram_account_settings.channel_account_id, channelAccountId),
         ),
       )
       .returning();
@@ -138,7 +139,7 @@ export class InstagramAccountSettingsRepository {
 
 /**
  * {@link InstagramAccountSettingsRepository} bound to a job's organization handle — event
- * processing reads the switch and the reply safety on every event.
+ * processing reads the account's behaviour and stop words on every event (IA14).
  */
 export function createWorkerInstagramAccountSettingsRepository(
   databaseHandle: WorkerDatabaseHandle,

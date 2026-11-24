@@ -157,7 +157,6 @@ export interface ChannelConnectionAccountPort {
       /** The pick's profile read, or `null` when it failed open (the username alone is enough). */
       profile: InstagramAccountProfile | null;
       username: string | null;
-      scopes: readonly string[];
       connectedByUserId: number | null;
     },
   ): Promise<ChannelConnectionAccount>;

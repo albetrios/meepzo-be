@@ -121,7 +121,7 @@ export type OrganizationSubscriptionOffboardingPort = {
  * - **Notes:** public ids and a count only — never a username or a token.
  */
 export interface OrganizationInstagramErasure {
-  /** `iga_…` of every account something changed on. */
+  /** `cha_…` of every account something changed on. */
   instagramAccountPublicIds: string[];
   /** Stored posts erased. */
   erasedPostCount: number;

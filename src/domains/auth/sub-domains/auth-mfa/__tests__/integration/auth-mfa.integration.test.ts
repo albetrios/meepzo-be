@@ -366,7 +366,7 @@ describe('MFA Sub-Domain — Integration', () => {
       });
       expect(verify.statusCode, verify.body).toBe(200);
 
-      // Password login now returns the MFA challenge envelope instead of a token.
+      // Email-code login now returns the MFA challenge envelope instead of a token.
       const login = await signInWithEmailCode(app, { email: user.email });
       expect(login.statusCode, login.body).toBe(200);
       const loginBody = (

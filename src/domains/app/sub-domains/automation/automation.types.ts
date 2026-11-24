@@ -51,7 +51,7 @@ export interface AutomationFinalMessage {
 export interface AutomationOutput {
   /** `aut_…`. */
   id: string;
-  /** `iga_…` — the account the automation runs on (AU27). */
+  /** `cha_…` — the account the automation runs on (AU27). */
   instagram_account_id: string;
   name: string;
   status: AutomationStatus;
@@ -155,7 +155,7 @@ export interface AutomationListQuery {
   triggerType: AutomationTriggerType | undefined;
   targetScope: AutomationTargetScope | undefined;
   nextPostStatus: AutomationNextPostStatus | undefined;
-  /** `iga_…` — one account's automations (AU27); an unknown one gives an empty page. */
+  /** `cha_…` — one account's automations (AU27); an unknown one gives an empty page. */
   instagramAccountPublicId: string | undefined;
 }
 
@@ -249,7 +249,7 @@ export interface AutomationDeleteResult {
 export interface AutomationLinkNextPostInput {
   /** The job's organization scope, relayed by sub-domain 4 (never minted here). */
   scope: OrganizationPrincipalDatabaseScope;
-  /** `iga_…` — the event's Instagram account (AU27). */
+  /** `cha_…` — the event's Instagram account (AU27). */
   instagramAccountPublicId: string;
   /** The commented post's Instagram media id. */
   instagramMediaId: string;

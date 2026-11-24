@@ -55,10 +55,8 @@ function accountState(
   return {
     instagramAccount: { organizationId: 7, instagramAccountId: 11 },
     channelAccountId: 13,
-    channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
-    instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+    instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     instagramUserId: INSTAGRAM_USER_ID,
-    instagramAppUserId: '9000000000000001',
     connectionStatus: 'connected',
     isAutomationEnabled: true,
     ...overrides,

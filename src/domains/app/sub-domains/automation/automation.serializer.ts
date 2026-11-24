@@ -68,7 +68,7 @@ function serializeFinalMessage(message: AutomationFinalMessage): AutomationFinal
  *
  * @remarks
  * - **Algorithm:** names every key (no row spread): `id` from `public_id`, `instagram_account_id`
- *   the caller-resolved `iga_…` (AU27), `created_by_user_id` / `updated_by_user_id` the
+ *   the caller-resolved `cha_…` (AU27), `created_by_user_id` / `updated_by_user_id` the
  *   caller-resolved `usr_…` (or `null`), timestamps as ISO 8601, arrays and message objects copied
  *   key by key; each value list typed as its list (D19).
  * - **Failure modes:** none — a pure mapping. Only live rows reach it.
@@ -83,7 +83,7 @@ export function serializeAutomation({
   updated_by_user_public_id,
 }: {
   automation: AutomationSerializableRow;
-  /** `iga_…` of the automation's account. */
+  /** `cha_…` of the automation's account. */
   instagram_account_public_id: string;
   /** `usr_…` of the creator, or `null`. */
   created_by_user_public_id: string | null;

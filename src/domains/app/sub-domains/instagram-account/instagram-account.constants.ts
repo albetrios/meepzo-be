@@ -1,34 +1,16 @@
-/**
- * Every value of `app.instagram_accounts.connection_status` (IA11), in the order the status moves:
- * `connected` → `expired` | `error` (the guarded change, IA9) → `connected` again on a reconnect;
- * any → `revoked` (a disconnect). Mirrors `chk_instagram_accounts_connection_status`.
- */
-export const INSTAGRAM_ACCOUNT_CONNECTION_STATUSES = [
-  'connected',
-  'expired',
-  'error',
-  'revoked',
-] as const;
-
-/** One value of {@link INSTAGRAM_ACCOUNT_CONNECTION_STATUSES}. */
-export type InstagramAccountConnectionStatus =
-  (typeof INSTAGRAM_ACCOUNT_CONNECTION_STATUSES)[number];
-
-/** The two statuses the guarded change may move a `connected` account to (IA9). */
-export type InstagramAccountBrokenConnectionStatus = Extract<
-  InstagramAccountConnectionStatus,
-  'expired' | 'error'
->;
+import type { ChannelAccountStatus } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 
 /**
- * The unique index on `app.instagram_accounts` whose violation decides a pick race between two
- * organizations (MC7): this Instagram account not revoked in another organization. The constraint
- * name on the Postgres error is this one.
+ * The statuses an Instagram account reads with — its channel account's (`connected` · `error` ·
+ * `revoked`, CA4): since ROUTE row R6 the extension holds no status of its own (2.A.3, IA8).
  */
-export const INSTAGRAM_ACCOUNT_UNIQUE_INDEXES = {
-  /** One organization at a time per Instagram account → `connected_elsewhere`. */
-  instagramUserLive: 'idx_instagram_accounts_instagram_user_live',
-} as const;
+export type InstagramAccountConnectionStatus = ChannelAccountStatus;
+
+/**
+ * What a failed Meta call classifies a broken token as (`expired` on subcode 463, else `error`);
+ * either lands as the channel account's `error` (CA4 — `expired` is gone from the status).
+ */
+export type InstagramAccountBrokenConnectionStatus = 'expired' | 'error';
 
 /**
  * The audit resource type of every Instagram account action (IA7): connect, disconnect, the

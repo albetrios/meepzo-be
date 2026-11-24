@@ -53,6 +53,7 @@
     "forbidden": "Forbidden",
     "internalError": "Internal Server Error",
     "noContent": "No Content",
+    "seeOther": "See Other — the browser is sent on to the app page",
     "notAcceptable": "Not acceptable — required Accept header missing or unsupported",
     "notFound": "Not Found",
     "payloadTooLarge": "Request body exceeds the size limit",

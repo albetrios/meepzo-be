@@ -51,9 +51,12 @@ export class AuthService {
   async refreshToken({
     sessionPublicId,
     refreshSecret,
+    ipAddress,
   }: {
     sessionPublicId: string;
     refreshSecret: string;
+    /** The refreshing request's IP — a new one moves the session's address and place (§ 10.D AT18). */
+    ipAddress?: string;
   }): Promise<{ access_token: string; refresh_secret: string }> {
     // sec-re-05: look the session up via the INCLUDING-REVOKED path so a
     // refresh-secret replay against an already-revoked session reaches
@@ -148,6 +151,7 @@ export class AuthService {
       userPublicId: user.public_id,
       refreshSecret,
       nextAccessToken: jsonWebToken,
+      ipAddress,
     });
 
     // One live access token per session: a switch that committed between the read above and the

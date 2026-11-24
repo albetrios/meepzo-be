@@ -92,6 +92,8 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-resource: channel account',
   'DELETE /api/v1/app/social/channel-accounts/:channel_account_id':
     'cross-organization-mutation: channel account DELETE',
+  'PATCH /api/v1/app/social/instagram/accounts/:channel_account_id/settings':
+    'cross-organization-mutation: Instagram account settings (route 12 — another organization answers 404 channel_account_not_found, nothing written)',
   'POST /api/v1/app/social/channel-accounts/:channel_account_id/pause':
     'cross-organization-mutation: channel account pause',
   'POST /api/v1/app/social/channel-accounts/:channel_account_id/resume':

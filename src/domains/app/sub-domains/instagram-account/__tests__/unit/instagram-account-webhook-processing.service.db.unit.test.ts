@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
+import { InstagramAccountExtensionService } from '@/domains/app/sub-domains/instagram-account/instagram-account-extension.service.js';
+import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
@@ -9,12 +10,12 @@ import { ChannelConnectionTokenRepository } from '@/domains/app/sub-domains/chan
 import { ChannelConnectionTokenService } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.service.js';
 import { InstagramAccountSettingsRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
-import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
+import type { InstagramAccountSettingsChannelAccountPort } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import { insertInstagramAccount } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
+import { operatorQuery } from '@/tests/helpers/operator-database.js';
 
 /**
  * `InstagramAccountService.findWebhookProcessingAccount` against the database (routes-final § 4.A
@@ -44,13 +45,15 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     const accountRepository = new InstagramAccountRepository();
     service = new InstagramAccountService(
       accountRepository,
+      new InstagramAccountExtensionService(accountRepository),
+      new ChannelAccountRepository(),
       new ChannelConnectionTokenService(
         new ChannelConnectionTokenRepository(),
         new ChannelConnectionRepository(),
       ),
       new InstagramAccountSettingsService(
         new InstagramAccountSettingsRepository(),
-        accountRepository,
+        {} as InstagramAccountSettingsChannelAccountPort,
         organizationService,
       ),
       organizationService,
@@ -62,38 +65,34 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     await operatorQuery`
       UPDATE app.channel_connection_tokens SET encrypted_access_token = ${ciphertext}
       WHERE channel_connection_id = (
-        SELECT channel_connection_id FROM app.instagram_accounts WHERE id = ${account.id})`;
+        SELECT c.channel_connection_id FROM app.instagram_accounts AS i
+        INNER JOIN app.channel_accounts AS c
+          ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+        WHERE i.id = ${account.id})`;
   }
 
-  async function insertSettings(account: { id: number }, isAutomationEnabled: boolean) {
-    await getOperatorDatabase().insert(instagram_account_settings).values({
-      organization_id: organization.id,
-      instagram_account_id: account.id,
-      is_automation_enabled: isAutomationEnabled,
-    });
+  /** Sets the account's automation switch — the channel account's since ROUTE row R7 (P42). */
+  async function setAutomationSwitch(account: { id: number }, isAutomationEnabled: boolean) {
+    await operatorQuery`
+      UPDATE app.channel_accounts SET is_automation_enabled = ${isAutomationEnabled}
+      WHERE id = (SELECT channel_account_id FROM app.instagram_accounts WHERE id = ${account.id})`;
   }
 
-  /** Reads the account by its channel account's public id (`cha_…`, R17 WHC4). */
-  async function find(account: { id: number } | string, scopeOrganization = organization) {
-    const channelAccountPublicId =
-      typeof account === 'string'
-        ? account
-        : await readChannelAccountPublicIdOfInstagramAccount(account.id);
+  function find(instagramAccountPublicId: string, scopeOrganization = organization) {
     return service.findWebhookProcessingAccount({
       scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: scopeOrganization.public_id }),
-      channelAccountPublicId,
+      instagramAccountPublicId,
     });
   }
 
   it('returns a connected account with its key, switch and encrypted token', async () => {
     const account = await insertInstagramAccount({ organizationId: organization.id });
     await insertToken(account);
-    await insertSettings(account, false);
+    await setAutomationSwitch(account, false);
 
-    await expect(find(account)).resolves.toEqual({
+    await expect(find(account.public_id)).resolves.toEqual({
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
       channelAccountId: expect.any(Number),
-      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(account.id),
       instagramAccountPublicId: account.public_id,
       connectionStatus: 'connected',
       isAutomationEnabled: false,
@@ -101,10 +100,10 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     });
   });
 
-  it('reads the switch as on when the account has no settings row', async () => {
+  it('reads the channel account switch, on by default', async () => {
     const account = await insertInstagramAccount({ organizationId: organization.id });
 
-    await expect(find(account)).resolves.toMatchObject({
+    await expect(find(account.public_id)).resolves.toMatchObject({
       isAutomationEnabled: true,
       encryptedAccessToken: expect.any(String),
     });
@@ -117,7 +116,7 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     });
     await insertToken(account);
 
-    await expect(find(account)).resolves.toMatchObject({
+    await expect(find(account.public_id)).resolves.toMatchObject({
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
       connectionStatus: 'revoked',
       encryptedAccessToken: null,
@@ -127,7 +126,7 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
   it("answers null for an unknown public id and for another organization's account", async () => {
     const account = await insertInstagramAccount({ organizationId: organization.id });
 
-    await expect(find('cha_unknown00000000000001')).resolves.toBeNull();
-    await expect(find(account, otherOrganization)).resolves.toBeNull();
+    await expect(find('iga_unknown00000000000001')).resolves.toBeNull();
+    await expect(find(account.public_id, otherOrganization)).resolves.toBeNull();
   });
 });

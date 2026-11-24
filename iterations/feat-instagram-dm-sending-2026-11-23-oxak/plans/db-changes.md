@@ -527,7 +527,7 @@ erDiagram
   The Instagram user id now comes from the connection's assigned-accounts list and is used for API
   paths and webhook routing. The daily check's profile refresh stays, inside the connection's token
   check (A17, [P17](decisions.md), P47).
-- **Table:** `app.instagram_accounts` (live)
+- **Table:** `app.instagram_accounts` (live) — **Built R6** ([AS-BUILT](../AS-BUILT.md), [P120](decisions.md), [P121](decisions.md)): `channel_account_id` (unique, composite FK RESTRICT), `instagram_user_id`, `username`, `biography`, `website`, `profile_picture_url`, `account_type` (null · `business` · `creator`), `is_private` (default false), `followers_count`, `follows_count`, `media_count`, `webhook_subscribed_at`, `starter_questions_set_at`, `profile_synced_at`, `profile_erased_at`; `public_id`, `connection_status`, `connection_status_changed_at`, `connected_by_user_id`, `connected_at`, `disconnected_at`, `name`, `instagram_app_user_id`, `scopes`, `token_expires_at` dropped.
 - **Sources:** plan:L2922–L2944; plan:L4590–L4604 (connect, plan limit); current schema
   `src/domains/app/sub-domains/instagram-account/instagram-account.schema.ts`.
 - **Added:**
@@ -597,7 +597,7 @@ erDiagram
   case), whether replies under comments start comment automations (on), once per person per post
   (on), mark as seen after a reply (off), and the extra random delay before each answer (1–20
   seconds, both ends or neither; PRO).
-- **Table:** `app.instagram_account_settings` (live)
+- **Table:** `app.instagram_account_settings` (live) — **Built R7** ([AS-BUILT](../AS-BUILT.md), [P122](decisions.md)): `channel_account_id` (composite FK → `app.channel_accounts` RESTRICT, unique per organization), `opening_hour_limit`, `opening_day_limit`, `fast_hour_limit`, `person_hour_limit`, `broadcast_hour_limit` (each nullable), `is_automatic_notice_enabled`, `extra_stop_words text[]`, `is_comment_reply_trigger_enabled`, `is_once_per_person_per_post_enabled`, `is_mark_seen_after_reply_enabled`, `extra_delay_seconds_min` / `_max`; checks `chk_instagram_account_settings_opening_hour_limit`, `_opening_day_limit`, `_fast_hour_limit`, `_person_hour_limit`, `_broadcast_hour_limit`, `_extra_stop_words`, `_extra_delay`; `instagram_account_id`, `is_automation_enabled` and the five public-reply columns with their checks dropped.
 - **Sources:** plan:L2895–L2920; D5, D11, D22, D32, D64–D68; current schema
   `src/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.ts`.
 - **Added:** the 13 fields marked `ADDED` below.
@@ -1912,6 +1912,10 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   FORCE bracket). No column change; `failed_login_count` / `account_locked_until` stay with no writer.
   `PASSWORD_RESET` is gone from `VerificationTokenType` (existing rows untouched); the per-email wrong-code day
   counter lives in Redis only.
+- `auth.auth_methods` (no column change, routes-final § 10.B.3): `OAUTH` rows with `provider = 'apple'`,
+  `provider_user_id` = Apple's `sub`. **Built R31** ([AS-BUILT](../AS-BUILT.md), [P206](decisions.md)): no
+  migration; existing `provider = 'github'` rows stay and can no longer sign in (AT5). Apple's first-time
+  `user` JSON waits in Redis next to the state (`oauth:provider-user:<state>`, the state's life, one read).
 - `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
   goes with the password routes (UN6, UN7, P84; routes-final § 11).
   **Built R35** ([AS-BUILT](../AS-BUILT.md), [P302](decisions.md)): no migration — `auth.verification_tokens.token_type`
@@ -1987,6 +1991,9 @@ erDiagram
 - **Added:** `place_city`, `place_country` (the ISO 3166-1 two-letter code; AT18, routes-final § 10).
 - **Replaced:** none.
 - **Open:** none — the IP-to-place file and its licence are DB-IP Lite (P86).
+- **Built R33** ([AS-BUILT](../AS-BUILT.md), [P208](decisions.md)): migration `20261124120000_auth_sessions_place.sql` —
+  `auth.sessions.place_city` `varchar(100)`, `place_country` `varchar(2)` with `chk_sessions_place_country` (`^[A-Z]{2}$`);
+  both null without a file or a match.
 
 ```mermaid
 erDiagram
@@ -2036,6 +2043,12 @@ erDiagram
 - **Added:** new.
 - **Replaced:** none.
 - **Open:** public id prefix — chosen at kickoff (P22, AMBER).
+- **Built R32** ([AS-BUILT](../AS-BUILT.md), [P207](decisions.md)): migration `20261124110000_auth_trusted_devices.sql` —
+  `auth.trusted_devices` (`id`, `public_id` `tdv_…`, `user_id` → `auth.users` ON DELETE CASCADE, `token_hash` varchar(64) unique,
+  `user_agent` varchar(512), `created_at`, `expires_at` (CHECK `> created_at`), `last_used_at`, `revoked_at`); indexes unique
+  `public_id`, unique `token_hash`, `(user_id, created_at) WHERE revoked_at IS NULL`, `(user_id)`, `(expires_at)`; ENABLE + FORCE RLS,
+  policy `trusted_devices_user_access` on `app.current_user_public_id` (`USING` and `WITH CHECK`) plus the session clean-up's
+  maintenance arm in `USING` only; `EXPECTED_FORCE_RLS_TABLES` +1. Schema `auth-trusted-device.schema.ts`.
 
 ```mermaid
 erDiagram

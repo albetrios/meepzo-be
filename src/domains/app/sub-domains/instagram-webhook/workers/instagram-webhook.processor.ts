@@ -160,7 +160,7 @@ interface ClaimedEventContext {
   organizationPublicId: string;
   /** `cha_…` — the job's account (WHC4). */
   channelAccountPublicId: string;
-  /** `iga_…` — the run engine's account until intake moves to the inbound seam (ROUTE row R38). */
+  /** `cha_…` (P47, R6) — the run engine's account until intake moves to the inbound seam (ROUTE row R38). */
   instagramAccountPublicId: string;
   services: InstagramWebhookProcessingServices;
   instagramClient: InstagramWebhookProcessingInstagramClient;
@@ -713,7 +713,7 @@ async function processClaimedEvent(context: ClaimedEventContext): Promise<EventO
   try {
     const account = await services.instagramAccountService.findWebhookProcessingAccount({
       scope,
-      channelAccountPublicId: context.channelAccountPublicId,
+      instagramAccountPublicId: context.channelAccountPublicId,
     });
     const skipReason = processingSkipReason(account);
     if (account === null || skipReason !== null) {
@@ -808,7 +808,7 @@ export async function processInstagramWebhookAccountJob({
 
   const account = await services.instagramAccountService.findWebhookProcessingAccount({
     scope,
-    channelAccountPublicId,
+    instagramAccountPublicId: channelAccountPublicId,
   });
   if (account === null) {
     logger.warn(logFields, 'app.instagram_webhook.account_not_found');

@@ -6,7 +6,9 @@
  *   - every catalog route has exactly one declared success status,
  *   - no stale entries for routes that left the catalog,
  *   - every declared status is one of 200 / 204 (the uniform policy: success is 200
- *     for every method except DELETE, which is 204 — 201/202 are not legal declarations).
+ *     for every method except DELETE, which is 204 — 201/202 are not legal declarations), or
+ *     the one status a named exception allows (`METHOD_STATUS_POLICY_EXCEPTIONS`: Apple's form
+ *     callback, 303 — P85).
  *
  * The map documents each route's happy-path status (controllers do not declare
  * `schema.response`, so this file is the source of truth). Runtime drift is
@@ -17,7 +19,7 @@
  */
 import { loadRouteRegistryFromCatalog } from '@/tests/helpers/route-catalog-registry.js';
 import {
-  ALLOWED_SUCCESS_STATUSES,
+  isAllowedSuccessStatus,
   loadRouteSuccessStatusMap,
   routeSuccessStatusKey,
 } from '@/tests/helpers/route-success-status.helper.js';
@@ -34,7 +36,7 @@ function main(): void {
   const missing = [...catalogKeys].filter((key) => !mapKeys.has(key)).sort();
   const stale = [...mapKeys].filter((key) => !catalogKeys.has(key)).sort();
   const invalid = Object.entries(successStatusMap)
-    .filter(([, status]) => !ALLOWED_SUCCESS_STATUSES.has(status))
+    .filter(([key, status]) => !isAllowedSuccessStatus({ key, status }))
     .map(([key, status]) => `${key} → ${status}`)
     .sort();
 
@@ -51,7 +53,9 @@ function main(): void {
       console.error('');
     }
     if (invalid.length > 0) {
-      console.error('Declared statuses outside the allowed set (200/204):');
+      console.error(
+        'Declared statuses outside the allowed set (200/204, or the named exception — METHOD_STATUS_POLICY_EXCEPTIONS):',
+      );
       for (const line of invalid) console.error(`  - ${line}`);
       console.error('');
     }

@@ -27,9 +27,11 @@ import type {
  *   and an organization delete stops before the soft delete (its reconcile worker starts it again).
  *
  * Side effects:
- * - Writes `app.instagram_accounts`; deletes `app.instagram_account_tokens` and `app.instagram_media`
- *   rows through the owners' services; on an organization delete, one best-effort Instagram call
- *   outside the transaction. The audit entries are the callers' controllers' (D36).
+ * - Revokes the channel accounts and writes their Instagram extensions; deletes the connections'
+ *   tokens (`app.channel_connection_tokens`, sub-domain 1) and the `app.instagram_media` rows, through
+ *   the owners' services; on an organization delete, one best-effort Instagram call per live account
+ *   outside the transaction, and every connection of the organization revoked (IAC5). The audit
+ *   entries are the callers' controllers' (D36).
  *
  * Notes:
  * - No run is cancelled and automations stay as they are (IQ1, D24): an automation names a post by
@@ -77,11 +79,11 @@ export class InstagramAccountErasureService {
    * once, and nothing of it is left for a later request of Meta's.
    *
    * @remarks
-   * Algorithm: the best-effort unsubscribe ({@link
+   * Algorithm: the best-effort unsubscribe of every live account ({@link
    * InstagramAccountService.unsubscribeForOrganizationOffboarding}, outside any unit of work), then one
    * transaction in the organization's scope —
-   * {@link InstagramAccountService.disconnectForOrganizationOffboarding} and the stored posts of every
-   * account. Failure modes: a failed unsubscribe is logged and never blocks; a database failure reaches
+   * {@link InstagramAccountService.disconnectForOrganizationOffboarding} (every account and every
+   * connection, IAC5) and the stored posts of every account. Failure modes: a failed unsubscribe is logged and never blocks; a database failure reaches
    * the delete, which stops. Side effects: as the class lists. Returns `null` when the organization had
    * nothing to erase. Notes: safe to repeat — the reconcile worker runs the whole delete again after a
    * crash. It must run in the organization's own scope while the organization is live: row-level

@@ -18,11 +18,6 @@ vi.mock('@/core/events/event-bus.js', async (importOriginal) => {
   };
 });
 
-vi.mock('@/shared/utils/security/password.util.js', () => ({
-  hashPassword: vi.fn().mockResolvedValue('hashed'),
-  verifyPassword: vi.fn().mockResolvedValue({ valid: true }),
-}));
-
 vi.mock('@/shared/utils/text/email.util.js', () => ({
   isDisposableEmailBlocked: vi.fn(() => false),
 }));
@@ -82,7 +77,7 @@ const user = {
   id: 1,
   public_id: 'user_public',
   email: 'user@example.com',
-  password_hash: 'hash',
+  password_hash: null,
   is_email_verified: false,
   status: 'ACTIVE',
 };
@@ -92,9 +87,7 @@ describe('AuthMethodService', () => {
     requireUserRecordByPublicId: vi.fn().mockResolvedValue(user),
     findByEmail: vi.fn().mockResolvedValue(user),
     findById: vi.fn().mockResolvedValue(user),
-    updatePassword: vi.fn().mockResolvedValue(user),
     updateEmailVerified: vi.fn().mockResolvedValue(user),
-    updateLoginAttempt: vi.fn().mockResolvedValue(user),
   } as unknown as UserService;
 
   const authMethodRepository = {
@@ -396,7 +389,7 @@ describe('AuthMethodService', () => {
       ownerPublicId: user.public_id,
       data: {
         user_id: user.id,
-        method_type: 'PASSWORD',
+        method_type: 'EMAIL_CODE',
       },
     });
     await service.findTotpByUserId(user.id);

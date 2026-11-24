@@ -128,6 +128,7 @@ describe('EmailLoginService', () => {
 
   const mfaService = {
     createMfaSession: vi.fn(),
+    hasSettledSecondFactor: vi.fn().mockResolvedValue(false),
   } as unknown as MfaService;
 
   const authSessionService = {
@@ -653,20 +654,28 @@ describe('EmailLoginService', () => {
     expect(vi.mocked(ensurePersonalOrganization)).not.toHaveBeenCalled();
   });
 
-  describe('verifyCodeForStepUp (bootstrap-only email-code step-up, item #8)', () => {
+  describe('verifyCodeForStepUp (the email-code step-up, route 127 — AT15)', () => {
     const passwordlessUser = { ...user, is_mfa_enabled: false, password_hash: null };
+    const stepUp = () =>
+      service.verifyCodeForStepUp({
+        userPublicId: passwordlessUser.public_id,
+        sessionPublicId: 'ses_stepup0000000000000000',
+        code: '135790',
+      });
 
-    it('consumes the code for a passwordless-no-MFA account and mints NO session', async () => {
+    beforeEach(() => {
       vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue(
         passwordlessUser as never,
       );
+      vi.mocked(mfaService.hasSettledSecondFactor).mockResolvedValue(false);
+    });
+
+    it('consumes the code for a person without settled 2FA and mints NO session', async () => {
       vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue({
         id: 9,
       } as never);
 
-      await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
-      ).resolves.toBeUndefined();
+      await expect(stepUp()).resolves.toBeUndefined();
 
       expect(verificationTokenRepository.consumeOtpForUser).toHaveBeenCalled();
       expect(verificationTokenRepository.invalidateAllForUser).toHaveBeenCalledWith(
@@ -677,52 +686,66 @@ describe('EmailLoginService', () => {
       expect(completeFirstFactorAuth).not.toHaveBeenCalled();
     });
 
-    it('rejects an MFA-enabled account before consuming any code (preserves the MFA invariant)', async () => {
-      vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue({
-        ...passwordlessUser,
-        is_mfa_enabled: true,
+    it('asks whether the factor is settled on THIS session (a provisional factor does not count)', async () => {
+      vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue({
+        id: 9,
       } as never);
-      await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
-      ).rejects.toMatchObject({ messageKey: 'errors:mfaStepUpRequired' });
-      expect(verificationTokenRepository.consumeOtpForUser).not.toHaveBeenCalled();
+      await stepUp();
+      expect(mfaService.hasSettledSecondFactor).toHaveBeenCalledWith({
+        owner: { id: passwordlessUser.id, public_id: passwordlessUser.public_id },
+        sessionPublicId: 'ses_stepup0000000000000000',
+      });
     });
 
-    it('rejects a wrong/expired code (no matching token consumed)', async () => {
-      vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue(
-        passwordlessUser as never,
-      );
+    it('refuses a person with settled 2FA with 403 mfa_step_up_required, before any code is consumed or counted', async () => {
+      vi.mocked(mfaService.hasSettledSecondFactor).mockResolvedValue(true);
+      vi.mocked(redis.eval).mockClear();
+      await expect(stepUp()).rejects.toMatchObject({
+        statusCode: 403,
+        messageKey: 'errors:mfaStepUpRequired',
+        reason: 'mfa_step_up_required',
+      });
+      expect(verificationTokenRepository.consumeOtpForUser).not.toHaveBeenCalled();
+      expect(redis.eval).not.toHaveBeenCalled();
+    });
+
+    it('a wrong code answers 401 code_wrong with the tries left', async () => {
       vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null as never);
-      await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
-      ).rejects.toMatchObject({ messageKey: 'errors:invalidOrExpiredVerificationCode' });
+      vi.mocked(redis.eval).mockResolvedValueOnce(2);
+      await expect(stepUp()).rejects.toMatchObject({
+        statusCode: 401,
+        reason: 'code_wrong',
+        fields: { tries_left: 3 },
+      });
       expect(verificationTokenRepository.invalidateAllForUser).not.toHaveBeenCalled();
     });
 
-    it('rejects once the per-user attempt cap is exceeded, before consuming any code (parity with login)', async () => {
-      vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue(
-        passwordlessUser as never,
-      );
-      // Over the step-up's own attempt cap → reject before touching the token store.
+    it('the newest code past its 15 minutes answers 401 code_expired', async () => {
+      vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null as never);
+      vi.mocked(verificationTokenRepository.findNewestForUser).mockResolvedValue({
+        used_at: null,
+        expires_at: new Date(Date.now() - 1_000),
+      } as never);
+      await expect(stepUp()).rejects.toMatchObject({ statusCode: 401, reason: 'code_expired' });
+    });
+
+    it('the last try and over the cap answer 401 code_used_up (over the cap before consuming)', async () => {
+      vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue(null as never);
+      vi.mocked(redis.eval).mockResolvedValueOnce(5);
+      await expect(stepUp()).rejects.toMatchObject({ statusCode: 401, reason: 'code_used_up' });
+
+      vi.mocked(verificationTokenRepository.consumeOtpForUser).mockClear();
       vi.mocked(redis.eval).mockResolvedValueOnce(99);
-      await expect(
-        service.verifyCodeForStepUp({ userPublicId: passwordlessUser.public_id, code: '135790' }),
-      ).rejects.toMatchObject({ messageKey: 'errors:invalidOrExpiredVerificationCode' });
+      await expect(stepUp()).rejects.toMatchObject({ statusCode: 401, reason: 'code_used_up' });
       expect(verificationTokenRepository.consumeOtpForUser).not.toHaveBeenCalled();
     });
 
     it('A-8: counts on its own budget, never the public sign-in one', async () => {
-      vi.mocked(userService.requireUserRecordByPublicId).mockResolvedValue(
-        passwordlessUser as never,
-      );
       vi.mocked(verificationTokenRepository.consumeOtpForUser).mockResolvedValue({
         id: 9,
       } as never);
       vi.mocked(redis.eval).mockClear();
-      await service.verifyCodeForStepUp({
-        userPublicId: passwordlessUser.public_id,
-        code: '135790',
-      });
+      await stepUp();
       const countedKeys = vi.mocked(redis.eval).mock.calls.map((call) => call[2]);
       expect(countedKeys).toEqual([
         `auth:email_code_verify_attempts:step_up:${passwordlessUser.public_id}`,

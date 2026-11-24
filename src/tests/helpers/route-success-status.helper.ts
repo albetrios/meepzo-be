@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { METHOD_STATUS_POLICY_EXCEPTIONS } from '@/shared/middlewares/core/method-status-policy.middleware.js';
 
 /**
  * Map of `"METHOD /full/path"` catalog keys to the route's documented success
@@ -12,6 +13,17 @@ export type RouteSuccessStatusMap = Record<string, number>;
  * set in the committed map fails `pnpm validate:route-success-statuses`.
  */
 export const ALLOWED_SUCCESS_STATUSES: ReadonlySet<number> = new Set([200, 204]);
+
+/**
+ * Whether `status` is a legal declaration for the route `key`: 200/204, or the exact status the
+ * route's named exception allows (`METHOD_STATUS_POLICY_EXCEPTIONS` — Apple's form callback,
+ * 303, P85). The exception list is the one the method-status middleware reads.
+ */
+export function isAllowedSuccessStatus({ key, status }: { key: string; status: number }): boolean {
+  return (
+    ALLOWED_SUCCESS_STATUSES.has(status) || METHOD_STATUS_POLICY_EXCEPTIONS.get(key) === status
+  );
+}
 
 const ROUTE_SUCCESS_STATUS_PATH = join(
   process.cwd(),

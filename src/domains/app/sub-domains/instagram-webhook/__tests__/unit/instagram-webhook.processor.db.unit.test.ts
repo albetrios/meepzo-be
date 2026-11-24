@@ -48,7 +48,6 @@ import {
 import {
   insertTestInstagramWebhookEvent,
   readChannelAccountIdOfInstagramAccount,
-  readChannelAccountPublicIdOfInstagramAccount,
   readTestInstagramWebhookEvent,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
@@ -119,7 +118,6 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     processingAccount = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
       channelAccountId: await readChannelAccountIdOfInstagramAccount(account.id),
-      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(account.id),
       instagramAccountPublicId: account.public_id,
       connectionStatus: 'connected',
       isAutomationEnabled: true,
@@ -128,7 +126,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     const access: InstagramAutomationAccountAccess = {
       instagramAccount: processingAccount.instagramAccount,
       instagramAccountPublicId: account.public_id,
-      instagramAppUserId: '17841400000000999',
+      instagramUserId: '17841400000000999',
       username: 'acme.shop',
       connectionStatus: 'connected',
       encryptedAccessToken: 'v1:fake-ciphertext',
@@ -200,7 +198,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     return processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: organization.public_id,
-        channelAccountPublicId: processingAccount.channelAccountPublicId,
+        channelAccountPublicId: processingAccount.instagramAccountPublicId,
       },
       services,
       jobId: 'job-1',

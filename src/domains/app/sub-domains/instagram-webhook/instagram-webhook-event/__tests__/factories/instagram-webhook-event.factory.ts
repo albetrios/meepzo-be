@@ -46,10 +46,8 @@ export async function insertTestInstagramAccount(
   });
   const [account] = await operatorQuery<Array<{ id: string }>>`
     INSERT INTO app.instagram_accounts
-      (public_id, organization_id, channel_account_id, instagram_user_id, instagram_app_user_id,
-       username)
-    VALUES (${generatePublicId('instagramAccount')}, ${organizationId}, ${channelAccount.id},
-            ${instagramUserId}, ${instagramUserId}, 'acme_shop')
+      (organization_id, channel_account_id, instagram_user_id, username)
+    VALUES (${organizationId}, ${channelAccount.id}, ${instagramUserId}, 'acme_shop')
     RETURNING id`;
   return {
     id: Number(account?.id),

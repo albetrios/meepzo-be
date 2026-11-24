@@ -45,7 +45,7 @@ describe('AuthMethodRepository', () => {
   });
 
   it('listByUserId returns active auth methods', async () => {
-    const methods = [{ id: 1, method_type: 'PASSWORD' }];
+    const methods = [{ id: 1, method_type: 'EMAIL_CODE' }];
     // audit #36: listByUserId now chains `.where().limit()` (limit+1 + capListWithWarning).
     mockLimit.mockResolvedValueOnce(methods);
 

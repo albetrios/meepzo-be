@@ -6,7 +6,7 @@ Parent: [auth](../../auth.overview.md)
 
 ## Purpose
 
-Redis-backed store for the short-lived "user has proven primary credential, awaiting second factor" tickets that bridge primary auth and second-factor verification. `completeFirstFactorAuth` (`src/domains/auth/shared/complete-first-factor-auth.ts`) mints a ticket after any first factor — password, email code, OAuth or a [auth-webauthn](../auth-webauthn/auth-webauthn.overview.md) passkey — when the user has MFA enabled or belongs to an organization that requires it; the [auth-mfa](../auth-mfa/auth-mfa.overview.md) login-verify step (TOTP or recovery code) consumes it.
+Redis-backed store for the short-lived "user has proven primary credential, awaiting second factor" tickets that bridge primary auth and second-factor verification. `completeFirstFactorAuth` (`src/domains/auth/shared/complete-first-factor-auth.ts`) mints a ticket after any first factor — email code, OAuth or a [auth-webauthn](../auth-webauthn/auth-webauthn.overview.md) passkey — when the user has MFA enabled (and the browser is not a [trusted device](../auth-trusted-device/auth-trusted-device.overview.md)) or belongs to an organization that requires it; the [auth-mfa](../auth-mfa/auth-mfa.overview.md) login-verify step (TOTP or recovery code) consumes it.
 
 ## Key invariants
 
@@ -28,8 +28,8 @@ stateDiagram-v2
 
 ## Failure modes
 
-- **Missing, expired or already-consumed ticket** → 401 `errors:mfaInvalidOrExpiredSession`.
-- **Malformed stored payload** (not JSON, or no `user_public_id`) → 401 `errors:mfaInvalidOrExpiredSession`; the entry is consumed all the same.
+- **Missing, expired or already-consumed ticket** → 401 `errors:mfaInvalidOrExpiredSession`, reason `mfa_session_invalid`.
+- **Malformed stored payload** (not JSON, or no `user_public_id`) → 401 `errors:mfaInvalidOrExpiredSession`, reason `mfa_session_invalid`; the entry is consumed all the same.
 
 ## Policy constants
 

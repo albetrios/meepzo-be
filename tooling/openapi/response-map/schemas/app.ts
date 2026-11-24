@@ -1,6 +1,6 @@
 /**
  * App domain resource schemas — the channel connection (feat-instagram-dm-sending routes-final
- * § 1.6), the channel account (§ 1B.6), the Instagram account settings (routes-final § 1.A.6, § 1.B.6, § 1.C.6), the
+ * § 1.6), the channel account (§ 1B.6), the Instagram account settings (§ 2.B.6), the
  * contact (§ 2.6), the automation (§ 3.A.6) and the Instagram webhook event (§ 4.B.6).
  */
 import {
@@ -15,17 +15,42 @@ import {
   INSTAGRAM_WEBHOOK_EVENT_STATUSES,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
 
-// ── Instagram account settings ──
-// Mirrors serializeInstagramAccountSettings key for key.
+// ── Instagram account settings (feat-instagram-dm-sending routes-final § 2.B.6) ──
+// Mirrors serializeInstagramAccountSettings key for key. Each owner limit null = the settings file.
+const nullableLimit = (maximum: number, minimum = 1) => ({
+  type: 'integer',
+  minimum,
+  maximum,
+  nullable: true,
+});
+
 export const instagramAccountSettingsSchema = {
   type: 'object',
   properties: {
     is_automation_enabled: { type: 'boolean' },
-    is_public_reply_safety_enabled: { type: 'boolean' },
-    public_reply_chance_percent: { type: 'integer', minimum: 0, maximum: 100 },
-    public_reply_hour_limit: { type: 'integer', minimum: 1, maximum: 1000 },
-    public_reply_gap_min_seconds: { type: 'integer', minimum: 5, maximum: 3600 },
-    public_reply_gap_max_seconds: { type: 'integer', minimum: 5, maximum: 3600 },
+    opening_hour_limit: nullableLimit(750),
+    opening_day_limit: { type: 'integer', minimum: 1, nullable: true },
+    fast_hour_limit: { type: 'integer', minimum: 1, nullable: true },
+    person_hour_limit: { type: 'integer', minimum: 1, nullable: true },
+    broadcast_hour_limit: nullableLimit(2000),
+    effective_limits: {
+      type: 'object',
+      properties: {
+        opening_hour_limit: { type: 'integer' },
+        opening_day_limit: { type: 'integer', nullable: true },
+        fast_hour_limit: { type: 'integer' },
+        person_hour_limit: { type: 'integer' },
+        broadcast_hour_limit: { type: 'integer' },
+      },
+    },
+    is_day_limit_enabled: { type: 'boolean' },
+    is_automatic_notice_enabled: { type: 'boolean' },
+    extra_stop_words: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+    is_comment_reply_trigger_enabled: { type: 'boolean' },
+    is_once_per_person_per_post_enabled: { type: 'boolean' },
+    is_mark_seen_after_reply_enabled: { type: 'boolean' },
+    extra_delay_seconds_min: nullableLimit(20),
+    extra_delay_seconds_max: nullableLimit(20),
     updated_by_user_id: { type: 'string', nullable: true },
     updated_at: { type: 'string', format: 'date-time' },
   },
@@ -33,11 +58,26 @@ export const instagramAccountSettingsSchema = {
 
 export const instagramAccountSettingsExample = {
   is_automation_enabled: true,
-  is_public_reply_safety_enabled: false,
-  public_reply_chance_percent: 80,
-  public_reply_hour_limit: 60,
-  public_reply_gap_min_seconds: 20,
-  public_reply_gap_max_seconds: 60,
+  opening_hour_limit: null,
+  opening_day_limit: null,
+  fast_hour_limit: null,
+  person_hour_limit: null,
+  broadcast_hour_limit: null,
+  effective_limits: {
+    opening_hour_limit: 150,
+    opening_day_limit: null,
+    fast_hour_limit: 10_000,
+    person_hour_limit: 60,
+    broadcast_hour_limit: 600,
+  },
+  is_day_limit_enabled: false,
+  is_automatic_notice_enabled: false,
+  extra_stop_words: [],
+  is_comment_reply_trigger_enabled: true,
+  is_once_per_person_per_post_enabled: true,
+  is_mark_seen_after_reply_enabled: false,
+  extra_delay_seconds_min: null,
+  extra_delay_seconds_max: null,
   updated_by_user_id: null,
   updated_at: '2026-11-21T09:00:00.000Z',
 };
@@ -122,8 +162,11 @@ export const channelAccountSchema = {
       properties: {
         instagram_user_id: { type: 'string' },
         username: { type: 'string', nullable: true },
-        profile_picture_url: { type: 'string', nullable: true },
+        account_type: { type: 'string', enum: ['business', 'creator'], nullable: true },
+        is_private: { type: 'boolean' },
         followers_count: { type: 'integer' },
+        profile_picture_url: { type: 'string', nullable: true },
+        starter_questions_set_at: { type: 'string', format: 'date-time', nullable: true },
         is_webhook_subscribed: { type: 'boolean' },
         profile_synced_at: { type: 'string', format: 'date-time', nullable: true },
         settings: instagramAccountSettingsSchema,
@@ -153,8 +196,11 @@ export const channelAccountExample = {
   instagram: {
     instagram_user_id: '17841400000000001',
     username: 'handmade.shop',
-    profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
+    account_type: 'business',
+    is_private: false,
     followers_count: 1204,
+    profile_picture_url: 'https://scontent.cdninstagram.com/v/handmade-shop-profile.jpg',
+    starter_questions_set_at: null,
     is_webhook_subscribed: true,
     profile_synced_at: '2026-11-21T09:00:00.000Z',
     settings: instagramAccountSettingsExample,
@@ -473,7 +519,7 @@ export const contactSchema = {
 
 export const contactExample = {
   id: 'con_p3k8w2m9x4r7n1v5a1b2c',
-  instagram_account_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
+  instagram_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
   instagram_user_id: '17841455500000001',
   username: 'jordan.lee',
   full_name: 'Jordan Lee',
@@ -620,7 +666,7 @@ export const automationSchema = {
 
 export const automationExample = {
   id: 'aut_m4q8x2k7p9r3t1v5a1b2c',
-  instagram_account_id: 'iga_k7x9m2pqr4w8n1v3a1b2c',
+  instagram_account_id: 'cha_k7x9m2pqr4w8n1v3a1b2c',
   name: 'Comment SHOP for the link',
   status: 'live',
   trigger_type: 'comment',

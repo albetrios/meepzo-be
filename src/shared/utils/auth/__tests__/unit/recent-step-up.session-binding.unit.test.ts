@@ -11,7 +11,7 @@ import {
  * `(userPublicId, sessionPublicId)` — not on `userPublicId` alone. With user-only keying,
  * a holder of a stolen session who waits for the legitimate user's next routine step-up
  * (opening "Account → Add passkey", verifying MFA, etc.) gets a 10-minute window to delete
- * MFA / register a passkey / change the password through their stolen bearer, because
+ * MFA / register a passkey / remove a sign-in method through their stolen bearer, because
  * `requireRecentStepUpPreHandler` would see the legitimate user's sentinel and let the
  * attacker's request through.
  */

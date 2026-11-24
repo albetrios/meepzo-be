@@ -30,7 +30,7 @@ import type { OrganizationSettingsService } from '@/domains/tenancy/sub-domains/
  * Regression for sec-A4 (High): when an organization the user belongs to requires MFA via
  * its `organization_settings.require_mfa` policy, `DELETE /auth/me/mfa/:id` must NOT allow
  * the user to remove their last MFA method — that would silently downgrade them to
- * password-only authentication in direct contradiction of organization policy. Removing any
+ * single-factor authentication in direct contradiction of organization policy. Removing any
  * non-last MFA method (i.e. another factor remains) is still allowed; this guard fires
  * only when the deletion would empty the user's MFA set.
  */
@@ -106,7 +106,7 @@ describe('MfaService.deleteMfa — organization MFA policy guard (sec-A4)', () =
 
     await expect(
       service.deleteMfa({ userPublicId: 'user_pub', mfaMethodPublicId: 'mfamethodpublicid0001' }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ revoked_trusted_device_ids: [] });
 
     expect(authMethodService.revokeAuthMethod).toHaveBeenCalledWith({
       methodId: 42,
@@ -131,7 +131,7 @@ describe('MfaService.deleteMfa — organization MFA policy guard (sec-A4)', () =
 
     await expect(
       service.deleteMfa({ userPublicId: 'user_pub', mfaMethodPublicId: 'mfamethodpublicid0001' }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ revoked_trusted_device_ids: [] });
 
     expect(authMethodService.revokeAuthMethod).toHaveBeenCalledWith({
       methodId: 42,

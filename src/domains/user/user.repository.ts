@@ -106,7 +106,7 @@ export class UserRepository {
   }
 
   /**
-   * Resolves a user by email for the pre-session authentication phase (login, forgot-password,
+   * Resolves a user by email for the pre-session authentication phase (email-code login,
    * webauthn auth-options, OAuth find-or-create). Goes through the `auth.resolve_user_*` SECURITY
    * DEFINER resolver because `auth.users` is FORCE RLS and no `app.current_user_public_id` is set yet — a
    * plain SELECT would resolve the owner policy to NULL and return zero rows, rejecting every login.
@@ -121,7 +121,7 @@ export class UserRepository {
 
   /**
    * Resolves a user by internal id for the pre-session token-consume flows (email-code login,
-   * password reset, email verify) and session refresh — same FORCE RLS rationale as
+   * email verify) and session refresh — same FORCE RLS rationale as
    * {@link UserRepository.findByEmail}. Mirrors the historical no-`deleted_at`-filter behaviour.
    */
   async findById(identifier: number): Promise<UserRow | null> {

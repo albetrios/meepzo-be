@@ -10,9 +10,9 @@ vi.mock('@/domains/tenancy/sub-domains/permission/seed/permission.reference.seed
 const HOSTED_URL = 'postgresql://user:pass@ep-aged.neon.tech:5432/neondb';
 
 /**
- * H-11: the full seed (`pnpm db:seed:full` — demo users with a known or logged password, faker
- * organizations) and the demo admin (`pnpm db:seed:demo-admin` — a known default password and
- * every system permission) wrote to whatever `DATABASE_URL` named. Both now ask the bulk seed's
+ * H-11: the full seed (`pnpm db:seed:full` — demo users at known addresses, faker
+ * organizations) and the demo admin (`pnpm db:seed:demo-admin` — a known address, a TOTP factor
+ * and every system permission) wrote to whatever `DATABASE_URL` named. Both now ask the bulk seed's
  * guard first, so a hosted database is refused before the first write.
  */
 describe('the demo seeds refuse a non-local database (H-11)', () => {

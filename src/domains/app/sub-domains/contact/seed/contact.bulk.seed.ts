@@ -12,6 +12,7 @@ import { and, eq, ne } from 'drizzle-orm';
 import type { Faker } from '@faker-js/faker';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
@@ -51,10 +52,17 @@ async function seedContactsForOrganization({
   const [account] = await database
     .select({ id: instagram_accounts.id })
     .from(instagram_accounts)
+    .innerJoin(
+      channel_accounts,
+      and(
+        eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+        eq(channel_accounts.id, instagram_accounts.channel_account_id),
+      ),
+    )
     .where(
       and(
         eq(instagram_accounts.organization_id, organization.id),
-        ne(instagram_accounts.connection_status, 'revoked'),
+        ne(channel_accounts.connection_status, 'revoked'),
       ),
     )
     .limit(1);

@@ -1,4 +1,4 @@
-import { ForbiddenError } from '@/shared/errors/index.js';
+import { ForbiddenError, UnauthorizedError } from '@/shared/errors/index.js';
 import { assertUserAccountActive } from '@/shared/utils/auth/account-status.util.js';
 import { isDisposableEmailBlocked } from '@/shared/utils/text/email.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -22,6 +22,29 @@ import { env } from '@/shared/config/env.config.js';
 import { ensurePersonalOrganization } from '@/domains/tenancy/sub-domains/organization/resolve-active-organization.js';
 import type { OAuthProfile, OAuthProvider } from './oauth.types.js';
 import type { UserAuthRecord } from '@/domains/user/user.types.js';
+
+/**
+ * The person whose live auth method is this provider account (`provider` + `provider_user_id`),
+ * or `null` — matched before the email (AT10: Apple's later sign-ins may carry no email).
+ */
+async function findPersonLinkedToProviderAccount({
+  authMethodService,
+  userService,
+  provider,
+  providerUserId,
+}: {
+  authMethodService: AuthMethodService;
+  userService: UserService;
+  provider: OAuthProvider;
+  providerUserId: string;
+}): Promise<UserAuthRecord | null> {
+  const linkedMethod = await authMethodService.findByProviderUserId({
+    provider,
+    provider_user_id: providerUserId,
+  });
+  if (!linkedMethod) return null;
+  return userService.findById(linkedMethod.user_id);
+}
 
 /**
  * Refuses an OAuth sign-in through a provider the account owner removed (A-5): without this the
@@ -76,7 +99,9 @@ async function resolveExistingOAuthAccount(parameters: {
   const isUnclaimedBareAccount = !hasUsableCredential;
   if (!(isOAuthIdentityAlreadyLinked || resolvedUser.is_email_verified || isUnclaimedBareAccount)) {
     logger.warn({ email: profile.email, provider }, 'oauth.user.link_blocked_unverified_account');
-    throw new ForbiddenError('errors:oauthLinkRequiresVerifiedAccount');
+    throw new ForbiddenError('errors:oauthLinkRequiresVerifiedAccount').withReason(
+      'oauth_link_needs_verified_email',
+    );
   }
 
   // Claiming a bare invited placeholder: the provider verified the email, so mark it verified.
@@ -90,6 +115,41 @@ async function resolveExistingOAuthAccount(parameters: {
   return { user: resolvedUser, claimedBareAccount };
 }
 
+/**
+ * Creates the person of a first OAuth sign-in (email verified by the provider). A provider account
+ * that carries no email cannot make a person (401 `oauth_failed`); a disposable email is refused.
+ */
+async function createOAuthPerson({
+  userService,
+  provider,
+  profile,
+  normalizedEmail,
+}: {
+  userService: UserService;
+  provider: OAuthProvider;
+  profile: OAuthProfile;
+  normalizedEmail: string | undefined;
+}): Promise<UserAuthRecord> {
+  if (normalizedEmail === undefined) {
+    throw new UnauthorizedError('errors:oauthProfileMissingEmail').withReason('oauth_failed');
+  }
+  if (isDisposableEmailBlocked(normalizedEmail)) {
+    throw new ForbiddenError('errors:disposableEmail').withReason('disposable_email');
+  }
+  const nameParts = profile.name?.split(' ') ?? [];
+  const createdUser = await userService.createFromOAuth(
+    omitUndefined({
+      email: normalizedEmail,
+      first_name: nameParts[0],
+      last_name: nameParts.slice(1).join(' ') || undefined,
+      avatar_url: profile.avatar_url,
+      is_email_verified: true,
+    }),
+  );
+  logger.info({ email: normalizedEmail, provider }, 'oauth.user.created');
+  return createdUser;
+}
+
 /** Final stage of an OAuth callback: finds-or-creates the user and idempotently links the OAuth provider (via {@link AuthMethodService.linkOAuthProviderIfMissing}) inside one {@link withTransaction} pinned through {@link runWithPinnedDatabaseHandle}, so a failed auth-method insert (e.g. the `method_type` CHECK) rolls back the freshly created user instead of leaving a verified orphan. AFTER that transaction commits, a first-time signup — or a freshly-claimed bare invited placeholder — best-effort provisions the personal organization — it runs in a separate global-admin connection that cannot see an uncommitted user, so it must run post-commit — then mints an access token + persisted session via {@link completeFirstFactorAuth} so the issued token carries the personal-organization claim. Inserts use {@link AUTH_METHOD_TYPE.OAUTH} to match the database CHECK constraint. Rejects disposable emails for first-time signups. Refuses to silently find-or-link into a pre-existing account whose email is not verified, throwing `ForbiddenError` to prevent account takeover — EXCEPT when this OAuth identity is already linked, or the account is a bare invited placeholder (no login-capable method and no WebAuthn passkey), which has no credential or data to take over and whose email the provider has now proven; that placeholder is claimed (its email flipped to verified). Rejects suspended/locked accounts with `UnauthorizedError('errors:accountNotActive')` before issuing a session. */
 export async function completeOAuthUserSession(parameters: {
   userService: UserService;
@@ -101,6 +161,8 @@ export async function completeOAuthUserSession(parameters: {
   profile: OAuthProfile;
   ipAddress: string;
   userAgent?: string;
+  /** The browser's `trusted_device` cookie (AT17), read by the first-factor gate. */
+  trustedDeviceToken?: string | undefined;
 }): Promise<FirstFactorAuthResult & { user: UserAuthRecord }> {
   const {
     userService,
@@ -117,7 +179,7 @@ export async function completeOAuthUserSession(parameters: {
   // find-or-create exact-matched the raw mixed-case email against the case-sensitive
   // `idx_users_email_unique`, so `Victim@x.com` FORKED a second account instead of matching the
   // existing `victim@x.com` — duplicating identity and sidestepping the link-into-verified guard.
-  const normalizedEmail = profile.email.trim().toLowerCase();
+  const normalizedEmail = profile.email?.trim().toLowerCase();
 
   // Find-or-create the user and link the OAuth credential in ONE transaction (pinned in ALS so every
   // repository call shares the checkout), so a failed auth-method link rolls the freshly created user
@@ -128,37 +190,45 @@ export async function completeOAuthUserSession(parameters: {
       runWithPinnedDatabaseHandle({
         databaseHandle: transaction as RequestScopedPostgresDatabase,
         callback: async () => {
-          let resolvedUser = await userService.findByEmail(normalizedEmail);
+          // The provider account already linked to someone signs that person in, whatever email it
+          // carries now — Apple sends the email only while it is shared, and a link-mode link
+          // (AT12) may join an account of another email.
+          const linkedPerson = await findPersonLinkedToProviderAccount({
+            authMethodService,
+            userService,
+            provider,
+            providerUserId: profile.provider_user_id,
+          });
+          const userByEmail =
+            linkedPerson || normalizedEmail === undefined
+              ? null
+              : await userService.findByEmail(normalizedEmail);
+          let resolvedUser: UserAuthRecord;
           let createdNow = false;
           let claimedBare = false;
-          if (!resolvedUser) {
-            if (isDisposableEmailBlocked(normalizedEmail)) {
-              throw new ForbiddenError('errors:disposableEmail').withReason('disposable_email');
-            }
-            const nameParts = profile.name?.split(' ') ?? [];
-            resolvedUser = await userService.createFromOAuth(
-              omitUndefined({
-                email: normalizedEmail,
-                first_name: nameParts[0],
-                last_name: nameParts.slice(1).join(' ') || undefined,
-                avatar_url: profile.avatar_url,
-                is_email_verified: true,
-              }),
-            );
-            createdNow = true;
-            logger.info({ email: normalizedEmail, provider }, 'oauth.user.created');
-          } else {
+          if (linkedPerson) {
+            // Already linked: no takeover guard to run, nothing to claim.
+            resolvedUser = linkedPerson;
+          } else if (userByEmail) {
             // Pre-existing account: enforce the takeover guard and, for a bare invited placeholder, claim
             // it (verify its email). Extracted to keep this function under the complexity budget.
             const resolved = await resolveExistingOAuthAccount({
               authMethodService,
               userService,
-              existingUser: resolvedUser,
+              existingUser: userByEmail,
               provider,
               profile,
             });
             resolvedUser = resolved.user;
             claimedBare = resolved.claimedBareAccount;
+          } else {
+            resolvedUser = await createOAuthPerson({
+              userService,
+              provider,
+              profile,
+              normalizedEmail,
+            });
+            createdNow = true;
           }
 
           await authMethodService.linkOAuthProviderIfMissing({
@@ -226,6 +296,7 @@ export async function completeOAuthUserSession(parameters: {
     organizationSettingsService,
     mfaService,
     authSessionService,
+    trustedDeviceToken: parameters.trustedDeviceToken,
   });
 
   return { ...authResult, user };

@@ -83,7 +83,6 @@ import { InstagramWebhookEventPermanentError } from '@/domains/app/sub-domains/i
  */
 
 const ORGANIZATION_PUBLIC_ID = 'org_acmeshop0000000000001';
-const ACCOUNT_PUBLIC_ID = 'iga_acmeshop0000000000001';
 const CHANNEL_ACCOUNT_PUBLIC_ID = 'cha_acmeshop0000000000001';
 const SENDER = '17841400000000777';
 const POST = '17900000000000001';
@@ -216,8 +215,7 @@ function connectedAccount(
   return {
     instagramAccount: INSTAGRAM_ACCOUNT_KEY,
     channelAccountId: 33,
-    channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
-    instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+    instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
     connectionStatus: 'connected',
     isAutomationEnabled: true,
     encryptedAccessToken: 'v1:fake-ciphertext',
@@ -388,13 +386,13 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(instagramClient.readInstagramMediaItem).not.toHaveBeenCalled();
     expect(automationService.linkNextPostAutomations).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
       instagramMediaId: POST,
       publishedAt: new Date('2026-11-20T09:00:00.000Z'),
     });
     expect(engine.startCommentRun).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
       contact: { id: 501, public_id: 'con_contact0000000000001' },
       event: {
         eventKey: event.event_key,
@@ -478,7 +476,7 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(engine.handleDirectMessage).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+        instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
         text: DM_TEXT,
         quickReplyPayload: null,
         attachmentEmail: null,
@@ -1012,8 +1010,8 @@ describe('the account checked again before each event (WH12 step 2)', () => {
       skipReason: 'automation_disabled',
     },
     {
-      name: 'an expired account',
-      account: connectedAccount({ connectionStatus: 'expired', encryptedAccessToken: null }),
+      name: 'an error account',
+      account: connectedAccount({ connectionStatus: 'error', encryptedAccessToken: null }),
       skipReason: 'account_disconnected',
     },
     {

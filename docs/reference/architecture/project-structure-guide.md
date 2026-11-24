@@ -159,7 +159,7 @@ Utilities are grouped by concern. Prefer **deep imports** (e.g. `@/shared/utils/
 | Folder | Examples |
 | ------ | -------- |
 | `http/` | `request.util`, `response.util`, `pagination.util`, `api-versioning.util`, `fastify-server.util`, `http-cache.util` |
-| `security/` | `jwt.util`, `password.util`, `encryption.util`, `field-secret-encryption.util`, `allowed-origins.util`, `webhook-url.util`, `webhook-outbound-fetch.util` |
+| `security/` | `jwt.util`, `encryption.util`, `field-secret-encryption.util`, `allowed-origins.util`, `webhook-url.util`, `webhook-outbound-fetch.util` |
 | `validation/` | `validation.util`, `bullmq-job-validation.util`, `file-magic.util`, `omit-undefined.util` |
 | `infrastructure/` | `logger.util`, `postgres-error.util`, `readiness-probes.util`, `application-lifecycle.util`, `audit-record.util` |
 | `identity/` | `public-id.util`, `public-id-param.util`, `uuid.util` |

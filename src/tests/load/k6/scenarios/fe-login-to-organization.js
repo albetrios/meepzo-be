@@ -6,11 +6,10 @@ import { idempotencyKey } from '../helpers/idempotency.js';
 import { credentialPool } from '../helpers/pool.js';
 
 /**
- * k6 Scenario: meepzo-fe login-to-organization journey — N users, ONE pass each, 16 routes
- * (15 with `AUTH=password`).
+ * k6 Scenario: meepzo-fe login-to-organization journey — N users, ONE pass each, 16 routes.
  *
  * **VUS = users, and every user walks every route exactly once**, so the call count is
- * `VUS x 16` (`VUS x 15` with `AUTH=password`). 50 users means 800 calls. Nothing loops.
+ * `VUS x 16`. 50 users means 800 calls. Nothing loops.
  *
  * With `AUTH=otp` this is the heavy scenario: a brand-new person arriving with no account
  * and leaving with a provisioned organization and a loaded dashboard. Every iteration
@@ -22,8 +21,8 @@ import { credentialPool } from '../helpers/pool.js';
  * `fe-full-surface.js` covers the product surface for EXISTING users: pool users sign in
  * with an email code and walk the API calls meepzo-fe makes, in the app's order. Reach for
  * that one when you want capacity numbers for the app. Reach for this one with `AUTH=otp`
- * when you want the cost of onboarding itself; its other modes (`AUTH=code`, the default,
- * and `AUTH=password`) sign in pre-seeded pool users instead of signing up.
+ * when you want the cost of onboarding itself; the default (`AUTH=code`) signs in pre-seeded
+ * pool users instead of signing up. Passwords are off (P84), so there is no password mode.
  *
  * The difference is large and worth knowing before you read a result: signup pays
  * `ANTI_ENUMERATION_MINIMUM_DURATION_MS` (300 ms) TWICE — once in `send-code` and once
@@ -50,8 +49,7 @@ import { credentialPool } from '../helpers/pool.js';
  *              16  POST /auth/logout                         end the session
  *
  * The table shows `AUTH=otp`. `AUTH=code` (the default) makes the same calls for a
- * pre-seeded pool user, so step 3 signs in and creates no account. `AUTH=password`
- * replaces steps 2-3 with one `POST /auth/login`, so it walks 15.
+ * pre-seeded pool user, so step 3 signs in and creates no account.
  *
  * Two calls need headers that are easy to miss, and both 4xx without them:
  *   - `POST /tenancy/organizations` requires `X-Idempotency-Key` (422 otherwise)
@@ -68,7 +66,6 @@ import { credentialPool } from '../helpers/pool.js';
  *   AUTH=code (default)  the API with TEST_MODE=true (the code echo) and the credential pool
  *                        (`pnpm db:seed:loadtest`), with no more VUs than pool users: an address
  *                        gets one code per resend cooldown, so two VUs cannot share one
- *   AUTH=password        the credential pool
  *   AUTH=otp             the API with TEST_MODE=true (the OTP echo lets a VU sign itself up)
  *
  * Usage:
@@ -86,26 +83,22 @@ const POOL = __ENV.POOL || 'unknown';
  *   code (default) — the app's own sign-in for a distinct pre-seeded user: `send-code`, then
  *                    `POST /auth/email/login` with the code the API echoes as
  *                    `debug_verification_code`. No argon2. Needs the API started with TEST_MODE=true.
- *   password       — ONE call to `POST /auth/login` with email + password from the pool.
- *                    Real argon2 verification, so it costs more than `code`.
  *   otp            — the real signup flow: `send-code` then `email/login`, creating a
  *                    brand-new account per VU. Reads `debug_verification_code`, which the
  *                    API only echoes under TEST_MODE.
  *
- * Why the pool modes suit load work better than `otp`, measured on an idle server:
- *
- *   otp       send-code    604 ms   + email/login  724 ms   = 1328 ms over 2 calls
- *   password  login        184 ms                           =  184 ms over 1 call
- *
- * `send-code` ALWAYS pays `ANTI_ENUMERATION_MINIMUM_DURATION_MS` (300 ms) — a
- * constant-time floor so response timing cannot reveal whether an account exists.
- * `POST /auth/login` applies that same floor only on its FAILURE paths (unknown email,
- * wrong password), so a successful login skips it entirely.
+ * Why `code` suits load work better than `otp`: both pay `send-code`'s
+ * `ANTI_ENUMERATION_MINIMUM_DURATION_MS` (300 ms) — a constant-time floor so response timing
+ * cannot reveal whether an account exists — but `otp` also creates an account per VU, so the
+ * database grows and the signup writes dominate the result.
  *
  * Use `AUTH=otp` when you specifically want to measure signup cost; use the default
  * when you want the app's capacity without the sign-in ceremony dominating the result.
  */
 const AUTH = (__ENV.AUTH || 'code').toLowerCase();
+if (AUTH !== 'code' && AUTH !== 'otp') {
+  throw new Error(`AUTH=${AUTH} is not a mode — passwords are off (P84); use code or otp`);
+}
 
 /** The sixteen routes each user walks, in order. */
 const STEPS = [
@@ -115,14 +108,12 @@ const STEPS = [
         ['02-send-code', 'POST', '/auth/email/send-code'],
         ['03-email-login', 'POST', '/auth/email/login'],
       ]
-    : AUTH === 'password'
-      ? [['02-login', 'POST', '/auth/login']]
-      : [
-          // The app's own sign-in for a known user: send-code (its cost — mail enqueue + the
-          // anti-enumeration floor — stays measured), then email/login with the echoed code.
-          ['02-send-code', 'POST', '/auth/email/send-code'],
-          ['03-code-login', 'POST', '/auth/email/login'],
-        ]),
+    : [
+        // The app's own sign-in for a known user: send-code (its cost — mail enqueue + the
+        // anti-enumeration floor — stays measured), then email/login with the echoed code.
+        ['02-send-code', 'POST', '/auth/email/send-code'],
+        ['03-code-login', 'POST', '/auth/email/login'],
+      ]),
   ['04-me-context', 'GET', '/auth/me/context'],
   ['05-patch-profile', 'PATCH', '/users/me'],
   ['06-create-org', 'POST', '/tenancy/organizations'],
@@ -171,7 +162,7 @@ export const options = {
 /** Announce the run shape to the load-testing monitor (404s harmlessly without it). */
 export function setup() {
   if (AUTH !== 'otp' && credentialPool.length === 0) {
-    throw new Error('AUTH=password needs a credential pool — run: pnpm db:seed:loadtest');
+    throw new Error('AUTH=code needs a credential pool — run: pnpm db:seed:loadtest');
   }
   http.post(
     `${__ENV.BASE_URL || ''}/__monitor/run`,
@@ -215,7 +206,7 @@ function record(name, res, expected) {
  */
 function authenticate(email) {
   let token;
-  // 02 — authenticate. One call with a password, or the two-call OTP signup.
+  // 02 — authenticate: the two-call email-code sign-in (a pool user) or the OTP signup.
   if (AUTH === 'otp') {
     const send = http.post(`${API_PREFIX}/auth/email/send-code`, JSON.stringify({ email }), {
       headers: PUBLIC_AUTH_FORM_HEADERS,
@@ -236,15 +227,7 @@ function authenticate(email) {
     // Wrap so VUS may exceed the pool size; each VU still gets a stable identity.
     const cred = credentialPool[(__VU - 1) % credentialPool.length];
 
-    if (AUTH === 'password') {
-      const login = http.post(
-        `${API_PREFIX}/auth/login`,
-        JSON.stringify({ email: cred.email, password: cred.password }),
-        { headers: PUBLIC_AUTH_FORM_HEADERS, tags: { name: '02-login' } },
-      );
-      if (!record('02-login', login, [200])) return undefined;
-      token = JSON.parse(login.body).data?.access_token;
-    } else {
+    {
       // The app's own sign-in: ask for a code, then present the one send-code echoes under
       // TEST_MODE (`debug_verification_code`).
       const send = http.post(
@@ -294,7 +277,7 @@ export function feJourney() {
   });
   record('01-refresh-guest', guest, [200, 401, 403]);
 
-  // 02 — authenticate (password, the echoed code, or the two-call OTP signup).
+  // 02 — authenticate (the echoed code for a pool user, or the two-call OTP signup).
   const token = authenticate(email);
   if (!token) return void journeyComplete.add(false);
   let auth = { ...json, Authorization: `Bearer ${token}` };
@@ -439,9 +422,7 @@ export function handleSummary(data) {
     `  DATABASE_POOL_MAX = ${POOL}   ·   AUTH = ${AUTH}${
       AUTH === 'otp'
         ? ' (send-code + email/login)'
-        : AUTH === 'password'
-          ? ' (single /auth/login, argon2)'
-          : ' (send-code, then /auth/email/login with the echoed code)'
+        : ' (send-code, then /auth/email/login with the echoed code)'
     }`,
   );
   L.push('='.repeat(W));

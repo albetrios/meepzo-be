@@ -33,7 +33,7 @@
         "error": {
           "type": "request_error",
           "code": "forbidden",
-          "detail": "This action requires a recent step-up with your password or MFA; an email-code step-up is not sufficient.",
+          "detail": "This action needs a recent confirmation: your 2FA code, or an email code when two-factor sign-in is off.",
           "documentation_url": "https://example.com/resource"
         },
         "meta": {
@@ -87,7 +87,7 @@
         "error": {
           "type": "request_error",
           "code": "forbidden",
-          "detail": "This action requires a recent step-up with your password or MFA; an email-code step-up is not sufficient.",
+          "detail": "This action needs a recent confirmation: your 2FA code, or an email code when two-factor sign-in is off.",
           "documentation_url": "https://example.com/resource"
         },
         "meta": {
@@ -113,7 +113,7 @@
         "error": {
           "type": "request_error",
           "code": "forbidden",
-          "detail": "This action requires a recent step-up with your password or MFA; an email-code step-up is not sufficient.",
+          "detail": "This action needs a recent confirmation: your 2FA code, or an email code when two-factor sign-in is off.",
           "documentation_url": "https://example.com/resource"
         },
         "meta": {
@@ -139,7 +139,7 @@
         "error": {
           "type": "request_error",
           "code": "forbidden",
-          "detail": "This action requires a recent step-up with your password or MFA; an email-code step-up is not sufficient.",
+          "detail": "This action needs a recent confirmation: your 2FA code, or an email code when two-factor sign-in is off.",
           "documentation_url": "https://example.com/resource"
         },
         "meta": {
@@ -204,7 +204,7 @@
         "error": {
           "type": "request_error",
           "code": "forbidden",
-          "detail": "This action requires a recent step-up with your password or MFA; an email-code step-up is not sufficient.",
+          "detail": "This action needs a recent confirmation: your 2FA code, or an email code when two-factor sign-in is off.",
           "documentation_url": "https://example.com/resource"
         },
         "meta": {
@@ -3647,7 +3647,7 @@
   "POST /api/v1/auth/email/login": {
     "request_body": {
       "email": "user@example.com",
-      "code": "ESQGXF"
+      "code": "483920"
     },
     "responses": {
       "200": {
@@ -4198,7 +4198,7 @@
   },
   "POST /api/v1/auth/step-up": {
     "request_body": {
-      "password": "<redacted>"
+      "code": "615204"
     },
     "responses": {
       "200": {

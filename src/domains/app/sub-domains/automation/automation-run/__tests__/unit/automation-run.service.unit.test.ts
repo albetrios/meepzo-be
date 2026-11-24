@@ -126,7 +126,7 @@ const ACCOUNT_ID = 3;
 const OTHER_ACCOUNT_ID = 4;
 const CONTACT_ID = 41;
 const EMAIL_FIRST_ID = 16;
-const ACCOUNT_PUBLIC_ID = generatePublicId('instagramAccount');
+const ACCOUNT_PUBLIC_ID = generatePublicId('channelAccount');
 const ORGANIZATION_PUBLIC_ID = generatePublicId('organization');
 const CONTACT_INSTAGRAM_ID = '17841455500000001';
 const POST = '17900000000000001';
@@ -554,8 +554,8 @@ const deadToken = (connectionStatus: 'expired' | 'error' | null = 'expired') => 
   error: instagramError({ errorClass: 'auth', connectionStatus }),
 });
 
-/** The settings row reply safety reads (AU20). */
-const settings = { is_public_reply_safety_enabled: true } as InstagramAccountSettingsRow;
+/** The account's settings row (the engine no longer reads reply safety from it — ROUTE row R7). */
+const settings = { is_comment_reply_trigger_enabled: true } as InstagramAccountSettingsRow;
 
 function setup() {
   const store = createStore();
@@ -568,7 +568,7 @@ function setup() {
   const access: InstagramAutomationAccountAccess = {
     instagramAccount,
     instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-    instagramAppUserId: '8724000000000001',
+    instagramUserId: '8724000000000001',
     username: 'acme.shop',
     connectionStatus: 'connected',
     encryptedAccessToken: 'v1:ciphertext',
@@ -2927,12 +2927,12 @@ describe('the public reply (AU20)', () => {
     });
   });
 
-  it('asks reply safety with the account’s settings and the automation’s texts, and sends what it picked', async () => {
+  it('asks reply safety with no account settings (per automation from R13) and the automation’s texts, and sends what it picked', async () => {
     await comment();
 
     expect(engine.replySafetyService.decide).toHaveBeenCalledWith({
       commentLogRepository: engine.store.commentLogs,
-      settings,
+      settings: null,
       organizationId: ORGANIZATION_ID,
       automationId: 17,
       instagramCommentId: COMMENT,

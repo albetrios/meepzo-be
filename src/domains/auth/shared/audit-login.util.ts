@@ -9,7 +9,7 @@ import { verifyAccessToken } from '@/shared/utils/security/jwt.util.js';
  * metadata field on `auth.login` audit events so an incident-response query
  * can filter by method (e.g. "every super_admin login via OAuth in the last
  * 24 h"). Provider-bound sources (OAuth) embed the provider id —
- * `oauth_google`, `oauth_github` — to preserve that information without
+ * `oauth_google`, `oauth_apple` — to preserve that information without
  * adding a separate column.
  */
 export type LoginAuditSource =
@@ -174,4 +174,43 @@ export async function recordLoginFailureAuditEvent({
   } catch (recordingError) {
     logger.warn({ error: recordingError }, 'audit.login_failure.recording.failed');
   }
+}
+
+/** Why trusted devices ended (`metadata.reason` of `auth.trusted_device.revoke`, AT4, AT17). */
+export type TrustedDeviceRevokeReason = 'over_limit' | 'mfa_off' | 'sign_out_everywhere_else';
+
+/**
+ * Records one `auth.trusted_device.create` or `auth.trusted_device.revoke` audit row (INFO, AT4)
+ * naming the trusted devices it concerns; records nothing for an empty list.
+ *
+ * @remarks
+ * One row per action, not per device: ending ten devices at once is one event the person took.
+ * Best-effort like the other audit helpers — the scoped recorder swallows pipeline failures.
+ */
+export async function recordTrustedDeviceAudit({
+  request,
+  actorUserPublicId,
+  action,
+  trustedDeviceIds,
+  reason,
+}: {
+  request: FastifyRequest;
+  actorUserPublicId: string;
+  action: 'auth.trusted_device.create' | 'auth.trusted_device.revoke';
+  trustedDeviceIds: readonly string[];
+  reason?: TrustedDeviceRevokeReason;
+}): Promise<void> {
+  if (trustedDeviceIds.length === 0) return;
+  await recordScopedAuditEvent({
+    request,
+    input: {
+      actorUserPublicId,
+      action,
+      resource_type: 'trusted_device',
+      metadata: {
+        trusted_device_ids: [...trustedDeviceIds],
+        ...(reason ? { reason } : {}),
+      },
+    },
+  });
 }

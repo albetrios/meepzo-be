@@ -15,6 +15,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   authSession: 'session',
   authMethod: 'auth method',
   webauthnCredential: 'passkey',
+  trustedDevice: 'trusted device',
   notification: 'notification',
   webhook: 'webhook',
   plan: 'plan',
@@ -27,7 +28,6 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   auditLog: 'audit log entry',
   channelConnection: 'channel connection',
   channelAccount: 'channel account',
-  instagramAccount: 'Instagram account',
   contact: 'contact',
   instagramWebhookEvent: 'Instagram webhook event',
   automation: 'automation',
@@ -87,7 +87,7 @@ export function getPathParameterDescription(parameterName: string): string {
     return `Unique ID for this ${ENTITY_LABELS[entity]}, prefixed with \`${prefix}_\`. Pattern: \`^${prefix}_[a-z0-9]{21}$\``;
   }
   const literals: Record<string, string> = {
-    provider: 'OAuth provider name (`google` | `github`)',
+    provider: 'OAuth provider name (`google` | `apple`)',
     slug: 'Organization URL-friendly slug',
     circuit_name: 'Managed circuit breaker name (`stripe` | `s3` | `resend` | `turnstile`)',
   };

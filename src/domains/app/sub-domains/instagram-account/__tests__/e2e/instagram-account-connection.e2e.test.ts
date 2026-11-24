@@ -54,7 +54,7 @@ describe('Instagram account connection flow (e2e)', () => {
   type TeamCaller = { token: string; organizationId: number };
 
   async function disconnect({ token, organizationId }: TeamCaller, profile: TestInstagramProfile) {
-    mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+    mockInstagramUnsubscribe({ instagramUserId: profile.id });
     return injectAuthenticated(app, {
       method: 'DELETE',
       url: await organizationChannelAccountPath(organizationId),

@@ -1,4 +1,4 @@
-import type { InstagramAccountSettingsOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
+import type { InstagramAccountExtensionOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import type { ChannelAccountRow } from './channel-account.repository.js';
 import {
@@ -10,7 +10,6 @@ import {
 } from './channel-account.constants.js';
 import type {
   ChannelAccountActiveStopOutput,
-  ChannelAccountInstagramOutput,
   ChannelAccountOutput,
   ChannelAccountSummaryOutput,
 } from './channel-account.types.js';
@@ -18,16 +17,6 @@ import type {
 /** A timestamp as ISO 8601, `null` kept. */
 function toIsoOrNull(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
-}
-
-/** The `app.instagram_accounts` columns the Instagram part reads (2.A.6). */
-interface ChannelAccountInstagramRow {
-  instagram_user_id: string;
-  username: string | null;
-  profile_picture_url: string | null;
-  followers_count: number;
-  webhook_subscribed_at: Date | null;
-  profile_synced_at: Date | null;
 }
 
 /** `false` while the account is "not in your plan" (`plan_downgrade`, CA3, D57). */
@@ -77,25 +66,6 @@ export function serializeChannelAccountSummary({
   };
 }
 
-/** The Instagram part of the Channel account (2.A.6, as the launch's columns allow until R6). */
-export function serializeChannelAccountInstagram({
-  instagram,
-  settings,
-}: {
-  instagram: ChannelAccountInstagramRow;
-  settings: InstagramAccountSettingsOutput;
-}): ChannelAccountInstagramOutput {
-  return {
-    instagram_user_id: instagram.instagram_user_id,
-    username: instagram.username,
-    profile_picture_url: instagram.profile_picture_url,
-    followers_count: instagram.followers_count,
-    is_webhook_subscribed: instagram.webhook_subscribed_at !== null,
-    profile_synced_at: toIsoOrNull(instagram.profile_synced_at),
-    settings,
-  };
-}
-
 /**
  * The Channel account object of routes 7, 9–11 (routes-final § 1B.6).
  *
@@ -118,7 +88,8 @@ export function serializeChannelAccount({
   channel_connection: { id: string; provider: string; status: string };
   connected_by_user_public_id: string | null;
   active_stop: ChannelAccountActiveStopOutput | null;
-  instagram: ChannelAccountInstagramOutput | null;
+  /** The Instagram part, built by `serializeInstagramAccountExtension` (2.A.6). */
+  instagram: InstagramAccountExtensionOutput | null;
   /** The clock the new-account window is read against. */
   now: Date;
 }): ChannelAccountOutput {

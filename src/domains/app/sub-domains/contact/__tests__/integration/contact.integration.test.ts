@@ -336,7 +336,7 @@ describe('Contact routes (list, erase)', () => {
         });
 
         expect(
-          await listedIds(`instagram_account_id=${generatePublicId('instagramAccount')}`),
+          await listedIds(`instagram_account_id=${generatePublicId('channelAccount')}`),
         ).toEqual([]);
         expect(await listedIds(`instagram_account_id=${otherAccount.public_id}`)).toEqual([]);
       });

@@ -9,8 +9,14 @@ import {
   type LoginAuditSource,
   recordLoginAuditEvent,
   recordLoginFailureAuditEvent,
+  recordTrustedDeviceAudit,
 } from '@/domains/auth/shared/audit-login.util.js';
-import { getIpAddress, setSessionCookie } from '@/domains/auth/auth.http.util.js';
+import {
+  clearTrustedDeviceCookie,
+  getIpAddress,
+  setSessionCookie,
+  setTrustedDeviceCookie,
+} from '@/domains/auth/auth.http.util.js';
 import { getUserAgent } from '@/shared/utils/http/user-agent.util.js';
 import { validateMfaMethodIdParam } from '@/domains/auth/auth.validator.js';
 import { AuthSerializer } from '@/domains/auth/auth.serializer.js';
@@ -71,6 +77,23 @@ export function createAuthMfaHandlers({
       const source: LoginAuditSource =
         data.factor === 'recovery_code' ? 'mfa_recovery_code' : 'mfa_totp';
       await recordLoginAuditEvent({ request, loginResult: data, source });
+      // AT17: "trust this device" — the cookie carries the raw token; the row holds its hash.
+      if (data.trusted_device) {
+        setTrustedDeviceCookie({ reply, token: data.trusted_device.token });
+        await recordTrustedDeviceAudit({
+          request,
+          actorUserPublicId: data.trusted_device.user_public_id,
+          action: 'auth.trusted_device.create',
+          trustedDeviceIds: [data.trusted_device.public_id],
+        });
+        await recordTrustedDeviceAudit({
+          request,
+          actorUserPublicId: data.trusted_device.user_public_id,
+          action: 'auth.trusted_device.revoke',
+          trustedDeviceIds: data.trusted_device.revoked_public_ids,
+          reason: 'over_limit',
+        });
+      }
       return successResponse({
         data: AuthSerializer.accessToken(data),
         request_id: getRequestIdentifier(request),
@@ -178,7 +201,10 @@ export function createAuthMfaHandlers({
     ) => {
       const auth = requireAuth(request);
       const mfaMethodId = validateMfaMethodIdParam(request.params.mfa_method_id);
-      await mfaService.deleteMfa({ userPublicId: auth.userId, mfaMethodPublicId: mfaMethodId });
+      const removal = await mfaService.deleteMfa({
+        userPublicId: auth.userId,
+        mfaMethodPublicId: mfaMethodId,
+      });
       await recordScopedAuditEvent({
         request,
         input: {
@@ -187,6 +213,17 @@ export function createAuthMfaHandlers({
           resource_type: 'mfa_method',
           metadata: { mfa_method_id: mfaMethodId },
         },
+      });
+      // AT17: 2FA turned off ended every trusted device — this browser's cookie is dead too.
+      if (removal.revoked_trusted_device_ids.length > 0) {
+        clearTrustedDeviceCookie(reply);
+      }
+      await recordTrustedDeviceAudit({
+        request,
+        actorUserPublicId: auth.userId,
+        action: 'auth.trusted_device.revoke',
+        trustedDeviceIds: removal.revoked_trusted_device_ids,
+        reason: 'mfa_off',
       });
       return reply.code(204).send();
     },

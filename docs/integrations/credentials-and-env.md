@@ -29,7 +29,7 @@ flowchart TB
   subgraph optional [Optional by service]
     S3[S3: upload]
     Resend[Resend: mail]
-    OAuth[OAuth: Google, GitHub]
+    OAuth[OAuth: Google, Apple]
     Stripe[Stripe: billing]
     Sentry[Sentry: errors]
     Postman[Postman: docs upload]
@@ -105,9 +105,9 @@ below show where the value comes from; the runbook above shows the workflow.
 
 ---
 
-## 2. Resend — email (email verification-code, invitations, password reset)
+## 2. Resend — email (email verification-code, invitations)
 
-**Used for:** Email verification-code login, invitations, password reset emails.
+**Used for:** Email verification-code login, invitations, account-security notices.
 
 | .env variable        | Where to get it                            |
 | -------------------- | ------------------------------------------ |
@@ -132,7 +132,7 @@ below show where the value comes from; the runbook above shows the workflow.
 
 ## 3. OAuth — Google (login with Google)
 
-**Used for:** `GET /api/v1/auth/oauth/:provider` (redirect to Google). Without these, that route returns 501.
+**Used for:** `GET /api/v1/auth/oauth/:provider` (redirect to Google). Without these, Google is left out of `GET /auth/oauth/providers` and its start returns 404.
 
 | .env variable                | Where to get it                          |
 | ---------------------------- | ---------------------------------------- |
@@ -155,25 +155,29 @@ below show where the value comes from; the runbook above shows the workflow.
 
 ---
 
-## 4. OAuth — GitHub (login with GitHub)
+## 4. OAuth — Apple (Sign in with Apple)
 
-**Used for:** GitHub OAuth login. Without these, that provider returns 501.
+**Used for:** Sign in with Apple (`GET /api/v1/auth/oauth/apple`, Apple's form post to `POST /api/v1/auth/oauth/apple/callback`, then `GET /api/v1/auth/oauth/apple/callback`). Set all five or none: without them Apple is left out of `GET /auth/oauth/providers` and its start returns 404; a half-set group fails at boot.
 
-| .env variable                | Where to get it                       |
-| ---------------------------- | ------------------------------------- |
-| `OAUTH_GITHUB_CLIENT_ID`     | GitHub OAuth App Client ID.           |
-| `OAUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret.       |
-| `OAUTH_GITHUB_REDIRECT_URI`  | Callback URL (must match GitHub app). |
+| .env variable            | Where to get it                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `OAUTH_APPLE_CLIENT_ID`    | The **Services ID** identifier (e.g. `com.example.web.signin`).                                                    |
+| `OAUTH_APPLE_TEAM_ID`      | Your Apple developer **Team ID**.                                                                                 |
+| `OAUTH_APPLE_KEY_ID`       | The **Key ID** of the Sign in with Apple key.                                                                     |
+| `OAUTH_APPLE_PRIVATE_KEY`  | The key's `.p8` file content (PEM; newline escapes accepted) — a Secret; it signs each swap's ES256 client secret. |
+| `OAUTH_APPLE_REDIRECT_URI` | The public URL of `POST /api/v1/auth/oauth/apple/callback` on THIS API (Apple posts its form there).                |
 
 **Steps:**
 
-1. GitHub → **Settings** → **Developer settings** → **OAuth Apps** → **New OAuth App**.
-2. **Application name:** e.g. `My App (Local)`. **Homepage URL:** `http://localhost:3000`. **Authorization callback URL:** `http://localhost:3000/auth/oauth/github/callback`.
-3. Register → copy **Client ID** and generate **Client secret**.
-4. In `.env`:  
-   `OAUTH_GITHUB_CLIENT_ID=xxxx`  
-   `OAUTH_GITHUB_CLIENT_SECRET=xxxx`  
-   `OAUTH_GITHUB_REDIRECT_URI=http://localhost:3000/auth/oauth/github/callback`
+1. Apple Developer → **Certificates, Identifiers & Profiles** → **Identifiers** → an App ID with **Sign in with Apple** on.
+2. **Identifiers** → **Services IDs** → new Services ID → enable **Sign in with Apple** → **Configure**: the primary App ID, the domain of the API, and as **Return URL** `https://api.example.com/api/v1/auth/oauth/apple/callback` (Apple requires https; it must equal `OAUTH_APPLE_REDIRECT_URI`).
+3. **Keys** → new key with **Sign in with Apple** → download the `.p8` once, note the **Key ID**.
+4. To send email to private relay addresses, register the sending domain under **Services** → **Sign in with Apple for Email Communication**.
+5. In `.env`: the five `OAUTH_APPLE_*` values above.
+
+The API answers Apple's form with a `303` to `<FRONTEND_URL>/callback/apple?code&state` (or `?reason=` on a failure), so `FRONTEND_URL` must be the app's origin.
+
+---
 
 **Production smoke (after secrets are in Railway / GitHub Environment):**
 
@@ -186,10 +190,10 @@ below show where the value comes from; the runbook above shows the workflow.
    # Expect 200
 
    curl -sS -o /dev/null -w "%{http_code}\n" https://api.example.com/api/v1/auth/oauth/google
-   # Expect 302 to Google when OAUTH_GOOGLE_CLIENT_ID is set; 501 when not configured
+   # Expect 200 (redirect_url to Google) when Google is configured; 404 when not
 
-   curl -sS -o /dev/null -w "%{http_code}\n" https://api.example.com/api/v1/auth/oauth/github
-   # Expect 302 to GitHub when OAUTH_GITHUB_CLIENT_ID is set; 501 when not configured
+   curl -sS -o /dev/null -w "%{http_code}\n" https://api.example.com/api/v1/auth/oauth/apple
+   # Expect 200 (redirect_url to Apple) when the five OAUTH_APPLE_* are set; 404 when not
    ```
 
 4. Complete one browser callback flow per provider and verify session cookie + JWT are issued.
@@ -410,7 +414,7 @@ exchange must grant all three; one left unticked on Instagram's consent screen a
 
 **The webhook fields.** Every connect subscribes the account to `comments`, `messages` and
 `messaging_postbacks` (`INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS` in the Instagram client, through
-`POST /{instagram_app_user_id}/subscribed_apps`); a failed subscription is retried by the next
+`POST /{instagram_user_id}/subscribed_apps`); a failed subscription is retried by the next
 connect (and by the daily account check once it lands). The app itself must be subscribed to the
 same three fields (step 5), or no event arrives.
 
@@ -441,7 +445,7 @@ JWT_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----  # g
 SECRETS_ENCRYPTION_KEY=<64 hex chars; node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 RESEND_API_KEY=re_...
 OAUTH_GOOGLE_CLIENT_SECRET=...
-OAUTH_GITHUB_CLIENT_SECRET=...
+OAUTH_APPLE_PRIVATE_KEY=<the .p8 PEM, newlines escaped>
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...    # Stripe CLI or Dashboard
 META_APP_SECRET=...           # the real one (32+ chars), never a placeholder: Meta App Dashboard → App settings → Basic
@@ -459,8 +463,10 @@ EMAIL_FROM_ADDRESS=onboarding@resend.dev
 EMAIL_FROM_NAME=YourApp
 OAUTH_GOOGLE_CLIENT_ID=....apps.googleusercontent.com
 OAUTH_GOOGLE_REDIRECT_URI=http://localhost:3000/auth/oauth/google/callback
-OAUTH_GITHUB_CLIENT_ID=...
-OAUTH_GITHUB_REDIRECT_URI=http://localhost:3000/auth/oauth/github/callback
+OAUTH_APPLE_CLIENT_ID=com.example.web.signin
+OAUTH_APPLE_TEAM_ID=...
+OAUTH_APPLE_KEY_ID=...
+OAUTH_APPLE_REDIRECT_URI=https://api.example.com/api/v1/auth/oauth/apple/callback
 META_APP_ID=...
 META_CONFIG_ID=...
 META_REDIRECT_URI=https://app.example.com/auth/meta/callback

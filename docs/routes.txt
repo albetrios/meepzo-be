@@ -1,6 +1,6 @@
 ================================================================================
   ROUTE CATALOG — Meepzo Backend
-  Total routes: 164
+  Total routes: 165
 ================================================================================
 
 Legend:
@@ -39,7 +39,7 @@ Legend:
   POST   /api/v1/app/social/channel-connections/:provider/start   200  -    team  PERM: channel-account:manage
   GET    /api/v1/app/social/channel-connections/meta/webhooks/instagram  200  -    both  PUBLIC
   POST   /api/v1/app/social/channel-connections/meta/webhooks/instagram  200  -    both  PUBLIC
-  PATCH  /api/v1/app/social/instagram/account/settings            200  -    team  PERM: instagram-account:manage
+  PATCH  /api/v1/app/social/instagram/accounts/:channel_account_id/settings  200  -    team  PERM: instagram-account:manage
   POST   /api/v1/app/social/instagram/data-deletion               200  -    both  PUBLIC
   POST   /api/v1/app/social/instagram/deauthorize                 200  -    both  PUBLIC
   GET    /api/v1/app/social/instagram/media                       200  -    team  PERM: instagram-account:read
@@ -55,7 +55,7 @@ Legend:
 
 ================================================================================
   DOMAIN: AUTH (/api/v1/auth)
-  Routes: 30
+  Routes: 31
 ================================================================================
 
   POST   /api/v1/auth/email/confirm                               200  -    both  PUBLIC
@@ -81,6 +81,7 @@ Legend:
   POST   /api/v1/auth/mfa/login                                   200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/:provider                             200  -    both  PUBLIC
   GET    /api/v1/auth/oauth/:provider/callback                    200  -    both  PUBLIC
+  POST   /api/v1/auth/oauth/apple/callback                        303  -    both  PUBLIC
   GET    /api/v1/auth/oauth/providers                             200  -    both  PUBLIC
   POST   /api/v1/auth/refresh                                     200  -    both  TOKEN: session-cookie
   POST   /api/v1/auth/step-up                                     200  -    both  AUTH
@@ -255,8 +256,8 @@ Legend:
   SUMMARY
 ================================================================================
 
-  Total routes    : 164
-  Public          : 19
+  Total routes    : 165
+  Public          : 20
   Authenticated   : 54
   Role-guarded    : 9
   Perm-guarded    : 77

@@ -266,19 +266,19 @@ describe('Auth Domain — Route gates (e2e)', () => {
       const body = response.json() as { data: { providers: string[] } };
       expect(body.data).toHaveProperty('providers');
       expect(Array.isArray(body.data.providers)).toBe(true);
-      expect(body.data.providers).toContain('google');
-      expect(body.data.providers).toContain('github');
+      // Google and Apple only — GitHub is gone (AT5, AT14).
+      expect(body.data.providers).toEqual(['google', 'apple']);
     });
   });
 
   describe('GET /api/v1/auth/oauth/:provider', () => {
-    it('should return 404 for an unknown provider name', async () => {
+    it('should return 400 on provider for a name that is not google or apple', async () => {
       const response = await injectUnauthenticated(app, {
         url: testApiPath('/auth/oauth/twitter'),
       });
-      // Unknown provider names are a missing resource (404); the typed 501 is
-      // reserved for supported-but-unconfigured providers.
-      expect(response.statusCode).toBe(404);
+      // routes-final § 10.B.9: only google and apple are provider names; a supported provider
+      // whose settings are unset answers 404 (AT11).
+      expect(response.statusCode).toBe(400);
     });
 
     it('should return 200 with the authorize redirect URL', async () => {
@@ -300,8 +300,6 @@ describe('Auth Domain — Route gates (e2e)', () => {
       expect(response.cookies.oauth_nonce).toMatch(/^[a-f0-9]{64}$/);
     });
   });
-
-  // ─── Password: Forgot / Reset ─────────────────────────────────
 
   // ─── Step-up (sudo) ───────────────────────────────────────────
 

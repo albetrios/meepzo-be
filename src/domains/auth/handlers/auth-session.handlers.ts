@@ -7,13 +7,16 @@ import { recordScopedAuditEvent } from '@/shared/utils/infrastructure/audit-requ
 import { verifyAccessToken } from '@/shared/utils/security/jwt.util.js';
 import {
   clearSessionCookie,
+  getIpAddress,
   parseSessionCookieValue,
   SESSION_COOKIE_NAME,
   setSessionCookie,
+  readTrustedDeviceCookie,
 } from '@/domains/auth/auth.http.util.js';
 import { AuthSerializer } from '@/domains/auth/auth.serializer.js';
 import { serializeAuthSessions } from '@/domains/auth/sub-domains/auth-session/auth-session.serializer.js';
 import type { AuthContainer } from '@/domains/auth/auth.container.js';
+import { recordTrustedDeviceAudit } from '@/domains/auth/shared/audit-login.util.js';
 import { ACCOUNT_SECURITY_NOTICE } from '@/domains/auth/sub-domains/auth-method/events/auth.events.js';
 import { toSupportedLanguage } from '@/shared/constants/i18n.constants.js';
 
@@ -114,6 +117,7 @@ export function createAuthSessionHandlers({
       const data = await authService.refreshToken({
         sessionPublicId: parsedSession.sessionPublicId,
         refreshSecret: parsedSession.refreshSecret,
+        ipAddress: getIpAddress(request),
       });
       setSessionCookie({
         reply,
@@ -205,9 +209,11 @@ export function createAuthSessionHandlers({
       // service so that session is excluded from revocation.
       const currentAccessToken =
         request.headers.authorization?.match(/^Bearer\s+(\S.*)$/i)?.[1] ?? '';
-      await authSessionService.revokeAllSessionsExceptCurrent({
+      const revoked = await authSessionService.revokeAllSessionsExceptCurrent({
         userPublicId: auth.userId,
         currentAccessToken,
+        // AT17: every trusted device but this browser's ends too.
+        keepTrustedDeviceToken: readTrustedDeviceCookie(request),
       });
       await recordScopedAuditEvent({
         request,
@@ -216,6 +222,13 @@ export function createAuthSessionHandlers({
           action: 'auth.session.revoke_all',
           resource_type: 'session',
         },
+      });
+      await recordTrustedDeviceAudit({
+        request,
+        actorUserPublicId: auth.userId,
+        action: 'auth.trusted_device.revoke',
+        trustedDeviceIds: revoked.revoked_trusted_device_ids,
+        reason: 'sign_out_everywhere_else',
       });
       await authMethodService.sendAccountSecurityNotice({
         userPublicId: auth.userId,

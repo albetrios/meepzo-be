@@ -77,8 +77,8 @@ describe('completeOAuthUserSession (database transaction boundary)', () => {
       authSessionService: authSessionServiceStub as never,
       organizationSettingsService: organizationSettingsServiceStub as never,
       mfaService: mfaServiceStub as never,
-      provider: 'github',
-      profile: { email, provider_user_id: 'github-signup-1', name: 'Octo Cat' },
+      provider: 'apple',
+      profile: { email, provider_user_id: 'apple-signup-1', name: 'Octo Cat' },
       ipAddress: '127.0.0.1',
     });
 
@@ -104,5 +104,56 @@ describe('completeOAuthUserSession (database transaction boundary)', () => {
       .from(organizations)
       .where(eq(organizations.owner_user_id, createdUser!.id));
     expect(ownedOrganizations).toEqual([{ type: 'PERSONAL' }]);
+  });
+
+  it('matches a later Apple sign-in by the provider account when Apple sends no email (AT10)', async () => {
+    const email = 'apple-first@example.com';
+    const authMethodService = new AuthMethodService(
+      userService,
+      new AuthMethodRepository(),
+      {} as never,
+    );
+    const base = {
+      userService,
+      authMethodService,
+      authSessionService: authSessionServiceStub as never,
+      organizationSettingsService: organizationSettingsServiceStub as never,
+      mfaService: mfaServiceStub as never,
+      provider: 'apple' as const,
+      ipAddress: '127.0.0.1',
+    };
+    await completeOAuthUserSession({
+      ...base,
+      profile: { email, provider_user_id: 'apple-sub-1', name: 'Ada Lovelace' },
+    });
+    const result = await completeOAuthUserSession({
+      ...base,
+      profile: { provider_user_id: 'apple-sub-1' },
+    });
+
+    expect(result.user.email).toBe(email);
+    const people = await database.select().from(users).where(eq(users.email, email));
+    expect(people).toHaveLength(1);
+    expect(people[0]?.first_name).toBe('Ada');
+  });
+
+  it('refuses a never-linked provider account without an email — 401 oauth_failed', async () => {
+    const authMethodService = new AuthMethodService(
+      userService,
+      new AuthMethodRepository(),
+      {} as never,
+    );
+    await expect(
+      completeOAuthUserSession({
+        userService,
+        authMethodService,
+        authSessionService: authSessionServiceStub as never,
+        organizationSettingsService: organizationSettingsServiceStub as never,
+        mfaService: mfaServiceStub as never,
+        provider: 'apple',
+        profile: { provider_user_id: 'apple-sub-unknown' },
+        ipAddress: '127.0.0.1',
+      }),
+    ).rejects.toMatchObject({ statusCode: 401, reason: 'oauth_failed' });
   });
 });

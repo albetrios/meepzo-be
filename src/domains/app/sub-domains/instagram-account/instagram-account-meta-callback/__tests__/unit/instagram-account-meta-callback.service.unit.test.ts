@@ -54,7 +54,7 @@ const signedRequest = { userId: '17841400000000001', issuedAt: 1_763_740_000 };
 function accountChange(overrides: Partial<InstagramAccountDisconnectChange> = {}) {
   return {
     instagramAccount: { organizationId: 1, instagramAccountId: 10 },
-    instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+    instagramAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     wasRevoked: false,
     wasTokenErased: false,
     wasProfileErased: false,
@@ -117,7 +117,7 @@ describe('InstagramAccountMetaCallbackService (no database)', () => {
     expect(result.changes).toEqual([
       {
         organizationPublicId: 'org_a',
-        instagramAccountPublicIds: ['iga_aaaaaaaaaaaaaaaaaaaaa'],
+        instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa'],
         erasedPostCount: 0,
       },
     ]);
@@ -158,7 +158,7 @@ describe('InstagramAccountMetaCallbackService (no database)', () => {
     expect(result.changes).toEqual([
       {
         organizationPublicId: 'org_a',
-        instagramAccountPublicIds: ['iga_aaaaaaaaaaaaaaaaaaaaa', 'iga_ccccccccccccccccccccc'],
+        instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa', 'iga_ccccccccccccccccccccc'],
         erasedPostCount: 5,
       },
     ]);

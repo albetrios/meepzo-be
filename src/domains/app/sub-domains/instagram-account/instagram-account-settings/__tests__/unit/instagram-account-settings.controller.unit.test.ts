@@ -12,28 +12,28 @@ import type { InstagramAccountSettingsService } from '@/domains/app/sub-domains/
 import { attachPrincipalScope } from '@/tests/helpers/principal-scope.helper.js';
 
 /**
- * Route 3's handler (routes-final § 1.B, IA7, IA15) with the service faked: what it relays, the
- * answer's shape, and the one audit entry — the changed names, never a value.
+ * Route 12's handler (feat-instagram-dm-sending routes-final § 2.B, IA7, IA12) with the service
+ * faked: what it relays (the path's account, the switch apart from the settings), the answer's
+ * shape, and the one audit entry — the changed fields with their old and new values (AC-3.11).
  */
 
 const ORGANIZATION_PUBLIC_ID = generatePublicId('organization');
 const USER_PUBLIC_ID = generatePublicId('user');
 const API_KEY_PUBLIC_ID = generatePublicId('organizationApiKey');
-const ACCOUNT_PUBLIC_ID = generatePublicId('instagramAccount');
+const ACCOUNT_PUBLIC_ID = generatePublicId('channelAccount');
 const READ_AT = '2026-11-21T09:00:00.000Z';
 
 const savedSettings = {
   is_automation_enabled: false,
-  is_public_reply_safety_enabled: false,
-  public_reply_chance_percent: 45,
-  public_reply_hour_limit: 60,
-  public_reply_gap_min_seconds: 20,
-  public_reply_gap_max_seconds: 60,
+  opening_hour_limit: 300,
   updated_by_user_id: USER_PUBLIC_ID,
   updated_at: '2026-11-21T10:00:00.000Z',
 };
 
 const reply = {} as FastifyReply;
+
+/** Route 12's request — the `{channel_account_id}` path parameter. */
+type SettingsRequest = FastifyRequest<{ Params: { channel_account_id: string } }>;
 
 describe('createInstagramAccountSettingsController', () => {
   const service = { updateSettings: vi.fn() };
@@ -43,7 +43,7 @@ describe('createInstagramAccountSettingsController', () => {
     service as unknown as InstagramAccountSettingsService,
   );
 
-  function mockRequest(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
+  function mockRequest(overrides: Partial<FastifyRequest> = {}): SettingsRequest {
     return attachPrincipalScope({
       auth: {
         kind: 'user',
@@ -51,7 +51,7 @@ describe('createInstagramAccountSettingsController', () => {
         role: 'user',
         organizationPublicId: ORGANIZATION_PUBLIC_ID,
       },
-      params: {},
+      params: { channel_account_id: ACCOUNT_PUBLIC_ID },
       query: {},
       body: { is_automation_enabled: false },
       headers: { 'user-agent': 'vitest' },
@@ -60,7 +60,7 @@ describe('createInstagramAccountSettingsController', () => {
       server: { auditDomain: { auditService: { record: recordAudit } } },
       log: { warn: logWarn, error: vi.fn() },
       ...overrides,
-    } as unknown as FastifyRequest);
+    } as unknown as FastifyRequest) as SettingsRequest;
   }
 
   beforeEach(() => {
@@ -70,7 +70,11 @@ describe('createInstagramAccountSettingsController', () => {
     service.updateSettings.mockReset();
     service.updateSettings.mockResolvedValue({
       settings: savedSettings,
-      instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+      channelAccountPublicId: ACCOUNT_PUBLIC_ID,
+      changes: {
+        opening_hour_limit: { old_value: null, new_value: 300 },
+        is_automation_enabled: { old_value: true, new_value: false },
+      },
     });
   });
 
@@ -79,7 +83,7 @@ describe('createInstagramAccountSettingsController', () => {
       mockRequest({
         body: {
           is_automation_enabled: false,
-          public_reply_chance_percent: 45,
+          opening_hour_limit: 300,
           expected_updated_at: READ_AT,
         },
       }),
@@ -91,7 +95,9 @@ describe('createInstagramAccountSettingsController', () => {
         organizationPublicId: ORGANIZATION_PUBLIC_ID,
         source: 'request',
       }),
-      changes: { is_automation_enabled: false, public_reply_chance_percent: 45 },
+      channelAccountPublicId: ACCOUNT_PUBLIC_ID,
+      changes: { opening_hour_limit: 300 },
+      isAutomationEnabled: false,
       expectedUpdatedAt: READ_AT,
       updatedByUserPublicId: USER_PUBLIC_ID,
     });
@@ -103,18 +109,19 @@ describe('createInstagramAccountSettingsController', () => {
 
     expect(service.updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
-        changes: { is_automation_enabled: false },
+        changes: {},
+        isAutomationEnabled: false,
         expectedUpdatedAt: undefined,
       }),
     );
   });
 
-  it('records one INFO entry after the write: the account and the changed names, never a value (IA7)', async () => {
+  it('records one INFO entry after the write: the account, the changed fields, their old and new values (AC-3.11)', async () => {
     await controller.updateInstagramAccountSettings(
       mockRequest({
         body: {
-          public_reply_hour_limit: 731,
-          public_reply_gap_min_seconds: 29,
+          opening_hour_limit: 300,
+          is_automation_enabled: false,
           expected_updated_at: READ_AT,
         },
       }),
@@ -129,8 +136,10 @@ describe('createInstagramAccountSettingsController', () => {
       organization_public_id: ORGANIZATION_PUBLIC_ID,
       severity: 'INFO',
       metadata: {
-        instagram_account_public_id: ACCOUNT_PUBLIC_ID,
-        changed_fields: ['public_reply_hour_limit', 'public_reply_gap_min_seconds'],
+        channel_account_public_id: ACCOUNT_PUBLIC_ID,
+        changed_fields: ['opening_hour_limit', 'is_automation_enabled'],
+        old_value: { opening_hour_limit: null, is_automation_enabled: true },
+        new_value: { opening_hour_limit: 300, is_automation_enabled: false },
       },
       ip_address: '203.0.113.7',
       user_agent: 'vitest',
@@ -177,7 +186,8 @@ describe('createInstagramAccountSettingsController', () => {
     ['no setting at all', {}],
     ['a version and no setting', { expected_updated_at: READ_AT }],
     ['an unknown field', { is_automation_enabled: true, reply_text: 'Thanks!' }],
-    ['a value out of range', { public_reply_chance_percent: 101 }],
+    ['a value out of range', { opening_hour_limit: 701 }],
+    ['a removed public-reply field', { public_reply_chance_percent: 50 }],
     ['no body', undefined],
   ])('refuses a body with %s before the service and records nothing', async (_case, body) => {
     await expect(
@@ -196,6 +206,16 @@ describe('createInstagramAccountSettingsController', () => {
       stale,
     );
     expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed account id before the service', async () => {
+    await expect(
+      controller.updateInstagramAccountSettings(
+        mockRequest({ params: { channel_account_id: 'iga_nope' } } as never),
+        reply,
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(service.updateSettings).not.toHaveBeenCalled();
   });
 
   it('refuses a request without a principal, and a token without an organization', async () => {

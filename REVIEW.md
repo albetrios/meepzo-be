@@ -23,7 +23,8 @@ are enforced by gates — do not re-litigate what a gate already proves.
    the client `X-Idempotency-Key` as Stripe's `idempotencyKey`.
 3. **API contract** — snake_case body keys and route params, semantic
    `{plan_id}`-style params, `<prefix>_<21>` public ids, success 200 for every
-   method except DELETE (204) — POST included (`method-status-policy.middleware.ts`).
+   method except DELETE (204) — POST included (`method-status-policy.middleware.ts`);
+   the one named exception is the Apple form callback (303, `METHOD_STATUS_POLICY_EXCEPTIONS`).
 4. **Layer discipline** — controllers coordinate; services own intent (no raw
    SQL); repositories own SQL; cross-domain access only via the other domain's
    service.

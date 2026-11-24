@@ -5,8 +5,8 @@ import type { InstagramAccountConnectionStatus } from './instagram-account.const
 import type { InstagramAccountKey, InstagramAccountRow } from './instagram-account.repository.js';
 
 /**
- * The statuses an answered account can carry — a revoked account is never returned (1.A.6): it
- * reads as `404 instagram_not_connected`.
+ * The statuses a not-revoked account can carry (`connected` · `error`) — a revoked account is never
+ * returned by the live reads.
  */
 export type InstagramAccountVisibleConnectionStatus = Exclude<
   InstagramAccountConnectionStatus,
@@ -14,51 +14,31 @@ export type InstagramAccountVisibleConnectionStatus = Exclude<
 >;
 
 /**
- * The Instagram account object (routes-final § 1.A.6) — routes 1 and 2. Never the token.
+ * The Instagram account object (feat-instagram-dm-sending routes-final § 2.A.6): the `instagram`
+ * part of the channel account (1B.6, routes 7, 9–11). Never the token.
  *
  * @remarks
- * Snake_case wire keys; `id` is the `iga_…` public id; `connected_by_user_id` the latest connecting
- * user's `usr_…` (or `null`); timestamps ISO 8601.
+ * Snake_case wire keys; no id of its own — the account is named by the channel account's `id`
+ * (`cha_…`, P47); timestamps ISO 8601.
  */
-export interface InstagramAccountOutput {
-  /** `iga_…`. */
-  id: string;
-  /** `/me` `user_id` — the professional account's Instagram id. */
+export interface InstagramAccountExtensionOutput {
+  /** The Instagram user id — the webhooks' `entry.id`, equal to the channel account's provider id. */
   instagram_user_id: string;
-  /** Required on every account that is not revoked; typed nullable as the column is. */
+  /** `null` only after the erasure. */
   username: string | null;
-  name: string | null;
-  biography: string | null;
-  website: string | null;
-  profile_picture_url: string | null;
-  /** `https://instagram.com/{username}`; `null` only without a username. */
-  profile_url: string | null;
+  /** `business` · `creator`; `null` until Meta tells (P120). */
+  account_type: string | null;
+  /** A private account gets no comment or mention webhooks — the editor warns (AC-2.12). */
+  is_private: boolean;
   followers_count: number;
-  follows_count: number;
-  media_count: number;
-  /** The permissions granted on Instagram's consent screen. */
-  scopes: string[];
-  connection_status: InstagramAccountVisibleConnectionStatus;
-  /**
-   * When the stored access ends (about 60 days after a connect or renewal) — the column
-   * `token_expires_at`, renamed in the API (D35) so no response key names a token.
-   */
-  access_expires_at: string | null;
+  profile_picture_url: string | null;
+  /** The last send of its starter questions to Meta (D42); `null` while they wait to be sent. */
+  starter_questions_set_at: string | null;
   /** Whether `subscribed_apps` succeeded — `false` means no events arrive yet. */
   is_webhook_subscribed: boolean;
-  settings: InstagramAccountSettingsOutput;
-  /** `usr_…` of the latest connecting user, or `null` (an API key, or the user was deleted). */
-  connected_by_user_id: string | null;
-  connected_at: string;
   profile_synced_at: string | null;
-  updated_at: string;
-}
-
-/** Input of {@link InstagramAccountService.disconnect}. */
-export interface InstagramAccountDisconnectInput {
-  scope: OrganizationPrincipalDatabaseScope;
-  /** The request id, sent to Instagram as `X-Request-Id`. */
-  requestId: string;
+  /** The account's settings (2.B.6). */
+  settings: InstagramAccountSettingsOutput;
 }
 
 /**
@@ -69,7 +49,7 @@ export interface InstagramAccountDisconnectInput {
  * The token stays ciphertext: only the Instagram client decrypts it, right before its call (IA5).
  */
 export interface InstagramAccountAccess {
-  /** The not-revoked account — `connected`, `expired` or `error`. */
+  /** The not-revoked account — `connected` or `error`. */
   account: InstagramAccountRow;
   /** Its organization and internal id — the key every later call on it takes. */
   instagramAccount: InstagramAccountKey;
@@ -84,7 +64,10 @@ export interface InstagramAccountAccess {
 export interface InstagramAccountMetaRequest {
   /** That organization's verified scope, minted by the Meta callback service (ledgered there). */
   scope: OrganizationPrincipalDatabaseScope;
-  /** The app-scoped id Meta signed (`user_id`, IQ3) — the column `instagram_app_user_id`. */
+  /**
+   * The id Meta signed (`user_id`, IQ3) — under Unified Login the Instagram user id (P111); the
+   * field keeps its name until ROUTE row R9 moves the callbacks (MC15).
+   */
   instagramAppUserId: string;
   /**
    * When Meta signed the request (`issued_at`, Unix seconds), or `null` when it sent none: an account
@@ -119,7 +102,7 @@ export interface InstagramAccountMetaErasureInput extends InstagramAccountMetaRe
  * Only accounts something changed on are named: one already revoked and erased is not.
  */
 export interface InstagramAccountErasure {
-  /** `iga_…` of every account something changed on (normally one). */
+  /** `cha_…` of every account something changed on (normally one). */
   instagramAccountPublicIds: string[];
   /** Stored posts erased (`0` on a deauthorize). */
   erasedPostCount: number;
@@ -136,9 +119,9 @@ export interface InstagramAccountErasure {
 export interface InstagramAccountDisconnectChange {
   /** Its organization and internal id — the key the stored posts' erase takes. */
   instagramAccount: InstagramAccountKey;
-  /** `iga_…`, for the audit entry. */
+  /** `cha_…`, for the audit entry. */
   instagramAccountPublicId: string;
-  /** The account moved to `revoked` now (it was `connected`, `expired` or `error`). */
+  /** The account moved to `revoked` now (it was `connected` or `error`). */
   wasRevoked: boolean;
   /** A token row was there and is now erased. */
   wasTokenErased: boolean;
@@ -152,23 +135,19 @@ export interface InstagramAccountDisconnectChange {
  * it.
  *
  * @remarks
- * Ids and two flags only — never the token or the profile. "The account itself" is either of its
- * two Instagram ids (WH9): the webhook user id (`entry.id`) and the app-scoped id used in send URLs.
+ * Ids and two flags only — never the token or the profile. "The account itself" is its Instagram
+ * user id (WH9): the webhook's `entry.id`, also the id send URLs take under Unified Login.
  */
 export interface InstagramWebhookAccountState {
   /** Its organization and internal id. */
   instagramAccount: InstagramAccountKey;
   /** `app.channel_accounts.id` it extends — the key the events are stored under (R16, § 5.B.3). */
   channelAccountId: number;
-  /** `cha_…` — the processing job names the account by it (R17, WHC4). */
-  channelAccountPublicId: string;
-  /** `iga_…`. */
+  /** `cha_…`. */
   instagramAccountPublicId: string;
-  /** The webhook user id (`/me` `user_id`, the delivery entry's `id`). */
+  /** The Instagram user id (the delivery entry's `id`). */
   instagramUserId: string;
-  /** The app-scoped id (`/me` `id`) used in send URLs. */
-  instagramAppUserId: string;
-  /** `connected`, `expired` or `error` — a revoked account is never returned. */
+  /** `connected` or `error` — a revoked account is never returned. */
   connectionStatus: InstagramAccountVisibleConnectionStatus;
   /** The account's automation switch (`is_automation_enabled`). */
   isAutomationEnabled: boolean;
@@ -190,11 +169,9 @@ export interface InstagramWebhookProcessingAccount {
   instagramAccount: InstagramAccountKey;
   /** `app.channel_accounts.id` it extends — the key the events are claimed under (R16, § 5.B.3). */
   channelAccountId: number;
-  /** `cha_…` — what the processing job carries (R17, WHC4). */
-  channelAccountPublicId: string;
-  /** `iga_…`. */
+  /** `cha_…`. */
   instagramAccountPublicId: string;
-  /** Any status — `connected`, `expired`, `error` or `revoked`. */
+  /** Any status — `connected`, `error` or `revoked`. */
   connectionStatus: InstagramAccountConnectionStatus;
   /** The account's automation switch (`is_automation_enabled`; on when it has no settings row). */
   isAutomationEnabled: boolean;
@@ -213,13 +190,13 @@ export interface InstagramWebhookProcessingAccount {
 export interface InstagramAutomationAccountAccess {
   /** Its organization and internal id — the key the automations, contacts and runs name. */
   instagramAccount: InstagramAccountKey;
-  /** `iga_…`. */
+  /** `cha_…`. */
   instagramAccountPublicId: string;
-  /** The app-scoped id used in send URLs (`POST /{instagram_app_user_id}/messages`). */
-  instagramAppUserId: string;
+  /** The Instagram user id send URLs take (`POST /{instagram_user_id}/messages`). */
+  instagramUserId: string;
   /** The account's username — the follow request's profile link (schema-routes § 10). */
   username: string | null;
-  /** `connected`, `expired` or `error` — a revoked account is never returned. */
+  /** `connected` or `error` — a revoked account is never returned. */
   connectionStatus: InstagramAccountVisibleConnectionStatus;
   /** The encrypted long-lived token; `null` when the account has none. */
   encryptedAccessToken: string | null;

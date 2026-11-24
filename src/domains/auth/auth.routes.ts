@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { captchaPreHandler } from '@/shared/middlewares/security/captcha.middleware.js';
 import {
   requireRecentStepUpPreHandler,
+  requireRecentStepUpWhenQueryIs,
   requireStrongRecentStepUpPreHandler,
 } from '@/shared/middlewares/core/recent-step-up.middleware.js';
 import {
@@ -13,8 +14,12 @@ import {
   STRICT_PUBLIC_RATE_LIMIT,
 } from '@/shared/middlewares/rate-limit/rate-limit-presets.constants.js';
 import { createPerEmailRateLimitPreHandler } from '@/shared/middlewares/rate-limit/per-email-rate-limit.js';
+import { authenticateWhenBearerPresent } from '@/shared/middlewares/core/auth.middleware.js';
+import { OAUTH_FORM_CALLBACK_BODY_LIMIT_BYTES } from '@/shared/constants/limits.constants.js';
 import { createAuthController } from './auth.controller.js';
+import { OAUTH_LINK_INTENT } from '@/domains/auth/sub-domains/auth-method/oauth/oauth.types.js';
 import {
+  AppleFormCallbackDto,
   authMethodPublicIdParamsDto,
   CreateAuthMethodDto,
   EmailConfirmDto,
@@ -27,6 +32,7 @@ import {
   mfaMethodIdParamsDto,
   OauthCallbackQueryDto,
   oauthProviderParamsDto,
+  OauthStartQueryDto,
   sessionIdParamsDto,
   StepUpVerifyDto,
 } from './auth.dto.js';
@@ -107,32 +113,69 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'List available OAuth providers',
         description:
-          'Returns a list of configured OAuth providers (e.g. Google, GitHub) available for login.',
+          'Returns the configured sign-in providers of Google and Apple ({ providers: ["google", "apple"] }); a provider whose settings are unset is left out.',
         tags: ['OAuth'],
       },
     },
     controller.listOauthProviders,
   );
   // No captcha: this only returns the provider's authorization URL (with a PKCE/state nonce);
-  // Google/GitHub authenticate the user themselves, and the strict public rate limit still
+  // Google/Apple authenticate the user themselves, and the strict public rate limit still
   // applies. A Turnstile challenge here was the slowest part of "Sign in with Google".
+  // `intent=link` (AT12) needs a bearer and a recent step-up — read optionally, so the route stays
+  // the PUBLIC sign-in start without it.
   zodApplication.get('/oauth/:provider', {
     ...STRICT_PUBLIC_RATE_LIMIT,
+    preHandler: [
+      authenticateWhenBearerPresent,
+      requireRecentStepUpWhenQueryIs({ field: 'intent', value: OAUTH_LINK_INTENT }),
+    ],
     schema: {
       summary: 'Initiate OAuth flow',
       description:
-        'Returns the OAuth provider authorization URL and nonce cookie for a browser client to begin the login flow.',
+        'Returns the OAuth provider authorization URL and nonce cookie for a browser client to begin the flow (provider google or apple; any other is a 400 on provider; a provider whose settings are unset is a 404). Apple is asked for response_mode=form_post with the name and email scopes, so it posts its answer to POST /auth/oauth/apple/callback. With intent=link (a bearer and a recent step-up required — 401 without a bearer, 403 recent_step_up_required without the step-up) the flow links that Google or Apple account to the signed-in person instead of signing in.',
       tags: ['OAuth'],
       params: oauthProviderParamsDto,
+      querystring: OauthStartQueryDto,
     },
     handler: controller.oauthRedirect,
+  });
+  // Apple's form callback (AT10, route 124): Apple posts application/x-www-form-urlencoded, the
+  // only body parser of this encapsulated context (so any other body answers 415), under a 16 KiB
+  // limit (413). No captcha (Apple posts it) and no cookie of ours arrives on this cross-site POST
+  // — the nonce cookie is checked by the app's GET …/apple/callback. The one named exception to
+  // the method→status policy: it answers 303 (P85, METHOD_STATUS_POLICY_EXCEPTIONS).
+  await app.register(async (formApplication) => {
+    formApplication.removeAllContentTypeParsers();
+    formApplication.addContentTypeParser(
+      'application/x-www-form-urlencoded',
+      { parseAs: 'string' },
+      (_request, body, done) => {
+        done(null, Object.fromEntries(new URLSearchParams(String(body))));
+      },
+    );
+    // Named like the outer one on purpose: the route catalogue and the OpenAPI extractor find a
+    // route by that name.
+    const zodApplication = formApplication.withTypeProvider<ZodTypeProvider>();
+    zodApplication.post('/oauth/apple/callback', {
+      ...STRICT_PUBLIC_RATE_LIMIT,
+      bodyLimit: OAUTH_FORM_CALLBACK_BODY_LIMIT_BYTES,
+      schema: {
+        summary: "Apple's sign-in form callback",
+        description:
+          "Apple posts its sign-in answer here (response_mode=form_post) as an application/x-www-form-urlencoded form: state, code or error, user (Apple's JSON with the name, sent the first time only, at most 4 KiB) and id_token (ignored here). Never signs anyone in: it checks the state is live without using it up, keeps the user JSON next to the state for the state's life, and answers 303 with Location <FRONTEND_URL>/callback/apple?code&state — the app then calls GET /auth/oauth/apple/callback with the nonce cookie. Apple's error answers 303 to the same page with reason oauth_cancelled (user_cancelled_authorize) or oauth_failed; an unknown, spent or expired state answers 303 with reason oauth_expired. A missing state is a 400; a body over 16 KiB a 413; a body that is not a form a 415. The one named exception to the method→status policy (303).",
+        tags: ['OAuth'],
+        body: AppleFormCallbackDto,
+      },
+      handler: controller.appleFormCallback,
+    });
   });
   zodApplication.get('/oauth/:provider/callback', {
     ...STRICT_PUBLIC_RATE_LIMIT,
     schema: {
       summary: 'OAuth callback',
       description:
-        'Handles the OAuth provider callback after user authorization. Exchanges the code for tokens and creates or links the user account.',
+        "Handles the OAuth provider callback after user authorization (google or apple; for Apple the app calls it after POST /auth/oauth/apple/callback sent the browser to its page). Uses the state once and checks the nonce cookie, swaps the code for tokens, matches the person by the provider account (Apple's later sign-ins may carry no email), then by email, and signs in — creating the person or linking the provider to a verified account. In link mode (the flow began with intent=link) it links that Google or Apple account to the signed-in person, even with another email, and answers the linked way instead of a session; an account already linked to someone else is a 409 provider_account_in_use. Refusals carry a reason: 401 oauth_expired (state missing, spent, expired or not this browser's), 401 oauth_failed (the provider refused the code or its answer did not verify), 403 oauth_link_needs_verified_email, 403 login_method_turned_off, 401 account_not_active.",
       tags: ['OAuth'],
       params: oauthProviderParamsDto,
       querystring: OauthCallbackQueryDto,
@@ -151,7 +194,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Complete MFA during login',
         description:
-          'Completes the login flow for an MFA-enabled account. Requires the short-lived mfa_session_token issued by the first factor (email code, OAuth or passkey), plus a valid TOTP or recovery code. Returns access and refresh tokens and sets the session cookie on success.',
+          "Completes the login flow for an MFA-enabled account. Requires the short-lived mfa_session_token issued by the first factor (email code, OAuth or passkey), plus a valid TOTP or recovery code. Returns access and refresh tokens and sets the session cookie on success. With trust_device true a right code also sets the httpOnly trusted_device cookie for 30 days: the next sign-in on this browser skips the code — never when one of the person's organizations requires 2FA, never for a super_admin, and never for a step-up (at most 10 trusted devices per person; an 11th ends the oldest). A wrong code answers 401 mfa_code_wrong with tries_left; over 10 wrong codes in 15 minutes answers 429 mfa_locked with retry_after_seconds; an unknown or expired mfa_session_token answers 401 mfa_session_invalid.",
         tags: ['MFA'],
         body: MfaLoginVerifyDto,
       },
@@ -240,7 +283,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Step-up (re-authenticate)',
         description:
-          'Opens a short "recent step-up" window required before sensitive credential mutations. Re-verify with a 6-digit email verification code (an account with no MFA). MFA users must complete an MFA verification instead. An email-code window can enroll a factor but cannot perform destructive mutations (revoking sessions, deleting a credential / MFA / auth-method), which require an MFA step-up. Returns 401 for a wrong code.',
+          'Opens a short "recent step-up" window on this session, required before sensitive credential mutations. Re-verify with the 6-digit email code (send one with POST /auth/email/send-code). For a person without settled two-factor sign-in the window is strong: it can revoke sessions and remove a passkey, a sign-in way or a 2FA factor. A person with settled 2FA is refused with 403 mfa_step_up_required and steps up with POST /auth/me/mfa/verify instead (a factor enrolled in the last 72 hours under an email-code window is not settled yet). Answers { stepped_up, factor }. A wrong code answers 401 code_wrong with tries_left, 401 code_expired or 401 code_used_up.',
         tags: ['Auth'],
         body: StepUpVerifyDto,
       },
@@ -329,13 +372,13 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/webauthn/credentials/:credential_id',
     {
       onRequest: [app.authenticate],
-      // Destructive: a bootstrap email-code step-up window must not revoke a credential (sec-A2).
+      // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Revoke a passkey',
         description:
-          'Revokes one of the authenticated user’s passkeys by its opaque id. Requires recent step-up authentication. Refused with 409 if it would remove a passkey-only user’s last remaining login credential.',
+          'Revokes one of the authenticated user’s passkeys by its opaque id. Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA. Refused with 409 if it would remove a passkey-only user’s last remaining login credential.',
         tags: ['WebAuthn'],
         params: webauthnCredentialIdParamsDto,
       },
@@ -359,13 +402,13 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/mfa/:mfa_method_id',
     {
       onRequest: [app.authenticate],
-      // Destructive: a bootstrap email-code step-up window must not delete an MFA method (sec-A2).
+      // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Remove MFA method',
         description:
-          'Deletes an enrolled MFA method. Cannot remove the last MFA method if MFA is required by organization policy.',
+          "Deletes an enrolled MFA method. Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA. Cannot remove the last MFA method if MFA is required by organization policy. Removing the last one turns 2FA off and ends every trusted device of the person (and clears this browser's trusted_device cookie).",
         tags: ['MFA'],
         params: mfaMethodIdParamsDto,
       },
@@ -378,15 +421,15 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       onRequest: [app.authenticate],
       // sec-A7: a stolen bearer must not be able to kick the legitimate user out of their
       // own browser. Requiring recent step-up forces the attacker to also possess the
-      // second factor (sec-A1 blocks the email-code step-up path for MFA-enabled accounts).
-      // A STRONG step-up is required, so a bootstrap email-code window (no MFA) can enroll a
-      // factor but never revoke sessions.
+      // second factor (sec-A1 blocks the email-code step-up path for accounts with settled 2FA).
+      // A STRONG step-up is required: 2FA, or the email code for a person without settled 2FA
+      // (AT15 — their mailbox can already sign them in, so it gives no new power).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Revoke all sessions',
         description:
-          'Revokes all active sessions for the authenticated user except the current one. Requires recent step-up authentication.',
+          "Revokes all active sessions for the authenticated user except the current one, and ends every trusted device but this browser's (its trusted_device cookie). Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA.",
         tags: ['Session'],
       },
     },
@@ -400,7 +443,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Verify MFA code',
         description:
-          "Validates a TOTP code as an authenticated MFA step-up. On success the current session is marked as having proved a second factor, so organizations requiring MFA admit it: re-mint the token (switch organization or refresh) to receive `amr: ['mfa']`. A factor enrolled under an email-code step-up window opens only a weak step-up window (enough to enroll, not to revoke sessions or delete a credential) for 72 hours after enrollment, and always on the session that enrolled it.",
+          "Validates a TOTP code as an authenticated MFA step-up. On success the current session is marked as having proved a second factor, so organizations requiring MFA admit it: re-mint the token (switch organization or refresh) to receive `amr: ['mfa']`. A factor enrolled under an email-code step-up window opens only a weak step-up window (enough to enroll, not to revoke sessions or delete a credential) for 72 hours after enrollment, and always on the session that enrolled it — meanwhile the email code (POST /auth/step-up) still opens a strong one.",
         tags: ['MFA'],
         body: MfaVerifyDto,
       },
@@ -455,13 +498,13 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
     '/me/auth-methods/:auth_method_id',
     {
       onRequest: [app.authenticate],
-      // Destructive: a bootstrap email-code step-up window must not remove an auth method (sec-A2).
+      // Destructive: a strong step-up (2FA, or the email code without settled 2FA — AT15; sec-A2).
       preHandler: [requireStrongRecentStepUpPreHandler],
       ...STRICT_AUTHED_RATE_LIMIT,
       schema: {
         summary: 'Remove auth method',
         description:
-          "Removes an authentication method from the user's account. The email-code way can never be removed (409 email_code_always_on); the last sign-in way cannot be removed either.",
+          "Removes an authentication method from the user's account. Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA. The email-code way can never be removed (409 email_code_always_on); the last sign-in way cannot be removed either.",
         tags: ['Auth Method'],
         params: authMethodPublicIdParamsDto,
       },
@@ -492,7 +535,7 @@ export const authRoutesPlugin: FastifyPluginAsync = async (app) => {
       schema: {
         summary: 'Revoke a specific session',
         description:
-          'Revokes a specific session by its ID. Cannot revoke the current session (use logout instead). Requires recent step-up authentication.',
+          'Revokes a specific session by its ID. Cannot revoke the current session (use logout instead). Requires a strong recent step-up on this session: the 2FA code (POST /auth/me/mfa/verify), or the email code (POST /auth/step-up) for a person without settled 2FA.',
         tags: ['Session'],
         params: sessionIdParamsDto,
       },

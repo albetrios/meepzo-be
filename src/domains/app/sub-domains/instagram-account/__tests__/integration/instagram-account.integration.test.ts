@@ -15,7 +15,7 @@ import {
   type InjectHttpResult,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import {
-  INSTAGRAM_ACCOUNT_SETTINGS_PATH,
+  instagramAccountSettingsPath,
   buildInstagramProfile,
   createInstagramTeam,
   endPaidPlanWithoutPaying,
@@ -101,7 +101,7 @@ describe('Instagram account (read-only plan, guarded break)', () => {
 
       const changed = await injectAuthenticated(app, {
         method: 'PATCH',
-        url: INSTAGRAM_ACCOUNT_SETTINGS_PATH,
+        url: instagramAccountSettingsPath(String(account.id)),
         token: team.ownerToken,
         payload: { is_automation_enabled: false },
       });
@@ -121,7 +121,7 @@ describe('Instagram account (read-only plan, guarded break)', () => {
       expect(refused.statusCode).toBe(403);
       expect(errorOf(refused).reason).toBe('organization_read_only');
 
-      mockInstagramUnsubscribe({ instagramAppUserId: profile.id });
+      mockInstagramUnsubscribe({ instagramUserId: profile.id });
       const disconnected = await injectAuthenticated(app, {
         method: 'DELETE',
         url: await organizationChannelAccountPath(team.organization.id),
@@ -161,7 +161,10 @@ describe('Instagram account (read-only plan, guarded break)', () => {
       expect(first?.connection_status).toBe('error');
       expect(second).toBeNull();
       const [after] = await operatorQuery<Array<{ connection_status: string }>>`
-        SELECT connection_status FROM app.instagram_accounts WHERE id = ${Number(row?.id)}`;
+        SELECT c.connection_status FROM app.instagram_accounts AS i
+        INNER JOIN app.channel_accounts AS c
+          ON c.organization_id = i.organization_id AND c.id = i.channel_account_id
+        WHERE i.id = ${Number(row?.id)}`;
       expect(after?.connection_status).toBe('error');
     });
   });

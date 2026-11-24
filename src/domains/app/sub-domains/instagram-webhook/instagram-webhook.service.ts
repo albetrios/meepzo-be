@@ -304,7 +304,7 @@ export class InstagramWebhookService {
         requestId,
         instagramUserId,
         organizationPublicId,
-        channelAccountPublicId: account.channelAccountPublicId,
+        channelAccountPublicId: account.instagramAccountPublicId,
         eventCount,
         storedEventCount,
         droppedEventCount,
@@ -364,7 +364,8 @@ export class InstagramWebhookService {
         };
         const accountIds = {
           instagramUserId: account.instagramUserId,
-          instagramAppUserId: account.instagramAppUserId,
+          // Under Unified Login the id send URLs take is the Instagram user id (2.A IA8).
+          instagramAppUserId: account.instagramUserId,
         };
         const classified = items.flatMap((entryItem) => {
           const event = classifyInstagramWebhookItem({ ...entryItem, accountIds, entryTime });
@@ -463,7 +464,7 @@ export class InstagramWebhookService {
     try {
       await this.enqueueAccountProcessing({
         organizationPublicId: scope.organizationPublicId,
-        channelAccountPublicId: account.channelAccountPublicId,
+        channelAccountPublicId: account.instagramAccountPublicId,
         requestId,
       });
       await this.eventService.markEventsQueued({
@@ -478,7 +479,7 @@ export class InstagramWebhookService {
       logger.warn(
         {
           requestId,
-          channelAccountPublicId: account.channelAccountPublicId,
+          channelAccountPublicId: account.instagramAccountPublicId,
           errorName: error instanceof Error ? error.name : typeof error,
         },
         'instagram.webhook.processing_enqueue_failed',

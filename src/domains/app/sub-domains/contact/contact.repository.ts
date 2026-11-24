@@ -34,9 +34,19 @@ import {
   resolveKeysetSort,
 } from '@/shared/utils/http/list-query.util.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { contactHadRunOfAutomation } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { contacts } from './contact.schema.js';
 import type { ContactRepositoryListQuery } from './contact.types.js';
+
+/**
+ * The contact's account's channel account (1:1): its public id is the account's one id (`cha_…`,
+ * P47) since ROUTE row R6 — `instagram_account_id` keeps its name until ROUTE row R10 repoints it.
+ */
+const ACCOUNT_CHANNEL_ACCOUNT = and(
+  eq(channel_accounts.organization_id, instagram_accounts.organization_id),
+  eq(channel_accounts.id, instagram_accounts.channel_account_id),
+);
 
 /** `updated_at` for every change of a contact — never before the row's `created_at`. */
 const contactUpdatedAtTimestamp = databaseUpdatedAtTimestamp(contacts.created_at);
@@ -57,7 +67,7 @@ export type ContactRow = typeof contacts.$inferSelect;
 /** A contact list row: the contact, its Instagram account's public id and the cursor timestamp. */
 export type ContactListRow = ContactRow &
   CursorTimestampRow & {
-    /** `iga_…` of the contact's account (CT13). */
+    /** `cha_…` of the contact's account (CT13). */
     instagram_account_public_id: string;
   };
 
@@ -122,7 +132,7 @@ const LIVE_CONTACT = isNull(contacts.deleted_at);
  *   insert from an update.
  * - **Failure modes:** a value that breaks a `chk_contacts_*` CHECK throws Postgres 23514 — the
  *   service normalises every value first.
- * - **Side effects:** reads `app.instagram_accounts` for the account's public id and
+ * - **Side effects:** reads `app.instagram_accounts` and `app.channel_accounts` for the account's public id and
  *   `app.automation_runs` for the automation filter (`contactHadRunOfAutomation`, CT5) — join-only
  *   uses of sub-domains 1 and 3's schemas, inside the same domain; writes `app.contacts` only.
  * - **Notes:** HTTP paths run inside the caller's `withAppDatabaseContext`; event processing binds
@@ -192,7 +202,7 @@ export class ContactRepository {
     const rows = (await this.db()
       .select({
         ...getTableColumns(contacts),
-        instagram_account_public_id: instagram_accounts.public_id,
+        instagram_account_public_id: channel_accounts.public_id,
         // The time sorts keyset on their own column; the username sort on created_at (unused).
         cursor_created_at: cursorTimestampSelection(
           query.sort === 'username' ? contacts.created_at : sortColumn,
@@ -206,6 +216,7 @@ export class ContactRepository {
           eq(instagram_accounts.id, contacts.instagram_account_id),
         ),
       )
+      .innerJoin(channel_accounts, ACCOUNT_CHANNEL_ACCOUNT)
       .where(and(where, cursorCondition))
       .orderBy(...orderBy)
       .limit(query.limit + 1)) as ContactListRow[];
@@ -250,8 +261,9 @@ export class ContactRepository {
         : eq(
             contacts.instagram_account_id,
             sql`(SELECT ${instagram_accounts.id} FROM ${instagram_accounts}
+              INNER JOIN ${channel_accounts} ON ${ACCOUNT_CHANNEL_ACCOUNT}
               WHERE ${instagram_accounts.organization_id} = ${organizationId}
-                AND ${instagram_accounts.public_id} = ${query.instagramAccountPublicId})`,
+                AND ${channel_accounts.public_id} = ${query.instagramAccountPublicId})`,
           ),
       automationFilterCondition(query.automationId),
       buildSearchCondition({ columns: [CONTACT_SEARCH_EXPRESSION], q: query.q, everyWord: true }),

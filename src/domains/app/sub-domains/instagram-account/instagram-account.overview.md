@@ -89,7 +89,7 @@ data-deletion callbacks, routes 7–8, R6).
 - **The token is ciphertext everywhere but the Instagram client (IA5).** It is stored only as
   `encrypted_access_token` (`encryptFieldSecret`). Only the token repository reads its table, only
   the token service and the daily check's processor use that repository, and only
-  `src/infrastructure/social/instagram.client.ts` calls `decryptFieldSecret` on it —
+  `src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts` calls `decryptFieldSecret` on it —
   `__tests__/unit/instagram-account-token-isolation.policy.unit.test.ts` pins all three. One
   operator exception, allowlisted there: the secrets-key rotation script
   (`src/scripts/ops/secrets-key-rotate.ts`, `pnpm ops:secrets:rotate`) re-encrypts the column onto
@@ -199,8 +199,8 @@ notify's notifications, whose own `notification` jobs send the email through the
 
 ## External integrations
 
-The Instagram API with Instagram Login, only through `src/infrastructure/social/instagram.client.ts`
-([social overview](src/infrastructure/social/social.overview.md)): the code exchange, the
+The Instagram API with Instagram Login, only through `src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`
+([social overview](src/src/domains/app/sub-domains/channel-connection/channel-connection-meta/channel-connection-meta.overview.md)): the code exchange, the
 long-lived token exchange, `/me`, and `subscribed_apps` (subscribe after a connect, unsubscribe
 before a disconnect); the daily check's renewal (`ig_refresh_token`), `/me` and `subscribed_apps`.
 The Instagram app's settings and scopes:

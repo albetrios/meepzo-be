@@ -1,4 +1,4 @@
-import type { MetaSignedRequestPayload } from '@/infrastructure/social/meta-signature.util.js';
+import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import type { InstagramAccountErasure } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 
 /** Input of the Meta callback service's two operations: the verified signed request (IA18). */

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { readInstagramAppSecret } from '@/infrastructure/social/instagram.client.js';
-import { parseMetaSignedRequest } from '@/infrastructure/social/meta-signature.util.js';
+import { readMetaAppSecret } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { parseMetaSignedRequest } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { instagramSignedRequestInvalidError } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
 import { META_CALLBACK_FORM_CONTENT_TYPE } from './instagram-account-meta-callback.constants.js';
@@ -79,7 +79,7 @@ export const instagramAccountMetaCallbackIngressPlugin: FastifyPluginAsync = asy
   );
 
   application.addHook('preValidation', async (request) => {
-    const appSecret = readInstagramAppSecret();
+    const appSecret = readMetaAppSecret();
     const body = MetaSignedRequestDto.safeParse(request.body ?? {});
     const signedRequest = body.success
       ? parseMetaSignedRequest({ signedRequest: body.data.signed_request, appSecret })

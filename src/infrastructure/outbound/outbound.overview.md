@@ -5,7 +5,7 @@
 ## Purpose
 
 The one way the app calls a third party: Stripe, S3, Resend, OAuth providers (Google, GitHub),
-Cloudflare Turnstile, Instagram ([src/infrastructure/social/](src/infrastructure/social/)). [`outboundCall`](src/infrastructure/outbound/outbound-call.ts) wraps any
+Cloudflare Turnstile, Meta ([the channel connection's Meta adapter](src/domains/app/sub-domains/channel-connection/channel-connection-meta/)). [`outboundCall`](src/infrastructure/outbound/outbound-call.ts) wraps any
 operation with the integration's timeout, circuit breaker and optional retry;
 [`outboundFetch` / `outboundFetchJson`](src/infrastructure/outbound/outbound-fetch.ts) are the HTTP
 form of it. Customer webhook delivery has its own SSRF-guarded fetch
@@ -21,10 +21,13 @@ form of it. Customer webhook delivery has its own SSRF-guarded fetch
 - **Refusals don't trip the circuit**: `countsAsCircuitFailure` lets the upstream refusing one
   request (a declined card, an S3 404/412, a dead Instagram token) count as a success; outages,
   timeouts and 5xx count. An integration's classifier in `outbound-defaults.ts` tags a third-party
-  error; our own error classes (`ResendApiError`, `InstagramApiError`) carry the property themselves.
+  error; our own error classes (`ResendApiError`, `MetaGraphApiError`) carry the property themselves.
 - **Read the body inside the call**: `outboundFetchJson` parses JSON under the same timeout and
   classification, so a hung body or an HTML maintenance page is an `ExternalServiceError`, never a
   raw `SyntaxError`/`TimeoutError` that would surface as a 500.
+- **Headers when the client keeps them**: `outboundFetchJsonWithHeaders` returns the body and the
+  response headers under the same rules — the Meta client reads its usage headers from every answer
+  (an error answer's headers reach it through `classifyResponseError`).
 - **One error type at the edge**: everything that escapes is an
   [`ExternalServiceError`](src/infrastructure/outbound/outbound-error.ts) (an `AppError`, 503) with
   a coarse `category` (`timeout`, `network`, `circuit_open`, `http_4xx`, `http_5xx`, `aborted`,
@@ -41,7 +44,7 @@ form of it. Customer webhook delivery has its own SSRF-guarded fetch
 - **Who maps 4xx**: a provider refusing the request is the caller's decision — OAuth maps it to 401
   (`toOAuthProviderFailure`), Turnstile's verdict is a result, S3 404/412 are typed results
   (`S3HeadResult`, `ObjectCopyResult`), Instagram's answer is read once into four classes
-  (`InstagramApiError.errorClass`). Anything else stays a 503.
+  (`MetaGraphApiError.errorClass`). Anything else stays a 503.
 - **Retries**: off by default; a call site opts in with `retry` (exponential backoff with jitter,
   inside one circuit `execute()` so retries do not multiply the failure count). Queue retries are
   BullMQ's, not this module's.

@@ -134,6 +134,16 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → a badge stays wrong for longer after a sweep, always in the user's favor (it can show a notification that is gone; it cannot hide one that arrived).
 - **Last reviewed**: 2026-09-21
 
+## CHANNEL_CONNECTION_USAGE_CACHE_TTL_SECONDS
+
+- **Value**: 60 seconds
+- **Source**: [src/shared/constants/ttl.constants.ts](src/shared/constants/ttl.constants.ts)
+- **Rationale**: Backstop on the Redis copy of a channel connection's Meta usage (`app:meta_usage:<organization>:<connection>`, routes-final § 1 MC19, P5). Every usage write tombstones the entry after it lands, so the TTL only bounds a write whose tombstone failed. Postgres holds the usage (P32); Redis is the copy gate 1 reads before every Meta call. Its own literal, not an alias of another cache's TTL.
+- **Consequences of change**:
+  - Decreasing → more Postgres reads on the hottest path of the send lanes.
+  - Increasing → not allowed past 60 s (be-read-cache-guard); a missed tombstone would hold an old pace longer.
+- **Last reviewed**: 2026-11-24
+
 ## API_KEY_LAST_USED_THROTTLE_TTL_SECONDS
 
 - **Value**: 60 seconds
@@ -423,3 +433,53 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
 - **Rationale**: Bounded patterns used for input validation. The slug regex disallows leading/trailing hyphens and consecutive hyphens — required by URL-segment hygiene and by Postgres index assumptions on slugged columns.
 - **Consequences of change**: Loosening either invalidates URL constraints baked into routes and migrations.
 - **Last reviewed**: 2026-05-28
+
+## CONNECT_STATE_MINUTES
+
+- **Value**: 10 minutes
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: How long a channel connection's one-use login state (routes 1 and 40, read and deleted by the callback, route 2) stays in Redis (routes-final § 1 MC4, P26, plan:L4567). Long enough for an owner to finish Meta's login screens; short enough that a leaked `state` is soon worthless. Nothing is lost when it goes — the owner starts the login again.
+- **Consequences of change**:
+  - Decreasing → slow logins (two-factor, choosing assets) fail with `channel_connect_state_invalid`.
+  - Increasing → a leaked or abandoned state stays usable longer.
+- **Last reviewed**: 2026-11-24
+
+## PROFILE_READ_TIMEOUT_MILLISECONDS
+
+- **Value**: 3000 ms
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: The longest one Instagram profile read may take during a pick (route 3, routes-final § 1 MC7) before the pick goes on without it — it fails open, the username is enough.
+- **Consequences of change**:
+  - Decreasing → more picks connect without the profile (filled by the next daily check).
+  - Increasing → a slow Meta holds the owner's pick answer longer.
+- **Last reviewed**: 2026-11-24
+
+## META_USAGE_SLOW_PERCENT
+
+- **Value**: 80 percent
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: From this Meta usage (the highest of `X-Business-Use-Case-Usage`'s call count, CPU time and total time for that asset and type, kept per connection — routes-final § 1 MC19, P51, S13) every channel's calls on the connection slow down (the reply lane's boxes double), the plan's rule (plan:L2353–L2360).
+- **Consequences of change**:
+  - Decreasing → slows earlier, wasting headroom.
+  - Increasing → less room before Meta blocks the business.
+- **Last reviewed**: 2026-11-24
+
+## META_USAGE_WAIT_PERCENT
+
+- **Value**: 95 percent
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: From this Meta usage every channel's calls on that connection wait until the time Meta gave (`estimated_time_to_regain_access`), else `META_USAGE_DEFAULT_WAIT_MINUTES` (routes-final § 1 MC19, P51).
+- **Consequences of change**:
+  - Decreasing → stops sending while Meta would still accept calls.
+  - Increasing → Meta blocks the business before we stop, which costs longer than a wait.
+- **Last reviewed**: 2026-11-24
+
+## META_USAGE_DEFAULT_WAIT_MINUTES
+
+- **Value**: 15 minutes
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: How long a connection at `META_USAGE_WAIT_PERCENT` waits when Meta's answer names no time to regain access (routes-final § 1 MC19).
+- **Consequences of change**:
+  - Decreasing → calls resume into a limit that may still be on.
+  - Increasing → a business's sends stand still longer than Meta needs.
+- **Last reviewed**: 2026-11-24

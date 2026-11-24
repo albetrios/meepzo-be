@@ -2,11 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { resetEnvCacheForTests } from '@/shared/config/env.config.js';
@@ -152,7 +152,7 @@ describe('Instagram media routes (post and story pickers)', () => {
 
   afterEach(async () => {
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
   /** Connects a fresh Instagram account for `fixture` through route 1 and returns its profile. */
@@ -174,7 +174,7 @@ describe('Instagram media routes (post and story pickers)', () => {
 
   /** The Graph host, expecting the stored token (decrypted by the client) in the header only. */
   function graph(): nock.Scope {
-    return nock(INSTAGRAM_GRAPH_BASE_URL).matchHeader(
+    return nock(META_GRAPH_BASE_URL).matchHeader(
       'authorization',
       `Bearer ${TEST_INSTAGRAM_LONG_LIVED_TOKEN}`,
     );
@@ -187,7 +187,7 @@ describe('Instagram media routes (post and story pickers)', () => {
     profile: TestInstagramProfile;
     edge: 'media' | 'stories';
   }) {
-    return `/${INSTAGRAM_GRAPH_API_VERSION}/${profile.id}/${edge}`;
+    return `/${META_GRAPH_VERSION}/${profile.id}/${edge}`;
   }
 
   function get({
@@ -435,8 +435,8 @@ describe('Instagram media routes (post and story pickers)', () => {
 
     it('answers 503 instagram_not_configured, with its reason, when the Instagram app is not set', async () => {
       await connectAccount();
-      const savedAppId = process.env.INSTAGRAM_APP_ID;
-      delete process.env.INSTAGRAM_APP_ID;
+      const savedAppId = process.env.META_APP_ID;
+      delete process.env.META_APP_ID;
       resetEnvCacheForTests();
       try {
         const response = await get({ url: INSTAGRAM_MEDIA_PATH });
@@ -445,7 +445,7 @@ describe('Instagram media routes (post and story pickers)', () => {
         expect(errorOf(response).code).toBe('service_unavailable');
         expect(errorOf(response).reason).toBe('instagram_not_configured');
       } finally {
-        process.env.INSTAGRAM_APP_ID = savedAppId;
+        process.env.META_APP_ID = savedAppId;
         resetEnvCacheForTests();
       }
     });

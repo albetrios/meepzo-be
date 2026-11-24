@@ -211,6 +211,7 @@
   "webhookUrlAllowlistRequired": "Webhook delivery requires WEBHOOK_URL_ALLOWLIST in production",
   "webhookUrlDnsFailed": "Could not resolve webhook URL hostname",
   "stripeNotConfigured": "Stripe is not configured",
+  "channelConnectStateInvalid": "The connection could not be finished. Start connecting again.",
   "instagramNotConfigured": "Instagram is not configured",
   "instagramUnavailable": "Instagram is temporarily unavailable. Please try again later.",
   "instagramCodeInvalid": "Instagram did not accept this connection code. It may have expired or been used already; connect Instagram again.",

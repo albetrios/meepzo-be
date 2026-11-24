@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**19 / 247** variables migrated to an explicit `{ allowed, description }` entry.
+**20 / 248** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -101,10 +101,6 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `IDEMPOTENCY_CARDINALITY_WARN_THRESHOLD` | — | `50000` |  | — |
 | `IDEMPOTENCY_PER_ACTOR_CAP` | — | `1000` |  | — |
 | `IDEMPOTENCY_PER_ACTOR_CAP_WINDOW_SECONDS` | — | `3600` |  | — |
-| `INSTAGRAM_APP_ID` | non-empty string (the Instagram app ID from the Meta App Dashboard) | — *(optional)* | ✓ | The Instagram app id: the client_id of the code exchange (public — the frontend's authorize link carries it too). Unset, the Instagram routes answer 503 instagram_not_configured. |
-| `INSTAGRAM_APP_SECRET` | string of at least 32 characters (the Instagram app secret; a GitHub Secret), or unset | — *(optional)* | ✓ | The Instagram app's one secret: the client_secret of the code exchanges and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503. |
-| `INSTAGRAM_REDIRECT_URI` | absolute URL | — *(optional)* | ✓ | The frontend's /auth/instagram/callback page. It must equal one of the Instagram app's OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured. |
-| `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | string of at least 32 characters (a GitHub Secret), or unset | — *(optional)* | ✓ | The Instagram webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots. |
 | `INVITATION_MAX_PENDING_PER_ORG` | — | `100` |  | — |
 | `JWT_PRIVATE_KEY` | — | — *(required)* |  | — |
 | `JWT_PUBLIC_KEY` | — | — *(required)* |  | — |
@@ -123,6 +119,11 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `MEMBER_ROLE_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
 | `MEMBERSHIP_INVITATION_TOKEN_ECHO_ENABLED` | — | `false` |  | — |
 | `MEMBERSHIP_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
+| `META_APP_ID` | non-empty string (the app ID from the Meta App Dashboard) | — *(optional)* | ✓ | The Meta app id: the client_id of the Unified Login address and its code exchange (public — the login address carries it). Unset, the Instagram routes answer 503 instagram_not_configured. |
+| `META_APP_SECRET` | string of at least 32 characters (the Meta app secret; a GitHub Secret), or unset | — *(optional)* | ✓ | The Meta app's one secret: the client_secret of the code exchange, the key of every call's appsecret_proof, and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503. |
+| `META_CONFIG_ID` | non-empty string (the Facebook Login for Business configuration ID), or unset | — *(optional)* | ✓ | The Unified Login configuration id (config_id of the login address): which permissions and assets the login asks for. Not secret. Unset, the Instagram routes answer 503 instagram_not_configured. |
+| `META_REDIRECT_URI` | absolute URL | — *(optional)* | ✓ | The frontend's return page of the Meta login. It must equal one of the Meta app's valid OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured. |
+| `META_WEBHOOK_VERIFY_TOKEN` | string of at least 32 characters (a GitHub Secret), or unset | — *(optional)* | ✓ | The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots. |
 | `METRICS_AUTH_REQUIRED` | — | `true` |  | — |
 | `METRICS_ENABLED` | — | `true` |  | — |
 | `METRICS_SCRAPE_TOKEN` | — | — *(optional)* |  | — |

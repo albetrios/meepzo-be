@@ -32,7 +32,7 @@ through their services. Built by ROUTE row R6 of the launch iteration
   (the `stripeWebhookIngressPlugin` pattern): the routes' only body parser
   (`application/x-www-form-urlencoded`, which reads the one `signed_request` field and skips every
   other) and a `preValidation` hook that verifies `signed_request`
-  with the shared `parseMetaSignedRequest` (`src/infrastructure/social/meta-signature.util.ts`) and
+  with the shared `parseMetaSignedRequest` (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.ts`) and
   sets `request.metaSignedRequest`
 - `instagram-account-meta-callback.controller.ts` — reads the verified request, calls the service,
   writes one audit entry per organization changed, answers Meta
@@ -58,7 +58,7 @@ through their services. Built by ROUTE row R6 of the launch iteration
 ## Key invariants
 
 - **The signature first, then everything else.** Nothing is read or written before the signed
-  request verifies: HMAC-SHA256 of the payload part with `INSTAGRAM_APP_SECRET`, compared in
+  request verifies: HMAC-SHA256 of the payload part with `META_APP_SECRET`, compared in
   constant time, `algorithm` `HMAC-SHA256`, a digits-only `user_id` — the one helper the Instagram
   webhook's `X-Hub-Signature-256` check shares. A bad one is `400 instagram_signed_request_invalid`;
   no app secret is `503 instagram_not_configured`.
@@ -113,7 +113,7 @@ Instagram app ("Deauthorize callback URL", "Data deletion request URL"):
   `signed_request`, another algorithm, or no `user_id`; nothing changes.
 - `413` — a body over 16 KB; `415` — a body that is not form-encoded; `429` — over the webhook rate
   limit.
-- `503 instagram_not_configured` — `INSTAGRAM_APP_SECRET` unset.
+- `503 instagram_not_configured` — `META_APP_SECRET` unset.
 - A database failure in one organization fails the request; Meta retries, and the organizations
   already changed find nothing left to do.
 

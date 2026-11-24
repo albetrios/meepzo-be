@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { OrganizationRepository } from '@/domains/tenancy/sub-domains/organization/organization.repository.js';
@@ -119,7 +119,7 @@ describe('Instagram account — the organization is deleted', () => {
   afterEach(async () => {
     nock.cleanAll();
     vi.restoreAllMocks();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
   function connect({
@@ -375,7 +375,7 @@ describe('Instagram account — the organization is deleted', () => {
             userId: profile.id,
             issuedAt: metaIssuedAtAfterConnections(),
           }),
-          appSecret: getEnv().INSTAGRAM_APP_SECRET as string,
+          appSecret: getEnv().META_APP_SECRET as string,
         }),
       ),
     });

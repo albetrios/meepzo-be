@@ -250,8 +250,8 @@ export function readInstagramRetryAfterMs(retryAfterHeader: string | null): numb
   );
 }
 
-/** Options for {@link InstagramApiError}. */
-export interface InstagramApiErrorOptions {
+/** Options for {@link MetaGraphApiError}. */
+export interface MetaGraphApiErrorOptions {
   errorClass: InstagramErrorClass;
   category: OutboundCategory;
   connectionStatus?: InstagramBrokenConnectionStatus | null;
@@ -267,7 +267,7 @@ export interface InstagramApiErrorOptions {
  * it — as one of the four classes of IA4.
  *
  * @remarks
- * - **Algorithm:** an {@link ExternalServiceError} (`integration: 'instagram'`, so an unmapped one
+ * - **Algorithm:** an {@link ExternalServiceError} (`integration: 'meta-graph'`, so an unmapped one
  *   answers 503, with `Retry-After` when it carries `retryAfterMs`) plus `errorClass`, the
  *   `connectionStatus` an `auth` failure means, Instagram's code, subcode, type and `fbtraceId`, and `isQuickReplyRefused` (code 100, subcode 2534015 — the email / phone quick
  *   reply refused; the question goes again as plain text, schema-routes §6.5).
@@ -278,7 +278,7 @@ export interface InstagramApiErrorOptions {
  *   `instagram` circuit for every organization (as `ResendApiError`). Only an `outage` counts.
  *   The message names the class, status and codes; no field keeps Instagram's text (D53).
  */
-export class InstagramApiError extends ExternalServiceError {
+export class MetaGraphApiError extends ExternalServiceError {
   /** Which of the four classes this failure is. */
   readonly errorClass: InstagramErrorClass;
   /** For `auth`: the connection status it means (`expired` for code 190 / 463, else `error`). */
@@ -296,10 +296,10 @@ export class InstagramApiError extends ExternalServiceError {
   /** Read by the circuit breaker: false unless this is an `outage`. */
   readonly countsAsCircuitFailure: boolean;
 
-  constructor(options: InstagramApiErrorOptions) {
+  constructor(options: MetaGraphApiErrorOptions) {
     const details = options.details ?? EMPTY_INSTAGRAM_ERROR_DETAILS;
     super({
-      integration: 'instagram',
+      integration: 'meta-graph',
       category: options.category,
       ...(options.httpStatus !== undefined ? { status: options.httpStatus } : {}),
       ...(options.retryAfterMs !== undefined ? { retryAfterMs: options.retryAfterMs } : {}),
@@ -307,7 +307,7 @@ export class InstagramApiError extends ExternalServiceError {
       ...(options.cause !== undefined ? { cause: options.cause } : {}),
       fallbackMessage: options.fallbackMessage,
     });
-    this.name = 'InstagramApiError';
+    this.name = 'MetaGraphApiError';
     this.errorClass = options.errorClass;
     this.connectionStatus = options.connectionStatus ?? null;
     this.instagramErrorCode = details.code;
@@ -340,7 +340,7 @@ function describeInstagramErrorAnswer({
 }
 
 /**
- * Reads Instagram's error answer once into an {@link InstagramApiError} — the
+ * Reads Instagram's error answer once into an {@link MetaGraphApiError} — the
  * `classifyResponseError` of every Instagram call.
  *
  * @remarks
@@ -348,7 +348,7 @@ function describeInstagramErrorAnswer({
  * {@link classifyInstagramErrorResponse}; a `throttled` answer carries how long to wait
  * ({@link readInstagramRetryAfterMs}).
  */
-export function readInstagramErrorResponse({
+export function readMetaGraphErrorResponse({
   httpStatus,
   body,
   retryAfterHeader,
@@ -356,10 +356,10 @@ export function readInstagramErrorResponse({
   httpStatus: number;
   body: string;
   retryAfterHeader: string | null;
-}): InstagramApiError {
+}): MetaGraphApiError {
   const details = readInstagramErrorBody(body);
   const { errorClass, connectionStatus } = classifyInstagramErrorResponse({ httpStatus, details });
-  return new InstagramApiError({
+  return new MetaGraphApiError({
     errorClass,
     category: httpStatus >= 500 ? 'http_5xx' : 'http_4xx',
     connectionStatus,
@@ -373,7 +373,7 @@ export function readInstagramErrorResponse({
 }
 
 /**
- * Any error an Instagram call threw, as an {@link InstagramApiError}: one already is passes as is;
+ * Any error an Instagram call threw, as an {@link MetaGraphApiError}: one already is passes as is;
  * an {@link ExternalServiceError} from the outbound layer (timeout, network, an open circuit, a 5xx
  * or an unreadable body) becomes an `outage` keeping its category, status and `retryAfterMs`.
  *
@@ -381,8 +381,8 @@ export function readInstagramErrorResponse({
  * Anything else — our own failure, such as a token that does not decrypt — is returned unchanged,
  * so it stays a 500 instead of passing for Instagram being down.
  */
-export function toInstagramApiError(error: unknown): unknown {
-  if (error instanceof InstagramApiError || !(error instanceof ExternalServiceError)) {
+export function toMetaGraphApiError(error: unknown): unknown {
+  if (error instanceof MetaGraphApiError || !(error instanceof ExternalServiceError)) {
     return error;
   }
   const { errorClass, connectionStatus } =
@@ -392,7 +392,7 @@ export function toInstagramApiError(error: unknown): unknown {
           details: EMPTY_INSTAGRAM_ERROR_DETAILS,
         })
       : { errorClass: 'outage' as const, connectionStatus: null };
-  return new InstagramApiError({
+  return new MetaGraphApiError({
     errorClass,
     category: error.category,
     connectionStatus,
@@ -407,14 +407,14 @@ export function toInstagramApiError(error: unknown): unknown {
  * The error for an Instagram success answer that lacks what the call needs (no `access_token`, no
  * `data` list): Instagram misbehaving, so an `outage`.
  */
-export function buildInstagramMalformedAnswerError({
+export function buildMetaGraphMalformedAnswerError({
   operation,
   missing,
 }: {
   operation: string;
   missing: string;
-}): InstagramApiError {
-  return new InstagramApiError({
+}): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass: 'outage',
     category: 'unknown',
     fallbackMessage: `Instagram answered ${operation} without ${missing}`,

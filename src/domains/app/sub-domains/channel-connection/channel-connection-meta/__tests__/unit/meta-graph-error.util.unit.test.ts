@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { ExternalServiceError } from '@/infrastructure/outbound/outbound-error.js';
 import {
-  buildInstagramMalformedAnswerError,
+  buildMetaGraphMalformedAnswerError,
   classifyInstagramErrorResponse,
   INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
   INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
   INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS,
-  InstagramApiError,
+  MetaGraphApiError,
   MESSENGER_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
   readInstagramErrorBody,
-  readInstagramErrorResponse,
+  readMetaGraphErrorResponse,
   readInstagramRetryAfterMs,
-  toInstagramApiError,
-} from '@/infrastructure/social/instagram-error.util.js';
+  toMetaGraphApiError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 
 /** A Graph error body, as graph.instagram.com sends it. */
 function graphErrorBody(error: {
@@ -40,8 +40,8 @@ function answer({
   httpStatus: number;
   body: string;
   retryAfterHeader?: string | null;
-}): InstagramApiError {
-  return readInstagramErrorResponse({ httpStatus, body, retryAfterHeader });
+}): MetaGraphApiError {
+  return readMetaGraphErrorResponse({ httpStatus, body, retryAfterHeader });
 }
 
 describe('readInstagramErrorBody', () => {
@@ -173,19 +173,19 @@ describe('readInstagramRetryAfterMs', () => {
   });
 });
 
-describe('readInstagramErrorResponse', () => {
+describe('readMetaGraphErrorResponse', () => {
   it('a dead token is auth, never counted against the circuit', () => {
     const error = answer({
       httpStatus: 400,
       body: graphErrorBody({ code: 190, error_subcode: 463 }),
     });
 
-    expect(error).toBeInstanceOf(InstagramApiError);
+    expect(error).toBeInstanceOf(MetaGraphApiError);
     expect(error).toBeInstanceOf(ExternalServiceError);
     expect(error).toMatchObject({
       errorClass: 'auth',
       connectionStatus: 'expired',
-      integration: 'instagram',
+      integration: 'meta-graph',
       category: 'http_4xx',
       status: 400,
       instagramErrorCode: 190,
@@ -301,17 +301,17 @@ describe('readInstagramErrorResponse', () => {
   });
 });
 
-describe('toInstagramApiError', () => {
+describe('toMetaGraphApiError', () => {
   it.each([
     ['timeout' as const],
     ['network' as const],
     ['http_5xx' as const],
     ['unknown' as const],
   ])('turns an outbound %s failure into an outage that counts against the circuit', (category) => {
-    const failure = new ExternalServiceError({ integration: 'instagram', category });
-    const error = toInstagramApiError(failure);
+    const failure = new ExternalServiceError({ integration: 'meta-graph', category });
+    const error = toMetaGraphApiError(failure);
 
-    expect(error).toBeInstanceOf(InstagramApiError);
+    expect(error).toBeInstanceOf(MetaGraphApiError);
     expect(error).toMatchObject({
       errorClass: 'outage',
       category,
@@ -322,11 +322,11 @@ describe('toInstagramApiError', () => {
 
   it("keeps an open circuit's wait, so the answer is 503 with Retry-After", () => {
     const circuitOpen = new ExternalServiceError({
-      integration: 'instagram',
+      integration: 'meta-graph',
       category: 'circuit_open',
       retryAfterMs: 12_000,
     });
-    expect(toInstagramApiError(circuitOpen)).toMatchObject({
+    expect(toMetaGraphApiError(circuitOpen)).toMatchObject({
       errorClass: 'outage',
       category: 'circuit_open',
       retryAfterMs: 12_000,
@@ -336,25 +336,25 @@ describe('toInstagramApiError', () => {
 
   it('classes a bare 4xx by its status', () => {
     const throttled = new ExternalServiceError({
-      integration: 'instagram',
+      integration: 'meta-graph',
       category: 'http_4xx',
       status: 429,
     });
-    expect(toInstagramApiError(throttled)).toMatchObject({ errorClass: 'throttled' });
+    expect(toMetaGraphApiError(throttled)).toMatchObject({ errorClass: 'throttled' });
   });
 
-  it('passes an InstagramApiError and our own failures through unchanged', () => {
+  it('passes an MetaGraphApiError and our own failures through unchanged', () => {
     const instagramError = answer({ httpStatus: 400, body: graphErrorBody({ code: 190 }) });
     const ownFailure = new Error('field-secret value is not encrypted');
 
-    expect(toInstagramApiError(instagramError)).toBe(instagramError);
-    expect(toInstagramApiError(ownFailure)).toBe(ownFailure);
+    expect(toMetaGraphApiError(instagramError)).toBe(instagramError);
+    expect(toMetaGraphApiError(ownFailure)).toBe(ownFailure);
   });
 });
 
-describe('buildInstagramMalformedAnswerError', () => {
+describe('buildMetaGraphMalformedAnswerError', () => {
   it('is an outage naming what the answer lacked', () => {
-    const error = buildInstagramMalformedAnswerError({
+    const error = buildMetaGraphMalformedAnswerError({
       operation: 'the token renewal',
       missing: 'expires_in',
     });

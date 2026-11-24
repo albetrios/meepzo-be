@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -92,7 +92,7 @@ describe('Instagram account settings route (change)', () => {
 
   afterEach(async () => {
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
   /** Connects a fresh account for `fixture`'s Owner and returns its public id and profile. */

@@ -12,15 +12,15 @@ import {
   readAnswerCount,
   readAnswerId,
   readAnswerText,
-} from '@/infrastructure/social/instagram.client.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
-  InstagramApiError,
-  buildInstagramMalformedAnswerError,
-} from '@/infrastructure/social/instagram-error.util.js';
+  MetaGraphApiError,
+  buildMetaGraphMalformedAnswerError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { InstagramAccountKey } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import {
-  instagramCircuitOpenError,
+  metaGraphCircuitOpenError,
   instagramReconnectRequiredError,
   instagramUnavailableError,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account-error.util.js';
@@ -60,11 +60,11 @@ function toInstagramMediaValues({
 }): InstagramMediaValues {
   const instagramMediaId = readAnswerId(mediaItem.id);
   if (instagramMediaId === null) {
-    throw buildInstagramMalformedAnswerError({ operation: 'the media read', missing: 'id' });
+    throw buildMetaGraphMalformedAnswerError({ operation: 'the media read', missing: 'id' });
   }
   const publishedAt = readInstagramTimestamp(mediaItem.timestamp);
   if (publishedAt === null) {
-    throw buildInstagramMalformedAnswerError({ operation: 'the media read', missing: 'timestamp' });
+    throw buildMetaGraphMalformedAnswerError({ operation: 'the media read', missing: 'timestamp' });
   }
   const graphData = mediaItem as unknown as Record<string, unknown>;
   const isCommentEnabled = graphData.is_comment_enabled;
@@ -191,7 +191,7 @@ export class InstagramMediaService {
    * caller's unit of work when one is open. A media id already stored under another of the
    * organization's accounts is left untouched and answers `null`, so two accounts' posts never mix
    * (AC-3.8). Failure modes: an object without an id or a readable `timestamp` throws an `outage`
-   * `InstagramApiError` (Instagram misbehaving) before any write; a scope of another organization
+   * `MetaGraphApiError` (Instagram misbehaving) before any write; a scope of another organization
    * than the account's fails the composite key or the policy's `WITH CHECK`. Side effects: writes
    * one `app.instagram_media` row. No Instagram call — the caller read the post first
    * (`readInstagramMediaItem`), outside any database context.
@@ -308,8 +308,8 @@ export class InstagramMediaService {
     requestId: string;
     error: unknown;
   }): Promise<unknown> {
-    if (error instanceof CircuitBreakerOpenError) return instagramCircuitOpenError(error);
-    if (!(error instanceof InstagramApiError)) return error;
+    if (error instanceof CircuitBreakerOpenError) return metaGraphCircuitOpenError(error);
+    if (!(error instanceof MetaGraphApiError)) return error;
     if (error.errorClass === 'auth') {
       await this.accountService.markConnectionBroken({
         scope,

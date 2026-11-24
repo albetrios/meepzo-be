@@ -56,7 +56,10 @@ vi.mock('@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js', (
   },
 }));
 
-vi.mock('@/infrastructure/social/instagram.client.js', () => instagramClient);
+vi.mock(
+  '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js',
+  () => instagramClient,
+);
 
 vi.mock('@/domains/app/sub-domains/instagram-account/instagram-account.repository.js', () => ({
   createWorkerInstagramAccountRepository: () => accountRepository,
@@ -79,7 +82,7 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { readInstagramErrorResponse } from '@/infrastructure/social/instagram-error.util.js';
+import { readMetaGraphErrorResponse } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { ProviderOutageError } from '@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js';
 import {
   classifyInstagramDailyCheckFailure,
@@ -104,7 +107,7 @@ const STORED_CIPHERTEXT = 'v1:stored-token-ciphertext';
 const RENEWED_CIPHERTEXT = 'v1:renewed-token-ciphertext';
 
 function instagramError(options: { httpStatus: number; body: unknown; retryAfter?: string }) {
-  return readInstagramErrorResponse({
+  return readMetaGraphErrorResponse({
     httpStatus: options.httpStatus,
     body: JSON.stringify(options.body),
     retryAfterHeader: options.retryAfter ?? null,
@@ -365,7 +368,7 @@ describe('processInstagramAccountDailyCheckJob', () => {
     const failure = await runCheck().catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(ProviderOutageError);
-    expect(failure).toMatchObject({ provider: 'instagram', retryAfterMs: 120_000 });
+    expect(failure).toMatchObject({ provider: 'meta', retryAfterMs: 120_000 });
     expect(tokenRepository.recordRefreshError).toHaveBeenCalledTimes(1);
     expect(markConnectionBroken).not.toHaveBeenCalled();
   });

@@ -129,6 +129,30 @@ src/
     │   │   │   ├── automation.service.ts
     │   │   │   ├── automation.types.ts
     │   │   │   └── automation.validator.ts
+    │   │   ├── channel-connection/
+    │   │   │   ├── __tests__/
+    │   │   │   │   └── unit/
+    │   │   │   │   │   ├── channel-connection-state.unit.test.ts
+    │   │   │   │   │   └── channel-connection-usage.service.unit.test.ts
+    │   │   │   ├── channel-connection-meta/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── meta-graph-error.util.unit.test.ts
+    │   │   │   │   │   │   ├── meta-graph-usage.util.unit.test.ts
+    │   │   │   │   │   │   ├── meta-graph.client.unit.test.ts
+    │   │   │   │   │   │   ├── meta-login.unit.test.ts
+    │   │   │   │   │   │   └── meta-signature.unit.test.ts
+    │   │   │   │   ├── channel-connection-meta.overview.md
+    │   │   │   │   ├── meta-graph-error.util.ts
+    │   │   │   │   ├── meta-graph-usage.util.ts
+    │   │   │   │   ├── meta-graph.client.ts
+    │   │   │   │   ├── meta-login.ts
+    │   │   │   │   └── meta-signature.ts
+    │   │   │   ├── channel-connection-state.ts
+    │   │   │   ├── channel-connection-usage.cache.ts
+    │   │   │   ├── channel-connection-usage.service.ts
+    │   │   │   ├── channel-connection-usage.types.ts
+    │   │   │   └── channel-connection.overview.md
     │   │   ├── contact/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
@@ -1591,6 +1615,7 @@ src/
     │   │   │   ├── assert-redis-eviction-policy.unit.test.ts
     │   │   │   ├── assert-redis-tls-safety.unit.test.ts
     │   │   │   ├── redis-lock.util.unit.test.ts
+    │   │   │   ├── redis-one-use-value.util.unit.test.ts
     │   │   │   ├── redis-scan.util.unit.test.ts
     │   │   │   ├── redis-url.util.unit.test.ts
     │   │   │   └── resolve-bullmq-redis-url.util.unit.test.ts
@@ -1600,6 +1625,7 @@ src/
     │   ├── cache.overview.md
     │   ├── redis-close.util.ts
     │   ├── redis-lock.util.ts
+    │   ├── redis-one-use-value.util.ts
     │   ├── redis-prefix.util.ts
     │   ├── redis-scan.util.ts
     │   ├── redis-semaphore.util.ts
@@ -1837,16 +1863,6 @@ src/
     │   ├── circuit-breaker.ts
     │   ├── resilience.overview.md
     │   └── retry-with-backoff.util.ts
-    ├── social/
-    │   ├── __tests__/
-    │   │   └── unit/
-    │   │   │   ├── instagram-error.util.unit.test.ts
-    │   │   │   ├── instagram.client.unit.test.ts
-    │   │   │   └── meta-signature.util.unit.test.ts
-    │   ├── instagram-error.util.ts
-    │   ├── instagram.client.ts
-    │   ├── meta-signature.util.ts
-    │   └── social.overview.md
     ├── storage/
     │   ├── __tests__/
     │   │   └── unit/
@@ -2187,7 +2203,7 @@ src/
     │   └── webhook-delivery.chaos.test.ts
     ├── contract/
     │   ├── fixtures/
-    │   │   ├── instagram/
+    │   │   ├── meta-graph/
     │   │   │   ├── access-token.success.response.json
     │   │   │   ├── comment-replies.success.response.json
     │   │   │   ├── graph-error.application-throttled.response.json
@@ -2258,7 +2274,7 @@ src/
     │   ├── contract.overview.md
     │   ├── github-oauth.contract.test.ts
     │   ├── google-oauth.contract.test.ts
-    │   ├── instagram.contract.test.ts
+    │   ├── meta-graph.contract.test.ts
     │   ├── request-id-eventbus.contract.test.ts
     │   ├── resend.contract.test.ts
     │   ├── resend.live.contract.test.ts

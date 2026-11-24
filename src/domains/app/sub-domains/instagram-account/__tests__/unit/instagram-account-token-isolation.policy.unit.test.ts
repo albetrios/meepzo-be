@@ -15,9 +15,9 @@ import { describe, expect, it } from 'vitest';
  *    else — the account service included — reaches the token through `InstagramAccountTokenService`
  *    and holds `encrypted_access_token` only.
  * 3. Only {@link TOKEN_DECRYPTERS} — the Instagram client
- *    (`src/infrastructure/social/instagram.client.ts`) and the secrets-key rotation script — call
+ *    (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`) and the secrets-key rotation script — call
  *    `decryptFieldSecret` on the token: no other file under the Instagram surface
- *    (`src/domains/app/`, `src/infrastructure/social/`) references `decryptFieldSecret`, and no
+ *    (`src/domains/app/`) references `decryptFieldSecret`, and no
  *    other file anywhere references it together with the token's names.
  *
  * Test code — anything under `src/tests/` or a `__tests__/` folder, and every `*.test.ts` — is out
@@ -40,7 +40,8 @@ const INSTAGRAM_ACCOUNT_FOLDER = 'src/domains/app/sub-domains/instagram-account'
 const TOKEN_SCHEMA_FILE = `${INSTAGRAM_ACCOUNT_FOLDER}/instagram-account-token.schema.ts`;
 const TOKEN_REPOSITORY_FILE = `${INSTAGRAM_ACCOUNT_FOLDER}/instagram-account-token.repository.ts`;
 const TOKEN_SERVICE_FILE = `${INSTAGRAM_ACCOUNT_FOLDER}/instagram-account-token.service.ts`;
-const INSTAGRAM_CLIENT_FILE = 'src/infrastructure/social/instagram.client.ts';
+const INSTAGRAM_CLIENT_FILE =
+  'src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts';
 const SECRETS_KEY_ROTATION_FILE = 'src/scripts/ops/secrets-key-rotate.ts';
 const SECRETS_KEY_ROTATION_REASON =
   'the operator secrets-key rotation (pnpm ops:secrets:rotate) re-encrypts every stored token onto the current SECRETS_ENCRYPTION key version, as it does every encryptFieldSecret column (D37); it never logs or returns a token';
@@ -173,10 +174,7 @@ describe('Instagram token isolation (policy, IA5)', () => {
       .filter(([file]) => !allowed.has(file))
       .filter(([, source]) => source.includes('decryptFieldSecret'))
       .filter(
-        ([file, source]) =>
-          file.startsWith('src/domains/app/') ||
-          file.startsWith('src/infrastructure/social/') ||
-          TOKEN_NAME_PATTERN.test(source),
+        ([file, source]) => file.startsWith('src/domains/app/') || TOKEN_NAME_PATTERN.test(source),
       )
       .map(([file]) => file)
       .sort();

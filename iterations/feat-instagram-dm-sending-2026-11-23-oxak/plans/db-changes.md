@@ -341,6 +341,10 @@ fields stay in `instagram_account`, its 1:1 extension (P42).
   and until when calls wait — so every channel of that business shares one limit; every channel's engine
   reads it before a call (80 % or more slows, 95 % or more waits the time Meta gives or 15 minutes,
   plan:L2353–L2360). Postgres holds it; a short Redis copy serves gate 1 (P32).
+  **R2 ([AS-BUILT](../AS-BUILT.md), [P107](decisions.md)):** the client parses the usage per (asset id,
+  type) as S13 asks, behind `ChannelConnectionUsageStore`; R3 builds its Postgres store (recommended a child
+  table `app.channel_connection_usages` instead of these three columns) and the Redis copy
+  `app:meta_usage:<organization>:<connection>` is built (60 s, tombstoned).
 - **Table:** `app.channel_connections` ([P41](decisions.md); was `app.meta_connections`, P38)
 - **Sources:** plan:L3517–L3553 (columns, rules), plan:L3998–L4013 (status), plan:L4528–L4575 (connect),
   plan:L876–L880 (ads picker), plan:L4695–L4705 (Meta's callbacks).

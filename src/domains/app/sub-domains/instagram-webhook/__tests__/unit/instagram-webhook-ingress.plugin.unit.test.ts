@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError, ServiceUnavailableError, ValidationError } from '@/shared/errors/index.js';
 
 const mockEnvironment = vi.hoisted(() => ({
-  INSTAGRAM_APP_SECRET: 'unit-test-instagram-app-secret' as string | undefined,
+  META_APP_SECRET: 'unit-test-instagram-app-secret' as string | undefined,
 }));
 const loggerWarn = vi.hoisted(() => vi.fn());
 
@@ -85,7 +85,7 @@ async function reasonOf(promise: Promise<void> | undefined): Promise<string | un
 
 describe('instagramWebhookIngressPlugin', () => {
   beforeEach(() => {
-    mockEnvironment.INSTAGRAM_APP_SECRET = 'unit-test-instagram-app-secret';
+    mockEnvironment.META_APP_SECRET = 'unit-test-instagram-app-secret';
     loggerWarn.mockReset();
   });
 
@@ -104,7 +104,7 @@ describe('instagramWebhookIngressPlugin', () => {
   });
 
   it('answers 503 instagram_webhook_not_configured without the app secret — before the header', async () => {
-    mockEnvironment.INSTAGRAM_APP_SECRET = undefined;
+    mockEnvironment.META_APP_SECRET = undefined;
     const preHandler = await loadPreHandler();
     const attempt = preHandler(requestWith({ signature: signatureOf(RAW_BODY) }));
 
@@ -205,7 +205,7 @@ describe('instagramWebhookIngressPlugin', () => {
     });
 
     it('answers 503 instagram_webhook_not_configured first when the app secret is unset', async () => {
-      mockEnvironment.INSTAGRAM_APP_SECRET = undefined;
+      mockEnvironment.META_APP_SECRET = undefined;
       const { preParsing } = await loadHooks();
       const attempt = preParsing(requestWith({ withoutRawBody: true }), {}, PAYLOAD);
 

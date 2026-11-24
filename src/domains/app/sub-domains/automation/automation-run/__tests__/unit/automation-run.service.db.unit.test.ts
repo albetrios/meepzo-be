@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
@@ -91,11 +91,11 @@ function instagramError({
   subcode = null,
 }: {
   errorClass: 'auth' | 'throttled' | 'refused' | 'outage';
-  category?: ConstructorParameters<typeof InstagramApiError>[0]['category'];
+  category?: ConstructorParameters<typeof MetaGraphApiError>[0]['category'];
   code?: number | null;
   subcode?: number | null;
-}): InstagramApiError {
-  return new InstagramApiError({
+}): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass,
     category,
     connectionStatus: errorClass === 'auth' ? 'error' : null,

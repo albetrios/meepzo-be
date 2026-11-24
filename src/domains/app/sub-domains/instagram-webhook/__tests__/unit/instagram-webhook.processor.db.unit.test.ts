@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
 import { ProviderOutageError } from '@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
@@ -460,8 +460,8 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
 
   describe('an event that ends failed fails the runs it left running (WH14 rev 4, AU19, D47)', () => {
     /** An Instagram error as the client throws it. */
-    function instagramError(errorClass: 'auth' | 'throttled', code: number): InstagramApiError {
-      return new InstagramApiError({
+    function instagramError(errorClass: 'auth' | 'throttled', code: number): MetaGraphApiError {
+      return new MetaGraphApiError({
         errorClass,
         category: 'http_4xx',
         connectionStatus: errorClass === 'auth' ? 'expired' : null,
@@ -666,7 +666,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     }
 
     const throttled = () =>
-      new InstagramApiError({
+      new MetaGraphApiError({
         errorClass: 'throttled',
         category: 'http_4xx',
         httpStatus: 429,
@@ -715,7 +715,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
 
     it('a try an outage gave back counts too: the run it started is failed by the skip', async () => {
       const { stored, runId } = await startRunOfComment(
-        new CircuitBreakerOpenError('instagram', 30_000, 'instagram circuit open'),
+        new CircuitBreakerOpenError('meta', 30_000, 'instagram circuit open'),
       );
       expect((await readTestInstagramWebhookEvent(stored.id))?.attempt_count).toBe(0);
       processingAccount = { ...processingAccount, isAutomationEnabled: false };
@@ -774,7 +774,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       attemptCount: 2,
     });
     accountService.findAutomationAccountAccess.mockRejectedValueOnce(
-      new CircuitBreakerOpenError('instagram', 30_000, 'instagram circuit open'),
+      new CircuitBreakerOpenError('meta', 30_000, 'instagram circuit open'),
     );
 
     await expect(runJob()).rejects.toBeInstanceOf(ProviderOutageError);

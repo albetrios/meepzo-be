@@ -316,53 +316,62 @@ const BILLING_POLICY_VARS = {
 } satisfies Record<string, EnvVarSpec>;
 
 /**
- * The Instagram app's settings (the Instagram automation launch, IA4; full names and one app secret,
- * D20). Only the one Instagram client (`src/infrastructure/social/`) and Meta's signature checks read
- * them. The three app settings are optional everywhere, production included: unset, every route that
- * needs one answers 503 (`instagram_not_configured`) — it fails closed, as the Stripe webhook does
- * without its secret — so no refine pins them. The webhook's verify token (WH7) is optional the same
- * way, production included (launch D39): unset, Meta's subscription check answers 503
+ * The Meta app's settings (Unified Login, routes-final § 1 MC3, D24; full names and one app secret,
+ * D20). Only the Meta adapter (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/`)
+ * and Meta's signature checks read them. The four app settings are optional everywhere, production
+ * included: unset, every route that needs one answers 503 (`instagram_not_configured` — the reason
+ * names the product, not the vendor) — it fails closed, as the Stripe webhook does without its
+ * secret — so no refine pins them. The webhook's verify token (WH7) is optional the same way,
+ * production included (launch D39): unset, Meta's subscription check answers 503
  * `instagram_webhook_not_configured`. Set, the app secret and the verify token must each be at least
- * 32 characters, like `OPS_ADMIN_TOKEN` — the secret is the HMAC key of every Meta signature, so a
- * placeholder or guessable one would let anyone sign a delivery (launch D53; Meta's own are 32), and
- * a guessable token lets anyone subscribe the endpoint. The app id and redirect URI are GitHub
- * Variables, the secret and the verify token GitHub Secrets (`classifyKey`).
+ * 32 characters, like `OPS_ADMIN_TOKEN` — the secret is the HMAC key of every Meta signature and of
+ * `appsecret_proof`, so a placeholder or guessable one would let anyone sign a delivery (launch D53;
+ * Meta's own are 32), and a guessable token lets anyone subscribe the endpoint. The app id, the
+ * login configuration id and the redirect URI are GitHub Variables, the secret and the verify token
+ * GitHub Secrets (`classifyKey`).
  */
-const INSTAGRAM_VARS = {
-  INSTAGRAM_APP_ID: envVar({
+const META_VARS = {
+  META_APP_ID: envVar({
     schema: z.string().min(1).optional(),
     meta: {
-      allowed: 'non-empty string (the Instagram app ID from the Meta App Dashboard)',
+      allowed: 'non-empty string (the app ID from the Meta App Dashboard)',
       description:
-        "The Instagram app id: the client_id of the code exchange (public — the frontend's authorize link carries it too). Unset, the Instagram routes answer 503 instagram_not_configured.",
+        'The Meta app id: the client_id of the Unified Login address and its code exchange (public — the login address carries it). Unset, the Instagram routes answer 503 instagram_not_configured.',
     },
   }),
   // Optional and fail closed (launch D53): unset, the routes answer 503; set, at least 32 characters.
-  INSTAGRAM_APP_SECRET: envVar({
+  META_APP_SECRET: envVar({
     schema: z.string().min(32).optional(),
     meta: {
-      allowed:
-        'string of at least 32 characters (the Instagram app secret; a GitHub Secret), or unset',
+      allowed: 'string of at least 32 characters (the Meta app secret; a GitHub Secret), or unset',
       description:
-        "The Instagram app's one secret: the client_secret of the code exchanges and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503.",
+        "The Meta app's one secret: the client_secret of the code exchange, the key of every call's appsecret_proof, and the HMAC-SHA256 key that checks Meta's signed requests and the webhook's X-Hub-Signature-256. Unset, every route that needs it answers 503.",
     },
   }),
-  INSTAGRAM_REDIRECT_URI: envVar({
+  META_CONFIG_ID: envVar({
+    schema: z.string().min(1).optional(),
+    meta: {
+      allowed: 'non-empty string (the Facebook Login for Business configuration ID), or unset',
+      description:
+        'The Unified Login configuration id (config_id of the login address): which permissions and assets the login asks for. Not secret. Unset, the Instagram routes answer 503 instagram_not_configured.',
+    },
+  }),
+  META_REDIRECT_URI: envVar({
     schema: z.url().optional(),
     meta: {
       allowed: 'absolute URL',
       description:
-        "The frontend's /auth/instagram/callback page. It must equal one of the Instagram app's OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured.",
+        "The frontend's return page of the Meta login. It must equal one of the Meta app's valid OAuth redirect URIs exactly — the code exchange sends it again. Unset, the Instagram routes answer 503 instagram_not_configured.",
     },
   }),
   // Optional and fail closed in every environment (WH7, launch D39): unset, the subscription check
   // answers 503; set, at least 32 characters.
-  INSTAGRAM_WEBHOOK_VERIFY_TOKEN: envVar({
+  META_WEBHOOK_VERIFY_TOKEN: envVar({
     schema: z.string().min(32).optional(),
     meta: {
       allowed: 'string of at least 32 characters (a GitHub Secret), or unset',
       description:
-        "The Instagram webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots.",
+        "The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots.",
     },
   }),
 } satisfies Record<string, EnvVarSpec>;
@@ -798,8 +807,8 @@ const envSchemaBase = z.object({
   OAUTH_GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   OAUTH_GITHUB_REDIRECT_URI: z.url().optional(),
 
-  // Instagram — declared in the INSTAGRAM_VARS registry above (allowed values + description).
-  ...toSchemaShape(INSTAGRAM_VARS),
+  // Meta — declared in the META_VARS registry above (allowed values + description).
+  ...toSchemaShape(META_VARS),
 
   // Stripe
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
@@ -2201,7 +2210,7 @@ export const envSchema = envSchemaBase
 export const ENV_VAR_REGISTRY: Readonly<Record<string, EnvVarSpec>> = {
   ...SERVER_VARS,
   ...BILLING_POLICY_VARS,
-  ...INSTAGRAM_VARS,
+  ...META_VARS,
 };
 
 /** Ordered list of env var names from the schema (for .env.example sync and scripts). */

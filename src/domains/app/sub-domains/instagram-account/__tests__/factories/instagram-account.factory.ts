@@ -16,9 +16,11 @@ import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import {
   INSTAGRAM_AUTHORIZATION_BASE_URL,
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
+  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
+  INSTAGRAM_LOGIN_GRAPH_VERSION,
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 
 /** `POST /app/social/instagram/connect` (route 1). */
 export const INSTAGRAM_CONNECT_PATH = testApiPath('/app/social/instagram/connect');
@@ -109,7 +111,7 @@ export function mockInstagramConnect({
         },
       ],
     });
-  const graph = nock(INSTAGRAM_GRAPH_BASE_URL)
+  const instagramLogin = nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
     .get('/access_token')
     .query(true)
     .reply(200, {
@@ -117,23 +119,26 @@ export function mockInstagramConnect({
       token_type: 'bearer',
       expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
     })
-    .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+    .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
     .query(true)
     .reply(200, profile);
+  const graph = nock(META_GRAPH_BASE_URL);
   if (subscription === 'success') {
     graph
-      .post(`/${INSTAGRAM_GRAPH_API_VERSION}/${profile.id}/subscribed_apps`)
+      .post(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)
       .query(true)
       .reply(200, { success: true });
   } else if (subscription === 'failure') {
     graph
-      .post(`/${INSTAGRAM_GRAPH_API_VERSION}/${profile.id}/subscribed_apps`)
+      .post(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)
       .query(true)
       .reply(400, {
         error: { message: 'Unsupported request', type: 'OAuthException', code: 100 },
       });
   }
-  return [codeExchange, graph];
+  return subscription === 'none'
+    ? [codeExchange, instagramLogin]
+    : [codeExchange, instagramLogin, graph];
 }
 
 /** Mocks the disconnect's `DELETE subscribed_apps` for an account's app-scoped id. */
@@ -144,9 +149,9 @@ export function mockInstagramUnsubscribe({
   instagramAppUserId: string;
   outcome?: 'success' | 'failure';
 }): nock.Scope {
-  const scope = nock(INSTAGRAM_GRAPH_BASE_URL).delete(
-    `/${INSTAGRAM_GRAPH_API_VERSION}/${instagramAppUserId}/subscribed_apps`,
-  );
+  const scope = nock(META_GRAPH_BASE_URL)
+    .delete(`/${META_GRAPH_VERSION}/${instagramAppUserId}/subscribed_apps`)
+    .query(true);
   return outcome === 'success'
     ? scope.reply(200, { success: true })
     : scope.reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });

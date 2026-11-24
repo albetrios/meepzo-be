@@ -11,7 +11,7 @@ import {
   getBullMQConnectionOptions,
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -140,7 +140,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
   /** Makes a waiting run look as if it waited since `days` ago. */
@@ -926,7 +926,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
             userId: team.profile.id,
             issuedAt: metaIssuedAtAfterConnections(),
           }),
-          appSecret: getEnv().INSTAGRAM_APP_SECRET ?? '',
+          appSecret: getEnv().META_APP_SECRET ?? '',
         }),
       ),
     });

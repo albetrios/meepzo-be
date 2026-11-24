@@ -12,7 +12,7 @@ vi.mock('node:crypto', async (importOriginal) => {
 import {
   parseMetaSignedRequest,
   verifyMetaWebhookSignature,
-} from '@/infrastructure/social/meta-signature.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 
 const APP_SECRET = 'meta-app-secret-for-unit-tests';
 const RAW_BODY = Buffer.from('{"object":"instagram","entry":[{"id":"17841400000000000"}]}');

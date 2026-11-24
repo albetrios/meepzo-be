@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MetaSignedRequestPayload } from '@/infrastructure/social/meta-signature.util.js';
+import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import { META_CALLBACK_BODY_LIMIT_BYTES } from '@/shared/constants/limits.constants.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
 
@@ -10,16 +10,19 @@ const appSettings = vi.hoisted(() => ({
   appSecret: 'meta-callback-unit-test-app-secret' as string | null,
 }));
 
-vi.mock('@/infrastructure/social/instagram.client.js', () => ({
-  readInstagramAppSecret: () => {
-    if (appSettings.appSecret === null) {
-      throw new ServiceUnavailableError('errors:instagramNotConfigured').withReason(
-        'instagram_not_configured',
-      );
-    }
-    return appSettings.appSecret;
-  },
-}));
+vi.mock(
+  '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js',
+  () => ({
+    readMetaAppSecret: () => {
+      if (appSettings.appSecret === null) {
+        throw new ServiceUnavailableError('errors:instagramNotConfigured').withReason(
+          'instagram_not_configured',
+        );
+      }
+      return appSettings.appSecret;
+    },
+  }),
+);
 
 vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

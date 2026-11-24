@@ -6,11 +6,11 @@ import { ExternalServiceError } from '@/infrastructure/outbound/outbound-error.j
 import type {
   InstagramMessageRecipient,
   InstagramOutgoingMessage,
-} from '@/infrastructure/social/instagram.client.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
-  readInstagramErrorResponse,
-  toInstagramApiError,
-} from '@/infrastructure/social/instagram-error.util.js';
+  readMetaGraphErrorResponse,
+  toMetaGraphApiError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import {
   MILLISECONDS_PER_MINUTE,
@@ -115,7 +115,7 @@ function instagramErrorAnswer({
   code: number;
   subcode?: number;
 }): unknown {
-  return readInstagramErrorResponse({
+  return readMetaGraphErrorResponse({
     httpStatus,
     body: JSON.stringify({
       error: {
@@ -145,8 +145,8 @@ export const instagramFailure = {
   deadToken: () => instagramErrorAnswer({ httpStatus: 400, code: 190 }),
   /** The request left and no answer came back — it may have been delivered. */
   timeout: () =>
-    toInstagramApiError(
-      new ExternalServiceError({ integration: 'instagram', category: 'timeout' }),
+    toMetaGraphApiError(
+      new ExternalServiceError({ integration: 'meta-graph', category: 'timeout' }),
     ),
 };
 
@@ -455,7 +455,7 @@ export class InstagramCommentFlow {
         },
       ],
     });
-    const signature = createHmac('sha256', getEnv().INSTAGRAM_APP_SECRET ?? '')
+    const signature = createHmac('sha256', getEnv().META_APP_SECRET ?? '')
       .update(rawBody)
       .digest('hex');
     const response = await injectRoute(this.app, {

@@ -92,16 +92,16 @@ describe('env-schema', () => {
 
   describe('Instagram app settings (IA4)', () => {
     const instagramApp = {
-      INSTAGRAM_APP_ID: 'instagram-app-id',
-      INSTAGRAM_APP_SECRET: 'instagram-app-secret-of-32-chars',
-      INSTAGRAM_REDIRECT_URI: 'https://app.example.com/auth/instagram/callback',
+      META_APP_ID: 'instagram-app-id',
+      META_APP_SECRET: 'instagram-app-secret-of-32-chars',
+      META_REDIRECT_URI: 'https://app.example.com/auth/instagram/callback',
     };
 
     it('lets production boot without them — the Instagram routes answer 503 instead', () => {
       const parsed = envSchema.parse(productionRequiredBase);
-      expect(parsed.INSTAGRAM_APP_ID).toBeUndefined();
-      expect(parsed.INSTAGRAM_APP_SECRET).toBeUndefined();
-      expect(parsed.INSTAGRAM_REDIRECT_URI).toBeUndefined();
+      expect(parsed.META_APP_ID).toBeUndefined();
+      expect(parsed.META_APP_SECRET).toBeUndefined();
+      expect(parsed.META_REDIRECT_URI).toBeUndefined();
     });
 
     it('reads all three when set, in production too', () => {
@@ -117,21 +117,19 @@ describe('env-schema', () => {
       },
     );
 
-    it('refuses an INSTAGRAM_REDIRECT_URI that is not an absolute URL', () => {
+    it('refuses an META_REDIRECT_URI that is not an absolute URL', () => {
       const parsed = envSchema.safeParse({
         ...commonRequiredBase,
-        INSTAGRAM_REDIRECT_URI: '/auth/instagram/callback',
+        META_REDIRECT_URI: '/auth/instagram/callback',
       });
       expect(parsed.success).toBe(false);
       const issue = parsed.success
         ? undefined
-        : parsed.error.issues.find((candidate) =>
-            candidate.path.includes('INSTAGRAM_REDIRECT_URI'),
-          );
+        : parsed.error.issues.find((candidate) => candidate.path.includes('META_REDIRECT_URI'));
       expect(issue).toBeDefined();
     });
 
-    it.each(['INSTAGRAM_APP_ID', 'INSTAGRAM_APP_SECRET'])('refuses a blank %s', (key) => {
+    it.each(['META_APP_ID', 'META_APP_SECRET'])('refuses a blank %s', (key) => {
       expect(() => envSchema.parse({ ...commonRequiredBase, [key]: '' })).toThrow();
     });
 
@@ -140,63 +138,63 @@ describe('env-schema', () => {
     it.each([
       ['production', productionRequiredBase],
       ['development', commonRequiredBase],
-    ])('refuses an INSTAGRAM_APP_SECRET shorter than 32 characters in %s', (_label, base) => {
+    ])('refuses an META_APP_SECRET shorter than 32 characters in %s', (_label, base) => {
       for (const secret of ['...', 's'.repeat(31)]) {
-        const parsed = envSchema.safeParse({ ...base, INSTAGRAM_APP_SECRET: secret });
+        const parsed = envSchema.safeParse({ ...base, META_APP_SECRET: secret });
         const issues = parsed.success
           ? []
-          : parsed.error.issues.filter((issue) => issue.path.includes('INSTAGRAM_APP_SECRET'));
+          : parsed.error.issues.filter((issue) => issue.path.includes('META_APP_SECRET'));
         expect(issues).not.toEqual([]);
       }
-      expect(
-        envSchema.parse({ ...base, INSTAGRAM_APP_SECRET: 's'.repeat(32) }).INSTAGRAM_APP_SECRET,
-      ).toBe('s'.repeat(32));
+      expect(envSchema.parse({ ...base, META_APP_SECRET: 's'.repeat(32) }).META_APP_SECRET).toBe(
+        's'.repeat(32),
+      );
     });
 
     it('ships the app secret blank in .env.example — no placeholder a deploy could sign with', () => {
       const template = dotenv.parse(readFileSync(join(process.cwd(), '.env.example'), 'utf8'));
-      expect(template.INSTAGRAM_APP_SECRET).toBe('');
+      expect(template.META_APP_SECRET).toBe('');
     });
   });
 
-  describe('INSTAGRAM_WEBHOOK_VERIFY_TOKEN (WH7, launch D39)', () => {
+  describe('META_WEBHOOK_VERIFY_TOKEN (WH7, launch D39)', () => {
     function verifyTokenIssues(environment: Record<string, unknown>): string[] {
       const parsed = envSchema.safeParse(environment);
       return parsed.success
         ? []
-        : (parsed.error.flatten().fieldErrors.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ?? []);
+        : (parsed.error.flatten().fieldErrors.META_WEBHOOK_VERIFY_TOKEN ?? []);
     }
 
     it('lets production boot without it — the subscription check answers 503 instead', () => {
       const parsed = envSchema.parse(productionRequiredBase);
-      expect(parsed.INSTAGRAM_WEBHOOK_VERIFY_TOKEN).toBeUndefined();
+      expect(parsed.META_WEBHOOK_VERIFY_TOKEN).toBeUndefined();
     });
 
     it('allows it unset outside production too', () => {
       const parsed = envSchema.parse({ ...commonRequiredBase });
-      expect(parsed.INSTAGRAM_WEBHOOK_VERIFY_TOKEN).toBeUndefined();
+      expect(parsed.META_WEBHOOK_VERIFY_TOKEN).toBeUndefined();
     });
 
     it.each([
       ['production', productionRequiredBase],
       ['development', commonRequiredBase],
     ])('accepts a 32-character token in %s', (_label, base) => {
-      const parsed = envSchema.parse({ ...base, INSTAGRAM_WEBHOOK_VERIFY_TOKEN: 'v'.repeat(32) });
-      expect(parsed.INSTAGRAM_WEBHOOK_VERIFY_TOKEN).toBe('v'.repeat(32));
+      const parsed = envSchema.parse({ ...base, META_WEBHOOK_VERIFY_TOKEN: 'v'.repeat(32) });
+      expect(parsed.META_WEBHOOK_VERIFY_TOKEN).toBe('v'.repeat(32));
     });
 
     it.each([
       ['production', productionRequiredBase],
       ['development', commonRequiredBase],
     ])('refuses a token shorter than 32 characters in %s (guessable)', (_label, base) => {
-      expect(
-        verifyTokenIssues({ ...base, INSTAGRAM_WEBHOOK_VERIFY_TOKEN: 'v'.repeat(31) }),
-      ).not.toEqual([]);
+      expect(verifyTokenIssues({ ...base, META_WEBHOOK_VERIFY_TOKEN: 'v'.repeat(31) })).not.toEqual(
+        [],
+      );
     });
 
     it('refuses a blank one everywhere', () => {
       expect(
-        verifyTokenIssues({ ...commonRequiredBase, INSTAGRAM_WEBHOOK_VERIFY_TOKEN: '' }),
+        verifyTokenIssues({ ...commonRequiredBase, META_WEBHOOK_VERIFY_TOKEN: '' }),
       ).not.toEqual([]);
     });
   });

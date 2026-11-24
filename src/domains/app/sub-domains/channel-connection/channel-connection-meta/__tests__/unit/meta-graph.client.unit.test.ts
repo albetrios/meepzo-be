@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import nock from 'nock';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,27 +8,34 @@ vi.mock('@/infrastructure/resilience/circuit-breaker.js', async (importOriginal)
     await importOriginal<typeof import('@/infrastructure/resilience/circuit-breaker.js')>();
   return {
     ...actual,
-    instagramCircuit: new actual.CircuitBreaker({
-      name: 'instagram',
+    metaGraphCircuit: new actual.CircuitBreaker({
+      name: 'meta',
       failureThreshold: 3,
       resetTimeoutMs: 60_000,
     }),
   };
 });
 
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   assertInstagramConfigured,
   exchangeInstagramAuthorizationCode,
   exchangeInstagramLongLivedAccessToken,
   INSTAGRAM_AUTHORIZATION_BASE_URL,
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
+  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
+  INSTAGRAM_LOGIN_GRAPH_VERSION,
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
   isInstagramConfigured,
+  listMetaAdAccountAds,
+  listMetaAdAccounts,
+  listMetaAssignedInstagramAccounts,
+  readMetaClientBusinessId,
+  readMetaGrantedPermissions,
   listInstagramMedia,
   listInstagramStories,
   readInstagramAccountProfile,
-  readInstagramAppSecret,
+  readMetaAppSecret,
   readInstagramMediaItem,
   readInstagramUserProfile,
   refreshInstagramLongLivedAccessToken,
@@ -35,8 +43,8 @@ import {
   sendInstagramMessage,
   subscribeInstagramWebhookFields,
   unsubscribeInstagramWebhookFields,
-} from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv, resetEnvCacheForTests } from '@/shared/config/env.config.js';
 import { ServiceUnavailableError } from '@/shared/errors/index.js';
 import {
@@ -48,7 +56,8 @@ import {
   redactSensitiveUrl,
 } from '@/shared/utils/security/sensitive-redaction.util.js';
 
-const VERSION_PATH = `/${INSTAGRAM_GRAPH_API_VERSION}`;
+const VERSION_PATH = `/${META_GRAPH_VERSION}`;
+const LOGIN_VERSION_PATH = `/${INSTAGRAM_LOGIN_GRAPH_VERSION}`;
 const ACCOUNT_TOKEN = 'IGAA-long-lived-plain-token';
 const APP_USER_ID = '9876543210';
 const MEDIA_FIELDS =
@@ -71,7 +80,24 @@ function graphError(code: number, errorSubcode?: number) {
 
 /** The Graph host, expecting the account's token in the `Authorization` header only. */
 function graphWithAccountToken(): nock.Scope {
-  return nock(INSTAGRAM_GRAPH_BASE_URL).matchHeader('authorization', `Bearer ${ACCOUNT_TOKEN}`);
+  return nock(META_GRAPH_BASE_URL).matchHeader('authorization', `Bearer ${ACCOUNT_TOKEN}`);
+}
+
+/** The launch's Instagram Login host (`/me`, until ROUTE row R3 retires it). */
+function instagramLoginWithAccountToken(): nock.Scope {
+  return nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL).matchHeader(
+    'authorization',
+    `Bearer ${ACCOUNT_TOKEN}`,
+  );
+}
+
+/** A Graph query plus the `appsecret_proof` of the account token (MC2). */
+function withProof(query: Record<string, string> = {}): Record<string, string> {
+  const appSecret = getEnv().META_APP_SECRET ?? '';
+  return {
+    ...query,
+    appsecret_proof: createHmac('sha256', appSecret).update(ACCOUNT_TOKEN).digest('hex'),
+  };
 }
 
 /** A form body as nock hands it to a matcher: already parsed, or the raw string. */
@@ -83,7 +109,7 @@ function readFormBody(body: unknown): Record<string, string> {
 
 beforeEach(async () => {
   encryptedAccountToken = encryptFieldSecret(ACCOUNT_TOKEN);
-  await instagramCircuit.reset();
+  await metaGraphCircuit.reset();
 });
 
 afterEach(() => {
@@ -92,22 +118,23 @@ afterEach(() => {
 });
 
 describe('Instagram client settings', () => {
-  it('pins Graph API v24.0 and one base URL per host', () => {
-    expect(INSTAGRAM_GRAPH_API_VERSION).toBe('v24.0');
+  it('pins Graph API v27.0 on graph.facebook.com, and keeps the Instagram Login hosts until R3', () => {
+    expect(META_GRAPH_VERSION).toBe('v27.0');
+    expect(META_GRAPH_BASE_URL).toBe('https://graph.facebook.com');
     expect(INSTAGRAM_AUTHORIZATION_BASE_URL).toBe('https://api.instagram.com');
-    expect(INSTAGRAM_GRAPH_BASE_URL).toBe('https://graph.instagram.com');
+    expect(INSTAGRAM_LOGIN_GRAPH_BASE_URL).toBe('https://graph.instagram.com');
   });
 
   describe('with an app setting unset', () => {
-    const savedAppId = process.env.INSTAGRAM_APP_ID;
+    const savedAppId = process.env.META_APP_ID;
 
     beforeEach(() => {
-      delete process.env.INSTAGRAM_APP_ID;
+      delete process.env.META_APP_ID;
       resetEnvCacheForTests();
     });
 
     afterEach(() => {
-      process.env.INSTAGRAM_APP_ID = savedAppId;
+      process.env.META_APP_ID = savedAppId;
       resetEnvCacheForTests();
     });
 
@@ -142,31 +169,31 @@ describe('Instagram client settings', () => {
     });
   });
 
-  it('is configured with all three settings', () => {
+  it('is configured with all four settings', () => {
     expect(isInstagramConfigured()).toBe(true);
     expect(() => assertInstagramConfigured()).not.toThrow();
   });
 
   describe('the app secret alone (Meta callbacks, IA18)', () => {
-    it('reads the app secret, whatever the other two settings', () => {
-      const savedAppId = process.env.INSTAGRAM_APP_ID;
-      delete process.env.INSTAGRAM_APP_ID;
+    it('reads the app secret, whatever the other settings', () => {
+      const savedAppId = process.env.META_APP_ID;
+      delete process.env.META_APP_ID;
       resetEnvCacheForTests();
       try {
-        expect(readInstagramAppSecret()).toBe(getEnv().INSTAGRAM_APP_SECRET);
-        expect(readInstagramAppSecret().length).toBeGreaterThan(0);
+        expect(readMetaAppSecret()).toBe(getEnv().META_APP_SECRET);
+        expect(readMetaAppSecret().length).toBeGreaterThan(0);
       } finally {
-        process.env.INSTAGRAM_APP_ID = savedAppId;
+        process.env.META_APP_ID = savedAppId;
         resetEnvCacheForTests();
       }
     });
 
     it('answers 503 instagram_not_configured without it', () => {
-      const savedAppSecret = process.env.INSTAGRAM_APP_SECRET;
-      delete process.env.INSTAGRAM_APP_SECRET;
+      const savedAppSecret = process.env.META_APP_SECRET;
+      delete process.env.META_APP_SECRET;
       resetEnvCacheForTests();
       try {
-        expect(() => readInstagramAppSecret()).toThrow(
+        expect(() => readMetaAppSecret()).toThrow(
           expect.objectContaining({
             statusCode: 503,
             messageKey: 'errors:instagramNotConfigured',
@@ -174,7 +201,7 @@ describe('Instagram client settings', () => {
           }),
         );
       } finally {
-        process.env.INSTAGRAM_APP_SECRET = savedAppSecret;
+        process.env.META_APP_SECRET = savedAppSecret;
         resetEnvCacheForTests();
       }
     });
@@ -187,10 +214,10 @@ describe('exchangeInstagramAuthorizationCode', () => {
     nock(INSTAGRAM_AUTHORIZATION_BASE_URL)
       .post('/oauth/access_token', (body) => {
         expect(readFormBody(body)).toEqual({
-          client_id: environment.INSTAGRAM_APP_ID,
-          client_secret: environment.INSTAGRAM_APP_SECRET,
+          client_id: environment.META_APP_ID,
+          client_secret: environment.META_APP_SECRET,
           grant_type: 'authorization_code',
-          redirect_uri: environment.INSTAGRAM_REDIRECT_URI,
+          redirect_uri: environment.META_REDIRECT_URI,
           code: 'AQB-authorization-code',
         });
         return true;
@@ -264,18 +291,18 @@ describe('the token exchange and renewal (token in the query, URL redacted)', ()
     const environment = getEnv();
     const encryptedShortLivedAccessToken = encryptFieldSecret('IGAA-short-lived-plain-token');
     let requestedUrl = '';
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/access_token')
       .query({
         grant_type: 'ig_exchange_token',
-        client_secret: String(environment.INSTAGRAM_APP_SECRET),
+        client_secret: String(environment.META_APP_SECRET),
         access_token: 'IGAA-short-lived-plain-token',
       })
       .reply(200, (uri: string) => {
         // nock hands `fetch` requests over as a Request; a path string otherwise.
         const request = uri as unknown as string | { url: string };
         requestedUrl =
-          typeof request === 'string' ? `${INSTAGRAM_GRAPH_BASE_URL}${request}` : request.url;
+          typeof request === 'string' ? `${META_GRAPH_BASE_URL}${request}` : request.url;
         return { access_token: 'IGAA-long-lived', token_type: 'bearer', expires_in: 5_183_944 };
       });
     const before = Date.now();
@@ -290,13 +317,13 @@ describe('the token exchange and renewal (token in the query, URL redacted)', ()
     // Whatever logs this URL (a Sentry breadcrumb, an error) sees neither the secret nor the token.
     const loggedUrl = redactSensitiveUrl(requestedUrl);
     expect(loggedUrl).not.toContain('IGAA-short-lived-plain-token');
-    expect(loggedUrl).not.toContain(String(environment.INSTAGRAM_APP_SECRET));
+    expect(loggedUrl).not.toContain(String(environment.META_APP_SECRET));
     expect(loggedUrl).toContain(`access_token=${SENSITIVE_REDACTION_PLACEHOLDER}`);
     expect(loggedUrl).toContain(`client_secret=${SENSITIVE_REDACTION_PLACEHOLDER}`);
   });
 
   it('renews a long-lived token', async () => {
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/refresh_access_token')
       .query({ grant_type: 'ig_refresh_token', access_token: ACCOUNT_TOKEN })
       .reply(200, { access_token: 'IGAA-renewed', token_type: 'bearer', expires_in: 5_184_000 });
@@ -309,7 +336,7 @@ describe('the token exchange and renewal (token in the query, URL redacted)', ()
   });
 
   it('a dead token on renewal is auth — expired for 190 / 463', async () => {
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/refresh_access_token')
       .query(true)
       .reply(400, graphError(190, 463));
@@ -320,7 +347,7 @@ describe('the token exchange and renewal (token in the query, URL redacted)', ()
   });
 
   it('an answer without expires_in is an outage', async () => {
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/refresh_access_token')
       .query(true)
       .reply(200, { access_token: 'IGAA-renewed' });
@@ -333,15 +360,15 @@ describe('the token exchange and renewal (token in the query, URL redacted)', ()
   it('a token that does not decrypt is our failure: it stays a plain error and nothing is sent', async () => {
     const rejection = refreshInstagramLongLivedAccessToken({ encryptedAccessToken: 'plain-token' });
 
-    await expect(rejection).rejects.not.toBeInstanceOf(InstagramApiError);
+    await expect(rejection).rejects.not.toBeInstanceOf(MetaGraphApiError);
     await expect(rejection).rejects.toThrow(/not encrypted/);
   });
 });
 
 describe('Graph reads (token in the Authorization header, never the URL)', () => {
   it('reads /me with the IA12 fields', async () => {
-    graphWithAccountToken()
-      .get(`${VERSION_PATH}/me`)
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
       .query({
         fields:
           'user_id,id,username,name,account_type,profile_picture_url,followers_count,follows_count,media_count,biography,website',
@@ -377,8 +404,8 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
   });
 
   it('reads a /me answer wrapped in data from data[0] (D33)', async () => {
-    graphWithAccountToken()
-      .get(`${VERSION_PATH}/me`)
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
       .query(true)
       .reply(200, {
         data: [
@@ -416,7 +443,7 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
     ['with data[0] lacking the ids', { data: [{ username: 'x' }] }],
     ['that is not an object', [{ user_id: '1', id: '2' }]],
   ])('a /me answer %s is an outage', async (_shape, body) => {
-    graphWithAccountToken().get(`${VERSION_PATH}/me`).query(true).reply(200, body);
+    instagramLoginWithAccountToken().get(`${LOGIN_VERSION_PATH}/me`).query(true).reply(200, body);
 
     await expect(
       readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken }),
@@ -426,7 +453,7 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
   it("lists media with Instagram's cursor and returns the next cursor only when there is a next page", async () => {
     graphWithAccountToken()
       .get(`${VERSION_PATH}/${APP_USER_ID}/media`)
-      .query({ fields: MEDIA_FIELDS, limit: '25', after: 'cursor-one' })
+      .query(withProof({ fields: MEDIA_FIELDS, limit: '25', after: 'cursor-one' }))
       .reply(200, {
         data: [
           { id: '18000000000000001', media_type: 'IMAGE', timestamp: '2026-11-20T10:00:00+0000' },
@@ -438,7 +465,7 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
       });
     graphWithAccountToken()
       .get(`${VERSION_PATH}/${APP_USER_ID}/media`)
-      .query({ fields: MEDIA_FIELDS, limit: '25', after: 'cursor-two' })
+      .query(withProof({ fields: MEDIA_FIELDS, limit: '25', after: 'cursor-two' }))
       .reply(200, {
         data: [{ id: '18000000000000002' }, { caption: 'an item without an id is dropped' }],
         paging: { cursors: { before: 'c', after: 'cursor-three' } },
@@ -469,7 +496,12 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
   it('lists live stories with the story fields and no cursor on the first page', async () => {
     graphWithAccountToken()
       .get(`${VERSION_PATH}/${APP_USER_ID}/stories`)
-      .query({ fields: 'id,media_type,media_url,thumbnail_url,permalink,timestamp', limit: '10' })
+      .query(
+        withProof({
+          fields: 'id,media_type,media_url,thumbnail_url,permalink,timestamp',
+          limit: '10',
+        }),
+      )
       .reply(200, { data: [{ id: '17900000000000001', media_type: 'VIDEO' }] });
 
     await expect(
@@ -502,7 +534,7 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
   it('reads one post by its media id', async () => {
     graphWithAccountToken()
       .get(`${VERSION_PATH}/18000000000000001`)
-      .query({ fields: MEDIA_FIELDS })
+      .query(withProof({ fields: MEDIA_FIELDS }))
       .reply(200, { id: '18000000000000001', caption: 'hello' });
 
     await expect(
@@ -516,7 +548,9 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
   it("reads a person's profile and follow status in one call", async () => {
     graphWithAccountToken()
       .get(`${VERSION_PATH}/5550001`)
-      .query({ fields: 'name,username,profile_pic,follower_count,is_user_follow_business' })
+      .query(
+        withProof({ fields: 'name,username,profile_pic,follower_count,is_user_follow_business' }),
+      )
       .reply(200, {
         name: 'Asha',
         username: 'asha.k',
@@ -545,10 +579,11 @@ describe('webhook subscription', () => {
   it('subscribes the three fields and unsubscribes', async () => {
     graphWithAccountToken()
       .post(`${VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
-      .query({ subscribed_fields: 'comments,messages,messaging_postbacks' })
+      .query(withProof({ subscribed_fields: 'comments,messages,messaging_postbacks' }))
       .reply(200, { success: true });
     graphWithAccountToken()
       .delete(`${VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
+      .query(withProof())
       .reply(200, { success: true });
     const options = {
       encryptedAccessToken: encryptedAccountToken,
@@ -581,6 +616,7 @@ describe('sends', () => {
         recipient: { comment_id: '17850000000000001' },
         message: { text: 'Check your DMs!' },
       })
+      .query(withProof())
       .matchHeader('content-type', 'application/json')
       .reply(200, { recipient_id: '5550001', message_id: 'aWdfZAG1-message' });
 
@@ -597,6 +633,7 @@ describe('sends', () => {
   it('flags a refused email quick reply so the question can go again as plain text', async () => {
     graphWithAccountToken()
       .post(`${VERSION_PATH}/${APP_USER_ID}/messages`)
+      .query(true)
       .reply(400, graphError(100, 2534015));
 
     await expect(
@@ -615,6 +652,7 @@ describe('sends', () => {
   it('replies publicly under a comment', async () => {
     graphWithAccountToken()
       .post(`${VERSION_PATH}/17850000000000001/replies`, { message: 'Sent you a DM' })
+      .query(withProof())
       .reply(200, { id: '17850000000000002' });
 
     await expect(
@@ -629,8 +667,8 @@ describe('sends', () => {
 
 describe('failures and the instagram circuit', () => {
   it('a throttle carries the wait Instagram named', async () => {
-    graphWithAccountToken()
-      .get(`${VERSION_PATH}/me`)
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
       .query(true)
       .reply(429, graphError(4), { 'Retry-After': '90' });
 
@@ -640,8 +678,8 @@ describe('failures and the instagram circuit', () => {
   });
 
   it('a network failure is an outage', async () => {
-    graphWithAccountToken()
-      .get(`${VERSION_PATH}/me`)
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
       .query(true)
       .replyWithError(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
 
@@ -650,39 +688,43 @@ describe('failures and the instagram circuit', () => {
     ).rejects.toMatchObject({
       errorClass: 'outage',
       category: 'network',
-      integration: 'instagram',
+      integration: 'meta-graph',
     });
   });
 
   it('refusals never open the circuit; outages do, and then nothing is sent', async () => {
     const readProfile = () =>
       readInstagramAccountProfile({ encryptedAccessToken: encryptedAccountToken });
-    graphWithAccountToken()
-      .get(`${VERSION_PATH}/me`)
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
       .query(true)
       .times(2)
       .reply(400, graphError(190));
-    graphWithAccountToken()
-      .get(`${VERSION_PATH}/me`)
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
       .query(true)
       .times(2)
       .reply(400, graphError(100));
-    graphWithAccountToken()
-      .get(`${VERSION_PATH}/me`)
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
       .query(true)
       .times(2)
       .reply(400, graphError(17));
 
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      await expect(readProfile()).rejects.toBeInstanceOf(InstagramApiError);
+      await expect(readProfile()).rejects.toBeInstanceOf(MetaGraphApiError);
     }
-    expect(await instagramCircuit.getState()).toBe('CLOSED');
+    expect(await metaGraphCircuit.getState()).toBe('CLOSED');
 
-    graphWithAccountToken().get(`${VERSION_PATH}/me`).query(true).times(3).reply(503, 'down');
+    instagramLoginWithAccountToken()
+      .get(`${LOGIN_VERSION_PATH}/me`)
+      .query(true)
+      .times(3)
+      .reply(503, 'down');
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await expect(readProfile()).rejects.toMatchObject({ errorClass: 'outage' });
     }
-    expect(await instagramCircuit.getState()).toBe('OPEN');
+    expect(await metaGraphCircuit.getState()).toBe('OPEN');
 
     // No interceptor is left: the open circuit answers before any request leaves.
     const rejection = readProfile();
@@ -691,5 +733,219 @@ describe('failures and the instagram circuit', () => {
       category: 'circuit_open',
     });
     await expect(rejection).rejects.toHaveProperty('retryAfterMs', expect.any(Number));
+  });
+});
+
+describe('Unified Login reads with a connection token (MC2)', () => {
+  it('reads the business id', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me`)
+      .query(withProof({ fields: 'client_business_id' }))
+      .reply(200, { client_business_id: '5550001234', id: '1' });
+    await expect(
+      readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountToken }),
+    ).resolves.toBe('5550001234');
+  });
+
+  it('an answer without the business id is an outage', async () => {
+    graphWithAccountToken().get(`${VERSION_PATH}/me`).query(true).reply(200, { id: '1' });
+    await expect(
+      readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountToken }),
+    ).rejects.toMatchObject({ errorClass: 'outage' });
+  });
+
+  it('lists the assigned Instagram accounts, dropping items without an id', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me/assigned_instagram_accounts`)
+      .query(withProof({ fields: 'id,username', limit: '100' }))
+      .reply(200, {
+        data: [{ id: '17841400000000001', username: 'shop.one' }, { id: '17841400000000002' }, {}],
+      });
+    await expect(
+      listMetaAssignedInstagramAccounts({ encryptedAccessToken: encryptedAccountToken }),
+    ).resolves.toEqual([
+      { instagramUserId: '17841400000000001', username: 'shop.one' },
+      { instagramUserId: '17841400000000002', username: null },
+    ]);
+  });
+
+  it('reads only the granted permissions', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me/permissions`)
+      .query(withProof())
+      .reply(200, {
+        data: [
+          { permission: 'instagram_basic', status: 'granted' },
+          { permission: 'ads_read', status: 'declined' },
+          { permission: 'instagram_manage_messages', status: 'granted' },
+        ],
+      });
+    await expect(
+      readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountToken }),
+    ).resolves.toEqual(['instagram_basic', 'instagram_manage_messages']);
+  });
+
+  it('lists the ad accounts (first 100)', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me/adaccounts`)
+      .query(withProof({ fields: 'account_id,name,account_status', limit: '100' }))
+      .reply(200, {
+        data: [{ id: 'act_42', account_id: '42', name: 'Shop ads', account_status: 1 }],
+      });
+    await expect(
+      listMetaAdAccounts({ encryptedAccessToken: encryptedAccountToken }),
+    ).resolves.toEqual([{ adAccountId: '42', name: 'Shop ads', accountStatus: 1 }]);
+  });
+
+  it("lists one ad account's ads with their Instagram post and Meta's cursor", async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/act_42/ads`)
+      .query(
+        withProof({
+          fields:
+            'id,name,effective_status,created_time,creative{effective_instagram_media_id,thumbnail_url}',
+          limit: '25',
+          after: 'cursor-one',
+        }),
+      )
+      .reply(200, {
+        data: [
+          {
+            id: '2384',
+            name: 'Winter sale',
+            effective_status: 'ACTIVE',
+            created_time: '2026-11-01T10:00:00+0000',
+            creative: {
+              effective_instagram_media_id: '18000000000000009',
+              thumbnail_url: 'https://x/t.jpg',
+            },
+          },
+          { name: 'no id' },
+        ],
+        paging: { cursors: { after: 'cursor-two' }, next: 'https://graph.facebook.com/next' },
+      });
+    await expect(
+      listMetaAdAccountAds({
+        encryptedAccessToken: encryptedAccountToken,
+        adAccountId: '42',
+        limit: 25,
+        after: 'cursor-one',
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          adId: '2384',
+          name: 'Winter sale',
+          status: 'ACTIVE',
+          instagramMediaId: '18000000000000009',
+          thumbnailUrl: 'https://x/t.jpg',
+          createdAt: '2026-11-01T10:00:00+0000',
+        },
+      ],
+      nextCursor: 'cursor-two',
+    });
+  });
+
+  it('a Graph call needs the app secret for appsecret_proof — unset, 503 before any request', async () => {
+    const savedAppSecret = process.env.META_APP_SECRET;
+    delete process.env.META_APP_SECRET;
+    resetEnvCacheForTests();
+    try {
+      await expect(
+        readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountToken }),
+      ).rejects.toMatchObject({ statusCode: 503, reason: 'instagram_not_configured' });
+    } finally {
+      process.env.META_APP_SECRET = savedAppSecret;
+      resetEnvCacheForTests();
+    }
+  });
+});
+
+describe("Meta's usage on every answer (MC19)", () => {
+  const usageHeader = JSON.stringify({
+    '5550001234': [{ type: 'instagram', call_count: 81, total_cputime: 2, total_time: 3 }],
+  });
+
+  it('hands the usage of a successful answer to the recorder', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me`)
+      .query(true)
+      .reply(
+        200,
+        { client_business_id: '5550001234' },
+        {
+          'X-Business-Use-Case-Usage': usageHeader,
+          'X-App-Usage': JSON.stringify({ call_count: 4, total_cputime: 1, total_time: 1 }),
+        },
+      );
+    const recordUsage = vi.fn(async () => undefined);
+    await readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountToken, recordUsage });
+    expect(recordUsage).toHaveBeenCalledWith({
+      readAt: expect.any(Date),
+      appUsagePercent: 4,
+      businessUseCases: [
+        { assetId: '5550001234', type: 'instagram', usagePercent: 81, waitUntil: null },
+      ],
+    });
+  });
+
+  it('hands the usage of a throttled answer to the recorder too — 95 % waits 15 minutes', async () => {
+    graphWithAccountToken()
+      .post(`${VERSION_PATH}/${APP_USER_ID}/messages`)
+      .query(true)
+      .reply(400, graphError(80002), {
+        'X-Business-Use-Case-Usage': JSON.stringify({
+          '5550001234': [
+            { type: 'instagram', call_count: 100, estimated_time_to_regain_access: 0 },
+          ],
+        }),
+      });
+    const recordUsage = vi.fn(async (_reading: unknown) => undefined);
+    const before = Date.now();
+    await expect(
+      sendInstagramMessage({
+        encryptedAccessToken: encryptedAccountToken,
+        instagramAppUserId: APP_USER_ID,
+        recipient: { id: '5550001' },
+        message: { text: 'hi' },
+        recordUsage,
+      }),
+    ).rejects.toMatchObject({ errorClass: 'throttled' });
+    const reading = recordUsage.mock.calls[0]?.[0] as {
+      businessUseCases: { usagePercent: number; waitUntil: Date }[];
+    };
+    expect(reading.businessUseCases[0]?.usagePercent).toBe(100);
+    expect(reading.businessUseCases[0]?.waitUntil.getTime()).toBeGreaterThanOrEqual(
+      before + 15 * 60_000,
+    );
+  });
+
+  it('a missing header changes nothing — the recorder is not called', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me`)
+      .query(true)
+      .reply(200, { client_business_id: '5550001234' });
+    const recordUsage = vi.fn(async () => undefined);
+    await readMetaClientBusinessId({ encryptedAccessToken: encryptedAccountToken, recordUsage });
+    expect(recordUsage).not.toHaveBeenCalled();
+  });
+
+  it('a failing recorder never fails the call', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me`)
+      .query(true)
+      .reply(
+        200,
+        { client_business_id: '5550001234' },
+        { 'X-Business-Use-Case-Usage': usageHeader },
+      );
+    await expect(
+      readMetaClientBusinessId({
+        encryptedAccessToken: encryptedAccountToken,
+        recordUsage: async () => {
+          throw new Error('database down');
+        },
+      }),
+    ).resolves.toBe('5550001234');
   });
 });

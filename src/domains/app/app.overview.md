@@ -27,8 +27,9 @@ The other sub-domains fill it in one ROUTE row at a time (`iterations/launch-202
 
 What it does not own: organizations, members, roles and the permission catalog (tenancy — the nine app
 codes and the locked Member role are seeded there), in-app notifications and email (notify, mail
-outbox), the audit log (audit), and the Instagram client (`src/infrastructure/social/instagram.client.ts` — the
-only code that calls Instagram, and the only code that decrypts the Instagram token).
+outbox) and the audit log (audit). The one Meta client lives in the channel connection's adapter folder
+(`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts` — the only code that
+calls Meta, and the only code that decrypts a Meta token).
 
 ## Key invariants
 
@@ -84,6 +85,7 @@ In build order (`iterations/launch-2026-11-20-ujai/plans/routes-final.md`):
 
 | Sub-domain | Purpose |
 | --- | --- |
+| [channel-connection](src/domains/app/sub-domains/channel-connection/channel-connection.overview.md) | One provider login of an organization for one business (Meta Unified Login): the Meta adapter (`channel-connection-meta/` — the one Meta client, the login calls, the usage headers, the signature checks), the one-use login state, and Meta's usage kept per connection with its Redis copy (DM-sending iteration, ROUTE row R2; the tables and routes land in R3). |
 | [instagram-account](src/domains/app/sub-domains/instagram-account/instagram-account.overview.md) | The organization's one connected Instagram account and its encrypted token (connect, read, disconnect), the daily account check and the reconnect notice (two workers); nested `instagram-account-settings` (the automation switch and public reply safety, changed by route 3) and `instagram-media` (the post and story pickers, read live — routes 5–6 — and the stored posts `app.instagram_media`) and `instagram-account-meta-callback` (Meta's PUBLIC deauthorize and data-deletion callbacks — routes 7–8). |
 | [contact](src/domains/app/sub-domains/contact/contact.overview.md) | The people who interacted with each Instagram account (list, erase — routes 9 and 10), written only by event processing through the contact service; the erase anonymises in place and runs the registered erasure steps. |
 | [automation](src/domains/app/sub-domains/automation/automation.overview.md) | Comment, DM and story-reply automations of each Instagram account (list, create, read, edit, delete — routes 11–15), "next post" linking for event processing, the 15-minute expiry worker and the daily deleted-automation purge; nested `automation-run` (runs, run events, comment logs and the run engine whose entry points event processing calls — no routes; the hourly 7-day wait cancel and the daily run and comment-log retention workers). |

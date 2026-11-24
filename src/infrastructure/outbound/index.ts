@@ -7,6 +7,8 @@ export {
 export {
   outboundFetch,
   outboundFetchJson,
+  outboundFetchJsonWithHeaders,
+  type OutboundJsonAnswer,
   buildOutboundFetchOptions,
   type OutboundFetchOptions,
   type OutboundFetchImplementation,

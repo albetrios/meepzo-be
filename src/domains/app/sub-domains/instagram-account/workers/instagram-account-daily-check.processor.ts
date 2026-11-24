@@ -9,8 +9,8 @@ import {
   readInstagramAccountProfile,
   refreshInstagramLongLivedAccessToken,
   subscribeInstagramWebhookFields,
-} from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import {
@@ -99,7 +99,7 @@ export type InstagramDailyCheckFailureAction =
  * connection at once, a refusal of the request is kept for tomorrow, anything else waits.
  *
  * @remarks
- * - **Algorithm:** an `InstagramApiError` of class `auth` → `break` with the status it means
+ * - **Algorithm:** an `MetaGraphApiError` of class `auth` → `break` with the status it means
  *   (`expired` for code 190 / subcode 463, else `error`); class `refused` → `continue`; class
  *   `throttled` or `outage`, an open circuit, or a failure that is not Instagram's → `wait`.
  * - **Failure modes:** none — pure.
@@ -109,7 +109,7 @@ export type InstagramDailyCheckFailureAction =
 export function classifyInstagramDailyCheckFailure(
   error: unknown,
 ): InstagramDailyCheckFailureAction {
-  if (!(error instanceof InstagramApiError)) return { action: 'wait' };
+  if (!(error instanceof MetaGraphApiError)) return { action: 'wait' };
   if (error.errorClass === 'auth') {
     return { action: 'break', connectionStatus: error.connectionStatus ?? 'error' };
   }
@@ -123,7 +123,7 @@ export function classifyInstagramDailyCheckFailure(
  * to the column's 500 characters.
  *
  * @remarks
- * - **Algorithm:** an `InstagramApiError` → `<class> (code …, subcode …, HTTP …)`; anything else →
+ * - **Algorithm:** an `MetaGraphApiError` → `<class> (code …, subcode …, HTTP …)`; anything else →
  *   its error name (an open circuit, a failure on our side), never its message.
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
@@ -131,7 +131,7 @@ export function classifyInstagramDailyCheckFailure(
  *   can carry one. Exported for the unit test.
  */
 export function describeInstagramRefreshError(error: unknown): string {
-  if (!(error instanceof InstagramApiError)) {
+  if (!(error instanceof MetaGraphApiError)) {
     return `failed: ${error instanceof Error ? error.name : typeof error}`;
   }
   const details = [
@@ -149,9 +149,9 @@ export function describeInstagramRefreshError(error: unknown): string {
  * provider-pausable worker parks it while the `instagram` circuit is open.
  */
 function toDailyCheckRetryError(error: unknown): unknown {
-  if (error instanceof InstagramApiError && error.errorClass === 'throttled') {
+  if (error instanceof MetaGraphApiError && error.errorClass === 'throttled') {
     return new ProviderOutageError({
-      provider: 'instagram',
+      provider: 'meta',
       cause: error,
       retryAfterMs: error.retryAfterMs ?? null,
     });

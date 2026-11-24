@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
@@ -51,7 +51,7 @@ describe('Instagram account connection flow (e2e)', () => {
 
   afterEach(async () => {
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
   });
 
   async function connect(token: string, profile: TestInstagramProfile): Promise<InjectHttpResult> {

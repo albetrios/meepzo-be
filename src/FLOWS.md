@@ -431,7 +431,7 @@ sequenceDiagram
 
 ### Trigger
 
-A team member holding `instagram-account:manage` clicks "Connect Instagram" in the frontend, approves the Instagram app on Instagram's consent screen, and lands on the frontend's `/auth/instagram/callback` (the `INSTAGRAM_REDIRECT_URI`). The page drops a callback whose OAuth `state` differs from the one it sent (IQ6), then posts the code: `POST /api/v1/app/social/instagram/connect { code }` with `X-Idempotency-Key` (route 1). The same call reconnects an `expired` or `error` account, or a revoked one of the same organization. Built by ROUTE row R3 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA12).
+A team member holding `instagram-account:manage` clicks "Connect Instagram" in the frontend, approves the Instagram app on Instagram's consent screen, and lands on the frontend's `/auth/instagram/callback` (the `META_REDIRECT_URI`). The page drops a callback whose OAuth `state` differs from the one it sent (IQ6), then posts the code: `POST /api/v1/app/social/instagram/connect { code }` with `X-Idempotency-Key` (route 1). The same call reconnects an `expired` or `error` account, or a revoked one of the same organization. Built by ROUTE row R3 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA12).
 
 ### Sequence
 
@@ -440,7 +440,7 @@ sequenceDiagram
   participant Client as Frontend (/auth/instagram/callback)
   participant Gate as auth + tenancy (permission, team check)
   participant Service as InstagramAccountService
-  participant Instagram as instagram.client (Instagram API)
+  participant Instagram as meta-graph.client (Meta Graph API)
   participant Resolver as app.resolve_organization_public_id_for_instagram_user
   participant DB as Postgres (organization scope)
 
@@ -494,7 +494,7 @@ sequenceDiagram
   participant Scheduler as scheduler (04:00 UTC)
   participant Check as instagram-account-daily-check worker
   participant DB as Postgres (retention sweep arm / organization job scope)
-  participant Instagram as instagram.client (Instagram API)
+  participant Instagram as meta-graph.client (Meta Graph API)
   participant Account as InstagramAccountService
   participant Notice as instagram-reconnect-notice worker
   participant Tenancy as MembershipService / OrganizationSettingsService
@@ -589,7 +589,7 @@ No Instagram call: the app is already removed, so the disconnect skips the unsub
 
 ### Failure modes
 
-- **A missing, doubled, malformed or wrongly signed `signed_request`, another algorithm, or no `user_id`** → `400 instagram_signed_request_invalid`; nothing changes. **A body over 16 KB** → `413`; **one that is not form-encoded** → `415`. **No `INSTAGRAM_APP_SECRET`** → `503 instagram_not_configured`. **Over the webhook rate limit** → `429`.
+- **A missing, doubled, malformed or wrongly signed `signed_request`, another algorithm, or no `user_id`** → `400 instagram_signed_request_invalid`; nothing changes. **A body over 16 KB** → `413`; **one that is not form-encoded** → `415`. **No `META_APP_SECRET`** → `503 instagram_not_configured`. **Over the webhook rate limit** → `429`.
 - **A person we never stored, or whose organization was deleted** (its delete erased the account, D54) → still `200` (route 8 with its code), so Meta does not retry; no audit entry.
 - **Meta repeats a request** → nothing is left to do: `200` again, the same confirmation code, no new audit entry. **The account was connected again in between** → that connection is newer than the request and is left alone (D53); the same `200`, no new audit entry. A reconnect that races the request waits for its row lock and connects on top.
 - **A database failure in one organization** → the request fails and Meta retries it; the organizations already done find nothing left to do the second time.
@@ -611,7 +611,7 @@ sequenceDiagram
   participant Contact as ContactService
   participant Organization as OrganizationService (tenancy)
   participant Erasure as InstagramAccountErasureService
-  participant Instagram as instagram.client (Instagram API)
+  participant Instagram as meta-graph.client (Meta Graph API)
   participant Purge as organization-tombstone-retention worker
   participant DB as Postgres (schema app)
 
@@ -688,7 +688,7 @@ sequenceDiagram
   Meta->>Plugin: POST …/webhook + X-Hub-Signature-256 — no header: 400 before the body is read
   Plugin->>Parser: the raw JSON body is read (up to 5 MB), its bytes kept, nothing parsed
   Parser->>Plugin: raw bytes
-  Plugin->>Plugin: HMAC-SHA256 of the raw bytes with INSTAGRAM_APP_SECRET (400 / 503 otherwise), then parse them
+  Plugin->>Plugin: HMAC-SHA256 of the raw bytes with META_APP_SECRET (400 / 503 otherwise), then parse them
   Plugin->>Receiver: signed delivery — object instagram? (else 200 OK, nothing stored)
   loop each entry[] (the account's webhook user id), its text cleaned of NUL and lone surrogates
     Receiver->>Resolver: which organization holds this account, not revoked?
@@ -732,7 +732,7 @@ sequenceDiagram
   participant Events as InstagramWebhookEventService
   participant Account as InstagramAccountService
   participant Contact as ContactService
-  participant Instagram as instagram.client
+  participant Instagram as meta-graph.client
   participant Engine as AutomationRunService (+ linkNextPostAutomations)
 
   Queue->>Worker: process-instagram-webhook-events {organizationPublicId, instagramAccountPublicId}
@@ -788,7 +788,7 @@ sequenceDiagram
   participant Engine as AutomationRunService
   participant Safety as AutomationPublicReplySafetyService
   participant Message as AutomationRunMessageService
-  participant Instagram as instagram.client
+  participant Instagram as meta-graph.client
   participant DB as Postgres (the organization's JOB scope, short units)
 
   Worker->>Contact: the contact first; a new one's profile, a new post stored, "next post" linked
@@ -842,7 +842,7 @@ sequenceDiagram
   participant Team as a team member
   participant Automation as AutomationService
   participant Worker as instagram-webhook worker
-  participant Instagram as instagram.client
+  participant Instagram as meta-graph.client
   participant Media as InstagramMediaService
   participant Engine as AutomationRunService
   participant Expiry as automation-next-post-expiry worker
@@ -895,7 +895,7 @@ sequenceDiagram
   participant Contact as ContactService
   participant Engine as AutomationRunService
   participant Message as AutomationRunMessageService
-  participant Instagram as instagram.client
+  participant Instagram as meta-graph.client
   participant DB as Postgres (the organization's JOB scope)
 
   Worker->>Contact: recordContactInteraction — the contact first, its 24-hour messaging window opened

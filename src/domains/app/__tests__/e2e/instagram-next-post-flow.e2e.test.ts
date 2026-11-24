@@ -7,8 +7,8 @@ import {
   getBullMQConnectionOptions,
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
-import type { InstagramMediaGraphItem } from '@/infrastructure/social/instagram.client.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import type { InstagramMediaGraphItem } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { AutomationRepository } from '@/domains/app/sub-domains/automation/automation.repository.js';
@@ -91,7 +91,7 @@ describe('Instagram "next post" linking flow (e2e)', () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
     // Instagram takes one private reply per comment — the flow never sends a second one.
     expect(instagram.commentsAnsweredPrivatelyTwice()).toEqual([]);
   });

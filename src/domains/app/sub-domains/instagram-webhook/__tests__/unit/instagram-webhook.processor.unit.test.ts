@@ -50,10 +50,13 @@ vi.mock('@/infrastructure/resilience/circuit-breaker.js', () => ({
   CircuitBreakerOpenError: class CircuitBreakerOpenError extends Error {},
 }));
 
-vi.mock('@/infrastructure/social/instagram.client.js', () => ({
-  readInstagramMediaItem: vi.fn(),
-  readInstagramUserProfile: vi.fn(),
-}));
+vi.mock(
+  '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js',
+  () => ({
+    readInstagramMediaItem: vi.fn(),
+    readInstagramUserProfile: vi.fn(),
+  }),
+);
 
 vi.mock('@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js', () => ({
   enqueueInstagramWebhookAccountProcessing: vi.fn(),
@@ -61,7 +64,7 @@ vi.mock('@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.qu
 
 vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({ logger: loggerMock }));
 
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { InstagramWebhookProcessingAccount } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import type { AutomationRunHandlingResult } from '@/domains/app/sub-domains/automation/automation-run/automation-run.types.js';
 import {
@@ -330,8 +333,8 @@ function instagramError({
   errorClass: 'auth' | 'throttled' | 'refused' | 'outage';
   code?: number | null;
   subcode?: number | null;
-}): InstagramApiError {
-  return new InstagramApiError({
+}): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass,
     category: 'http_4xx',
     connectionStatus: errorClass === 'auth' ? 'expired' : null,

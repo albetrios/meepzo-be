@@ -3,12 +3,12 @@ import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   INSTAGRAM_AUTHORIZATION_BASE_URL,
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
+  META_GRAPH_VERSION,
+  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
 import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
@@ -80,7 +80,7 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
   afterEach(async () => {
     nock.cleanAll();
     vi.restoreAllMocks();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
     if (seededIdempotencyKeys.length > 0) {
       await redisConnection.del(...seededIdempotencyKeys);
       seededIdempotencyKeys.length = 0;
@@ -466,11 +466,11 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
         access_token: 'IGAA-short',
         permissions: 'instagram_business_basic',
       });
-      nock(INSTAGRAM_GRAPH_BASE_URL)
+      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
         .get('/access_token')
         .query(true)
         .reply(200, { access_token: 'IGAA-long', expires_in: 5_184_000 })
-        .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+        .get(`/${META_GRAPH_VERSION}/me`)
         .query(true)
         .reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });
 
@@ -495,7 +495,7 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
         access_token: 'IGAA-short',
         permissions: 'instagram_business_basic',
       });
-      nock(INSTAGRAM_GRAPH_BASE_URL)
+      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
         .get('/access_token')
         .query(true)
         .reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });
@@ -525,8 +525,8 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
     });
 
     it('answers 503 instagram_not_configured, with its reason, when the Instagram app is not set (D34)', async () => {
-      const savedAppId = process.env.INSTAGRAM_APP_ID;
-      delete process.env.INSTAGRAM_APP_ID;
+      const savedAppId = process.env.META_APP_ID;
+      delete process.env.META_APP_ID;
       resetEnvCacheForTests();
       try {
         const response = await connect({ token: team.ownerToken });
@@ -535,7 +535,7 @@ describe('Instagram account routes (connect, read, disconnect)', () => {
         expect(errorOf(response).code).toBe('service_unavailable');
         expect(errorOf(response).reason).toBe('instagram_not_configured');
       } finally {
-        process.env.INSTAGRAM_APP_ID = savedAppId;
+        process.env.META_APP_ID = savedAppId;
         resetEnvCacheForTests();
       }
     });

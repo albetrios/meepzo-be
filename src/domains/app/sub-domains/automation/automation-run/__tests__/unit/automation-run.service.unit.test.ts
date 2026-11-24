@@ -5,7 +5,7 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
@@ -520,9 +520,9 @@ function createStore() {
 
 /** An Instagram error as a send result carries it. */
 function instagramError(
-  overrides: Partial<ConstructorParameters<typeof InstagramApiError>[0]> = {},
-): InstagramApiError {
-  return new InstagramApiError({
+  overrides: Partial<ConstructorParameters<typeof MetaGraphApiError>[0]> = {},
+): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass: 'refused',
     category: 'http_4xx',
     httpStatus: 400,

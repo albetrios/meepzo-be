@@ -8,7 +8,7 @@ import {
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
-import type { InstagramMediaGraphItem } from '@/infrastructure/social/instagram.client.js';
+import type { InstagramMediaGraphItem } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
   InstagramAccountRepository,
   type InstagramAccountKey,

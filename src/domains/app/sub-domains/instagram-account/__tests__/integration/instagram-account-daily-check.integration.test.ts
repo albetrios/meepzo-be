@@ -9,11 +9,13 @@ import {
   getBullMQConnectionOptions,
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
+  META_GRAPH_VERSION,
+  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
+  INSTAGRAM_LOGIN_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
   decryptFieldSecret,
   encryptFieldSecret,
@@ -98,7 +100,7 @@ describe('Instagram account daily check (IA8)', () => {
 
   afterEach(async () => {
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
     await noticeQueue.obliterate({ force: true });
     await dailyCheckQueue.obliterate({ force: true });
   });
@@ -191,16 +193,19 @@ describe('Instagram account daily check (IA8)', () => {
   }
 
   function mockRenewal(plainToken = RENEWED_PLAIN_TOKEN): nock.Scope {
-    return nock(INSTAGRAM_GRAPH_BASE_URL).get('/refresh_access_token').query(true).reply(200, {
-      access_token: plainToken,
-      token_type: 'bearer',
-      expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
-    });
+    return nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
+      .get('/refresh_access_token')
+      .query(true)
+      .reply(200, {
+        access_token: plainToken,
+        token_type: 'bearer',
+        expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
+      });
   }
 
   function mockProfile(profile: TestInstagramProfile): nock.Scope {
-    return nock(INSTAGRAM_GRAPH_BASE_URL)
-      .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+    return nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
+      .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
       .query(true)
       .reply(200, profile);
   }
@@ -262,8 +267,8 @@ describe('Instagram account daily check (IA8)', () => {
   it('subscribes an account that is not subscribed to the webhook fields again (AC-11.3)', async () => {
     const target = await seedConnectedAccount({ tokenEndsInDays: 30, isWebhookSubscribed: false });
     mockProfile(target.profile);
-    const subscription = nock(INSTAGRAM_GRAPH_BASE_URL)
-      .post(`/${INSTAGRAM_GRAPH_API_VERSION}/${target.profile.id}/subscribed_apps`)
+    const subscription = nock(META_GRAPH_BASE_URL)
+      .post(`/${META_GRAPH_VERSION}/${target.profile.id}/subscribed_apps`)
       .query(true)
       .reply(200, { success: true });
 
@@ -277,7 +282,7 @@ describe('Instagram account daily check (IA8)', () => {
   it('keeps the account connected when Instagram is down: the error is kept, the job waits (AC-11.4)', async () => {
     const target = await seedConnectedAccount({ tokenEndsInDays: 3 });
     const before = await readState(target.key.instagramAccountId);
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/refresh_access_token')
       .query(true)
       .reply(503, { error: { message: 'Service temporarily unavailable', code: 2 } });
@@ -294,7 +299,7 @@ describe('Instagram account daily check (IA8)', () => {
 
   it('marks the account error at once when Instagram refuses the token, and tells it (AC-11.5)', async () => {
     const target = await seedConnectedAccount({ tokenEndsInDays: 3 });
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/refresh_access_token')
       .query(true)
       .reply(400, {
@@ -320,7 +325,7 @@ describe('Instagram account daily check (IA8)', () => {
 
   it('marks the account expired when Instagram says the token expired (subcode 463)', async () => {
     const target = await seedConnectedAccount({ tokenEndsInDays: 3 });
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/refresh_access_token')
       .query(true)
       .reply(400, { error: { message: 'Session has expired', code: 190, error_subcode: 463 } });
@@ -349,7 +354,7 @@ describe('Instagram account daily check (IA8)', () => {
     const target = await seedConnectedAccount({ tokenEndsInDays: 3 });
     const reconnectExpiresAt = new Date(Date.now() + 60 * DAY_MS);
     // While Instagram renews, a reconnect stores a new token (as route 1's transaction does).
-    nock(INSTAGRAM_GRAPH_BASE_URL)
+    nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
       .get('/refresh_access_token')
       .query(true)
       .reply(async () => {

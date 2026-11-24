@@ -10,7 +10,7 @@ import type { UploadContainer } from '@/domains/upload/upload.container.js';
 import type { UserContainer } from '@/domains/user/user.container.js';
 import type { AuthContext } from '@/shared/types/index.js';
 import type { PrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
-import type { MetaSignedRequestPayload } from '@/infrastructure/social/meta-signature.util.js';
+import type { MetaSignedRequestPayload } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-signature.js';
 import type { FailedAuthenticationRateLimit } from '@/shared/middlewares/rate-limit/failed-authentication-rate-limit.js';
 import type { FastifyReply } from 'fastify';
 import type Stripe from 'stripe';

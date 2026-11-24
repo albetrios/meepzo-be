@@ -65,11 +65,12 @@ function useFakeProviderKeys(): void {
   process.env.S3_REGION = 'us-east-1';
   process.env.S3_ACCESS_KEY_ID = 'test-s3-access-key-id';
   process.env.S3_SECRET_ACCESS_KEY = 'test-s3-secret-access-key';
-  // A complete fake Instagram app, so the Instagram client and Meta's signature checks run against
-  // nock stubs (and a computed HMAC), never the hosted development app setup:local copies in.
-  process.env.INSTAGRAM_APP_ID = 'test-instagram-app-id';
-  process.env.INSTAGRAM_APP_SECRET = 'test-instagram-app-secret-for-nock-stubs';
-  process.env.INSTAGRAM_REDIRECT_URI = `${DEFAULT_FRONTEND_URL}/auth/instagram/callback`;
+  // A complete fake Meta app, so the Meta client and Meta's signature checks run against nock stubs
+  // (and a computed HMAC), never the hosted development app setup:local copies in.
+  process.env.META_APP_ID = 'test-meta-app-id';
+  process.env.META_APP_SECRET = 'test-meta-app-secret-for-nock-stubs-only';
+  process.env.META_CONFIG_ID = 'test-meta-config-id';
+  process.env.META_REDIRECT_URI = `${DEFAULT_FRONTEND_URL}/auth/meta/callback`;
 
   for (const key of ['S3_ENDPOINT', 'SENTRY_DSN', 'POSTHOG_KEY', 'POSTHOG_HOST']) {
     delete process.env[key];

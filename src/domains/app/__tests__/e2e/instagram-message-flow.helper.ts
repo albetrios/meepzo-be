@@ -6,8 +6,8 @@ import type {
   InstagramMessageRecipient,
   InstagramOutgoingMessage,
   InstagramUserProfile,
-} from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
@@ -188,8 +188,8 @@ export function createRecordingInstagramClient(): RecordingInstagramClient {
 }
 
 /** Instagram refusing one DM for good — the person is outside the messaging window (D32). */
-export function refusedSend(): InstagramApiError {
-  return new InstagramApiError({
+export function refusedSend(): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass: 'refused',
     category: 'http_4xx',
     httpStatus: 400,
@@ -204,8 +204,8 @@ export function refusedSend(): InstagramApiError {
 }
 
 /** Instagram asking to slow down — a temporary failure: nothing was sent. */
-export function throttledSend(): InstagramApiError {
-  return new InstagramApiError({
+export function throttledSend(): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass: 'throttled',
     category: 'http_4xx',
     httpStatus: 429,
@@ -458,7 +458,7 @@ export class InstagramMessageFlow {
       object: 'instagram',
       entry: [{ id: this.account.instagramUserId, time: Date.now(), [source]: [item] }],
     });
-    const secret = getEnv().INSTAGRAM_APP_SECRET ?? '';
+    const secret = getEnv().META_APP_SECRET ?? '';
     const response = await injectRoute(this.app, {
       method: 'POST',
       url: INSTAGRAM_WEBHOOK_PATH,

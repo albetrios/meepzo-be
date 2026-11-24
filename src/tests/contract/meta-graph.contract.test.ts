@@ -1,10 +1,11 @@
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   exchangeInstagramAuthorizationCode,
   exchangeInstagramLongLivedAccessToken,
   INSTAGRAM_AUTHORIZATION_BASE_URL,
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
+  META_GRAPH_VERSION,
+  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
+  META_GRAPH_BASE_URL,
   INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS,
   listInstagramMedia,
   listInstagramStories,
@@ -16,13 +17,13 @@ import {
   sendInstagramMessage,
   subscribeInstagramWebhookFields,
   unsubscribeInstagramWebhookFields,
-} from '@/infrastructure/social/instagram.client.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
   INSTAGRAM_OUTSIDE_MESSAGING_WINDOW_SUBCODE,
   INSTAGRAM_THROTTLE_DEFAULT_RETRY_AFTER_MS,
   INSTAGRAM_THROTTLE_MAX_RETRY_AFTER_MS,
-  InstagramApiError,
-} from '@/infrastructure/social/instagram-error.util.js';
+  MetaGraphApiError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -38,71 +39,71 @@ import nock from 'nock';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
-import accessTokenSuccessFixture from './fixtures/instagram/access-token.success.response.json' with {
+import accessTokenSuccessFixture from './fixtures/meta-graph/access-token.success.response.json' with {
   type: 'json',
 };
-import commentRepliesSuccessFixture from './fixtures/instagram/comment-replies.success.response.json' with {
+import commentRepliesSuccessFixture from './fixtures/meta-graph/comment-replies.success.response.json' with {
   type: 'json',
 };
-import graphErrorApplicationThrottledFixture from './fixtures/instagram/graph-error.application-throttled.response.json' with {
+import graphErrorApplicationThrottledFixture from './fixtures/meta-graph/graph-error.application-throttled.response.json' with {
   type: 'json',
 };
-import graphErrorBusinessThrottledFixture from './fixtures/instagram/graph-error.business-throttled.response.json' with {
+import graphErrorBusinessThrottledFixture from './fixtures/meta-graph/graph-error.business-throttled.response.json' with {
   type: 'json',
 };
-import graphErrorOutsideMessagingWindowFixture from './fixtures/instagram/graph-error.outside-messaging-window.response.json' with {
+import graphErrorOutsideMessagingWindowFixture from './fixtures/meta-graph/graph-error.outside-messaging-window.response.json' with {
   type: 'json',
 };
-import graphErrorQuickReplyRefusedFixture from './fixtures/instagram/graph-error.quick-reply-refused.response.json' with {
+import graphErrorQuickReplyRefusedFixture from './fixtures/meta-graph/graph-error.quick-reply-refused.response.json' with {
   type: 'json',
 };
-import graphErrorRecipientNotFoundFixture from './fixtures/instagram/graph-error.recipient-not-found.response.json' with {
+import graphErrorRecipientNotFoundFixture from './fixtures/meta-graph/graph-error.recipient-not-found.response.json' with {
   type: 'json',
 };
-import graphErrorTokenExpiredFixture from './fixtures/instagram/graph-error.token-expired.response.json' with {
+import graphErrorTokenExpiredFixture from './fixtures/meta-graph/graph-error.token-expired.response.json' with {
   type: 'json',
 };
-import graphErrorTokenInvalidatedFixture from './fixtures/instagram/graph-error.token-invalidated.response.json' with {
+import graphErrorTokenInvalidatedFixture from './fixtures/meta-graph/graph-error.token-invalidated.response.json' with {
   type: 'json',
 };
-import graphErrorUnexpectedFixture from './fixtures/instagram/graph-error.unexpected.response.json' with {
+import graphErrorUnexpectedFixture from './fixtures/meta-graph/graph-error.unexpected.response.json' with {
   type: 'json',
 };
-import meSuccessFixture from './fixtures/instagram/me.success.response.json' with { type: 'json' };
-import meWrappedSuccessFixture from './fixtures/instagram/me.wrapped.success.response.json' with {
+import meSuccessFixture from './fixtures/meta-graph/me.success.response.json' with { type: 'json' };
+import meWrappedSuccessFixture from './fixtures/meta-graph/me.wrapped.success.response.json' with {
   type: 'json',
 };
-import mediaFirstPageFixture from './fixtures/instagram/media.first-page.response.json' with {
+import mediaFirstPageFixture from './fixtures/meta-graph/media.first-page.response.json' with {
   type: 'json',
 };
-import mediaLastPageFixture from './fixtures/instagram/media.last-page.response.json' with {
+import mediaLastPageFixture from './fixtures/meta-graph/media.last-page.response.json' with {
   type: 'json',
 };
-import mediaItemSuccessFixture from './fixtures/instagram/media-item.success.response.json' with {
+import mediaItemSuccessFixture from './fixtures/meta-graph/media-item.success.response.json' with {
   type: 'json',
 };
-import messagesSuccessFixture from './fixtures/instagram/messages.success.response.json' with {
+import messagesSuccessFixture from './fixtures/meta-graph/messages.success.response.json' with {
   type: 'json',
 };
-import oauthAccessTokenErrorFixture from './fixtures/instagram/oauth-access-token.error.response.json' with {
+import oauthAccessTokenErrorFixture from './fixtures/meta-graph/oauth-access-token.error.response.json' with {
   type: 'json',
 };
-import oauthAccessTokenFlatSuccessFixture from './fixtures/instagram/oauth-access-token.flat.success.response.json' with {
+import oauthAccessTokenFlatSuccessFixture from './fixtures/meta-graph/oauth-access-token.flat.success.response.json' with {
   type: 'json',
 };
-import oauthAccessTokenSuccessFixture from './fixtures/instagram/oauth-access-token.success.response.json' with {
+import oauthAccessTokenSuccessFixture from './fixtures/meta-graph/oauth-access-token.success.response.json' with {
   type: 'json',
 };
-import refreshAccessTokenSuccessFixture from './fixtures/instagram/refresh-access-token.success.response.json' with {
+import refreshAccessTokenSuccessFixture from './fixtures/meta-graph/refresh-access-token.success.response.json' with {
   type: 'json',
 };
-import storiesSuccessFixture from './fixtures/instagram/stories.success.response.json' with {
+import storiesSuccessFixture from './fixtures/meta-graph/stories.success.response.json' with {
   type: 'json',
 };
-import subscribedAppsSuccessFixture from './fixtures/instagram/subscribed-apps.success.response.json' with {
+import subscribedAppsSuccessFixture from './fixtures/meta-graph/subscribed-apps.success.response.json' with {
   type: 'json',
 };
-import userProfileSuccessFixture from './fixtures/instagram/user-profile.success.response.json' with {
+import userProfileSuccessFixture from './fixtures/meta-graph/user-profile.success.response.json' with {
   type: 'json',
 };
 import { registerThirdPartyContractTestIsolationHooks } from './helpers/register-contract-test-hooks.js';
@@ -110,11 +111,12 @@ import { registerThirdPartyContractTestIsolationHooks } from './helpers/register
 registerThirdPartyContractTestIsolationHooks();
 
 /**
- * The wire contract of the one Instagram client (`src/infrastructure/social/instagram.client.ts`,
+ * The wire contract of the one Meta client (moved from the Instagram client, routes-final § 1 MC2; Graph calls on
+ * `graph.facebook.com` with `appsecret_proof`, the launch's Instagram Login calls on their own hosts until ROUTE row R3) (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`,
  * IA4 / IAC4): what each call sends to `api.instagram.com` / `graph.instagram.com`, where the token
  * travels, and how Meta's real answers — success and error — are read.
  *
- * Where each fixture's shape comes from (`fixtures/instagram/`):
+ * Where each fixture's shape comes from (`fixtures/meta-graph/`):
  *
  * | Fixture | Source |
  * | --- | --- |
@@ -130,12 +132,12 @@ registerThirdPartyContractTestIsolationHooks();
  * | `user-profile.success` | Instagram User Profile API (Meta's own sample person) — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api/user-profile |
  * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `80002` (the Instagram business-use-case rate limit, subcode 2446079) — docs/graph-api/overview/rate-limiting; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the quick reply refused) — the intake's schema-routes § 6.5, no Meta page names it |
  */
-describe('Instagram outbound contract (`instagram.client`)', () => {
+describe('Meta outbound contract (`meta-graph.client`)', () => {
   /** The account's long-lived token in plain text — the value that must never reach a URL or a log. */
   const ACCOUNT_ACCESS_TOKEN = 'IGAA-contract-fixture-account-access-token';
   /** The account's app-scoped id, as `/me` `id` gives it. */
   const APP_USER_ID = meSuccessFixture.id;
-  const GRAPH_VERSION_PATH = `/${INSTAGRAM_GRAPH_API_VERSION}`;
+  const GRAPH_VERSION_PATH = `/${META_GRAPH_VERSION}`;
   const MEDIA_FIELDS =
     'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,comments_count,like_count,children{id,media_type,media_url}';
   const STORY_FIELDS = 'id,media_type,media_url,thumbnail_url,permalink,timestamp';
@@ -187,10 +189,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
 
   /** The Graph host, expecting the account's token in the `Authorization` header (IA4). */
   function graphWithAccountToken(): nock.Scope {
-    return nock(INSTAGRAM_GRAPH_BASE_URL).matchHeader(
-      'authorization',
-      `Bearer ${ACCOUNT_ACCESS_TOKEN}`,
-    );
+    return nock(META_GRAPH_BASE_URL).matchHeader('authorization', `Bearer ${ACCOUNT_ACCESS_TOKEN}`);
   }
 
   /** A form body as nock hands it to a matcher: already parsed, or the raw string. */
@@ -269,10 +268,10 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
       nock(INSTAGRAM_AUTHORIZATION_BASE_URL, { badheaders: ['authorization'] })
         .post('/oauth/access_token', (body) => {
           expect(readFormBody(body)).toEqual({
-            client_id: environment.INSTAGRAM_APP_ID,
-            client_secret: environment.INSTAGRAM_APP_SECRET,
+            client_id: environment.META_APP_ID,
+            client_secret: environment.META_APP_SECRET,
             grant_type: 'authorization_code',
-            redirect_uri: environment.INSTAGRAM_REDIRECT_URI,
+            redirect_uri: environment.META_REDIRECT_URI,
             code: 'AQBcontract-fixture-authorization-code',
           });
           return true;
@@ -336,9 +335,9 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         code: 'AQBcontract-fixture-used-code',
       }).catch((error: unknown) => error);
 
-      expect(rejection).toBeInstanceOf(InstagramApiError);
+      expect(rejection).toBeInstanceOf(MetaGraphApiError);
       expect(rejection).toMatchObject({
-        integration: 'instagram',
+        integration: 'meta-graph',
         errorClass: 'refused',
         connectionStatus: null,
         status: 400,
@@ -357,17 +356,17 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
       const shortLivedAccessToken = 'IGAA-contract-fixture-short-lived-access-token';
       LongLivedTokenContractSchema.parse(accessTokenSuccessFixture);
       let interceptedUrl = '';
-      nock(INSTAGRAM_GRAPH_BASE_URL, { badheaders: ['authorization'] })
+      nock(META_GRAPH_BASE_URL, { badheaders: ['authorization'] })
         .get('/access_token')
         .query({
           grant_type: 'ig_exchange_token',
-          client_secret: String(environment.INSTAGRAM_APP_SECRET),
+          client_secret: String(environment.META_APP_SECRET),
           access_token: shortLivedAccessToken,
         })
         .reply(200, (interceptedUri: string) => {
           interceptedUrl = readInterceptedUrl({
             interceptedUri,
-            baseUrl: INSTAGRAM_GRAPH_BASE_URL,
+            baseUrl: META_GRAPH_BASE_URL,
           });
           return accessTokenSuccessFixture;
         });
@@ -393,7 +392,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
       // The one URL that carries the token and the secret is redacted wherever it is logged.
       const loggedUrl = redactSensitiveUrl(interceptedUrl);
       expect(loggedUrl).not.toContain(shortLivedAccessToken);
-      expect(loggedUrl).not.toContain(String(environment.INSTAGRAM_APP_SECRET));
+      expect(loggedUrl).not.toContain(String(environment.META_APP_SECRET));
       expect(loggedUrl).toContain(`access_token=${SENSITIVE_REDACTION_PLACEHOLDER}`);
       expect(loggedUrl).toContain(`client_secret=${SENSITIVE_REDACTION_PLACEHOLDER}`);
     });
@@ -401,13 +400,13 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
     test('the renewal carries the token in the query only and returns the renewed token encrypted', async () => {
       LongLivedTokenContractSchema.parse(refreshAccessTokenSuccessFixture);
       let interceptedUrl = '';
-      nock(INSTAGRAM_GRAPH_BASE_URL, { badheaders: ['authorization'] })
+      nock(META_GRAPH_BASE_URL, { badheaders: ['authorization'] })
         .get('/refresh_access_token')
         .query({ grant_type: 'ig_refresh_token', access_token: ACCOUNT_ACCESS_TOKEN })
         .reply(200, (interceptedUri: string) => {
           interceptedUrl = readInterceptedUrl({
             interceptedUri,
-            baseUrl: INSTAGRAM_GRAPH_BASE_URL,
+            baseUrl: META_GRAPH_BASE_URL,
           });
           return refreshAccessTokenSuccessFixture;
         });
@@ -461,7 +460,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         .reply(200, (interceptedUri: string) => {
           interceptedUrl = readInterceptedUrl({
             interceptedUri,
-            baseUrl: INSTAGRAM_GRAPH_BASE_URL,
+            baseUrl: META_GRAPH_BASE_URL,
           });
           return meSuccessFixture;
         });
@@ -503,7 +502,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         .query({ fields: MEDIA_FIELDS, limit: '2' })
         .reply(200, (interceptedUri: string) => {
           interceptedUrls.push(
-            readInterceptedUrl({ interceptedUri, baseUrl: INSTAGRAM_GRAPH_BASE_URL }),
+            readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL }),
           );
           return mediaFirstPageFixture;
         });
@@ -512,7 +511,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         .query({ fields: MEDIA_FIELDS, limit: '2', after: nextCursor })
         .reply(200, (interceptedUri: string) => {
           interceptedUrls.push(
-            readInterceptedUrl({ interceptedUri, baseUrl: INSTAGRAM_GRAPH_BASE_URL }),
+            readInterceptedUrl({ interceptedUri, baseUrl: META_GRAPH_BASE_URL }),
           );
           return mediaLastPageFixture;
         });
@@ -681,7 +680,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
   describe("Instagram's error answers (IA4 classes)", () => {
     test('190 / 463 on the renewal is auth → expired, and the token reaches neither a log line nor the error', async () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorTokenExpiredFixture);
-      nock(INSTAGRAM_GRAPH_BASE_URL)
+      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
         .get('/refresh_access_token')
         .query(true)
         .reply(400, graphErrorTokenExpiredFixture);
@@ -691,7 +690,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         encryptedAccessToken: encryptedAccountAccessToken,
       }).catch((error: unknown) => error);
 
-      expect(rejection).toBeInstanceOf(InstagramApiError);
+      expect(rejection).toBeInstanceOf(MetaGraphApiError);
       expect(rejection).toMatchObject({
         errorClass: 'auth',
         connectionStatus: 'expired',
@@ -711,7 +710,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
       const environment = getEnv();
       const shortLivedAccessToken = 'IGAA-contract-fixture-short-lived-access-token';
       GraphErrorEnvelopeContractSchema.parse(graphErrorTokenInvalidatedFixture);
-      nock(INSTAGRAM_GRAPH_BASE_URL)
+      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
         .get('/access_token')
         .query(true)
         .reply(400, graphErrorTokenInvalidatedFixture);
@@ -728,7 +727,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         instagramErrorSubcode: 460,
         countsAsCircuitFailure: false,
       });
-      const appSecret = String(environment.INSTAGRAM_APP_SECRET);
+      const appSecret = String(environment.META_APP_SECRET);
       for (const text of [readLoggedText(), describeRejection(rejection)]) {
         expect(text).not.toContain(shortLivedAccessToken);
         expect(text).not.toContain(appSecret);
@@ -834,7 +833,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         message: { text: 'Thanks for your message!' },
       }).catch((error: unknown) => error);
 
-      expect(rejection).toBeInstanceOf(InstagramApiError);
+      expect(rejection).toBeInstanceOf(MetaGraphApiError);
       expect(rejection).toMatchObject({
         errorClass: 'refused',
         connectionStatus: null,
@@ -870,7 +869,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
       });
     });
 
-    test('a 5xx is an outage; five of them open the instagram circuit and the next call never leaves', async () => {
+    test('a 5xx is an outage; five of them open the meta circuit and the next call never leaves', async () => {
       GraphErrorEnvelopeContractSchema.parse(graphErrorUnexpectedFixture);
       const failureThreshold = 5;
       graphWithAccountToken()
@@ -891,7 +890,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
           countsAsCircuitFailure: true,
         });
       }
-      expect(await instagramCircuit.getState()).toBe('OPEN');
+      expect(await metaGraphCircuit.getState()).toBe('OPEN');
 
       // No interceptor is left and the network is closed: only the open circuit can answer.
       const rejection = await readProfile().catch((error: unknown) => error);
@@ -899,7 +898,7 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
       expect(rejection).toHaveProperty('retryAfterMs', expect.any(Number));
     });
 
-    test('a burst of dead tokens, throttles and refusals never opens the instagram circuit', async () => {
+    test('a burst of dead tokens, throttles and refusals never opens the meta circuit', async () => {
       const refusalFixtures = [
         graphErrorTokenExpiredFixture,
         graphErrorTokenInvalidatedFixture,
@@ -921,11 +920,11 @@ describe('Instagram outbound contract (`instagram.client`)', () => {
         const rejection = await readInstagramAccountProfile({
           encryptedAccessToken: encryptedAccountAccessToken,
         }).catch((error: unknown) => error);
-        expect(rejection).toBeInstanceOf(InstagramApiError);
+        expect(rejection).toBeInstanceOf(MetaGraphApiError);
         expect(rejection).toHaveProperty('countsAsCircuitFailure', false);
       }
 
-      expect(await instagramCircuit.getState()).toBe('CLOSED');
+      expect(await metaGraphCircuit.getState()).toBe('CLOSED');
     });
   });
 });

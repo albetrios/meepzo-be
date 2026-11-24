@@ -5,7 +5,7 @@ import {
   THIRTY_SECONDS_MS,
 } from '@/shared/constants/ttl.constants.js';
 import {
-  instagramCircuit,
+  metaGraphCircuit,
   resendCircuit,
   s3Circuit,
   stripeCircuit,
@@ -29,7 +29,7 @@ export type OutboundIntegrationName =
   | 'oauth-google'
   | 'oauth-github'
   | 'captcha-turnstile'
-  | 'instagram';
+  | 'meta-graph';
 
 /** Per-integration defaults (HTTP timeout + circuit breaker) applied when call sites omit overrides. */
 export interface OutboundIntegrationDefaults {
@@ -50,8 +50,8 @@ const WEBHOOK_TEST_TIMEOUT_MS = TEN_SECONDS_MS;
 const TURNSTILE_HTTP_TIMEOUT_MS = FIVE_SECONDS_MS;
 /** Wall-clock cap for S3 SDK calls (SDK also uses maxAttempts). */
 const S3_HTTP_TIMEOUT_MS = THIRTY_SECONDS_MS;
-/** Per-attempt cap for one Instagram Graph API call (`src/infrastructure/social/instagram.client.ts`). */
-const INSTAGRAM_HTTP_TIMEOUT_MS = TEN_SECONDS_MS;
+/** Per-attempt cap for one Meta Graph API call (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.ts`). */
+const META_GRAPH_HTTP_TIMEOUT_MS = TEN_SECONDS_MS;
 
 type OutboundDefaultsFactory = () => OutboundIntegrationDefaults;
 
@@ -87,10 +87,10 @@ const OUTBOUND_DEFAULT_FACTORIES: Record<OutboundIntegrationName, OutboundDefaul
     circuit: turnstileCircuit,
   }),
   // A refusal of one request (a bad code, a dead token, a throttle) carries its own
-  // `countsAsCircuitFailure: false` on `InstagramApiError`, as Resend's errors do — no classifier here.
-  instagram: () => ({
-    timeoutMs: INSTAGRAM_HTTP_TIMEOUT_MS,
-    circuit: instagramCircuit,
+  // `countsAsCircuitFailure: false` on `MetaGraphApiError`, as Resend's errors do — no classifier here.
+  'meta-graph': () => ({
+    timeoutMs: META_GRAPH_HTTP_TIMEOUT_MS,
+    circuit: metaGraphCircuit,
   }),
 };
 

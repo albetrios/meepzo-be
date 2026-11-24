@@ -60,7 +60,7 @@ export async function deauthorizeOnInstagram({ app, flow }: FlowOfApp): Promise<
           userId: flow.account.instagramAppUserId,
           issuedAt: metaIssuedAtAfterConnections(),
         }),
-        appSecret: getEnv().INSTAGRAM_APP_SECRET ?? '',
+        appSecret: getEnv().META_APP_SECRET ?? '',
       }),
     ),
   });

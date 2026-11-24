@@ -4,8 +4,8 @@ import {
   PRINCIPAL_SCOPE,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
-import type { InstagramAccountProfile } from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+import type { InstagramAccountProfile } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
   ConflictError,
@@ -57,10 +57,13 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
   };
 });
 
-vi.mock('@/infrastructure/social/instagram.client.js', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, ...instagramClient };
-});
+vi.mock(
+  '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js',
+  async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    return { ...actual, ...instagramClient };
+  },
+);
 
 vi.mock('@/core/events/event-bus.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -186,10 +189,10 @@ function instagramError({
   errorClass,
   retryAfterMs,
 }: {
-  errorClass: InstagramApiError['errorClass'];
+  errorClass: MetaGraphApiError['errorClass'];
   retryAfterMs?: number;
-}): InstagramApiError {
-  return new InstagramApiError({
+}): MetaGraphApiError {
+  return new MetaGraphApiError({
     errorClass,
     category: errorClass === 'outage' ? 'http_5xx' : 'http_4xx',
     httpStatus: errorClass === 'outage' ? 500 : 400,
@@ -519,7 +522,7 @@ describe('InstagramAccountService.connect (route 1, IA12)', () => {
   it('answers 503 instagram_unavailable with the circuit’s wait, rounded up to a second', async () => {
     const { service } = setup({ liveAccount: null });
     instagramClient.exchangeInstagramAuthorizationCode.mockRejectedValue(
-      new CircuitBreakerOpenError('instagram', 1_200, 'instagram circuit is open'),
+      new CircuitBreakerOpenError('meta', 1_200, 'instagram circuit is open'),
     );
 
     const error = await rejection(service.connect(connectInput));

@@ -3,9 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import pino from 'pino';
 import {
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
+  META_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -182,10 +182,11 @@ export function mockInstagramConversation({
   };
   // nock hands a `fetch` call over as its `Request`; a path function reads the pathname only.
   const graphPath = (pattern: RegExp) => (pathname: string) =>
-    pattern.test(pathname.slice(`/${INSTAGRAM_GRAPH_API_VERSION}`.length));
-  nock(INSTAGRAM_GRAPH_BASE_URL)
+    pattern.test(pathname.slice(`/${META_GRAPH_VERSION}`.length));
+  nock(META_GRAPH_BASE_URL)
     .persist()
-    .post(`/${INSTAGRAM_GRAPH_API_VERSION}/${instagramAppUserId}/messages`)
+    .post(`/${META_GRAPH_VERSION}/${instagramAppUserId}/messages`)
+    .query(true)
     .reply((request: unknown) =>
       answerSend({
         kind: 'message',
@@ -194,6 +195,7 @@ export function mockInstagramConversation({
       }),
     )
     .post(graphPath(/^\/\d+\/replies$/))
+    .query(true)
     .reply((request: unknown) =>
       answerSend({ kind: 'public_reply', request, taken: { id: '17990000000000001' } }),
     )
@@ -287,7 +289,7 @@ export async function deliverInstagramEvents({
     object: 'instagram',
     entry: [{ id: team.profile.user_id, time: Date.now(), changes, messaging }],
   });
-  const signature = createHmac('sha256', getEnv().INSTAGRAM_APP_SECRET ?? '')
+  const signature = createHmac('sha256', getEnv().META_APP_SECRET ?? '')
     .update(rawBody)
     .digest('hex');
   const response = await injectRoute(app, {

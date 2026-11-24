@@ -11,11 +11,11 @@ import {
   readInstagramAccountProfile,
   subscribeInstagramWebhookFields,
   unsubscribeInstagramWebhookFields,
-} from '@/infrastructure/social/instagram.client.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
-  InstagramApiError,
-  buildInstagramMalformedAnswerError,
-} from '@/infrastructure/social/instagram-error.util.js';
+  MetaGraphApiError,
+  buildMetaGraphMalformedAnswerError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
   assertTeamOrganization,
@@ -45,7 +45,7 @@ import type {
 } from './instagram-account.repository.js';
 import type { InstagramAccountTokenService } from './instagram-account-token.service.js';
 import {
-  instagramCircuitOpenError,
+  metaGraphCircuitOpenError,
   instagramConnectRestartRequiredError,
   instagramNotConnectedError,
   instagramUnavailableError,
@@ -98,9 +98,9 @@ function toConnectRouteError({
   isCodeSpent: boolean;
 }): unknown {
   if (error instanceof CircuitBreakerOpenError) {
-    return isCodeSpent ? instagramConnectRestartRequiredError() : instagramCircuitOpenError(error);
+    return isCodeSpent ? instagramConnectRestartRequiredError() : metaGraphCircuitOpenError(error);
   }
-  if (!(error instanceof InstagramApiError)) return error;
+  if (!(error instanceof MetaGraphApiError)) return error;
   if (error.errorClass === 'refused' || error.errorClass === 'auth') {
     return new UnprocessableEntityError('errors:instagramCodeInvalid').withReason(
       'instagram_code_invalid',
@@ -162,7 +162,7 @@ function isConnectedAfterMetaRequest({
 
 /** What a failed Instagram call may say in a log line — its class and codes, never its text. */
 function describeInstagramFailure(error: unknown): Record<string, unknown> {
-  if (error instanceof InstagramApiError) {
+  if (error instanceof MetaGraphApiError) {
     return {
       errorClass: error.errorClass,
       instagramErrorCode: error.instagramErrorCode,
@@ -913,7 +913,7 @@ export class InstagramAccountService {
       });
       if (profile.username === null) {
         // A professional account always has one; an answer without it is Instagram misbehaving.
-        throw buildInstagramMalformedAnswerError({ operation: '/me', missing: 'username' });
+        throw buildMetaGraphMalformedAnswerError({ operation: '/me', missing: 'username' });
       }
       return {
         profile,

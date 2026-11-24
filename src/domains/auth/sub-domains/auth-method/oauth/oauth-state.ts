@@ -1,5 +1,10 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { Redis } from 'ioredis';
+import {
+  consumeOneUseValue,
+  generateOneUseToken,
+  storeOneUseValue,
+} from '@/infrastructure/cache/redis-one-use-value.util.js';
 import { NotFoundError, UnauthorizedError } from '@/shared/errors/index.js';
 import { OAUTH_STATE_TTL_SECONDS } from '@/shared/constants/ttl.constants.js';
 import { SUPPORTED_OAUTH_PROVIDERS, type OAuthProvider } from './oauth.types.js';
@@ -80,20 +85,20 @@ export async function createOAuthState({
   redis: Redis;
   provider: OAuthProvider;
 }): Promise<CreateOAuthStateResult> {
-  const state = randomBytes(32).toString('hex');
+  const state = generateOneUseToken('hex');
   const codeVerifier = generatePkceCodeVerifier();
-  const nonce = randomBytes(32).toString('hex');
+  const nonce = generateOneUseToken('hex');
   const payload: OAuthStatePayload = {
     provider,
     code_verifier: codeVerifier,
     nonce_hash: hashOAuthNonce(nonce),
   };
-  await redis.set(
-    `${OAUTH_STATE_KEY_PREFIX}${state}`,
-    JSON.stringify(payload),
-    'EX',
-    OAUTH_STATE_TTL_SECONDS,
-  );
+  await storeOneUseValue({
+    redis,
+    key: `${OAUTH_STATE_KEY_PREFIX}${state}`,
+    value: JSON.stringify(payload),
+    ttlSeconds: OAUTH_STATE_TTL_SECONDS,
+  });
   return { state, codeVerifier, nonce };
 }
 
@@ -134,7 +139,10 @@ export async function consumeOAuthState({
     throw new UnauthorizedError('errors:oauthInvalidState');
   }
 
-  const storedPayloadRaw = await redis.getdel(`${OAUTH_STATE_KEY_PREFIX}${state}`);
+  const storedPayloadRaw = await consumeOneUseValue({
+    redis,
+    key: `${OAUTH_STATE_KEY_PREFIX}${state}`,
+  });
   if (!storedPayloadRaw) {
     throw new UnauthorizedError('errors:oauthInvalidState');
   }

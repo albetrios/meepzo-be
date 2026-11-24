@@ -7,12 +7,14 @@ import {
   getBullMQConnectionOptions,
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
-import { instagramCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
+import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
   INSTAGRAM_AUTHORIZATION_BASE_URL,
-  INSTAGRAM_GRAPH_API_VERSION,
-  INSTAGRAM_GRAPH_BASE_URL,
-} from '@/infrastructure/social/instagram.client.js';
+  META_GRAPH_VERSION,
+  INSTAGRAM_LOGIN_GRAPH_BASE_URL,
+  INSTAGRAM_LOGIN_GRAPH_VERSION,
+  META_GRAPH_BASE_URL,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { env, getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
@@ -110,7 +112,7 @@ describe('Instagram acceptance across features (e2e)', () => {
 
   afterEach(async () => {
     nock.cleanAll();
-    await instagramCircuit.reset();
+    await metaGraphCircuit.reset();
     // Instagram takes one private reply per comment — the flow never sends a second one.
     expect(instagram.commentsAnsweredPrivatelyTwice()).toEqual([]);
   });
@@ -475,7 +477,7 @@ describe('Instagram acceptance across features (e2e)', () => {
 
     /** The long-lived exchange answering the token. */
     function mockLongLivedExchange(): void {
-      nock(INSTAGRAM_GRAPH_BASE_URL).get('/access_token').query(true).reply(200, {
+      nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL).get('/access_token').query(true).reply(200, {
         access_token: TEST_INSTAGRAM_LONG_LIVED_TOKEN,
         token_type: 'bearer',
         expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
@@ -484,7 +486,7 @@ describe('Instagram acceptance across features (e2e)', () => {
 
     /** The app secret the Instagram calls and Meta's signatures use. */
     function appSecret(): string {
-      const secret = getEnv().INSTAGRAM_APP_SECRET;
+      const secret = getEnv().META_APP_SECRET;
       if (!secret) throw new Error('the test harness sets no Instagram app secret');
       return secret;
     }
@@ -584,7 +586,7 @@ describe('Instagram acceptance across features (e2e)', () => {
         outcome: 'a long-lived exchange Instagram refuses, quoting the token',
         mock: () => {
           mockCodeExchange();
-          nock(INSTAGRAM_GRAPH_BASE_URL)
+          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
             .get('/access_token')
             .query(true)
             .reply(
@@ -601,11 +603,11 @@ describe('Instagram acceptance across features (e2e)', () => {
         outcome: 'a long-lived exchange that breaks off, naming its address',
         mock: () => {
           mockCodeExchange();
-          nock(INSTAGRAM_GRAPH_BASE_URL)
+          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
             .get('/access_token')
             .query(true)
             .replyWithError(
-              `getaddrinfo failed for ${INSTAGRAM_GRAPH_BASE_URL}/access_token?client_secret=${appSecret()}&access_token=${TEST_INSTAGRAM_SHORT_LIVED_TOKEN}`,
+              `getaddrinfo failed for ${META_GRAPH_BASE_URL}/access_token?client_secret=${appSecret()}&access_token=${TEST_INSTAGRAM_SHORT_LIVED_TOKEN}`,
             );
         },
         // The one-time code is spent: restart, never retry (D56).
@@ -616,8 +618,8 @@ describe('Instagram acceptance across features (e2e)', () => {
         mock: () => {
           mockCodeExchange();
           mockLongLivedExchange();
-          nock(INSTAGRAM_GRAPH_BASE_URL)
-            .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
+            .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
             .query(true)
             .reply(500, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 2 }));
         },
@@ -671,16 +673,16 @@ describe('Instagram acceptance across features (e2e)', () => {
       await expectNoSecretLogged({
         code,
         act: async () => {
-          nock(INSTAGRAM_GRAPH_BASE_URL)
+          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
             .get('/refresh_access_token')
             .query(true)
             .reply(400, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 100 }))
-            .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+            .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
             .query(true)
             .reply(200, profile);
           expect(await checkDaily()).toMatchObject({ outcome: 'checked', renewal: 'refused' });
 
-          nock(INSTAGRAM_GRAPH_BASE_URL)
+          nock(INSTAGRAM_LOGIN_GRAPH_BASE_URL)
             .get('/refresh_access_token')
             .query(true)
             .reply(200, {
@@ -688,13 +690,14 @@ describe('Instagram acceptance across features (e2e)', () => {
               token_type: 'bearer',
               expires_in: TEST_INSTAGRAM_TOKEN_LIFETIME_SECONDS,
             })
-            .get(`/${INSTAGRAM_GRAPH_API_VERSION}/me`)
+            .get(`/${INSTAGRAM_LOGIN_GRAPH_VERSION}/me`)
             .query(true)
             .reply(200, profile);
           expect(await checkDaily()).toMatchObject({ outcome: 'checked', renewal: 'renewed' });
 
-          nock(INSTAGRAM_GRAPH_BASE_URL)
-            .delete(`/${INSTAGRAM_GRAPH_API_VERSION}/${profile.id}/subscribed_apps`)
+          nock(META_GRAPH_BASE_URL)
+            .delete(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)
+            .query(true)
             .reply(500, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 2 }));
           const disconnected = await injectAuthenticated(app, {
             method: 'DELETE',

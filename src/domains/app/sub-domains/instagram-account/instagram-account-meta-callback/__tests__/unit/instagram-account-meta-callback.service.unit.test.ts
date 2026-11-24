@@ -26,16 +26,19 @@ vi.mock('@/infrastructure/database/contexts/database-context.js', async (importO
   };
 });
 
-vi.mock('@/infrastructure/social/instagram.client.js', () => ({
-  readInstagramAppSecret: () => {
-    if (appSettings.appSecret === null) {
-      throw new ServiceUnavailableError('errors:instagramNotConfigured').withReason(
-        'instagram_not_configured',
-      );
-    }
-    return appSettings.appSecret;
-  },
-}));
+vi.mock(
+  '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js',
+  () => ({
+    readMetaAppSecret: () => {
+      if (appSettings.appSecret === null) {
+        throw new ServiceUnavailableError('errors:instagramNotConfigured').withReason(
+          'instagram_not_configured',
+        );
+      }
+      return appSettings.appSecret;
+    },
+  }),
+);
 
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import { InstagramAccountErasureService } from '@/domains/app/sub-domains/instagram-account/instagram-account-erasure.service.js';

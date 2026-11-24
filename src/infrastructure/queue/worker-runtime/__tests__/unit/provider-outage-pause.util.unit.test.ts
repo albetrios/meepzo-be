@@ -93,23 +93,21 @@ describe('toProviderOutageError', () => {
     ).resolves.toBeNull();
   });
 
-  it('pauses an Instagram queue on the instagram circuit — its own managed breaker', async () => {
-    const getState = vi
-      .spyOn(MANAGED_CIRCUIT_BREAKERS.instagram, 'getState')
-      .mockResolvedValue('OPEN');
-    const circuitOpen = new CircuitBreakerOpenError('instagram', 30_000, 'open');
+  it('pauses an Instagram queue on the meta circuit — its own managed breaker', async () => {
+    const getState = vi.spyOn(MANAGED_CIRCUIT_BREAKERS.meta, 'getState').mockResolvedValue('OPEN');
+    const circuitOpen = new CircuitBreakerOpenError('meta', 30_000, 'open');
     const instagramOutage = Object.assign(new Error('instagram 503'), { status: 503 });
 
     const fromOpenCircuit = await toProviderOutageError({
       error: circuitOpen,
-      provider: 'instagram',
+      provider: 'meta',
     });
     const fromFailure = await toProviderOutageError({
       error: instagramOutage,
-      provider: 'instagram',
+      provider: 'meta',
     });
 
-    expect(fromOpenCircuit?.provider).toBe('instagram');
+    expect(fromOpenCircuit?.provider).toBe('meta');
     expect(fromFailure?.cause).toBe(instagramOutage);
     expect(getState).toHaveBeenCalledOnce();
     await expect(

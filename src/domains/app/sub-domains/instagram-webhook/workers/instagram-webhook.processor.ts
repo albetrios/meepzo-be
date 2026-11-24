@@ -12,8 +12,8 @@ import {
   type InstagramUserProfile,
   readInstagramMediaItem,
   readInstagramUserProfile,
-} from '@/infrastructure/social/instagram.client.js';
-import { InstagramApiError } from '@/infrastructure/social/instagram-error.util.js';
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import {
   INSTAGRAM_WEBHOOK_EVENTS_PER_JOB,
   INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS,
@@ -103,7 +103,7 @@ export interface InstagramWebhookProcessingServices {
  *
  * @remarks
  * - **Algorithm:** the client's own signatures.
- * - **Failure modes:** `InstagramApiError`, an open circuit — classified by the processor.
+ * - **Failure modes:** `MetaGraphApiError`, an open circuit — classified by the processor.
  * - **Side effects:** none on the type.
  * - **Notes:** every send goes through the run engine's own client (sub-domain 3); these are reads.
  */
@@ -181,7 +181,7 @@ function eventLogFields(context: ClaimedEventContext): Record<string, unknown> {
 }
 
 /** `instagram_api:<code>/<subcode>` (WH14) — or the error's class when Instagram sent no code. */
-function describeInstagramApiError(error: InstagramApiError): string {
+function describeMetaGraphApiError(error: MetaGraphApiError): string {
   if (error.instagramErrorCode === null) return `instagram_api:${error.errorClass}`;
   return error.instagramErrorSubcode === null
     ? `instagram_api:${error.instagramErrorCode}`
@@ -194,7 +194,7 @@ function describeInstagramApiError(error: InstagramApiError): string {
  *
  * @remarks
  * - **Algorithm:** a {@link InstagramWebhookEventPermanentError} → its message (already a code);
- *   an `InstagramApiError` → `instagram_api:<code>/<subcode>` (`instagram_api:<class>` without a
+ *   an `MetaGraphApiError` → `instagram_api:<code>/<subcode>` (`instagram_api:<class>` without a
  *   code); an open circuit → `instagram_api:circuit_open`; anything else →
  *   `processing_error:<error name>`, plus Postgres's SQLSTATE when it has one.
  * - **Failure modes:** none — pure.
@@ -203,7 +203,7 @@ function describeInstagramApiError(error: InstagramApiError): string {
  */
 export function describeInstagramWebhookProcessingError(error: unknown): string {
   if (error instanceof InstagramWebhookEventPermanentError) return error.message;
-  if (error instanceof InstagramApiError) return describeInstagramApiError(error);
+  if (error instanceof MetaGraphApiError) return describeMetaGraphApiError(error);
   if (error instanceof CircuitBreakerOpenError) return 'instagram_api:circuit_open';
   const name = error instanceof Error ? error.name : typeof error;
   const code =
@@ -221,7 +221,7 @@ export function describeInstagramWebhookProcessingError(error: unknown): string 
 function isPermanentFailure(error: unknown): boolean {
   if (error instanceof InstagramWebhookEventPermanentError) return true;
   return (
-    error instanceof InstagramApiError &&
+    error instanceof MetaGraphApiError &&
     (error.errorClass === 'refused' || error.errorClass === 'auth')
   );
 }
@@ -254,14 +254,14 @@ async function failOnTokenRefusal({
   account: InstagramWebhookProcessingAccount;
   error: unknown;
 }): Promise<void> {
-  if (!(error instanceof InstagramApiError) || error.errorClass !== 'auth') return;
+  if (!(error instanceof MetaGraphApiError) || error.errorClass !== 'auth') return;
   await context.services.instagramAccountService.markConnectionBroken({
     scope: context.scope,
     instagramAccount: account.instagramAccount,
     connectionStatus: error.connectionStatus ?? 'error',
     requestId: context.requestId,
   });
-  throw new InstagramWebhookEventPermanentError(describeInstagramApiError(error), { cause: error });
+  throw new InstagramWebhookEventPermanentError(describeMetaGraphApiError(error), { cause: error });
 }
 
 /** The profile fields Instagram answered, as the contact service takes them (absent ones untouched). */
@@ -405,7 +405,7 @@ async function storePostAndLinkNextPost({
         } catch (error) {
           // An answer the media service cannot map (no id, no readable time) is Instagram's fault —
           // logged, and the comment still matched; a database error stays a temporary failure.
-          if (!(error instanceof InstagramApiError)) throw error;
+          if (!(error instanceof MetaGraphApiError)) throw error;
           logger.warn(
             { ...eventLogFields(context), failure: describeInstagramWebhookProcessingError(error) },
             'app.instagram_webhook.post_store_failed',
@@ -662,7 +662,7 @@ async function settleFailedEvent({
   error: unknown;
 }): Promise<EventOutcome> {
   const { services, scope, claim } = context;
-  const outage = await toProviderOutageError({ error, provider: 'instagram' });
+  const outage = await toProviderOutageError({ error, provider: 'meta' });
   if (outage !== null) {
     await services.instagramWebhookEventService.releaseEventClaim({ scope, claim });
     logger.warn(eventLogFields(context), 'app.instagram_webhook.event_released_for_outage');

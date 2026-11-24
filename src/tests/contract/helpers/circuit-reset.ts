@@ -2,7 +2,7 @@ import {
   stripeCircuit,
   s3Circuit,
   resendCircuit,
-  instagramCircuit,
+  metaGraphCircuit,
 } from '@/infrastructure/resilience/circuit-breaker.js';
 
 export async function resetOutboundServiceCircuitBreakerState(): Promise<void> {
@@ -10,6 +10,6 @@ export async function resetOutboundServiceCircuitBreakerState(): Promise<void> {
     stripeCircuit.reset(),
     s3Circuit.reset(),
     resendCircuit.reset(),
-    instagramCircuit.reset(),
+    metaGraphCircuit.reset(),
   ]);
 }

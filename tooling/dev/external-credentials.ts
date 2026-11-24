@@ -27,7 +27,7 @@ export type ExternalCredential = {
  * @remarks
  * Deliberately not listed: `SENTRY_DSN` (local errors would count against the hosted project's
  * quota), OAuth clients (their redirect URIs are registered per environment, so a
- * copied client would not complete a local login), `INSTAGRAM_REDIRECT_URI` (per environment too —
+ * copied client would not complete a local login), `META_REDIRECT_URI` (per environment too —
  * the local value ships in `.env.example` and must also be registered on the Instagram app), and
  * CAPTCHA (local CAPTCHA uses Cloudflare's test keys — `--with-captcha`). The Instagram app ID and
  * secret ARE copied: the webhook and Meta's signed requests are checked with that one secret. Add a
@@ -73,13 +73,18 @@ export const EXTERNAL_CREDENTIALS: readonly ExternalCredential[] = [
     reportMissing: false,
   },
   {
-    key: 'INSTAGRAM_APP_ID',
-    integration: 'Instagram — the Instagram app ID (the connect code exchange)',
+    key: 'META_APP_ID',
+    integration: 'Meta — the app ID (the Unified Login address and code exchange)',
     reportMissing: true,
   },
   {
-    key: 'INSTAGRAM_APP_SECRET',
-    integration: 'Instagram — the app secret (code exchanges, Meta signature checks)',
+    key: 'META_APP_SECRET',
+    integration: 'Meta — the app secret (code exchange, appsecret_proof, Meta signature checks)',
+    reportMissing: true,
+  },
+  {
+    key: 'META_CONFIG_ID',
+    integration: 'Meta — the Unified Login configuration ID',
     reportMissing: true,
   },
 ];
@@ -113,7 +118,7 @@ export type ExternalCredentialFill = {
 };
 
 /**
- * The placeholder `.env.example` once shipped for a key it leaves blank now (`INSTAGRAM_APP_SECRET`,
+ * The placeholder `.env.example` once shipped for a key it leaves blank now (`META_APP_SECRET`,
  * launch D53). A file made back then still holds it, and the schema refuses it as too short.
  */
 const RETIRED_PLACEHOLDER = '...';

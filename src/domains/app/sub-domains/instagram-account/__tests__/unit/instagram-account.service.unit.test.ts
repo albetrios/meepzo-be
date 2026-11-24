@@ -100,6 +100,7 @@ const scope: OrganizationPrincipalDatabaseScope = PRINCIPAL_SCOPE.VERIFIED({
 });
 const TEAM = { id: 7, public_id: ORGANIZATION_PUBLIC_ID, type: 'TEAM' };
 const ACCOUNT_PUBLIC_ID = 'iga_k7x9m2pqr4w8n1v3a1b2c';
+const CHANNEL_ACCOUNT_PUBLIC_ID = 'cha_k7x9m2pqr4w8n1v3a1b2c';
 const instagramAccount = { organizationId: TEAM.id, instagramAccountId: 3 };
 const CHANNEL_CONNECTION_ID = 12;
 const channelConnection = { organizationId: TEAM.id, channelConnectionId: CHANNEL_CONNECTION_ID };
@@ -195,9 +196,18 @@ function setup({
 } = {}) {
   const organization = { ...TEAM, type: organizationType };
   const accountRepository = {
-    findLiveByOrganizationId: vi.fn(async () => liveAccount),
+    findLiveByOrganizationId: vi.fn(async () =>
+      liveAccount === null
+        ? null
+        : { ...liveAccount, channel_account_public_id: CHANNEL_ACCOUNT_PUBLIC_ID },
+    ),
     findById: vi.fn(async (): Promise<InstagramAccountRow | null> => null),
     findByPublicIdInOrganization: vi.fn(async () => liveAccount),
+    findByChannelAccountPublicIdInOrganization: vi.fn(async () =>
+      liveAccount === null
+        ? null
+        : { ...liveAccount, channel_account_public_id: CHANNEL_ACCOUNT_PUBLIC_ID },
+    ),
     resolveOrganizationPublicIdForInstagramUser: vi.fn(
       async (_instagramUserId: string): Promise<string | null> => null,
     ),
@@ -311,7 +321,7 @@ describe('InstagramAccountService lookups', () => {
       const { service, tokenService } = setup();
 
       await expect(service.findLiveAccountAccess({ scope })).resolves.toEqual({
-        account: accountRow(),
+        account: { ...accountRow(), channel_account_public_id: CHANNEL_ACCOUNT_PUBLIC_ID },
         instagramAccount,
         encryptedAccessToken: STORED_CIPHERTEXT,
       });
@@ -370,6 +380,8 @@ describe('InstagramAccountService lookups', () => {
         service.findWebhookAccountState({ scope, instagramUserId: INSTAGRAM_USER_ID }),
       ).resolves.toEqual({
         instagramAccount,
+        channelAccountId: 5,
+        channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
         instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
         instagramUserId: INSTAGRAM_USER_ID,
         instagramAppUserId: INSTAGRAM_APP_USER_ID,
@@ -465,7 +477,7 @@ describe('InstagramAccountService lookups', () => {
         await expect(
           service.findWebhookProcessingAccount({
             scope,
-            instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+            channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
           }),
         ).resolves.toMatchObject({ connectionStatus, encryptedAccessToken: null });
         expect(tokenService.findAccessToken).not.toHaveBeenCalled();
@@ -478,10 +490,10 @@ describe('InstagramAccountService lookups', () => {
       await expect(
         service.findWebhookProcessingAccount({
           scope,
-          instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
+          channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
         }),
       ).resolves.toBeNull();
-      expect(accountRepository.findByPublicIdInOrganization).not.toHaveBeenCalled();
+      expect(accountRepository.findByChannelAccountPublicIdInOrganization).not.toHaveBeenCalled();
     });
   });
 });

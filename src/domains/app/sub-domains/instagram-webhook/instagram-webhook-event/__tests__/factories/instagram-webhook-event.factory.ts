@@ -185,3 +185,18 @@ export async function readChannelAccountIdOfInstagramAccount(
   if (row === undefined) throw new Error('instagram account fixture has no channel account');
   return Number(row.channel_account_id);
 }
+
+/**
+ * `app.channel_accounts.public_id` (`cha_…`) an Instagram account row extends — what the webhook's
+ * processing job names the account by (feat-instagram-dm-sending R17, WHC4); read as the operator.
+ */
+export async function readChannelAccountPublicIdOfInstagramAccount(
+  instagramAccountId: number,
+): Promise<string> {
+  const [row] = await operatorQuery<Array<{ public_id: string }>>`
+    SELECT channel_accounts.public_id FROM app.instagram_accounts
+    JOIN app.channel_accounts ON channel_accounts.id = instagram_accounts.channel_account_id
+    WHERE instagram_accounts.id = ${instagramAccountId}`;
+  if (row === undefined) throw new Error('instagram account fixture has no channel account');
+  return row.public_id;
+}

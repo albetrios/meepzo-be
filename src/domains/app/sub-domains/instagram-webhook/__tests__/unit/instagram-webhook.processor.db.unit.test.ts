@@ -48,6 +48,7 @@ import {
 import {
   insertTestInstagramWebhookEvent,
   readChannelAccountIdOfInstagramAccount,
+  readChannelAccountPublicIdOfInstagramAccount,
   readTestInstagramWebhookEvent,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
@@ -118,6 +119,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     processingAccount = {
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
       channelAccountId: await readChannelAccountIdOfInstagramAccount(account.id),
+      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(account.id),
       instagramAccountPublicId: account.public_id,
       connectionStatus: 'connected',
       isAutomationEnabled: true,
@@ -198,7 +200,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     return processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: organization.public_id,
-        instagramAccountPublicId: account.public_id,
+        channelAccountPublicId: processingAccount.channelAccountPublicId,
       },
       services,
       jobId: 'job-1',

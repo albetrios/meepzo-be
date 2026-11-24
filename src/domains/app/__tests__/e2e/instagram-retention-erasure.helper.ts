@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import pino from 'pino';
@@ -50,8 +51,10 @@ import {
   injectRoute,
 } from '@/tests/helpers/test-http-inject.helper.js';
 
-/** `POST /app/social/instagram/webhook` (route 17). */
-const INSTAGRAM_WEBHOOK_PATH = testApiPath('/app/social/instagram/webhook');
+/** `POST /app/social/channel-connections/meta/webhooks/instagram` (route 17). */
+const INSTAGRAM_WEBHOOK_PATH = testApiPath(
+  '/app/social/channel-connections/meta/webhooks/instagram',
+);
 
 /** `days` whole days before `from`. */
 export function daysBefore({ from, days }: { from: Date; days: number }): Date {
@@ -299,7 +302,7 @@ export async function deliverInstagramEvents({
  * Runs the account's real processing job over the app's own services (routes-final WH12–WH14) — the
  * events stored and not yet processed, with the real Instagram client (mocked at the network).
  */
-export function processInstagramEvents({
+export async function processInstagramEvents({
   app,
   team,
 }: {
@@ -309,7 +312,7 @@ export function processInstagramEvents({
   return processInstagramWebhookAccountJob({
     jobData: {
       organizationPublicId: team.organization.public_id,
-      instagramAccountPublicId: team.account.public_id,
+      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(team.account.id),
     },
     services: app.appDomain,
     jobId: 'job-retention-erasure',

@@ -371,7 +371,7 @@ const META_VARS = {
     meta: {
       allowed: 'string of at least 32 characters (a GitHub Secret), or unset',
       description:
-        "The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/instagram/webhook). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots.",
+        "The Meta webhook's verify token: the value typed into the Meta App Dashboard's webhook setup, which Meta sends back as hub.verify_token when it checks the subscription (GET /api/v1/app/social/channel-connections/meta/webhooks/instagram). Unset, that check answers 503 instagram_webhook_not_configured — in production too, which still boots.",
     },
   }),
 } satisfies Record<string, EnvVarSpec>;

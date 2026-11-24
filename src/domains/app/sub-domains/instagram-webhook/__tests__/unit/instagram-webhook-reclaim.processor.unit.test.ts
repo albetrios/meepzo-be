@@ -36,11 +36,11 @@ import { runInstagramWebhookReclaimJob } from '@/domains/app/sub-domains/instagr
 const STUCK = [
   {
     organizationPublicId: 'org_acmeshop0000000000001',
-    instagramAccountPublicId: 'iga_acmeshop0000000000001',
+    channelAccountPublicId: 'cha_acmeshop0000000000001',
   },
   {
     organizationPublicId: 'org_brightway000000000001',
-    instagramAccountPublicId: 'iga_brightway000000000001',
+    channelAccountPublicId: 'cha_brightway000000000001',
   },
 ];
 
@@ -90,7 +90,7 @@ describe('runInstagramWebhookReclaimJob', () => {
     expect(loggerMock.warn).toHaveBeenCalledWith(
       {
         organizationPublicId: STUCK[0]?.organizationPublicId,
-        instagramAccountPublicId: STUCK[0]?.instagramAccountPublicId,
+        channelAccountPublicId: STUCK[0]?.channelAccountPublicId,
         errorName: 'Error',
       },
       'app.instagram_webhook.reclaim_enqueue_failed',

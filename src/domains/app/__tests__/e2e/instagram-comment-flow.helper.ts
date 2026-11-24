@@ -1,4 +1,5 @@
 import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -69,7 +70,9 @@ import {
 } from '@/tests/helpers/test-http-inject.helper.js';
 
 /** Meta's delivery route (route 17). */
-const INSTAGRAM_WEBHOOK_PATH = testApiPath('/app/social/instagram/webhook');
+const INSTAGRAM_WEBHOOK_PATH = testApiPath(
+  '/app/social/channel-connections/meta/webhooks/instagram',
+);
 
 /** An Instagram user who comments, clicks and answers. */
 export interface TestInstagramPerson {
@@ -572,7 +575,7 @@ export class InstagramCommentFlow {
     return processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: this.team.organization.public_id,
-        instagramAccountPublicId: this.account.publicId,
+        channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(this.account.id),
       },
       services: this.services,
       jobId: `job-${randomUUID()}`,

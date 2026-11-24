@@ -34,7 +34,7 @@ export interface InstagramWebhookReclaimResult {
  *
  * @remarks
  * - **Algorithm:** one read across organizations under `runGlobalRetentionWorkerJob` (the events
- *   and accounts policies' sweep arm, `USING` only — it reads ids and can change nothing, WH3): the
+ *   and channel accounts policies' sweep arm, `USING` only — it reads ids and can change nothing, WH3): the
  *   accounts of live organizations with an event still `received` or `queued` more than
  *   {@link INSTAGRAM_WEBHOOK_EVENT_STUCK_AFTER_MINUTES} minutes after it arrived and not claimed in
  *   as long, oldest waiting first, at most {@link INSTAGRAM_WEBHOOK_RECLAIM_BATCH_SIZE}. Then, with
@@ -69,16 +69,16 @@ export async function runInstagramWebhookReclaimJob({
     addedCount: 0,
     failedAddCount: 0,
   };
-  for (const { organizationPublicId, instagramAccountPublicId } of accounts) {
+  for (const { organizationPublicId, channelAccountPublicId } of accounts) {
     try {
-      await enqueue({ organizationPublicId, instagramAccountPublicId, requestId });
+      await enqueue({ organizationPublicId, channelAccountPublicId, requestId });
       result.addedCount += 1;
     } catch (error) {
       result.failedAddCount += 1;
       logger.warn(
         {
           organizationPublicId,
-          instagramAccountPublicId,
+          channelAccountPublicId,
           errorName: error instanceof Error ? error.name : typeof error,
         },
         'app.instagram_webhook.reclaim_enqueue_failed',

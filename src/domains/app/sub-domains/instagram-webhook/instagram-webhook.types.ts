@@ -1,5 +1,7 @@
+import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
+
 /**
- * Meta's subscription check as route 16 hands it to the service (WH7): the three `hub.*` values.
+ * Meta's subscription check as route 60 hands it to the service (WH4): the three `hub.*` values.
  */
 export interface InstagramWebhookSubscriptionCheck {
   /** `hub.mode` — must be `subscribe`. */
@@ -10,7 +12,7 @@ export interface InstagramWebhookSubscriptionCheck {
   challenge: string;
 }
 
-/** A signed delivery as route 17 hands it to the service (WH10). */
+/** A signed delivery as route 61 hands it to the service (WH9). */
 export interface InstagramWebhookDeliveryInput {
   /** The parsed JSON body, or `undefined` when the signed body was not JSON (WH2). */
   body: unknown;
@@ -32,16 +34,18 @@ export interface InstagramWebhookDeliveryResult {
   failedEntryCount: number;
   /** Events this delivery inserted (a repeat delivery inserts none). */
   storedEventCount: number;
-  /** Events already stored by an earlier delivery of the same key (WH10). */
+  /** Events already stored by an earlier delivery of the same key, or over 8 days old (WH9). */
   duplicateEventCount: number;
+  /** Read receipts and echoes of our own sent messages — never saved (WH9 step 3). */
+  droppedEventCount: number;
 }
 
 /** What {@link InstagramWebhookAccountProcessingEnqueue} is asked to start: one account's processing. */
 export interface InstagramWebhookAccountProcessingRequest {
   /** The account's organization — the processing job's `organizationPublicId` (K8). */
   organizationPublicId: string;
-  /** `iga_…` — processing works through this account's waiting events, oldest first (WH5). */
-  instagramAccountPublicId: string;
+  /** `cha_…` — the channel account whose waiting events the job works through (WH5, WHC4). */
+  channelAccountPublicId: string;
   /** The delivery's request id, for log correlation. */
   requestId: string;
 }
@@ -60,6 +64,38 @@ export type InstagramWebhookAccountProcessingEnqueue = (
   request: InstagramWebhookAccountProcessingRequest,
 ) => Promise<void>;
 
+/** The account an own-message lookup reads: its organization and channel account (internal ids). */
+export interface InstagramOwnSentMessageAccount {
+  /** `tenancy.organizations.id`. */
+  organizationId: number;
+  /** `app.channel_accounts.id`. */
+  channelAccountId: number;
+}
+
+/**
+ * The own-message lookup the receiver drops our own echoes by (feat-instagram-dm-sending § 5.A WH9
+ * step 3, WHQ1 / P62): which of these Instagram message ids (`mid`) are messages we sent from this
+ * account. Runs inside the receiver's store unit (the caller's organization scope).
+ *
+ * @remarks
+ * Sub-domain 6's `InstagramMessageService.findOwnSentMessageIds` over `app.instagram_messages`
+ * implements it at ROUTE row R19 (the message table lands there) and the app container wires it
+ * into `InstagramWebhookService`. Until then {@link NO_OWN_SENT_MESSAGES} answers "none", so every
+ * echo is saved `received` — the case WH10 already covers for an echo that arrives before its
+ * send's result is saved (intake matches it to the message within 10 minutes).
+ */
+export type InstagramOwnSentMessageLookup = (input: {
+  scope: OrganizationPrincipalDatabaseScope;
+  channelAccount: InstagramOwnSentMessageAccount;
+  messageIds: readonly string[];
+}) => Promise<ReadonlySet<string>>;
+
+/**
+ * The {@link InstagramOwnSentMessageLookup} until ROUTE row R19 builds the message table: no
+ * message is known as ours.
+ */
+export const NO_OWN_SENT_MESSAGES: InstagramOwnSentMessageLookup = async () => new Set<string>();
+
 /**
  * A stored event no retry can handle (WH14, WHC10) — its payload lacks what its kind needs (a
  * comment without its post, a message without its sender), or Instagram refused the account's
@@ -69,7 +105,7 @@ export type InstagramWebhookAccountProcessingEnqueue = (
  * @remarks
  * Like `StripeWebhookPermanentError`. The message is a code and a short reason
  * (`event_payload_invalid:comment_media_missing`, `instagram_api:190/463`) — never payload text,
- * since it is stored and listed (route 18).
+ * since it is stored and listed (route 62).
  */
 export class InstagramWebhookEventPermanentError extends Error {
   constructor(message: string, options?: ErrorOptions) {

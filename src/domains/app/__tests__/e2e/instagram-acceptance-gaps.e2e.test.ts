@@ -374,23 +374,25 @@ describe('Instagram acceptance across features (e2e)', () => {
       return flow.contactOf(jordan);
     }
 
-    /** The echo comes in, is stored skipped, and the job finds nothing to handle. */
+    /**
+     * The echo comes in, is saved `received` (feat-instagram-dm-sending R17, WHC5 — the owner's
+     * quiet time), and the job marks it processed with nothing done until intake per kind (R38).
+     */
     async function receiveEcho(person: TestInstagramPerson): Promise<void> {
       const sentBefore = instagram.calls.length;
       const eventKey = await deliverHandSentEcho({ flow, person, text: handSentText });
       expect(await flow.processEvents()).toEqual({
         outcome: 'drained',
-        processedEventCount: 0,
+        processedEventCount: 1,
         skippedEventCount: 0,
         failedEventCount: 0,
       });
       expect(await flow.eventOf(eventKey)).toMatchObject({
         event_kind: 'echo',
-        status: 'skipped',
-        // `unsupported` until the classifier's rev (R17, WHC5) takes hand-typed echoes in.
-        skip_reason: 'unsupported',
+        status: 'processed',
+        skip_reason: null,
         contact_instagram_user_id: person.instagramUserId,
-        attempt_count: 0,
+        attempt_count: 1,
         error_message: null,
       });
       expect(instagram.calls).toHaveLength(sentBefore);

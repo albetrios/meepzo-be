@@ -189,13 +189,15 @@ function readButtonClick({
  * @remarks
  * - **Algorithm:** the sender is the stored `contact_instagram_user_id` (the classifier's, WH9). A
  *   `comment` reads the change's `value` (its id, post, text and the commenter's username); a
- *   `message` or `story_reply` reads the messaging item (a `messages` change's `value`, D18) — the
+ *   `message` (and, until ROUTE row R38, a `story_mention` or `shared_post` as a DM) or a
+ *   `story_reply` reads the messaging item (a `messages` change's `value`, D18) — the
  *   text, the quick reply's payload, the first attachment's email, the replied story's id; a
  *   `postback` splits its payload with `parseAutomationButtonPayload`.
  * - **Failure modes:** throws {@link InstagramWebhookEventPermanentError}
  *   (`event_payload_invalid:<reason>`) for an event no retry can handle: no sender, a comment
  *   without its digits-only id or post, a message without `message`, a story reply without its
- *   story id, a postback without `postback`, or a kind the receiver never stores `received`.
+ *   story id, a postback without `postback`, or a kind the processor does not dispatch (it sets the
+ *   kinds intake takes in from ROUTE row R38 aside before calling this).
  * - **Side effects:** none; pure. Never logs — the payload holds personal data (WH6).
  * - **Notes:** an Instagram id must be digits, as the run and comment-log columns require.
  */
@@ -212,6 +214,11 @@ export function readInstagramWebhookEventDispatch({
     case 'comment':
       return readComment({ payload: item, contactInstagramUserId: sender });
     case 'message':
+    case 'story_mention':
+    case 'shared_post':
+      // A story mention and a shared post are DMs to the launch's engine until intake per kind
+      // (ROUTE row R38) gives them their own way to start (WH27).
+      return readMessage({ eventKind: 'message', payload: item, contactInstagramUserId: sender });
     case 'story_reply':
       return readMessage({ eventKind: kind, payload: item, contactInstagramUserId: sender });
     case 'postback':

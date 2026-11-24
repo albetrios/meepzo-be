@@ -113,9 +113,9 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/social/channel-accounts/:channel_account_id`,
       `GET ${APP_PREFIX}/social/channel-connections`,
       `GET ${APP_PREFIX}/social/channel-connections/:channel_connection_id`,
+      `GET ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
       `GET ${APP_PREFIX}/social/instagram/media`,
       `GET ${APP_PREFIX}/social/instagram/stories`,
-      `GET ${APP_PREFIX}/social/instagram/webhook`,
       `GET ${APP_PREFIX}/social/instagram/webhook-events`,
       `PATCH ${APP_PREFIX}/automations/:automation_id`,
       `PATCH ${APP_PREFIX}/social/instagram/account/settings`,
@@ -127,9 +127,9 @@ describe('app domain wiring', () => {
       `POST ${APP_PREFIX}/social/channel-connections/:channel_connection_id/reconnect`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/callback`,
       `POST ${APP_PREFIX}/social/channel-connections/:provider/start`,
+      `POST ${APP_PREFIX}/social/channel-connections/meta/webhooks/instagram`,
       `POST ${APP_PREFIX}/social/instagram/data-deletion`,
       `POST ${APP_PREFIX}/social/instagram/deauthorize`,
-      `POST ${APP_PREFIX}/social/instagram/webhook`,
     ]);
     // Runs have no route (D13).
     const response = await application.inject({

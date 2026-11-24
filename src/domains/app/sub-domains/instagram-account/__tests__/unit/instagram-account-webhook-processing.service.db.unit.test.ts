@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { InstagramAccountRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account.repository.js';
@@ -72,10 +73,15 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     });
   }
 
-  function find(instagramAccountPublicId: string, scopeOrganization = organization) {
+  /** Reads the account by its channel account's public id (`cha_…`, R17 WHC4). */
+  async function find(account: { id: number } | string, scopeOrganization = organization) {
+    const channelAccountPublicId =
+      typeof account === 'string'
+        ? account
+        : await readChannelAccountPublicIdOfInstagramAccount(account.id);
     return service.findWebhookProcessingAccount({
       scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: scopeOrganization.public_id }),
-      instagramAccountPublicId,
+      channelAccountPublicId,
     });
   }
 
@@ -84,8 +90,10 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     await insertToken(account);
     await insertSettings(account, false);
 
-    await expect(find(account.public_id)).resolves.toEqual({
+    await expect(find(account)).resolves.toEqual({
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
+      channelAccountId: expect.any(Number),
+      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(account.id),
       instagramAccountPublicId: account.public_id,
       connectionStatus: 'connected',
       isAutomationEnabled: false,
@@ -96,7 +104,7 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
   it('reads the switch as on when the account has no settings row', async () => {
     const account = await insertInstagramAccount({ organizationId: organization.id });
 
-    await expect(find(account.public_id)).resolves.toMatchObject({
+    await expect(find(account)).resolves.toMatchObject({
       isAutomationEnabled: true,
       encryptedAccessToken: expect.any(String),
     });
@@ -109,7 +117,7 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
     });
     await insertToken(account);
 
-    await expect(find(account.public_id)).resolves.toMatchObject({
+    await expect(find(account)).resolves.toMatchObject({
       instagramAccount: { organizationId: organization.id, instagramAccountId: account.id },
       connectionStatus: 'revoked',
       encryptedAccessToken: null,
@@ -119,7 +127,7 @@ describe('InstagramAccountService.findWebhookProcessingAccount (database)', () =
   it("answers null for an unknown public id and for another organization's account", async () => {
     const account = await insertInstagramAccount({ organizationId: organization.id });
 
-    await expect(find('iga_unknown00000000000001')).resolves.toBeNull();
-    await expect(find(account.public_id, otherOrganization)).resolves.toBeNull();
+    await expect(find('cha_unknown00000000000001')).resolves.toBeNull();
+    await expect(find(account, otherOrganization)).resolves.toBeNull();
   });
 });

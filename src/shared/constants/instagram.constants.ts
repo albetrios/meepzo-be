@@ -128,3 +128,15 @@ export const META_USAGE_DEFAULT_WAIT_MINUTES = 15;
  * older event could no longer be recognised as a repeat. Rationale: `src/POLICIES.md`.
  */
 export const INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS = 8;
+
+/**
+ * The webhook store unit's `statement_timeout`, in milliseconds (feat-instagram-dm-sending § 5,
+ * WH2, WHC2; plan `WEBHOOK_SAVE_TIMEOUT_MS`): a statement of the unit that runs longer is
+ * cancelled, nothing is stored and Meta is answered `503` — inside its 5-second budget — so it
+ * delivers again (P32: no Redis buffer).
+ *
+ * @remarks
+ * Below the HTTP connection's own statement timeout (`DATABASE_HTTP_STATEMENT_TIMEOUT_MS`, 5 s).
+ * Rationale: `src/POLICIES.md`.
+ */
+export const INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS = 3_000;

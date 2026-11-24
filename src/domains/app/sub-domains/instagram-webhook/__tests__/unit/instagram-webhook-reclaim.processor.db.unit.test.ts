@@ -6,7 +6,10 @@ import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { runInstagramWebhookReclaimJob } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.processor.js';
 import type { InstagramWebhookAccountProcessingRequest } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
 import { insertInstagramAccount } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
-import { insertTestInstagramWebhookEvent } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
+import {
+  insertTestInstagramWebhookEvent,
+  readChannelAccountPublicIdOfInstagramAccount,
+} from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -28,6 +31,8 @@ type TestAccount = {
   organizationPublicId: string;
   id: number;
   public_id: string;
+  /** `cha_…` — what the pick-up's jobs carry (R17, WHC4). */
+  channelAccountPublicId: string;
   organizationId: number;
 };
 
@@ -36,6 +41,7 @@ async function teamAccount(): Promise<TestAccount> {
   const account = await insertInstagramAccount({ organizationId: organization.id });
   return {
     ...account,
+    channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(account.id),
     organizationId: organization.id,
     organizationPublicId: organization.public_id,
   };
@@ -92,12 +98,12 @@ describe('runInstagramWebhookReclaimJob (database)', () => {
     expect(await runPickUp()).toEqual([
       {
         organizationPublicId: older.organizationPublicId,
-        instagramAccountPublicId: older.public_id,
+        channelAccountPublicId: older.channelAccountPublicId,
         requestId: 'reclaim-job-1',
       },
       {
         organizationPublicId: newer.organizationPublicId,
-        instagramAccountPublicId: newer.public_id,
+        channelAccountPublicId: newer.channelAccountPublicId,
         requestId: 'reclaim-job-1',
       },
     ]);
@@ -111,8 +117,8 @@ describe('runInstagramWebhookReclaimJob (database)', () => {
     await waitingEvent({ account: leased, receivedMinutesAgo: 30, lastAttemptedMinutesAgo: 2 });
     await waitingEvent({ account: leaseOver, receivedMinutesAgo: 30, lastAttemptedMinutesAgo: 6 });
 
-    expect((await runPickUp()).map((request) => request.instagramAccountPublicId)).toEqual([
-      leaseOver.public_id,
+    expect((await runPickUp()).map((request) => request.channelAccountPublicId)).toEqual([
+      leaseOver.channelAccountPublicId,
     ]);
   });
 

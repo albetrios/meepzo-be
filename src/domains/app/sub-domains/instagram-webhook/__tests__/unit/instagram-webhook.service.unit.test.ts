@@ -55,6 +55,7 @@ function accountState(
   return {
     instagramAccount: { organizationId: 7, instagramAccountId: 11 },
     channelAccountId: 13,
+    channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
     instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
     instagramUserId: INSTAGRAM_USER_ID,
     instagramAppUserId: '9000000000000001',
@@ -94,7 +95,11 @@ function setup({
         event_key: event.eventKey,
       })),
   );
-  const eventService = { recordReceivedEvents, markEventsQueued: vi.fn(async () => 0) };
+  const eventService = {
+    recordReceivedEvents,
+    markEventsQueued: vi.fn(async () => 0),
+    limitStoreStatementTime: vi.fn(async () => undefined),
+  };
   const service = new InstagramWebhookService(
     accountService as unknown as InstagramAccountService,
     eventService as unknown as InstagramWebhookEventService,
@@ -130,7 +135,7 @@ beforeEach(() => {
   openedScopes.length = 0;
 });
 
-describe('verifySubscription (route 16, WH7)', () => {
+describe('verifySubscription (route 60, WH4)', () => {
   const check = {
     mode: 'subscribe',
     verifyToken: 'unit-test-verify-token-of-thirty-two-chars',
@@ -302,30 +307,116 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
       {
         eventKind: 'echo',
         eventKey: 'echo:m_echo',
-        skipReason: 'unsupported',
-        instagramUserId: INSTAGRAM_USER_ID,
-      },
-      {
-        eventKind: 'unknown',
-        eventKey: 'read:m_echo',
-        skipReason: 'unsupported',
+        skipReason: null,
         instagramUserId: INSTAGRAM_USER_ID,
       },
     ]);
-    expect(result).toMatchObject({ entryCount: 1, storedEventCount: 3, duplicateEventCount: 0 });
+    // The read receipt is dropped, never saved (WH9 step 3).
+    expect(result).toMatchObject({
+      entryCount: 1,
+      storedEventCount: 2,
+      duplicateEventCount: 0,
+      droppedEventCount: 1,
+    });
+  });
+
+  it('caps the store unit at 3 s before anything else in it (WH2, WHC2)', async () => {
+    const { service, accountService, eventService } = setup();
+
+    await service.receiveDelivery({
+      body: delivery([{ id: INSTAGRAM_USER_ID, changes: [comment('1')] }]),
+      requestId: REQUEST_ID,
+    });
+
+    expect(eventService.limitStoreStatementTime).toHaveBeenCalledWith({
+      scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'verified' },
+      milliseconds: 3_000,
+    });
+    expect(eventService.limitStoreStatementTime.mock.invocationCallOrder[0]).toBeLessThan(
+      accountService.findWebhookAccountState.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it('drops the echoes the own-message lookup knows as ours; a hand-typed one is saved (WH9 step 3, WH10)', async () => {
+    const findOwnSentMessageIds = vi.fn(async () => new Set(['m_ours']));
+    const { accountService, eventService } = setup();
+    const service = new InstagramWebhookService(
+      accountService as unknown as InstagramAccountService,
+      eventService as unknown as InstagramWebhookEventService,
+      undefined,
+      findOwnSentMessageIds,
+    );
+    const echo = (mid: string) => ({
+      sender: { id: INSTAGRAM_USER_ID },
+      recipient: { id: CONTACT_ID },
+      message: { mid, is_echo: true },
+    });
+
+    const result = await service.receiveDelivery({
+      body: delivery([{ id: INSTAGRAM_USER_ID, messaging: [echo('m_ours'), echo('m_by_hand')] }]),
+      requestId: REQUEST_ID,
+    });
+
+    expect(findOwnSentMessageIds).toHaveBeenCalledWith({
+      scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'verified' },
+      channelAccount: { organizationId: 7, channelAccountId: 13 },
+      messageIds: ['m_ours', 'm_by_hand'],
+    });
+    expect(storedEvents(eventService).map((event) => [event.eventKey, event.skipReason])).toEqual([
+      ['echo:m_by_hand', null],
+    ]);
+    expect(result).toMatchObject({ storedEventCount: 1, droppedEventCount: 1 });
+  });
+
+  it('asks the own-message lookup nothing when the entry holds no echo', async () => {
+    const findOwnSentMessageIds = vi.fn(async () => new Set<string>());
+    const { accountService, eventService } = setup();
+    const service = new InstagramWebhookService(
+      accountService as unknown as InstagramAccountService,
+      eventService as unknown as InstagramWebhookEventService,
+      undefined,
+      findOwnSentMessageIds,
+    );
+
+    await service.receiveDelivery({
+      body: delivery([{ id: INSTAGRAM_USER_ID, changes: [comment('1')] }]),
+      requestId: REQUEST_ID,
+    });
+
+    expect(findOwnSentMessageIds).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a statement cancelled by the 3 s statement_timeout', '57014'],
+    ['a lock wait cancelled by lock_timeout', '55P03'],
+  ])('a store over its time (%s) answers 503 — Meta delivers again (WH2)', async (_label, code) => {
+    const { service, eventService } = setup();
+    eventService.recordReceivedEvents.mockRejectedValueOnce(
+      Object.assign(new Error('canceling statement due to statement timeout'), { code }),
+    );
+
+    const failure = await service
+      .receiveDelivery({
+        body: delivery([{ id: INSTAGRAM_USER_ID, changes: [comment('1')] }]),
+        requestId: REQUEST_ID,
+      })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ServiceUnavailableError);
+    expect((failure as ServiceUnavailableError).statusCode).toBe(503);
   });
 
   it.each([
     ['the automation switch off', { isAutomationEnabled: false }, 'automation_disabled'],
-    ['an expired account', { connectionStatus: 'expired' as const }, 'account_disconnected'],
-    ['an error account', { connectionStatus: 'error' as const }, 'account_disconnected'],
+    // WH3: an `error` account's events are saved `received` — they wait in its stopped lanes.
+    ['an error account', { connectionStatus: 'error' as const }, null],
     [
-      'the switch off on an expired account (the switch first)',
-      { isAutomationEnabled: false, connectionStatus: 'expired' as const },
+      'the switch off on an error account',
+      { isAutomationEnabled: false, connectionStatus: 'error' as const },
       'automation_disabled',
     ],
   ])(
-    'with %s, events to handle are born skipped %s; kind skips keep their own reason',
+    'with %s, events to handle are born with skip reason %s; kind skips keep their own reason',
     async (_label, overrides, reason) => {
       const { service, eventService } = setup({ account: accountState(overrides) });
 
@@ -334,16 +425,13 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
           {
             id: INSTAGRAM_USER_ID,
             changes: [comment('1')],
-            messaging: [{ sender: { id: CONTACT_ID }, reaction: { mid: 'm', action: 'react' } }],
+            messaging: [{ sender: { id: CONTACT_ID }, message_edit: { mid: 'm', num_edit: 1 } }],
           },
         ]),
         requestId: REQUEST_ID,
       });
 
-      expect(storedEvents(eventService).map((event) => event.skipReason)).toEqual([
-        reason,
-        'unsupported',
-      ]);
+      expect(storedEvents(eventService).map((event) => event.skipReason)).toEqual([reason, 'edit']);
     },
   );
 
@@ -546,7 +634,7 @@ describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => 
     {
       id: INSTAGRAM_USER_ID,
       changes: [comment('1')],
-      messaging: [{ sender: { id: CONTACT_ID }, read: { mid: 'm' } }],
+      messaging: [{ sender: { id: CONTACT_ID }, message_edit: { mid: 'm', num_edit: 1 } }],
     },
   ]);
 
@@ -566,7 +654,7 @@ describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => 
 
     expect(enqueue).toHaveBeenCalledWith({
       organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+      channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
       requestId: REQUEST_ID,
     });
     expect(eventService.markEventsQueued).toHaveBeenCalledWith({
@@ -598,7 +686,7 @@ describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => 
     expect(logger.warn).toHaveBeenCalledWith(
       {
         requestId: REQUEST_ID,
-        instagramAccountPublicId: 'iga_aaaaaaaaaaaaaaaaaaaaa',
+        channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
         errorName: 'Error',
       },
       'instagram.webhook.processing_enqueue_failed',

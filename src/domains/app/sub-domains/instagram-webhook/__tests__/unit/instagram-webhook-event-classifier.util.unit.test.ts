@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  type ClassifiedInstagramWebhookEvent,
   type InstagramWebhookAccountIds,
   buildInstagramWebhookEventKey,
   classifyInstagramWebhookItem,
@@ -10,9 +11,10 @@ import {
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event-classifier.util.js';
 
 /**
- * The one pure classifier of the Instagram webhook (routes-final § 4.A.10, WH9, WHC8): every row of
- * the table — kind, key, skip reason, contact, time — the three key gaps of the drop, the account's
- * own comment and DM, and the 512-character key rule.
+ * The one pure classifier of the Instagram webhook (feat-instagram-dm-sending routes-final § 5.A.10,
+ * WH8, WHC5): every row of the table — kind, key, skip reason, contact, time — the launch's three
+ * key gaps, the account's own comment and DM, the dropped read receipt, and the 512-character key
+ * rule.
  */
 
 const ACCOUNT_IDS: InstagramWebhookAccountIds = {
@@ -29,22 +31,32 @@ function sha256(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
-function classifyChange(item: Record<string, unknown>) {
-  return classifyInstagramWebhookItem({
-    source: 'changes',
-    item,
-    accountIds: ACCOUNT_IDS,
-    entryTime: ENTRY_TIME_SECONDS,
-  });
+/** The classified event — failing the test when the classifier dropped the item. */
+function saved(event: ClassifiedInstagramWebhookEvent | null): ClassifiedInstagramWebhookEvent {
+  if (event === null) throw new Error('the classifier dropped an item it should save');
+  return event;
 }
 
-function classifyMessaging(item: Record<string, unknown>) {
-  return classifyInstagramWebhookItem({
-    source: 'messaging',
-    item,
-    accountIds: ACCOUNT_IDS,
-    entryTime: ENTRY_TIME_SECONDS,
-  });
+function classifyChange(item: Record<string, unknown>): ClassifiedInstagramWebhookEvent {
+  return saved(
+    classifyInstagramWebhookItem({
+      source: 'changes',
+      item,
+      accountIds: ACCOUNT_IDS,
+      entryTime: ENTRY_TIME_SECONDS,
+    }),
+  );
+}
+
+function classifyMessaging(item: Record<string, unknown>): ClassifiedInstagramWebhookEvent {
+  return saved(
+    classifyInstagramWebhookItem({
+      source: 'messaging',
+      item,
+      accountIds: ACCOUNT_IDS,
+      entryTime: ENTRY_TIME_SECONDS,
+    }),
+  );
 }
 
 /** A `messaging[]` item from the contact to the account at the item time. */
@@ -57,7 +69,7 @@ function fromContact(fields: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-describe('classifyInstagramWebhookItem — changes[] (4.A.10)', () => {
+describe('classifyInstagramWebhookItem — changes[] (5.A.10)', () => {
   it('a comment by another user is `comment:<value.id>`, received, the commenter as contact', () => {
     const item = {
       field: 'comments',
@@ -136,6 +148,35 @@ describe('classifyInstagramWebhookItem — changes[] (4.A.10)', () => {
     });
   });
 
+  it('a Live comment is `live_comment:<value.id>`, received, the commenter as contact (WH8)', () => {
+    const item = {
+      field: 'live_comments',
+      value: { id: '18000000000000077', from: { id: CONTACT_ID }, media: { id: '1790000000001' } },
+    };
+
+    expect(classifyChange(item)).toEqual({
+      eventKind: 'live_comment',
+      eventKey: 'live_comment:18000000000000077',
+      kindSkipReason: null,
+      contactInstagramUserId: CONTACT_ID,
+      occurredAt: new Date(ENTRY_TIME_SECONDS * 1000),
+      payload: item,
+    });
+  });
+
+  it('the account’s own Live comment is skipped `own_comment` like its own comment (P24)', () => {
+    const event = classifyChange({
+      field: 'live_comments',
+      value: { id: '18000000000000078', from: { id: ACCOUNT_IDS.instagramUserId } },
+    });
+
+    expect(event).toMatchObject({
+      eventKind: 'live_comment',
+      kindSkipReason: 'own_comment',
+      contactInstagramUserId: null,
+    });
+  });
+
   it('a comment change without a comment id falls to `unsupported`', () => {
     const event = classifyChange({ field: 'comments', value: { from: { id: CONTACT_ID } } });
 
@@ -145,7 +186,7 @@ describe('classifyInstagramWebhookItem — changes[] (4.A.10)', () => {
   });
 });
 
-describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
+describe('classifyInstagramWebhookItem — messaging[] (5.A.10)', () => {
   it('a text message is `message:<mid>`, received, the sender as contact, at the item time', () => {
     const item = fromContact({ message: { mid: 'm_text', text: 'price?' } });
 
@@ -183,7 +224,40 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     });
   });
 
-  it('an echo (`is_echo`) is `echo:<mid>`, skipped `unsupported` until R17, the recipient as contact (WQ4)', () => {
+  it('a story mention (a `story_mention` attachment) is `story_mention`, keyed `message:<mid>`', () => {
+    const event = classifyMessaging(
+      fromContact({
+        message: {
+          mid: 'm_mention',
+          attachments: [{ type: 'story_mention', payload: { url: 'https://x.test/s' } }],
+        },
+      }),
+    );
+
+    expect(event).toMatchObject({
+      eventKind: 'story_mention',
+      eventKey: 'message:m_mention',
+      kindSkipReason: null,
+      contactInstagramUserId: CONTACT_ID,
+    });
+  });
+
+  it.each([['share'], ['ig_post']])(
+    'a message sharing a post (`%s` attachment) is `shared_post`, keyed `message:<mid>`',
+    (type) => {
+      const event = classifyMessaging(
+        fromContact({ message: { mid: 'm_share', attachments: [{ type, payload: {} }] } }),
+      );
+
+      expect(event).toMatchObject({
+        eventKind: 'shared_post',
+        eventKey: 'message:m_share',
+        kindSkipReason: null,
+      });
+    },
+  );
+
+  it('an echo (`is_echo`) is `echo:<mid>`, received for the quiet time, the recipient as contact, its mid kept (WH10)', () => {
     const event = classifyMessaging({
       sender: { id: ACCOUNT_IDS.instagramUserId },
       recipient: { id: CONTACT_ID },
@@ -194,9 +268,30 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(event).toMatchObject({
       eventKind: 'echo',
       eventKey: 'echo:m_echo',
-      kindSkipReason: 'unsupported',
+      kindSkipReason: null,
       contactInstagramUserId: CONTACT_ID,
+      echoMessageId: 'm_echo',
     });
+  });
+
+  it('a message marked `is_self` is an echo too', () => {
+    const event = classifyMessaging({
+      sender: { id: CONTACT_ID },
+      recipient: { id: CONTACT_ID },
+      message: { mid: 'm_self', is_self: true },
+    });
+
+    expect(event).toMatchObject({
+      eventKind: 'echo',
+      eventKey: 'echo:m_self',
+      kindSkipReason: null,
+    });
+  });
+
+  it('only an echo carries `echoMessageId`', () => {
+    expect(classifyMessaging(fromContact({ message: { mid: 'm_plain' } }))).not.toHaveProperty(
+      'echoMessageId',
+    );
   });
 
   it('a message sent by the account itself (its app-scoped id) is an echo even without `is_echo`', () => {
@@ -209,7 +304,7 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(event).toMatchObject({
       eventKind: 'echo',
       eventKey: 'echo:m_own',
-      kindSkipReason: 'unsupported',
+      kindSkipReason: null,
       contactInstagramUserId: CONTACT_ID,
     });
   });
@@ -276,6 +371,54 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     });
   });
 
+  it('a tap whose payload starts `starter:` is a starter question (`ice_breaker`), keyed as a postback', () => {
+    const withMid = classifyMessaging(
+      fromContact({ postback: { mid: 'm_starter', title: 'Prices?', payload: 'starter:prices' } }),
+    );
+    const withoutMid = classifyMessaging(fromContact({ postback: { payload: 'starter:prices' } }));
+
+    expect(withMid).toMatchObject({
+      eventKind: 'ice_breaker',
+      eventKey: 'postback:m_starter',
+      kindSkipReason: null,
+      contactInstagramUserId: CONTACT_ID,
+    });
+    expect(withoutMid).toMatchObject({
+      eventKind: 'ice_breaker',
+      eventKey: `postback:${CONTACT_ID}:${ITEM_TIME_MILLISECONDS}:${sha256('starter:prices')}`,
+    });
+  });
+
+  it('a `messaging_referral` is `referral:<sender>:<time>:<SHA-256 of ref and source>`, received', () => {
+    const item = fromContact({
+      referral: { ref: 'summer', source: 'SHORTLINK', type: 'OPEN_THREAD' },
+    });
+
+    expect(classifyMessaging(item)).toEqual({
+      eventKind: 'referral',
+      eventKey: `referral:${CONTACT_ID}:${ITEM_TIME_MILLISECONDS}:${sha256(
+        JSON.stringify({ ref: 'summer', source: 'SHORTLINK' }),
+      )}`,
+      kindSkipReason: null,
+      contactInstagramUserId: CONTACT_ID,
+      occurredAt: new Date(ITEM_TIME_MILLISECONDS),
+      payload: item,
+    });
+  });
+
+  it('a message carrying an ad `referral` is a `referral`, not a `message`', () => {
+    const event = classifyMessaging(
+      fromContact({
+        message: { mid: 'm_ad', text: 'hi', referral: { ad_id: '120000000', source: 'ADS' } },
+      }),
+    );
+
+    expect(event).toMatchObject({ eventKind: 'referral', kindSkipReason: null });
+    expect(event.eventKey).toMatch(
+      new RegExp(`^referral:${CONTACT_ID}:${ITEM_TIME_MILLISECONDS}:`),
+    );
+  });
+
   it('two clicks without `mid` on different buttons get different keys', () => {
     const first = classifyMessaging(fromContact({ postback: { payload: 'aut_x::run_a' } }));
     const second = classifyMessaging(fromContact({ postback: { payload: 'aut_x::run_b' } }));
@@ -283,19 +426,23 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(first.eventKey).not.toBe(second.eventKey);
   });
 
-  it('a read receipt is `read:<read.mid>` (kind `unknown`, skipped `unsupported` until R17), never the key of the message it read (gap 2)', () => {
-    const read = classifyMessaging(fromContact({ read: { mid: 'm_text' } }));
-    const message = classifyMessaging(fromContact({ message: { mid: 'm_text' } }));
-
-    expect(read).toMatchObject({
-      eventKind: 'unknown',
-      eventKey: 'read:m_text',
-      kindSkipReason: 'unsupported',
-    });
-    expect(read.eventKey).not.toBe(message.eventKey);
+  it('a read receipt is dropped — never saved (WH8)', () => {
+    for (const item of [
+      fromContact({ read: { mid: 'm_text' } }),
+      { field: 'messages', value: fromContact({ read: { watermark: 1 } }) },
+    ]) {
+      expect(
+        classifyInstagramWebhookItem({
+          source: 'field' in item ? 'changes' : 'messaging',
+          item,
+          accountIds: ACCOUNT_IDS,
+          entryTime: ENTRY_TIME_SECONDS,
+        }),
+      ).toBeNull();
+    }
   });
 
-  it('a reaction is `reaction:<mid>:<action>:<timestamp>`, skipped `unsupported` until R17', () => {
+  it('a reaction is `reaction:<mid>:<action>:<timestamp>`, received — it refreshes her window only', () => {
     const event = classifyMessaging(
       fromContact({ reaction: { mid: 'm_text', action: 'react', reaction: 'love' } }),
     );
@@ -303,7 +450,8 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     expect(event).toMatchObject({
       eventKind: 'reaction',
       eventKey: `reaction:m_text:react:${ITEM_TIME_MILLISECONDS}`,
-      kindSkipReason: 'unsupported',
+      kindSkipReason: null,
+      contactInstagramUserId: CONTACT_ID,
     });
   });
 
@@ -328,8 +476,8 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
     });
   });
 
-  it('any other item is `messaging:<SHA-256 of item>`, skipped `unsupported`', () => {
-    const item = fromContact({ referral: { ref: 'ad_1', source: 'ADS' } });
+  it('any other item (an opt-in, a story repost) is `messaging:<SHA-256 of item>`, skipped `unsupported`', () => {
+    const item = fromContact({ optin: { ref: 'newsletter' } });
 
     expect(classifyMessaging(item)).toMatchObject({
       eventKind: 'unknown',
@@ -360,12 +508,14 @@ describe('classifyInstagramWebhookItem — messaging[] (4.A.10)', () => {
       classifyMessaging({ sender: { id: CONTACT_ID }, message: { mid: 'm1' } }).occurredAt,
     ).toEqual(new Date(ENTRY_TIME_SECONDS * 1000));
     expect(
-      classifyInstagramWebhookItem({
-        source: 'messaging',
-        item: { sender: { id: CONTACT_ID }, message: { mid: 'm2' } },
-        accountIds: ACCOUNT_IDS,
-        entryTime: undefined,
-      }).occurredAt,
+      saved(
+        classifyInstagramWebhookItem({
+          source: 'messaging',
+          item: { sender: { id: CONTACT_ID }, message: { mid: 'm2' } },
+          accountIds: ACCOUNT_IDS,
+          entryTime: undefined,
+        }),
+      ).occurredAt,
     ).toBeNull();
   });
 });

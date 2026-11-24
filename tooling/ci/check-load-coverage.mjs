@@ -58,7 +58,7 @@ const PUBLIC_INFRASTRUCTURE_PATHS = [
   '/billing/webhook',
   '/social/instagram/deauthorize',
   '/social/instagram/data-deletion',
-  '/social/instagram/webhook',
+  '/social/channel-connections/meta/webhooks/instagram',
   '/tenancy/invitations/',
   '/livez',
   '/readyz',

@@ -1,4 +1,5 @@
 import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
+import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
@@ -58,8 +59,10 @@ import {
   injectRoute,
 } from '@/tests/helpers/test-http-inject.helper.js';
 
-/** `POST /app/social/instagram/webhook` (route 17). */
-const INSTAGRAM_WEBHOOK_PATH = testApiPath('/app/social/instagram/webhook');
+/** `POST /app/social/channel-connections/meta/webhooks/instagram` (route 17). */
+const INSTAGRAM_WEBHOOK_PATH = testApiPath(
+  '/app/social/channel-connections/meta/webhooks/instagram',
+);
 
 /** The person on the other side of a conversation, unless a test names another one. */
 export const PERSON = TEST_CONTACT_INSTAGRAM_USER_ID;
@@ -473,13 +476,13 @@ export class InstagramMessageFlow {
   }
 
   /** Runs the account's processing job, as the `instagram-webhook` worker does (WH12–WH14). */
-  runJob(): Promise<InstagramWebhookAccountJobResult> {
+  async runJob(): Promise<InstagramWebhookAccountJobResult> {
     this.jobCount += 1;
     const { appDomain } = this.app;
     return processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: this.team.organization.public_id,
-        instagramAccountPublicId: this.account.publicId,
+        channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(this.account.id),
       },
       services: {
         ...appDomain,

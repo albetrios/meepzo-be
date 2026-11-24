@@ -57,7 +57,8 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'GET /api/v1/app/social/instagram/media': ListInstagramMediaQueryDto,
   'GET /api/v1/app/social/instagram/stories': ListInstagramMediaQueryDto,
   'GET /api/v1/app/social/instagram/webhook-events': ListInstagramWebhookEventsQueryDto,
-  'GET /api/v1/app/social/instagram/webhook': InstagramWebhookSubscriptionQueryDto,
+  'GET /api/v1/app/social/channel-connections/meta/webhooks/instagram':
+    InstagramWebhookSubscriptionQueryDto,
   // App: channel connections (feat-instagram-dm-sending routes-final § 1.8, route 4).
   'GET /api/v1/app/social/channel-connections': listChannelConnectionsQueryDto,
   'GET /api/v1/app/social/channel-accounts': listChannelAccountsQueryDto,

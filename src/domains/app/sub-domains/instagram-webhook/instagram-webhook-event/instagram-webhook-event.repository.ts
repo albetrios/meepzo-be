@@ -17,6 +17,7 @@ import {
   type RequestScopedPostgresDatabase,
   assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
+  setLocalDatabaseConfig,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import {
   type BatchDeleteResult,
@@ -41,7 +42,6 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
-import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { instagram_webhook_events } from './instagram-webhook-event.schema.js';
 import {
   INSTAGRAM_WEBHOOK_EVENT_WAITING_STATUSES,
@@ -111,15 +111,14 @@ export type InstagramWebhookEventClaimResult =
   | { outcome: 'exhausted'; event: InstagramWebhookEventRow };
 
 /**
- * One Instagram account the stuck-event pick-up hands back to processing (WH15): the two public ids
- * its processing job carries — never an internal id (queue rule § 3.1). The job still names the
- * Instagram account (`iga_…`) until intake's jobs carry `channelAccountPublicId` (WHC4, ROUTE R17).
+ * One channel account the stuck-event pick-up hands back to processing (WH17): the two public ids
+ * its processing job carries — never an internal id (queue rule § 3.1, WHC4).
  */
 export interface InstagramWebhookStuckAccount {
   /** The account's organization — the job's `organizationPublicId` (K8). */
   organizationPublicId: string;
-  /** `iga_…`. */
-  instagramAccountPublicId: string;
+  /** `cha_…` — the job's `channelAccountPublicId`. */
+  channelAccountPublicId: string;
 }
 
 /** The `error_message` of an event whose attempts ran out (WH12, WH14). */
@@ -251,6 +250,19 @@ export class InstagramWebhookEventRepository {
 
   private db(): RequestScopedPostgresDatabase {
     return resolveRepositoryDatabaseHandle(this.databaseHandle);
+  }
+
+  /**
+   * Caps every later statement of the surrounding unit of work at `milliseconds` —
+   * `set_config('statement_timeout', …, true)`, the transaction-local `SET LOCAL` (WH2, WHC2): the
+   * webhook's store unit, so a slow Postgres answers inside Meta's 5-second budget.
+   */
+  async limitStatementTime(milliseconds: number): Promise<void> {
+    await setLocalDatabaseConfig({
+      databaseHandle: this.db(),
+      key: 'statement_timeout',
+      value: String(milliseconds),
+    });
   }
 
   /**
@@ -493,8 +505,8 @@ export class InstagramWebhookEventRepository {
   }
 
   /**
-   * The stuck-event pick-up's read across organizations (WH15, WC-2): the Instagram accounts — of
-   * live organizations — that have an event still `received` or `queued` more than
+   * The stuck-event pick-up's read across organizations (WH17, WC-12): the channel accounts — of
+   * live organizations, read from `app.channel_accounts` (no Instagram account join, R17) — that have an event still `received` or `queued` more than
    * `stuckAfterMinutes` after it arrived and not claimed in as long, oldest waiting first, at most
    * `limit` accounts. Runs only on a retention handle
    * ({@link createRetentionInstagramWebhookEventRepository}): the sweep arm is in the policies'
@@ -517,14 +529,14 @@ export class InstagramWebhookEventRepository {
     return this.db()
       .select({
         organizationPublicId: organizations.public_id,
-        instagramAccountPublicId: instagram_accounts.public_id,
+        channelAccountPublicId: channel_accounts.public_id,
       })
       .from(instagram_webhook_events)
       .innerJoin(
-        instagram_accounts,
+        channel_accounts,
         and(
-          eq(instagram_accounts.organization_id, instagram_webhook_events.organization_id),
-          eq(instagram_accounts.channel_account_id, instagram_webhook_events.channel_account_id),
+          eq(channel_accounts.organization_id, instagram_webhook_events.organization_id),
+          eq(channel_accounts.id, instagram_webhook_events.channel_account_id),
         ),
       )
       .innerJoin(organizations, eq(organizations.id, instagram_webhook_events.organization_id))
@@ -539,7 +551,7 @@ export class InstagramWebhookEventRepository {
           isNull(organizations.deleted_at),
         ),
       )
-      .groupBy(organizations.public_id, instagram_accounts.public_id)
+      .groupBy(organizations.public_id, channel_accounts.public_id)
       .orderBy(sql`min(${instagram_webhook_events.created_at})`)
       .limit(limit);
   }

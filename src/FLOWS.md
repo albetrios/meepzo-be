@@ -651,7 +651,7 @@ A contact erase and a running automation meet on the contact's row: both lock it
 
 ### Trigger
 
-Meta calls the Instagram webhook's two public routes (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 4.A, built by ROUTE row R13): **the subscription check** — `GET /api/v1/app/social/instagram/webhook` when the webhook is saved in the Meta App Dashboard — and **every delivery** — `POST` on the same path with comments, DMs, story replies and button clicks of a connected account. Processing the stored events (dispatch per kind, order per account, retries, the stuck-event pick-up) is the [instagram-webhook-processing-flow](#instagram-webhook-processing-flow) below (ROUTE row R14).
+Meta calls the Instagram webhook's two public routes at the Instagram object's own callback path (`iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/routes-final.md` § 5.A, routes 60–61, built by ROUTE row R17 on the launch's R13; P53): **the subscription check** — `GET /api/v1/app/social/channel-connections/meta/webhooks/instagram` when the Instagram object's webhook is saved in the Meta App Dashboard — and **every delivery** — `POST` on the same path with the six subscribed fields (comments, Live comments, messages, postbacks, referrals, reactions) of a connected account. The receiver **saves only**; processing the saved events (dispatch per kind, order per account, retries, the stuck-event pick-up) is the [instagram-webhook-processing-flow](#instagram-webhook-processing-flow) below (launch ROUTE row R14; intake per kind at R38).
 
 ### Sequence
 
@@ -666,39 +666,40 @@ sequenceDiagram
   participant Events as InstagramWebhookEventService
   participant DB as Postgres (the organization's VERIFIED scope)
 
-  Meta->>Receiver: GET …/webhook ?hub.mode=subscribe&hub.verify_token&hub.challenge
+  Meta->>Receiver: GET …/webhooks/instagram ?hub.mode=subscribe&hub.verify_token&hub.challenge
   Receiver-->>Meta: 200 text/plain challenge (token compared in constant time; 400 / 503 otherwise)
-  Meta->>Plugin: POST …/webhook + X-Hub-Signature-256 — no header: 400 before the body is read
+  Meta->>Plugin: POST …/webhooks/instagram + X-Hub-Signature-256 — no header: counted (429 past 1,200/min per IP), 400 before the body is read
   Plugin->>Parser: the raw JSON body is read (up to 5 MB), its bytes kept, nothing parsed
   Parser->>Plugin: raw bytes
-  Plugin->>Plugin: HMAC-SHA256 of the raw bytes with META_APP_SECRET (400 / 503 otherwise), then parse them
-  Plugin->>Receiver: signed delivery — object instagram? (else 200 OK, nothing stored)
+  Plugin->>Plugin: HMAC-SHA256 of the raw bytes with the Meta app secret (wrong: counted, 400 / 429; unset: 503), then parse them — a valid one is never counted
+  Plugin->>Receiver: signed delivery — object instagram? (else 200 OK, nothing saved)
   loop each entry[] (the account's webhook user id), its text cleaned of NUL and lone surrogates
     Receiver->>Resolver: which organization holds this account, not revoked?
     alt nobody (never connected, or revoked)
-      Receiver->>Receiver: log instagram.webhook.unknown_account + metric; nothing stored
+      Receiver->>Receiver: log instagram.webhook.unknown_account + metric; nothing saved
     else an organization
-      Receiver->>Account: account state in its VERIFIED scope (status, automation switch, both ids)
-      Receiver->>Receiver: classify every item — kind, key (per account), born received or skipped
-      Receiver->>Events: INSERT … ON CONFLICT DO NOTHING (a repeat delivery inserts nothing); COMMIT
-      Receiver->>Receiver: after commit — add the account's processing job, then the received rows turn queued
+      Receiver->>DB: SET LOCAL statement_timeout = 3 s (the unit's first statement)
+      Receiver->>Account: account state in its VERIFIED scope (status, automation switch, both ids, cha_ id)
+      Receiver->>Receiver: classify every item — read receipts dropped; our own echoes dropped (own-message lookup, R19)
+      Receiver->>Events: recordReceivedEvents — 8-day replay guard, keys ON CONFLICT DO NOTHING, then only the new keys' events; COMMIT
+      Receiver->>Receiver: after commit — add the channel account's processing job, then the received rows turn queued
     end
   end
-  Receiver-->>Meta: 200 text/plain OK — only once every entry is stored (one that failed: 500 / 503, after the others)
+  Receiver-->>Meta: 200 text/plain OK — only once every entry is saved (over 3 s or Postgres down: 503; other failure: 500 — after the others)
 ```
 
 ### Side effects
 
-- `app.instagram_webhook_events` — one row per Instagram account and event key, born `received` (then `queued` once the account's processing job is added; a failed add is logged and left to the stuck-event pick-up), or `skipped` and final with its reason: the kind's own (`echo` — the account's own DMs and comments too, `read_receipt`, `reaction`, `edit`, `unsupported`), `automation_disabled` when the switch is off, `account_disconnected` when the account is `expired` or `error`.
+- `app.instagram_webhook_event_keys` — one row per channel account, event key and Meta day; `app.instagram_webhook_events` — one row per new key, born `received` (then `queued` once the channel account's processing job is added; a failed add is logged and left to the stuck-event pick-up), or `skipped` and final with its reason: the kind's own (`own_comment` — the account's own comment or Live comment, `edit`, `unsupported`) or `automation_disabled` when the switch is off. An `error` account's events are saved `received`. Read receipts, our own echoes and events over 8 days old are never saved; nothing is kept in Redis (P32).
 - Log lines (`instagram.webhook.*`) with the request id, Instagram and public ids and counts — never the payload, message or comment text; the `instagram_webhook_unknown_account_entries_total` metric. No audit entry, no `*_by_user_id` (WH6).
 
 ### Failure modes
 
 - **A wrong or missing signature** → `400 invalid_webhook_signature`, nothing parsed or stored (a missing one before the body is read); **the app secret or verify token unset** → `503 instagram_webhook_not_configured`.
-- **An entry that cannot be stored** → the delivery's other entries (other organizations') are stored all the same, then `500` / `503`, never `200`: Meta delivers again and the part already stored dedupes on its key (D53).
+- **An entry that cannot be saved** → the delivery's other entries (other organizations') are saved all the same, then `500` / `503`, never `200`: Meta delivers again and the part already saved dedupes on its key (D53). A unit over its 3 s (a statement or lock wait cancelled) or Postgres down is a `503` (WH2).
 - **Text Postgres refuses** (NUL, lone surrogates) → cleaned once, after the signature — the stored payloads and their event keys — so one person's comment never fails a delivery (D53).
 - **A signed body that is not JSON, or about another object, or an account no team holds** → `200 OK`, nothing stored, one log line — Meta does not retry what can never be stored.
-- **A flood of unsigned requests** → `INSTAGRAM_WEBHOOK_RATE_LIMIT` (1,200 a minute per IP) answers `429`; one without the signature header is refused before its body is read, a wrongly signed one costs reading its body (5 MB at most) and one HMAC — its JSON is never parsed (D53) — and neither reaches the database.
+- **A flood of unsigned requests** → the per-IP cap of unsigned traffic (`INSTAGRAM_WEBHOOK_UNSIGNED_RATE_LIMIT_OPTIONS`, 1,200 a minute) answers `429`; one without the signature header is refused before its body is read, a wrongly signed one costs reading its body (5 MB at most) and one HMAC — its JSON is never parsed (D53) — and neither reaches the database. A validly signed burst from Meta is never counted (S9), and under load the overload guard sheds the UI first (`overloadShedLast`, S10).
 
 ## instagram-webhook-processing-flow
 
@@ -718,7 +719,7 @@ sequenceDiagram
   participant Instagram as meta-graph.client
   participant Engine as AutomationRunService (+ linkNextPostAutomations)
 
-  Queue->>Worker: process-instagram-webhook-events {organizationPublicId, instagramAccountPublicId}
+  Queue->>Worker: process-instagram-webhook-events {organizationPublicId, channelAccountPublicId}
   Worker->>Account: the account's key (job scope, PRINCIPAL_SCOPE.JOB)
   loop up to 25 events, oldest stored first
     Worker->>Events: claim the head — one more attempt, a 5-minute lease (a head at 5 attempts → failed, the runs it left running failed in the same unit)

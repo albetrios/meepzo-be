@@ -80,8 +80,8 @@ const PUBLIC_ROUTE_KEYS = new Set<string>([
   'POST /api/v1/app/social/instagram/deauthorize',
   'POST /api/v1/app/social/instagram/data-deletion',
   // Meta's Instagram webhook: proved by the verify token (GET) and X-Hub-Signature-256 (POST).
-  'GET /api/v1/app/social/instagram/webhook',
-  'POST /api/v1/app/social/instagram/webhook',
+  'GET /api/v1/app/social/channel-connections/meta/webhooks/instagram',
+  'POST /api/v1/app/social/channel-connections/meta/webhooks/instagram',
   // The invitation page (feat-instagram-dm-sending route 118): the emailed token is the key; a
   // bearer is optional (read when sent, never required), so no scheme is advertised.
   'POST /api/v1/tenancy/membership-invitations/{membership_invitation_id}/preview',

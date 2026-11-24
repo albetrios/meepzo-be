@@ -244,11 +244,31 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → more day parts kept (storage), and the event body of a failed event lives longer.
 - **Last reviewed**: 2026-11-24
 
+## INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS
+
+- **Value**: 3,000 ms
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: The Instagram webhook's store unit (route 61) caps each of its statements at this `statement_timeout` (feat-instagram-dm-sending WH2, WHC2; plan `WEBHOOK_SAVE_TIMEOUT_MS`). Meta waits about 5 seconds for an answer; a slow Postgres must fail the delivery with a `503` inside that budget — nothing saved, nothing kept in Redis (P32) — so Meta delivers it again, instead of timing out while the unit may still commit.
+- **Consequences of change**:
+  - Decreasing → more deliveries refused under a briefly slow database (Meta retries them).
+  - Increasing → past ~4 s Meta's own timeout fires first and its retry races the still-running unit (the key table keeps it a no-op, but the answer is lost).
+- **Last reviewed**: 2026-11-24
+
+## OVERLOAD_SHED_LAST_FACTOR
+
+- **Value**: 2 (times each overload threshold)
+- **Source**: [src/shared/middlewares/core/overload-guard.middleware.ts](src/shared/middlewares/core/overload-guard.middleware.ts)
+- **Rationale**: A route marked `config.overloadShedLast` — today Meta's Instagram webhook delivery only (feat-instagram-dm-sending S10, P97) — is shed by the overload guard only at twice its event-loop, pool-queue and connection-wait thresholds, so under load the UI sheds first and Meta's deliveries keep their slice: Meta slows, then disables, a subscription that keeps failing.
+- **Consequences of change**:
+  - Decreasing toward 1 → the webhook sheds with the UI again.
+  - Increasing → the webhook keeps being served deeper into an overload, with less headroom for the process itself.
+- **Last reviewed**: 2026-11-24
+
 ## INSTAGRAM_WEBHOOK_CHALLENGE_MAX_LENGTH
 
 - **Value**: 256 characters
 - **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
-- **Rationale**: The longest `hub.challenge` the Instagram webhook's subscription check (route 16) echoes back. The route is public and answers the text Meta sent, so the text is bounded; Meta's challenges are short numbers.
+- **Rationale**: The longest `hub.challenge` the Instagram webhook's subscription check (route 16) echoes back (route 60; route 16 in the launch). The route is public and answers the text Meta sent, so the text is bounded; Meta's challenges are short numbers.
 - **Consequences of change**:
   - Decreasing → a longer challenge Meta may send one day is refused (`400 invalid_field`) and the subscription check fails.
   - Increasing → the public route echoes longer caller-chosen text.

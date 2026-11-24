@@ -38,6 +38,21 @@ const instagramAccountColumns = {
   channel_connection_id: channel_accounts.channel_connection_id,
 };
 
+/**
+ * An account row with its channel account's public id (`cha_…`) — what the Instagram webhook's
+ * reads return, since its jobs name the account by it (feat-instagram-dm-sending R17, WHC4).
+ */
+export type InstagramAccountWithChannelAccountRow = InstagramAccountRow & {
+  /** `app.channel_accounts.public_id`. */
+  channel_account_public_id: string;
+};
+
+/** {@link instagramAccountColumns} plus the channel account's public id. */
+const instagramAccountWithChannelAccountColumns = {
+  ...instagramAccountColumns,
+  channel_account_public_id: channel_accounts.public_id,
+};
+
 /** The join of an Instagram account to its channel account (1:1, same organization). */
 const channelAccountJoin = and(
   eq(channel_accounts.organization_id, instagram_accounts.organization_id),
@@ -142,12 +157,15 @@ export class InstagramAccountRepository {
 
   /**
    * The organization's oldest-connected not-revoked account — `connected`, `expired` or `error`
-   * (IA13) — or `null` when it has none (only revoked rows, or no row at all). The launch's
-   * singular routes read it until ROUTE row R5 names the account in the path (CA2).
+   * (IA13) — or `null` when it has none (only revoked rows, or no row at all), with its channel
+   * account's public id. The launch's singular routes read it until ROUTE row R5 names the account
+   * in the path (CA2).
    */
-  async findLiveByOrganizationId(organizationId: number): Promise<InstagramAccountRow | null> {
+  async findLiveByOrganizationId(
+    organizationId: number,
+  ): Promise<InstagramAccountWithChannelAccountRow | null> {
     const rows = await this.db()
-      .select(instagramAccountColumns)
+      .select(instagramAccountWithChannelAccountColumns)
       .from(instagram_accounts)
       .innerJoin(channel_accounts, channelAccountJoin)
       .where(
@@ -611,6 +629,33 @@ export class InstagramAccountRepository {
         and(
           eq(organizations.public_id, organizationPublicId),
           eq(instagram_accounts.public_id, instagramAccountPublicId),
+        ),
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * One account by its channel account's public id (`cha_…`), any status, only when it belongs to
+   * the organization with this public id — the Instagram webhook processing job's read (its job
+   * carries public ids only, WHC4); `null` otherwise.
+   */
+  async findByChannelAccountPublicIdInOrganization({
+    organizationPublicId,
+    channelAccountPublicId,
+  }: {
+    organizationPublicId: string;
+    channelAccountPublicId: string;
+  }): Promise<InstagramAccountWithChannelAccountRow | null> {
+    const rows = await this.db()
+      .select(instagramAccountWithChannelAccountColumns)
+      .from(instagram_accounts)
+      .innerJoin(channel_accounts, channelAccountJoin)
+      .innerJoin(organizations, eq(organizations.id, instagram_accounts.organization_id))
+      .where(
+        and(
+          eq(organizations.public_id, organizationPublicId),
+          eq(channel_accounts.public_id, channelAccountPublicId),
         ),
       )
       .limit(1);

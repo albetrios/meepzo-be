@@ -44,7 +44,7 @@ const RECEIVERS: readonly WebhookReceiver[] = [
     pluginFile: 'src/domains/app/sub-domains/instagram-webhook/instagram-webhook-ingress.plugin.ts',
     plugin: 'instagramWebhookIngressPlugin',
     pluginTarget: 'receiver',
-    deliveryPath: '/social/instagram/webhook',
+    deliveryPath: '/social/channel-connections/meta/webhooks/instagram',
     ratePreset: 'INSTAGRAM_WEBHOOK_RATE_LIMIT',
     signatureHeaderConstant: 'INSTAGRAM_WEBHOOK_SIGNATURE_HEADER',
   },

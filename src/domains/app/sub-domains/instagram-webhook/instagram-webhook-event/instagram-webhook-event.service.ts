@@ -94,7 +94,7 @@ export interface InstagramWebhookEventClaimTarget {
 
 /**
  * The Instagram webhook events service (routes-final § 4.B): route 62's list, and the one write
- * path for `app.instagram_webhook_events` — the receiver (4.A, routes 16–17) stores events and
+ * path for `app.instagram_webhook_events` — the receiver (5.A, routes 60–61) stores events and
  * marks them `queued`, event processing claims and marks them; neither holds the table's SQL (WH1).
  *
  * @remarks
@@ -215,6 +215,28 @@ export class InstagramWebhookEventService {
           events: newEvents,
         });
       },
+    });
+  }
+
+  /**
+   * Caps each later statement of the caller's open unit of work at `milliseconds` (WH2, WHC2) — the
+   * receiver's store unit, so a slow Postgres fails it inside Meta's 5-second budget.
+   *
+   * @remarks
+   * Algorithm: one transaction-local `statement_timeout`, through the repository, inside the
+   * caller's scope (it joins the caller's unit; outside one it would last one statement). Failure
+   * modes: none of its own. Side effects: the setting, until the unit ends.
+   */
+  async limitStoreStatementTime({
+    scope,
+    milliseconds,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    milliseconds: number;
+  }): Promise<void> {
+    await withAppDatabaseContext({
+      scope,
+      callback: () => this.eventRepository.limitStatementTime(milliseconds),
     });
   }
 

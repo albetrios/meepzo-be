@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -135,7 +136,11 @@ describe('Instagram comment automation flow (e2e)', () => {
         contact_instagram_user_id: jordan.instagramUserId,
       });
       expect(await jobsOfTeam(processingQueue)).toEqual([
-        expect.objectContaining({ instagramAccountPublicId: flow.account.publicId }),
+        expect.objectContaining({
+          channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(
+            flow.account.id,
+          ),
+        }),
       ]);
 
       expect(await flow.processEvents()).toEqual({

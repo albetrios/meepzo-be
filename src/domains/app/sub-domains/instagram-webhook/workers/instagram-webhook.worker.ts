@@ -59,9 +59,9 @@ export function createInstagramWebhookWorker(
         job,
         queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
       });
-      const { organizationPublicId, instagramAccountPublicId, requestId } = jobData;
+      const { organizationPublicId, channelAccountPublicId, requestId } = jobData;
       logger.info(
-        { jobId: job.id, organizationPublicId, instagramAccountPublicId, requestId },
+        { jobId: job.id, organizationPublicId, channelAccountPublicId, requestId },
         'app.instagram_webhook.processing',
       );
       return runWithPropagatedTraceContext({

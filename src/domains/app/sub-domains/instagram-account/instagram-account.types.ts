@@ -160,6 +160,8 @@ export interface InstagramWebhookAccountState {
   instagramAccount: InstagramAccountKey;
   /** `app.channel_accounts.id` it extends — the key the events are stored under (R16, § 5.B.3). */
   channelAccountId: number;
+  /** `cha_…` — the processing job names the account by it (R17, WHC4). */
+  channelAccountPublicId: string;
   /** `iga_…`. */
   instagramAccountPublicId: string;
   /** The webhook user id (`/me` `user_id`, the delivery entry's `id`). */
@@ -188,6 +190,8 @@ export interface InstagramWebhookProcessingAccount {
   instagramAccount: InstagramAccountKey;
   /** `app.channel_accounts.id` it extends — the key the events are claimed under (R16, § 5.B.3). */
   channelAccountId: number;
+  /** `cha_…` — what the processing job carries (R17, WHC4). */
+  channelAccountPublicId: string;
   /** `iga_…`. */
   instagramAccountPublicId: string;
   /** Any status — `connected`, `expired`, `error` or `revoked`. */

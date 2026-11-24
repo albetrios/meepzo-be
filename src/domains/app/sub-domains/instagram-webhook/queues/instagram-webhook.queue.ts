@@ -53,8 +53,8 @@ function getInstagramWebhookQueue(): Queue<InstagramWebhookAccountJobData> {
 }
 
 /**
- * One processing job per Instagram account at a time, on any replica (WH5) — BullMQ
- * `deduplication` keyed by the account, with `keepLastIfActive`.
+ * One processing job per channel account at a time, on any replica (WH5) — BullMQ
+ * `deduplication` keyed by the account's `cha_…` (WHC4), with `keepLastIfActive`.
  *
  * @remarks
  * - **Algorithm:** while the account's job waits or sits delayed (a retry backoff, an Instagram
@@ -71,9 +71,9 @@ function getInstagramWebhookQueue(): Queue<InstagramWebhookAccountJobData> {
  *   job would drop every later add.
  */
 export function instagramWebhookAccountProcessingDeduplication(
-  instagramAccountPublicId: string,
+  channelAccountPublicId: string,
 ): DeduplicationOptions {
-  return { id: `instagram-webhook-events-${instagramAccountPublicId}`, keepLastIfActive: true };
+  return { id: `instagram-webhook-events-${channelAccountPublicId}`, keepLastIfActive: true };
 }
 
 /**
@@ -82,7 +82,7 @@ export function instagramWebhookAccountProcessingDeduplication(
  *
  * @remarks
  * - **Algorithm:** validates the payload (`organizationPublicId` for the job scope, K8), then
- *   `queue.add` with a unique `jobId` (`instagram-webhook-events-<iga_…>-<uuid>`) and the account's
+ *   `queue.add` with a unique `jobId` (`instagram-webhook-events-<cha_…>-<uuid>`) and the account's
  *   deduplication ({@link instagramWebhookAccountProcessingDeduplication}).
  * - **Failure modes:** propagates BullMQ / Redis errors — the receiver logs them and leaves the
  *   events `received` for the stuck-event pick-up; it never fails Meta's answer.
@@ -92,22 +92,22 @@ export function instagramWebhookAccountProcessingDeduplication(
  */
 export async function enqueueInstagramWebhookAccountProcessing({
   organizationPublicId,
-  instagramAccountPublicId,
+  channelAccountPublicId,
   requestId,
 }: InstagramWebhookAccountProcessingRequest): Promise<void> {
   const jobData = parseBullMQJobData({
     schema: instagramWebhookAccountJobDataSchema,
     data: omitUndefined({
       organizationPublicId,
-      instagramAccountPublicId,
+      channelAccountPublicId,
       requestId,
       ...captureTraceContextForPropagation(),
     }),
     queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
   });
   await getInstagramWebhookQueue().add(INSTAGRAM_WEBHOOK_PROCESS_JOB_NAME, jobData, {
-    jobId: `instagram-webhook-events-${instagramAccountPublicId}-${randomUUID()}`,
-    deduplication: instagramWebhookAccountProcessingDeduplication(instagramAccountPublicId),
+    jobId: `instagram-webhook-events-${channelAccountPublicId}-${randomUUID()}`,
+    deduplication: instagramWebhookAccountProcessingDeduplication(channelAccountPublicId),
   });
 }
 

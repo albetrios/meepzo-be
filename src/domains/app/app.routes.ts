@@ -19,7 +19,7 @@ import { createAppPlanAccessPreHandler } from './app-plan-access.js';
  * (`/social/instagram/media`, `/social/instagram/stories`) and Meta's two PUBLIC callbacks
  * (`/social/instagram/deauthorize`, `/social/instagram/data-deletion` — form-encoded, in their own
  * encapsulated plugin so their body parser reaches no other route), contacts (`/contacts`), the
- * Instagram webhook (Meta's `/social/instagram/webhook` and the team's
+ * Instagram webhook (Meta's `/social/channel-connections/meta/webhooks/instagram` and the team's
  * `/social/instagram/webhook-events`), and automations (`/automations`).
  *
  * @remarks

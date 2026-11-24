@@ -1252,7 +1252,9 @@ erDiagram
   ([AS-BUILT](../AS-BUILT.md)): `organization_id`, `channel_account_id`, `event_key`, `event_day` (date),
   `received_at`; primary key `instagram_webhook_event_keys_pkey` `(organization_id, channel_account_id,
   event_key, event_day)`; partitioned by `event_day` (day parts + `instagram_webhook_event_keys_default`);
-  FORCE RLS with the sweep arm in `USING`; the app roles hold `SELECT, INSERT` only.
+  FORCE RLS with the sweep arm in `USING`; the app roles hold `SELECT, INSERT` only. **R17**: no schema change —
+  the receiver writes both tables through the store function (`recordReceivedEvents`) in a unit capped at 3 s;
+  `instagram_accounts` is no longer read by the stuck-event pick-up (it reads `channel_accounts.public_id`).
 - **Sources:** plan:L3453–L3461; D15.
 - **Added:** new — the launch kept this key on the events, which now go after 8 days in whole days.
 - **Replaced:** the event's own key uniqueness.

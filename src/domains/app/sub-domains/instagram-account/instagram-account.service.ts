@@ -222,6 +222,7 @@ export class InstagramAccountService {
         return {
           instagramAccount,
           channelAccountId: account.channel_account_id,
+          channelAccountPublicId: account.channel_account_public_id,
           instagramAccountPublicId: account.public_id,
           instagramUserId: account.instagram_user_id,
           instagramAppUserId: account.instagram_app_user_id,
@@ -284,13 +285,13 @@ export class InstagramAccountService {
 
   /**
    * The account Instagram webhook event processing works for (routes-final § 4.A, WH12, WH13): the
-   * organization's account with this public id in any status, its automation switch and, while it
-   * is `connected`, its encrypted token; `null` when the organization (live) holds no account with
-   * this public id.
+   * organization's account whose channel account has this public id (`cha_…`, the job's, R17) in
+   * any status, its automation switch and, while it is `connected`, its encrypted token; `null`
+   * when the organization (live) holds no such account.
    *
    * @remarks
    * Algorithm: one unit of work in the caller's organization scope (the processing job's): the
-   * organization, the account by its public id within that organization (revoked included — its
+   * organization, the account by its channel account's public id within that organization (revoked included — its
    * waiting events must still be marked), its settings row, and the token only for a `connected`
    * account (through {@link ChannelConnectionTokenService}). Read once when the job starts (the key
    * its claims use) and again before each event (the switch and the status can change while an
@@ -300,11 +301,11 @@ export class InstagramAccountService {
    */
   async findWebhookProcessingAccount({
     scope,
-    instagramAccountPublicId,
+    channelAccountPublicId,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
-    /** `iga_…` — the processing job's account. */
-    instagramAccountPublicId: string;
+    /** `cha_…` — the processing job's account (WHC4). */
+    channelAccountPublicId: string;
   }): Promise<InstagramWebhookProcessingAccount | null> {
     return withAppDatabaseContext({
       scope,
@@ -313,9 +314,9 @@ export class InstagramAccountService {
           scope.organizationPublicId,
         );
         if (organization === null) return null;
-        const account = await this.accountRepository.findByPublicIdInOrganization({
+        const account = await this.accountRepository.findByChannelAccountPublicIdInOrganization({
           organizationPublicId: scope.organizationPublicId,
-          instagramAccountPublicId,
+          channelAccountPublicId,
         });
         if (account === null) return null;
         const instagramAccount: InstagramAccountKey = {
@@ -330,6 +331,7 @@ export class InstagramAccountService {
         return {
           instagramAccount,
           channelAccountId: account.channel_account_id,
+          channelAccountPublicId: account.channel_account_public_id,
           instagramAccountPublicId: account.public_id,
           connectionStatus: account.connection_status as InstagramAccountConnectionStatus,
           isAutomationEnabled: settings?.is_automation_enabled ?? true,

@@ -16,7 +16,7 @@
 //
 // The hub UI is ./hub.html (read per request — edit it live, no restart).
 // Env (optional): PROXY_PORT (3010), API_PORT (PORT from .env.local, else 3000),
-//                 DEMO_EMAIL, DEMO_PASSWORD, DEMO_TOTP_SECRET.
+//                 DEMO_EMAIL, DEMO_TOTP_SECRET.
 
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -61,10 +61,10 @@ const TARGET_PORT = Number(process.env.API_PORT || envVal('PORT') || 3000);
 const PROXY_PORT = Number(process.env.PROXY_PORT || process.env.PORT || 3010);
 const METRICS_TOKEN = envVal('METRICS_SCRAPE_TOKEN');
 // The super_admin this proxy logs in as to mint the Bull Board JWT. `dashboards:up` ensures
-// this user via `pnpm db:seed:demo-admin` — keep these defaults in sync with that script
-// (src/scripts/seed/ensure-demo-admin.ts) so the seeded password matches what we submit here.
+// this user via `pnpm db:seed:demo-admin` — keep this default in sync with that script
+// (src/scripts/seed/ensure-demo-admin.ts). Passwords are off (P84): login() signs in by email code,
+// which the local API echoes under TEST_MODE.
 const DEMO_EMAIL = process.env.DEMO_EMAIL || 'demo@example.com';
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'DemoPassword123!';
 // A platform admin has an enrolled TOTP factor and needs an MFA-verified session (A-2): the seed
 // enrolls this secret, and login() completes POST /auth/mfa/login with a code computed from it.
 const DEMO_TOTP_SECRET = resolveDemoAdminTotpSecret(process.env);
@@ -126,7 +126,14 @@ function answerData(res) {
 }
 
 async function login() {
-  const res = await authPost('/api/v1/auth/login', { email: DEMO_EMAIL, password: DEMO_PASSWORD });
+  const sent = await authPost('/api/v1/auth/email/send-code', { email: DEMO_EMAIL });
+  const code = answerData(sent)?.debug_verification_code;
+  if (!code) {
+    throw new Error(
+      `send-code gave no code echo (status ${sent.status}) — the local API needs TEST_MODE: ${sent.body.toString().slice(0, 200)}`,
+    );
+  }
+  const res = await authPost('/api/v1/auth/email/login', { email: DEMO_EMAIL, code });
   let data = answerData(res);
   let lastResponse = res;
   // A platform admin answers mfa_required: complete it with the seeded TOTP secret (A-2).

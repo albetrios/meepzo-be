@@ -7,13 +7,12 @@
  * `db:migrate` so a fresh DB — or one left with only faker users by `db:seed:bulk` — still
  * lets Bull Board authenticate.
  *
- * Credentials come from `DEMO_EMAIL` / `DEMO_PASSWORD` — the SAME env vars and defaults the
- * proxy reads (`demo@example.com` / `DemoPassword123!`) — so the seeded password always
- * matches what the proxy submits. Keep the defaults here in sync with `proxy.mjs`. The email
+ * The email comes from `DEMO_EMAIL` — the SAME env var and default the proxy reads
+ * (`demo@example.com`); the proxy signs in by email code (passwords are off, P84 — the local
+ * TEST_MODE echo returns the code). Keep the default here in sync with `proxy.mjs`. The email
  * must also be in `GLOBAL_ADMIN_EMAILS` for the minted token to be super_admin.
  *
- * Idempotent and safe to re-run: every seed primitive upserts, and `seedDemoUser` resets the
- * password on conflict, so this repairs a demo user that was seeded with a stale/random one.
+ * Idempotent and safe to re-run: every seed primitive upserts.
  * Creates the demo organization + Admin role + membership too, because login resolves an active
  * organization for the token (a bare user row cannot sign in). Mirrors the demo-admin core of
  * `full.ts`; `db:seed:sync-demo` assumes exactly the rows this script guarantees.
@@ -22,9 +21,9 @@
  * `DEMO_EMAIL` is on `GLOBAL_ADMIN_EMAILS` this also enrolls a TOTP factor with the secret the
  * operator tools compute their codes from — `DEMO_TOTP_SECRET`, else the local default in
  * `tooling/dev/demo-admin-totp.ts`. An address that is not a platform admin (the plain
- * `demo@example.com` meepzo-fe signs in with) keeps a password-only sign-in.
+ * `demo@example.com` meepzo-fe signs in with) keeps an email-code-only sign-in.
  *
- * Usage: pnpm db:seed:demo-admin   (or DEMO_EMAIL=… DEMO_PASSWORD=… DEMO_TOTP_SECRET=… pnpm db:seed:demo-admin)
+ * Usage: pnpm db:seed:demo-admin   (or DEMO_EMAIL=… DEMO_TOTP_SECRET=… pnpm db:seed:demo-admin)
  */
 import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/membership.constants.js';
 import '@/shared/config/load-env-files.js';
@@ -49,22 +48,19 @@ import { resolveDemoAdminTotpSecret } from '@tooling/dev/demo-admin-totp.js';
 import { isMain, parseCommandLine } from '@tooling/setup/common/script.js';
 import { assertBulkSeedAllowed } from './production-guard.js';
 
-/** The demo admin's credentials, read when the seed runs (the env the caller has then). */
-function demoAdminCredentials(): { email: string; password: string } {
-  return {
-    email: process.env.DEMO_EMAIL || 'demo@example.com',
-    password: process.env.DEMO_PASSWORD || 'DemoPassword123!',
-  };
+/** The demo admin's email, read when the seed runs (the env the caller has then). */
+function demoAdminEmail(): string {
+  return process.env.DEMO_EMAIL || 'demo@example.com';
 }
 
 /**
  * Create-or-repair the demo super_admin plus the demo organization, Admin role, system
- * permissions, and an active membership so the user can complete a password login. All calls
- * are idempotent upserts; running twice changes nothing beyond resetting the demo password.
+ * permissions, and an active membership so the user can complete an email-code sign-in. All calls
+ * are idempotent upserts; running twice changes nothing.
  *
  * @remarks
  * Refuses a non-local `DATABASE_URL` before any write ({@link assertBulkSeedAllowed}, H-11): the
- * account has a known default password, a known TOTP secret and every system permission. When the
+ * account has a known email, a known TOTP secret and every system permission. When the
  * email is on `GLOBAL_ADMIN_EMAILS` it enrolls the TOTP factor (`seedTotpFactor`) and marks the
  * account MFA-enrolled, so sign-in grants `super_admin` after `POST /auth/mfa/login` (A-2).
  */
@@ -72,8 +68,8 @@ export async function ensureDemoAdmin(): Promise<void> {
   assertBulkSeedAllowed(process.env);
   await seedPermissions();
 
-  const { email: demoEmail, password: demoPassword } = demoAdminCredentials();
-  const demoUser = await seedDemoUser({ email: demoEmail, password: demoPassword });
+  const demoEmail = demoAdminEmail();
+  const demoUser = await seedDemoUser({ email: demoEmail });
   if (!demoUser) throw new Error('ensure-demo-admin: failed to upsert demo user');
 
   const demoOrganization = await seedOrganization({

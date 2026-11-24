@@ -8,22 +8,21 @@ import {
 } from '@/domains/auth/sub-domains/auth-method/verification-code.js';
 
 describe('verification-code util', () => {
-  it('generates an alphanumeric code of the configured length from the charset', () => {
+  it('generates a digits-only code of the configured length (AT6)', () => {
     const charsetMatcher = new RegExp(`^[${VERIFICATION_CODE_CHARSET}]+$`);
     for (let iteration = 0; iteration < 500; iteration += 1) {
       const code = generateVerificationCode();
       expect(code).toHaveLength(VERIFICATION_CODE_LENGTH);
       expect(code).toMatch(charsetMatcher);
+      expect(code).toMatch(/^\d{6}$/);
     }
   });
 
-  it('charset excludes ambiguous glyphs 0 O 1 I L', () => {
-    for (const ambiguous of ['0', 'O', '1', 'I', 'L']) {
-      expect(VERIFICATION_CODE_CHARSET).not.toContain(ambiguous);
-    }
+  it('the charset is the ten digits', () => {
+    expect(VERIFICATION_CODE_CHARSET).toBe('0123456789');
   });
 
-  it('normalizes input case-insensitively and strips whitespace/hyphens', () => {
+  it('normalizes input case-insensitively and strips whitespace/hyphens (a letter code issued before AT6 still matches)', () => {
     expect(normalizeVerificationCode(' ab cd-ef ')).toBe('ABCDEF');
     expect(normalizeVerificationCode('AbCdEf')).toBe('ABCDEF');
   });

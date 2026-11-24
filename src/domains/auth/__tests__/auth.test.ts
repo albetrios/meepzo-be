@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import {
@@ -6,12 +6,10 @@ import {
   injectUnauthenticated,
 } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUser, createTestUserWithPassword } from '@/tests/factories/user.factory.js';
-import { generateTestToken, generateTestTokenAndSession } from '@/tests/helpers/test-auth.js';
-import { seedRecentStepUpForTestUser } from '@/tests/helpers/test-step-up.helper.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
+import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
-import { verification_tokens } from '@/domains/auth/sub-domains/auth-method/verification-token/verification-token.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import {
   SESSION_COOKIE_NAME,
@@ -55,68 +53,36 @@ describe('Auth Domain — Route gates (e2e)', () => {
 
   // ─── Login ────────────────────────────────────────────────────
 
-  describe('POST /api/v1/auth/login', () => {
-    it('should return 400 for missing credentials', async () => {
+  describe('passwords off (P84, AC-13.1)', () => {
+    it.each([
+      ['/auth/login', { email: 'someone@example.com', password: 'Whatever123!' }],
+      ['/auth/password/forgot', { email: 'someone@example.com' }],
+      ['/auth/password/reset', { token: 'token', password: 'Whatever123!' }],
+      ['/auth/password/change', { current_password: 'a', new_password: 'b' }],
+    ])('POST %s is not registered — 404', async (path, payload) => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {},
+        url: testApiPath(path),
+        payload,
       });
-      expect(response.statusCode).toBe(400);
+      expect(response.statusCode).toBe(404);
     });
+  });
 
-    it('should return 401 for invalid credentials', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: 'nonexistent@test.com',
-          password: 'wrong-password',
-        },
-      });
-      expect(response.statusCode).toBe(401);
-    });
-
-    it('when BLOCK_DISPOSABLE_EMAIL is off, login with disposable email returns 401 (invalid creds) not 400', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: 'test@yopmail.com',
-          password: 'wrong-password',
-        },
-      });
-      expect(response.statusCode).toBe(401);
-      expect(response.statusCode).not.toBe(400);
-    });
-
-    it('when BLOCK_DISPOSABLE_EMAIL is off, login with disposable email and valid credentials succeeds', async () => {
-      const { user, password } = await createTestUserWithPassword({
+  describe('POST /api/v1/auth/email/login — sign-in', () => {
+    it('when BLOCK_DISPOSABLE_EMAIL is off, a disposable email signs in by code', async () => {
+      const user = await createTestUser({
         email: 'test@yopmail.com',
       });
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: user.email,
-          password,
-        },
-      });
+      const response = await signInWithEmailCode(app, { email: user.email });
       expect(response.statusCode).toBe(200);
       const body = response.json() as { data: Record<string, unknown> };
       expect(body.data).toHaveProperty('access_token');
     });
 
     it('should return 200 with access_token and set session cookie on valid login', async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: user.email,
-          password,
-        },
-      });
+      const user = await createTestUser();
+      const response = await signInWithEmailCode(app, { email: user.email });
       expect(response.statusCode).toBe(200);
       const body = response.json() as { data: { access_token: string } };
       expect(body.data).toHaveProperty('access_token');
@@ -134,22 +100,11 @@ describe('Auth Domain — Route gates (e2e)', () => {
       expect(sessionCookie).toContain('HttpOnly');
     });
 
-    it('should create distinct sessions when logging in twice in quick succession', async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const credentials = { email: user.email, password };
+    it('should create distinct sessions when signing in twice', async () => {
+      const user = await createTestUser();
 
-      const [firstLogin, secondLogin] = await Promise.all([
-        injectUnauthenticated(app, {
-          method: 'POST',
-          url: testApiPath('/auth/login'),
-          payload: credentials,
-        }),
-        injectUnauthenticated(app, {
-          method: 'POST',
-          url: testApiPath('/auth/login'),
-          payload: credentials,
-        }),
-      ]);
+      const firstLogin = await signInWithEmailCode(app, { email: user.email });
+      const secondLogin = await signInWithEmailCode(app, { email: user.email });
 
       expect(firstLogin.statusCode).toBe(200);
       expect(secondLogin.statusCode).toBe(200);
@@ -159,14 +114,10 @@ describe('Auth Domain — Route gates (e2e)', () => {
     });
 
     it('rejects login for a suspended user and revokes existing sessions on suspend (bug 31)', async () => {
-      const { user, password } = await createTestUserWithPassword();
+      const user = await createTestUser();
 
       // Establish an active session and prime the positive token-validity cache.
-      const loginResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: { email: user.email, password },
-      });
+      const loginResponse = await signInWithEmailCode(app, { email: user.email });
       expect(loginResponse.statusCode).toBe(200);
       const accessToken = (loginResponse.json() as { data: { access_token: string } }).data
         .access_token;
@@ -188,13 +139,10 @@ describe('Auth Domain — Route gates (e2e)', () => {
       });
       expect(afterSuspend.statusCode).toBe(401);
 
-      // A suspended user cannot mint a fresh session via password login.
-      const reLogin = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: { email: user.email, password },
-      });
+      // A suspended user cannot mint a fresh session by email code (AT2: reason account_not_active).
+      const reLogin = await signInWithEmailCode(app, { email: user.email });
       expect(reLogin.statusCode).toBe(401);
+      expect(reLogin.json()).toMatchObject({ error: { reason: 'account_not_active' } });
     });
   });
 
@@ -215,15 +163,8 @@ describe('Auth Domain — Route gates (e2e)', () => {
     });
 
     it('should clear session cookie on logout after login', async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const loginResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: user.email,
-          password,
-        },
-      });
+      const user = await createTestUser();
+      const loginResponse = await signInWithEmailCode(app, { email: user.email });
       expect(loginResponse.statusCode).toBe(200);
       const loginBody = loginResponse.json() as { data: { access_token: string } };
       const accessToken = loginBody.data.access_token;
@@ -298,9 +239,19 @@ describe('Auth Domain — Route gates (e2e)', () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
         url: testApiPath('/auth/email/login'),
-        payload: { email: 'unknown-email-login@example.com', code: 'ZZZZZZ' },
+        payload: { email: 'unknown-email-login@example.com', code: '000000' },
       });
       expect(response.statusCode).toBe(401);
+      expect(response.json()).toMatchObject({ error: { reason: 'code_wrong', tries_left: 4 } });
+    });
+
+    it('answers 400 for a code that is not six digits (AT6)', async () => {
+      const response = await injectUnauthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/auth/email/login'),
+        payload: { email: 'unknown-email-login@example.com', code: 'ZZZZZZ' },
+      });
+      expect(response.statusCode).toBe(400);
     });
   });
 
@@ -352,189 +303,6 @@ describe('Auth Domain — Route gates (e2e)', () => {
 
   // ─── Password: Forgot / Reset ─────────────────────────────────
 
-  describe('POST /api/v1/auth/password/forgot', () => {
-    it('should return 400 for missing email', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/forgot'),
-        payload: {},
-      });
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('should return 200 with message for existing user (no enumeration)', async () => {
-      const { user } = await createTestUserWithPassword();
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/forgot'),
-        payload: { email: user.email },
-      });
-      expect(response.statusCode).toBe(200);
-      const body = response.json() as { data: Record<string, unknown> };
-      expect(body.data).toHaveProperty('message');
-    });
-
-    it('returns the same password-forgot response for existing and non-existent emails (anti-enumeration)', async () => {
-      const { user } = await createTestUserWithPassword();
-      const existing = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/forgot'),
-        payload: { email: user.email },
-      });
-      const missing = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/forgot'),
-        payload: { email: 'nobody@nonexistent.com' },
-      });
-      expect(existing.statusCode, existing.body).toBe(200);
-      expect(missing.statusCode, missing.body).toBe(200);
-      const existingData = (existing.json() as { data: Record<string, unknown> }).data;
-      const missingData = (missing.json() as { data: Record<string, unknown> }).data;
-      expect(existingData.message).toBeTypeOf('string');
-      expect(missingData).toEqual(existingData);
-    });
-
-    it('when BLOCK_DISPOSABLE_EMAIL is off, password forgot accepts disposable email', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/forgot'),
-        payload: { email: 'test@yopmail.com' },
-      });
-      expect(response.statusCode).toBe(200);
-      const body = response.json() as { data: Record<string, unknown> };
-      expect(body.data).toHaveProperty('message');
-    });
-  });
-
-  describe('POST /api/v1/auth/password/reset', () => {
-    it('should return 400 for missing token/password', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/reset'),
-        payload: {},
-      });
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('should return 401 for invalid reset token', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/reset'),
-        payload: {
-          token: 'invalid-token-value',
-          password: 'NewSecurePassword123!',
-        },
-      });
-      expect(response.statusCode).toBe(401);
-    });
-
-    it('should reset password with a valid token and allow login with new password', async () => {
-      const { user } = await createTestUserWithPassword();
-
-      // Create a password reset token directly in DB
-      const rawToken = randomBytes(32).toString('hex');
-      const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-      const expiresAt = new Date(Date.now() + 3_600_000); // 1 hour
-
-      await getOperatorDatabase().insert(verification_tokens).values({
-        token_type: 'PASSWORD_RESET',
-        token_hash: tokenHash,
-        user_id: user.id,
-        email: user.email,
-        expires_at: expiresAt,
-      });
-
-      // Reset password
-      const newPassword = 'BrandNewPassword456!';
-      const resetResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/reset'),
-        payload: {
-          token: rawToken,
-          password: newPassword,
-        },
-      });
-      expect(resetResponse.statusCode).toBe(200);
-
-      // Login with new password
-      const loginResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: user.email,
-          password: newPassword,
-        },
-      });
-      expect(loginResponse.statusCode).toBe(200);
-      const loginBody = loginResponse.json() as { data: Record<string, unknown> };
-      expect(loginBody.data).toHaveProperty('access_token');
-    });
-  });
-
-  describe('POST /api/v1/auth/password/change', () => {
-    it('should return 401 without authentication', async () => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/change'),
-        payload: {},
-      });
-      expect(response.statusCode).toBe(401);
-    });
-
-    it('should return 400 for missing body with authentication', async () => {
-      const user = await createTestUser();
-      const token = await generateTestToken({ userId: user.public_id });
-      const response = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/change'),
-        token,
-        payload: {},
-      });
-      expect(response.statusCode).toBe(400);
-    });
-
-    it('should change password for authenticated user with valid current password', async () => {
-      const { user, password } = await createTestUserWithPassword();
-      const { token, sessionPublicId } = await generateTestTokenAndSession({
-        userId: user.public_id,
-      });
-      await seedRecentStepUpForTestUser(user.public_id, sessionPublicId);
-      const newPassword = 'ChangedPassword789!';
-      const response = await injectAuthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/password/change'),
-        token,
-        payload: {
-          current_password: password,
-          new_password: newPassword,
-        },
-      });
-      expect(response.statusCode).toBe(200);
-
-      // Verify login works with new password
-      const loginResponse = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: user.email,
-          password: newPassword,
-        },
-      });
-      expect(loginResponse.statusCode).toBe(200);
-
-      // The replaced password no longer authenticates
-      const oldPasswordLogin = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath('/auth/login'),
-        payload: {
-          email: user.email,
-          password,
-        },
-      });
-      expect(oldPasswordLogin.statusCode).toBe(401);
-    });
-  });
-
   // ─── Step-up (sudo) ───────────────────────────────────────────
 
   describe('POST /api/v1/auth/step-up', () => {
@@ -542,13 +310,13 @@ describe('Auth Domain — Route gates (e2e)', () => {
       const response = await injectUnauthenticated(app, {
         method: 'POST',
         url: testApiPath('/auth/step-up'),
-        payload: { password: 'whatever' },
+        payload: { code: '482913' },
       });
       expect(response.statusCode).toBe(401);
     });
 
-    it('should return 401 for an incorrect password', async () => {
-      const { user } = await createTestUserWithPassword();
+    it('refuses a password body with 400 — passwords are off (P84)', async () => {
+      const user = await createTestUser();
       const token = await generateTestToken({ userId: user.public_id });
       const response = await injectAuthenticated(app, {
         method: 'POST',
@@ -556,13 +324,25 @@ describe('Auth Domain — Route gates (e2e)', () => {
         token,
         payload: { password: 'WrongPassword999!' },
       });
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('should return 401 for a wrong email code', async () => {
+      const user = await createTestUser();
+      const token = await generateTestToken({ userId: user.public_id });
+      const response = await injectAuthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/auth/step-up'),
+        token,
+        payload: { code: '000000' },
+      });
       expect(response.statusCode).toBe(401);
     });
 
-    it('grants a step-up window for a gated route after correct password', async () => {
+    it('grants a step-up window for a gated route after the right email code', async () => {
       // Verified so the post-step-up enroll exercises the step-up window, not the separate
       // email-verification gate on credential enrollment (pre-hijacking guard).
-      const { user, password } = await createTestUserWithPassword({ isEmailVerified: true });
+      const user = await createTestUser({ isEmailVerified: true });
       const token = await generateTestToken({ userId: user.public_id });
 
       // Fresh login / token must NOT carry a step-up window: a gated mutation is rejected.
@@ -574,11 +354,18 @@ describe('Auth Domain — Route gates (e2e)', () => {
       });
       expect(beforeStepUp.statusCode).toBe(403);
 
+      const sent = await injectUnauthenticated(app, {
+        method: 'POST',
+        url: testApiPath('/auth/email/send-code'),
+        payload: { email: user.email },
+      });
+      const code = (sent.json() as { data: { debug_verification_code: string } }).data
+        .debug_verification_code;
       const stepUp = await injectAuthenticated(app, {
         method: 'POST',
         url: testApiPath('/auth/step-up'),
         token,
-        payload: { password },
+        payload: { code },
       });
       expect(stepUp.statusCode).toBe(200);
 

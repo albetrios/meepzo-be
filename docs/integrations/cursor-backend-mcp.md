@@ -154,8 +154,8 @@ await client.callTool({
   name: 'call_api',
   arguments: {
     method: 'POST',
-    path: '/api/v1/auth/login',
-    body: { email: 'user@example.com', password: '...' },
+    path: '/api/v1/auth/email/login',
+    body: { email: 'user@example.com', code: '482913' },
   },
 });
 ```

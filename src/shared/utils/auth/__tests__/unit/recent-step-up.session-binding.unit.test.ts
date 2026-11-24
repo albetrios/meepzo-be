@@ -35,7 +35,7 @@ describe('recent-step-up util — session binding (sec-A2)', () => {
       redis: mockRedis,
       userPublicId: 'user_pub',
       sessionPublicId: 'session_A',
-      factor: 'password',
+      factor: 'mfa',
     });
 
     await expect(
@@ -51,7 +51,7 @@ describe('recent-step-up util — session binding (sec-A2)', () => {
       redis: mockRedis,
       userPublicId: 'user_a',
       sessionPublicId: 'session_X',
-      factor: 'password',
+      factor: 'mfa',
     });
 
     await expect(
@@ -67,7 +67,7 @@ describe('recent-step-up util — session binding (sec-A2)', () => {
       redis: mockRedis,
       userPublicId: 'user_pub',
       sessionPublicId: 'session_A',
-      factor: 'password',
+      factor: 'mfa',
     });
 
     // Defense in depth: a future caller that forgets to pass session id must fail closed.
@@ -81,7 +81,7 @@ describe('recent-step-up util — session binding (sec-A2)', () => {
       redis: mockRedis,
       userPublicId: 'user_pub',
       sessionPublicId: 'session_A',
-      factor: 'password',
+      factor: 'mfa',
     });
 
     // ioredis signature: set(key, value, 'EX', seconds, ...) — the TTL must appear in the args.

@@ -8,7 +8,7 @@ import { API_PREFIX, SCENARIOS, PUBLIC_AUTH_FORM_HEADERS } from '../helpers/conf
  *
  * The vitest security tier proves the login limiter's thresholds functionally;
  * nothing proved they HOLD under real concurrency. This burst hammers
- * `POST /auth/login` with a dedicated non-existent identity (never the demo
+ * `POST /auth/email/login` (passwords are off, P84) with a dedicated non-existent identity (never the demo
  * user, so a run cannot poison the per-email window of login-smoke or the
  * journeys) and asserts the security posture of the surface under attack-shaped
  * load:
@@ -24,9 +24,9 @@ import { API_PREFIX, SCENARIOS, PUBLIC_AUTH_FORM_HEADERS } from '../helpers/conf
  *
  * Two limiters can answer the 429, so it engages on every target: the strict
  * route cap (5/window, lifted to 5000 by `RATE_LIMIT_RELAXED_CAPS=true` locally)
- * and the per-IP failed-login throttle (IP_FAILED_LOGIN_THRESHOLD failures per
- * 15 minutes), which no env flag relaxes. The latter then refuses EVERY login from
- * this IP — the demo user's included — until its window ends.
+ * and the per-email wrong-code day limit (`EMAIL_CODE_WRONG_TRIES_PER_DAY` = 20 per
+ * 24 hours, `429 code_day_limit`), which no env flag relaxes — it refuses this one
+ * email only, never the demo user.
  */
 const rateLimitedResponses = new Counter('rate_limited_responses');
 const serverErrorResponses = new Counter('server_error_responses');
@@ -53,12 +53,12 @@ export function loginBurst() {
   const burstTargetEmail = __ENV.BURST_EMAIL || 'login-burst-nonexistent@example.com';
 
   const loginResponse = http.post(
-    `${API_PREFIX}/auth/login`,
-    JSON.stringify({ email: burstTargetEmail, password: 'DefinitelyWrongPassword123!' }),
+    `${API_PREFIX}/auth/email/login`,
+    JSON.stringify({ email: burstTargetEmail, code: '000000' }),
     {
       headers: PUBLIC_AUTH_FORM_HEADERS,
       tags: { name: 'login-burst' },
-      // 401 (bad credentials) and 429 (limited) are the EXPECTED outcomes here.
+      // 401 (wrong code) and 429 (limited) are the EXPECTED outcomes here.
       responseCallback: http.expectedStatuses(401, 429),
     },
   );

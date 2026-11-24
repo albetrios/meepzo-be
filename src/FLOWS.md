@@ -29,6 +29,7 @@ sequenceDiagram
   participant Resend
   Client->>Auth: POST /auth/email/send-code {email}
   Auth->>EL: sendCode({email})
+  Note over EL: claim the per-email 60 s send spacing (Redis SET NX) before any lookup — held → 429 code_resend_too_soon + retry_after_seconds
   EL->>US: findByEmail(email)
   US-->>EL: user | null
   alt user does not exist (auto-signup)
@@ -39,13 +40,14 @@ sequenceDiagram
   EL->>DB: invalidateAllForUser (prior EMAIL_CODE codes) + insert verification_tokens (EMAIL_CODE, HMAC(pepper, type:user:code), expires_at = now + 15m)
   EL->>Bus: emit AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED {email, verification_code, expires_in_minutes}
   Bus->>Mail: recordOutboxEmail (via event handler)
-  EL-->>Auth: {messageKey: success:verificationCodeSent, expires_in_minutes: 15}
+  EL-->>Auth: {messageKey: success:verificationCodeSent, resend_after_seconds: 60, expires_in_seconds: 900}
   Auth-->>Client: 200 (uniform — no account enumeration)
-  Mail->>Resend: POST /emails (signed, alphanumeric code)
+  Mail->>Resend: POST /emails (signed, 6-digit code)
   Resend-->>Mail: 200
   Client->>Auth: POST /auth/email/login {email, code}
   Auth->>EL: login({email, code})
-  EL->>US: findByEmail(email) + per-user attempt cap (Redis)
+  Note over EL: per-email day limit (20 wrong / 24 h → 429 code_day_limit) and per-code try cap (5, keyed by the email's hash) in Redis
+  EL->>US: findByEmail(email) — unknown → 401 code_wrong + tries_left, like a wrong code
   EL->>DB: UPDATE verification_tokens SET used_at=NOW() WHERE user_id=$1 AND token_type='EMAIL_CODE' AND token_hash=$2 AND used_at IS NULL RETURNING *
   EL->>DB: invalidateAllForUser (single-use: redeeming one code kills the rest of the live set)
   EL->>DB: UPDATE users SET is_email_verified=true (when not already)
@@ -65,60 +67,25 @@ sequenceDiagram
 
 ### Failure modes
 
-- **Throttle / send cooldown** → uniform success returned to the client (no new code issued, no email). Anti-enumeration: response is identical for known and unknown emails.
+- **Send under 60 s since this email's last code** → 429 `code_resend_too_soon` + `retry_after_seconds` (and `Retry-After`). The spacing is claimed before any user lookup, so it tells nothing about the email; the 200 answer is identical for known and unknown emails.
 - **Disposable email domain** → 400 `errors:disposableEmail`. Not silent because the user can fix it.
 - **Mail enqueue failure** → does not fail the HTTP request; mail outbox sweeper retries.
 - **Code replay** → atomic `UPDATE ... RETURNING` consumes the code on the first login; the post-consume `invalidateAllForUser` invalidates any other live code, keeping login single-use. Two concurrent `/email/login` requests yield exactly one session.
-- **Wrong / expired code, or attempt cap exceeded** → 401 `errors:invalidOrExpiredVerificationCode`.
+- **Wrong code, unknown email, used code** → 401 `code_wrong` + `tries_left`; **this email's newest code over 15 minutes old** → 401 `code_expired`; **the code's 5th wrong try** → 401 `code_used_up`; **20 wrong tries for the email in 24 hours** → 429 `code_day_limit` + `retry_after_seconds` (cleared by a success).
 - **MFA enrolled** → login returns `mfa_required` + `mfa_session_token`; the client completes via `POST /auth/mfa/login`.
 
 ## login-flow
 
-### Trigger
-
-Returning user submits credentials: `POST /api/v1/auth/login`.
-
-### Sequence
-
-```mermaid
-sequenceDiagram
-  participant Client
-  participant Auth as auth.controller
-  participant Login as AuthService
-  participant US as UserService
-  participant AM as AuthMethodService
-  participant MFA as MfaService
-  participant DB as Postgres
-  Client->>Auth: POST /auth/login {email, password}
-  Auth->>Login: login(...)
-  Login->>US: findByEmail
-  Login->>AM: verify password (argon2id)
-  alt MFA enabled
-    Login->>MFA: createMfaSession → mfa_session_token (Redis, 5m)
-    Login-->>Auth: {mfa_required: true, mfa_session_token}
-    Auth-->>Client: 200
-    Client->>Auth: POST /auth/mfa/login {mfa_session_token, totp_code|recovery_code}
-    Auth->>MFA: verifyLoginMfa (validate session token, then TOTP/recovery)
-    MFA->>Login: issue access token + session
-  end
-  Login->>DB: INSERT auth_sessions
-  Login-->>Auth: {access_token, session_public_id}
-  Auth-->>Client: 200 + Set-Cookie session_id
-```
-
-### Side effects
-
-- Failed-attempt counter persisted on the user row (`users.failed_login_count`, per account). After `MAX_FAILED_LOGIN_ATTEMPTS` (10), the account locks for `ACCOUNT_LOCKOUT_MINUTES` (30 minutes). The lock is evaluated after password verification, so a correct password always bypasses it and clears the counter — the lock only rejects further wrong attempts (no victim-account DoS). Online brute force is bounded by the per-IP + per-email rate limits and CAPTCHA.
-- On success: `auth_sessions` row + JWT issued; failed-attempt counter cleared; audit log row written via `audit-emission`.
-- On MFA path: `mfa_session_token` written to Redis with `MFA_SESSION_TTL_SECONDS` (5 min).
+Passwords are off everywhere (feat-instagram-dm-sending P84): there is no `POST /auth/login`,
+forgot, reset or change. A returning person signs in exactly as in the `signup-flow` above — the
+email code (`POST /auth/email/send-code` then `POST /auth/email/login`) — or with Google/Apple OAuth
+or a passkey. Every first factor ends in `completeFirstFactorAuth`: a session, or an
+`mfa_required` challenge completed with `POST /auth/mfa/login`.
 
 ### Failure modes
 
-- **Wrong password** → 401, generic message; failed-attempt counter incremented.
-- **Too many failed logins from one IP** (50 within 15 minutes of its first failure) → 429 `rate_limited` with `Retry-After` for the rest of that window, for every login from the IP; fails open when Redis errors.
-- **Account locked + wrong password** → `errors:accountLocked` until the lockout window passes; a correct password during the window authenticates and lifts the lock.
-- **MFA challenge expired, already used, or burned by a wrong code** → 401 `errors:mfaInvalidOrExpiredSession`; client must re-login.
-- **Disabled or unverified user** → 401 with the appropriate message key; behavior identical to wrong-password from the client's perspective for non-existent emails (anti-enumeration).
+- **MFA challenge expired, already used, or burned by a wrong code** → 401 `errors:mfaInvalidOrExpiredSession`; client must sign in again.
+- **Suspended, locked or deleted account** → 401 `account_not_active`; **the sign-in way turned off by the owner** → 403 `login_method_turned_off`.
 
 ## organization-switch-and-capability-discovery-flow
 

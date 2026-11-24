@@ -23,7 +23,7 @@ function paginatedResponse(routeKey: string): PaginatedShape {
 describe('response-map', () => {
   it('routeResponseMap includes health and auth login responses', () => {
     expect(routeResponseMap['GET /readyz']?.statusCode).toBe(200);
-    expect(routeResponseMap['POST /api/v1/auth/login']?.statusCode).toBe(200);
+    expect(routeResponseMap['POST /api/v1/auth/email/login']?.statusCode).toBe(200);
   });
 
   it('wrapSuccess nests data under meta envelope', () => {

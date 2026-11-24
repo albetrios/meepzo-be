@@ -16,16 +16,6 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → larger token replay window; review with security if pushing past 30 minutes.
 - **Last reviewed**: 2026-05-28
 
-## PASSWORD_RESET_EXPIRES_IN_MINUTES
-
-- **Value**: 60 minutes
-- **Source**: [src/shared/constants/ttl.constants.ts](src/shared/constants/ttl.constants.ts)
-- **Rationale**: Password resets are deliberately less time-pressured than email verification-code sign-ins — users may be locked out of their inbox temporarily, may need to switch devices, and the recovery flow is a 1× operation rather than a sign-in primitive.
-- **Consequences of change**:
-  - Decreasing → support tickets from users who couldn't reach a working device in time.
-  - Increasing → larger reset-token replay window; pair with stricter throttle if pushing past 24 hours.
-- **Last reviewed**: 2026-05-28
-
 ## ACCESS_TOKEN_EXPIRY_SECONDS
 
 - **Value**: 900 seconds (15 minutes)
@@ -164,25 +154,15 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing toward a cache's own TTL → correctness is unaffected, but every write leaves its key cold for that long, so the users interacting most lose the cache entirely.
 - **Last reviewed**: 2026-09-21
 
-## MAX_FAILED_LOGIN_ATTEMPTS
+## EMAIL_CODE_WRONG_TRIES_PER_DAY
 
-- **Value**: 10 attempts
-- **Source**: [src/shared/constants/security.constants.ts](src/shared/constants/security.constants.ts)
-- **Rationale**: Threshold before an account enters lockout. High enough to avoid locking real users out from typo'd passwords, low enough to bound credential-stuffing attempts.
+- **Value**: 20 wrong tries per email per 24 hours (`EMAIL_CODE_WRONG_TRIES_DAY_SECONDS`, from the first wrong try)
+- **Source**: [src/domains/auth/sub-domains/auth-method/verification-code.ts](src/domains/auth/sub-domains/auth-method/verification-code.ts)
+- **Rationale**: Passwords are off (feat-instagram-dm-sending P84), so the six-digit email code is the main way in; besides the 5 wrong tries per code (`VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS`), one email may spend 20 wrong tries a day before `POST /auth/email/login` answers `429 code_day_limit` with the wait. Counted in Redis by the email's hash (it limits, it does not record — a lost counter only resets the limit); a successful sign-in clears it. A stranger can spend it (routes-final § 10.A.10) — Google, Apple and passkeys still work, and the signed-in step-up has its own count.
 - **Consequences of change**:
-  - Decreasing → more support tickets from typo lockouts.
-  - Increasing → wider window for online password guessing.
-- **Last reviewed**: 2026-05-28
-
-## ACCOUNT_LOCKOUT_MINUTES
-
-- **Value**: 30 minutes
-- **Source**: [src/shared/constants/security.constants.ts](src/shared/constants/security.constants.ts)
-- **Rationale**: Lockout duration after `MAX_FAILED_LOGIN_ATTEMPTS` exceeded. Long enough to deter password-guess attacks, short enough that legitimate users can retry within a single support call. The lock is evaluated *after* password verification, so a correct credential always bypasses it and clears the counter — the lock only rejects further wrong attempts, so it cannot be weaponized to deny the legitimate owner (no victim-account DoS). Online brute force is independently bounded by the per-IP + per-email rate limits and CAPTCHA on `/login`.
-- **Consequences of change**:
-  - Decreasing → less deterrent against credential-stuffing.
-  - Increasing → more support pressure on legitimate-user lockouts.
-- **Last reviewed**: 2026-05-28
+  - Decreasing → a stranger locks a person's email-code sign-in out sooner.
+  - Increasing → more online guesses per email per day against the 10^6 code space.
+- **Last reviewed**: 2026-11-24
 
 ## STRIPE_WEBHOOK_STUCK_PROCESSING_LEASE_MINUTES
 

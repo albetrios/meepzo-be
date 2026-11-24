@@ -3,7 +3,6 @@ import type { SupportedLanguage } from '@/shared/constants/i18n.constants.js';
 /** Event-bus topic codes emitted by the auth-method service so the email handlers can enqueue the corresponding transactional emails. */
 export const AUTH_EVENT = {
   EMAIL_VERIFICATION_CODE_REQUESTED: 'auth.email_verification_code.requested',
-  PASSWORD_RESET_REQUESTED: 'auth.password_reset.requested',
   ACCOUNT_SECURITY_NOTICE_REQUESTED: 'auth.account_security_notice.requested',
 } as const;
 
@@ -19,23 +18,13 @@ export interface EmailVerificationCodePayload {
   locale: SupportedLanguage;
 }
 
-/** Payload of `AUTH_EVENT.PASSWORD_RESET_REQUESTED`; carries the raw reset token and TTL minutes used to build the password reset link. */
-export interface PasswordResetEmailPayload {
-  email: string;
-  reset_token: string;
-  expires_in_minutes: number;
-  /** The language of the request that asked for the reset — the email is written in it. */
-  locale: SupportedLanguage;
-}
-
 /**
  * The account changes the owner is emailed about, each with a "this wasn't me" line (A-1): a new
- * second factor or passkey, every other session signed out, a password changed or reset.
+ * second factor or passkey, every other session signed out.
  */
 export const ACCOUNT_SECURITY_NOTICE = {
   FACTOR_ENROLLED: 'factor_enrolled',
   SESSIONS_REVOKED: 'sessions_revoked',
-  PASSWORD_CHANGED: 'password_changed',
 } as const;
 
 /** One of {@link ACCOUNT_SECURITY_NOTICE}'s values. */

@@ -45,7 +45,7 @@ describe('auth event handlers', () => {
       type: AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED,
       payload: {
         email: 'user@example.com',
-        verification_code: 'AB2CD3',
+        verification_code: '482913',
         expires_in_minutes: 15,
       },
       timestamp: new Date(),
@@ -63,40 +63,12 @@ describe('auth event handlers', () => {
     expect(dispatchOutboxEmailMock).toHaveBeenCalledWith({ mailOutboxToken: 42 });
   });
 
-  it('records outbox and dispatches after commit on auth.password_reset.requested', async () => {
-    await emitAndFlushOnCommit({
-      type: AUTH_EVENT.PASSWORD_RESET_REQUESTED,
-      payload: {
-        email: 'user@example.com',
-        reset_token: 'reset-token',
-        expires_in_minutes: 60,
-      },
-      timestamp: new Date(),
-    });
-
-    expect(recordOutboxEmailMock).toHaveBeenCalledOnce();
-    expect(recordOutboxEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: 'user@example.com',
-        subject: 'Reset your password',
-        tags: [{ name: 'category', value: 'password-reset' }],
-      }),
-    );
-    expect(dispatchOutboxEmailMock).toHaveBeenCalledOnce();
-  });
-
   it.each([
     [
       AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED,
-      { verification_code: 'AB2CD3', expires_in_minutes: 15 },
+      { verification_code: '482913', expires_in_minutes: 15 },
       'Inicia sesión en tu cuenta',
       'caduca en 15 minutos',
-    ],
-    [
-      AUTH_EVENT.PASSWORD_RESET_REQUESTED,
-      { reset_token: 'reset-token', expires_in_minutes: 60 },
-      'Restablece tu contraseña',
-      'caduca en 60 minutos',
     ],
   ])(
     "writes %s in the requester's language",
@@ -122,7 +94,7 @@ describe('auth event handlers', () => {
       type: AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED,
       payload: {
         email: 'user@example.com',
-        verification_code: 'AB2CD3',
+        verification_code: '482913',
         expires_in_minutes: 15,
       },
       timestamp: new Date(),
@@ -138,11 +110,7 @@ describe('auth event handlers', () => {
   it.each([
     [
       AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED,
-      { email: 'user@example.com', verification_code: 'AB2CD3', expires_in_minutes: 15 },
-    ],
-    [
-      AUTH_EVENT.PASSWORD_RESET_REQUESTED,
-      { email: 'user@example.com', reset_token: 'reset', expires_in_minutes: 60 },
+      { email: 'user@example.com', verification_code: '482913', expires_in_minutes: 15 },
     ],
   ])('throws when mail is not configured for %s', async (eventType, payload) => {
     vi.mocked(isMailConfigured).mockReturnValue(false);
@@ -167,16 +135,8 @@ describe('auth event handlers', () => {
         AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED,
         {
           email: 'user@example.com',
-          verification_code: 'AB2CD3',
+          verification_code: '482913',
           expires_in_minutes: 15,
-        },
-      ],
-      [
-        AUTH_EVENT.PASSWORD_RESET_REQUESTED,
-        {
-          email: 'user@example.com',
-          reset_token: 'reset-token',
-          expires_in_minutes: 60,
         },
       ],
     ])(

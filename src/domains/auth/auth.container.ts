@@ -58,7 +58,6 @@ export function createAuthContainer({
     userService,
     authMethodRepository,
     verificationTokenRepository,
-    authSessionService,
   );
   const mfaService = new MfaService(
     userService,
@@ -67,14 +66,7 @@ export function createAuthContainer({
     redisConnection,
     organizationSettingsService,
   );
-  const authService = new AuthService(
-    userService,
-    authSessionService,
-    mfaService,
-    organizationSettingsService,
-    redisConnection,
-    authMethodService,
-  );
+  const authService = new AuthService(userService, authSessionService);
   const emailLoginService = new EmailLoginService(
     userService,
     verificationTokenRepository,

@@ -1,7 +1,5 @@
 {
   "verificationCodeSubject": "Inicia sesión en tu cuenta",
-  "passwordResetSubject": "Restablece tu contraseña",
-  "passwordResetHtml": "Haz clic <a href=\"{{resetUrl}}\">aquí</a> para restablecer tu contraseña. Este enlace caduca en {{expiresInMinutes}} minutos.",
   "verificationCodeHeading": "Inicia sesión en tu cuenta",
   "verificationCodePreheader": "Tu código de inicio de sesión es {{code}}; caduca en {{expiresInMinutes}} minutos.",
   "verificationCodeBody": "Introduce el código siguiente para iniciar sesión de forma segura. Este código caduca en {{expiresInMinutes}} minutos.",
@@ -22,7 +20,5 @@
   "securityNoticeFactorEnrolledHtml": "<p>Se acaba de añadir una nueva aplicación de autenticación o passkey a tu cuenta.</p>",
   "securityNoticeSessionsRevokedSubject": "Se cerraron tus otras sesiones",
   "securityNoticeSessionsRevokedHtml": "<p>Se acaban de cerrar todas las demás sesiones de tu cuenta.</p>",
-  "securityNoticePasswordChangedSubject": "Tu contraseña se cambió",
-  "securityNoticePasswordChangedHtml": "<p>La contraseña de tu cuenta se acaba de cambiar.</p>",
   "securityNoticeNotYouHtml": "<p><strong>¿No fuiste tú?</strong> Otra persona puede tener acceso a tu cuenta o a tu correo. Contacta con soporte de inmediato y revisa los métodos de inicio de sesión y las sesiones de tu cuenta.</p>"
 }

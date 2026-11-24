@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import type { FastifyReply } from 'fastify';
 import { NotImplementedError, UnauthorizedError, ValidationError } from '@/shared/errors/index.js';
 import { createAuthController } from '@/domains/auth/auth.controller.js';
-import { createAuthLoginHandlers } from '@/domains/auth/handlers/auth-login.handlers.js';
 import { createAuthSessionHandlers } from '@/domains/auth/handlers/auth-session.handlers.js';
 import { createAuthEmailLoginHandlers } from '@/domains/auth/handlers/auth-email-login.handlers.js';
 import { createAuthOauthHandlers } from '@/domains/auth/handlers/auth-oauth.handlers.js';
@@ -85,39 +84,25 @@ function mockReply(): FastifyReply {
 
 describe('createAuthController', () => {
   const authService = {
-    login: vi.fn().mockResolvedValue({
-      access_token: 'token',
-      session_public_id: 'session',
-      session_refresh_secret: 'refresh-secret',
-    }),
     logout: vi.fn().mockResolvedValue(undefined),
     refreshToken: vi
       .fn()
       .mockResolvedValue({ access_token: 'new-token', refresh_secret: 'new-refresh-secret' }),
-    resetPassword: vi.fn().mockResolvedValue({
-      userPublicId: 'usr_resetresetresetreset1',
-      loginResult: {
-        access_token: 'token',
-        session_public_id: 'session',
-        session_refresh_secret: 'refresh-secret',
-      },
-    }),
   };
 
   const authMethodService = {
     list: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockResolvedValue({ id: 1 }),
     delete: vi.fn().mockResolvedValue(undefined),
-    forgotPassword: vi.fn().mockResolvedValue({ messageKey: 'success:forgotPassword' }),
-    resetPassword: vi.fn().mockResolvedValue(undefined),
-    changePassword: vi.fn().mockResolvedValue(undefined),
     sendAccountSecurityNotice: vi.fn().mockResolvedValue(undefined),
   };
 
   const emailLoginService = {
-    sendCode: vi
-      .fn()
-      .mockResolvedValue({ messageKey: 'success:verificationCodeSent', expires_in_minutes: 15 }),
+    sendCode: vi.fn().mockResolvedValue({
+      messageKey: 'success:verificationCodeSent',
+      resend_after_seconds: 60,
+      expires_in_seconds: 900,
+    }),
     login: vi.fn().mockResolvedValue({
       access_token: 'token',
       session_public_id: 'session',
@@ -182,28 +167,6 @@ describe('createAuthController', () => {
     authMeContextService: { getContext: vi.fn() } as never,
   });
 
-  it('login sets session cookie and returns token', async () => {
-    const reply = mockReply();
-    const response = await controller.login(
-      mockRequest({ body: { email: 'a@b.com', password: 'pass' } }),
-      reply,
-    );
-    expect(authService.login).toHaveBeenCalledWith({
-      body: { email: 'a@b.com', password: 'pass' },
-      ipAddress: '127.0.0.1',
-      userAgent: 'vitest',
-    });
-    expect(response).toMatchObject({
-      data: { access_token: 'token' },
-      meta: { request_id: 'request-id' },
-    });
-    expect(reply.setCookie).toHaveBeenCalledWith(
-      'session_id',
-      'session.refresh-secret',
-      expect.objectContaining({ httpOnly: true }),
-    );
-  });
-
   it('logout requires bearer token and clears cookie', async () => {
     const reply = mockReply();
     await controller.logout(
@@ -218,6 +181,23 @@ describe('createAuthController', () => {
     await expect(controller.logout(mockRequest(), mockReply())).rejects.toBeInstanceOf(
       UnauthorizedError,
     );
+  });
+
+  it('email login uses secure session cookies when COOKIE_SECURE is enabled', async () => {
+    const { env } = await import('@/shared/config/env.config.js');
+    const previousCookieSecure = env.COOKIE_SECURE;
+    Object.assign(env, { COOKIE_SECURE: true });
+    const reply = mockReply();
+    await controller.emailLogin(
+      mockRequest({ body: { email: 'a@b.com', code: '482913' }, ip: undefined }),
+      reply,
+    );
+    expect(reply.setCookie).toHaveBeenCalledWith(
+      'session_id',
+      expect.any(String),
+      expect.objectContaining({ secure: true }),
+    );
+    Object.assign(env, { COOKIE_SECURE: previousCookieSecure });
   });
 
   it('email login handlers delegate to the email login service', async () => {
@@ -315,20 +295,6 @@ describe('createAuthController', () => {
     expect(authSessionService.revoke).toHaveBeenCalled();
   });
 
-  it('password and email verification handlers delegate to auth method service', async () => {
-    await controller.forgotPassword(mockRequest({ body: { email: 'a@b.com' } }), mockReply());
-    const resetReply = mockReply();
-    await controller.resetPassword(
-      mockRequest({ body: { token: 't', password: 'p' } }),
-      resetReply,
-    );
-    const changeReply = mockReply();
-    await controller.changePassword(mockRequest({ body: { password: 'new' } }), changeReply);
-    // Reset now auto-logs-in via authService: it sets the session cookie instead of returning 204.
-    expect(authService.resetPassword).toHaveBeenCalled();
-    expect(resetReply.setCookie).toHaveBeenCalled();
-  });
-
   it('refreshToken uses session cookie and revokeAllSessions does NOT clear the cookie', async () => {
     // sec-r4-A1: revokeAllSessions must NOT call clearSessionCookie — the caller's
     // own session is preserved (sec-new-A3) so the browser cookie must remain intact.
@@ -393,14 +359,6 @@ describe('createAuthController', () => {
     await expect(
       controller.oauthRedirect(mockRequest({ params: { provider: 'google' } }), mockReply()),
     ).rejects.toThrow('upstream failure');
-  });
-
-  it('forgotPassword uses i18next when request.t is absent', async () => {
-    const responsePayload = await controller.forgotPassword(
-      mockRequest({ body: { email: 'a@b.com' }, t: undefined }),
-      mockReply(),
-    );
-    expect(responsePayload.data).toHaveProperty('message');
   });
 
   it('emailLogin skips session cookie when session_public_id is absent', async () => {
@@ -509,23 +467,6 @@ describe('createAuthController', () => {
     expect(responsePayload.data).toHaveProperty('message');
   });
 
-  it('login uses secure session cookies when COOKIE_SECURE is enabled', async () => {
-    const { env } = await import('@/shared/config/env.config.js');
-    const previousCookieSecure = env.COOKIE_SECURE;
-    Object.assign(env, { COOKIE_SECURE: true });
-    const reply = mockReply();
-    await controller.login(
-      mockRequest({ body: { email: 'a@b.com', password: 'pass' }, ip: undefined }),
-      reply,
-    );
-    expect(reply.setCookie).toHaveBeenCalledWith(
-      'session_id',
-      expect.any(String),
-      expect.objectContaining({ secure: true }),
-    );
-    Object.assign(env, { COOKIE_SECURE: previousCookieSecure });
-  });
-
   it('oauthRedirect uses i18next fallback when request.t is absent', async () => {
     vi.mocked(oauthService.getRedirectUrl).mockRejectedValueOnce(
       new NotImplementedError('errors:notImplemented'),
@@ -571,19 +512,8 @@ describe('createAuthController', () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('forgotPassword returns raw payload when messageKey is absent', async () => {
-    vi.mocked(authMethodService.forgotPassword).mockResolvedValueOnce({
-      message: 'raw-response',
-    } as never);
-    const responsePayload = await controller.forgotPassword(
-      mockRequest({ body: { email: 'a@b.com' } }),
-      mockReply(),
-    );
-    expect(responsePayload.data).toEqual({ message: 'raw-response' });
-  });
-
   /**
-   * The eight `handlers/*.ts` factories are exercised transitively by the cases above, but nothing
+   * The seven `handlers/*.ts` factories are exercised transitively by the cases above, but nothing
    * asserted the composition itself. `createAuthController` is a flat spread of eight factory
    * results — dropping one line silently removes a whole flow's handlers, and the failure only
    * surfaces at route-registration time as an `undefined` handler.
@@ -601,7 +531,6 @@ describe('createAuthController', () => {
     };
 
     const handlerFactories = [
-      createAuthLoginHandlers,
       createAuthSessionHandlers,
       createAuthEmailLoginHandlers,
       createAuthOauthHandlers,
@@ -611,7 +540,7 @@ describe('createAuthController', () => {
       createAuthMeContextHandlers,
     ];
 
-    it('exposes every handler contributed by all eight factories', () => {
+    it('exposes every handler contributed by all seven factories', () => {
       const composed = createAuthController(container);
       for (const factory of handlerFactories) {
         const contributed = Object.keys(factory(container));

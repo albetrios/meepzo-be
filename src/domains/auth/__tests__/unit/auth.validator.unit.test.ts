@@ -1,33 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@/shared/errors/index.js';
 import {
-  validateChangePassword,
   validateCreateAuthMethod,
-  validateLogin,
+  validateEmailLogin,
+  validateStepUpVerify,
 } from '@/domains/auth/auth.validator.js';
 
 describe('auth.validator', () => {
-  it('validateLogin accepts valid credentials', () => {
-    expect(validateLogin({ email: 'user@example.com', password: 'secret' })).toEqual({
+  it('validateEmailLogin accepts a 6-digit code (AT6)', () => {
+    expect(validateEmailLogin({ email: 'user@example.com', code: '482913' })).toEqual({
       email: 'user@example.com',
-      password: 'secret',
+      code: '482913',
     });
   });
 
-  it('validateLogin throws ValidationError for missing fields', () => {
-    expect(() => validateLogin({})).toThrow(ValidationError);
-  });
+  it.each(['AB2CD3', '12345', '1234567', '12 345', ''])(
+    'validateEmailLogin rejects %j — the code is exactly six digits (400 on code)',
+    (code) => {
+      expect(() => validateEmailLogin({ email: 'user@example.com', code })).toThrow(
+        ValidationError,
+      );
+    },
+  );
 
-  it('validateLogin rejects unknown extra keys (strict)', () => {
-    expect(() =>
-      validateLogin({ email: 'user@example.com', password: 'secret', extra: true }),
-    ).toThrow(ValidationError);
-  });
-
-  it('validateLogin rejects Gmail plus addressing', () => {
-    expect(() => validateLogin({ email: 'user+tag@gmail.com', password: 'secret' })).toThrow(
-      ValidationError,
-    );
+  it('validateStepUpVerify takes the 6-digit email code and refuses a password (P84)', () => {
+    expect(validateStepUpVerify({ code: '482913' })).toEqual({ code: '482913' });
+    expect(() => validateStepUpVerify({ password: 'secret' })).toThrow(ValidationError);
+    expect(() => validateStepUpVerify({ code: 'AB2CD3' })).toThrow(ValidationError);
   });
 
   it('validateCreateAuthMethod accepts a canonical method_type', () => {
@@ -63,50 +62,6 @@ describe('auth.validator', () => {
   it('validateCreateAuthMethod accepts EMAIL_CODE (the only valid bare-row type)', () => {
     expect(validateCreateAuthMethod({ method_type: 'EMAIL_CODE' })).toMatchObject({
       method_type: 'EMAIL_CODE',
-    });
-  });
-
-  it('validateChangePassword rejects short new password', () => {
-    expect(() =>
-      validateChangePassword({
-        current_password: 'OldPassword12!',
-        new_password: 'short',
-      }),
-    ).toThrow(ValidationError);
-  });
-
-  it('validateChangePassword accepts current and new password', () => {
-    expect(
-      validateChangePassword({
-        current_password: 'OldPassword12!',
-        new_password: 'NewPassword12!',
-      }),
-    ).toEqual({
-      current_password: 'OldPassword12!',
-      new_password: 'NewPassword12!',
-    });
-  });
-
-  it('validateChangePassword rejects a long password lacking character-class diversity (EX-10)', () => {
-    // 19 chars but a single character class (all lowercase) — meets length, fails the policy.
-    expect(() =>
-      validateChangePassword({
-        current_password: 'OldPassword12!',
-        new_password: 'alllowercaseletters',
-      }),
-    ).toThrow(ValidationError);
-  });
-
-  it('validateChangePassword accepts a 12-char password with 3 character classes (EX-10)', () => {
-    // lowercase + uppercase + digit = 3 of 4 classes, no symbol required.
-    expect(
-      validateChangePassword({
-        current_password: 'OldPassword12!',
-        new_password: 'lowerUPPER12',
-      }),
-    ).toEqual({
-      current_password: 'OldPassword12!',
-      new_password: 'lowerUPPER12',
     });
   });
 });

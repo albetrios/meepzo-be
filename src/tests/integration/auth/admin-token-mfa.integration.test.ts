@@ -2,7 +2,9 @@ import type { AddressInfo } from 'node:net';
 import { generateSecret } from 'otplib';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import { emailCodeSendCooldownKey } from '@/domains/auth/sub-domains/auth-method/email-login.service.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
 import { users } from '@/domains/user/user.schema.js';
 import { signInOverApi } from '@/scripts/admin/api-sign-in.util.js';
@@ -13,10 +15,11 @@ import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 
 /**
  * A-2 follow-up: a platform admin needs an enrolled MFA factor and an MFA-verified session, so the
- * password-only `pnpm tool:admin-token` (and the nightly k6 admin scenarios it feeds) could no
+ * first-factor-only `pnpm tool:admin-token` (and the nightly k6 admin scenarios it feeds) could no
  * longer mint a super_admin token. Against the real API: `pnpm db:seed:demo-admin` enrolls a TOTP
  * factor for a platform-admin address, and the tool's sign-in completes `POST /auth/mfa/login`
- * with a code computed from the same secret.
+ * with a code computed from the same secret. The first factor is the email code (passwords are off,
+ * P84) — the harness runs with TEST_MODE, so send-code echoes it.
  */
 // Skipped under `pnpm test:rls-role`, like the full-seed suite: the seeders are an operator activity
 // by design (`seed-runtime-url.ts`), so running them as the RLS-subject role would assert nothing.
@@ -26,7 +29,6 @@ describe.runIf(runAsApplicationBehaviour)(
   'Integration: the demo admin seed and tool:admin-token sign in with TOTP (A-2)',
   () => {
     const adminEmail = (process.env.GLOBAL_ADMIN_EMAILS ?? '').split(',')[0]?.trim() ?? '';
-    const password = 'AdminTokenFixture123!';
     // A fresh secret per run: a test-database fixture, never a real factor.
     const totpSecret = generateSecret();
     let application: FastifyInstance;
@@ -36,7 +38,6 @@ describe.runIf(runAsApplicationBehaviour)(
       expect(adminEmail, 'the harness sets GLOBAL_ADMIN_EMAILS').not.toBe('');
       await cleanupDatabase();
       vi.stubEnv('DEMO_EMAIL', adminEmail);
-      vi.stubEnv('DEMO_PASSWORD', password);
       vi.stubEnv('DEMO_TOTP_SECRET', totpSecret);
       await ensureDemoAdmin();
       // The seed is idempotent: a second run keeps the one factor it enrolled.
@@ -46,6 +47,11 @@ describe.runIf(runAsApplicationBehaviour)(
       await application.listen({ port: 0, host: '127.0.0.1' });
       apiPrefix = `http://127.0.0.1:${(application.server.address() as AddressInfo).port}/api/v1`;
     }, 60_000);
+
+    beforeEach(async () => {
+      // Each sign-in sends a code; clear the 60 s send spacing so the next one is not refused.
+      await redisConnection.del(emailCodeSendCooldownKey(adminEmail));
+    });
 
     afterAll(async () => {
       await application?.close();
@@ -78,7 +84,7 @@ describe.runIf(runAsApplicationBehaviour)(
       }) as never);
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       try {
-        await expect(signInOverApi({ apiPrefix, email: adminEmail, password })).rejects.toThrow(
+        await expect(signInOverApi({ apiPrefix, email: adminEmail })).rejects.toThrow(
           'process.exit',
         );
         expect(exit).toHaveBeenCalledWith(1);
@@ -91,7 +97,7 @@ describe.runIf(runAsApplicationBehaviour)(
     });
 
     it('completes POST /auth/mfa/login and returns an MFA-verified super_admin token', async () => {
-      const token = await signInOverApi({ apiPrefix, email: adminEmail, password, totpSecret });
+      const token = await signInOverApi({ apiPrefix, email: adminEmail, totpSecret });
 
       const claims = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString()) as {
         role?: string;

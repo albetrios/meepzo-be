@@ -63,9 +63,8 @@ jobs:
       REDIS_URL: redis://localhost:6379
       ENABLE_MCP_SERVER: 'true'
       BASE_URL: http://localhost:3000
-      # Fixed demo account for db:seed:full + the k6 auth scenarios (password login).
+      # Fixed demo account for db:seed:full + the k6 auth scenarios (email-code sign-in, P84).
       DEMO_EMAIL: demo@example.com
-      DEMO_PASSWORD: DemoPassword123!
       # Test-run gate: lets /auth/email/send-code echo debug_verification_code, the code the
       # passwordless-signup scenario and fe-full-surface's logins present. A refine forbids
       # TEST_MODE=true in production.
@@ -87,8 +86,8 @@ jobs:
       RESEND_API_KEY: re_test_contract_fixture_key
       EMAIL_FROM_ADDRESS: noreply@example.com
       # The admin and audit-list scenarios need a super_admin token. tool:admin-token signs in as the
-      # first GLOBAL_ADMIN_EMAILS entry (ops@example.com, exported by the shared test-env action) with
-      # DEMO_PASSWORD. Such a token lives 5 minutes by default, and the admin scenario runs about 10
+      # first GLOBAL_ADMIN_EMAILS entry (ops@example.com, exported by the shared test-env action) by
+      # email code (the TEST_MODE echo). Such a token lives 5 minutes by default, and the admin scenario runs about 10
       # minutes after the refresh step that mints it. CI-only: the same 15 minutes as a user token.
       GLOBAL_ADMIN_ACCESS_TOKEN_EXPIRY_SECONDS: '900'
       # CI-only fixtures, the Vitest harness's. fe-full-surface starts a Google sign-in, which answers
@@ -137,7 +136,7 @@ jobs:
           echo "DEMO_TOTP_SECRET=${secret}" >> "$GITHUB_ENV"
 
       - name: Seed the super_admin the admin scenarios sign in as
-        # Creates DEMO_EMAIL with DEMO_PASSWORD (the job's demo password) as an active member of the
+        # Creates DEMO_EMAIL (it signs in by email code — passwords are off) as an active member of the
         # demo organization. GLOBAL_ADMIN_EMAILS (the test-env export) makes it a platform admin, so
         # the seed also enrolls its TOTP factor with DEMO_TOTP_SECRET (job env) — without one,
         # sign-in never grants super_admin (A-2).
@@ -179,7 +178,6 @@ jobs:
           k6 run --summary-export=k6-auth-onboarding.json src/tests/load/k6/scenarios/auth-onboarding.js
         env:
           DEMO_EMAIL: demo@example.com
-          DEMO_PASSWORD: DemoPassword123!
 
       - name: k6 passwordless-signup (informational)
         if: ${{ !cancelled() }}

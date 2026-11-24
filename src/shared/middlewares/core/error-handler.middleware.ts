@@ -9,6 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { ZodError } from 'zod';
 import {
   AppError,
+  APP_ERROR_FIELD_NAMES,
+  type AppErrorFields,
   ConflictError,
   ERROR_CODE_TO_SNAKE,
   UnprocessableEntityError,
@@ -45,12 +47,14 @@ function buildErrorPayload({
   detail,
   errors,
   reason,
+  fields,
 }: {
   type: 'request_error' | 'validation_error';
   code: string;
   detail: string;
   errors?: { field: string; message: string }[] | undefined;
   reason?: string | undefined;
+  fields?: AppErrorFields | undefined;
 }) {
   const docsBaseUrl = getDocsBaseUrl();
   const payload: {
@@ -60,16 +64,29 @@ function buildErrorPayload({
     detail: string;
     documentation_url?: string;
     errors?: { field: string; message: string }[];
-  } = {
+  } & AppErrorFields = {
     type,
     code,
     // Optional stable machine-readable sub-code (REQ-6) — additive; the FE can branch on it.
     ...(reason ? { reason } : {}),
     detail,
+    // AT3: `tries_left` / `retry_after_seconds` — only the names `APP_ERROR_FIELD_NAMES` allows.
+    ...pickAppErrorFields(fields),
     ...(docsBaseUrl ? { documentation_url: `${docsBaseUrl}/${code}` } : {}),
   };
   if (errors?.length) payload.errors = errors;
   return payload;
+}
+
+/** Copies only the allowed extra fields ({@link APP_ERROR_FIELD_NAMES}) that hold an integer. */
+function pickAppErrorFields(fields: AppErrorFields | undefined): AppErrorFields {
+  const picked: AppErrorFields = {};
+  if (!fields) return picked;
+  for (const name of APP_ERROR_FIELD_NAMES) {
+    const value = fields[name];
+    if (typeof value === 'number' && Number.isInteger(value)) picked[name] = value;
+  }
+  return picked;
 }
 
 function translateDetail({
@@ -348,6 +365,7 @@ function handleAppErrorResponse({
       detail,
       errors,
       reason: isServerError ? undefined : error.reason,
+      fields: isServerError ? undefined : error.fields,
     }),
     meta: { request_id: requestId },
   };

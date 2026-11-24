@@ -26,7 +26,7 @@ describe('recent-step-up util — factor gating', () => {
     vi.clearAllMocks();
   });
 
-  it.each(['password', 'mfa'] as const)(
+  it.each(['mfa'] as const)(
     'a %s step-up satisfies both the normal and the strong gate',
     async (factor) => {
       await recordRecentStepUp({
@@ -64,10 +64,17 @@ describe('recent-step-up util — factor gating', () => {
       redis: mockRedis,
       userPublicId: 'u',
       sessionPublicId: 's',
-      factor: 'password',
+      factor: 'mfa',
     });
     await expect(
       hasRecentStrongStepUp({ redis: mockRedis, userPublicId: 'u', sessionPublicId: undefined }),
+    ).resolves.toBe(false);
+  });
+
+  it('a stored legacy `password` window (passwords are off, P84) satisfies neither gate as a strong factor', async () => {
+    store.set('step-up:u:s', 'password');
+    await expect(
+      hasRecentStrongStepUp({ redis: mockRedis, userPublicId: 'u', sessionPublicId: 's' }),
     ).resolves.toBe(false);
   });
 

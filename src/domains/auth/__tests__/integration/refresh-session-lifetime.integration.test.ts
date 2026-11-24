@@ -1,15 +1,13 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import {
-  injectAuthenticated,
-  injectUnauthenticated,
-} from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import { sessions } from '@/domains/auth/sub-domains/auth-session/auth-session.schema.js';
 
 const ALLOWED_ORIGIN = 'http://localhost:3000';
@@ -50,12 +48,8 @@ describe('POST /auth/refresh — idle timeout and absolute lifetime (E-2)', () =
     sessionPublicId: string;
     accessToken: string;
   }> {
-    const { user, password } = await createTestUserWithPassword();
-    const response = await injectUnauthenticated(application, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email: user.email, password },
-    });
+    const user = await createTestUser();
+    const response = await signInWithEmailCode(application, { email: user.email });
     expect(response.statusCode).toBe(200);
     const cookie = sessionCookiePair(response.headers);
     return {

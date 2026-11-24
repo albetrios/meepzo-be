@@ -296,7 +296,7 @@ export class UserService {
     //   (1) revoke sessions → kills any in-flight bearer immediately, so no concurrent request
     //       can race the purge steps below and create orphan PENDING rows (sec-U8).
     //   (2) revoke auth methods → no fresh login can re-mint a session.
-    //   (3) invalidate verification tokens → email-code / password-reset issued seconds before
+    //   (3) invalidate verification tokens → email-code / email-change issued seconds before
     //       deletion can no longer mint a session for the soon-to-be-deleted user (sec-U1).
     //   (4) purge data-exports + uploads → now that sessions/tokens are dead, no concurrent
     //       writer can re-introduce rows.
@@ -426,72 +426,6 @@ export class UserService {
     return this.createFromOAuth({
       email: data.email,
       is_email_verified: false,
-    });
-  }
-
-  async updatePassword({
-    public_id,
-    password_hash,
-  }: {
-    public_id: string;
-    password_hash: string;
-  }): Promise<UserAuthRecord | null> {
-    return withAppDatabaseContext({
-      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: public_id }),
-      callback: () => this.repository.updatePassword(public_id, password_hash),
-    });
-  }
-
-  /**
-   * Clears `users.password_hash = NULL` for the given user (sec-r5-auth-session-info-1).
-   *
-   * @remarks
-   * Called by {@link AuthMethodService.delete} when the user revokes their
-   * PASSWORD auth_method row so the credential is no longer accepted by
-   * `POST /auth/login`. Without this, the auth-method list reports "no
-   * password" but the stale hash on `auth.users` continues to authenticate.
-   */
-  async clearPasswordHash(public_id: string): Promise<UserAuthRecord | null> {
-    return withAppDatabaseContext({
-      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: public_id }),
-      callback: () => this.repository.clearPasswordHash(public_id),
-    });
-  }
-
-  async updateLoginAttempt({
-    public_id,
-    failed_login_count,
-    account_locked_until,
-  }: {
-    public_id: string;
-    failed_login_count: number;
-    account_locked_until: Date | null;
-  }): Promise<UserAuthRecord | null> {
-    // Login is pre-session, but the TARGET public_id is known after the email resolver, so pin the
-    // owner context — the owner WITH CHECK authorizes the lockout-counter write under FORCE RLS.
-    return withAppDatabaseContext({
-      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: public_id }),
-      callback: () =>
-        this.repository.updateLoginAttempt(public_id, failed_login_count, account_locked_until),
-    });
-  }
-
-  /**
-   * Atomically record one failed login attempt (SQL `count + 1` plus a
-   * conditional lockout once the threshold is reached), so concurrent failures
-   * cannot lose increments. Delegates the lockout policy from the caller and
-   * pins the owner database context like {@link UserService.updateLoginAttempt}.
-   */
-  async registerFailedLoginAttempt({
-    public_id,
-    options,
-  }: {
-    public_id: string;
-    options: { maxAttempts: number; lockoutMinutes: number };
-  }): Promise<UserAuthRecord | null> {
-    return withAppDatabaseContext({
-      scope: PRINCIPAL_SCOPE.VERIFIED({ userPublicId: public_id }),
-      callback: () => this.repository.incrementFailedLoginAttempt(public_id, options),
     });
   }
 

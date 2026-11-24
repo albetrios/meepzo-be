@@ -162,29 +162,6 @@ describe('completeOAuthUserSession', () => {
     expect(userService.createFromOAuth).not.toHaveBeenCalled();
   });
 
-  it('blocks find-or-link into a pre-existing password account whose email is unverified', async () => {
-    // Credential-bearing (has a password) but unverified: a squatter who registered with the
-    // victim's email must not be silently merged into via an OAuth find-or-link.
-    userService.findByEmail.mockResolvedValue({
-      id: 42,
-      public_id: 'victim_public',
-      email: 'victim@example.com',
-      status: 'ACTIVE',
-      is_email_verified: false,
-      password_hash: 'hashed-password',
-    });
-
-    const error = await callCompleteOAuthUserSession().catch((caught: unknown) => caught);
-
-    expect(error).toBeInstanceOf(ForbiddenError);
-    expect(error).toMatchObject({ messageKey: 'errors:oauthLinkRequiresVerifiedAccount' });
-    expect(authMethodService.linkOAuthProviderIfMissing).not.toHaveBeenCalled();
-    expect(authSessionService.createSessionForUser).not.toHaveBeenCalled();
-    // The account already has a credential, so the bare-claim path is never even probed.
-    expect(authMethodService.hasActiveLoginCredential).not.toHaveBeenCalled();
-    expect(userService.updateEmailVerified).not.toHaveBeenCalled();
-  });
-
   it('sec-U1: refuses to mint a session for a returning VERIFIED account that was suspended since signup', async () => {
     // A verified pre-existing account clears the find-or-link takeover checks, but if it has since
     // been suspended the OAuth callback must NOT issue a session (the method docstring promises to

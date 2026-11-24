@@ -1,5 +1,11 @@
 # Frontend auth & headers guide
 
+> **Passwords are off (feat-instagram-dm-sending P84, row R30).** `POST /auth/login`,
+> `/auth/password/forgot`, `/reset` and `/change` no longer exist (404), and `POST /auth/step-up`
+> takes only `{ code }` (six digits). Sign in by email code, Google/Apple OAuth or a passkey. The
+> password-based examples further down (the `login` / `requestPasswordReset` helpers, the password
+> step-up branch) are obsolete and are rewritten with the strong email-code step-up (R32).
+
 How a browser frontend (SPA) authenticates against meepzo-be, keeps the user logged in, switches the
 active organization, and which headers it must send on which routes. This is the **client-integration**
 companion to the backend security docs — it does not restate the server internals, it tells the
@@ -96,9 +102,8 @@ You don't watch a clock. When a call returns `401` (token expired), refresh once
 
 | Step | Request | Result |
 |------|---------|--------|
-| **Email code — send** | `POST /auth/email/send-code` | `200` (uniform — no enumeration). Emails a one-time alphanumeric sign-in code; auto-creates a passwordless account for an unknown email. |
-| **Email code — login** | `POST /auth/email/login` | `200` → `{ data: { access_token } }` + `Set-Cookie: session_id` (or `{ mfa_required, mfa_session_token }`). Verifies the code, logging in or completing first-time sign-up. |
-| Login | `POST /auth/login` | `200` → `{ data: { access_token } }` + `Set-Cookie: session_id` |
+| **Email code — send** | `POST /auth/email/send-code` | `200` (uniform — no enumeration). Emails a one-time 6-digit sign-in code; auto-creates an account for an unknown email. Answers `resend_after_seconds` (60) and `expires_in_seconds` (900); a resend sooner is `429 code_resend_too_soon` + `retry_after_seconds`. |
+| **Email code — login** | `POST /auth/email/login` | `200` → `{ data: { access_token } }` + `Set-Cookie: session_id` (or `{ mfa_required, mfa_session_token }`). Verifies the code, logging in or completing first-time sign-up. Refusals: `401 code_wrong` + `tries_left`, `401 code_expired`, `401 code_used_up` (ask a new code), `429 code_day_limit` + `retry_after_seconds`. |
 | Use | any route + `Authorization: Bearer` | `2xx` |
 | Expiry | any route | `401` → trigger refresh |
 | Refresh | `POST /auth/refresh` (cookie auto-sent) | `200` → `{ data: { access_token } }`, session cookie rotated |
@@ -297,13 +302,11 @@ The first-factor entry points (`login`, `email/send-code`, `email/login`, `oauth
 
 | Entry flow | API call sequence (in order) | Terminal success body | Calls to dashboard |
 |------------|------------------------------|-----------------------|--------------------|
-| **Email + password — login** | `POST /auth/login` → `GET /auth/me/context` | `{ access_token, session_id }` *or* `{ mfa_required }` | **2** (+1 if MFA) |
 | **MFA second factor** *(continues any first factor)* | `POST /auth/mfa/login` → `GET /auth/me/context` | `{ access_token, session_id }` | the **+1** above |
 | **Email verification-code / email OTP** | `POST /auth/email/send-code` → `POST /auth/email/login` → `GET /auth/me/context` | `{ access_token, session_id }` — unknown emails are auto-signed-up | **3** (+1 if MFA) |
 | **OAuth (Google / GitHub / …)** | `GET /auth/oauth/{provider}` *(redirect to provider)* → `GET /auth/oauth/{provider}/callback` → `GET /auth/me/context` | `{ access_token, session_id }` | **3** (+1 if MFA; optional `GET /auth/oauth/providers` to list) |
 | **WebAuthn / passkey** | `POST /auth/webauthn/authenticate/options` → `POST /auth/webauthn/authenticate/verify` → `GET /auth/me/context` | `{ access_token, session_id }` | **3** (+1 if MFA) |
 | **Silent resume (app boot / reload)** | `POST /auth/refresh` → `GET /auth/me/context` | `{ access_token }` — no `session_id`; restores the previously-active `org` | **2** |
-| **Forgot / reset password** | `POST /auth/password/forgot` → `POST /auth/password/reset` → `GET /auth/me/context` | `{ access_token, session_id }` — logs straight in | **3** (+1 if MFA) |
 | **Invited teammate → land in the team** | *onboard via email verification-code / OAuth (2–3)* → `POST /tenancy/membership-invitations/{membership_invitation_id}/accept` → `POST /auth/switch-to-organization` | `{ access_token, active_organization, my_permissions, global_role }` — switch delta, no `/auth/me/context` needed | onboarding **+ 2** |
 
 Notes:

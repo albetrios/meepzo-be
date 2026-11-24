@@ -435,7 +435,6 @@ src/
     │   │   │   ├── auth-audit-trail.integration.test.ts
     │   │   │   ├── auth-cached-payload.integration.test.ts
     │   │   │   ├── auth-me-context.integration.test.ts
-    │   │   │   ├── auth-recovery-atomicity.integration.test.ts
     │   │   │   ├── auth-route-smoke.integration.test.ts
     │   │   │   ├── auth.integration.test.ts
     │   │   │   ├── login-restores-last-organization.integration.test.ts
@@ -466,7 +465,6 @@ src/
     │   ├── handlers/
     │   │   ├── auth-auth-method.handlers.ts
     │   │   ├── auth-email-login.handlers.ts
-    │   │   ├── auth-login.handlers.ts
     │   │   ├── auth-me-context.handlers.ts
     │   │   ├── auth-mfa.handlers.ts
     │   │   ├── auth-oauth.handlers.ts
@@ -489,11 +487,9 @@ src/
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
     │   │   │   │   │       └── auth-method.event-handlers.unit.test.ts
-    │   │   │   │   │   ├── auth-method.change-password.db.unit.test.ts
     │   │   │   │   │   ├── auth-method.repository.db.unit.test.ts
     │   │   │   │   │   ├── auth-method.repository.unit.test.ts
     │   │   │   │   │   ├── auth-method.service.last-method-guard.unit.test.ts
-    │   │   │   │   │   ├── auth-method.service.step-up-mfa.unit.test.ts
     │   │   │   │   │   ├── auth-method.service.unit.test.ts
     │   │   │   │   │   ├── auth-method.validator.unit.test.ts
     │   │   │   │   │   ├── email-login.service.unit.test.ts
@@ -2136,7 +2132,6 @@ src/
     │   │   ├── field-secret-encryption.util.ts
     │   │   ├── image-location.util.ts
     │   │   ├── jwt.util.ts
-    │   │   ├── password.util.ts
     │   │   ├── response-encryption-keyring.util.ts
     │   │   ├── safe-webhook-url-for-logs.util.ts
     │   │   ├── secrets-sub-key.util.ts
@@ -3027,7 +3022,6 @@ src/
     │   │   │   ├── image-location.util.unit.test.ts
     │   │   │   ├── jwt-key-material.unit.test.ts
     │   │   │   ├── jwt.util.unit.test.ts
-    │   │   │   ├── password.util.unit.test.ts
     │   │   │   ├── response-encryption-keyring.util.unit.test.ts
     │   │   │   ├── secrets-sub-key.util.unit.test.ts
     │   │   │   ├── sensitive-redaction.util.unit.test.ts

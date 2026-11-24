@@ -132,44 +132,6 @@ export class UserRepository {
     return rows[0] ? mapResolverRowToUserRow(rows[0]) : null;
   }
 
-  async updatePassword(publicId: string, passwordHash: string) {
-    const rows = await getRequestDatabase()
-      .update(users)
-      .set({
-        password_hash: passwordHash,
-        last_password_change_at: new Date(),
-        updated_at: databaseNowTimestamp,
-      })
-      .where(and(eq(users.public_id, publicId), isNull(users.deleted_at)))
-      .returning();
-    return rows[0] ?? null;
-  }
-
-  /**
-   * Sets `users.password_hash = NULL` for the given user (sec-r5-auth-session-info-1).
-   *
-   * @remarks
-   * Called by {@link AuthMethodService.delete} when revoking a PASSWORD auth_method
-   * row so the user-facing "I removed my password" view matches the auth view
-   * (`POST /auth/login` no longer authenticates with the previous credential).
-   * Pre-fix, removing the PASSWORD auth-method only flipped `auth_methods.revoked_at`
-   * but left the stale hash on `auth.users`, so the credential remained valid.
-   * Caller MUST be inside `withAppDatabaseContext (user scope)` so the FORCE-RLS owner-access
-   * policy is satisfied.
-   */
-  async clearPasswordHash(publicId: string) {
-    const rows = await getRequestDatabase()
-      .update(users)
-      .set({
-        password_hash: null,
-        last_password_change_at: new Date(),
-        updated_at: databaseNowTimestamp,
-      })
-      .where(and(eq(users.public_id, publicId), isNull(users.deleted_at)))
-      .returning();
-    return rows[0] ?? null;
-  }
-
   async updateEmailVerified(publicId: string) {
     const rows = await getRequestDatabase()
       .update(users)
@@ -384,52 +346,6 @@ export class UserRepository {
       )
       .returning({ id: users.id });
     return rows.length > 0;
-  }
-
-  async updateLoginAttempt(
-    publicId: string,
-    failedLoginCount: number,
-    accountLockedUntil: Date | null,
-  ) {
-    const rows = await getRequestDatabase()
-      .update(users)
-      .set({
-        failed_login_count: failedLoginCount,
-        account_locked_until: accountLockedUntil,
-        updated_at: databaseNowTimestamp,
-      })
-      .where(and(eq(users.public_id, publicId), isNull(users.deleted_at)))
-      .returning();
-    return rows[0] ?? null;
-  }
-
-  /**
-   * Atomically record one failed login: increment `failed_login_count` in SQL
-   * (`count + 1`, never a read-modify-write) and, in the same statement, set the
-   * lockout window once the new count reaches `maxAttempts`. Computing both from
-   * the live row value eliminates the lost-update race where two simultaneous
-   * failures each read the same stale count and write back the same `+1`.
-   */
-  async incrementFailedLoginAttempt(
-    publicId: string,
-    options: { maxAttempts: number; lockoutMinutes: number },
-  ) {
-    const rows = await getRequestDatabase()
-      .update(users)
-      .set({
-        // COALESCE keeps the +1 null-safe (the column is NOT NULL today, but this preserves the
-        // old `(count ?? 0) + 1` intent and is correct regardless of the row's prior value).
-        failed_login_count: sql`COALESCE(${users.failed_login_count}, 0) + 1`,
-        account_locked_until: sql`CASE
-          WHEN COALESCE(${users.failed_login_count}, 0) + 1 >= ${options.maxAttempts}
-          THEN now() + make_interval(mins => ${options.lockoutMinutes})
-          ELSE ${users.account_locked_until}
-        END`,
-        updated_at: databaseNowTimestamp,
-      })
-      .where(and(eq(users.public_id, publicId), isNull(users.deleted_at)))
-      .returning();
-    return rows[0] ?? null;
   }
 
   async updateMfaEnabled(publicId: string, enabled: boolean) {

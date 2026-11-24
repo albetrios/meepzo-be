@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AppError, ERROR_CODE_TO_SNAKE } from '@/shared/errors/app.error.js';
+import { AppError, APP_ERROR_FIELD_NAMES, ERROR_CODE_TO_SNAKE } from '@/shared/errors/app.error.js';
 
 describe('AppError', () => {
   it('maps error codes to snake_case API codes', () => {
@@ -27,5 +27,17 @@ describe('AppError', () => {
   it('uses messageKey as fallback message when fallback omitted', () => {
     const error = new AppError('INTERNAL_ERROR', 500, 'errors:internal');
     expect(error.message).toBe('errors:internal');
+  });
+
+  it('AT3: the extra error-body fields are exactly tries_left and retry_after_seconds', () => {
+    // A new field is an API contract change (docs/reference/api/response-codes.md › Error body shape).
+    expect([...APP_ERROR_FIELD_NAMES]).toEqual(['tries_left', 'retry_after_seconds']);
+  });
+
+  it('withFields merges the fields fluently', () => {
+    const error = new AppError('UNAUTHORIZED', 401, 'errors:emailCodeWrong')
+      .withFields({ tries_left: 3 })
+      .withFields({ retry_after_seconds: 9 });
+    expect(error.fields).toEqual({ tries_left: 3, retry_after_seconds: 9 });
   });
 });

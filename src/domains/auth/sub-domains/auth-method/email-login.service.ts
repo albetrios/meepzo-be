@@ -3,6 +3,7 @@ import { DEFAULT_LANGUAGE, type SupportedLanguage } from '@/shared/constants/i18
 import {
   ForbiddenError,
   NotFoundError,
+  RateLimitedError,
   UnauthorizedError,
   ValidationError,
 } from '@/shared/errors/index.js';
@@ -17,6 +18,8 @@ import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import { env } from '@/shared/config/env.config.js';
 import { ensurePersonalOrganization } from '@/domains/tenancy/sub-domains/organization/resolve-active-organization.js';
 import {
+  EMAIL_CODE_WRONG_TRIES_DAY_SECONDS,
+  EMAIL_CODE_WRONG_TRIES_PER_DAY,
   VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS,
   VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS,
   VERIFICATION_CODE_TTL_MINUTES,
@@ -52,32 +55,93 @@ import { MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
 /** Token category persisted in `verification_tokens.token_type` for the email verification-code login flow. */
 const EMAIL_CODE_TOKEN_TYPE = 'EMAIL_CODE';
 
-/** Redis key prefix for the per-user (public id) email verification-code attempt counters (brute-force cap). */
+/** Redis key prefix for the email verification-code try counters (the per-code brute-force cap). */
 const EMAIL_CODE_VERIFY_ATTEMPT_KEY_PREFIX = 'auth:email_code_verify_attempts:';
 
 /**
- * The flow an email-code verification belongs to — each has its own attempt counter (A-8): the
- * public sign-in (`login`) and the authenticated bootstrap step-up (`step_up`). With one shared
- * counter, anyone who knows the address could spend the public sign-in budget and lock the
- * signed-in owner out of the step-up that enrolls their first factor.
+ * The per-code try counter of the public sign-in, keyed by the email's hash rather than the user —
+ * so an email with no account counts its tries exactly like a known one, and `tries_left` /
+ * `code_used_up` tell a stranger nothing about whether the account exists (AT8). Reset whenever a
+ * new code is sent to that email.
  */
-type EmailCodeVerifyFlow = 'login' | 'step_up';
-
-function emailCodeVerifyAttemptKey(options: {
-  userPublicId: string;
-  flow: EmailCodeVerifyFlow;
-}): string {
-  return `${EMAIL_CODE_VERIFY_ATTEMPT_KEY_PREFIX}${options.flow}:${options.userPublicId}`;
+function emailCodeLoginAttemptKey(emailHash: string): string {
+  return `${EMAIL_CODE_VERIFY_ATTEMPT_KEY_PREFIX}login:${emailHash}`;
 }
 
-/** Every email-code flow — a freshly issued code restores the budget of each. */
-const EMAIL_CODE_VERIFY_FLOWS: readonly EmailCodeVerifyFlow[] = ['login', 'step_up'];
+/**
+ * The authenticated step-up's own try counter (A-8), keyed by the user: with one shared counter,
+ * anyone who knows the address could spend the public sign-in budget and lock the signed-in owner
+ * out of the step-up.
+ */
+function emailCodeStepUpAttemptKey(userPublicId: string): string {
+  return `${EMAIL_CODE_VERIFY_ATTEMPT_KEY_PREFIX}step_up:${userPublicId}`;
+}
+
+/** Redis key prefix for the per-email wrong-code day counter ({@link EMAIL_CODE_WRONG_TRIES_PER_DAY}). */
+const EMAIL_CODE_WRONG_TRIES_DAY_KEY_PREFIX = 'auth:email_code_wrong_tries_day:';
 
 /** Redis key prefix for the per-email verification-code send cooldown (anti-mail-bomb spacing). */
 const EMAIL_CODE_SEND_COOLDOWN_KEY_PREFIX = 'auth:email_code_send_cooldown:';
 
+/** SHA-256 hex of a normalised email — the Redis keys of the per-email counters never hold the address. */
+function hashEmailForKey(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
+
 /**
- * Issues and verifies email **verification codes** (alphanumeric) for the unified passwordless
+ * The Redis key of the per-email send spacing ({@link VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS}).
+ *
+ * @remarks
+ * - **Notes:** keyed by the normalised email's SHA-256, never the address. Exported so a test
+ *   harness that signs the same person in twice can clear it between sign-ins.
+ */
+export function emailCodeSendCooldownKey(email: string): string {
+  return `${EMAIL_CODE_SEND_COOLDOWN_KEY_PREFIX}${hashEmailForKey(email)}`;
+}
+
+/**
+ * The stable `error.reason` values of the email-code routes (AT2, routes-final § 10.A.9).
+ *
+ * @remarks
+ * - **Notes:** the app maps each to its own line; `code_wrong` carries `tries_left` and the two
+ *   `429`s carry `retry_after_seconds` (`AppError.withFields`). Listed in
+ *   `docs/reference/api/response-codes.md`.
+ */
+export const EMAIL_CODE_FAILURE_REASON = {
+  CODE_WRONG: 'code_wrong',
+  CODE_EXPIRED: 'code_expired',
+  CODE_USED_UP: 'code_used_up',
+  CODE_DAY_LIMIT: 'code_day_limit',
+  CODE_RESEND_TOO_SOON: 'code_resend_too_soon',
+  LOGIN_METHOD_TURNED_OFF: 'login_method_turned_off',
+} as const;
+
+/** Seconds a Redis key has left — `fallbackSeconds` when the TTL is unknown, unset or Redis is down. */
+async function remainingSeconds(options: {
+  redis: Redis;
+  key: string;
+  fallbackSeconds: number;
+}): Promise<number> {
+  try {
+    const ttl = await options.redis.ttl(options.key);
+    return ttl > 0 ? ttl : options.fallbackSeconds;
+  } catch {
+    return options.fallbackSeconds;
+  }
+}
+
+/** Thrown inside the sign-in transaction when no live code matched; classified after the rollback. */
+class EmailCodeNotRedeemed extends Error {}
+
+/** `401 code_used_up` — this code had its {@link VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS} tries (AT8). */
+function codeUsedUpError(): UnauthorizedError {
+  return new UnauthorizedError('errors:emailCodeUsedUp').withReason(
+    EMAIL_CODE_FAILURE_REASON.CODE_USED_UP,
+  );
+}
+
+/**
+ * Issues and verifies email **verification codes** (six digits, AT6) for the unified passwordless
  * login + auto-signup flow (`POST /auth/email/send-code` + `POST /auth/email/login`).
  *
  * @remarks
@@ -87,9 +151,10 @@ const EMAIL_CODE_SEND_COOLDOWN_KEY_PREFIX = 'auth:email_code_send_cooldown:';
  *   `EMAIL_CODE` auth-method, mirroring OAuth find-or-create). Existing and new users then follow an
  *   identical path — invalidate prior unused codes, issue a fresh single live code, and emit
  *   `AUTH_EVENT.EMAIL_VERIFICATION_CODE_REQUESTED` with the raw code in the payload.
- * - {@link EmailLoginService.login} resolves the user by email, applies a per-user attempt cap (the
- *   code space is bounded, so guessing is gated by this online cap + the short TTL + single-use
- *   consume), atomically consumes a matching code scoped to `(user_id, EMAIL_CODE)`
+ * - {@link EmailLoginService.login} checks the per-email day limit, applies the per-code try cap
+ *   (keyed by the email's hash, so an unknown email counts like a known one; the code space is
+ *   bounded, so guessing is gated by these online caps + the short TTL + single-use consume),
+ *   resolves the user by email, atomically consumes a matching code scoped to `(user_id, EMAIL_CODE)`
  *   (`UPDATE ... RETURNING` so two concurrent logins cannot both produce a session), invalidates the
  *   user's remaining live codes (single-use across the whole set), flips `is_email_verified` (the
  *   code proves email control), and mints a JWT + session (or an MFA challenge).
@@ -99,12 +164,14 @@ const EMAIL_CODE_SEND_COOLDOWN_KEY_PREFIX = 'auth:email_code_send_cooldown:';
  * re-request does not invalidate an in-flight code. A successful login additionally invalidates any
  * remaining live codes (defence-in-depth for the rare concurrent-send race).
  *
- * Failure modes:
- * - Disposable email → 400 `errors:disposableEmail` from `sendCode`.
- * - Unknown email on `login`, wrong/expired/used code, or attempt cap exceeded → 401
- *   `errors:invalidOrExpiredVerificationCode`.
- * - User soft-deleted between issue and login → 401 `errors:userNotFound` (resolver returns null).
- * - User suspended/locked between issue and login → 401 `errors:accountNotActive`.
+ * Failure modes (each with its stable `error.reason`, AT2 — routes-final § 10.A.9):
+ * - Disposable email → 400 `disposable_email` from `sendCode`; a resend under 60 s since this
+ *   email's last code → 429 `code_resend_too_soon` + `retry_after_seconds`.
+ * - `login`: a wrong code, an unknown email or a used code → 401 `code_wrong` + `tries_left`; this
+ *   email's newest code over 15 minutes old → 401 `code_expired`; the code's 5th wrong try and after
+ *   → 401 `code_used_up`; 20 wrong tries for this email in 24 hours → 429 `code_day_limit` +
+ *   `retry_after_seconds`; the owner turned the email code off → 403 `login_method_turned_off`;
+ *   a suspended/locked/deleted account → 401 `account_not_active`.
  *
  * Side effects:
  * - `sendCode` may create a user + `EMAIL_CODE` auth-method (auto-signup) and best-effort provision
@@ -154,13 +221,11 @@ export class EmailLoginService {
       ]).withReason('disposable_email');
     }
     // Anti-mail-bomb spacing: atomically claim a per-email cooldown slot BEFORE any find-or-create.
-    // If one is already held (a code was sent within VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS), skip
-    // the auto-signup + issue + email entirely and fall through to the SAME uniform success. The slot
-    // is keyed on the requested email regardless of account existence, so it is never an existence
-    // oracle, and the constant-time floor below still applies on both paths.
-    const cooldownKey = `${EMAIL_CODE_SEND_COOLDOWN_KEY_PREFIX}${createHash('sha256')
-      .update(parsed.email)
-      .digest('hex')}`;
+    // If one is already held (a code was sent within VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS), the
+    // send is refused with `429 code_resend_too_soon` and the wait (AT7). The slot is keyed on the
+    // requested email regardless of account existence and claimed before any user lookup, so the
+    // refusal is never an existence oracle.
+    const cooldownKey = emailCodeSendCooldownKey(parsed.email);
     let cooldownClaimed: string | null;
     if (!env.AUTH_EMAIL_CODE_RESEND_COOLDOWN_ENABLED) {
       // Spacing off — allowlisted to the local/development targets by the env schema. Treat the
@@ -190,31 +255,40 @@ export class EmailLoginService {
         cooldownClaimed = 'OK';
       }
     }
-    let issuedCode: string | undefined;
-    if (cooldownClaimed) {
-      // Auto-signup: an unknown email creates a new passwordless user (mirrors OAuth find-or-create).
-      // New and existing users then run the identical issue-code path, so the response body cannot
-      // reveal which case occurred; enforceMinimumDuration below masks the create-vs-existing latency
-      // difference so timing is not an account-existence oracle either.
-      const user =
-        (await this.userService.findByEmail(parsed.email)) ??
-        (await this.createEmailCodeUser(parsed.email));
-      issuedCode = await this.issueVerificationCode({
-        user,
-        locale: context?.locale ?? DEFAULT_LANGUAGE,
+    if (!cooldownClaimed) {
+      const retryAfterSeconds = await remainingSeconds({
+        redis: this.redis,
+        key: cooldownKey,
+        fallbackSeconds: VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS,
       });
+      throw new RateLimitedError('errors:emailCodeResendTooSoon')
+        .withReason(EMAIL_CODE_FAILURE_REASON.CODE_RESEND_TOO_SOON)
+        .withRetryAfter(retryAfterSeconds)
+        .withFields({ retry_after_seconds: retryAfterSeconds });
     }
+    // Auto-signup: an unknown email creates a new passwordless user (mirrors OAuth find-or-create).
+    // New and existing users then run the identical issue-code path, so the response body cannot
+    // reveal which case occurred; enforceMinimumDuration below masks the create-vs-existing latency
+    // difference so timing is not an account-existence oracle either.
+    const user =
+      (await this.userService.findByEmail(parsed.email)) ??
+      (await this.createEmailCodeUser(parsed.email));
+    const issuedCode = await this.issueVerificationCode({
+      user,
+      locale: context?.locale ?? DEFAULT_LANGUAGE,
+    });
     await enforceMinimumDuration({ startedAtMillis });
     return {
       messageKey: 'success:verificationCodeSent',
-      expires_in_minutes: VERIFICATION_CODE_TTL_MINUTES,
+      resend_after_seconds: env.AUTH_EMAIL_CODE_RESEND_COOLDOWN_ENABLED
+        ? VERIFICATION_CODE_RESEND_COOLDOWN_SECONDS
+        : 0,
+      expires_in_seconds: VERIFICATION_CODE_TTL_MINUTES * 60,
       // TEST_MODE-only affordance: echo the plaintext code so an out-of-process client (a k6 load
       // test; meepzo-fe's code screen on a dev box) can complete the passwordless flow.
       // `env.TEST_MODE` is `.refine()`-forbidden in production and no deployed env file sets it (only
       // `pnpm setup:local`, in `.env.local`), so this key is absent everywhere real.
-      // When the per-email cooldown was already held, no code was issued this call (`issuedCode`
-      // undefined) — mirroring the uniform no-op response.
-      ...(env.TEST_MODE && issuedCode ? { debug_verification_code: issuedCode } : {}),
+      ...(env.TEST_MODE ? { debug_verification_code: issuedCode } : {}),
     };
   }
 
@@ -340,15 +414,15 @@ export class EmailLoginService {
     // means an attacker who burned the cap cannot keep the legitimate owner locked out — requesting a
     // new code restores their attempts. Brute-force is unaffected (each code is an independent random
     // target over a large keyspace, and `sendCode` is itself per-email + per-IP rate-limited).
-    await this.clearVerifyAttemptCounter({
-      userPublicId: user.public_id,
-      flows: EMAIL_CODE_VERIFY_FLOWS,
-    });
+    await this.clearRedisKeys([
+      emailCodeLoginAttemptKey(hashEmailForKey(user.email)),
+      emailCodeStepUpAttemptKey(user.public_id),
+    ]);
     return code;
   }
 
   /**
-   * Best-effort reset of the per-user verification-code verify-attempt counter.
+   * Best-effort reset of verification-code counters (the per-code try counters, the day counter).
    *
    * @remarks
    * A Redis blip must never fail the surrounding request: the DB write (and, for `sendCode`, the
@@ -357,19 +431,80 @@ export class EmailLoginService {
    * warning rather than throwing (which, under enableOfflineQueue:false, would otherwise turn a
    * successful issue/login into a 500).
    */
-  private async clearVerifyAttemptCounter(options: {
-    userPublicId: string;
-    flows: readonly EmailCodeVerifyFlow[];
-  }): Promise<void> {
+  private async clearRedisKeys(keys: readonly string[]): Promise<void> {
     try {
-      await this.redis.del(
-        ...options.flows.map((flow) =>
-          emailCodeVerifyAttemptKey({ userPublicId: options.userPublicId, flow }),
-        ),
-      );
+      await this.redis.del(...keys);
     } catch (error) {
       logger.warn({ err: error }, 'email_login.verify_attempt_reset_unavailable');
     }
+  }
+
+  /**
+   * Refuses the sign-in with `429 code_day_limit` (+ `retry_after_seconds`, `Retry-After`) once the
+   * email has {@link EMAIL_CODE_WRONG_TRIES_PER_DAY} wrong tries in the day window. Fails open on a
+   * Redis error — the per-code cap and the route rate limits still bound guessing.
+   */
+  private async assertUnderWrongTriesDayLimit(dayKey: string): Promise<void> {
+    let wrongTries: number;
+    try {
+      wrongTries = Number((await this.redis.get(dayKey)) ?? 0);
+    } catch (error) {
+      logger.warn({ err: error }, 'email_login.day_limit_unavailable');
+      return;
+    }
+    if (wrongTries < EMAIL_CODE_WRONG_TRIES_PER_DAY) return;
+    const retryAfterSeconds = await remainingSeconds({
+      redis: this.redis,
+      key: dayKey,
+      fallbackSeconds: EMAIL_CODE_WRONG_TRIES_DAY_SECONDS,
+    });
+    throw new RateLimitedError('errors:emailCodeDayLimit')
+      .withReason(EMAIL_CODE_FAILURE_REASON.CODE_DAY_LIMIT)
+      .withRetryAfter(retryAfterSeconds)
+      .withFields({ retry_after_seconds: retryAfterSeconds });
+  }
+
+  /**
+   * Counts one wrong try toward the email's day limit (best-effort) and builds its refusal:
+   * `code_used_up` on the last try of this code, else `code_wrong` with the tries left.
+   */
+  private async recordWrongTry(options: { attempts: number; dayKey: string }): Promise<Error> {
+    try {
+      await incrementWithExpiryOnFirst({
+        redis: this.redis,
+        key: options.dayKey,
+        ttlSeconds: EMAIL_CODE_WRONG_TRIES_DAY_SECONDS,
+      });
+    } catch (error) {
+      logger.warn({ err: error }, 'email_login.day_limit_record_unavailable');
+    }
+    const triesLeft = VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS - options.attempts;
+    if (triesLeft <= 0) return codeUsedUpError();
+    return new UnauthorizedError('errors:emailCodeWrong')
+      .withReason(EMAIL_CODE_FAILURE_REASON.CODE_WRONG)
+      .withFields({ tries_left: triesLeft });
+  }
+
+  /**
+   * The refusal for a code the consume did not redeem: `code_expired` when this user's newest code is
+   * unused and past `expires_at` (not counted as a wrong try — the code is dead either way, the person
+   * needs a new one), else a wrong try ({@link EmailLoginService.recordWrongTry}).
+   */
+  private async classifyNotRedeemed(options: {
+    userId: number;
+    attempts: number;
+    dayKey: string;
+  }): Promise<Error> {
+    const newest = await this.verificationTokenRepository.findNewestForUser(
+      options.userId,
+      EMAIL_CODE_TOKEN_TYPE,
+    );
+    if (newest && newest.used_at === null && newest.expires_at.getTime() <= Date.now()) {
+      return new UnauthorizedError('errors:emailCodeExpired').withReason(
+        EMAIL_CODE_FAILURE_REASON.CODE_EXPIRED,
+      );
+    }
+    return this.recordWrongTry({ attempts: options.attempts, dayKey: options.dayKey });
   }
 
   /** Verify an email verification code; returns an MFA challenge or an access token + session. */
@@ -384,29 +519,34 @@ export class EmailLoginService {
   }): Promise<FirstFactorAuthResult> {
     const parsed = validateEmailLogin(body);
     const normalizedEmail = parsed.email.trim().toLowerCase();
+    const emailHash = hashEmailForKey(normalizedEmail);
+    const dayKey = `${EMAIL_CODE_WRONG_TRIES_DAY_KEY_PREFIX}${emailHash}`;
 
-    // The code is bounded-entropy, so resolve the owner first and gate guessing with a per-user
-    // attempt cap (mirrors MFA) BEFORE any DB work. An unknown email is treated like a wrong code so
-    // the response is not an account-existence oracle (the route also rate-limits per email + IP).
-    // Measure from before the user lookup so the fast unknown-email branch and the slower
-    // known-email branch (Redis + code-consume transaction) share the same minimum duration —
-    // otherwise response latency leaks which emails have accounts (parity with sendCode + login).
+    // AT8: 20 wrong tries for this email in 24 hours → `429 code_day_limit` with the wait, before any
+    // other work. Keyed by the email's hash, so it answers the same for a known and an unknown email.
+    await this.assertUnderWrongTriesDayLimit(dayKey);
+
+    // The code is bounded-entropy, so guessing is gated by a per-code try cap (mirrors MFA) BEFORE any
+    // DB work. The counter is keyed by the email (not the user), so an unknown email spends its tries
+    // exactly like a wrong code on a known one — `tries_left` and `code_used_up` are no
+    // account-existence oracle (the route also rate-limits per email + IP). Measure from before the
+    // user lookup so the fast unknown-email branch and the slower known-email branch (the
+    // code-consume transaction) share the same minimum duration.
     const startedAtMillis = Date.now();
-    const user = await this.userService.findByEmail(normalizedEmail);
-    if (!user) {
-      await enforceMinimumDuration({ startedAtMillis });
-      throw new UnauthorizedError('errors:invalidOrExpiredVerificationCode');
-    }
-
-    const attemptKey = emailCodeVerifyAttemptKey({ userPublicId: user.public_id, flow: 'login' });
     const attempts = await incrementWithExpiryOnFirst({
       redis: this.redis,
-      key: attemptKey,
+      key: emailCodeLoginAttemptKey(emailHash),
       ttlSeconds: VERIFICATION_CODE_TTL_MINUTES * 60,
     });
     if (attempts > VERIFICATION_CODE_MAX_VERIFY_ATTEMPTS) {
       await enforceMinimumDuration({ startedAtMillis });
-      throw new UnauthorizedError('errors:invalidOrExpiredVerificationCode');
+      throw codeUsedUpError();
+    }
+    const user = await this.userService.findByEmail(normalizedEmail);
+    if (!user) {
+      const failure = await this.recordWrongTry({ attempts, dayKey });
+      await enforceMinimumDuration({ startedAtMillis });
+      throw failure;
     }
 
     // First successful completion for an as-yet-unverified account: the email is about to be proven,
@@ -436,7 +576,7 @@ export class EmailLoginService {
                 code: parsed.code,
               }),
             );
-            if (!record) throw new UnauthorizedError('errors:invalidOrExpiredVerificationCode');
+            if (!record) throw new EmailCodeNotRedeemed();
             // Single-use across the whole concurrent set: redeeming any one code invalidates the rest
             // (the just-consumed row already has used_at, so it is excluded by the isNull filter).
             await this.verificationTokenRepository.invalidateAllForUser(
@@ -459,7 +599,9 @@ export class EmailLoginService {
                 methodType: AUTH_METHOD_TYPE.EMAIL_CODE,
               })
             ) {
-              throw new ForbiddenError('errors:loginMethodTurnedOff');
+              throw new ForbiddenError('errors:loginMethodTurnedOff').withReason(
+                'login_method_turned_off',
+              );
             }
             // Completing the code proves the user controls this email, so mark it verified (parity with
             // OAuth, and the natural completion of email-code auto-signup).
@@ -485,17 +627,24 @@ export class EmailLoginService {
           },
         }),
     }).catch(async (error: unknown) => {
-      // Anti-enumeration parity: the known-account failure paths (a wrong/expired code at the
-      // `if (!record) throw` above, or a suspended-account rejection) must be timing-indistinguishable
-      // from the floored unknown-email and attempt-cap branches — otherwise a fast known-email 401 vs
-      // a slow unknown-email 401 leaks account existence (this endpoint's documented guarantee). Floor
+      // AT8: a code that was not redeemed is `code_expired` only when this email's newest code is
+      // unused and past its 15 minutes; every other miss (wrong, used, replaced) is `code_wrong` with
+      // the tries left — or `code_used_up` on the last try.
+      const failure =
+        error instanceof EmailCodeNotRedeemed
+          ? await this.classifyNotRedeemed({ userId: user.id, attempts, dayKey })
+          : error;
+      // Anti-enumeration parity: the known-account failure paths must be timing-indistinguishable
+      // from the floored unknown-email and try-cap branches — otherwise a fast known-email 401 vs a
+      // slow unknown-email 401 leaks account existence (this endpoint's documented guarantee). Floor
       // before re-throwing, outside the transaction so no DB connection is held during the wait.
       await enforceMinimumDuration({ startedAtMillis });
-      throw error;
+      throw failure;
     });
 
-    // Clear the attempt counter so a verified user's later legitimate flows are never pre-throttled.
-    await this.clearVerifyAttemptCounter({ userPublicId: user.public_id, flows: ['login'] });
+    // Clear the try and day counters so a verified user's later legitimate flows are never
+    // pre-throttled (AT8: "cleared on success").
+    await this.clearRedisKeys([emailCodeLoginAttemptKey(emailHash), dayKey]);
 
     // On the first successful login, ensure the personal organization exists — a bare invited
     // placeholder is created WITHOUT one, so an email-code claimer would otherwise have no personal
@@ -525,13 +674,11 @@ export class EmailLoginService {
    *
    * @remarks
    * - **Algorithm:** load the user; reject if MFA is enabled (preserve the MFA invariant — an MFA
-   *   user must step up via MFA); reject if the account has a password (email-code step-up exists
-   *   only for passwordless accounts that cannot otherwise reach the step-up gate); else atomically
-   *   consume a single-use code scoped to `(user_id, EMAIL_CODE)` and invalidate the user's
-   *   remaining live codes.
+   *   user must step up via MFA); else atomically consume a single-use code scoped to
+   *   `(user_id, EMAIL_CODE)` and invalidate the user's remaining live codes.
    * - **Failure modes:** `NotFoundError('User')`; `ForbiddenError('errors:mfaStepUpRequired')` for an
-   *   MFA account; `ForbiddenError('errors:passwordStepUpRequired')` for a password account;
-   *   `UnauthorizedError('errors:invalidOrExpiredVerificationCode')` for a wrong/expired/spent code.
+   *   MFA account; `UnauthorizedError('errors:invalidOrExpiredVerificationCode')` for a
+   *   wrong/expired/spent code.
    * - **Side effects:** consumes + invalidates verification tokens. Mints NO session (unlike
    *   {@link EmailLoginService.login}). The window this authorizes is `email_code`-tagged, so it can
    *   enroll a first factor but never satisfy the strong gate on destructive mutations.
@@ -542,14 +689,11 @@ export class EmailLoginService {
     if (user.is_mfa_enabled) {
       throw new ForbiddenError('errors:mfaStepUpRequired');
     }
-    if (user.password_hash) {
-      throw new ForbiddenError('errors:passwordStepUpRequired');
-    }
-    // Parity with `login` (sec-review): bound online code-guessing with the same per-user attempt cap
-    // (checked AFTER the MFA/password guards so a legitimate wrong-method rejection is not counted as
-    // a guess), not just the route rate limit. A-8: its own budget, apart from the public sign-in's,
-    // so a stranger spending the sign-in attempts cannot lock the signed-in owner out of the step-up.
-    const attemptKey = emailCodeVerifyAttemptKey({ userPublicId: user.public_id, flow: 'step_up' });
+    // Parity with `login` (sec-review): bound online code-guessing with the same try cap (checked
+    // AFTER the MFA guard so a legitimate wrong-method rejection is not counted as a guess), not just
+    // the route rate limit. A-8: its own budget, apart from the public sign-in's, so a stranger
+    // spending the sign-in attempts cannot lock the signed-in owner out of the step-up.
+    const attemptKey = emailCodeStepUpAttemptKey(user.public_id);
     const attempts = await incrementWithExpiryOnFirst({
       redis: this.redis,
       key: attemptKey,
@@ -570,6 +714,6 @@ export class EmailLoginService {
     if (!record) throw new UnauthorizedError('errors:invalidOrExpiredVerificationCode');
     await this.verificationTokenRepository.invalidateAllForUser(user.id, EMAIL_CODE_TOKEN_TYPE);
     // Clear the step-up attempt counter so a later legitimate step-up is not pre-throttled.
-    await this.clearVerifyAttemptCounter({ userPublicId: user.public_id, flows: ['step_up'] });
+    await this.clearRedisKeys([attemptKey]);
   }
 }

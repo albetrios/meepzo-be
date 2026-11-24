@@ -2,16 +2,6 @@ import { z } from 'zod';
 import { trimmedEmail, trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
 import { AUTH_METHOD_TYPE } from '@/domains/auth/sub-domains/auth-method/auth-method.constants.js';
 
-/** Zod schema for the `POST /api/v1/auth/login` request body (email + password). */
-export const LoginDto = z
-  .object({
-    email: trimmedEmail(),
-    password: trimmedStringMinMax({ min: 1, max: 128 }),
-  })
-  .strict();
-/** Inferred input type of {@link LoginDto}. */
-export type LoginInput = z.infer<typeof LoginDto>;
-
 /** Zod schema for the `POST /api/v1/auth/email/send-code` request body. */
 export const EmailSendCodeDto = z
   .object({
@@ -22,19 +12,25 @@ export const EmailSendCodeDto = z
 export type EmailSendCodeInput = z.infer<typeof EmailSendCodeDto>;
 
 /**
- * Zod schema for the `POST /api/v1/auth/email/login` request body (email + the 6-char alphanumeric
- * verification code emailed by `email/send-code`). The code is accepted case-insensitively and is
- * normalized server-side before matching; any well-formed-but-wrong code surfaces as a uniform
- * "invalid or expired" rejection rather than a validation error.
+ * The shape of an emailed sign-in code on every route that takes one (email login, step-up): six
+ * digits (AT6). A code that is not six digits is a `400` on `code`; a well-formed wrong code is a
+ * `401 code_wrong` from the service.
+ */
+export function emailVerificationCodeField() {
+  return z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/);
+}
+
+/**
+ * Zod schema for the `POST /api/v1/auth/email/login` request body (email + the 6-digit verification
+ * code emailed by `email/send-code`).
  */
 export const EmailLoginDto = z
   .object({
     email: trimmedEmail(),
-    code: z
-      .string()
-      .trim()
-      .length(6)
-      .regex(/^[A-Za-z0-9]+$/),
+    code: emailVerificationCodeField(),
   })
   .strict();
 /** Inferred input type of {@link EmailLoginDto}. */
@@ -54,10 +50,9 @@ export type MfaVerifyInput = z.infer<typeof MfaVerifyDto>;
  * to the current user.
  *
  * route-#3: `method_type` is restricted to `EMAIL_CODE` — the only type this endpoint can create
- * as a functional credential-less row. `PASSWORD` needs a hash (set via the password flows),
- * `MFA_*` need an encrypted secret (set via the enroll ceremony), and `OAUTH` proves an external
+ * as a functional credential-less row. `MFA_*` need an encrypted secret (set via the enroll ceremony), and `OAUTH` proves an external
  * identity (written only by the verified callback). Previously the DTO accepted every auth-method
- * type, so a user could insert a non-functional `PASSWORD`/`MFA_*` row that the last-login-capable
+ * type, so a user could insert a non-functional `MFA_*` row that the last-login-capable
  * credential guard still counted — letting them delete their only real method and lock themselves
  * out. The provider identity fields are likewise never accepted here.
  */
@@ -70,89 +65,16 @@ export const CreateAuthMethodDto = z
 /** Inferred input type of {@link CreateAuthMethodDto}. */
 export type CreateAuthMethodInput = z.infer<typeof CreateAuthMethodDto>;
 
-// Password
-
-/** Minimum / maximum length and character-class requirements for a NEW password. */
-const PASSWORD_MIN_LENGTH = 12;
-const PASSWORD_MAX_LENGTH = 128;
-const PASSWORD_MIN_CHARACTER_CLASSES = 3;
-
-/** Counts how many of {lowercase, uppercase, digit, symbol} appear in `value`. */
-function countPasswordCharacterClasses(value: string): number {
-  let classes = 0;
-  if (/[a-z]/.test(value)) classes += 1;
-  if (/[A-Z]/.test(value)) classes += 1;
-  if (/\d/.test(value)) classes += 1;
-  if (/[^a-z\d]/i.test(value)) classes += 1;
-  return classes;
-}
-
 /**
- * Shared strength policy for every password-set entry point (reset, change) so the rule cannot
- * drift between them: trimmed, 12–128 chars, and at least 3 of 4 character classes (lowercase,
- * uppercase, digit, symbol).
- *
- * @remarks
- * Login / step-up / `current_password` verify an EXISTING credential and intentionally keep
- * `trimmedStringMinMax({ min: 1, max: 128 })` — applying a strength policy there would lock out users whose
- * password predates the policy. Breach (HIBP k-anonymity) and strength-score (zxcvbn) checks are
- * deliberately left as optional future additions; this policy is the dependency-free baseline.
+ * Zod schema for the `POST /api/v1/auth/step-up` request body — re-authentication by the 6-digit
+ * email verification `code` (passwords are off, P84). An MFA account steps up through the MFA
+ * verify route instead; `.strict()` rejects unknown keys (a `password` field is a `400`).
  */
-export function passwordPolicy(): z.ZodType<string> {
-  return trimmedStringMinMax({ min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH }).refine(
-    (value) => countPasswordCharacterClasses(value) >= PASSWORD_MIN_CHARACTER_CLASSES,
-    { message: 'errors:validation.passwordComplexity' },
-  );
-}
-
-/** Zod schema for the `POST /api/v1/auth/password/forgot` request body. */
-export const ForgotPasswordDto = z
+export const StepUpVerifyDto = z
   .object({
-    email: trimmedEmail(),
+    code: emailVerificationCodeField(),
   })
   .strict();
-/** Inferred input type of {@link ForgotPasswordDto}. */
-export type ForgotPasswordInput = z.infer<typeof ForgotPasswordDto>;
-
-/** Zod schema for the `POST /api/v1/auth/password/reset` request body (reset token + a policy-compliant new password). */
-export const ResetPasswordDto = z
-  .object({
-    token: trimmedStringMinMax({ min: 1, max: 512 }),
-    password: passwordPolicy(),
-  })
-  .strict();
-/** Inferred input type of {@link ResetPasswordDto}. */
-export type ResetPasswordInput = z.infer<typeof ResetPasswordDto>;
-
-/** Zod schema for the authenticated `POST /api/v1/auth/password/change` request body. */
-export const ChangePasswordDto = z
-  .object({
-    current_password: trimmedStringMinMax({ min: 1, max: 128 }),
-    new_password: passwordPolicy(),
-  })
-  .strict();
-/** Inferred input type of {@link ChangePasswordDto}. */
-export type ChangePasswordInput = z.infer<typeof ChangePasswordDto>;
-
-/**
- * Zod schema for the `POST /api/v1/auth/step-up` request body — re-authentication via exactly one
- * factor: a `password` (password accounts) OR a 6-char email verification `code`. The email-code
- * factor is bootstrap-only (a passwordless account with no MFA enrolling its first factor); it is
- * accepted by the service only when the account has no password and no MFA. `.strict()` on each
- * member rejects a body carrying both factors or unknown keys.
- */
-export const StepUpVerifyDto = z.union([
-  z.object({ password: trimmedStringMinMax({ min: 1, max: 128 }) }).strict(),
-  z
-    .object({
-      code: z
-        .string()
-        .trim()
-        .length(6)
-        .regex(/^[A-Za-z0-9]+$/),
-    })
-    .strict(),
-]);
 /** Inferred input type of {@link StepUpVerifyDto}. */
 export type StepUpVerifyInput = z.infer<typeof StepUpVerifyDto>;
 
@@ -187,7 +109,7 @@ export const MfaEnrollConfirmDto = z
 /** Inferred input type of {@link MfaEnrollConfirmDto}. */
 export type MfaEnrollConfirmInput = z.infer<typeof MfaEnrollConfirmDto>;
 
-/** Public login MFA step after password verification (no JWT yet). */
+/** Public login MFA step after the first factor (email code, OAuth or passkey) — no JWT yet. */
 export const MfaLoginVerifyDto = z
   .object({
     mfa_session_token: trimmedStringMinMax({ min: 1, max: 128 }),

@@ -22,7 +22,7 @@ describe('Security: CORS', () => {
   it('should include CORS headers in response', async () => {
     const response = await injectUnauthenticated(app, {
       method: 'OPTIONS',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       headers: {
         origin: 'http://localhost:3000',
         'access-control-request-method': 'POST',
@@ -36,7 +36,7 @@ describe('Security: CORS', () => {
   it('should include Access-Control-Allow-Methods header', async () => {
     const response = await injectUnauthenticated(app, {
       method: 'OPTIONS',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       headers: {
         origin: 'http://localhost:3000',
         'access-control-request-method': 'POST',
@@ -170,7 +170,7 @@ describe('Security: CORS', () => {
   it('does not reflect a non-allowlisted origin', async () => {
     const response = await injectUnauthenticated(app, {
       method: 'OPTIONS',
-      url: testApiPath('/auth/login'),
+      url: testApiPath('/auth/email/login'),
       headers: {
         origin: 'https://evil.example.com',
         'access-control-request-method': 'POST',

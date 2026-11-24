@@ -178,13 +178,15 @@ export const verificationCodeSentSchema = {
   type: 'object',
   properties: {
     message: { type: 'string' },
-    expires_in_minutes: { type: 'integer' },
+    resend_after_seconds: { type: 'integer' },
+    expires_in_seconds: { type: 'integer' },
   },
 };
 
 export const verificationCodeSentExample = {
   message: 'If an account exists with this email, you will receive a sign-in code shortly.',
-  expires_in_minutes: 15,
+  resend_after_seconds: 60,
+  expires_in_seconds: 900,
 };
 
 // ── Message ──
@@ -235,7 +237,7 @@ export const authMethodSchema = {
       enum: ['PASSWORD', 'EMAIL_CODE', 'OAUTH', 'MFA_TOTP', 'MFA_SMS', 'MFA_EMAIL'],
       description:
         'Possible values: PASSWORD | EMAIL_CODE | OAUTH | MFA_TOTP | MFA_SMS | MFA_EMAIL',
-      example: 'PASSWORD',
+      example: 'EMAIL_CODE',
     },
     provider: { type: 'string', nullable: true },
     is_primary: { type: 'boolean' },
@@ -245,7 +247,7 @@ export const authMethodSchema = {
 
 export const authMethodExample = {
   id: 'am_k7x9m2pqr4w8n1v3a5b6c',
-  method_type: 'PASSWORD',
+  method_type: 'EMAIL_CODE',
   provider: null,
   is_primary: true,
   verified_at: '2026-01-15T10:30:00.000Z',

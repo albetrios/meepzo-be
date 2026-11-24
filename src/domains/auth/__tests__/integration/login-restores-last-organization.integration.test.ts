@@ -1,3 +1,4 @@
+import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
@@ -6,9 +7,8 @@ import { MEMBERSHIP_STATUS } from '@/domains/tenancy/sub-domains/membership/memb
 import { memberships } from '@/domains/tenancy/sub-domains/membership/membership.schema.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import { injectUnauthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { createTestUserWithPassword } from '@/tests/factories/user.factory.js';
+import { createTestUser } from '@/tests/factories/user.factory.js';
 import {
   provisionPersonalOrganization,
   provisionOrganizationWithOwner,
@@ -45,12 +45,8 @@ describe('login restores the last organization', () => {
     return (JSON.parse(json) as { org?: string }).org;
   }
 
-  async function login({ email, password }: { email: string; password: string }) {
-    const response = await injectUnauthenticated(app, {
-      method: 'POST',
-      url: testApiPath('/auth/login'),
-      payload: { email, password },
-    });
+  async function login({ email }: { email: string }) {
+    const response = await signInWithEmailCode(app, { email });
     expect(response.statusCode, response.body).toBe(200);
     return (response.json() as { data: { access_token: string } }).data.access_token;
   }
@@ -73,7 +69,7 @@ describe('login restores the last organization', () => {
 
   /** A person with a personal workspace, an older organization and a newer one. */
   async function personWithTwoOrganizations() {
-    const { user, password } = await createTestUserWithPassword();
+    const user = await createTestUser();
     await provisionPersonalOrganization({ ownerUserId: user.id });
     const teamOrganization = async (name: string) =>
       (
@@ -90,26 +86,26 @@ describe('login restores the last organization', () => {
       .update(memberships)
       .set({ joined_at: new Date('2026-01-01T00:00:00Z') })
       .where(and(eq(memberships.user_id, user.id), eq(memberships.organization_id, older.id)));
-    return { user, password, older, newer };
+    return { user, older, newer };
   }
 
   it('the first login opens the newest organization, and after a switch the next login opens the switched-to organization', async () => {
-    const { user, password, older, newer } = await personWithTwoOrganizations();
+    const { user, older, newer } = await personWithTwoOrganizations();
 
-    const firstToken = await login({ email: user.email, password });
+    const firstToken = await login({ email: user.email });
     expect(decodeOrgClaim(firstToken)).toBe(newer.public_id);
 
     await switchTo({ accessToken: firstToken, organizationPublicId: older.public_id });
 
-    const secondToken = await login({ email: user.email, password });
+    const secondToken = await login({ email: user.email });
     expect(decodeOrgClaim(secondToken)).toBe(older.public_id);
-    const thirdToken = await login({ email: user.email, password });
+    const thirdToken = await login({ email: user.email });
     expect(decodeOrgClaim(thirdToken)).toBe(older.public_id);
   });
 
   it('skips the remembered organization once the membership is no longer active', async () => {
-    const { user, password, older, newer } = await personWithTwoOrganizations();
-    const firstToken = await login({ email: user.email, password });
+    const { user, older, newer } = await personWithTwoOrganizations();
+    const firstToken = await login({ email: user.email });
     await switchTo({ accessToken: firstToken, organizationPublicId: older.public_id });
 
     await getOperatorDatabase()
@@ -117,6 +113,6 @@ describe('login restores the last organization', () => {
       .set({ status: MEMBERSHIP_STATUS.SUSPENDED })
       .where(and(eq(memberships.user_id, user.id), eq(memberships.organization_id, older.id)));
 
-    expect(decodeOrgClaim(await login({ email: user.email, password }))).toBe(newer.public_id);
+    expect(decodeOrgClaim(await login({ email: user.email }))).toBe(newer.public_id);
   });
 });

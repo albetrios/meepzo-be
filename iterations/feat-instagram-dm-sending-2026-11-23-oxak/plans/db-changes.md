@@ -1879,6 +1879,11 @@ New rows in the existing tenancy tables (`tenancy.permissions`, `tenancy.roles`,
   every row's features rewritten to the typed shape of P83 (Stage 7, `plan`).
 - `auth.auth_methods`: every `PASSWORD` row revoked, and every `auth.users.password_hash` emptied, by the
   passwords-off migration; the column stays ([P84](decisions.md), AT1, ATQ1; routes-final § 10).
+  **Built R30** ([AS-BUILT](../AS-BUILT.md), [P205](decisions.md)): `20261124100000_auth_passwords_off.sql`
+  (`auth.users.password_hash` → NULL, live `auth.auth_methods` `PASSWORD` rows `revoked_at = now()`; NO FORCE /
+  FORCE bracket). No column change; `failed_login_count` / `account_locked_until` stay with no writer.
+  `PASSWORD_RESET` is gone from `VerificationTokenType` (existing rows untouched); the per-email wrong-code day
+  counter lives in Redis only.
 - `auth.verification_tokens`: a new token type `EMAIL_CONFIRM` (the email confirm link); `PASSWORD_RESET`
   goes with the password routes (UN6, UN7, P84; routes-final § 11).
 - Notification preferences keep their stored form — one row per type — and the routes speak kinds:

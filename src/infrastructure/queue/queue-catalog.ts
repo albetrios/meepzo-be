@@ -15,6 +15,7 @@ import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-
 import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
 import { AUDIT_RETENTION_QUEUE_NAME } from '@/domains/audit/workers/audit-retention.constants.js';
 import { AUDIT_OUTBOX_DRAIN_QUEUE_NAME } from '@/domains/audit/workers/audit-outbox-drain.constants.js';
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
@@ -38,7 +39,7 @@ import { IDEMPOTENCY_CARDINALITY_QUEUE_NAME } from '@/infrastructure/observabili
 import { DLQ_DEPTH_QUEUE_NAME } from '@/infrastructure/observability/dlq-depth/dlq-depth.constants.js';
 import { DLQ_AUTO_RETRY_QUEUE_NAME } from '@/infrastructure/queue/dlq/dlq-auto-retry.constants.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
-import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 
@@ -72,6 +73,7 @@ export const WORKER_QUEUE_NAMES = [
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
   INSTAGRAM_TASKS_QUEUE_NAME,
+  INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
   INSTAGRAM_SEND_SLOW_QUEUE_NAME,
   INSTAGRAM_SEND_FAST_QUEUE_NAME,
   AUDIT_RETENTION_QUEUE_NAME,
@@ -93,7 +95,7 @@ export const WORKER_QUEUE_NAMES = [
   UPLOAD_TOMBSTONE_RETENTION_QUEUE_NAME,
   UPLOAD_PENDING_SWEEP_QUEUE_NAME,
   USER_DATA_EXPORT_RETENTION_QUEUE_NAME,
-  INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+  CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
   AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
   AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
   IDEMPOTENCY_CARDINALITY_QUEUE_NAME,
@@ -121,6 +123,7 @@ export const WORKER_THROUGHPUT_QUEUE_NAMES = [
   SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
   INSTAGRAM_TASKS_QUEUE_NAME,
+  INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
   INSTAGRAM_SEND_SLOW_QUEUE_NAME,
   INSTAGRAM_SEND_FAST_QUEUE_NAME,
 ] as const;

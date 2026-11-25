@@ -34,8 +34,8 @@ export type DomainContainers = {
   notifyDomain: NotifyContainer;
   uploadDomain: UploadContainer;
   /**
-   * The Instagram automation (launch): its workers — the daily account check, the 7-day wait
-   * check — use its services.
+   * The Instagram automation (launch): its workers — the channel connection's token check, the
+   * 7-day wait check — use its services.
    */
   appDomain: AppContainer;
 };

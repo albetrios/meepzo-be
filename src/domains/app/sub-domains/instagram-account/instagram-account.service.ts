@@ -535,7 +535,7 @@ export class InstagramAccountService {
 
   /**
    * The one guarded way an account leaves `connected` (CA4, IA9): its channel account `connected` →
-   * `error` — for the pickers, the daily check and sub-domains 3–4 on an Instagram token error. The
+   * `error` — for the pickers, the account tasks and sub-domains 3–4 on an Instagram token error. The
    * call that wins enqueues the break's reconnect notice after the commit.
    *
    * @remarks

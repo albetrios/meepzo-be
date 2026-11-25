@@ -50,7 +50,7 @@ export interface InstagramReconnectNoticeServices {
  * - **Algorithm:** `sent` — `recipientCount` notifications written (each also emailed by the
  *   notification worker); `deduplicated` — this break was already told; `skipped` — the break is
  *   over (the account was reconnected or disconnected since), or nobody holds
- *   `instagram-account:manage`.
+ *   `channel-account:manage`.
  * - **Failure modes:** none — a return shape (the job's return value in Bull Board).
  * - **Side effects:** none.
  * - **Notes:** a skip completes the job; nothing is retried.
@@ -126,7 +126,8 @@ export function translateInstagramReconnectNotice({
 /**
  * Tells the organization that its Instagram account must be connected again (IA9, D10): one
  * in-app notification and one email, in the organization's language, linking to the Instagram
- * page, to every active member holding `instagram-account:manage` — once per break.
+ * page, to every active member holding `channel-account:manage` (Owner, Admin — CA4, WC-46) — once
+ * per account and break; each person's choices applied by notify's check before send (UN11).
  *
  * @remarks
  * - **Algorithm:** the organization's language first (cached); then one unit of work in the
@@ -174,7 +175,7 @@ export async function processInstagramReconnectNoticeJob({
       }
       const recipientUserIds = await services.membershipService.findActiveUserIdsWithPermission({
         scope,
-        permissionCode: APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE,
+        permissionCode: APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE,
       });
       if (recipientUserIds.length === 0) return { outcome: 'skipped', reason: 'no_recipients' };
 

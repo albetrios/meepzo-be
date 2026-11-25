@@ -5,6 +5,7 @@ import {
 import type {
   InstagramAccountKey,
   InstagramAccountPickValues,
+  InstagramAccountProfileRefreshValues,
   InstagramAccountRepository,
   InstagramAccountRow,
 } from './instagram-account.repository.js';
@@ -28,10 +29,9 @@ import type {
  *   extension's table.
  *
  * Notes:
- * - The workers' profile refresh and webhook stamp (the daily check, until ROUTE row R51's token
- *   check takes the refresh) write through the worker repository the same columns this service
- *   owns, on the job's handle. The account jobs (set-up, subscription check, starter-question sync,
- *   ROUTE row R40) write through this service in their job scope.
+ * - The connection's token check refreshes the profile through {@link recordProfileRefresh} (P17,
+ *   ROUTE row R51). The account jobs (set-up, subscription check, starter-question sync, ROUTE row
+ *   R40) write through this service in their job scope.
  */
 export class InstagramAccountExtensionService {
   constructor(private readonly accountRepository: InstagramAccountRepository) {}
@@ -120,6 +120,37 @@ export class InstagramAccountExtensionService {
     return withAppDatabaseContext({
       scope,
       callback: () => this.accountRepository.eraseProfile(instagramAccount),
+    });
+  }
+
+  /**
+   * The token check's profile refresh (P17, MC10): the profile fields and `profile_synced_at`,
+   * only while the channel account is not revoked and the row is still this Instagram account.
+   *
+   * @remarks
+   * Algorithm: one guarded update in the caller's unit. Failure modes: none. Side effects: at most
+   * one row written; returns whether it was. Notes: a username or count Meta left out keeps its
+   * stored value; Meta's profile read carries no `account_type` / `is_private` (P120), so they stay.
+   */
+  async recordProfileRefresh({
+    scope,
+    instagramAccount,
+    instagramUserId,
+    profile,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    instagramAccount: InstagramAccountKey;
+    instagramUserId: string;
+    profile: InstagramAccountProfileRefreshValues;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.accountRepository.recordProfileRefresh({
+          ...instagramAccount,
+          instagramUserId,
+          profile,
+        }),
     });
   }
 

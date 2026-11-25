@@ -28,11 +28,6 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
 }));
 
 import {
-  INSTAGRAM_ACCOUNT_DAILY_CHECK_JOB_NAME,
-  buildInstagramAccountDailyCheckJobId,
-  enqueueInstagramAccountDailyChecks,
-} from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
-import {
   INSTAGRAM_RECONNECT_NOTICE_JOB_NAME,
   buildInstagramReconnectNoticeJobId,
   enqueueInstagramReconnectNotice,
@@ -40,9 +35,9 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 
 /**
- * The two queues of launch R7: one daily check per account per UTC day (IA8, K8) and one reconnect
- * notice per account and break (IA9) — public ids only in the payload, the job ids that make both
- * safe to repeat.
+ * The reconnect notice queue of launch R7: one notice per account and break (IA9) — public ids only
+ * in the payload, the job id that makes it safe to repeat. (The launch's daily check queue went
+ * when the channel connection's token check replaced it, feat-instagram-dm-sending R51.)
  */
 
 const ORGANIZATION_PUBLIC_ID = 'org_acmeshop00000000000001';
@@ -52,59 +47,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   addMock.mockResolvedValue(undefined);
   addBulkMock.mockResolvedValue([]);
-});
-
-describe('daily account check queue', () => {
-  it('keys a check by account and UTC day: same day, same job; next day, a new one', () => {
-    const morning = new Date('2026-11-21T04:00:00.000Z');
-    const evening = new Date('2026-11-21T23:59:59.000Z');
-    const nextDay = new Date('2026-11-22T04:00:00.000Z');
-    const idOn = (checkedOn: Date) =>
-      buildInstagramAccountDailyCheckJobId({
-        instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-        checkedOn,
-      });
-
-    expect(idOn(morning)).toBe(`instagram-account-daily-check-${ACCOUNT_PUBLIC_ID}-2026-11-21`);
-    expect(idOn(evening)).toBe(idOn(morning));
-    expect(idOn(nextDay)).not.toBe(idOn(morning));
-    // BullMQ refuses a custom job id with a colon.
-    expect(idOn(morning)).not.toContain(':');
-  });
-
-  it('adds one job per account with the organization in the payload (K8), in one call', async () => {
-    const checkedOn = new Date('2026-11-21T04:00:00.000Z');
-
-    await expect(
-      enqueueInstagramAccountDailyChecks({
-        targets: [
-          {
-            organizationPublicId: ORGANIZATION_PUBLIC_ID,
-            instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-          },
-        ],
-        checkedOn,
-      }),
-    ).resolves.toBe(1);
-
-    expect(addBulkMock).toHaveBeenCalledWith([
-      {
-        name: INSTAGRAM_ACCOUNT_DAILY_CHECK_JOB_NAME,
-        data: {
-          organizationPublicId: ORGANIZATION_PUBLIC_ID,
-          instagramAccountPublicId: ACCOUNT_PUBLIC_ID,
-        },
-        opts: { jobId: `instagram-account-daily-check-${ACCOUNT_PUBLIC_ID}-2026-11-21` },
-      },
-    ]);
-  });
-
-  it('adds nothing for an empty page', async () => {
-    await expect(
-      enqueueInstagramAccountDailyChecks({ targets: [], checkedOn: new Date() }),
-    ).resolves.toBe(0);
-    expect(addBulkMock).not.toHaveBeenCalled();
-  });
 });
 
 describe('reconnect notice queue', () => {

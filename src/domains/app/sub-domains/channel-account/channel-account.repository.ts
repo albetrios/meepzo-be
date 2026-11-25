@@ -406,6 +406,28 @@ export class ChannelAccountRepository {
   }
 
   /**
+   * The token check's display name (P17, IA6 (4)): `display_name` from the refreshed profile, only
+   * while the account is not revoked and the name changed. Returns whether a row was written.
+   */
+  async updateDisplayName({
+    displayName,
+    ...key
+  }: ChannelAccountKey & { displayName: string }): Promise<boolean> {
+    const rows = await this.db()
+      .update(channel_accounts)
+      .set({ display_name: displayName, updated_at: accountUpdatedAtTimestamp })
+      .where(
+        and(
+          this.keyOf(key),
+          isLive,
+          sql`${channel_accounts.display_name} IS DISTINCT FROM ${displayName}`,
+        ),
+      )
+      .returning({ id: channel_accounts.id });
+    return rows.length > 0;
+  }
+
+  /**
    * The owner's pause (route 9, CA7): `paused_at` and `paused_by_user_id` set when not paused yet —
    * an already paused account keeps its first pause. Returns the row as it now stands, or `null`
    * when it is revoked.

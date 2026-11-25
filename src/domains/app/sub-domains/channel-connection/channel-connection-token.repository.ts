@@ -110,6 +110,35 @@ export class ChannelConnectionTokenRepository {
     return { ...row, tokenType: row.tokenType as ChannelConnectionTokenType };
   }
 
+  /**
+   * Replaces the access token's ciphertext with the same token under another key (S26: the token
+   * check moves a token still on an old key version) — only while the stored value is still
+   * `previousEncryptedAccessToken`, so a new token written meanwhile (a reconnect) is never
+   * overwritten. Returns whether the row was written.
+   */
+  async replaceEncryptedAccessToken({
+    organizationId,
+    channelConnectionId,
+    previousEncryptedAccessToken,
+    encryptedAccessToken,
+  }: ChannelConnectionKey & {
+    previousEncryptedAccessToken: string;
+    encryptedAccessToken: string;
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(channel_connection_tokens)
+      .set({ encrypted_access_token: encryptedAccessToken, updated_at: tokenUpdatedAtTimestamp })
+      .where(
+        and(
+          eq(channel_connection_tokens.organization_id, organizationId),
+          eq(channel_connection_tokens.channel_connection_id, channelConnectionId),
+          eq(channel_connection_tokens.encrypted_access_token, previousEncryptedAccessToken),
+        ),
+      )
+      .returning({ id: channel_connection_tokens.id });
+    return rows.length > 0;
+  }
+
   /** Deletes the connection's token; returns whether one was there. */
   async deleteByConnection({
     organizationId,
@@ -130,8 +159,9 @@ export class ChannelConnectionTokenRepository {
 
 /**
  * {@link ChannelConnectionTokenRepository} bound to a job's organization handle — the worker paths
- * that read a token right before a provider call (the daily account check today; the token check
- * at ROUTE row R51 and the sender at R42).
+ * that read a token right before a provider call (the account tasks on `instagram-tasks`, the
+ * connection's token check — MC10, which also re-encrypts an old-key token, S26 — and the sender at
+ * R42).
  */
 export function createWorkerChannelConnectionTokenRepository(
   databaseHandle: WorkerDatabaseHandle,

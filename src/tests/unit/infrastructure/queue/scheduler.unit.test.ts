@@ -66,12 +66,12 @@ describe('infrastructure queue scheduler', () => {
       // launch-2026-11-20-ujai WH19: the 30-day Instagram webhook event clean-up, daily at 03:00
       'instagram-webhook-event-retention',
       'audit-export',
-      // Launch IA8: the daily Instagram account check's sweep rides its queue
-      // (job `sweep-connected-instagram-accounts`).
-      'instagram-account-daily-check',
-      // feat-instagram-dm-sending WC-25 (R40): the 10-minute webhook subscription sweep rides it too
-      // (job `sweep-instagram-webhook-subscriptions`).
-      'instagram-account-daily-check',
+      // feat-instagram-dm-sending MC10 (WC-34): the channel connection's hourly token-check sweep
+      // (job `sweep-due-channel-connections`) — it replaced the launch's daily account check — and
+      // the 10-minute webhook subscription sweep (WC-25, R40; job
+      // `sweep-instagram-webhook-subscriptions`) ride its queue.
+      'channel-connection-token-check',
+      'channel-connection-token-check',
       // launch-2026-11-20-ujai D8 (AU25, AQ7): the hourly 7-day wait cancel, then the daily
       // deleted-automation (03:40) clean-up; runs and comment logs go by month-part drops since
       // feat-instagram-dm-sending R14 (AU36)
@@ -231,9 +231,9 @@ describe('infrastructure queue scheduler', () => {
     const schedulerHandle = await registerScheduledJobs();
     expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(36);
     // Each scheduled job opens one Queue for upsert (36) + the reconcile pass opens one Queue per
-    // unique queue name (35 — the seat reconcile, the export reclaim, the Instagram daily-check
-    // sweep and the Instagram stuck-event pick-up ride queues no other cron uses; the 10-minute
-    // webhook subscription sweep shares the daily-check queue, R40), each closed in
+    // unique queue name (35 — the seat reconcile, the export reclaim, the channel connection
+    // token-check sweep and the Instagram stuck-event pick-up ride queues no other cron uses; the
+    // 10-minute webhook subscription sweep shares the token-check queue, R40), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
     expect(queueCloseMock).toHaveBeenCalledTimes(71);

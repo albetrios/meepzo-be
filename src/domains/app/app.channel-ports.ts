@@ -162,6 +162,8 @@ export interface ChannelFailedMessagesTarget {
   organizationId: number;
   by: 'automation' | 'contact';
   id: number;
+  /** The owner's public id (`aut_…` / `con_…`) — the retry job names it (no bigserial in a job). */
+  ownerPublicId: string;
 }
 
 /** The failed messages of about the last 30 days, counted (SN18; the Failed messages summary). */

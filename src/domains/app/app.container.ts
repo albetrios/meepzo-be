@@ -54,6 +54,7 @@ import { AutomationCountService } from './sub-domains/automation/automation-coun
 import { AutomationReplyStateRepository } from './sub-domains/automation/automation-reply-state.repository.js';
 import { AutomationReplyStateService } from './sub-domains/automation/automation-reply-state.service.js';
 import type {
+  AutomationAttachmentUploadPort,
   AutomationMessageFilePort,
   AutomationOpenRunCancelStep,
 } from './sub-domains/automation/automation.types.js';
@@ -92,6 +93,14 @@ import {
   buildInstagramAccountTaskHandlers,
 } from './sub-domains/instagram-account/workers/instagram-account-tasks.processor.js';
 import type { InstagramReconnectNoticeServices } from './sub-domains/instagram-account/workers/instagram-reconnect-notice.processor.js';
+import {
+  broadcastSendQueue,
+  contactBulkActionQueue,
+  createAppTaskHandlers,
+  instagramAttachmentUploadQueue,
+  instagramMessageRetryQueue,
+  segmentBackgroundCountPort,
+} from './app.tasks.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
@@ -117,12 +126,12 @@ import type { InstagramReconnectNoticeServices } from './sub-domains/instagram-a
  *
  * @remarks
  * The connection's token service is exposed for the Instagram workers that call Meta with an
- * account's connection token; the daily check's processor reads it through the worker token
- * repository (MC9). The connection reaches accounts through its account port — the channel
+ * account's connection token; the token check and the account tasks read it through the worker
+ * token repository (MC9). The connection reaches accounts through its account port — the channel
  * account service (`ChannelAccountService`, ROUTE row R5), which also serves routes 6–11 and the one
  * feature check the go-live, settings, broadcasts and the engine call (CA11). The worker process builds
- * this container too (`createDomainContainers` → `appDomain`), for the daily check's guarded status
- * change (IA8, IA9) and for Instagram webhook event processing (WH12–WH14), which drives the
+ * this container too (`createDomainContainers` → `appDomain`), for the account tasks' guarded status
+ * change (IA9) and for Instagram webhook event processing (WH12–WH14), which drives the
  * account, events, contact, media, automation and run-engine services from it.
  */
 export type AppContainer = {
@@ -232,6 +241,23 @@ function createChannelConnectionService(options: {
 }
 
 /**
+ * Route 12's channel account port (P42, CA11). The channel account service depends on the settings
+ * service, so route 12 reaches it through this port; each call reads the service at request time,
+ * after both are built.
+ */
+function createSettingsChannelAccountPort(
+  readChannelAccountService: () => ChannelAccountService,
+): InstagramAccountSettingsChannelAccountPort {
+  return {
+    requireLiveInstagramAccount: (input) =>
+      readChannelAccountService().requireLiveInstagramAccount(input),
+    setAutomationEnabled: (input) => readChannelAccountService().setAutomationEnabled(input),
+    canChannelAccountUseFeature: (input) =>
+      readChannelAccountService().canChannelAccountUseFeature(input),
+  };
+}
+
+/**
  * The Instagram account sub-domain's services (routes-final § 2): the extension's one writer
  * (2.A.10, ROUTE row R6), the settings and the account service, over the channel account repository
  * that moves the account's status (CA4, CA8).
@@ -294,8 +320,8 @@ const NO_INSTAGRAM_SEND_WORK: InstagramSendWork = {
  * and the usable-file read). The segment delete runs the broadcasts' draft step (BC17).
  *
  * @remarks
- * Notes: the segments' background count and the broadcasts' send queue join at ROUTE row R46;
- * wiring only, no side effects.
+ * Notes: the segments' background count and the broadcasts' send queue are ROUTE row R46's
+ * (`app.tasks.ts`); wiring only, no side effects.
  */
 function createBroadcastServices({
   organizationService,
@@ -317,13 +343,18 @@ function createBroadcastServices({
     organizationService,
     (input) => channelAccountService.readAutomationAccount(input),
     featureCheck,
-    { monthLimit: messageMonthCountService, messageFilePort },
+    // Route 75's background work — the audience build and the matched count (R46).
+    { monthLimit: messageMonthCountService, messageFilePort, sendQueue: broadcastSendQueue },
   );
   const broadcastSegmentService = new BroadcastSegmentService(
     segmentRepository,
     organizationService,
     featureCheck,
-    { deleteSteps: [(input) => broadcastService.clearDraftSegment(input)] },
+    {
+      deleteSteps: [(input) => broadcastService.clearDraftSegment(input)],
+      // Route 82's background count and its 60 s copy (BC14, WC-39 — R46).
+      backgroundCount: segmentBackgroundCountPort,
+    },
   );
   return { broadcastSegmentService, broadcastService };
 }
@@ -571,6 +602,8 @@ function createContactServices({
           broadcastRecipientService.skipContactWaitingRecipients(input).then(() => undefined),
       ],
       tagEventRecorder: contactTagEventService,
+      // Route 21's job (WC-36, S19 — R46).
+      bulkActionQueue: contactBulkActionQueue,
       sendingPorts: channelSendingPorts,
       runEventReader,
     },
@@ -598,12 +631,15 @@ function createAutomationServices({
   messageFilePort,
   channelSendingPorts,
   broadcastRecipientService,
+  attachmentUploads,
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
   planAccessService: ChannelConnectionPlanAccessService;
   messageMonthCountService: MessageMonthCountService;
   messageFilePort: AutomationMessageFilePort | undefined;
+  /** The message files' upload ahead of their sends (WC-32, R46). */
+  attachmentUploads: AutomationAttachmentUploadPort;
   /** The channels' sending ports (AU35) — one record shared by the automations and the run engine. */
   channelSendingPorts: ChannelSendingPorts;
   /** Broadcast recipients (7.C, R23) — the contact erase and pause steps. */
@@ -648,6 +684,8 @@ function createAutomationServices({
             channelAccountPublicId,
           }),
       },
+      // WC-32's upload ahead of the sends (R46) — the channel's attachment service.
+      attachmentUploads,
     },
   );
   const { contactService, contactTagEventService, contactErasureSteps } = createContactServices({
@@ -705,6 +743,8 @@ function createSendAccessServices({
   const instagramAttachmentService = new InstagramAttachmentService({
     sendAccessService: instagramSendAccessService,
     filePort: messageFilePort ?? { findUsableMessageFile: async () => null },
+    // WC-32's `attachment-upload` task (R46): go-live and a live file change upload ahead.
+    uploadQueue: instagramAttachmentUploadQueue,
   });
   return { instagramSendAccessService, instagramAttachmentService };
 }
@@ -712,7 +752,8 @@ function createSendAccessServices({
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
  * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45); the task handlers already registered (the account jobs', R40) are kept.
+ * rules yet (R43–R45); the task handlers already registered (the account jobs', R40) are kept and
+ * R46's (`createAppTaskHandlers`) are added; R41's at its row.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -737,7 +778,25 @@ function createInstagramSendWork(
     // The lanes' own rules plug in at R43–R45; until then a ticket is logged and finished.
     laneRules: {},
   });
-  return { ...container.instagramSendWork, laneTurn: sendCore, fastMessage: sendCore };
+  const baseWork = container.instagramSendWork;
+  return {
+    ...baseWork,
+    laneTurn: sendCore,
+    fastMessage: sendCore,
+    // ROUTE row R46's tasks (S19): the upload on `instagram-tasks`, the database-heavy four on
+    // `instagram-database-tasks` — beside the account jobs' (R40).
+    taskHandlers: { ...baseWork.taskHandlers, ...createAppTaskHandlers(container) },
+  };
+}
+
+/** The connection's repository and its one token path (MC9) — shared by the account and connection services. */
+function createConnectionToken() {
+  const channelConnectionRepository = new ChannelConnectionRepository();
+  const channelConnectionTokenService = new ChannelConnectionTokenService(
+    new ChannelConnectionTokenRepository(),
+    channelConnectionRepository,
+  );
+  return { channelConnectionRepository, channelConnectionTokenService };
 }
 
 /**
@@ -778,6 +837,20 @@ function createInstagramAccountTaskWork({
   return { instagramSendWork, instagramAccountTaskSlots };
 }
 
+/** The cross-domain services {@link createAppContainer} is given (its parameters). */
+export interface AppContainerDependencies {
+  organizationService: OrganizationService;
+  /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
+  planAccessService: ChannelConnectionPlanAccessService;
+  /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
+  trialPort: ChannelConnectionTrialPort;
+  /**
+   * The upload domain's usable-file read (`UploadService.findUsableMessageFile`, R12) — go-live's
+   * file check (AU13 check 15) and the Instagram attachment (6.C, R20); absent in a unit test.
+   */
+  messageFilePort?: (AutomationMessageFilePort & InstagramAttachmentFilePort) | undefined;
+}
+
 /**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
@@ -795,35 +868,22 @@ export function createAppContainer({
   planAccessService,
   trialPort,
   messageFilePort,
-}: {
-  organizationService: OrganizationService;
-  /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
-  planAccessService: ChannelConnectionPlanAccessService;
-  /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
-  trialPort: ChannelConnectionTrialPort;
-  /**
-   * The upload domain's usable-file read (`UploadService.findUsableMessageFile`, R12) — go-live's
-   * file check (AU13 check 15) and the Instagram attachment (6.C, R20); absent in a unit test.
-   */
-  messageFilePort?: (AutomationMessageFilePort & InstagramAttachmentFilePort) | undefined;
-}): AppContainer {
-  // One port per channel (AU35): Instagram's message service (R19) — the engine, built below.
+}: AppContainerDependencies): AppContainer {
+  // One port per channel (AU35): Instagram's message service (R19, the retry job R46).
   const instagramMessageService = new InstagramMessageService({
     recordRunMessageResult: (input) => automation.automationRunService.recordMessageResult(input),
     recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
     recordContactOpeningMessage: (input) =>
       automation.contactService.recordContactOpeningMessage(input),
+    retryQueue: instagramMessageRetryQueue,
+    reopenRetriedRuns: (input) => automation.automationRunService.reopenRetriedRuns(input),
   });
   const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
   // Broadcast recipients (§ 7.C, R23): every broadcast message through the account's channel's port.
   const broadcastRecipientService = new BroadcastRecipientService({
     sendingPorts: channelSendingPorts,
   });
-  const channelConnectionRepository = new ChannelConnectionRepository();
-  const channelConnectionTokenService = new ChannelConnectionTokenService(
-    new ChannelConnectionTokenRepository(),
-    channelConnectionRepository,
-  );
+  const { channelConnectionRepository, channelConnectionTokenService } = createConnectionToken();
   // The sending sub-domain's root (§ 6.A, ROUTE row R18).
   const sending = createInstagramSendingServices(planAccessService);
   const {
@@ -834,15 +894,7 @@ export function createAppContainer({
   } = createInstagramAccountServices({
     organizationService,
     channelConnectionTokenService,
-    // The channel account service depends on the settings service, so route 12 reaches it through
-    // this port; each call runs at request time, after both are built.
-    settingsChannelAccountPort: {
-      requireLiveInstagramAccount: (input) =>
-        channelAccountService.requireLiveInstagramAccount(input),
-      setAutomationEnabled: (input) => channelAccountService.setAutomationEnabled(input),
-      canChannelAccountUseFeature: (input) =>
-        channelAccountService.canChannelAccountUseFeature(input),
-    },
+    settingsChannelAccountPort: createSettingsChannelAccountPort(() => channelAccountService),
     settingsLanePort: sending.instagramSendLaneService,
   });
   // The channel account (1B, R5): routes 6–11, the feature check, the connection's account port —
@@ -859,8 +911,7 @@ export function createAppContainer({
     sending.instagramSendLaneService,
     new ChannelAccountPlanStopService(planAccessService, sending.messageMonthCountService),
   );
-  // The connection reaches accounts through the channel account (R5), lanes through 6 (R18) and a
-  // trial pick through billing's trial port (R24).
+  // The connection: accounts via 1B (R5), lanes via 6 (R18), a trial pick via billing (R24).
   const channelConnectionService = createChannelConnectionService({
     channelConnectionRepository,
     channelConnectionTokenService,
@@ -887,8 +938,14 @@ export function createAppContainer({
     channelAccountService,
     lanePort: sending.instagramSendLaneService,
   });
+  const sendAccess = createSendAccessServices({
+    instagramAccountService,
+    sending,
+    messageFilePort,
+  });
   // The automations, their runs and the contacts (§ 3, § 5).
   const automation = createAutomationServices({
+    attachmentUploads: sendAccess.instagramAttachmentService,
     organizationService,
     channelAccountService,
     planAccessService,
@@ -928,7 +985,7 @@ export function createAppContainer({
     }),
     broadcastRecipientService,
     instagramMessageService,
-    ...createSendAccessServices({ instagramAccountService, sending, messageFilePort }),
+    ...sendAccess,
   };
   return { ...container, instagramSendWork: createInstagramSendWork(container) };
 }

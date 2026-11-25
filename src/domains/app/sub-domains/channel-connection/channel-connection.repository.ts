@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -26,6 +26,13 @@ function readOrganizationPublicIds(result: unknown): string[] {
     organization_public_id: string;
   }>;
   return rows.map((row) => row.organization_public_id);
+}
+
+/** One connection the token check's sweep hands to the queue (MC10). */
+export interface ChannelConnectionTokenCheckCandidate {
+  id: number;
+  channelConnectionPublicId: string;
+  organizationPublicId: string;
 }
 
 /** `updated_at` for every change of a connection — never before the row's `created_at`. */
@@ -327,6 +334,98 @@ export class ChannelConnectionRepository {
   }
 
   /**
+   * One connection by its public id inside the job's organization (MC10's token check), any
+   * status, or `null` — the organization is named by its public id, as the job carries it.
+   */
+  async findByPublicIdInOrganization({
+    organizationPublicId,
+    channelConnectionPublicId,
+  }: {
+    organizationPublicId: string;
+    channelConnectionPublicId: string;
+  }): Promise<ChannelConnectionRow | null> {
+    const rows = await this.db()
+      .select({ connection: channel_connections })
+      .from(channel_connections)
+      .innerJoin(organizations, eq(organizations.id, channel_connections.organization_id))
+      .where(
+        and(
+          eq(organizations.public_id, organizationPublicId),
+          eq(channel_connections.public_id, channelConnectionPublicId),
+        ),
+      )
+      .limit(1);
+    return rows[0]?.connection ?? null;
+  }
+
+  /**
+   * The token check's stamp (MC10): `last_checked_at` = now and `last_check_error` (cleared on a
+   * pass, Meta's codes only on a refused read) — only while the connection is still `connected`.
+   * Returns whether a row was written.
+   */
+  async recordTokenCheck({
+    organizationId,
+    channelConnectionId,
+    lastCheckError,
+  }: ChannelConnectionKey & { lastCheckError: string | null }): Promise<boolean> {
+    const rows = await this.db()
+      .update(channel_connections)
+      .set({
+        last_checked_at: databaseNowTimestamp,
+        last_check_error: lastCheckError,
+        updated_at: connectionUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          eq(channel_connections.organization_id, organizationId),
+          eq(channel_connections.id, channelConnectionId),
+          eq(channel_connections.status, 'connected'),
+        ),
+      )
+      .returning({ id: channel_connections.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * One page of the `connected` connections of every live organization whose last token check is
+   * older than `dueBefore` (or never ran), by id after `afterId` — the hourly sweep's
+   * cross-organization read (MC10, `idx_channel_connections_check_due`). Runs only on a retention
+   * handle ({@link createRetentionChannelConnectionRepository}): the sweep arm is in the policy's
+   * `USING` only, so it reads every organization's row and can write none.
+   */
+  async listDueForTokenCheck({
+    dueBefore,
+    afterId,
+    limit,
+  }: {
+    dueBefore: Date;
+    afterId: number;
+    limit: number;
+  }): Promise<ChannelConnectionTokenCheckCandidate[]> {
+    return this.db()
+      .select({
+        id: channel_connections.id,
+        channelConnectionPublicId: channel_connections.public_id,
+        organizationPublicId: organizations.public_id,
+      })
+      .from(channel_connections)
+      .innerJoin(organizations, eq(organizations.id, channel_connections.organization_id))
+      .where(
+        and(
+          eq(channel_connections.status, 'connected'),
+          or(
+            isNull(channel_connections.last_checked_at),
+            lte(channel_connections.last_checked_at, dueBefore),
+          ),
+          isNull(organizations.deleted_at),
+          gt(channel_connections.id, afterId),
+        ),
+      )
+      .orderBy(asc(channel_connections.id))
+      .limit(limit);
+  }
+
+  /**
    * The organization lock of the channel account limit (MC7, plan:L3553): a transaction-scoped
    * advisory lock on the organization id — two first connects of one organization have no row to
    * lock yet. Must run inside the transaction that counts and connects.
@@ -348,5 +447,17 @@ export function createWorkerChannelConnectionRepository(
   databaseHandle: WorkerDatabaseHandle,
 ): ChannelConnectionRepository {
   assertWorkerDatabaseContext(['organization']);
+  return new ChannelConnectionRepository(databaseHandle);
+}
+
+/**
+ * {@link ChannelConnectionRepository} bound to a retention maintenance handle — the token check's
+ * hourly sweep across organizations (MC10), through the sweep arm the connection policy carries in
+ * `USING` only.
+ */
+export function createRetentionChannelConnectionRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): ChannelConnectionRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
   return new ChannelConnectionRepository(databaseHandle);
 }

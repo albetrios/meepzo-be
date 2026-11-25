@@ -13,7 +13,12 @@ connection; ROUTE row R3 added the tables `app.channel_connections`, `app.channe
 `app.channel_connection_usages`, routes 1–5, 40 and 42 (start, callback, reconnect, pick, list, one, disconnect
 business) and the token path; ROUTE row R4 the ad picker (routes 41 and 15) and the connection's break on Meta's 190
 (MC11); ROUTE row R9 moved Meta's two callbacks here (routes 16–17, P46) with the account-then-business match (P56).
-The daily token check lands at R51.
+ROUTE row R51 added the connection's daily token check (MC10, WC-34): `queues/channel-connection-token-check.*`
+and `workers/channel-connection-token-check.*` — an hourly sweep hands one check per connection due 24 hours after its
+last check to the `channel-connection-token-check` queue; the check reads `/me/assigned_instagram_accounts`, breaks the
+connection on a refused token (MC11), breaks an account missing from the list alone (`account_not_shared`), refreshes
+each connected account's profile and `display_name` (P17), re-encrypts a token still on an old key (S26) and stamps
+`last_checked_at`; Meta down defers the check to a later sweep (never a paused queue, F3).
 
 ## Routes (under `/api/v1/app`)
 
@@ -71,6 +76,10 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
   code). An unmatched id is logged at error level (`app.channel_connection.meta_callback.unmatched`) and goes to
   `ChannelConnectionMetaCallbackTeamAlertPort` — the team email, wired at ROUTE row R53. Audit
   `app.channel_connection.deauthorize` / `.data_deletion` (WARNING, anonymous, `source = 'meta'`, `match`).
+- `queues/channel-connection-token-check.{queue,job.schema}.ts`, `workers/channel-connection-token-check.{worker,processor,constants}.ts`
+  — the daily token check (MC10): the hourly sweep (`sweep-due-channel-connections`, `runGlobalRetentionWorkerJob`
+  over `idx_channel_connections_check_due`) and one job per due connection (job id connection + UTC hour), payload
+  `organizationPublicId`, `channelConnectionPublicId`; a plain retention-family worker gated on the Meta settings.
 - `seed/` — one Meta connection with a fake encrypted token per demo team organization.
 - `channel-connection-meta/` — the Meta provider adapter (no table, no route): the one Meta client, the login address
   and code exchange, the usage headers, the error map and the two signature checks

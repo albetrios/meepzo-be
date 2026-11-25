@@ -47,6 +47,11 @@ skips them (`contact_excluded` · `opted_out`) in the same commit. Every tag cha
   `ContactPauseStep` (CTC4), `ContactAutomationFilterResolver`, the tag-event port
   `ContactTagEventRecorder` (3.B, built by `contact-tag-event/` at ROUTE R11) and the bulk queue port
   `ContactBulkActionQueue` (WC-36, ROUTE R46)
+- `queues/contact-bulk-action.job.schema.ts`, `workers/contact-bulk-action.processor.ts` — the
+  `contact-bulk-action` task (WC-36, R46): its job name, input (route 21's selection, the acting user,
+  the token, the piece number, the cursor) and one piece through `applyBulkActionPiece`, chaining the
+  next; the app container wraps it as an Instagram database-heavy task (S19) — `contact/` imports no
+  channel
 - `contact-tag-event/` — nested: `app.contact_tag_events`, one row per tag change written in its
   commit, handed to intake after it; no routes
 - `contact.dto.ts`, `contact.validator.ts` — the list and tag-list queries, route 20's and 21's
@@ -81,8 +86,10 @@ skips them (`contact_excluded` · `opted_out`) in the same commit. Every tag cha
   field (AC-5.10): intake sets it through `recordContactOptOut`, which runs the same steps with
   `opted_out`.
 - **The bulk action (route 21, CT7):** ids (1–500) or a filter, the matches counted up to 100,000
-  (`422 contact_bulk_too_many`), then one job through `ContactBulkActionQueue`; until ROUTE R46 wires
-  the job, the route answers `503 contact_bulk_action_unavailable` after validating and counting.
+  (`422 contact_bulk_too_many`), then one job through `ContactBulkActionQueue` and `200` with
+  `is_queued: true`. The job works 500 contacts a piece, one commit each, each changed as on route 20
+  (the tag count, a tag event, the pause steps); a re-run writes nothing twice (R46). Without the port
+  (a unit test) the route answers `503 contact_bulk_action_unavailable`.
 - **The tag list (route 22, S7, P64):** the account is read back inside the organization's scope
   (`404 channel_account_not_found`), then one index range of `app.contact_tag_counts`, most first —
   no cache: the table is kept in every tag commit (P123).

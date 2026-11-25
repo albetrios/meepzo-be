@@ -126,12 +126,12 @@ describe('translateInstagramReconnectNotice', () => {
 });
 
 describe('processInstagramReconnectNoticeJob', () => {
-  it('sends the instagram-account:manage holders an in-app and email notice, keyed by the break', async () => {
+  it('sends the channel-account:manage holders an in-app and email notice, keyed by the break', async () => {
     await expect(runNotice()).resolves.toEqual({ outcome: 'sent', recipientCount: 2 });
 
     expect(membershipService.findActiveUserIdsWithPermission).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      permissionCode: APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE,
+      permissionCode: APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE,
     });
     expect(organizationSettingsService.resolveDefaultLocaleForOrganization).toHaveBeenCalledWith(
       ORGANIZATION_PUBLIC_ID,
@@ -160,7 +160,7 @@ describe('processInstagramReconnectNoticeJob', () => {
     expect(notificationService.createOrganizationNotifications).not.toHaveBeenCalled();
   });
 
-  it('completes without a notice when nobody holds instagram-account:manage', async () => {
+  it('completes without a notice when nobody holds channel-account:manage', async () => {
     membershipService.findActiveUserIdsWithPermission.mockResolvedValue([]);
 
     await expect(runNotice()).resolves.toEqual({ outcome: 'skipped', reason: 'no_recipients' });

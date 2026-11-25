@@ -96,10 +96,10 @@ export interface InstagramAccountPickValues {
 }
 
 /**
- * One `connected` account as the daily sweep lists it (IA8): the keyset cursor and the two public
- * handles its per-organization job carries — never a bigserial in the job.
+ * One `connected` account as the webhook subscription sweep lists it (WC-25): the keyset cursor and
+ * the two public handles its per-organization job carries — never a bigserial in the job.
  */
-export interface InstagramAccountDailyCheckCandidate {
+export interface InstagramAccountSweepCandidate {
   /** `app.instagram_accounts.id` — the sweep's keyset cursor only. */
   id: number;
   /** `cha_…` — the account's one id (P47). */
@@ -126,8 +126,8 @@ export interface InstagramAccountProfileRefreshValues {
  * Drizzle access to `app.instagram_accounts`, the 1:1 Instagram extension of a channel account
  * (routes-final § 2.A.3, IAC6): the organization's live accounts, the pick's upsert, the webhook
  * stamp and its clearing on a revoke, the profile refresh and erase, the locked accounts of one
- * Instagram id for Meta's callbacks and of the whole organization for its delete (D54), the daily
- * check's sweep page, and the two SECURITY DEFINER resolvers (IA6).
+ * Instagram id for Meta's callbacks and of the whole organization for its delete (D54), the
+ * subscription sweep's page, and the two SECURITY DEFINER resolvers (IA6).
  *
  * @remarks
  * - **Algorithm:** every read joins the channel account (1:1, same organization) for the account's
@@ -494,7 +494,7 @@ export class InstagramAccountRepository {
 
   /**
    * One account by its public id (the channel account's, `cha_…`), any status, only when it belongs
-   * to the organization with this public id — the daily check's and the reconnect notice's read
+   * to the organization with this public id — the account jobs' and the reconnect notice's read
    * (their jobs carry public ids only); `null` otherwise.
    */
   async findByPublicIdInOrganization({
@@ -521,18 +521,18 @@ export class InstagramAccountRepository {
 
   /**
    * One page of the `connected` accounts of every live organization, by id after `afterId` — the
-   * daily sweep's cross-organization read (IA8). Runs only on a retention handle
+   * webhook subscription sweep's cross-organization read (WC-25). Runs only on a retention handle
    * ({@link createRetentionInstagramAccountRepository}): the sweep arm is in the `USING` of both the
    * extension's and the channel account's policies, so it reads every organization's rows and can
    * write none.
    */
-  async listConnectedForDailyCheck({
+  async listConnectedForSubscriptionCheck({
     afterId,
     limit,
   }: {
     afterId: number;
     limit: number;
-  }): Promise<InstagramAccountDailyCheckCandidate[]> {
+  }): Promise<InstagramAccountSweepCandidate[]> {
     return this.db()
       .select({
         id: instagram_accounts.id,
@@ -616,7 +616,7 @@ export class InstagramAccountRepository {
 /**
  * {@link InstagramAccountRepository} bound to a job's organization handle (a job-minted organization
  * scope, or `runOrganizationScopedWorkerJob`) — event processing, the
- * daily check's per-organization job, the reconnect notice.
+ * account jobs, the reconnect notice.
  */
 export function createWorkerInstagramAccountRepository(
   databaseHandle: WorkerDatabaseHandle,
@@ -626,8 +626,8 @@ export function createWorkerInstagramAccountRepository(
 }
 
 /**
- * {@link InstagramAccountRepository} bound to a retention maintenance handle — the daily sweep's
- * cross-organization read of the `connected` accounts (IA8), through the sweep arm the account
+ * {@link InstagramAccountRepository} bound to a retention maintenance handle — the webhook subscription
+ * sweep's cross-organization read of the `connected` accounts (WC-25), through the sweep arm the account
  * policy carries in `USING` only.
  */
 export function createRetentionInstagramAccountRepository(

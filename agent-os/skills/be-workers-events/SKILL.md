@@ -39,7 +39,7 @@ options, caps `removeOnComplete` / `removeOnFail`, and adds retry jitter
 | Queue | Attempts | Backoff |
 | ----- | -------- | ------- |
 | `notification`, `user-data-export`, `instagram-reconnect-notice` | 3 | exponential from 5 s |
-| `instagram-account-daily-check` | 3 | exponential from 1 min |
+| `channel-connection-token-check` | 3 | exponential from 1 min |
 | `subscription-seat-sync`, `instagram-webhook` | 5 | exponential from 5 s |
 | `stripe-webhook` | 5 | custom, doubling from 10 s (`stripe-webhook-backoff.util.ts`) |
 | `mail` | 8 | custom, doubling from 5 s (`mail-backoff.util.ts`) |
@@ -47,7 +47,7 @@ options, caps `removeOnComplete` / `removeOnFail`, and adds retry jitter
 
 Attempts are spent only on failures that are the job's own. A queue whose every job calls one
 third-party provider (`mail` → Resend, `stripe-webhook` and `subscription-seat-sync` → Stripe,
-`user-data-export` → S3, `instagram-account-daily-check` and `instagram-webhook` → Instagram) is created with `createProviderPausableWorker`
+`user-data-export` → S3, `instagram-webhook` → Instagram) is created with `createProviderPausableWorker`
 (`src/infrastructure/queue/worker-runtime/provider-outage-pause.util.ts`): while the provider is down
 the whole queue pauses on every replica and probes every five minutes, and the failed job is parked
 without spending an attempt. It declares `PROVIDER_OUTAGE_PAUSABLE_LIMITER` because BullMQ enforces a

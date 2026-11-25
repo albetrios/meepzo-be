@@ -1,10 +1,18 @@
 import { randomUUID } from 'node:crypto';
+import { Queue } from 'bullmq';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import { env } from '@/shared/config/env.config.js';
+import {
+  getBullMQConnectionOptions,
+  getBullMQKeyPrefix,
+} from '@/infrastructure/queue/connection.js';
+import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
+import { CONTACT_BULK_ACTION_JOB_NAME } from '@/domains/app/sub-domains/contact/queues/contact-bulk-action.job.schema.js';
+import type { InstagramSendTicketContext } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
@@ -1115,15 +1123,62 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
       expect(errorOf(response).reason).toBe('channel_account_not_found');
     });
 
-    it('counts a good selection and, until the bulk job lands (R46), answers 503 contact_bulk_action_unavailable', async () => {
-      await contactOfTeam({ tags: ['vip'] });
-
-      const response = await bulk({
-        payload: { action: 'pause_automations', filter: { tags: 'vip' } },
+    it('counts a good selection, answers at once and queues the bulk job, which changes the contacts (AC-5.6, R46)', async () => {
+      const tasks = new Queue(INSTAGRAM_DATABASE_TASKS_QUEUE_NAME, {
+        connection: getBullMQConnectionOptions(),
+        prefix: getBullMQKeyPrefix(),
       });
+      try {
+        await tasks.obliterate({ force: true });
+        const vip = await contactOfTeam({ tags: ['vip'] });
+        const other = await contactOfTeam({ tags: ['other'] });
 
-      expect(response.statusCode).toBe(503);
-      expect(errorOf(response).reason).toBe('contact_bulk_action_unavailable');
+        const response = await bulk({
+          payload: { action: 'pause_automations', filter: { tags: 'vip' } },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(dataOf(response)).toEqual({
+          action: 'pause_automations',
+          matched_count: 1,
+          is_queued: true,
+        });
+        // Nothing changed yet: the job does it (WC-36).
+        expect((await readContactRow(vip.id))?.automations_off_at).toBeNull();
+        const [job] = await tasks.getJobs(['waiting', 'prioritized']);
+        expect(job?.name).toBe(CONTACT_BULK_ACTION_JOB_NAME);
+        expect(job?.data).toMatchObject({
+          organizationPublicId: team.organization.public_id,
+          taskInput: {
+            pieceNumber: 1,
+            channelAccountPublicId: account.public_id,
+            action: 'pause_automations',
+            contactPublicIds: null,
+            filter: { tags: ['vip'] },
+            afterContactPublicId: null,
+          },
+        });
+
+        // The worker's handler, as the database-heavy task worker runs it.
+        const handler = app.appDomain.instagramSendWork.taskHandlers[CONTACT_BULK_ACTION_JOB_NAME];
+        const context: InstagramSendTicketContext = {
+          jobId: String(job?.id),
+          runInDatabaseSlot: (callback) => callback(),
+          returnTicket: async () => {
+            throw new Error('not returned');
+          },
+        };
+        await handler?.run({
+          organizationPublicId: team.organization.public_id,
+          taskInput: handler.inputSchema.parse(job?.data.taskInput),
+          context,
+        });
+        expect((await readContactRow(vip.id))?.automations_off_at).toBeInstanceOf(Date);
+        expect((await readContactRow(other.id))?.automations_off_at).toBeNull();
+      } finally {
+        await tasks.obliterate({ force: true });
+        await tasks.close();
+      }
     });
 
     it('refuses a Viewer with 403 missing_permission (AC-5.11)', async () => {
@@ -1279,7 +1334,7 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
         ]) {
           statuses.push((await update({ contactPublicId: contact.public_id, payload })).statusCode);
         }
-        // Route 21: a search filter holding her email (the bulk job is R46's — a 503 until then).
+        // Route 21: a search filter holding her email (queued for the bulk job, R46).
         const bulk = await injectAuthenticated(app, {
           method: 'POST',
           url: CONTACT_BULK_ACTIONS_PATH,
@@ -1300,7 +1355,7 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
         captured.restore();
       }
 
-      expect(statuses).toEqual([200, 400, 200, 503, 200, 204]);
+      expect(statuses).toEqual([200, 400, 200, 200, 200, 204]);
       const written = captured.lines.join('\n');
       // The capture saw every request: one `request.complete` line each, by route pattern.
       const completed = captured.lines
@@ -1311,7 +1366,7 @@ describe('Contact routes (list, open, update, bulk, tags, erase)', () => {
         '200 contacts/:contact_id',
         '400 contacts/:contact_id',
         '200 contacts/:contact_id',
-        '503 contacts/bulk-actions',
+        '200 contacts/bulk-actions',
         '200 contact-tags',
         '204 contacts/:contact_id',
       ]);

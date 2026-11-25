@@ -1,3 +1,4 @@
+import { and, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PRINCIPAL_SCOPE,
@@ -30,7 +31,9 @@ import {
   readInstagramMessages,
   readInstagramSendAttempts,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
+import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 
@@ -543,6 +546,7 @@ describe('InstagramMessageService (database)', () => {
         organizationId: organization.id,
         by: 'automation' as const,
         id: automation.id,
+        ownerPublicId: automation.public_id,
       };
       const summary = await messages.summarizeFailedMessages(target);
       expect(summary).toEqual({
@@ -617,13 +621,19 @@ describe('InstagramMessageService (database)', () => {
         organizationId: organization.id,
         by: 'automation' as const,
         id: automation.id,
+        ownerPublicId: automation.public_id,
       };
       expect((await messages.summarizeFailedMessages(target)).notRetryable.text_refused).toBe(1);
       expect((await messages.retryFailedMessages(target)).expectedRetryCount).toBe(0);
       expect((await readInstagramMessages(organization.id))[0]?.status).toBe('failed');
 
       // Fixed text: it goes once; when it fails again it stays failed and is never retried again.
-      const contactTarget = { ...target, by: 'contact' as const, id: open.id };
+      const contactTarget = {
+        ...target,
+        by: 'contact' as const,
+        id: open.id,
+        ownerPublicId: open.public_id,
+      };
       await insertInstagramMessage({
         run,
         channelAccountId: account.channel_account_id,
@@ -633,6 +643,96 @@ describe('InstagramMessageService (database)', () => {
       expect(
         (await messages.summarizeFailedMessages(contactTarget)).notRetryable.already_retried,
       ).toBe(1);
+    });
+
+    it("reopens a retried message's failed run with its open key, and leaves one whose automation and person hold another open run (plan §33.10 rules 2 and 4, R46)", async () => {
+      const retrying = new InstagramMessageService({
+        recordRunMessageResult: (input) => engine.recordMessageResult(input),
+        recordBroadcastMessageResult: async () => undefined,
+        reopenRetriedRuns: (input) => engine.reopenRetriedRuns(input),
+      });
+      const automation = await insertAutomation({
+        organizationId: organization.id,
+        channelAccountId: account.channel_account_id,
+        status: 'live',
+        keywords: ['guide'],
+      });
+      const failedRun = (who: ContactFixtureRow) =>
+        insertAutomationRun({
+          organizationId: organization.id,
+          automationId: automation.id,
+          contactId: who.id,
+          status: 'failed',
+          failed_at: new Date(),
+          error_message: 'messages: failed:no_answer',
+          waiting_for: null,
+          waiting_since_at: null,
+        });
+      const open = await insertContact({
+        organizationId: organization.id,
+        instagramAccountId: account.id,
+        username: 'open',
+        last_direct_message_received_at: new Date(Date.now() - HOUR),
+      });
+      const busy = await insertContact({
+        organizationId: organization.id,
+        instagramAccountId: account.id,
+        username: 'busy',
+        last_direct_message_received_at: new Date(Date.now() - HOUR),
+      });
+      const reopened = await failedRun(open);
+      await insertInstagramMessage({ run: reopened, channelAccountId: account.channel_account_id });
+      const blocked = await failedRun(busy);
+      await insertInstagramMessage({ run: blocked, channelAccountId: account.channel_account_id });
+      // Her newer run of the same automation is open: it holds the automation-and-person key.
+      const newer = await insertAutomationRun({
+        organizationId: organization.id,
+        automationId: automation.id,
+        contactId: busy.id,
+      });
+
+      const retried = await retrying.retryAllowedFailedMessages({
+        target: {
+          scope: scope(),
+          organizationId: organization.id,
+          by: 'automation',
+          id: automation.id,
+          ownerPublicId: automation.public_id,
+        },
+      });
+
+      expect(retried).toBe(1);
+      const rows = await readInstagramMessages(organization.id);
+      expect(rows.find((row) => row.automation_run_id === reopened.id)).toMatchObject({
+        status: 'waiting',
+      });
+      expect(rows.find((row) => row.automation_run_id === blocked.id)).toMatchObject({
+        status: 'failed',
+        owner_retry_at: null,
+      });
+      expect(await readRunRow(reopened.id)).toMatchObject({
+        status: 'running',
+        failed_at: null,
+        error_message: null,
+      });
+      expect((await readRunRow(blocked.id))?.status).toBe('failed');
+      const keys = await getOperatorDatabase()
+        .select()
+        .from(automation_run_open_keys)
+        .where(
+          and(
+            eq(automation_run_open_keys.organization_id, organization.id),
+            eq(automation_run_open_keys.automation_id, automation.id),
+          ),
+        );
+      expect(
+        keys.map((key) => [key.contact_id, key.automation_run_id]).sort((a, b) => a[0]! - b[0]!),
+      ).toEqual(
+        [
+          [open.id, reopened.id],
+          [busy.id, newer.id],
+        ].sort((a, b) => a[0]! - b[0]!),
+      );
     });
   });
 });

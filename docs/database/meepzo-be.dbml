@@ -365,6 +365,7 @@ Note app.broadcast_recipients {
 
 Table app.broadcasts {
   AND 
+  audience_built_at timestamptz
   cancel_reason varchar(16)
   cancelled_at timestamptz
   channel varchar(10) [not null]

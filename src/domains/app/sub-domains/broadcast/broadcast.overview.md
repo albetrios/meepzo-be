@@ -64,9 +64,10 @@ stateDiagram-v2
   waiting_for_chats --> cancelled: route 76 or plan_feature_off
 ```
 
-After route 75's commit the send queue (ROUTE row R46, `BroadcastSendQueuePort`) adds the
-`broadcast-audience` task for `now` and the `segment-count` task for a waiting broadcast's
-`matched`; until R46 nothing is queued. A cancelled broadcast's waiting recipients and messages are
+After route 75's commit the send queue (ROUTE row R46, `BroadcastSendQueuePort`, `app.tasks.ts`)
+adds the `broadcast-audience` task for `now` (`bcaud-<brc_…>-1`; each piece chains the next and its
+last sets `audience_built_at`, the end duty's mark) and the `segment-count` task for a waiting
+broadcast's `matched`; a failed add is logged, the send stays committed. A cancelled broadcast's waiting recipients and messages are
 settled by the end duty (R47).
 
 ## Ports for later rows

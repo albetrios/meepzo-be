@@ -47,11 +47,11 @@ import { USER_DATA_EXPORT_RECLAIM_JOB_NAME } from '@/domains/user/sub-domains/us
 import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-catchup.constants.js';
 import { STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-retention.constants.js';
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
-import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import {
-  INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
+  CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME,
   INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME,
-} from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.constants.js';
+} from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.constants.js';
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
@@ -137,10 +137,11 @@ const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 const DEFAULT_INSTAGRAM_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 const DEFAULT_AUDIT_EXPORT_CRON = '15 2 * * *';
 /**
- * Launch IA8: the daily Instagram account check — renew tokens ending within 7 days, refresh the
- * profiles, subscribe again what is not subscribed — after the 03:xx clean-ups.
+ * feat-instagram-dm-sending MC10 (WC-34): the channel connection's token check sweep, every hour —
+ * each connection is checked once every 24 hours, spread over the day by connection. A fixed
+ * cadence, not a setting. It replaced the launch's daily Instagram account check (IA8).
  */
-const DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON = '0 4 * * *';
+const DEFAULT_CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_CRON = '0 * * * *';
 /**
  * feat-instagram-dm-sending WC-25 (ROUTE row R40): every 10 minutes
  * (`INSTAGRAM_WEBHOOK_SUBSCRIPTION_CHECK_MINUTES`), each connected account's webhook subscription
@@ -539,14 +540,14 @@ export function getScheduledJobs(): ScheduledJob[] {
         cronPattern: env.AUDIT_EXPORT_CRON ?? DEFAULT_AUDIT_EXPORT_CRON,
       },
     }),
-    // The sweep rides the daily-check queue; its worker adds one check per connected account.
+    // The hourly sweep rides the token-check queue; its worker adds one check per due connection.
     withSchedulerTimezone({
       timezone,
       job: {
-        queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
-        schedulerId: 'daily-instagram-account-check',
-        jobName: INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
-        cronPattern: DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON,
+        queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
+        schedulerId: 'hourly-channel-connection-token-check',
+        jobName: CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_CRON,
       },
     }),
     // The 10-minute webhook subscription sweep rides the same queue (WC-25); its checks run on
@@ -554,7 +555,7 @@ export function getScheduledJobs(): ScheduledJob[] {
     withSchedulerTimezone({
       timezone,
       job: {
-        queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+        queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
         schedulerId: 'instagram-webhook-subscription-sweep',
         jobName: INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME,
         cronPattern: DEFAULT_INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_CRON,

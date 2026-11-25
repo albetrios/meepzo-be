@@ -78,6 +78,7 @@ import type {
   AutomationPageOutput,
   AutomationPauseInput,
   AutomationProblem,
+  AutomationAttachmentUploadPort,
   AutomationStarterQuestionSyncQueue,
   AutomationUpdateInput,
   AutomationWarning,
@@ -123,6 +124,8 @@ export interface AutomationServicePorts {
   messageFiles?: AutomationMessageFilePort | undefined;
   /** The starter-question sync after commit (IA6, R40). */
   starterQuestionSync?: AutomationStarterQuestionSyncQueue | undefined;
+  /** The message files' upload after a go-live or a live file change (WC-32, R46). */
+  attachmentUploads?: AutomationAttachmentUploadPort | undefined;
   /** Each channel's sending port (AU35, R19–R20): the waiting messages a delete or edit ends. */
   sendingPorts?: ChannelSendingPorts | undefined;
   /** The automation's open past-comments read on its object (`open_backfill`, 4.C — R15). */
@@ -519,6 +522,18 @@ export class AutomationService {
           });
         }
         await this.skipRemovedWaitingMessages({ stored, merged, organizationId: organization.id });
+        if (stored.status === 'live') {
+          const storedUploads = new Set(
+            listAutomationUploads(storedFields.steps).map((upload) => upload.uploadPublicId),
+          );
+          await this.requestAttachmentUploads({
+            scope,
+            channelAccountPublicId: stored.channel_account_public_id,
+            uploadPublicIds: listAutomationUploads(merged.steps)
+              .map((upload) => upload.uploadPublicId)
+              .filter((uploadPublicId) => !storedUploads.has(uploadPublicId)),
+          });
+        }
         if (
           stored.status === 'live' &&
           this.isStarterQuestionChange({ stored: storedFields, merged })
@@ -646,6 +661,13 @@ export class AutomationService {
             channelAccountPublicId: stored.channel_account_public_id,
           });
         }
+        await this.requestAttachmentUploads({
+          scope,
+          channelAccountPublicId: stored.channel_account_public_id,
+          uploadPublicIds: listAutomationUploads(fields.steps).map(
+            (upload) => upload.uploadPublicId,
+          ),
+        });
         const warnings = [
           ...(await this.listKeywordWarnings({
             organizationId: organization.id,
@@ -810,6 +832,7 @@ export class AutomationService {
       organizationId,
       by: 'automation',
       id: automationId,
+      ownerPublicId: automationPublicId,
     });
     return serializeFailedMessagesSummary(summary ?? emptyFailedMessagesSummary());
   }
@@ -840,6 +863,7 @@ export class AutomationService {
       organizationId,
       by: 'automation',
       id: automationId,
+      ownerPublicId: automationPublicId,
     })) ?? { summary: emptyFailedMessagesSummary(), expectedRetryCount: 0, isQueued: false };
     return { data: serializeFailedMessagesRetry(retry), retry };
   }
@@ -1482,6 +1506,37 @@ export class AutomationService {
         name: other.name,
       },
     }));
+  }
+
+  /**
+   * Asks the channel to upload the automation's message files after commit (WC-32, R46) — none, or
+   * no port, does nothing; a failed add is logged (the send uploads the file before its first send).
+   */
+  private async requestAttachmentUploads({
+    scope,
+    channelAccountPublicId,
+    uploadPublicIds,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+    uploadPublicIds: readonly string[];
+  }): Promise<void> {
+    const port = this.ports.attachmentUploads;
+    if (port === undefined || uploadPublicIds.length === 0) return;
+    await runEnqueueAfterCommit(async () => {
+      try {
+        await port.requestAttachmentUploads({
+          organizationPublicId: scope.organizationPublicId,
+          channelAccountPublicId,
+          uploadPublicIds,
+        });
+      } catch (error) {
+        logger.warn(
+          { error_name: (error as Error | null)?.name, channelAccountPublicId },
+          'app.automation.attachment_upload_enqueue_failed',
+        );
+      }
+    });
   }
 
   /** Enqueues the starter-question sync after commit when wired (IA6, R40). */

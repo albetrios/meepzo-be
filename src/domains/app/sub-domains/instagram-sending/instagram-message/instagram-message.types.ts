@@ -29,16 +29,37 @@ export type InstagramMessageBroadcastResultPort = (
 ) => Promise<void>;
 
 /**
- * The `retry-failed` job on `instagram-tasks` (WC-42, ROUTE row R46): one job per automation or
- * contact (job id `retry-failed-<aut_… or con_…>`), added after the press. Until R46 wires it the
- * retry runs in the request, piece by piece (P136).
+ * The `retry-failed` job on the database-heavy task queue (WC-42, S19 — ROUTE row R46): one job per
+ * automation or contact and minute (job id `retry-failed-<aut_… or con_…>-<minute>`), added after
+ * the press. Without it (a unit test) the retry runs in the request, piece by piece (P136).
  */
 export interface InstagramMessageRetryQueue {
   enqueueRetryFailed(input: {
     organizationPublicId: string;
     by: 'automation' | 'contact';
-    id: number;
+    /** `aut_…` / `con_…` — the job names the owner by public id (no bigserial in a job). */
+    ownerPublicId: string;
   }): Promise<void>;
+}
+
+/**
+ * The run engine's step of the retry (plan §33.10 rule 4 — `AutomationRunService.reopenRetriedRuns`,
+ * R46): the runs that ended `failed` wait for their retried message again, their open keys back, in
+ * the piece's commit — a closure in the app container, the engine is built after.
+ */
+export type InstagramMessageRunReopenPort = (input: {
+  databaseHandle: WorkerDatabaseHandle;
+  organizationId: number;
+  runs: ReadonlyArray<{ runId: number; runStartedAt: Date }>;
+}) => Promise<number>;
+
+/**
+ * What the retry's work takes besides its owner (WC-42): each piece's database slot (the task's) and
+ * what to do after each piece's commit (wake the accounts' lanes).
+ */
+export interface InstagramMessageRetryOptions {
+  runInDatabaseSlot?: (<T>(callback: () => Promise<T>) => Promise<T>) | undefined;
+  afterPiece?: ((input: { channelAccountIds: readonly number[] }) => Promise<void>) | undefined;
 }
 
 /** The claim's message and attempt parts (SN3 (d)) — the lanes' commit adds the gates (R42). */

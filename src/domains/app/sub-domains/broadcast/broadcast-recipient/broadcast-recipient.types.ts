@@ -15,8 +15,11 @@ export interface BroadcastAudiencePieceInput {
   databaseHandle: ChannelPortDatabaseHandle;
   /** The broadcast the job names (`brc_…`). */
   broadcastPublicId: string;
-  /** The last contact id the previous piece read; `0` for the first piece. */
-  afterContactId: number;
+  /**
+   * The contact the previous piece ended on (`con_…`, the chained job's cursor); `null` for the
+   * first piece. One no longer found starts over (the inserts are once per person).
+   */
+  afterContactPublicId: string | null;
 }
 
 /**
@@ -26,10 +29,15 @@ export interface BroadcastAudiencePieceInput {
 export interface BroadcastAudiencePieceResult {
   createdCount: number;
   skippedCount: number;
-  /** The last contact id this piece read — the next piece's `afterContactId`. */
-  lastContactId: number;
-  /** `true` when no contact is left after this piece, or the broadcast is no longer `sending`. */
+  /** The last contact this piece read (`con_…`) — the next piece's `afterContactPublicId`. */
+  lastContactPublicId: string | null;
+  /**
+   * `true` when no contact is left after this piece (the broadcast's "audience built" mark is set
+   * in this commit), or the broadcast is no longer `sending`.
+   */
   isLastPiece: boolean;
+  /** The broadcast's account — the sending lane to wake after commit; `null` when not `sending`. */
+  channelAccount: { organizationId: number; channelAccountId: number } | null;
 }
 
 /** What a "when her chat opens" hook did with her (BC17): a new row, the `owner_chat` row put back, or nothing. */

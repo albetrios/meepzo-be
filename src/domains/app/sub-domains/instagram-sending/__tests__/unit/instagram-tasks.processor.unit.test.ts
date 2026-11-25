@@ -14,7 +14,12 @@ vi.mock('@/infrastructure/queue/dlq/poison-job.util.js', () => ({
 }));
 
 import type { InstagramTaskHandler } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
-import { processInstagramTaskTicket } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.processor.js';
+import {
+  INSTAGRAM_DATABASE_TASK_QUEUE,
+  INSTAGRAM_META_TASK_QUEUE,
+  InstagramTaskOrganizationCap,
+  processInstagramTaskTicket,
+} from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.processor.js';
 
 /** A BullMQ job stand-in: its id, name, data and the move a ticket that goes back makes. */
 function fakeJob({ name = 'job', data = {} }: { name?: string; data?: unknown } = {}) {
@@ -29,7 +34,7 @@ function fakeJob({ name = 'job', data = {} }: { name?: string; data?: unknown } 
 const allowed = { mayTakeTickets: vi.fn(async () => true) };
 const refused = { mayTakeTickets: vi.fn(async () => false) };
 
-describe('Instagram tasks on instagram-tasks (SN2 — ROUTE row R37)', () => {
+describe('Instagram tasks on instagram-tasks and instagram-database-tasks (SN2, S19 — ROUTE rows R37, R46)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -80,6 +85,7 @@ describe('Instagram tasks on instagram-tasks (SN2 — ROUTE row R37)', () => {
         token: 'lock',
         jobData,
         services,
+        queue: INSTAGRAM_DATABASE_TASK_QUEUE,
       });
       expect(databaseTask.run).toHaveBeenCalledWith({
         organizationPublicId: jobData.organizationPublicId,
@@ -96,8 +102,97 @@ describe('Instagram tasks on instagram-tasks (SN2 — ROUTE row R37)', () => {
           token: 'lock',
           jobData: badData,
           services: { sendingGate: allowed, taskHandlers: { 'database-task': handler(false) } },
+          queue: INSTAGRAM_DATABASE_TASK_QUEUE,
         }),
       ).rejects.toBeInstanceOf(UnrecoverableError);
+    });
+
+    it('refuses a task on the queue of the other kind: the split holds (S19, R46)', async () => {
+      const metaTask = handler(true);
+      const databaseTask = handler(false);
+      const services = {
+        sendingGate: allowed,
+        taskHandlers: { 'meta-task': metaTask, 'database-task': databaseTask },
+      };
+      await expect(
+        processInstagramTaskTicket({
+          job: fakeJob({ name: 'database-task', data: jobData }),
+          token: 'lock',
+          jobData,
+          services,
+          queue: INSTAGRAM_META_TASK_QUEUE,
+        }),
+      ).rejects.toBeInstanceOf(UnrecoverableError);
+      await expect(
+        processInstagramTaskTicket({
+          job: fakeJob({ name: 'meta-task', data: jobData }),
+          token: 'lock',
+          jobData,
+          services,
+          queue: INSTAGRAM_DATABASE_TASK_QUEUE,
+        }),
+      ).rejects.toBeInstanceOf(UnrecoverableError);
+      expect(metaTask.run).not.toHaveBeenCalled();
+      expect(databaseTask.run).not.toHaveBeenCalled();
+    });
+
+    it("holds an organization at its cap: its next task goes back, no try used; another organization's runs (S19, R46)", async () => {
+      const databaseTask = handler(false);
+      let release: () => void = () => {};
+      databaseTask.run.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const services = {
+        sendingGate: allowed,
+        taskHandlers: { 'database-task': databaseTask },
+        organizationCap: new InstagramTaskOrganizationCap(1),
+      };
+      const first = processInstagramTaskTicket({
+        job: fakeJob({ name: 'database-task', data: jobData }),
+        token: 'lock',
+        jobData,
+        services,
+        queue: INSTAGRAM_DATABASE_TASK_QUEUE,
+      });
+      await vi.waitFor(() => expect(databaseTask.run).toHaveBeenCalledTimes(1));
+
+      const heldJob = fakeJob({ name: 'database-task', data: jobData });
+      await expect(
+        processInstagramTaskTicket({
+          job: heldJob,
+          token: 'lock',
+          jobData,
+          services,
+          queue: INSTAGRAM_DATABASE_TASK_QUEUE,
+        }),
+      ).rejects.toBeInstanceOf(DelayedError);
+      expect(heldJob.moveToDelayed).toHaveBeenCalledTimes(1);
+      expect(databaseTask.run).toHaveBeenCalledTimes(1);
+
+      const otherData = { ...jobData, organizationPublicId: 'org_bbbbbbbbbbbbbbbbbbbbb' };
+      await processInstagramTaskTicket({
+        job: fakeJob({ name: 'database-task', data: otherData }),
+        token: 'lock',
+        jobData: otherData,
+        services,
+        queue: INSTAGRAM_DATABASE_TASK_QUEUE,
+      });
+      expect(databaseTask.run).toHaveBeenCalledTimes(2);
+
+      release();
+      await first;
+      // The place came back: the organization's next task runs.
+      await processInstagramTaskTicket({
+        job: fakeJob({ name: 'database-task', data: jobData }),
+        token: 'lock',
+        jobData,
+        services,
+        queue: INSTAGRAM_DATABASE_TASK_QUEUE,
+      });
+      expect(databaseTask.run).toHaveBeenCalledTimes(3);
     });
   });
 });

@@ -52,8 +52,11 @@ No routes of its own: contacts (routes 24–26) and automations (routes 36–37)
 - **The owner's retry** (SN18): failed messages of the last 30 days, never `unknown`, `skipped`,
   `expired`, `cancelled` or a broadcast; each at most once (`owner_retry_at`); not when too old, her
   chat is closed, final for her (erased, opted out, paused, a person error) or the automation is still
-  stopped for a refused text. Until the `retry-failed` job lands (R46) the retry runs in the request,
-  500 per commit, and answers `is_queued: false`.
+  stopped for a refused text, nor while her automation and person hold another run's open key (it
+  stays `failed`, unmarked). The press queues the `retry-failed` job on `instagram-database-tasks`
+  (R46; `is_queued: true`), which works 500 per commit, reopens each retried message's `failed` run
+  with its open key (`reopenRetriedRuns`, plan §33.10 rule 4) and wakes the accounts' lanes; without
+  the queue (a unit test) it runs in the request and answers `is_queued: false`.
 
 ## Tests
 

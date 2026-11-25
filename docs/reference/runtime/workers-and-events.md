@@ -89,7 +89,7 @@ Producers fail fast while Redis is unreachable or full (`noeviction` rejects wri
 | Notification | row written, then deleted when its dispatch fails | not recovered — dropped by design |
 | Data export | `auth.user_data_exports` row, left `pending` | `reclaim-pending-user-data-exports` — a repeatable job on the export queue itself, every 5 min, re-enqueues exports still `pending` after 5 min; the job id is the export's public id |
 | Instagram reconnect notice | none — the break is on `app.channel_accounts` (`connection_status` `error`, keyed by its `updated_at` at the break), but no row records the notice | not recovered — logged (`app.instagram_account.reconnect_notice_enqueue_failed`); the Instagram page still shows the reconnect card |
-| Instagram daily account check | none — the sweep lists the `connected` accounts | the next day's sweep lists the accounts again (a token is renewed 7 days ahead) |
+| Channel connection token check | none — the sweep lists the connections due (`last_checked_at` 24 h old or more) | the next hourly sweep lists the connection again (it is still due); the 10-minute webhook subscription sweep on the same queue adds its checks again the next window |
 | Instagram webhook event processing | `app.instagram_webhook_events` rows, left `received` / `queued` | `reclaim-instagram-webhook-events` — a repeatable job on the processing queue itself, every minute, re-adds the job of every account with an event still waiting 5 min after it arrived and not claimed in 5 min (up to 100 accounts a run); the per-account deduplication makes the add a no-op while the account's job is live |
 
 An enqueue failure never marks an outbox row failed: it leaves the row for its sweep.
@@ -127,7 +127,7 @@ options, caps `removeOnComplete` / `removeOnFail`, and adds retry jitter
 | Queue | Attempts | Backoff |
 | ----- | -------- | ------- |
 | `notification`, `user-data-export`, `instagram-reconnect-notice` | 3 | exponential from 5 s |
-| `instagram-account-daily-check` | 3 | exponential from 1 min |
+| `channel-connection-token-check` | 3 | exponential from 1 min |
 | `subscription-seat-sync`, `instagram-webhook` | 5 | exponential from 5 s |
 | `stripe-webhook` | 5 | custom, doubling from 10 s (`stripe-webhook-backoff.util.ts`) |
 | `mail` | 8 | custom, doubling from 5 s (`mail-backoff.util.ts`) |
@@ -148,7 +148,7 @@ minutes until the provider is back; then everything that waited is processed.
 | `mail` | `resend` |
 | `stripe-webhook`, `subscription-seat-sync` | `stripe` |
 | `user-data-export` | `s3` |
-| `instagram-account-daily-check`, `instagram-webhook` | `instagram` |
+| `instagram-webhook` | `instagram` |
 
 - **What counts as an outage** (`toProviderOutageError`): the provider's circuit is open (the call
   never left), or a failure leaves the circuit not CLOSED — it tripped it, or it was a half-open probe
@@ -249,7 +249,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 | `isEnabled()`                     | Optional skip (e.g. mail/Stripe disabled by env)                                                                                                                                                                                                                                        |
 | `create()`                        | Factory invoked by bootstrap                                                                                                                                                                                                                                                            |
 
-Currently **43 workers** are registered (**40** use Postgres, **3** are Redis-only — `idempotency-cardinality`, `dlq-depth`, `commit-dispatch-recovery`; **35** run a cron — four of them, `subscription-seat-sync`, `user-data-export`, `instagram-account-daily-check` and `instagram-webhook`, also take jobs added by others, their sweep riding the same queue — and **8** are event-driven only, among them the Instagram send and task queues `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks` (family `instagram`, run in the existing `worker` service — P140), which register only while `SENDING_ENABLED` is on). Add a new worker by appending one entry — bootstrap, scheduler filtering, connection budgeting, and the scheduler-registry audit pick it up automatically — and add its queue constant to `WORKER_QUEUE_NAMES` in [`queue-catalog.ts`](../../../src/infrastructure/queue/queue-catalog.ts) (plus `WORKER_THROUGHPUT_QUEUE_NAMES` for a throughput worker), which gives it a depth gauge, a sampled and trimmed DLQ, a heartbeat read-out and a Bull Board entry. `queue-catalog.coverage.unit.test.ts` fails until you do.
+Currently **44 workers** are registered (**41** use Postgres, **3** are Redis-only — `idempotency-cardinality`, `dlq-depth`, `commit-dispatch-recovery`; **35** run a cron — four of them, `subscription-seat-sync`, `user-data-export`, `channel-connection-token-check` and `instagram-webhook`, also take jobs added by others, their sweep riding the same queue — and **9** are event-driven only, among them the Instagram send and task queues `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks` (family `instagram`, run in the existing `worker` service — P140), which register only while `SENDING_ENABLED` is on, and the database-heavy `instagram-database-tasks` (bulk contact changes, segment counts, broadcast audiences, the failed-message retry — split from the Meta-calling `instagram-tasks` with a per-organization cap, scale review S19, P217), which runs with sending off too). Add a new worker by appending one entry — bootstrap, scheduler filtering, connection budgeting, and the scheduler-registry audit pick it up automatically — and add its queue constant to `WORKER_QUEUE_NAMES` in [`queue-catalog.ts`](../../../src/infrastructure/queue/queue-catalog.ts) (plus `WORKER_THROUGHPUT_QUEUE_NAMES` for a throughput worker), which gives it a depth gauge, a sampled and trimmed DLQ, a heartbeat read-out and a Bull Board entry. `queue-catalog.coverage.unit.test.ts` fails until you do.
 
 Every worker the bootstrap starts carries three hooks: the dead-letter + Sentry `failed` listener, the job-duration histogram, and the queue heartbeat (`worker:queue:<name>:last_job_at`, written at most every 5 s per queue). `/readyz` answers `stalled` when every recorded throughput heartbeat is older than `WORKER_HEALTH_STALL_TIMEOUT_MS` while jobs wait in a throughput queue that is not paused for its provider.
 

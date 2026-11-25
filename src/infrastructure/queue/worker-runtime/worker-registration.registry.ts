@@ -77,8 +77,8 @@ import { createInstagramWebhookEventRetentionWorker } from '@/domains/app/sub-do
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { createNotificationRetentionWorker } from '@/domains/notify/sub-domains/notification/workers/notification-retention.worker.js';
 import { NOTIFICATION_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-retention.constants.js';
-import { createInstagramAccountDailyCheckWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.worker.js';
-import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { createChannelConnectionTokenCheckWorker } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.worker.js';
+import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { createInstagramSendSlowWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-slow.worker.js';
@@ -87,6 +87,8 @@ import { createInstagramSendFastWorker } from '@/domains/app/sub-domains/instagr
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { createInstagramTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.worker.js';
 import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { createInstagramDatabaseTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-database-tasks.worker.js';
+import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
 import { INSTAGRAM_DATABASE_SLOT_LIMITER_NAME } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { isMetaConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';
@@ -247,8 +249,8 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: () => createNotificationWorker(),
   },
   {
-    // Launch IA9: tells the organization's `instagram-account:manage` holders, in the app and by
-    // email, that its Instagram account must be connected again — one job per account and break,
+    // Launch IA9 (WC-46): tells the organization's `channel-account:manage` holders (CA4), in the app
+    // and by email, that its Instagram account must be connected again — one job per account and break,
     // enqueued after the guarded status change commits (API and worker processes alike).
     queueName: INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME,
     family: 'notify',
@@ -474,6 +476,24 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
         taskHandlers: workerContainers.appDomain.instagramSendWork.taskHandlers,
       }),
   },
+  {
+    queueName: INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
+    family: 'instagram',
+    logLabel: 'Instagram database task worker',
+    usesPostgres: true,
+    scheduled: false,
+    criticality: 'throughput',
+    holdsConnectionDuringExternalIo: false,
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
+    // No `isEnabled`: the bulk changes, counts, audiences and retries call no Meta, so they run
+    // with sending off too (S19, P217) — a bulk tag change or a segment count is not sending.
+    create: (workerContainers) =>
+      createInstagramDatabaseTasksWorker({
+        sendingGate: workerContainers.appDomain.sendingStateService,
+        taskHandlers: workerContainers.appDomain.instagramSendWork.taskHandlers,
+      }),
+  },
   retentionDefinition({
     queueName: WEBHOOK_TOMBSTONE_RETENTION_QUEUE_NAME,
     family: 'retention',
@@ -550,19 +570,22 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     holdsConnectionDuringExternalIo: false,
     create: () => createUserDataExportRetentionWorker(),
   }),
-  // Launch IA8: the daily Instagram account check — the 04:00 UTC sweep and one check per
-  // connected account ride one queue. Provider-pausable on the `instagram` circuit; every
-  // Instagram call runs between two short organization contexts, never inside one. Off until the
-  // Instagram app is configured (no account can be connected before).
+  // feat-instagram-dm-sending MC10 (WC-34): the channel connection's daily token check — the hourly
+  // sweep and one check per due connection ride one queue (it replaced the launch's daily
+  // Instagram account check, IA8), with the 10-minute webhook subscription sweep (WC-25, R40). Never paused (F3): a check that meets
+  // Meta down returns `deferred` and the next sweep adds it again. Every Meta call runs between two
+  // short organization contexts, never inside one. Off until the Meta app is configured.
   retentionDefinition({
-    queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+    queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
     family: 'retention',
-    logLabel: 'Instagram account daily check worker',
+    logLabel: 'channel connection token check worker',
     holdsConnectionDuringExternalIo: false,
     isEnabled: () => isMetaConfigured(),
     create: (workerContainers) =>
-      createInstagramAccountDailyCheckWorker({
-        accountService: workerContainers.appDomain.instagramAccountService,
+      createChannelConnectionTokenCheckWorker({
+        connectionService: workerContainers.appDomain.channelConnectionService,
+        accountPort: workerContainers.appDomain.channelAccountService,
+        usageService: workerContainers.appDomain.channelConnectionUsageService,
       }),
   }),
   // Launch D8 (routes-final § 3.B AU25, AQ7): the run and automation clean-ups — every hour the

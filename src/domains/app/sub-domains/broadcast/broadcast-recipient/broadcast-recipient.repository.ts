@@ -113,8 +113,54 @@ export class BroadcastRecipientRepository {
   }
 
   /**
-   * One piece of a broadcast's audience (WC-40): up to `limit` contact ids after `afterContactId`,
-   * in id order, that match the copy of its conditions, are not left out (BC13, 7.10) and whose chat
+   * The audience cursor's contact (WC-40): the internal id of the contact the previous piece ended
+   * on, named by public id in the chained job (no bigserial in a job, be-workers-events); `null`
+   * when there is none (the next piece then starts over — its inserts are once per person).
+   */
+  async findContactIdByPublicId({
+    organizationId,
+    contactPublicId,
+  }: {
+    organizationId: number;
+    contactPublicId: string;
+  }): Promise<number | null> {
+    const [row] = await this.db()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(eq(contacts.organization_id, organizationId), eq(contacts.public_id, contactPublicId)),
+      )
+      .limit(1);
+    return row?.id ?? null;
+  }
+
+  /**
+   * The "audience built" mark (7.A.10, WC-40): set once, in the commit of the audience build's last
+   * piece, while the broadcast is `sending` — the end duty (WC-29) ends it only after.
+   */
+  async markAudienceBuilt({
+    organizationId,
+    broadcastId,
+  }: {
+    organizationId: number;
+    broadcastId: number;
+  }): Promise<void> {
+    await this.db()
+      .update(broadcasts)
+      .set({ audience_built_at: sql`now()` })
+      .where(
+        and(
+          eq(broadcasts.organization_id, organizationId),
+          eq(broadcasts.id, broadcastId),
+          eq(broadcasts.status, 'sending'),
+          isNull(broadcasts.audience_built_at),
+        ),
+      );
+  }
+
+  /**
+   * One piece of a broadcast's audience (WC-40): up to `limit` contacts (id and public id) after
+   * `afterContactId`, in id order, that match the copy of its conditions, are not left out (BC13, 7.10) and whose chat
    * is open now.
    */
   async listAudiencePiece({
@@ -131,10 +177,10 @@ export class BroadcastRecipientRepository {
     automationIds: SegmentAutomationIds;
     afterContactId: number;
     limit: number;
-  }): Promise<number[]> {
+  }): Promise<Array<{ id: number; public_id: string }>> {
     const chatOpenSince = sql`now() - make_interval(secs => ${CONTACT_CHAT_WINDOW_MS / 1000}::double precision)`;
-    const rows = await this.db()
-      .select({ id: contacts.id })
+    return this.db()
+      .select({ id: contacts.id, public_id: contacts.public_id })
       .from(contacts)
       .innerJoin(
         contact_activities,
@@ -157,7 +203,6 @@ export class BroadcastRecipientRepository {
       )
       .orderBy(asc(contacts.id))
       .limit(limit);
-    return rows.map((row) => row.id);
   }
 
   /**

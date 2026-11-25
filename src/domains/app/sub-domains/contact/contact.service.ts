@@ -30,6 +30,7 @@ import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { assertRecordNotChangedSince } from '@/shared/utils/validation/record-fields.util.js';
 import {
   CONTACT_BULK_ACTION_MATCH_MAX_COUNT,
+  CONTACT_BULK_ACTION_PIECE_SIZE,
   CONTACT_DEFAULT_SORT,
   CONTACT_FULL_NAME_MAX_LENGTH,
   CONTACT_INTERACTION_KIND,
@@ -57,6 +58,8 @@ import type {
   ContactBulkActionFilter,
   ContactBulkActionInput,
   ContactBulkActionOutput,
+  ContactBulkActionPieceInput,
+  ContactBulkActionPieceResult,
   ContactBulkActionQueue,
   ContactCollectedValueResult,
   ContactDeleteInput,
@@ -95,7 +98,7 @@ export interface ContactServicePorts {
   pauseSteps?: readonly ContactPauseStep[];
   /** Writes one tag event per tag change in its commit (3.B, R11). */
   tagEventRecorder?: ContactTagEventRecorder;
-  /** Enqueues route 21's job (R46). */
+  /** Enqueues route 21's job (R46 — the `contact-bulk-action` task). */
   bulkActionQueue?: ContactBulkActionQueue;
   /**
    * The channels' sending ports (AU35) — her messages (route 24) and the failed-message summary and
@@ -230,6 +233,11 @@ function toContactProfileValues({
   }
   return values;
 }
+
+/** The contact columns one bulk piece's changes read (WC-36). */
+type BulkActionPiece = ReadonlyArray<
+  Pick<ContactRow, 'id' | 'public_id' | 'tags' | 'automations_off_at'>
+>;
 
 /**
  * The contact service (routes-final § 3, 3.A): the routes 18–23 for the team, and the operations
@@ -495,7 +503,13 @@ export class ContactService {
       contactPublicId,
       isWrite: false,
     });
-    const target = { scope, organizationId, by: 'contact' as const, id: contactId };
+    const target = {
+      scope,
+      organizationId,
+      by: 'contact' as const,
+      id: contactId,
+      ownerPublicId: contactPublicId,
+    };
     const summary = await port?.summarizeFailedMessages(target);
     return serializeFailedMessagesSummary(summary ?? emptyFailedMessagesSummary());
   }
@@ -526,6 +540,7 @@ export class ContactService {
       organizationId,
       by: 'contact',
       id: contactId,
+      ownerPublicId: contactPublicId,
     })) ?? { summary: emptyFailedMessagesSummary(), expectedRetryCount: 0, isQueued: false };
     return { data: serializeFailedMessagesRetry(retry), retry };
   }
@@ -652,8 +667,9 @@ export class ContactService {
    * contacts the ids or the filter select counted up to 100,001 — more than 100,000 → `422
    * contact_bulk_too_many`; then, after commit, the job enqueued through the bulk-action port with the
    * organization's and account's public ids, the action and the selection. The job works in pieces of
-   * 500 (WC-36, R46). Failure modes: as listed; `503 contact_bulk_action_unavailable` while no queue
-   * port is wired (until ROUTE row R46). Side effects: one queued job.
+   * 500 ({@link applyBulkActionPiece}, WC-36, R46). Failure modes: as listed; an enqueue error
+   * propagates (nothing was changed); `503 contact_bulk_action_unavailable` without a queue port (a
+   * unit test). Side effects: one queued job.
    */
   async startBulkAction({
     caller,
@@ -715,6 +731,189 @@ export class ContactService {
       actorUserPublicId: caller.userPublicId,
     });
     return { action: input.action, matched_count: matchedCount, is_queued: true };
+  }
+
+  /**
+   * One piece of a bulk action (WC-36, CT7, P66 — the `contact-bulk-action` task of ROUTE row R46):
+   * up to {@link CONTACT_BULK_ACTION_PIECE_SIZE} contacts of the selection after the cursor, each
+   * changed as route 20 changes one contact, in one short commit.
+   *
+   * @remarks
+   * Algorithm: one unit in the job's scope (the organization, and the acting user so the pause names
+   * her): the account read back (gone → an empty last piece); the filter's automation ids resolved;
+   * the cursor's contact resolved (gone → from the start: every change below is a no-op when already
+   * made); the piece locked in id order; then per contact — `add_tag` (not held and under
+   * {@link CONTACT_TAGS_MAX_COUNT}; a contact at the limit is left as she is), `remove_tag` (held),
+   * `pause_automations` (not paused: the pause, the acting user, every pause step with
+   * `contact_excluded`), `resume_automations` (paused). The tag counts move once for the piece and
+   * one tag event is written per changed contact (3.B), as on route 20. A short piece, or the named
+   * ids (one piece of at most 500), is the last. Failure modes: a database error rolls the piece
+   * back — the job's re-run finds the tag in place or the pause set and writes nothing twice. Side
+   * effects: the contacts, the tag counts and events, the pause steps' rows.
+   */
+  async applyBulkActionPiece({
+    scope,
+    input,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    input: ContactBulkActionPieceInput;
+  }): Promise<ContactBulkActionPieceResult> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.requireOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        const organizationId = organization.id;
+        const channelAccountId = await this.contactRepository.findChannelAccountId({
+          organizationId,
+          channelAccountPublicId: input.channelAccountPublicId,
+        });
+        if (channelAccountId === null) {
+          return { changedCount: 0, lastContactPublicId: null, isLastPiece: true };
+        }
+        const filter =
+          input.filter === null
+            ? null
+            : {
+                ...input.filter,
+                ...(await this.resolveFilterAutomations({
+                  scope,
+                  organizationId,
+                  filter: input.filter,
+                })),
+              };
+        const afterContactId =
+          input.afterContactPublicId === null
+            ? 0
+            : ((await this.contactRepository.findIdByPublicId({
+                organizationId,
+                contactPublicId: input.afterContactPublicId,
+              })) ?? 0);
+        const piece = await this.contactRepository.lockBulkPiece({
+          organizationId,
+          channelAccountId,
+          contactPublicIds: input.contactPublicIds,
+          filter,
+          afterContactId,
+          limit: CONTACT_BULK_ACTION_PIECE_SIZE,
+        });
+        const changedCount = await this.applyBulkChanges({
+          organizationId,
+          channelAccountId,
+          input,
+          piece,
+        });
+        return {
+          changedCount,
+          lastContactPublicId: piece.at(-1)?.public_id ?? input.afterContactPublicId,
+          isLastPiece:
+            input.contactPublicIds !== null || piece.length < CONTACT_BULK_ACTION_PIECE_SIZE,
+        };
+      },
+    });
+  }
+
+  /** One bulk piece's changes inside its unit (WC-36): each contact as on route 20; how many changed. */
+  private async applyBulkChanges({
+    organizationId,
+    channelAccountId,
+    input,
+    piece,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    input: ContactBulkActionPieceInput;
+    piece: BulkActionPiece;
+  }): Promise<number> {
+    const { action, tag } = input;
+    if (action === 'add_tag' || action === 'remove_tag') {
+      if (tag === null) return 0;
+      return this.applyBulkTagChanges({ organizationId, channelAccountId, action, tag, piece });
+    }
+    return this.applyBulkPauseChanges({ organizationId, input, piece });
+  }
+
+  /** A bulk piece's tag add or removal (WC-36): the tags, their counts and the tag events. */
+  private async applyBulkTagChanges({
+    organizationId,
+    channelAccountId,
+    action,
+    tag,
+    piece,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    action: 'add_tag' | 'remove_tag';
+    tag: string;
+    piece: BulkActionPiece;
+  }): Promise<number> {
+    const isAdd = action === 'add_tag';
+    const changed = piece.filter((contact) =>
+      isAdd
+        ? !contact.tags.includes(tag) && contact.tags.length < CONTACT_TAGS_MAX_COUNT
+        : contact.tags.includes(tag),
+    );
+    for (const contact of changed) {
+      await this.contactRepository.replaceTags({
+        organizationId,
+        contactId: contact.id,
+        tags: isAdd ? [...contact.tags, tag] : contact.tags.filter((held) => held !== tag),
+      });
+    }
+    if (changed.length === 0) return 0;
+    await this.contactRepository.applyTagCountDeltas({
+      organizationId,
+      channelAccountId,
+      deltas: [{ tag, delta: isAdd ? changed.length : -changed.length }],
+    });
+    await this.ports.tagEventRecorder?.recordContactTagEvents({
+      events: changed.map((contact) => ({
+        organizationId,
+        channelAccountId,
+        contactId: contact.id,
+        tag,
+        kind: isAdd ? 'added' : 'removed',
+        source: 'owner',
+        sourceAutomationId: null,
+        chainNumber: 0,
+      })),
+    });
+    return changed.length;
+  }
+
+  /** A bulk piece's automation pause or resume (WC-36): the owner fields and the pause steps. */
+  private async applyBulkPauseChanges({
+    organizationId,
+    input,
+    piece,
+  }: {
+    organizationId: number;
+    input: ContactBulkActionPieceInput;
+    piece: BulkActionPiece;
+  }): Promise<number> {
+    const isPause = input.action === 'pause_automations';
+    const changed = piece.filter((contact) => (contact.automations_off_at === null) === isPause);
+    const actorUserId = isPause
+      ? await this.organizationService.resolveUserInternalIdByPublicId(input.actorUserPublicId)
+      : null;
+    for (const contact of changed) {
+      await this.contactRepository.updateOwnerFields({
+        organizationId,
+        contactId: contact.id,
+        values: isPause
+          ? { automations_off_at: new Date(), automations_off_by_user_id: actorUserId }
+          : { automations_off_at: null, automations_off_by_user_id: null },
+      });
+      if (isPause) {
+        await this.runPauseSteps({
+          organizationId,
+          contactId: contact.id,
+          reason: 'contact_excluded',
+        });
+      }
+    }
+    return changed.length;
   }
 
   /**

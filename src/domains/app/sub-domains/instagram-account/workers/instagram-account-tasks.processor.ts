@@ -23,7 +23,10 @@ import {
   setInstagramIceBreakers,
   subscribeInstagramWebhookFields,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import { describeMetaGraphError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import {
+  MetaGraphApiError,
+  describeMetaGraphError,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { createWorkerChannelConnectionTokenRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.repository.js';
 import type {
   InstagramSendTicketContext,
@@ -53,14 +56,13 @@ import {
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-tasks.queue.js';
 import { buildInstagramReconnectNoticeActionUrl } from './instagram-reconnect-notice.processor.js';
 import type { InstagramReconnectNoticeServices } from './instagram-reconnect-notice.processor.js';
+import { classifyChannelConnectionTokenCheckFailure } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.processor.js';
+import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import {
-  type InstagramAccountDailyCheckService,
-  classifyInstagramDailyCheckFailure,
-} from './instagram-account-daily-check.processor.js';
-import {
-  INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_MAX_PAGES,
-  INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_PAGE_SIZE,
-} from './instagram-account-daily-check.constants.js';
+  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES,
+  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE,
+  type InstagramAccountBrokenConnectionStatus,
+} from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 
 /** The notification type of the set-up failure email (the `automation_problem` kind, UN8). */
 const INSTAGRAM_ACCOUNT_SETUP_FAILED_NOTIFICATION_TYPE = 'instagram.reconnect_required';
@@ -109,7 +111,7 @@ export interface InstagramMissedCommentPort {
  * Notes: built by `createAppContainer` and handed to {@link buildInstagramAccountTaskHandlers}.
  */
 export interface InstagramAccountTaskServices {
-  accountService: InstagramAccountDailyCheckService;
+  accountService: Pick<InstagramAccountService, 'markConnectionBroken'>;
   extensionService: Pick<
     InstagramAccountExtensionService,
     'recordWebhookSubscribed' | 'recordWebhookSubscriptionLost' | 'recordStarterQuestionsSet'
@@ -251,8 +253,8 @@ async function breakAccount({
   services: InstagramAccountTaskServices;
   context: InstagramSendTicketContext;
 }): Promise<{ outcome: 'broken' }> {
-  const failure = classifyInstagramDailyCheckFailure(error);
-  const connectionStatus = failure.action === 'break' ? failure.connectionStatus : 'error';
+  const connectionStatus: InstagramAccountBrokenConnectionStatus =
+    error instanceof MetaGraphApiError ? (error.connectionStatus ?? 'error') : 'error';
   await context.runInDatabaseSlot(() =>
     services.accountService.markConnectionBroken({
       scope: target.scope,
@@ -364,7 +366,7 @@ async function handleChainFailure({
   services: InstagramAccountTaskServices;
   context: InstagramSendTicketContext;
 }): Promise<AccountTaskFailure> {
-  if (classifyInstagramDailyCheckFailure(error).action === 'break') {
+  if (classifyChannelConnectionTokenCheckFailure(error) === 'break') {
     return breakAccount({ target, error, services, context });
   }
   const delayMilliseconds = instagramAccountTaskRetryDelayMilliseconds(input.tryNumber);
@@ -505,7 +507,7 @@ export async function processInstagramAccountSetupTask({
       );
       starterQuestions = 'set';
     } catch (error) {
-      if (classifyInstagramDailyCheckFailure(error).action === 'break') {
+      if (classifyChannelConnectionTokenCheckFailure(error) === 'break') {
         return breakAccount({ target, error, services, context });
       }
       await startInstagramAccountChainBestEffort({
@@ -605,7 +607,7 @@ export async function processInstagramStarterQuestionSyncTask({
  *
  * @remarks
  * - **Algorithm:** the account and token; `GET subscribed_apps`. All on → `subscribed` (an account
- *   not stamped yet is stamped — the set-up's chain lost, or the daily check's subscribe). A field off
+ *   not stamped yet is stamped — the set-up's chain lost). A field off
  *   on a **stamped** account → the stamp emptied (shown not subscribed), the team told (the
  *   error-level log line `app.instagram_account.webhook_subscription_lost` is the alert), a new set-up
  *   chain started and the missed-comment look asked for (WC-26, R39). A field off on a not-stamped
@@ -641,7 +643,7 @@ export async function processInstagramWebhookSubscriptionCheckTask({
       requestId: target.requestId,
     });
   } catch (error) {
-    if (classifyInstagramDailyCheckFailure(error).action === 'break') {
+    if (classifyChannelConnectionTokenCheckFailure(error) === 'break') {
       return breakAccount({ target, error, services, context });
     }
     logger.warn(
@@ -768,15 +770,16 @@ export type InstagramWebhookSubscriptionSweepResult =
  *
  * @remarks
  * - **Algorithm:** off unless `env.SENDING_ENABLED` (the task worker runs only then). Pages of the
- *   connected accounts through the daily check's cross-organization read (`listConnectedForDailyCheck`
+ *   connected accounts through the cross-organization read (`listConnectedForSubscriptionCheck`
  *   under `runGlobalRetentionWorkerJob`, `USING`-only sweep arm), then, with the context closed, one
  *   check job per account keyed by the window's start.
  * - **Failure modes:** a failed read throws to BullMQ; a failed add is logged
  *   (`app.instagram_account.webhook_subscription_check.enqueue_failed`) and the next window adds the
  *   accounts again. Reaching the page cap logs `…sweep_capped` at error.
  * - **Side effects:** jobs on `instagram-tasks`; no row is changed.
- * - **Notes:** rides the daily-check queue's worker (`scheduler.ts`, every 10 minutes) until that
- *   queue's work moves to the channel connection's token check (ROUTE row R51). `now` is injectable.
+ * - **Notes:** rides the channel connection's token-check queue and worker (`scheduler.ts`, every
+ *   10 minutes — moved there from the launch's daily account check, deleted when R51's token check
+ *   replaced it). `now` is injectable.
  */
 export async function runInstagramWebhookSubscriptionCheckSweep(
   options: { now?: Date } = {},
@@ -788,12 +791,12 @@ export async function runInstagramWebhookSubscriptionCheckSweep(
   let afterId = 0;
   let listedCount = 0;
   let addedCount = 0;
-  for (let page = 0; page < INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_MAX_PAGES; page += 1) {
+  for (let page = 0; page < INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES; page += 1) {
     const cursor = afterId;
     const candidates = await runGlobalRetentionWorkerJob((databaseHandle) =>
-      createRetentionInstagramAccountRepository(databaseHandle).listConnectedForDailyCheck({
+      createRetentionInstagramAccountRepository(databaseHandle).listConnectedForSubscriptionCheck({
         afterId: cursor,
-        limit: INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_PAGE_SIZE,
+        limit: INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE,
       }),
     );
     listedCount += candidates.length;
@@ -816,7 +819,7 @@ export async function runInstagramWebhookSubscriptionCheckSweep(
         );
       }
     }
-    if (candidates.length < INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_PAGE_SIZE) {
+    if (candidates.length < INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE) {
       return { outcome: 'swept', listedCount, addedCount, capped: false };
     }
   }

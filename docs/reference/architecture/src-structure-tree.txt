@@ -149,9 +149,14 @@ src/
     │   │   │   ├── broadcast-recipient/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── broadcast-audience.processor.db.unit.test.ts
     │   │   │   │   │   │   ├── broadcast-recipient.repository.db.unit.test.ts
     │   │   │   │   │   │   ├── broadcast-recipient.service.db.unit.test.ts
     │   │   │   │   │   │   └── broadcast-recipient.service.unit.test.ts
+    │   │   │   │   ├── queues/
+    │   │   │   │   │   └── broadcast-audience.job.schema.ts
+    │   │   │   │   ├── workers/
+    │   │   │   │   │   └── broadcast-audience.processor.ts
     │   │   │   │   ├── broadcast-recipient.constants.ts
     │   │   │   │   ├── broadcast-recipient.overview.md
     │   │   │   │   ├── broadcast-recipient.repository.ts
@@ -161,15 +166,21 @@ src/
     │   │   │   ├── broadcast-segment/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   ├── broadcast-segment-count-cache.integration.test.ts
     │   │   │   │   │   │   └── broadcast-segment.integration.test.ts
     │   │   │   │   │   └── unit/
     │   │   │   │   │   │   ├── broadcast-segment.repository.db.unit.test.ts
     │   │   │   │   │   │   ├── broadcast-segment.serializer.unit.test.ts
     │   │   │   │   │   │   ├── broadcast-segment.service.unit.test.ts
     │   │   │   │   │   │   └── broadcast-segment.validator.unit.test.ts
+    │   │   │   │   ├── queues/
+    │   │   │   │   │   └── broadcast-segment-count.job.schema.ts
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── broadcast-segment.bulk.seed.ts
     │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── workers/
+    │   │   │   │   │   └── broadcast-segment-count.processor.ts
+    │   │   │   │   ├── broadcast-segment-count.cache.ts
     │   │   │   │   ├── broadcast-segment.constants.ts
     │   │   │   │   ├── broadcast-segment.controller.ts
     │   │   │   │   ├── broadcast-segment.dto.ts
@@ -232,6 +243,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   ├── channel-connection-ad-picker.integration.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback.integration.test.ts
+    │   │   │   │   │   ├── channel-connection-token-check.integration.test.ts
     │   │   │   │   │   └── channel-connection.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── channel-connection-error.util.unit.test.ts
@@ -239,6 +251,7 @@ src/
     │   │   │   │   │   ├── channel-connection-meta-callback.serializer.unit.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback.service.unit.test.ts
     │   │   │   │   │   ├── channel-connection-state.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-token-check.processor.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token-isolation.policy.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token.service.db.unit.test.ts
     │   │   │   │   │   ├── channel-connection-usage.repository.db.unit.test.ts
@@ -260,9 +273,16 @@ src/
     │   │   │   │   ├── meta-graph.client.ts
     │   │   │   │   ├── meta-login.ts
     │   │   │   │   └── meta-signature.ts
+    │   │   │   ├── queues/
+    │   │   │   │   ├── channel-connection-token-check.job.schema.ts
+    │   │   │   │   └── channel-connection-token-check.queue.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── channel-connection.bulk.seed.ts
     │   │   │   │   └── index.ts
+    │   │   │   ├── workers/
+    │   │   │   │   ├── channel-connection-token-check.constants.ts
+    │   │   │   │   ├── channel-connection-token-check.processor.ts
+    │   │   │   │   └── channel-connection-token-check.worker.ts
     │   │   │   ├── channel-connection-error.util.ts
     │   │   │   ├── channel-connection-meta-callback-confirmation-code.util.ts
     │   │   │   ├── channel-connection-meta-callback-ingress.plugin.ts
@@ -300,6 +320,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── contact.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── contact-bulk-action.processor.db.unit.test.ts
     │   │   │   │   │   ├── contact-channel-neutral.policy.unit.test.ts
     │   │   │   │   │   ├── contact.repository.db.unit.test.ts
     │   │   │   │   │   ├── contact.serializer.unit.test.ts
@@ -320,10 +341,14 @@ src/
     │   │   │   │   ├── contact-tag-event.schema.ts
     │   │   │   │   ├── contact-tag-event.service.ts
     │   │   │   │   └── contact-tag-event.types.ts
+    │   │   │   ├── queues/
+    │   │   │   │   └── contact-bulk-action.job.schema.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── contact.bulk.seed.ts
     │   │   │   │   ├── contact.faker.ts
     │   │   │   │   └── index.ts
+    │   │   │   ├── workers/
+    │   │   │   │   └── contact-bulk-action.processor.ts
     │   │   │   ├── contact-activity.schema.ts
     │   │   │   ├── contact-tag-count.schema.ts
     │   │   │   ├── contact.constants.ts
@@ -344,12 +369,10 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── instagram-account.factory.ts
     │   │   │   │   ├── integration/
-    │   │   │   │   │   ├── instagram-account-daily-check.integration.test.ts
     │   │   │   │   │   ├── instagram-account-organization-delete.integration.test.ts
     │   │   │   │   │   ├── instagram-account.integration.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.integration.test.ts
     │   │   │   │   └── unit/
-    │   │   │   │   │   ├── instagram-account-daily-check.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-account-erasure.service.unit.test.ts
     │   │   │   │   │   ├── instagram-account-queues.unit.test.ts
     │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
@@ -413,8 +436,6 @@ src/
     │   │   │   │   ├── instagram-media.types.ts
     │   │   │   │   └── instagram-media.validator.ts
     │   │   │   ├── queues/
-    │   │   │   │   ├── instagram-account-daily-check.job.schema.ts
-    │   │   │   │   ├── instagram-account-daily-check.queue.ts
     │   │   │   │   ├── instagram-account-tasks.queue.ts
     │   │   │   │   ├── instagram-reconnect-notice.job.schema.ts
     │   │   │   │   └── instagram-reconnect-notice.queue.ts
@@ -423,9 +444,6 @@ src/
     │   │   │   │   ├── instagram-account.bulk.seed.ts
     │   │   │   │   └── instagram-account.faker.ts
     │   │   │   ├── workers/
-    │   │   │   │   ├── instagram-account-daily-check.constants.ts
-    │   │   │   │   ├── instagram-account-daily-check.processor.ts
-    │   │   │   │   ├── instagram-account-daily-check.worker.ts
     │   │   │   │   ├── instagram-account-tasks.processor.ts
     │   │   │   │   ├── instagram-reconnect-notice.processor.ts
     │   │   │   │   └── instagram-reconnect-notice.worker.ts
@@ -446,6 +464,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-attachment-upload.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
@@ -492,6 +511,10 @@ src/
     │   │   │   │   ├── instagram-send-attempt.repository.ts
     │   │   │   │   └── instagram-send-attempt.schema.ts
     │   │   │   ├── queues/
+    │   │   │   │   ├── instagram-attachment-upload.job.schema.ts
+    │   │   │   │   ├── instagram-database-tasks.job.schema.ts
+    │   │   │   │   ├── instagram-database-tasks.queue.ts
+    │   │   │   │   ├── instagram-retry-failed.job.schema.ts
     │   │   │   │   ├── instagram-send-fast.job.schema.ts
     │   │   │   │   ├── instagram-send-fast.queue.ts
     │   │   │   │   ├── instagram-send-slow.job.schema.ts
@@ -502,6 +525,9 @@ src/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── instagram-sending.bulk.seed.ts
     │   │   │   ├── workers/
+    │   │   │   │   ├── instagram-attachment-upload.processor.ts
+    │   │   │   │   ├── instagram-database-tasks.worker.ts
+    │   │   │   │   ├── instagram-retry-failed.processor.ts
     │   │   │   │   ├── instagram-send-fast.processor.ts
     │   │   │   │   ├── instagram-send-fast.worker.ts
     │   │   │   │   ├── instagram-send-slow.processor.ts
@@ -622,7 +648,8 @@ src/
     │   ├── app.failed-messages.serializer.ts
     │   ├── app.overview.md
     │   ├── app.permissions.ts
-    │   └── app.routes.ts
+    │   ├── app.routes.ts
+    │   └── app.tasks.ts
     ├── audit/
     │   ├── __tests__/
     │   │   ├── integration/

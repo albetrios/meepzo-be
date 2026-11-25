@@ -291,6 +291,20 @@ export interface AutomationStarterQuestionSyncQueue {
   }): Promise<void>;
 }
 
+/**
+ * The message files' upload ahead of their sends (WC-32, SN20 — ROUTE row R46): after a go-live, or
+ * a save of a live automation that adds a file, its channel uploads the files once per account
+ * (`InstagramAttachmentService.requestAttachmentUploads`, through the app container). Optional;
+ * without it the files go up just before their first send.
+ */
+export interface AutomationAttachmentUploadPort {
+  requestAttachmentUploads(input: {
+    organizationPublicId: string;
+    channelAccountPublicId: string;
+    uploadPublicIds: readonly string[];
+  }): Promise<boolean>;
+}
+
 /** The month limit at go-live (check 4, D34) — sub-domain 6's month count (`readOrganizationPlanStop`). */
 export interface AutomationMonthLimitPort {
   readOrganizationPlanStop(input: {

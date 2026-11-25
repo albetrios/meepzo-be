@@ -393,28 +393,32 @@ deploy step.
 2. AC-27.10 — restore step 4 (the lost time's messages → `unknown` / `skipped` · `restore`) has no command, job or row ([P452](plans/decisions.md)).
 3. AC-12.10 — a team-paused (suspended) organization: tie it to its accounts' lanes and the `paused` notice of the context and route 64.
 4. The message-access banner field and Meta's call and error codes for it (§43); the private-flag and account-type source ([P409](plans/decisions.md), [P120](plans/decisions.md)).
-5. AC-17.17 — a picture with text as two DMs (the engine saves one row per list message) ([P412](plans/decisions.md)).
+5. Still open from R44 ([P412](plans/decisions.md)): AC-17.17 — a picture with text as two rows (the engine saves one row per list message); `plan_feature_off` for the email / phone question after a move down; AC-17.15 — two automations sharing one opening message.
 6. "The 500-waiting cap" read as the 500-a-piece audience build ([P451](plans/decisions.md)); broadcast-tap run-start semantics ([P224](plans/decisions.md)).
 7. The password step-up stays removed (only the four routes were named, [P251](plans/decisions.md)); AC-25.3 proven through the token check, not a send answer ([P252](plans/decisions.md)).
 8. P315 — intake's third Meta read (a commented post not stored yet) kept beside the "next post" sweep ([P315](plans/decisions.md)).
-9. R39 — an ad comment's match to its ad and the full pass's timing; R43 — the stop test across lanes, the parent comment id for a reply to a reply, the lane wake ([P313](plans/decisions.md), [P411](plans/decisions.md)).
+9. R39 — an ad comment's match to its ad and the full pass's timing; R43 — the stop test across lanes and the lane wake (the reply-to-reply parent id is item 16) ([P313](plans/decisions.md), [P411](plans/decisions.md)).
 10. Reconnect-notice recipients (Owner and Admin, [P216](plans/decisions.md)); whether UN9's Editor reach was meant ([P301](plans/decisions.md)); R36's role-change notice triggers; trial-notice recipients and a move up reactivating accounts ([P220](plans/decisions.md)).
 11. WH3 / P35 — an account in `error` still taken in, its events starting runs that wait in stopped lanes ([P312](plans/decisions.md)).
 12. Wording conflicts: AC-9.1 vs P76 / BC3 (segments and broadcasts on Free), AC-10.2's month state on route 64, AC-1.1's reason name, AC-11.7.
 13. R52's backup gap (a lost `plan_ended`), the 7-day grace lookback ([P219](plans/decisions.md)–[P221](plans/decisions.md)).
 14. `app.instagram_send_day_counts` has no keep time ([P414](plans/decisions.md)).
-15. The AMBER rows of the build (table above) — confirm or change; in particular [P144](plans/decisions.md), [P145](plans/decisions.md), [P501](plans/decisions.md)–[P503](plans/decisions.md).
+15. From R54 / R55 (decisions P351, P352 — in their lane, arriving at the final merge): plan §33.2 rule 7 — a stopped automation's new comments saved as `waiting`, and `failed` back to `waiting` when the text is fixed; as built since R13 a stopped automation starts no run.
+16. A reply to a reply answered under the top-level comment needs the parent comment id on the run — a schema change (R43 note, [P411](plans/decisions.md)).
+17. An idle lane taking the account test after a stop pushes the stop back 60 s (`idleTurnSeconds`) — confirm it is intended.
+18. R54 / R55 acceptance as proven there: AC-19.10 per CT9 (the tag step lists its own tags), AC-19.13 through the go-live warning, and the ask-again wording per §5.8, not §14 rule 7 — confirm these readings.
+19. The AMBER rows of the build (table above) — confirm or change; in particular [P144](plans/decisions.md), [P145](plans/decisions.md), [P501](plans/decisions.md)–[P503](plans/decisions.md).
 
 **Deploy and operations**
 
-16. Existing databases need `pnpm db:migrate` for the R47 fix migration `20261125210000` and R62's `20261125233000`.
-17. `DATABASE_POOL_MAX` headroom in production (one place left under [P140](plans/decisions.md) / [P143](plans/decisions.md)); `INSTAGRAM_SENDING_REPAIR_CONCURRENCY` raised 4 → 16 ([P224](plans/decisions.md)); the seat-sync worker at concurrency 1.
-18. `SESSION_PLACE_DATABASE_URL` in the deploy (session place, [P86](plans/decisions.md)); the DB-IP CC BY 4.0 credit in meepzo-fe.
-19. `BILLING_READ_ONLY_ENFORCED` defaults on; `PASSWORD_ROUTES_ENABLED` stays `false` in every environment ([P251](plans/decisions.md)).
-20. The Meta dashboard menu names in `credentials-and-env.md` are not verified; `btree_gin` on Neon; `pnpm deps:audit` once the registry is reachable; the 1,000-account numbers (S2).
-21. The PR text names the route-access widenings: the invitation preview, `/auth/email/confirm`, `/auth/oauth/apple/callback`.
-22. The launch's engine e2e suites removed at R14 are re-proved by R43, R54 and R55 — confirm once R54 / R55 land.
-23. meepzo-fe: its own iteration on this contract ([P30](plans/decisions.md)) from [plans/frontend-route-map.md](plans/frontend-route-map.md).
+20. Existing databases need `pnpm db:migrate` for the R47 fix migration `20261125210000` and R62's `20261125233000`.
+21. `DATABASE_POOL_MAX` headroom in production (one place left under [P140](plans/decisions.md) / [P143](plans/decisions.md)); `INSTAGRAM_SENDING_REPAIR_CONCURRENCY` raised 4 → 16 ([P224](plans/decisions.md)); the seat-sync worker at concurrency 1.
+22. `SESSION_PLACE_DATABASE_URL` in the deploy (session place, [P86](plans/decisions.md)); the DB-IP CC BY 4.0 credit in meepzo-fe.
+23. `BILLING_READ_ONLY_ENFORCED` defaults on; `PASSWORD_ROUTES_ENABLED` stays `false` in every environment ([P251](plans/decisions.md)).
+24. The Meta dashboard menu names in `credentials-and-env.md` are not verified; `btree_gin` on Neon; `pnpm deps:audit` once the registry is reachable; the 1,000-account numbers (S2).
+25. The PR text names the route-access widenings: the invitation preview, `/auth/email/confirm`, `/auth/oauth/apple/callback`.
+26. The launch's engine e2e suites removed at R14 are re-proved by R43, R54 and R55 — confirm once R54 / R55 land.
+27. meepzo-fe: its own iteration on this contract ([P30](plans/decisions.md)) from [plans/frontend-route-map.md](plans/frontend-route-map.md).
 
 ## Standing deviations
 

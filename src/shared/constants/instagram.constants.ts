@@ -154,9 +154,22 @@ export const INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS = 3_000;
  * @remarks
  * One account's entries still go one after another, in delivery order (its events' `created_at`
  * order is intake's claim order). Each running unit holds one connection of the HTTP pool
- * (`DATABASE_POOL_MAX`, 80 by default), so 8 leaves the pool's headroom to other requests.
+ * (`DATABASE_POOL_MAX`, 80 by default). The cap is process-wide, not per delivery
+ * ({@link INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME}, P262): however many deliveries arrive at
+ * once, the webhook store holds at most 8 connections, leaving the rest to other requests; a unit
+ * that finds no slot within the limiter's wait fails its entry, so Meta's retry brings it back.
  */
 export const INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY = 8;
+
+/**
+ * The name of the process-wide database slot limiter the webhook store's units share
+ * (feat-instagram-dm-sending P262), sized {@link INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY}.
+ *
+ * @remarks
+ * One limiter per API process (`getWorkerDatabaseSlotLimiter`); every delivery in flight takes its
+ * slots, so a burst of Meta deliveries cannot take the whole HTTP pool.
+ */
+export const INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME = 'instagram-webhook-store';
 
 /** Meta's message id (`mid`) is at most this long (feat-instagram-dm-sending 6.B.3). */
 export const INSTAGRAM_MESSAGE_ID_MAX_LENGTH = 128;

@@ -5,8 +5,10 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { recordInstagramWebhookUnknownAccountEntry } from '@/infrastructure/observability/metrics/prometheus-metrics.js';
+import { getWorkerDatabaseSlotLimiter } from '@/infrastructure/queue/worker-runtime/worker-database-slot-limiter.js';
 import {
   INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY,
+  INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME,
   INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS,
 } from '@/shared/constants/instagram.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
@@ -115,7 +117,8 @@ function receivedIntakeGroupsOf(
 
 /**
  * Runs `storeOne` over a delivery's entries, at most
- * {@link INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY} accounts at once: the entries of one account
+ * {@link INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY} accounts at once (and `storeOne` takes a slot of
+ * the process-wide limiter of the same size, so every delivery in flight shares it): the entries of one account
  * (the same `entry.id`) one after another in delivery order; an entry without a readable id on its
  * own. `storeOne` never throws (it records its failure).
  */
@@ -276,10 +279,18 @@ export class InstagramWebhookService {
       rawEntry: unknown;
     }) => {
       try {
-        const entryOutcome = await this.storeEntry({
-          rawEntry: cleanStorableJson(rawEntry),
-          entryIndex,
-          requestId,
+        // One process-wide cap across every delivery in flight, not only this one (P262): each
+        // unit holds one connection of the HTTP pool, so a burst of deliveries cannot take it all.
+        const entryOutcome = await getWorkerDatabaseSlotLimiter({
+          name: INSTAGRAM_WEBHOOK_STORE_SLOT_LIMITER_NAME,
+          size: INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY,
+        }).runInSlot({
+          callback: () =>
+            this.storeEntry({
+              rawEntry: cleanStorableJson(rawEntry),
+              entryIndex,
+              requestId,
+            }),
         });
         if (entryOutcome.outcome === 'dropped') result.droppedEntryCount += 1;
         else if (entryOutcome.outcome === 'unknown_account') result.unknownAccountEntryCount += 1;

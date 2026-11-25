@@ -609,6 +609,41 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
     );
   });
 
+  it('the cap of 8 is process-wide: two deliveries in flight together never store more than 8 entries at once (P262)', async () => {
+    const { service, accountService, eventService } = setup();
+    accountService.resolveOrganizationPublicIdForInstagramUser.mockImplementation(
+      async () => ORGANIZATION_PUBLIC_ID,
+    );
+    let running = 0;
+    let mostRunning = 0;
+    eventService.recordReceivedEvents.mockImplementation(
+      async ({ events }: { events: readonly NewInstagramWebhookEvent[] }) => {
+        running += 1;
+        mostRunning = Math.max(mostRunning, running);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running -= 1;
+        return events.map((event, index) => ({
+          id: index,
+          status: 'received',
+          event_key: event.eventKey,
+          intake_group: 'comments',
+        }));
+      },
+    );
+    const entriesFrom = (first: number) =>
+      Array.from({ length: 8 }, (_, index) => ({
+        id: `1784150000000${String(first + index).padStart(4, '0')}`,
+        changes: [comment(String(first + index))],
+      }));
+
+    await Promise.all([
+      service.receiveDelivery({ body: delivery(entriesFrom(0)), requestId: REQUEST_ID }),
+      service.receiveDelivery({ body: delivery(entriesFrom(100)), requestId: REQUEST_ID }),
+    ]);
+
+    expect(mostRunning).toBe(8);
+  });
+
   it('an entry with only `changed_fields` (the app’s "Include values" off) stores nothing and warns', async () => {
     const { service, eventService } = setup();
 

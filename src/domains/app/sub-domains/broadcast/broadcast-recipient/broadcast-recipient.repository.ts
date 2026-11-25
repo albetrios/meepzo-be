@@ -7,6 +7,7 @@ import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
 import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
+import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import {
   buildSegmentAudienceCondition,
   type SegmentAutomationIds,
@@ -110,6 +111,30 @@ export class BroadcastRecipientRepository {
       .where(and(eq(broadcasts.organization_id, organizationId), eq(broadcasts.id, broadcastId)))
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * Whether she holds an open run of any automation (BC17: a "when her chat opens" row waits until
+   * her runs finished) — the open-run keys (AU37).
+   */
+  async hasOpenRun({
+    organizationId,
+    contactId,
+  }: {
+    organizationId: number;
+    contactId: number;
+  }): Promise<boolean> {
+    const [row] = await this.db()
+      .select({ contactId: automation_run_open_keys.contact_id })
+      .from(automation_run_open_keys)
+      .where(
+        and(
+          eq(automation_run_open_keys.organization_id, organizationId),
+          eq(automation_run_open_keys.contact_id, contactId),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
   }
 
   /**

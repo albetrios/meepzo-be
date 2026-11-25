@@ -16,6 +16,11 @@ import {
   instagramTaskJobDataSchema,
 } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.job.schema.js';
 import {
+  INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAME_SET,
+  type InstagramSendRepairDutyServices,
+  runInstagramSendRepairDuty,
+} from './instagram-send-repair-duties.processor.js';
+import {
   type InstagramTasksServices,
   processInstagramTaskTicket,
 } from './instagram-tasks.processor.js';
@@ -25,7 +30,8 @@ import {
  * one task per job, routed to its owner's handler by job name.
  *
  * @remarks
- * - **Algorithm:** validates each payload at the boundary (`parseJobDataOrDeadLetter` — ids only,
+ * - **Algorithm:** a sending repair duty's repeat job (R47 — `repair-lost-turns` … `repair-broadcast-end`,
+ *   no payload) runs {@link runInstagramSendRepairDuty}; any other job validates its payload at the boundary (`parseJobDataOrDeadLetter` — ids only,
  *   `organizationPublicId` for the job scope) and runs {@link processInstagramTaskTicket} under the propagated
  *   trace context, with BullMQ's lock token (a ticket that goes back is moved with it). Concurrency
  *   `WORKER_CONCURRENCY_INSTAGRAM_TASKS` — job places, which wait on Meta; the database is reached only through the
@@ -38,10 +44,21 @@ import {
  *   `isEnabled: env.SENDING_ENABLED`); the services come from the worker composition root
  *   (`appDomain`). Log lines carry ids only, never message text.
  */
-export function createInstagramTasksWorker(services: InstagramTasksServices): WorkerHandle {
+export function createInstagramTasksWorker(
+  services: InstagramTasksServices & {
+    /** The sending repair duties riding this queue (SN6, R47); absent — none is run. */
+    repairDuties?: InstagramSendRepairDutyServices | undefined;
+  },
+): WorkerHandle {
   const worker = new Worker<InstagramTaskJobData>(
     INSTAGRAM_TASKS_QUEUE_NAME,
     async (job, token) => {
+      // The sending repair duties ride this queue (R47, P94): one repeat job each, no payload.
+      if (INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAME_SET.has(job.name)) {
+        if (services.repairDuties === undefined) return;
+        await runInstagramSendRepairDuty({ duty: job.name, services: services.repairDuties });
+        return;
+      }
       const jobData = await parseJobDataOrDeadLetter({
         schema: instagramTaskJobDataSchema,
         job,

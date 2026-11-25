@@ -146,7 +146,10 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
       ),
       instagramAccountSettingsService: { findSettings: async () => null },
       channelAccountService: { markAccountBroken: async () => true },
-      broadcastRecipientService: { recordContactReply: async () => 0 },
+      broadcastRecipientService: {
+        recordContactReply: async () => 0,
+        handleChatOpened: async () => 0,
+      },
       contactService,
       instagramMediaService: new InstagramMediaService(
         new InstagramMediaRepository(),

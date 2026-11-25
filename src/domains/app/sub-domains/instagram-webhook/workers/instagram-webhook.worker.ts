@@ -34,6 +34,17 @@ import { MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME } from '@/domains/app/sub-domains/i
 import { runMessageMonthNoticeCheckJob } from '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.processor.js';
 import { runAutomationNextPostLinkingSweepJob } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.processor.js';
 import { createInstagramNextPostLinkingEnqueue } from './instagram-next-post-linking.processor.js';
+import { runRepairDutyRound } from '@/infrastructure/queue/worker-runtime/repair-duty.util.js';
+import type { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
+import {
+  AUTOMATION_RUN_OPEN_KEY_REPAIR_JOB_NAME,
+  runAutomationRunOpenKeyRepairDuty,
+} from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-open-key-repair.processor.js';
+import {
+  CONTACT_TAG_EVENT_PICKUP_JOB_NAME,
+  runContactTagEventPickupDuty,
+} from '@/domains/app/sub-domains/contact/contact-tag-event/workers/contact-tag-event-pickup.processor.js';
+import { enqueueInstagramTagEventIntake } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_PAST_COMMENT_READ_QUEUE } from './instagram-past-comment-read.processor.js';
 import {
   type InstagramContactProfileReadEnqueue,
@@ -62,6 +73,8 @@ export interface InstagramWebhookWorkerServices {
   readLateCommentTime?: InstagramLateCommentTimeReader | undefined;
   /** The month notices' backup check (WC-56, R53); absent — the check finds nothing to do. */
   monthNotice?: Pick<MessageMonthNoticeService, 'tellMonthLine'> | undefined;
+  /** The open-run key repair's run service (WC-67, R47); absent — the duty finds nothing to do. */
+  openKeyRepair?: Pick<AutomationRunService, 'repairOpenRunKeys'> | undefined;
 }
 
 /**
@@ -78,7 +91,10 @@ export interface InstagramWebhookWorkerServices {
  *   and the linking sweep ({@link AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME}) run their
  *   channel-neutral processors with Instagram's task enqueues; the owners' problem emails
  *   ({@link INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME}) and the month notices' backup check
- *   ({@link MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME}) run every minute (WC-57, WC-56); `intake-tag-events` validates its payload
+ *   ({@link MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME}) run every minute (WC-57, WC-56); the tag events'
+ *   pick-up ({@link CONTACT_TAG_EVENT_PICKUP_JOB_NAME}, WC-27) and the open-run key repair
+ *   ({@link AUTOMATION_RUN_OPEN_KEY_REPAIR_JOB_NAME}, WC-67) run every minute in a database slot
+ *   until their 40 s budget is spent (R47, P94); `intake-tag-events` validates its payload
  *   and runs {@link processInstagramTagEventIntakeJob}; `intake-messages`, `intake-live` and
  *   `intake-comments` validate theirs and run {@link processInstagramWebhookIntakeJob} — every unit
  *   of work in a slot of the process's Instagram database limiter (`getInstagramDatabaseSlotLimiter`,
@@ -132,6 +148,33 @@ export function createInstagramWebhookWorker({
         const monthNotice = services.monthNotice;
         if (monthNotice === undefined) return { skipped: true };
         return runMessageMonthNoticeCheckJob({ monthNotice });
+      }
+      // Two repair duties ride this queue too (R47, P94 — each its own every-minute run, 40 s
+      // budget): the tag events' pick-up (WC-27) and the open-run key repair (WC-67).
+      if (job.name === CONTACT_TAG_EVENT_PICKUP_JOB_NAME) {
+        return runRepairDutyRound({
+          duty: job.name,
+          run: (context) =>
+            limiter.runInSlot({
+              callback: () =>
+                runContactTagEventPickupDuty({
+                  context,
+                  intakeQueue: { enqueueContactTagEventIntake: enqueueInstagramTagEventIntake },
+                }),
+            }),
+        });
+      }
+      if (job.name === AUTOMATION_RUN_OPEN_KEY_REPAIR_JOB_NAME) {
+        const openKeyRepair = services.openKeyRepair;
+        if (openKeyRepair === undefined) return { skipped: true };
+        return runRepairDutyRound({
+          duty: job.name,
+          run: (context) =>
+            limiter.runInSlot({
+              callback: () =>
+                runAutomationRunOpenKeyRepairDuty({ context, runService: openKeyRepair }),
+            }),
+        });
       }
       const jobId = job.id ?? INSTAGRAM_WEBHOOK_QUEUE_NAME;
       if (job.name === INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME) {

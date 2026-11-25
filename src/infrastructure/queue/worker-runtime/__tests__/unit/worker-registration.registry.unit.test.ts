@@ -96,9 +96,10 @@ describe('worker-registration.registry', () => {
     // two more; the Instagram webhook event processing (WH5, WH15) one
     // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the Instagram
     // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers; the
-    // notification worker is scheduled since R53 (the weekly summary's hourly sweep rides its queue).
+    // notification worker is scheduled since R53 (the weekly summary's hourly sweep rides its queue);
+    // the task worker is scheduled since R47 (the sending repair duties ride its queue).
     expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(40);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(36);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(37);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(11);

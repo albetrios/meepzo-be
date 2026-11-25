@@ -16,7 +16,7 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). ROUTE row R42 built the **send core** (below); the lanes' own rules (R43–R45), the repair duties (R47) and the watches (R48) come with their rows. ROUTE
+connection's usage, SN23). ROUTE row R42 built the **send core** (below); the lanes' own rules (R43–R45), the repair duties are R47's (below, the **repair duties**) and the watches (R48) come with their row. ROUTE
 row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
 to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
@@ -31,6 +31,17 @@ Team organizations only: a personal one reads `404 team_organization_required`. 
 instagram_not_connected` for another organization's, a revoked or a non-Instagram account.
 
 ## Layout
+
+- **Repair duties (R47, SN6, P94)** — `instagram-sending-repair.service.ts` (`InstagramSendingRepairService`: WC-13 lost
+  turns, WC-14 stuck sends, WC-15 the 7-day expiry, WC-17 closed windows, WC-18 the reply trim, WC-19 the paused cancel,
+  WC-20 the send counts) over `instagram-sending-repair.repository.ts` (the cross-organization reads under the
+  `app.global_retention_cleanup` arm, each organization's writes in its job scope); `workers/instagram-send-repair-duties.processor.ts`
+  routes the nine every-minute jobs on `instagram-tasks` (these seven plus 7's broadcast start and end) through
+  `runRepairDutyRound` (`src/infrastructure/queue/worker-runtime/repair-duty.util.ts`: the `mayTakeTickets` gate, the 40 s
+  budget, pieces of 500, `repair_duty_round_seconds` / `repair_duty_backlog`). Lost tickets are re-added in one `addBulk`
+  per piece by `addMissingInstagramSendLaneTurns` / `addMissingInstagramSendFastMessages` (a ticket still on its way is
+  only counted). Waiting messages end through `InstagramMessageService.settleWaitingMessages` (the result save's
+  bookkeeping, the engine told); a stuck send through `saveSendResult`.
 
 - `instagram-sending.constants.ts` — the **sending settings file** (P4): the settings-file limits an empty owner value
   falls back to (route 12 and the lanes read one source), `STOP_WORDS`, the untested Meta features, ways to start and

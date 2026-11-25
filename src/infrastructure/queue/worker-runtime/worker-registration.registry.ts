@@ -88,6 +88,7 @@ import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instag
 import { createInstagramSendFastWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-fast.worker.js';
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { createInstagramTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.worker.js';
+import { createInstagramSendRepairDutyServices } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-repair-duties.processor.js';
 import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
 import { INSTAGRAM_DATABASE_SLOT_LIMITER_NAME } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { isMetaConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
@@ -434,6 +435,8 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
           }),
           // The month notices' backup check (WC-56, R53) rides this queue.
           monthNotice: appDomain.messageMonthNoticeService,
+          // The open-run key repair (WC-67, R47) rides this queue.
+          openKeyRepair: appDomain.automationRunService,
         },
       });
     },
@@ -493,7 +496,8 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     family: 'instagram',
     logLabel: 'Instagram task worker',
     usesPostgres: true,
-    scheduled: false,
+    // The sending repair duties ride this queue, one repeat job each (SN6, P94 — ROUTE row R47).
+    scheduled: true,
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
     databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
@@ -503,6 +507,16 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
       createInstagramTasksWorker({
         sendingGate: workerContainers.appDomain.sendingStateService,
         taskHandlers: workerContainers.appDomain.instagramSendWork.taskHandlers,
+        repairDuties: createInstagramSendRepairDutyServices({
+          sendingGate: workerContainers.appDomain.sendingStateService,
+          messageService: workerContainers.appDomain.instagramMessageService,
+          laneService: workerContainers.appDomain.instagramSendLaneService,
+          monthNotice: workerContainers.appDomain.messageMonthNoticeService,
+          recipientService: workerContainers.appDomain.broadcastRecipientService,
+          sendingPorts: workerContainers.appDomain.channelSendingPorts,
+          // R46's `BroadcastSendQueuePort` (`app.tasks.ts`) — the start duty's audience task.
+          broadcastSendQueue: undefined,
+        }),
       }),
   },
   retentionDefinition({

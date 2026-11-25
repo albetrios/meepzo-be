@@ -61,6 +61,13 @@ import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 import { AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.constants.js';
 import { AUTOMATION_BACKFILL_WATCH_JOB_NAME } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.constants.js';
+import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import {
+  INSTAGRAM_SEND_REPAIR_DUTY_CRON,
+  INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAMES,
+} from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-repair-duties.processor.js';
+import { CONTACT_TAG_EVENT_PICKUP_JOB_NAME } from '@/domains/app/sub-domains/contact/contact-tag-event/workers/contact-tag-event-pickup.processor.js';
+import { AUTOMATION_RUN_OPEN_KEY_REPAIR_JOB_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-open-key-repair.processor.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { env } from '@/shared/config/env.config.js';
 
@@ -495,6 +502,34 @@ function getNoticeScheduledJobs(timezone: string | undefined): ScheduledJob[] {
 }
 
 /**
+ * The repair duties (feat-instagram-dm-sending § 6 SN6, SNC5; P94 — ROUTE row R47): one scheduler
+ * per duty, every minute, each working until its 40 s budget is spent. The sending duties and the
+ * broadcast start and end ride the task queue `instagram-tasks`; the tag events' pick-up and the
+ * open-run key repair ride the intake queue `instagram-webhook` (no queue of their own, P140).
+ */
+function getRepairDutyScheduledJobs(timezone: string | undefined): ScheduledJob[] {
+  const sendingDuties = Object.values(INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAMES).map((jobName) => ({
+    queueName: INSTAGRAM_TASKS_QUEUE_NAME,
+    jobName,
+  }));
+  return [
+    ...sendingDuties,
+    { queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME, jobName: CONTACT_TAG_EVENT_PICKUP_JOB_NAME },
+    { queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME, jobName: AUTOMATION_RUN_OPEN_KEY_REPAIR_JOB_NAME },
+  ].map(({ queueName, jobName }) =>
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName,
+        schedulerId: `instagram-${jobName}`,
+        jobName,
+        cronPattern: INSTAGRAM_SEND_REPAIR_DUTY_CRON,
+      },
+    }),
+  );
+}
+
+/**
  * The operational samplers and retries: idempotency and dead-letter sampling, the dead-letter retry
  * and the post-commit dispatch recovery — in the order {@link getScheduledJobs} registers them.
  */
@@ -646,6 +681,7 @@ export function getScheduledJobs(): ScheduledJob[] {
     ...getOperationalSweepScheduledJobs(timezone),
     ...getRecoverySweepScheduledJobs(timezone),
     ...getNoticeScheduledJobs(timezone),
+    ...getRepairDutyScheduledJobs(timezone),
   ];
 }
 

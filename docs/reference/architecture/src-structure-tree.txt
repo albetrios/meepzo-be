@@ -97,6 +97,7 @@ src/
     │   │   │   │   │   ├── automation-run.bulk.seed.ts
     │   │   │   │   │   └── index.ts
     │   │   │   │   ├── workers/
+    │   │   │   │   │   ├── automation-run-open-key-repair.processor.ts
     │   │   │   │   │   ├── automation-run-wait-expiry.constants.ts
     │   │   │   │   │   ├── automation-run-wait-expiry.processor.ts
     │   │   │   │   │   └── automation-run-wait-expiry.worker.ts
@@ -149,6 +150,7 @@ src/
     │   │   │   │   │   └── broadcast.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── broadcast-channel-seam.policy.unit.test.ts
+    │   │   │   │   │   ├── broadcast-duties.db.unit.test.ts
     │   │   │   │   │   ├── broadcast.repository.db.unit.test.ts
     │   │   │   │   │   ├── broadcast.serializer.unit.test.ts
     │   │   │   │   │   ├── broadcast.service.unit.test.ts
@@ -191,6 +193,9 @@ src/
     │   │   │   ├── seed/
     │   │   │   │   ├── broadcast.bulk.seed.ts
     │   │   │   │   └── index.ts
+    │   │   │   ├── workers/
+    │   │   │   │   ├── broadcast-end.processor.ts
+    │   │   │   │   └── broadcast-start.processor.ts
     │   │   │   ├── broadcast.constants.ts
     │   │   │   ├── broadcast.controller.ts
     │   │   │   ├── broadcast.dto.ts
@@ -316,11 +321,14 @@ src/
     │   │   │   ├── contact-tag-event/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── contact-tag-event-pickup.processor.db.unit.test.ts
     │   │   │   │   │   │   ├── contact-tag-event.service.db.unit.test.ts
     │   │   │   │   │   │   └── contact-tag-event.service.unit.test.ts
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── contact-tag-event.bulk.seed.ts
     │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── workers/
+    │   │   │   │   │   └── contact-tag-event-pickup.processor.ts
     │   │   │   │   ├── contact-tag-event.constants.ts
     │   │   │   │   ├── contact-tag-event.overview.md
     │   │   │   │   ├── contact-tag-event.repository.ts
@@ -460,6 +468,7 @@ src/
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-slow.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending-repair.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
     │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
@@ -512,6 +521,7 @@ src/
     │   │   │   │   ├── instagram-owner-problem-email.processor.ts
     │   │   │   │   ├── instagram-send-fast.processor.ts
     │   │   │   │   ├── instagram-send-fast.worker.ts
+    │   │   │   │   ├── instagram-send-repair-duties.processor.ts
     │   │   │   │   ├── instagram-send-slow.processor.ts
     │   │   │   │   ├── instagram-send-slow.worker.ts
     │   │   │   │   ├── instagram-send-ticket.processor.ts
@@ -533,6 +543,8 @@ src/
     │   │   │   ├── instagram-send-minute-count.schema.ts
     │   │   │   ├── instagram-send-stop.repository.ts
     │   │   │   ├── instagram-send-stop.schema.ts
+    │   │   │   ├── instagram-sending-repair.repository.ts
+    │   │   │   ├── instagram-sending-repair.service.ts
     │   │   │   ├── instagram-sending.constants.ts
     │   │   │   ├── instagram-sending.controller.ts
     │   │   │   ├── instagram-sending.dto.ts
@@ -2135,6 +2147,7 @@ src/
     │   │   │   └── unit/
     │   │   │   │   ├── provider-outage-pause.util.unit.test.ts
     │   │   │   │   ├── registry-scheduler-consistency.unit.test.ts
+    │   │   │   │   ├── repair-duty.util.unit.test.ts
     │   │   │   │   ├── scheduler-registry-audit.unit.test.ts
     │   │   │   │   ├── worker-connection-budget.unit.test.ts
     │   │   │   │   ├── worker-database-slot-limiter.unit.test.ts
@@ -2144,6 +2157,7 @@ src/
     │   │   │   │   └── worker-registration.registry.unit.test.ts
     │   │   ├── provider-outage-pause.util.ts
     │   │   ├── provider-pause.util.ts
+    │   │   ├── repair-duty.util.ts
     │   │   ├── scheduler-registry-audit.ts
     │   │   ├── shutdown-timing.util.ts
     │   │   ├── worker-close.util.ts

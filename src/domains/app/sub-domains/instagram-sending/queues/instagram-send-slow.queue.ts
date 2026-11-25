@@ -25,6 +25,15 @@ export const INSTAGRAM_SEND_SLOW_QUEUE_NAME = 'instagram-send-slow';
 /** Job name of one lane turn. */
 export const INSTAGRAM_SEND_LANE_TURN_JOB_NAME = 'instagram-send-lane-turn';
 
+/** BullMQ states of a ticket that is still on its way — a late ticket, not a lost one (WC-13). */
+const PRESENT_TICKET_STATES: ReadonlySet<string> = new Set([
+  'waiting',
+  'delayed',
+  'active',
+  'prioritized',
+  'waiting-children',
+]);
+
 let instagramSendSlowQueue: Queue<InstagramSendSlowJobData> | null = null;
 
 function getInstagramSendSlowQueue(): Queue<InstagramSendSlowJobData> {
@@ -107,6 +116,54 @@ export async function enqueueInstagramSendLaneTurn({
       ? { delay: delayMilliseconds }
       : {}),
   });
+}
+
+/**
+ * Re-adds the lane turns whose tickets are lost (feat-instagram-dm-sending WC-13, R47): a turn whose
+ * ticket is still on its way is only counted (late but present); one with no job, or a job that
+ * finished, gets its ticket again in one `addBulk` — the same job id, so a turn is never added twice.
+ *
+ * @remarks
+ * Algorithm: one `getJob` (and its state) per turn, the finished ones removed, then one `addBulk`.
+ * Failure modes: a Redis error propagates (the duty's next minute tries again). Side effects: the
+ * slow queue's jobs. Notes: payloads are validated like {@link enqueueInstagramSendLaneTurn}'s.
+ */
+export async function addMissingInstagramSendLaneTurns(
+  tickets: readonly {
+    organizationPublicId: string;
+    channelAccountPublicId: string;
+    lane: InstagramSlowQueueLane;
+    turnNumber: number;
+  }[],
+): Promise<{ added: number; present: number }> {
+  const queue = getInstagramSendSlowQueue();
+  const toAdd: Parameters<typeof queue.addBulk>[0] = [];
+  let present = 0;
+  for (const ticket of tickets) {
+    const jobId = instagramSendLaneTurnJobId(ticket);
+    const job = await queue.getJob(jobId);
+    if (job !== undefined && job !== null) {
+      if (PRESENT_TICKET_STATES.has(await job.getState())) {
+        present += 1;
+        continue;
+      }
+      await job.remove();
+    }
+    toAdd.push({
+      name: INSTAGRAM_SEND_LANE_TURN_JOB_NAME,
+      data: parseBullMQJobData({
+        schema: instagramSendSlowJobDataSchema,
+        data: { ...ticket, ...captureTraceContextForPropagation() },
+        queueName: INSTAGRAM_SEND_SLOW_QUEUE_NAME,
+      }),
+      opts: {
+        jobId,
+        ...(ticket.lane === 'broadcast' ? { priority: INSTAGRAM_BROADCAST_TURN_PRIORITY } : {}),
+      },
+    });
+  }
+  if (toAdd.length > 0) await queue.addBulk(toAdd);
+  return { added: toAdd.length, present };
 }
 
 /** Closes the lazily created producer queue (graceful shutdown). */

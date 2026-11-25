@@ -72,6 +72,8 @@ export interface InstagramMessageWaitingSelection {
   organizationId: number;
   by: 'run' | 'automation' | 'contact' | 'broadcast';
   id: number;
+  /** At most this many, oldest first (a repair duty's piece); absent — every one. */
+  limit?: number | undefined;
 }
 
 /** A failed message's verdict now: one of the blocks, or `retryable` (SN18). */
@@ -317,7 +319,25 @@ export class InstagramMessageRepository {
     const ended = await this.db()
       .update(instagram_messages)
       .set({ status, reason, updated_at: sql`now()` })
-      .where(and(selectionCondition(selection), eq(instagram_messages.status, 'waiting')))
+      .where(
+        and(
+          selectionCondition(selection),
+          eq(instagram_messages.status, 'waiting'),
+          selection.limit === undefined
+            ? undefined
+            : inArray(
+                instagram_messages.id,
+                this.db()
+                  .select({ id: instagram_messages.id })
+                  .from(instagram_messages)
+                  .where(
+                    and(selectionCondition(selection), eq(instagram_messages.status, 'waiting')),
+                  )
+                  .orderBy(instagram_messages.id)
+                  .limit(selection.limit),
+              ),
+        ),
+      )
       .returning({ id: instagram_messages.id });
     return ended.length;
   }
@@ -423,6 +443,27 @@ export class InstagramMessageRepository {
           eq(instagram_messages.status, 'sending'),
         ),
       )
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * A repair duty's end of one `waiting` row (WC-15, WC-17, WC-18): `expired` or `skipped` with the
+   * reason. Answers the row, or `null` when it is not `waiting` any more (a repeat does nothing).
+   */
+  async finishWaiting({
+    key,
+    status,
+    reason,
+  }: {
+    key: InstagramMessageKey;
+    status: 'expired' | 'skipped';
+    reason: InstagramMessageReason;
+  }): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .update(instagram_messages)
+      .set({ status, reason, updated_at: sql`now()` })
+      .where(and(this.whereKey(key), eq(instagram_messages.status, 'waiting')))
       .returning();
     return row ?? null;
   }

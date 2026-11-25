@@ -237,6 +237,35 @@ export class InstagramSendGateService {
   }
 
   /**
+   * Gate 1's count of the last hour for one account and group (WC-20, the repair's comparison with
+   * the minute counts) — `null` when Redis did not answer in time.
+   *
+   * @remarks
+   * Algorithm: one `ZCOUNT` over the last hour (no prune — a read only). Failure modes: a timeout or
+   * Redis error answers `null`. Side effects: none. Notes: the ids come from the duty's database
+   * read under the job's own scope (K8), never from a request.
+   */
+  async readGateOneCount({
+    scope,
+    channelAccountPublicId,
+    countGroup,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+    countGroup: InstagramSendAttemptCountGroup;
+  }): Promise<number | null> {
+    if (countGroup === 'none') return 0;
+    const key = gateOneKey({
+      organizationPublicId: scope.organizationPublicId,
+      channelAccountPublicId,
+      countGroup,
+    });
+    return this.withGateOneTimeout((redis) =>
+      redis.zcount(key, Date.now() - MILLISECONDS_PER_HOUR, '+inf'),
+    );
+  }
+
+  /**
    * The claim's one commit (SN3 (a)–(d), SN8): gate 2, her hour, the month, the adds, `sending` and
    * the attempt — or why the message stays `waiting`.
    *

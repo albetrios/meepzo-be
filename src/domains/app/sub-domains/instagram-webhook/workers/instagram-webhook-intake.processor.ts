@@ -110,7 +110,10 @@ export interface InstagramWebhookIntakeServices {
   /** The account's break (D44) — it starts the lanes' login stop with the status change (SN5). */
   channelAccountService: Pick<ChannelAccountService, 'markAccountBroken'>;
   /** Her reply after a broadcast (BC17), in her message's commit. */
-  broadcastRecipientService: Pick<BroadcastRecipientService, 'recordContactReply'>;
+  broadcastRecipientService: Pick<
+    BroadcastRecipientService,
+    'recordContactReply' | 'handleChatOpened'
+  >;
   instagramAccountSettingsService: Pick<InstagramAccountSettingsService, 'findSettings'>;
   instagramWebhookEventService: Pick<
     InstagramWebhookEventService,
@@ -791,6 +794,15 @@ async function decideAfterContact({
       organizationId: prepared.account.instagramAccount.organizationId,
       contactId: recorded.contact.id,
       repliedAt: prepared.occurredAt,
+    });
+    // Her chat opened: a "when her chat opens" broadcast she matches makes her row (BC17, R47) —
+    // after the engine, so a run it just started holds her (an open-run key) and she waits.
+    await services.broadcastRecipientService.handleChatOpened({
+      databaseHandle,
+      organizationId: prepared.account.instagramAccount.organizationId,
+      channelAccountId: prepared.account.channelAccountId,
+      contactId: recorded.contact.id,
+      isOwnerChatting: prepared.isOwnerChatting,
     });
   }
   return { handling: handled?.outcome ?? 'ignored', runPublicIds: handled?.runPublicIds ?? [] };

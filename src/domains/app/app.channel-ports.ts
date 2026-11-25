@@ -82,6 +82,8 @@ export interface ChannelWaitingMessageSelection {
   by: 'run' | 'automation' | 'contact' | 'broadcast';
   id: number;
   reason: string;
+  /** At most this many, oldest first (a repair duty's piece, WC-29); absent — every one. */
+  limit?: number | undefined;
 }
 
 /** A message's final result, reported to the engine in the same commit (AU35, AU25). */

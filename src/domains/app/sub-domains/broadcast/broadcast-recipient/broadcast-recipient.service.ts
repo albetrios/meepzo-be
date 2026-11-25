@@ -11,6 +11,7 @@ import {
   segmentAutomationPublicIds,
 } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
 import { BROADCAST_ACTIVE_STATUSES } from '@/domains/app/sub-domains/broadcast/broadcast.constants.js';
+import { BroadcastRepository } from '@/domains/app/sub-domains/broadcast/broadcast.repository.js';
 import {
   BROADCAST_AUDIENCE_PIECE_SIZE,
   type BroadcastRecipientStatus,
@@ -284,6 +285,69 @@ export class BroadcastRecipientService {
       change: { skipped: change },
     });
     return created === undefined ? 'reopened' : 'created';
+  }
+
+  /**
+   * Intake's "when her chat opens" hook (BC17, AC-9.6 — called in her message's commit, after the
+   * run engine): for each of the account's `waiting_for_chats` broadcasts still inside its days whose
+   * copy of the audience she matches, her recipient row through {@link addChatOpenedRecipient} —
+   * only when no run of hers is open and the owner has not typed to her in the last 6 hours. Answers
+   * how many rows were made or put back.
+   *
+   * @remarks
+   * Algorithm: the two holds first (the owner's chat, an open-run key), then the account's waiting
+   * broadcasts, each matched by the audience read over her one contact. Failure modes: no sending
+   * port throws (the event's unit rolls back and intake retries). Side effects: recipients, their
+   * message 1, the broadcasts' `skipped`.
+   */
+  async handleChatOpened({
+    databaseHandle,
+    organizationId,
+    channelAccountId,
+    contactId,
+    isOwnerChatting,
+  }: {
+    databaseHandle: ChannelPortDatabaseHandle;
+    organizationId: number;
+    channelAccountId: number;
+    contactId: number;
+    isOwnerChatting: boolean;
+  }): Promise<number> {
+    if (isOwnerChatting) return 0;
+    const repository = new BroadcastRecipientRepository(databaseHandle);
+    if (await repository.hasOpenRun({ organizationId, contactId })) return 0;
+    const waiting = await new BroadcastRepository(databaseHandle).listWaitingForChats({
+      organizationId,
+      channelAccountId,
+    });
+    let added = 0;
+    for (const broadcast of waiting) {
+      if (broadcast.conditions === null) continue;
+      const automationIds = await new BroadcastSegmentRepository(
+        databaseHandle,
+      ).findAccountAutomationIds({
+        organizationId,
+        channelAccountId,
+        automationPublicIds: segmentAutomationPublicIds(broadcast.conditions),
+      });
+      const [match] = await repository.listAudiencePiece({
+        organizationId,
+        channelAccountId,
+        conditions: broadcast.conditions,
+        automationIds,
+        afterContactId: contactId - 1,
+        limit: 1,
+      });
+      if (match !== contactId) continue;
+      const outcome = await this.addChatOpenedRecipient({
+        databaseHandle,
+        organizationId,
+        broadcastId: broadcast.id,
+        contactId,
+      });
+      if (outcome !== 'unchanged') added += 1;
+    }
+    return added;
   }
 
   /**

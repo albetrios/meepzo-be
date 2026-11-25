@@ -28,6 +28,32 @@ export interface ContactTagEventIntakeRow {
   created_at: Date;
 }
 
+/** One contact the pick-up hands to intake (WC-27): her organization's and her public ids. */
+export interface ContactTagEventPickupRow {
+  organization_id: number;
+  organization_public_id: string;
+  contact_id: number;
+  contact_public_id: string;
+}
+
+/** The rows of a raw `execute` — postgres-js answers an array, node-postgres `{ rows }`. */
+function rowsOf<Row>(result: unknown): Row[] {
+  return (Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])) as Row[];
+}
+
+/**
+ * Which undone events the pick-up hands over (WC-27): not handed over a minute after they were
+ * written, or handed over an hour ago and still undone while under a day old.
+ */
+function pickupCondition(now: Date) {
+  const at = now.toISOString();
+  return sql`e.done_at IS NULL
+    AND e.created_at < ${at}::timestamptz - interval '1 minute'
+    AND (e.queued_at IS NULL
+      OR (e.queued_at < ${at}::timestamptz - interval '1 hour'
+        AND e.created_at > ${at}::timestamptz - interval '24 hours'))`;
+}
+
 /** One `app.contact_tag_events` row as Drizzle reads it. */
 export type ContactTagEventRow = typeof contact_tag_events.$inferSelect;
 
@@ -118,6 +144,62 @@ export class ContactTagEventRepository {
       organizationPublicId: first.organization_public_id,
       contactPublicIds: rows.map((row) => row.contact_public_id),
     };
+  }
+
+  /**
+   * The pick-up's read across organizations (WC-27, `idx_contact_tag_events_pickup`, the retention
+   * arm): up to `limit` live contacts after `afterContactId` holding events to hand over, by id.
+   */
+  async listPickupContacts({
+    now,
+    afterContactId,
+    limit,
+  }: {
+    now: Date;
+    afterContactId: number;
+    limit: number;
+  }): Promise<ContactTagEventPickupRow[]> {
+    return rowsOf<ContactTagEventPickupRow>(
+      await this.db().execute(sql`
+        SELECT e.organization_id, o.public_id AS organization_public_id, e.contact_id,
+          c.public_id AS contact_public_id
+        FROM app.contact_tag_events e
+        JOIN app.contacts c ON c.organization_id = e.organization_id AND c.id = e.contact_id
+        JOIN tenancy.organizations o ON o.id = e.organization_id
+        WHERE ${pickupCondition(now)} AND c.deleted_at IS NULL AND o.deleted_at IS NULL
+          AND e.contact_id > ${afterContactId}
+        GROUP BY e.organization_id, o.public_id, e.contact_id, c.public_id
+        ORDER BY e.contact_id
+        LIMIT ${limit}`),
+    );
+  }
+
+  /**
+   * Stamps `queued_at` now on the contacts' events the pick-up hands over (WC-27), in the
+   * organization's own scope; answers how many rows.
+   */
+  async markPickedUp({
+    organizationId,
+    contactIds,
+    now,
+  }: {
+    organizationId: number;
+    contactIds: readonly number[];
+    now: Date;
+  }): Promise<number> {
+    if (contactIds.length === 0) return 0;
+    const rows = rowsOf<{ id: number }>(
+      await this.db().execute(sql`
+        UPDATE app.contact_tag_events e SET queued_at = now()
+        WHERE e.organization_id = ${organizationId}
+          AND e.contact_id IN (${sql.join(
+            contactIds.map((id) => sql`${id}`),
+            sql`, `,
+          )})
+          AND ${pickupCondition(now)}
+        RETURNING e.id`),
+    );
+    return rows.length;
   }
 
   /** Deletes every tag event of one contact (her erase, CT11); answers how many went. */
@@ -238,6 +320,17 @@ export class ContactTagEventRepository {
       )
       .orderBy(asc(contact_tag_events.created_at), asc(contact_tag_events.id));
   }
+}
+
+/**
+ * {@link ContactTagEventRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) —
+ * the pick-up's read across organizations (WC-27).
+ */
+export function createRetentionContactTagEventRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): ContactTagEventRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new ContactTagEventRepository(databaseHandle);
 }
 
 /**

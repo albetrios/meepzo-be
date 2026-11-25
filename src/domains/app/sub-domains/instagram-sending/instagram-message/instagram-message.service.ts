@@ -663,6 +663,51 @@ export class InstagramMessageService implements ChannelSendingPort {
     });
   }
 
+  /**
+   * The repair duties' end of waiting messages (WC-15 the 7-day expiry, WC-17 a closed window,
+   * WC-18 the reply trim): each `waiting` row takes `expired` or `skipped` with the reason, and
+   * reports like a send's result in the same commit — today's line (S8) and the engine's
+   * `recordMessageResult` (`expired` as `skipped`), so her run moves on as for any skipped message.
+   * Answers how many ended; a message no longer waiting is left as it is.
+   *
+   * @remarks
+   * Algorithm: one unit in the scope — per key the guarded end, then the settled message's
+   * bookkeeping (the same path {@link saveSendResult} takes). Failure modes: a database error rolls
+   * the piece back (the next minute tries again). Side effects: the rows, the day counts, the runs.
+   */
+  async settleWaitingMessages({
+    scope,
+    keys,
+    status,
+    reason,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    keys: readonly InstagramMessageKey[];
+    status: 'expired' | 'skipped';
+    reason: InstagramMessageReason;
+  }): Promise<number> {
+    if (keys.length === 0) return 0;
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const repository = new InstagramMessageRepository(databaseHandle);
+        let ended = 0;
+        for (const key of keys) {
+          const message = await repository.finishWaiting({ key, status, reason });
+          if (message === null) continue;
+          ended += 1;
+          await this.recordSettledMessage({
+            input: { scope, reason },
+            status,
+            message,
+            databaseHandle,
+          });
+        }
+        return ended;
+      },
+    });
+  }
+
   /** The claim's minute and month counts given back (SN4), in the save's unit. */
   private async giveCountsBack({
     input,
@@ -702,7 +747,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     message,
     databaseHandle,
   }: {
-    input: InstagramSendResultInput;
+    input: Pick<InstagramSendResultInput, 'scope' | 'reason'>;
     status: Exclude<InstagramSendResultInput['status'], 'waiting'>;
     message: InstagramMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;

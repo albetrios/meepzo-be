@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(41);
+    expect(scheduledJobs).toHaveLength(52);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -109,7 +109,36 @@ describe('infrastructure queue scheduler', () => {
       'instagram-webhook',
       'instagram-webhook',
       'notification',
+      // feat-instagram-dm-sending R47 (SN6, P94): the repair duties, one scheduler each, every
+      // minute — nine on the task queue, the tag pick-up and the open-run key repair on intake's.
+      ...Array.from({ length: 9 }, () => 'instagram-tasks'),
+      'instagram-webhook',
+      'instagram-webhook',
     ]);
+  });
+
+  it('runs every repair duty as its own every-minute scheduler (SN6, P94, R47)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const duties = getScheduledJobs().filter((scheduledJob) =>
+      scheduledJob.jobName.startsWith('repair-'),
+    );
+    expect(
+      duties.map((duty) => [duty.queueName, duty.jobName, duty.schedulerId, duty.cronPattern]),
+    ).toEqual(
+      [
+        ['instagram-tasks', 'repair-lost-turns'],
+        ['instagram-tasks', 'repair-stuck-sends'],
+        ['instagram-tasks', 'repair-expiry'],
+        ['instagram-tasks', 'repair-closed-windows'],
+        ['instagram-tasks', 'repair-reply-trim'],
+        ['instagram-tasks', 'repair-paused-cancel'],
+        ['instagram-tasks', 'repair-counts'],
+        ['instagram-tasks', 'repair-broadcast-start'],
+        ['instagram-tasks', 'repair-broadcast-end'],
+        ['instagram-webhook', 'repair-tag-event-pickup'],
+        ['instagram-webhook', 'repair-open-run-keys'],
+      ].map(([queueName, jobName]) => [queueName, jobName, `instagram-${jobName}`, '* * * * *']),
+    );
   });
 
   it('runs the owners’ problem emails and the month notices’ check every minute and the weekly summary’s sweep hourly (WC-56–WC-58, R53)', async () => {
@@ -293,17 +322,18 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(41);
-    // Each scheduled job opens one Queue for upsert (41) + the reconcile pass opens one Queue per
-    // unique queue name (36 — the weekly summary's sweep rides the notification queue, which no other cron uses (R53); the seat reconcile, the export reclaim, the Instagram daily-check
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(52);
+    // Each scheduled job opens one Queue for upsert (52) + the reconcile pass opens one Queue per
+    // unique queue name (37 — the repair duties add the task queue (R47; their tag pick-up and
+    // open-run key repair ride the pick-up's queue); the weekly summary's sweep rides the notification queue, which no other cron uses (R53); the seat reconcile, the export reclaim, the Instagram daily-check
     // sweep and the Instagram stuck-event pick-up ride queues no other cron uses, and the
     // missed-comment sweep, the past-comments watch, the "next post" linking sweep, the owners'
     // problem emails and the month notices' check ride the pick-up's queue), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(77);
+    expect(queueCloseMock).toHaveBeenCalledTimes(89);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(77);
+    expect(queueCloseMock).toHaveBeenCalledTimes(89);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

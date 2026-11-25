@@ -248,6 +248,38 @@ export function chooseCommentAutomation<T extends AutomationMatchCandidate>({
   };
 }
 
+/**
+ * Whether a post is watched for missed comments (WH17, plan §34 rule 19): one of the account's live
+ * comment or ad-comment automations could take a comment on it — an "any post" one, one linked to
+ * this post (one post, a linked "next post", "posts between" holding it), or an ad-comment one (an
+ * ad's post was watched because an ad comment on it started the watch; the post row keeps no ad id).
+ *
+ * @remarks
+ * Pure; keywords are not looked at (any comment may match). The caller passes the account's live,
+ * not-stopped automations only.
+ */
+export function isPostWatchedByCommentAutomations<T extends AutomationMatchCandidate>({
+  candidates,
+  mediaId,
+  mediaPublishedAt,
+}: {
+  candidates: readonly T[];
+  mediaId: string;
+  mediaPublishedAt: Date | null;
+}): boolean {
+  return candidates.some(
+    (candidate) =>
+      candidate.trigger_type === 'ad_comment' ||
+      commentCandidateGroup({
+        candidate,
+        kind: 'comment',
+        mediaId,
+        adId: null,
+        mediaPublishedAt,
+      }) !== null,
+  );
+}
+
 /** What a message event is, for the match order of plan §4.3. */
 export interface AutomationMessageMatchInput {
   kind: 'message' | 'story_reply' | 'story_mention' | 'shared_post';

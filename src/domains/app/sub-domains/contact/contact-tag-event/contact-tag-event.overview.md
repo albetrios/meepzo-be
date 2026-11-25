@@ -20,6 +20,8 @@ contacts (scale review S20). No routes and no public id: the rows are never retu
   (`CASCADE`) and its account (`RESTRICT`), the checks, the five indexes and RLS
 - `contact-tag-event.repository.ts` — the multi-row insert, the hand-over's public ids, the erase's
   delete, one contact's events; `createWorkerContactTagEventRepository(databaseHandle)` for jobs
+- `workers/contact-tag-event-pickup.processor.ts` — the pick-up (WC-27, R47): every minute on `instagram-sending-repair` (each database unit in an `instagram-database` limiter slot),
+  `listPickupContacts` (retention handle) → `markPickedUp` (`queued_at` now, the organization's scope) → intake
 - `contact-tag-event.service.ts` — `ContactTagEventService`: the contact service's
   `ContactTagEventRecorder` (`recordContactTagEvents`) and the erase step (`deleteContactTagEvents`)
 - `contact-tag-event.types.ts` — the intake port `ContactTagEventIntakeQueue` (WC-4, ROUTE row R38)
@@ -72,5 +74,5 @@ None emitted; the hand-over is a queue job through the intake port.
 `CONTACT_TAG_EVENT_INTAKE_CONTACTS_PER_JOB` (500), `CONTACT_TAG_EVENT_KINDS`,
 `CONTACT_TAG_EVENT_SOURCES` in `contact-tag-event.constants.ts`.
 
-Later rows: intake of tag events (WC-4) at ROUTE row R38, the pick-up (WC-27) at R47, the 8-day
+Later rows: intake of tag events (WC-4) at ROUTE row R38, the pick-up (WC-27) at R47 (built), the 8-day
 clean-up (WC-54) at R50, `source_automation_id`'s key with the automations migration (R13).

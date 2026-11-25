@@ -7,6 +7,7 @@ import {
   INSTAGRAM_ACCOUNT_SETUP_JOB_NAME,
   startInstagramAccountChainBestEffort,
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-tasks.queue.js';
+import { MessageMonthCountRepository } from '@/domains/app/sub-domains/instagram-sending/message-month-count.repository.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
@@ -88,6 +89,29 @@ import { pickChannelAccountsInPlan } from './channel-account-plan-stop.util.js';
  * Notes: structural, so a test can stub it; billing's `SubscriptionService` satisfies it.
  */
 export type ChannelAccountPlanAccessService = Pick<SubscriptionService, 'getPlanAccess'>;
+
+/**
+ * The organization's week as {@link ChannelAccountService.readWeeklySummary} answers it — the shape
+ * notify's weekly-summary port takes (feat-instagram-dm-sending UN1, UN12).
+ *
+ * @remarks
+ * Counts only, the account's username and an automation's name — no personal data.
+ */
+export interface ChannelAccountWeeklySummary {
+  accounts: {
+    channelAccountPublicId: string;
+    username: string;
+    runsStarted: number;
+    directMessagesSent: number;
+    tappedPercent: number;
+    newContacts: number;
+    emailsCollected: number;
+    phonesCollected: number;
+    topAutomationName: string | null;
+  }[];
+  monthUsed: number;
+  monthLimit: number | null;
+}
 
 /**
  * The caller of a channel account route: its organization scope and user.
@@ -1212,6 +1236,71 @@ export class ChannelAccountService
           organizationPublicIds,
         }),
     });
+  }
+
+  /**
+   * The weekly summary's read (feat-instagram-dm-sending UN1, UN12, WC-58) — the app's side of
+   * notify's `NotificationWeeklySummaryPort`: per live account of the organization its last days'
+   * runs, DMs sent, % tapped, new contacts, emails and phones and top automation, plus this month's
+   * DM count and the plan's limit.
+   *
+   * @remarks
+   * - **Algorithm:** in the given organization scope (joining the job's unit): the organization,
+   *   one statement for every account (`ChannelAccountRepository.readWeeklySummary`), the month's
+   *   slots (`MessageMonthCountRepository.readMonth`) and billing's `message_month_limit`.
+   *   `tappedPercent` = runs with a tap ÷ runs started, rounded; the username is the display name
+   *   without its `@`.
+   * - **Failure modes:** a missing organization reads an empty week; read errors propagate.
+   * - **Side effects:** none — reads.
+   * - **Notes:** wired into notify's weekly-summary worker by the worker composition root.
+   */
+  async readWeeklySummary({
+    scope,
+    since,
+    until,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    since: Date;
+    until: Date;
+  }): Promise<ChannelAccountWeeklySummary> {
+    const read = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.findOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        if (!organization) return null;
+        const accounts = await this.accountRepository.readWeeklySummary({
+          organizationId: organization.id,
+          since,
+          until,
+        });
+        const month = await new MessageMonthCountRepository().readMonth(organization.id);
+        return { accounts, monthUsed: month?.used ?? 0 };
+      },
+    });
+    if (read === null) return { accounts: [], monthUsed: 0, monthLimit: null };
+    const planAccess = await this.planAccessService.getPlanAccess({
+      organizationPublicId: scope.organizationPublicId,
+    });
+    return {
+      accounts: read.accounts.map((account) => ({
+        channelAccountPublicId: account.channelAccountPublicId,
+        username: account.displayName.replace(/^@/, ''),
+        runsStarted: account.runsStarted,
+        directMessagesSent: account.directMessagesSent,
+        tappedPercent:
+          account.runsStarted === 0
+            ? 0
+            : Math.round((account.tappedRuns / account.runsStarted) * 100),
+        newContacts: account.newContacts,
+        emailsCollected: account.emailsCollected,
+        phonesCollected: account.phonesCollected,
+        topAutomationName: account.topAutomationName,
+      })),
+      monthUsed: read.monthUsed,
+      monthLimit: planAccess.features?.message_month_limit ?? null,
+    };
   }
 
   /**

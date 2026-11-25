@@ -14,6 +14,10 @@ import {
   AUDIT_OUTBOX_DRAIN_QUEUE_NAME,
   DEFAULT_AUDIT_OUTBOX_DRAIN_CRON,
 } from '@/domains/audit/workers/audit-outbox-drain.constants.js';
+import { NOTIFICATION_WEEKLY_SUMMARY_SWEEP_JOB_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-weekly-summary.constants.js';
+import { NOTIFICATION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/queues/notification.queue.js';
+import { INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.constants.js';
+import { MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.constants.js';
 import { NOTIFICATION_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-retention.constants.js';
 import { SESSION_CLEANUP_QUEUE_NAME } from '@/domains/auth/sub-domains/auth-session/workers/session-cleanup.constants.js';
 import { WEBHOOK_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/webhook/workers/webhook-tombstone-retention.constants.js';
@@ -80,8 +84,15 @@ import {
 } from '@/domains/app/workers/app-partition-upkeep.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
+import { INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.constants.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
+import { AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.constants.js';
+import { AUTOMATION_BACKFILL_WATCH_JOB_NAME } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.constants.js';
+import {
+  INSTAGRAM_SEND_REPAIR_DUTY_CRON,
+  INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAMES,
+} from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-repair-duties.processor.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { env } from '@/shared/config/env.config.js';
 
@@ -186,11 +197,33 @@ const DEFAULT_USER_DATA_EXPORT_RECLAIM_CRON = '*/5 * * * *';
 /** Hourly: lost seat-sync enqueues and lapsed dunning entitlements. */
 const DEFAULT_SUBSCRIPTION_SEAT_RECONCILE_CRON = '17 * * * *';
 /**
- * Every minute (launch-2026-11-20-ujai WH15, worker-changes WC-2): the Instagram accounts whose
- * events still wait 5 minutes after they arrived go back to event processing. A fixed cadence, not a
- * setting.
+ * Every minute (feat-instagram-dm-sending WH17, worker-changes WC-12): the Instagram accounts whose
+ * events still wait a minute after they arrived go back to intake, and the `failed` events whose
+ * hourly retry is due go back to `received`. A fixed cadence, not a setting.
  */
 const DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON = '* * * * *';
+/**
+ * Every 30 minutes (feat-instagram-dm-sending WH17, worker-changes WC-26,
+ * `INSTAGRAM_MISSED_COMMENT_ROUND_MINUTES`): one missed-comment look per watched account, spread
+ * over the round; the full pass for an account whose rounds were missed. A fixed cadence.
+ */
+const DEFAULT_INSTAGRAM_MISSED_COMMENT_SWEEP_CRON = '*/30 * * * *';
+/**
+ * Every 10 minutes (feat-instagram-dm-sending AU32, worker-changes WC-41): the past-comments watch
+ * wakes the read of every account whose read had no new page for 30 minutes or whose queued read's
+ * job was lost. A fixed cadence.
+ */
+const DEFAULT_AUTOMATION_BACKFILL_WATCH_CRON = '*/10 * * * *';
+/**
+ * Every 15 minutes (feat-instagram-dm-sending AU6, worker-changes WC-43): one "next post" linking
+ * task per account with a live waiting "my next post" automation — Meta sends no new-post event.
+ */
+const DEFAULT_AUTOMATION_NEXT_POST_LINKING_CRON = '*/15 * * * *';
+/** Every minute (WC-56, WC-57, P94): the owners' problem emails and the month notices' backup check. */
+const DEFAULT_INSTAGRAM_OWNER_PROBLEM_EMAIL_CRON = '* * * * *';
+const DEFAULT_MESSAGE_MONTH_NOTICE_CHECK_CRON = '* * * * *';
+/** Hourly (UN12): the weekly summary's sweep finds the organizations whose Monday 09:00 it is. */
+const DEFAULT_NOTIFICATION_WEEKLY_SUMMARY_SWEEP_CRON = '3 * * * *';
 const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 /**
  * feat-instagram-dm-sending WC-55 (WHC13, S17): the shared partition upkeep makes the coming parts
@@ -510,6 +543,17 @@ function getRecoverySweepScheduledJobs(timezone: string | undefined): ScheduledJ
         cronPattern: DEFAULT_USER_DATA_EXPORT_RECLAIM_CRON,
       },
     }),
+    ...getInstagramIntakeSweepScheduledJobs(timezone),
+  ];
+}
+
+/**
+ * The sweeps that ride Instagram intake's queue `instagram-webhook` (run by its worker): the stuck-event
+ * pick-up (WH15), the missed-comment sweep (WH17, R39) and the automations' past-comments watch and
+ * "next post" linking (R41) — in the order {@link getScheduledJobs} registers them.
+ */
+function getInstagramIntakeSweepScheduledJobs(timezone: string | undefined): ScheduledJob[] {
+  return [
     // The stuck-event pick-up rides the Instagram event-processing queue (run by its worker).
     withSchedulerTimezone({
       timezone,
@@ -520,7 +564,98 @@ function getRecoverySweepScheduledJobs(timezone: string | undefined): ScheduledJ
         cronPattern: DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON,
       },
     }),
+    // The missed-comment sweep rides the same queue (run by its worker); its looks go to
+    // `instagram-tasks`.
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'instagram-missed-comment-sweep',
+        jobName: INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_INSTAGRAM_MISSED_COMMENT_SWEEP_CRON,
+      },
+    }),
+    // The automations' past-comments watch and "next post" linking sweep ride the same queue (run by
+    // its worker, R41); their work goes to `instagram-tasks`.
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'automation-backfill-watch',
+        jobName: AUTOMATION_BACKFILL_WATCH_JOB_NAME,
+        cronPattern: DEFAULT_AUTOMATION_BACKFILL_WATCH_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'automation-next-post-linking',
+        jobName: AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_AUTOMATION_NEXT_POST_LINKING_CRON,
+      },
+    }),
   ];
+}
+
+/**
+ * The notices' scheduled runs (feat-instagram-dm-sending WC-56–WC-58, ROUTE row R53): the owners'
+ * problem emails and the month notices' backup check every minute on the intake queue, and the
+ * weekly summary's hourly sweep on the notification queue — in the order {@link getScheduledJobs} registers
+ * them.
+ */
+function getNoticeScheduledJobs(timezone: string | undefined): ScheduledJob[] {
+  return [
+    // The owners' problem emails and the month notices' backup check ride the same queue (R53),
+    // each its own every-minute run (WC-57, WC-56).
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'instagram-owner-problem-email',
+        jobName: INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME,
+        cronPattern: DEFAULT_INSTAGRAM_OWNER_PROBLEM_EMAIL_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'message-month-notice-check',
+        jobName: MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME,
+        cronPattern: DEFAULT_MESSAGE_MONTH_NOTICE_CHECK_CRON,
+      },
+    }),
+    // The weekly summary's hourly sweep rides the notification queue (run by its worker, UN12).
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: NOTIFICATION_QUEUE_NAME,
+        schedulerId: 'notification-weekly-summary-sweep',
+        jobName: NOTIFICATION_WEEKLY_SUMMARY_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_NOTIFICATION_WEEKLY_SUMMARY_SWEEP_CRON,
+      },
+    }),
+  ];
+}
+
+/**
+ * The repair duties (feat-instagram-dm-sending § 6 SN6, SNC5; P94 — ROUTE row R47): one scheduler
+ * per duty, every minute, each working until its 40 s budget is spent — all eleven on the repair
+ * queue `instagram-sending-repair` beside R52's duties and R48's watches (the R47 × R48 merge).
+ */
+function getRepairDutyScheduledJobs(timezone: string | undefined): ScheduledJob[] {
+  return Object.values(INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAMES).map((jobName) =>
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+        schedulerId: `instagram-${jobName}`,
+        jobName,
+        cronPattern: INSTAGRAM_SEND_REPAIR_DUTY_CRON,
+      },
+    }),
+  );
 }
 
 /**
@@ -676,6 +811,8 @@ export function getScheduledJobs(): ScheduledJob[] {
     ...getTombstoneRetentionScheduledJobs(timezone),
     ...getOperationalSweepScheduledJobs(timezone),
     ...getRecoverySweepScheduledJobs(timezone),
+    ...getNoticeScheduledJobs(timezone),
+    ...getRepairDutyScheduledJobs(timezone),
     ...getInstagramSendingWatchScheduledJobs(timezone),
   ];
 }

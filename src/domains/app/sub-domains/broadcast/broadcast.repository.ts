@@ -55,6 +55,40 @@ export interface BroadcastListPage {
   next_cursor: string | null;
 }
 
+/** One broadcast a duty read found (WC-28, WC-29), with the public ids its jobs and notice name. */
+export interface BroadcastDutyRow {
+  broadcast_id: number;
+  organization_id: number;
+  organization_public_id: string;
+  broadcast_public_id: string;
+  channel_account_public_id: string;
+  status: BroadcastStatus;
+  cancel_reason: string | null;
+  /** The channel whose sending port cancels its messages. */
+  channel: string;
+}
+
+/** The rows of a raw `execute` — postgres-js answers an array, node-postgres `{ rows }`. */
+function dutyRowsOf<Row>(result: unknown): Row[] {
+  return (Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])) as Row[];
+}
+
+/**
+ * Whether a `sending` broadcast's audience build has finished — the end duty's mark (7.A.10):
+ * `app.broadcasts.audience_built_at`, set in the commit of the build's last piece (ROUTE row R46),
+ * so the end duty never ends a broadcast whose audience is still being built (P319).
+ */
+const BROADCAST_AUDIENCE_BUILT_CONDITION = sql`b.audience_built_at IS NOT NULL`;
+
+/** The duties' reads across organizations (`app.global_retention_cleanup` arm). */
+const BROADCAST_DUTY_COLUMNS = sql`
+  b.id AS broadcast_id, b.organization_id, o.public_id AS organization_public_id,
+  b.public_id AS broadcast_public_id, a.public_id AS channel_account_public_id, b.status,
+  b.cancel_reason, b.channel`;
+const BROADCAST_DUTY_JOINS = sql`
+  JOIN tenancy.organizations o ON o.id = b.organization_id
+  JOIN app.channel_accounts a ON a.organization_id = b.organization_id AND a.id = b.channel_account_id`;
+
 /** The two keys every single-broadcast statement names. */
 export interface BroadcastKey {
   organizationId: number;
@@ -457,6 +491,149 @@ export class BroadcastRepository {
       )
       .returning({ id: broadcasts.id });
     return rows.length > 0;
+  }
+
+  /**
+   * Scheduled broadcasts whose time came (WC-28, `idx_broadcasts_scheduled_at`), live and of a live
+   * organization, keyset by id — read across organizations on a retention handle.
+   */
+  async listDueScheduled({
+    now,
+    afterBroadcastId,
+    limit,
+  }: {
+    now: Date;
+    afterBroadcastId: number;
+    limit: number;
+  }): Promise<BroadcastDutyRow[]> {
+    return dutyRowsOf<BroadcastDutyRow>(
+      await this.db().execute(sql`
+        SELECT ${BROADCAST_DUTY_COLUMNS}
+        FROM app.broadcasts b ${BROADCAST_DUTY_JOINS}
+        WHERE b.status = 'scheduled' AND b.scheduled_at <= ${now.toISOString()}::timestamptz
+          AND b.deleted_at IS NULL AND o.deleted_at IS NULL AND b.id > ${afterBroadcastId}
+        ORDER BY b.id
+        LIMIT ${limit}`),
+    );
+  }
+
+  /**
+   * Broadcasts the end duty has work on (WC-29): a cancelled one still holding a waiting recipient
+   * or message; a "when her chat opens" one past its end with nobody waiting; a sending one whose
+   * audience is built with nobody waiting — keyset by id, on a retention handle.
+   */
+  async listToEnd({
+    now,
+    afterBroadcastId,
+    limit,
+  }: {
+    now: Date;
+    afterBroadcastId: number;
+    limit: number;
+  }): Promise<BroadcastDutyRow[]> {
+    const nobodyWaits = sql`NOT EXISTS (
+      SELECT 1 FROM app.broadcast_recipients r
+      WHERE r.organization_id = b.organization_id AND r.broadcast_id = b.id AND r.status = 'waiting')`;
+    return dutyRowsOf<BroadcastDutyRow>(
+      await this.db().execute(sql`
+        SELECT ${BROADCAST_DUTY_COLUMNS}
+        FROM app.broadcasts b ${BROADCAST_DUTY_JOINS}
+        WHERE b.id > ${afterBroadcastId} AND (
+          (b.status = 'cancelled' AND (
+            EXISTS (SELECT 1 FROM app.broadcast_recipients r
+              WHERE r.organization_id = b.organization_id AND r.broadcast_id = b.id
+                AND r.status = 'waiting')
+            OR EXISTS (SELECT 1 FROM app.instagram_messages m
+              WHERE m.organization_id = b.organization_id AND m.broadcast_id = b.id
+                AND m.status = 'waiting')))
+          OR (b.status = 'waiting_for_chats' AND b.ends_at <= ${now.toISOString()}::timestamptz
+            AND ${nobodyWaits})
+          OR (b.status = 'sending' AND ${BROADCAST_AUDIENCE_BUILT_CONDITION} AND ${nobodyWaits}))
+        ORDER BY b.id
+        LIMIT ${limit}`),
+    );
+  }
+
+  /**
+   * The start duty's move (WC-28): a live `scheduled` broadcast whose time came becomes `sending`
+   * with `started_at`. `false` when it moved meanwhile (a cancel, an earlier run).
+   */
+  async startScheduled({
+    organizationId,
+    broadcastId,
+    now,
+  }: BroadcastKey & { now: Date }): Promise<boolean> {
+    const rows = await this.db()
+      .update(broadcasts)
+      .set({ status: 'sending', started_at: sql`now()`, updated_at: broadcastUpdatedAtTimestamp })
+      .where(
+        and(
+          liveBroadcastWhere({ organizationId, broadcastId }),
+          eq(broadcasts.status, 'scheduled'),
+          sql`${broadcasts.scheduled_at} <= ${now.toISOString()}::timestamptz`,
+        ),
+      )
+      .returning({ id: broadcasts.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * The end duty's `done` (WC-29): a `sending` or `waiting_for_chats` broadcast with nobody waiting
+   * gets `finished_at`. Answers the row's name, numbers and creator, or `null` when it moved.
+   */
+  async markDone({
+    organizationId,
+    broadcastId,
+  }: BroadcastKey): Promise<Pick<
+    BroadcastRow,
+    'public_id' | 'name' | 'sent' | 'created_by_user_id'
+  > | null> {
+    const [row] = await this.db()
+      .update(broadcasts)
+      .set({ status: 'done', finished_at: sql`now()`, updated_at: broadcastUpdatedAtTimestamp })
+      .where(
+        and(
+          eq(broadcasts.organization_id, organizationId),
+          eq(broadcasts.id, broadcastId),
+          inArray(broadcasts.status, ['sending', 'waiting_for_chats']),
+          sql`NOT EXISTS (
+            SELECT 1 FROM app.broadcast_recipients r
+            WHERE r.organization_id = ${broadcasts.organization_id}
+              AND r.broadcast_id = ${broadcasts.id} AND r.status = 'waiting')`,
+        ),
+      )
+      .returning({
+        public_id: broadcasts.public_id,
+        name: broadcasts.name,
+        sent: broadcasts.sent,
+        created_by_user_id: broadcasts.created_by_user_id,
+      });
+    return row ?? null;
+  }
+
+  /**
+   * The account's live "when her chat opens" broadcasts still inside their days (BC17 — intake's
+   * hook, `idx_broadcasts_account_waiting_for_chats`), with the copy of their audience.
+   */
+  async listWaitingForChats({
+    organizationId,
+    channelAccountId,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+  }): Promise<Pick<BroadcastRow, 'id' | 'conditions'>[]> {
+    return this.db()
+      .select({ id: broadcasts.id, conditions: broadcasts.conditions })
+      .from(broadcasts)
+      .where(
+        and(
+          eq(broadcasts.organization_id, organizationId),
+          eq(broadcasts.channel_account_id, channelAccountId),
+          eq(broadcasts.status, 'waiting_for_chats'),
+          isNull(broadcasts.deleted_at),
+          sql`${broadcasts.ends_at} > now()`,
+        ),
+      );
   }
 
   /**

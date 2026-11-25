@@ -11,6 +11,7 @@ import {
   segmentAutomationPublicIds,
 } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
 import { BROADCAST_ACTIVE_STATUSES } from '@/domains/app/sub-domains/broadcast/broadcast.constants.js';
+import { BroadcastRepository } from '@/domains/app/sub-domains/broadcast/broadcast.repository.js';
 import {
   BROADCAST_AUDIENCE_PIECE_SIZE,
   type BroadcastRecipientStatus,
@@ -313,6 +314,69 @@ export class BroadcastRecipientService {
   }
 
   /**
+   * Intake's "when her chat opens" hook (BC17, AC-9.6 — called in her message's commit, after the
+   * run engine): for each of the account's `waiting_for_chats` broadcasts still inside its days whose
+   * copy of the audience she matches, her recipient row through {@link addChatOpenedRecipient} —
+   * only when no run of hers is open and the owner has not typed to her in the last 6 hours. Answers
+   * how many rows were made or put back.
+   *
+   * @remarks
+   * Algorithm: the two holds first (the owner's chat, an open-run key), then the account's waiting
+   * broadcasts, each matched by the audience read over her one contact. Failure modes: no sending
+   * port throws (the event's unit rolls back and intake retries). Side effects: recipients, their
+   * message 1, the broadcasts' `skipped`.
+   */
+  async handleChatOpened({
+    databaseHandle,
+    organizationId,
+    channelAccountId,
+    contactId,
+    isOwnerChatting,
+  }: {
+    databaseHandle: ChannelPortDatabaseHandle;
+    organizationId: number;
+    channelAccountId: number;
+    contactId: number;
+    isOwnerChatting: boolean;
+  }): Promise<number> {
+    if (isOwnerChatting) return 0;
+    const repository = new BroadcastRecipientRepository(databaseHandle);
+    if (await repository.hasOpenRun({ organizationId, contactId })) return 0;
+    const waiting = await new BroadcastRepository(databaseHandle).listWaitingForChats({
+      organizationId,
+      channelAccountId,
+    });
+    let added = 0;
+    for (const broadcast of waiting) {
+      if (broadcast.conditions === null) continue;
+      const automationIds = await new BroadcastSegmentRepository(
+        databaseHandle,
+      ).findAccountAutomationIds({
+        organizationId,
+        channelAccountId,
+        automationPublicIds: segmentAutomationPublicIds(broadcast.conditions),
+      });
+      const [match] = await repository.listAudiencePiece({
+        organizationId,
+        channelAccountId,
+        conditions: broadcast.conditions,
+        automationIds,
+        afterContactId: contactId - 1,
+        limit: 1,
+      });
+      if (match?.id !== contactId) continue;
+      const outcome = await this.addChatOpenedRecipient({
+        databaseHandle,
+        organizationId,
+        broadcastId: broadcast.id,
+        contactId,
+      });
+      if (outcome !== 'unchanged') added += 1;
+    }
+    return added;
+  }
+
+  /**
    * A broadcast message's final result (BC17, BC18 — the outbound seam's way back, called by the
    * channel's result save in its commit): message 1 settles her `waiting` recipient (`sent` with
    * `sent_at`, `skipped`, `failed`, `unknown`) and adds 1 to the broadcast's `sent`, `skipped` or
@@ -460,5 +524,53 @@ export class BroadcastRecipientService {
       });
     }
     return broadcastIds.length;
+  }
+
+  /**
+   * A tap on a broadcast message's button or quick reply (§ 7.A.10 — intake's, in the tap's unit):
+   * the broadcast it names and the automation its "start automation" button starts, read before
+   * the run engine; `null` when the broadcast is gone or another organization's.
+   *
+   * @remarks
+   * Algorithm: one read on the caller's handle. Failure modes: database errors roll the caller's
+   * unit back. Side effects: none — `taps` is {@link BroadcastRecipientService.recordBroadcastTap}'s.
+   */
+  async findBroadcastTap({
+    databaseHandle,
+    organizationId,
+    broadcastPublicId,
+  }: {
+    databaseHandle: ChannelPortDatabaseHandle;
+    organizationId: number;
+    broadcastPublicId: string;
+  }): Promise<{ broadcastId: number; startAutomationPublicId: string | null } | null> {
+    return new BroadcastRecipientRepository(databaseHandle).findTapTarget({
+      organizationId,
+      broadcastPublicId,
+    });
+  }
+
+  /**
+   * Adds 1 to a broadcast's `taps` (§ 7.A.10, BC8) — intake's, after the run engine, in the tap's
+   * unit (the one lock order: contact → automation → runs, then the broadcast).
+   *
+   * @remarks
+   * Algorithm: one guarded `UPDATE`. Failure modes: database errors roll the caller's unit back.
+   * Side effects: the broadcast's `taps`. Notes: the event is final once, so a tap counts once.
+   */
+  async recordBroadcastTap({
+    databaseHandle,
+    organizationId,
+    broadcastId,
+  }: {
+    databaseHandle: ChannelPortDatabaseHandle;
+    organizationId: number;
+    broadcastId: number;
+  }): Promise<void> {
+    await new BroadcastRecipientRepository(databaseHandle).addToBroadcastNumbers({
+      organizationId,
+      broadcastId,
+      change: { taps: 1 },
+    });
   }
 }

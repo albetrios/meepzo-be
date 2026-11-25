@@ -14,9 +14,9 @@ export interface ContactTagEventIntakeJobInput {
 }
 
 /**
- * The tag-intake port (WC-4): enqueues one tag-intake job on `instagram-tasks`. ROUTE row R38
- * builds the job and the app container passes this port then; until then the events stay
- * `queued_at` null and wait for the pick-up (WC-27, ROUTE row R47).
+ * The tag-intake port (WC-4): enqueues one tag-intake job (`intake-tag-events` on the
+ * `instagram-webhook` queue, ROUTE row R38) — the app container passes it. Without it (a unit test)
+ * the events stay `queued_at` null and wait for the pick-up (WC-27, ROUTE row R47).
  */
 export interface ContactTagEventIntakeQueue {
   enqueueContactTagEventIntake(input: ContactTagEventIntakeJobInput): Promise<void>;
@@ -28,7 +28,7 @@ export interface ContactTagEventIntakeQueue {
  * {@link ContactTagEventService}: `./contact-tag-event.service.js`.
  */
 export interface ContactTagEventServicePorts {
-  /** Intake's queue (R38); absent → no hand-over, the events wait for the pick-up. */
+  /** Intake's queue (wired since R38); absent → no hand-over, the events wait for the pick-up. */
   intakeQueue?: ContactTagEventIntakeQueue;
 }
 

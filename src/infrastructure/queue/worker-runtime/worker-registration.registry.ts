@@ -82,7 +82,13 @@ import { registerWorkerRedisRebuildStep } from '@/infrastructure/queue/worker-ru
 import { INSTAGRAM_REPAIR_DATABASE_SLOT_WAIT_MILLISECONDS } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-watch.constants.js';
 import { getInstagramDatabaseSlotLimiter } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-ticket.processor.js';
 import { createInstagramWebhookWorker } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js';
-import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { enqueueInstagramContactProfileRead } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
+import { createInstagramLateCommentTimeReader } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js';
+import {
+  enqueueInstagramTagEventIntake,
+  INSTAGRAM_WEBHOOK_QUEUE_NAME,
+} from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { broadcastSendQueue } from '@/domains/app/app.tasks.js';
 import { createAppPartitionUpkeepWorker } from '@/domains/app/workers/app-partition-upkeep.worker.js';
 import { APP_PARTITION_UPKEEP_QUEUE_NAME } from '@/domains/app/workers/app-partition-upkeep.constants.js';
 import { createNotificationRetentionWorker } from '@/domains/notify/sub-domains/notification/workers/notification-retention.worker.js';
@@ -97,6 +103,7 @@ import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instag
 import { createInstagramSendFastWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-fast.worker.js';
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { createInstagramTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.worker.js';
+import { createInstagramSendRepairDutyServices } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-repair-duties.processor.js';
 import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
 import { createInstagramDatabaseTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-database-tasks.worker.js';
 import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
@@ -115,7 +122,6 @@ import { RETENTION_WORKER_CONCURRENCY } from '@/infrastructure/queue/worker-runt
 import type { WorkerQueueFamily } from '@/infrastructure/queue/worker-runtime/worker-queue-family.constants.js';
 import { env } from '@/shared/config/env.config.js';
 import {
-  getWorkerConcurrencyInstagram,
   getWorkerInstagramDatabaseSlots,
   getWorkerConcurrencyMail,
   getWorkerConcurrencyNotify,
@@ -253,11 +259,17 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     family: 'notify',
     logLabel: 'notification worker',
     usesPostgres: true,
-    scheduled: false,
+    // Also runs the weekly summary's hourly sweep and its jobs, and the grouped contact-details
+    // notes (feat-instagram-dm-sending UN12, UN13, R53) — the app's reads through its ports (UN1).
+    scheduled: true,
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
     resolvePostgresConcurrency: () => getWorkerConcurrencyNotify(),
-    create: () => createNotificationWorker(),
+    create: (workerContainers) =>
+      createNotificationWorker({
+        weeklySummary: workerContainers.appDomain.channelAccountService,
+        contactDetails: workerContainers.appDomain.contactService,
+      }),
   },
   {
     // Launch IA9 (WC-46): tells the organization's `channel-account:manage` holders (CA4), in the app
@@ -399,29 +411,53 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: () => createStripeWebhookEventCatchupWorker(),
   }),
   {
-    // launch-2026-11-20-ujai WH5, WH12–WH15: Instagram webhook event processing — one job per
-    // account works through its waiting events in order (deduplicated per account), plus the
-    // every-minute stuck-event pick-up on the same queue. Provider-pausable on the `instagram`
-    // circuit; every Instagram call runs between short organization contexts, never inside one.
-    // Off until the Instagram app is configured (no account can be connected before).
+    // feat-instagram-dm-sending § 5 WH5, WH11–WH16, WH25 (ROUTE row R38): Instagram intake — the
+    // three kind groups' jobs of each account (messages and Live first, comments behind them), the
+    // tag-intake jobs and the every-minute stuck-event pick-up, on one queue. A plain worker, never
+    // paused by an Instagram outage (P47 F3); every unit of work takes a slot of the process's
+    // Instagram database limiter, which the budget counts once (SN24, P408). Off until the Meta app
+    // is configured (no account can be connected before).
     queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
     family: 'instagram',
-    logLabel: 'Instagram webhook event processing worker',
+    logLabel: 'Instagram intake worker',
     usesPostgres: true,
     scheduled: true,
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
-    resolvePostgresConcurrency: () => getWorkerConcurrencyInstagram(),
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
     isEnabled: () => isMetaConfigured(),
-    create: (workerContainers) =>
-      createInstagramWebhookWorker({
-        instagramAccountService: workerContainers.appDomain.instagramAccountService,
-        instagramWebhookEventService: workerContainers.appDomain.instagramWebhookEventService,
-        contactService: workerContainers.appDomain.contactService,
-        instagramMediaService: workerContainers.appDomain.instagramMediaService,
-        automationService: workerContainers.appDomain.automationService,
-        automationRunService: workerContainers.appDomain.automationRunService,
-      }),
+    create: (workerContainers) => {
+      const { appDomain, tenancyDomain } = workerContainers;
+      return createInstagramWebhookWorker({
+        services: {
+          intake: {
+            instagramAccountService: appDomain.instagramAccountService,
+            channelAccountService: appDomain.channelAccountService,
+            broadcastRecipientService: appDomain.broadcastRecipientService,
+            instagramAccountSettingsService: appDomain.instagramAccountSettingsService,
+            instagramWebhookEventService: appDomain.instagramWebhookEventService,
+            contactService: appDomain.contactService,
+            instagramMediaService: appDomain.instagramMediaService,
+            automationService: appDomain.automationService,
+            automationRunService: appDomain.automationRunService,
+            instagramMessageService: appDomain.instagramMessageService,
+          },
+          tagIntake: {
+            organizationService: tenancyDomain.organizationService,
+            contactTagEventService: appDomain.contactTagEventService,
+            contactService: appDomain.contactService,
+            automationRunService: appDomain.automationRunService,
+          },
+          enqueueProfileRead: enqueueInstagramContactProfileRead,
+          readLateCommentTime: createInstagramLateCommentTimeReader({
+            instagramSendAccessService: appDomain.instagramSendAccessService,
+          }),
+          // The month notices' backup check (WC-56, R53) rides this queue.
+          monthNotice: appDomain.messageMonthNoticeService,
+        },
+      });
+    },
   },
   // feat-instagram-dm-sending SN2, SN24 (P91, ROUTE row R37): the send and task queues. Their job
   // places wait on Meta, not Postgres: every unit of work takes a slot of the process's Instagram
@@ -613,9 +649,11 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   }),
   // feat-instagram-dm-sending SN6 (P94): the sending repair duties, one repeat job each — at R52 the
   // month wake's check (WC-37) and the plan-stop backup (WC-38); at R48 the watches (the outage
-  // watch every 10 s, the Live check, the waiting estimate). Several at once (P94: in parallel), each
-  // database unit in a slot of the process's `instagram-database` limiter — counted once (SN24), so
-  // the duties add no Postgres demand. Not gated on sending (the Live check asks it before Meta).
+  // watch every 10 s, the Live check, the waiting estimate); at R47 the eleven every-minute repairs
+  // (lost turns … open-run keys, WC-13–WC-20, WC-27–WC-29, WC-67). Several at once (P94: in
+  // parallel), each database unit in a slot of the process's `instagram-database` limiter — counted
+  // once (SN24), so the duties add no Postgres demand. Not gated on sending as a queue: the duties
+  // that work send tickets and the Live check ask `mayTakeTickets` first.
   {
     queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
     family: 'instagram',
@@ -643,8 +681,21 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
           });
         },
       });
+      const { appDomain } = workerContainers;
       return createInstagramSendingRepairWorker({
         runInDatabaseSlot,
+        sendRepairDuties: createInstagramSendRepairDutyServices({
+          sendingGate: appDomain.sendingStateService,
+          messageService: appDomain.instagramMessageService,
+          gateService: appDomain.instagramSendGateService,
+          recipientService: appDomain.broadcastRecipientService,
+          sendingPorts: appDomain.channelSendingPorts,
+          // R46's `BroadcastSendQueuePort` (`app.tasks.ts`) — the start duty's audience task.
+          broadcastSendQueue,
+          tagIntakeQueue: { enqueueContactTagEventIntake: enqueueInstagramTagEventIntake },
+          openKeyRunService: appDomain.automationRunService,
+          runInDatabaseSlot,
+        }),
         watch: {
           watchService: workerContainers.appDomain.instagramSendingWatchService,
           runInDatabaseSlot,

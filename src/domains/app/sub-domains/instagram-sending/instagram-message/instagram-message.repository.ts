@@ -1,4 +1,4 @@
-import { type SQL, and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { type SQL, and, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -76,6 +76,8 @@ export interface InstagramMessageWaitingSelection {
   organizationId: number;
   by: 'run' | 'automation' | 'contact' | 'broadcast';
   id: number;
+  /** At most this many, oldest first (a repair duty's piece); absent — every one. */
+  limit?: number | undefined;
 }
 
 /** A failed message's verdict now: one of the blocks, or `retryable` (SN18). */
@@ -359,7 +361,25 @@ export class InstagramMessageRepository {
     const ended = await this.db()
       .update(instagram_messages)
       .set({ status, reason, updated_at: sql`now()` })
-      .where(and(selectionCondition(selection), eq(instagram_messages.status, 'waiting')))
+      .where(
+        and(
+          selectionCondition(selection),
+          eq(instagram_messages.status, 'waiting'),
+          selection.limit === undefined
+            ? undefined
+            : inArray(
+                instagram_messages.id,
+                this.db()
+                  .select({ id: instagram_messages.id })
+                  .from(instagram_messages)
+                  .where(
+                    and(selectionCondition(selection), eq(instagram_messages.status, 'waiting')),
+                  )
+                  .orderBy(instagram_messages.id)
+                  .limit(selection.limit),
+              ),
+        ),
+      )
       .returning({ id: instagram_messages.id });
     return ended.length;
   }
@@ -465,6 +485,27 @@ export class InstagramMessageRepository {
           eq(instagram_messages.status, 'sending'),
         ),
       )
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * A repair duty's end of one `waiting` row (WC-15, WC-17, WC-18): `expired` or `skipped` with the
+   * reason. Answers the row, or `null` when it is not `waiting` any more (a repeat does nothing).
+   */
+  async finishWaiting({
+    key,
+    status,
+    reason,
+  }: {
+    key: InstagramMessageKey;
+    status: 'expired' | 'skipped';
+    reason: InstagramMessageReason;
+  }): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .update(instagram_messages)
+      .set({ status, reason, updated_at: sql`now()` })
+      .where(and(this.whereKey(key), eq(instagram_messages.status, 'waiting')))
       .returning();
     return row ?? null;
   }
@@ -609,6 +650,78 @@ export class InstagramMessageRepository {
       eq(instagram_messages.public_id, key.publicId),
       eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
     );
+  }
+
+  /**
+   * Her direct messages of the account that are `sending` or `unknown` without Meta's id, changed
+   * since `since` — what an echo of the owner's chat may be one of (WH10, P62); at most 2 rows (the
+   * caller only needs "exactly one").
+   */
+  async listUnconfirmedDirectMessagesSince({
+    organizationId,
+    channelAccountId,
+    contactInstagramUserId,
+    since,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    /** Her Instagram id — the contact is found by it (an echo carries no contact of ours). */
+    contactInstagramUserId: string;
+    since: Date;
+  }): Promise<InstagramMessageRow[]> {
+    return this.db()
+      .select()
+      .from(instagram_messages)
+      .where(
+        and(
+          eq(instagram_messages.organization_id, organizationId),
+          eq(instagram_messages.channel_account_id, channelAccountId),
+          eq(
+            instagram_messages.contact_id,
+            sql`(SELECT ${contacts.id} FROM ${contacts}
+              WHERE ${contacts.organization_id} = ${organizationId}
+                AND ${contacts.channel_account_id} = ${channelAccountId}
+                AND ${contacts.instagram_user_id} = ${contactInstagramUserId})`,
+          ),
+          inArray(instagram_messages.status, ['sending', 'unknown']),
+          inArray(instagram_messages.channel, ['direct', 'private_reply']),
+          isNull(instagram_messages.instagram_message_id),
+          gte(instagram_messages.updated_at, since),
+        ),
+      )
+      .limit(2);
+  }
+
+  /**
+   * An `unknown` message whose echo came back (WH10): `sent`, with Meta's id. `null` when it is no
+   * longer `unknown`.
+   */
+  async confirmUnknownAsSent({
+    key,
+    instagramMessageId,
+  }: {
+    key: InstagramMessageKey;
+    instagramMessageId: string;
+  }): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .update(instagram_messages)
+      .set({
+        status: 'sent',
+        reason: null,
+        instagram_message_id: instagramMessageId,
+        sent_at: sql`now()`,
+        updated_at: sql`now()`,
+      })
+      .where(
+        and(
+          eq(instagram_messages.organization_id, key.organizationId),
+          eq(instagram_messages.public_id, key.publicId),
+          eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
+          eq(instagram_messages.status, 'unknown'),
+        ),
+      )
+      .returning();
+    return row ?? null;
   }
 
   /** The Meta message ids among `messageIds` that one account sent (WHQ1, P62). */

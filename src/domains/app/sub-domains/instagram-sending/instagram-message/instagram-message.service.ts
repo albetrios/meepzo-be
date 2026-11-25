@@ -653,6 +653,79 @@ export class InstagramMessageService implements ChannelSendingPort {
   };
 
   /**
+   * An echo of the owner's chat to her that may be one of our own messages whose send was not saved
+   * with Meta's id yet (WH10, WHQ1 / P62): her direct messages `sending` or `unknown` without an id,
+   * changed in the last `withinMinutes`. Exactly one `unknown` → it becomes `sent` with the echo's
+   * id and its run hears `sent` (`confirmed`); one still `sending` → `in_flight` (the send is being
+   * saved — the echo is ours); otherwise `none` — the owner typed it by hand.
+   *
+   * @remarks
+   * Algorithm: joins intake's open unit (the event's one transaction): one read of at most 2 rows,
+   * then the guarded `unknown` → `sent` update and the engine's `recordMessageResult` in the same
+   * commit, as the result save does. Failure modes: a database error rolls the event back. Side
+   * effects: the message row and the run's next step. Notes: no message text is stored, so the
+   * match is by person and time, not by text.
+   */
+  async matchEchoedMessage({
+    scope,
+    organizationId,
+    channelAccountId,
+    contactInstagramUserId,
+    instagramMessageId,
+    withinMinutes,
+  }: InstagramSendLaneTarget & {
+    /** Her Instagram id (the echo's recipient). */
+    contactInstagramUserId: string;
+    /** The echo's `mid`. */
+    instagramMessageId: string;
+    withinMinutes: number;
+  }): Promise<'confirmed' | 'in_flight' | 'none'> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const repository = new InstagramMessageRepository(databaseHandle);
+        const candidates = await repository.listUnconfirmedDirectMessagesSince({
+          organizationId,
+          channelAccountId,
+          contactInstagramUserId,
+          since: new Date(Date.now() - withinMinutes * 60_000),
+        });
+        if (candidates.some((candidate) => candidate.status === 'sending')) return 'in_flight';
+        const [only] = candidates;
+        if (only === undefined || candidates.length !== 1) return 'none';
+        const message = await repository.confirmUnknownAsSent({
+          key: {
+            organizationId,
+            publicId: only.public_id,
+            automationRunStartedAt: only.automation_run_started_at,
+          },
+          instagramMessageId,
+        });
+        if (message === null) return 'none';
+        if (message.automation_run_id !== null) {
+          await this.options.recordRunMessageResult({
+            scope,
+            databaseHandle,
+            organizationId,
+            channelAccountId,
+            automationRunId: message.automation_run_id,
+            automationRunStartedAt: message.automation_run_started_at,
+            messagePublicId: message.public_id,
+            step: instagramMessageStepOf(
+              message.message_type as Parameters<typeof instagramMessageStepOf>[0],
+            ),
+            messageNumber: message.message_number,
+            result: 'sent',
+            reason: null,
+            occurredAt: new Date(),
+          });
+        }
+        return 'confirmed';
+      },
+    });
+  }
+
+  /**
    * Route 63's waiting messages per lane (AC-7.12).
    *
    * @remarks
@@ -806,6 +879,51 @@ export class InstagramMessageService implements ChannelSendingPort {
         if (input.status === 'waiting') return message;
         await this.recordSettledMessage({ input, status: input.status, message, databaseHandle });
         return message;
+      },
+    });
+  }
+
+  /**
+   * The repair duties' end of waiting messages (WC-15 the 7-day expiry, WC-17 a closed window,
+   * WC-18 the reply trim): each `waiting` row takes `expired` or `skipped` with the reason, and
+   * reports like a send's result in the same commit — today's line (S8) and the engine's
+   * `recordMessageResult` (`expired` as `skipped`), so her run moves on as for any skipped message.
+   * Answers how many ended; a message no longer waiting is left as it is.
+   *
+   * @remarks
+   * Algorithm: one unit in the scope — per key the guarded end, then the settled message's
+   * bookkeeping (the same path {@link saveSendResult} takes). Failure modes: a database error rolls
+   * the piece back (the next minute tries again). Side effects: the rows, the day counts, the runs.
+   */
+  async settleWaitingMessages({
+    scope,
+    keys,
+    status,
+    reason,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    keys: readonly InstagramMessageKey[];
+    status: 'expired' | 'skipped';
+    reason: InstagramMessageReason;
+  }): Promise<number> {
+    if (keys.length === 0) return 0;
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const repository = new InstagramMessageRepository(databaseHandle);
+        let ended = 0;
+        for (const key of keys) {
+          const message = await repository.finishWaiting({ key, status, reason });
+          if (message === null) continue;
+          ended += 1;
+          await this.recordSettledMessage({
+            input: { scope, reason },
+            status,
+            message,
+            databaseHandle,
+          });
+        }
+        return ended;
       },
     });
   }

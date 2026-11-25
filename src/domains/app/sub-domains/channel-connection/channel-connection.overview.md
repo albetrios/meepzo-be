@@ -74,7 +74,8 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
   connection connected after Meta's `issued_at` is left alone (D53). Always `200` once verified; route 17 answers Meta's
   `{ url, confirmation_code }` outside the envelope (the code an HMAC of the signed request — the same request, the same
   code). An unmatched id is logged at error level (`app.channel_connection.meta_callback.unmatched`) and goes to
-  `ChannelConnectionMetaCallbackTeamAlertPort` — the team email, wired at ROUTE row R53. Audit
+  `ChannelConnectionMetaCallbackTeamAlertPort` — the team email to `GLOBAL_ADMIN_EMAILS`
+  (`channelConnectionMetaCallbackTeamAlert`, notify's `sendTeamAlertEmail`, once per id — R53). Audit
   `app.channel_connection.deauthorize` / `.data_deletion` (WARNING, anonymous, `source = 'meta'`, `match`).
 - `queues/channel-connection-token-check.{queue,job.schema}.ts`, `workers/channel-connection-token-check.{worker,processor,constants}.ts`
   — the daily token check (MC10): the hourly sweep (`sweep-due-channel-connections`, `runGlobalRetentionWorkerJob`

@@ -43,7 +43,7 @@ function getInstagramTasksQueue(): Queue<InstagramTaskJobData> {
  * - **Algorithm:** validates the payload (ids only, `organizationPublicId` for the job scope), then
  *   `queue.add` under the task's job name with the owner's job id (one job per row or key —
  *   `retry-failed-<aut_… or con_…>` for the failed-message retry, R46), after `delayMilliseconds`
- *   when given (a retry or a spread — the account set-up's tries, R40).
+ *   when given (a retry or a spread — the account set-up's tries, R40; the missed-comment looks, R39).
  * - **Failure modes:** propagates BullMQ / Redis errors — the owner logs them and leaves its row
  *   pending for its sweep; an enqueue never fails a request.
  * - **Side effects:** at most one job on the queue.

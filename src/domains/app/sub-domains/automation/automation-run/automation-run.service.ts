@@ -114,7 +114,6 @@ import type {
   AutomationTapKind,
   AutomationCommentRunInput,
   AutomationDirectMessageInput,
-  AutomationFailedEventInput,
   AutomationRunEvent,
   AutomationRunHandlingOutcome,
   AutomationRunHandlingResult,
@@ -275,7 +274,7 @@ function exactSourceValueOf({
   kind,
   input,
 }: {
-  kind: Exclude<AutomationTapKind, 'postback'>;
+  kind: Exclude<AutomationTapKind, 'postback' | 'broadcast_tap'>;
   input: AutomationButtonClickInput;
 }): string | null | undefined {
   if (kind === 'starter_question') return input.starterQuestion;
@@ -734,19 +733,6 @@ export class AutomationRunService {
     });
   }
 
-  /**
-   * The runs a webhook event that ended `failed` left `running` — kept for the intake's contract.
-   * Since R14 an event's work is one commit (no call to the channel inside it), so a failed event
-   * wrote nothing and leaves no run behind: always `[]`.
-   *
-   * @remarks
-   * Algorithm: none. Failure modes: none. Side effects: none. ROUTE row R38 (intake per kind) drops
-   * the call.
-   */
-  async failRunsOfFailedEvent(_input: AutomationFailedEventInput): Promise<string[]> {
-    return [];
-  }
-
   // ── Units ────────────────────────────────────────────────────────────────────────────────
 
   /** The repositories of a job's unit. */
@@ -798,9 +784,10 @@ export class AutomationRunService {
       scope: input.scope,
       channelAccountPublicId: input.channelAccountPublicId,
     });
+    // An `error` (or stopped) account still decides: its messages wait in its stopped lanes (WH3).
     if (
       account === null ||
-      account.connection_status !== 'connected' ||
+      account.connection_status === 'revoked' ||
       input.contact.channel_account_id !== account.id
     ) {
       logger.info(
@@ -1072,6 +1059,9 @@ export class AutomationRunService {
         runPublicId: input.runPublicId,
       });
     }
+    if (kind === 'broadcast_tap') {
+      return this.startFromBroadcastTap({ unit, input });
+    }
     const value = exactSourceValueOf({ kind, input });
     if (value == null || value.trim() === '') return handlingResult({ outcome: 'ignored' });
     const candidates = await unit.automations.listRunCandidates({
@@ -1102,6 +1092,34 @@ export class AutomationRunService {
         refCode: kind === 'ref_link' ? value : null,
       },
       isRestart: kind !== 'ad_message',
+    });
+  }
+
+  /**
+   * A tap on a broadcast message's "start automation X" button (§ 7.A.10): that automation's run
+   * for her, when it is a live automation of the account — started as by its own way to start (its
+   * once key and open run), an opted-out contact coming back as with a starter question.
+   */
+  private async startFromBroadcastTap({
+    unit,
+    input,
+  }: {
+    unit: AutomationRunEventUnit;
+    input: AutomationButtonClickInput;
+  }): Promise<AutomationRunHandlingResult> {
+    if (input.automationPublicId == null) return handlingResult({ outcome: 'ignored' });
+    const candidates = await unit.automations.listRunCandidates({
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+    });
+    const chosen = candidates.find((candidate) => candidate.public_id === input.automationPublicId);
+    if (chosen === undefined) return handlingResult({ outcome: 'nothing_matched' });
+    return this.startFromMatch({
+      unit,
+      match: { automation: chosen, triggerType: chosen.trigger_type as AutomationTriggerType },
+      eventId: input.event.eventId,
+      targets: {},
+      isRestart: true,
     });
   }
 
@@ -1320,6 +1338,14 @@ export class AutomationRunService {
       }
       return handlingResult({ outcome: 'answer_invalid', runPublicIds: [run.public_id] });
     }
+    // The grouped "new contact details" note (UN13): one per account and hour, after this commit.
+    await this.dependencies.contactService.noteContactDetailsLeft({
+      databaseHandle: unit.databaseHandle,
+      scope: unit.scope,
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+      at: unit.now,
+    });
     await unit.runEvents.insertMany([
       {
         ...runKeyOf({ organizationId: unit.organizationId, run }),

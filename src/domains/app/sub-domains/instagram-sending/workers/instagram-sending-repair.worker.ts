@@ -9,6 +9,7 @@ import { getRetentionWorkerOptions } from '@/infrastructure/queue/worker-runtime
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { INSTAGRAM_SENDING_REPAIR_QUEUE_NAME } from './instagram-sending-repair.constants.js';
 import { runInstagramSendingRepairDuty } from './instagram-sending-repair.processor.js';
+import type { InstagramSendRepairDutyServices } from './instagram-send-repair-duties.processor.js';
 import { INSTAGRAM_SENDING_REPAIR_CONCURRENCY } from './instagram-sending-watch.constants.js';
 import {
   type InstagramSendingWatchDependencies,
@@ -19,7 +20,8 @@ import {
 /**
  * BullMQ worker of the sending repair duties (routes-final § 6 SN6, P94): each repeat job is one
  * duty, named by its job name — at ROUTE row R52 the month wake's check and the plan-stop backup;
- * at R48 the watches (`outage-check`, `live-check`, `waiting-estimate`).
+ * at R48 the watches (`outage-check`, `live-check`, `waiting-estimate`); at R47 the eleven
+ * every-minute repairs (`repair-lost-turns` … `repair-open-run-keys`).
  *
  * @remarks
  * - **Algorithm:** a watch job runs {@link runInstagramSendingWatchDuty}, every other job
@@ -37,16 +39,23 @@ import {
 export function createInstagramSendingRepairWorker({
   watch,
   runInDatabaseSlot,
+  sendRepairDuties,
 }: {
   /** The watch duties' dependencies (the app container's); without them a watch job is logged. */
   watch?: InstagramSendingWatchDependencies | undefined;
   runInDatabaseSlot?: (<T>(callback: () => Promise<T>) => Promise<T>) | undefined;
+  /** R47's duties' services (the worker composition root's); without them an R47 job is logged. */
+  sendRepairDuties?: InstagramSendRepairDutyServices | undefined;
 } = {}): WorkerHandle {
   const worker = new Worker(
     INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
     async (job) => {
       if (!isInstagramSendingWatchDuty(job.name)) {
-        return runInstagramSendingRepairDuty({ duty: job.name, runInDatabaseSlot });
+        return runInstagramSendingRepairDuty({
+          duty: job.name,
+          runInDatabaseSlot,
+          sendRepairDuties,
+        });
       }
       if (watch === undefined) {
         logger.warn({ duty: job.name }, 'app.instagram_watch.not_wired');

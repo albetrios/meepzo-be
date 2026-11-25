@@ -36,8 +36,17 @@ export const INSTAGRAM_WATCH_LATE_LANES_KEY = 'app:instagram_sending:late_lanes'
 /** The late-lane gauge's life in Redis: a stale gauge (no watch running) disappears. */
 export const INSTAGRAM_WATCH_LATE_LANES_TTL_SECONDS = 120;
 
-/** The repair worker's jobs at once in one process (P94: the duties run in parallel). */
-export const INSTAGRAM_SENDING_REPAIR_CONCURRENCY = 4;
+/**
+ * The repair worker's jobs at once in one process (P94: the duties run in parallel) — one place per
+ * duty on the queue (R52's 2, R48's 3 watches, R47's 11), so a duty working its 40 s budget never
+ * holds another back (the 10-second outage watch above all). The places hold no Postgres: every
+ * database unit waits for a slot of the `instagram-database` limiter (SN24).
+ *
+ * @remarks
+ * Consequences of change: a duty added to or removed from the repair queue changes this number —
+ * `scheduler.unit.test.ts` pins it to the queue's scheduler count.
+ */
+export const INSTAGRAM_SENDING_REPAIR_CONCURRENCY = 16;
 
 /** How long a repair duty's database unit waits for a limiter slot (longer than a ticket's 2 s). */
 export const INSTAGRAM_REPAIR_DATABASE_SLOT_WAIT_MILLISECONDS = 10_000;

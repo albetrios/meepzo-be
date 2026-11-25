@@ -1,8 +1,10 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
+  assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { ChannelAccountPlanStopReason } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
@@ -190,4 +192,62 @@ export class InstagramSendStopRepository {
       .orderBy(desc(instagram_send_stops.started_at), desc(instagram_send_stops.id))
       .limit(limit);
   }
+
+  /**
+   * Every account stop that started since `since`, across organizations, oldest first — the owners'
+   * problem emails' one read (feat-instagram-dm-sending WC-57) over `idx_instagram_send_stops_started`.
+   * Runs under the retention sweep arm (the policy's `USING` arm — read only).
+   */
+  async listStartedSinceAcrossOrganizations({
+    since,
+  }: {
+    since: Date;
+  }): Promise<InstagramSendStopAcrossRow[]> {
+    const result = await this.db().execute(sql`
+      SELECT o.public_id AS organization_public_id, ca.public_id AS channel_account_public_id,
+             ca.display_name, s.reason, s.started_at, s.ended_at
+      FROM ${instagram_send_stops} s
+      JOIN ${channel_accounts} ca
+        ON ca.organization_id = s.organization_id AND ca.id = s.channel_account_id
+      JOIN tenancy.organizations o ON o.id = s.organization_id
+      WHERE s.started_at >= ${since.toISOString()}::timestamptz
+        AND o.deleted_at IS NULL
+      ORDER BY s.started_at, s.id
+    `);
+    const rows = (
+      Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
+    ) as Record<string, unknown>[];
+    return rows.map((row) => ({
+      organizationPublicId: String(row.organization_public_id),
+      channelAccountPublicId: String(row.channel_account_public_id),
+      displayName: String(row.display_name),
+      reason: String(row.reason),
+      startedAt: new Date(String(row.started_at)),
+      endedAt: row.ended_at === null ? null : new Date(String(row.ended_at)),
+    }));
+  }
+}
+
+/** One stop as {@link InstagramSendStopRepository.listStartedSinceAcrossOrganizations} reads it. */
+export interface InstagramSendStopAcrossRow {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  displayName: string;
+  reason: string;
+  startedAt: Date;
+  endedAt: Date | null;
+}
+
+/**
+ * The stop repository inside the retention sweep arm (`runGlobalRetentionWorkerJob`) — the owners'
+ * problem emails' cross-organization read.
+ *
+ * @remarks
+ * Asserts the worker context kind, as the other retention repositories do.
+ */
+export function createRetentionInstagramSendStopRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): InstagramSendStopRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new InstagramSendStopRepository(databaseHandle);
 }

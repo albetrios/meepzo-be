@@ -1,8 +1,10 @@
 import { and, eq, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
+  assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { message_month_counts } from './message-month-count.schema.js';
 import { MESSAGE_MONTH_COUNT_SLOTS } from './instagram-sending.constants.js';
@@ -124,4 +126,37 @@ export class MessageMonthCountRepository {
         ),
       );
   }
+
+  /**
+   * The organizations whose month count moved since `since`, across organizations — the month
+   * notices' every-minute backup check (feat-instagram-dm-sending WC-56). Runs under the retention
+   * sweep arm (the policy's `USING` arm — read only).
+   */
+  async listOrganizationsCountedSince({ since }: { since: Date }): Promise<string[]> {
+    const result = await this.db().execute(sql`
+      SELECT DISTINCT o.public_id
+      FROM ${message_month_counts} m
+      JOIN ${organizations} o ON o.id = m.organization_id
+      WHERE m.updated_at >= ${since.toISOString()}::timestamptz
+        AND o.deleted_at IS NULL
+      ORDER BY o.public_id
+    `);
+    const rows = (
+      Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
+    ) as { public_id: string }[];
+    return rows.map((row) => row.public_id);
+  }
+}
+
+/**
+ * The month-count repository inside the retention sweep arm (`runGlobalRetentionWorkerJob`).
+ *
+ * @remarks
+ * Asserts the worker context kind, as the other retention repositories do.
+ */
+export function createRetentionMessageMonthCountRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): MessageMonthCountRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new MessageMonthCountRepository(databaseHandle);
 }

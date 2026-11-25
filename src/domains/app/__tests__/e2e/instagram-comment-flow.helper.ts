@@ -35,12 +35,14 @@ import { channel_accounts } from '@/domains/app/sub-domains/channel-account/chan
 import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { instagram_webhook_events } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.js';
 import { instagram_webhook_event_keys } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event-key.schema.js';
-import {
-  type InstagramWebhookAccountJobResult,
-  type InstagramWebhookProcessingInstagramClient,
-  type InstagramWebhookProcessingServices,
-  processInstagramWebhookAccountJob,
-} from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
+import type {
+  InstagramWebhookIntakeInstagramClient,
+  InstagramWebhookIntakeJobResult,
+  InstagramWebhookIntakeServices,
+} from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-intake.processor.js';
+import { createInstagramContactProfileReadTaskHandler } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
+import type { readInstagramUserProfile } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { runInstagramIntakeOfAccount } from './instagram-intake-run.helper.js';
 import {
   type InstagramTeamFixture,
   buildInstagramProfile,
@@ -270,7 +272,9 @@ export class FakeInstagram {
   };
 
   /** Event processing's client: a new contact's profile and a post seen for the first time. */
-  readonly processingClient: InstagramWebhookProcessingInstagramClient = {
+  readonly processingClient: InstagramWebhookIntakeInstagramClient & {
+    readInstagramUserProfile: typeof readInstagramUserProfile;
+  } = {
     readInstagramUserProfile: async ({ instagramScopedUserId }) => {
       this.calls.push({ kind: 'profile_read', instagramUserId: instagramScopedUserId });
       return this.profileOf(instagramScopedUserId);
@@ -311,7 +315,7 @@ type AutomationBody = Record<string, unknown>;
  */
 export class InstagramCommentFlow {
   readonly instagram = new FakeInstagram();
-  private readonly services: InstagramWebhookProcessingServices;
+  private readonly services: InstagramWebhookIntakeServices;
   private readonly engine: AutomationRunService;
   private connectedAccount: TestConnectedAccount | null = null;
 
@@ -615,19 +619,20 @@ export class InstagramCommentFlow {
   }
 
   /**
-   * Runs the account's processing job once, with the fake Instagram, then "sends" every waiting
-   * message the engine saved, as sub-domain 6 would (R19–R20), until none is left.
+   * Runs the account's intake jobs once (comments, Live, messages — R38), with the fake Instagram,
+   * the new contacts' profile-read tasks (S11), then "sends" every waiting message the engine saved,
+   * as sub-domain 6 would (R19–R20), until none is left.
    */
-  async processEvents(): Promise<InstagramWebhookAccountJobResult> {
-    const result = await processInstagramWebhookAccountJob({
-      jobData: {
-        organizationPublicId: this.team.organization.public_id,
-        channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(this.account.id),
-      },
+  async processEvents(): Promise<InstagramWebhookIntakeJobResult> {
+    const result = await runInstagramIntakeOfAccount({
+      organizationPublicId: this.team.organization.public_id,
+      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(this.account.id),
       services: this.services,
-      jobId: `job-${randomUUID()}`,
       instagramClient: this.instagram.processingClient,
-      enqueueFollowUp: async () => undefined,
+      profileReadHandler: createInstagramContactProfileReadTaskHandler({
+        services: this.app.appDomain,
+        readProfile: this.instagram.processingClient.readInstagramUserProfile,
+      }),
     });
     await this.sendWaitingMessages();
     return result;

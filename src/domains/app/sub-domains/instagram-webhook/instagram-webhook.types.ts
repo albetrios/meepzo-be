@@ -1,4 +1,5 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
+import type { InstagramWebhookEventIntakeGroup } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
 
 /**
  * Meta's subscription check as route 60 hands it to the service (WH4): the three `hub.*` values.
@@ -40,28 +41,33 @@ export interface InstagramWebhookDeliveryResult {
   droppedEventCount: number;
 }
 
-/** What {@link InstagramWebhookAccountProcessingEnqueue} is asked to start: one account's processing. */
-export interface InstagramWebhookAccountProcessingRequest {
-  /** The account's organization — the processing job's `organizationPublicId` (K8). */
+/** What {@link InstagramWebhookIntakeEnqueue} is asked to start: one kind group's intake of an account. */
+export interface InstagramWebhookIntakeRequest {
+  /** The account's organization — the intake job's `organizationPublicId` (K8). */
   organizationPublicId: string;
   /** `cha_…` — the channel account whose waiting events the job works through (WH5, WHC4). */
   channelAccountPublicId: string;
-  /** The delivery's request id, for log correlation. */
+  /** The kind group (`messages` · `live` · `comments`, WH11) — the job name. */
+  intakeKind: InstagramWebhookEventIntakeGroup;
+  /** The delivery's (or the job's) request id, for log correlation. */
   requestId: string;
+  /** The BullMQ priority; the kind's own when absent (1 · 1 · 5, WH5). */
+  priority?: number;
+  /** The comment-intake job's slot (S11); 0 when absent. */
+  slot?: number;
 }
 
 /**
- * The receiver's processing hook: adds the account's processing job once the receiver's unit of
- * work committed (WH5, WH10); it throws when the job could not be added.
+ * The receiver's intake hook: adds one kind group's intake job once the receiver's unit of work
+ * committed (WH5, WH9 step 8); it throws when the job could not be added.
  *
  * @remarks
- * The app container wires the event-processing queue's enqueue here
- * (`enqueueInstagramWebhookAccountProcessing`). After a successful add the receiver turns the
- * just-stored `received` rows `queued`; a failed add is logged and left to the stuck-event pick-up
- * (WH15) — it never fails Meta's answer (queue rules §4.5).
+ * The app container wires the intake queue's `enqueueInstagramWebhookIntake` here. The saved rows
+ * stay `received` (S25, P97: no `queued` update); a failed add is logged and left to the
+ * stuck-event pick-up (WH17) — it never fails Meta's answer (queue rules §4.5).
  */
-export type InstagramWebhookAccountProcessingEnqueue = (
-  request: InstagramWebhookAccountProcessingRequest,
+export type InstagramWebhookIntakeEnqueue = (
+  request: InstagramWebhookIntakeRequest,
 ) => Promise<void>;
 
 /** The account an own-message lookup reads: its organization and channel account (internal ids). */

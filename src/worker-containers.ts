@@ -69,6 +69,7 @@ export function createDomainContainers(
     organizationService: tenancyDomain.organizationService,
     membershipService: tenancyDomain.membershipService,
     userService: userBase.userService,
+    organizationSettingsService: tenancyDomain.organizationSettingsService,
   });
   const uploadDomain = createUploadContainer({
     userService: userBase.userService,

@@ -1077,8 +1077,8 @@ const envSchemaBase = z.object({
    * Each HTTP request runs in its own RLS transaction holding one pooled connection for its
    * duration, so the pool size is the per-process in-flight DB concurrency ceiling. The default
    * is the monolithic worker's demand with burst headroom: with every optional queue on, the
-   * Postgres-using queues peak at 62 connections at the template's concurrency (59, plus the
-   * template's 3 Instagram database slots — SN24), 78 with the 25%
+   * Postgres-using queues peak at 58 connections at the template's concurrency (55, plus the
+   * template's 3 Instagram database slots — SN24), 73 with the 25%
    * burst margin (within the default 80) (it was 70 until the Instagram automation workers; CI's API boots share a
    * 100-connection Postgres and accept no default above 80 — `ci-boot-connection-budget.policy`),
    * and `assertPostgresConnectionBudget` refuses to boot a worker whose pool is

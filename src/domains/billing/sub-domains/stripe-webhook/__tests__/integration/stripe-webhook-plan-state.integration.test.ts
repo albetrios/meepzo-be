@@ -17,12 +17,14 @@ import {
 } from '@/domains/billing/sub-domains/subscription/events/subscription.events.js';
 import { subscriptions } from '@/domains/billing/sub-domains/subscription/subscription.schema.js';
 import { env } from '@/shared/config/env.config.js';
-import { createTestOrganization } from '@/tests/factories/organization.factory.js';
+import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
-import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
+import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { createDomainContainers } from '@/worker-containers.js';
+import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
+import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
@@ -40,7 +42,8 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
   const planStateEvents: PlanStateChangedPayload[] = [];
   const readOnlyEnforced = env.BILLING_READ_ONLY_ENFORCED;
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    await initializeI18nextForBackgroundWork();
     service = createDomainContainers().billingDomain.stripeWebhookService;
     eventBus.on({
       eventType: SUBSCRIPTION_EVENT.PLAN_STATE_CHANGED,
@@ -57,6 +60,8 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
 
   beforeEach(async () => {
     await cleanupDatabase();
+    // The billing notices go to `subscription:manage` holders (the Owner), so the roles need theirs.
+    await seedAllPermissions();
     planStateEvents.length = 0;
     env.BILLING_READ_ONLY_ENFORCED = true;
   });
@@ -102,7 +107,14 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
     extra?: Partial<typeof subscriptions.$inferInsert>;
   }) {
     const user = await createTestUser();
-    const organization = await createTestOrganization({ ownerUserId: user.id });
+    // Provisioned the real way (Owner role and membership), so the billing notices have their
+    // `subscription:manage` recipient.
+    const { organization } = await provisionOrganizationWithOwner({
+      name: 'Plan state team',
+      slug: `plan-state-${randomUUID().slice(0, 12)}`,
+      type: 'TEAM',
+      ownerUserId: user.id,
+    });
     const providerSubscriptionId = `sub_r26_${randomUUID().replaceAll('-', '')}`;
     const created = await createTestSubscription({
       organizationId: organization.id,
@@ -334,7 +346,7 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
     });
   });
 
-  it('a dunning plan paid again says resumed (BL22 case 5); entering the grace says nothing', async () => {
+  it('a dunning plan paid again says resumed (BL22 case 5); entering the grace announces no plan change but tells the billing managers the payment failed (WC-57)', async () => {
     const { creator } = await catalog();
     const periodEnd = new Date(Date.now() + 10 * DAY);
     const { organization, providerSubscriptionId } = await organizationWithRow({
@@ -357,6 +369,11 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
 
     await update('past_due', new Date(Date.now() - 10_000));
     expect(planStateEvents).toEqual([]);
+    // Entering the grace is a failed payment: the billing managers are told once (WC-57, P318).
+    const told = await operatorQuery<Array<{ type: string }>>`
+      SELECT type FROM notify.notifications
+      WHERE organization_id = ${organization.id} AND type = 'billing.payment_failed'`;
+    expect(told).toHaveLength(1);
 
     await update('active', new Date());
     expect(planStateEvents).toEqual([

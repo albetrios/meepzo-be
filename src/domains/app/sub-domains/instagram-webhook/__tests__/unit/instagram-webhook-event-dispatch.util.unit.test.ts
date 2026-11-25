@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  INSTAGRAM_INBOUND_EVENT_KIND_OF,
   readInstagramWebhookEventDispatch,
-  toContactInteractionKind,
+  toInboundEventKind,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event-dispatch.util.js';
+import { INSTAGRAM_WEBHOOK_EVENT_KINDS } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
 import { InstagramWebhookEventPermanentError } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
 
 /**
- * What each stored event hands the run engine (routes-final § 4.A.10 "What each event does",
- * WH13): one fixture per trigger as the receiver stores it — a comment, a DM (a `messaging[]` item
- * and a `messages` change, D18), a story reply and a button click — and the payloads no retry can
- * handle, failed at once (WH14).
+ * The inbound seam's map and what each saved event hands contacts and the run engine
+ * (feat-instagram-dm-sending § 5 WH27, WHC17; 5.A.10): one row per kind of the map, one fixture per
+ * kind as the receiver saves it, and the payloads no retry can handle, failed at once (WH12).
  */
 
 const SENDER = '17841400000000777';
@@ -20,191 +21,309 @@ function commentPayload(value: Record<string, unknown>) {
   return { field: 'comments', value };
 }
 
+function messaging(item: Record<string, unknown>) {
+  return { sender: { id: SENDER }, timestamp: 1_764_000_000_000, ...item };
+}
+
+describe('the kind → normalized-kind map (WH27)', () => {
+  it.each([
+    ['comment', 'comment'],
+    ['live_comment', 'live_comment'],
+    ['message', 'message'],
+    ['postback', 'postback'],
+    ['ice_breaker', 'starter_question'],
+    ['story_reply', 'story_reply'],
+    ['story_mention', 'story_mention'],
+    ['shared_post', 'shared_post'],
+    ['referral', 'referral'],
+    ['reaction', 'reaction'],
+    ['echo', 'owner_message'],
+    ['edit', null],
+    ['unknown', null],
+  ])('%s → %s', (eventKind, inboundKind) => {
+    expect(toInboundEventKind(eventKind)).toBe(inboundKind);
+  });
+
+  it('covers every saved kind, and nothing else crosses', () => {
+    expect(Object.keys(INSTAGRAM_INBOUND_EVENT_KIND_OF).sort()).toEqual(
+      [...INSTAGRAM_WEBHOOK_EVENT_KINDS].sort(),
+    );
+    expect(toInboundEventKind('read')).toBeNull();
+    expect(toInboundEventKind('toString')).toBeNull();
+  });
+});
+
 describe('readInstagramWebhookEventDispatch', () => {
-  it('reads a comment: its id, post, text and the commenter username', () => {
+  it('a comment: its id, post, parent, text and the commenter username', () => {
     expect(
       readInstagramWebhookEventDispatch({
         eventKind: 'comment',
         contactInstagramUserId: SENDER,
         payload: commentPayload({
           id: '18000000000000001',
+          parent_id: '18000000000000000',
           text: 'Price please?',
           from: { id: SENDER, username: 'acme_customer' },
           media: { id: '17900000000000001', media_product_type: 'FEED' },
         }),
       }),
     ).toEqual({
-      kind: 'comment',
+      inboundKind: 'comment',
       contactInstagramUserId: SENDER,
       username: 'acme_customer',
       instagramCommentId: '18000000000000001',
       instagramMediaId: '17900000000000001',
+      parentCommentId: '18000000000000000',
+      adId: null,
       text: 'Price please?',
     });
   });
 
-  it('reads a DM from a messaging item: text, quick reply payload and attachment email', () => {
+  it('an ad’s comment carries its ad id; a Live comment its own kind', () => {
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'comment',
+        contactInstagramUserId: SENDER,
+        payload: commentPayload({
+          id: '18000000000000002',
+          media: { id: '17900000000000002', ad_id: '23850000000000001' },
+        }),
+      }),
+    ).toMatchObject({ inboundKind: 'comment', adId: '23850000000000001' });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'live_comment',
+        contactInstagramUserId: SENDER,
+        payload: {
+          field: 'live_comments',
+          value: { id: '18000000000000003', media: { id: '17900000000000003' }, text: 'hi' },
+        },
+      }),
+    ).toMatchObject({ inboundKind: 'live_comment', instagramCommentId: '18000000000000003' });
+  });
+
+  it('a DM — as a messaging item or a `messages` change (D18) — its text, quick reply and email', () => {
+    const message = {
+      mid: 'm_1',
+      text: 'hello',
+      quick_reply: { payload: 'person@example.com' },
+      attachments: [{ type: 'file', payload: { email: 'other@example.com' } }],
+    };
+    const expected = {
+      inboundKind: 'message',
+      contactInstagramUserId: SENDER,
+      text: 'hello',
+      quickReplyPayload: 'person@example.com',
+      attachmentEmail: 'other@example.com',
+      storyId: null,
+      sharedMediaId: null,
+    };
     expect(
       readInstagramWebhookEventDispatch({
         eventKind: 'message',
         contactInstagramUserId: SENDER,
-        payload: {
-          sender: { id: SENDER },
-          recipient: { id: '9000000000000001' },
-          timestamp: 1_763_726_401_234,
-          message: {
-            mid: 'm_1',
-            text: 'jordan@example.com',
-            quick_reply: { payload: 'jordan@example.com' },
-            attachments: [{ type: 'image', payload: {} }, { payload: { email: 'j@example.com' } }],
-          },
-        },
+        payload: messaging({ message }),
       }),
-    ).toEqual({
-      kind: 'direct_message',
-      contactInstagramUserId: SENDER,
-      text: 'jordan@example.com',
-      quickReplyPayload: 'jordan@example.com',
-      attachmentEmail: 'j@example.com',
-    });
-  });
-
-  it('reads a `messages` change as a DM (D18) — the value is the messaging item', () => {
+    ).toEqual(expected);
     expect(
       readInstagramWebhookEventDispatch({
         eventKind: 'message',
         contactInstagramUserId: SENDER,
-        payload: {
-          field: 'messages',
-          value: { sender: { id: SENDER }, message: { mid: 'm_2', text: 'LINK' } },
-        },
+        payload: { field: 'messages', value: messaging({ message }) },
       }),
-    ).toEqual({
-      kind: 'direct_message',
-      contactInstagramUserId: SENDER,
-      text: 'LINK',
-      quickReplyPayload: null,
-      attachmentEmail: null,
-    });
+    ).toEqual(expected);
   });
 
-  it('reads a story reply with the replied story id', () => {
+  it('a story reply, a story mention and a shared post name their story or post', () => {
     expect(
       readInstagramWebhookEventDispatch({
         eventKind: 'story_reply',
         contactInstagramUserId: SENDER,
-        payload: {
-          sender: { id: SENDER },
+        payload: messaging({
+          message: { mid: 'm_2', text: 'wow', reply_to: { story: { id: '17910000000000001' } } },
+        }),
+      }),
+    ).toMatchObject({ inboundKind: 'story_reply', storyId: '17910000000000001' });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'story_mention',
+        contactInstagramUserId: SENDER,
+        payload: messaging({
           message: {
             mid: 'm_3',
-            text: 'love it',
-            reply_to: { story: { id: '17950000000000001' } },
+            attachments: [{ type: 'story_mention', payload: { id: '17910000000000002' } }],
           },
-        },
+        }),
       }),
-    ).toEqual({
-      kind: 'story_reply',
-      contactInstagramUserId: SENDER,
-      instagramStoryId: '17950000000000001',
-      text: 'love it',
-    });
+    ).toMatchObject({ inboundKind: 'story_mention', storyId: '17910000000000002' });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'shared_post',
+        contactInstagramUserId: SENDER,
+        payload: messaging({
+          message: {
+            mid: 'm_4',
+            attachments: [{ type: 'ig_post', payload: { ig_post_media_id: '17900000000000009' } }],
+          },
+        }),
+      }),
+    ).toMatchObject({ inboundKind: 'shared_post', sharedMediaId: '17900000000000009' });
   });
 
-  it('reads a button click as the two public ids of the payload', () => {
+  it('a postback splits our payload — with or without the message part — and names no run when not ours', () => {
     expect(
       readInstagramWebhookEventDispatch({
         eventKind: 'postback',
         contactInstagramUserId: SENDER,
-        payload: {
-          sender: { id: SENDER },
-          postback: { mid: 'm_4', title: 'Send me the link', payload: `${AUTOMATION}::${RUN}` },
-        },
+        payload: messaging({ postback: { mid: 'm_5', payload: `${AUTOMATION}::${RUN}` } }),
       }),
     ).toEqual({
-      kind: 'button_click',
+      inboundKind: 'postback',
       contactInstagramUserId: SENDER,
       button: { automationPublicId: AUTOMATION, runPublicId: RUN },
+      messagePublicId: null,
+      broadcastPublicId: null,
     });
-  });
-
-  it('keeps a click whose payload this engine never sent, with no button (nothing runs)', () => {
     expect(
       readInstagramWebhookEventDispatch({
         eventKind: 'postback',
         contactInstagramUserId: SENDER,
-        payload: { sender: { id: SENDER }, postback: { mid: 'm_5', payload: 'GET_STARTED' } },
+        payload: messaging({
+          postback: { mid: 'm_6', payload: `${AUTOMATION}::${RUN}::igm_acmeshop0000000000001` },
+        }),
       }),
-    ).toEqual({ kind: 'button_click', contactInstagramUserId: SENDER, button: null });
+    ).toMatchObject({ messagePublicId: 'igm_acmeshop0000000000001' });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'postback',
+        contactInstagramUserId: SENDER,
+        payload: messaging({ postback: { mid: 'm_7', payload: 'SOMETHING_ELSE' } }),
+      }),
+    ).toMatchObject({ button: null, messagePublicId: null, broadcastPublicId: null });
+    // A broadcast message's button (§ 7.A.10, R45): its broadcast and message, no run.
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'postback',
+        contactInstagramUserId: SENDER,
+        payload: messaging({
+          postback: {
+            mid: 'm_8',
+            payload: 'brc_acmeshop0000000000001::igm_acmeshop0000000000001',
+          },
+        }),
+      }),
+    ).toEqual({
+      inboundKind: 'postback',
+      contactInstagramUserId: SENDER,
+      button: null,
+      messagePublicId: 'igm_acmeshop0000000000001',
+      broadcastPublicId: 'brc_acmeshop0000000000001',
+    });
   });
 
-  it.each(['story_mention', 'shared_post'])(
-    'reads a %s as a DM until intake per kind (ROUTE R38)',
-    (eventKind) => {
-      expect(
-        readInstagramWebhookEventDispatch({
-          eventKind,
-          contactInstagramUserId: SENDER,
-          payload: { message: { mid: 'm_9', text: 'look', attachments: [{ type: 'share' }] } },
+  it('a starter-question tap carries its question: the title, else the payload after `starter:`', () => {
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'ice_breaker',
+        contactInstagramUserId: SENDER,
+        payload: messaging({ postback: { title: 'Prices?', payload: 'starter:prices' } }),
+      }),
+    ).toEqual({
+      inboundKind: 'starter_question',
+      contactInstagramUserId: SENDER,
+      starterQuestion: 'Prices?',
+    });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'ice_breaker',
+        contactInstagramUserId: SENDER,
+        payload: messaging({ postback: { payload: 'starter:Prices?' } }),
+      }),
+    ).toMatchObject({ starterQuestion: 'Prices?' });
+  });
+
+  it('a referral carries its ref code, or the ad id for an ad (then no ref)', () => {
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'referral',
+        contactInstagramUserId: SENDER,
+        payload: messaging({ referral: { ref: 'SPRING', source: 'SHORTLINK' } }),
+      }),
+    ).toEqual({
+      inboundKind: 'referral',
+      contactInstagramUserId: SENDER,
+      refCode: 'SPRING',
+      adId: null,
+    });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'referral',
+        contactInstagramUserId: SENDER,
+        payload: messaging({
+          message: { mid: 'm_8', referral: { ad_id: '23850000000000002', source: 'ADS' } },
         }),
-      ).toMatchObject({ kind: 'direct_message', contactInstagramUserId: SENDER, text: 'look' });
-    },
-  );
+      }),
+    ).toMatchObject({ refCode: null, adId: '23850000000000002' });
+  });
+
+  it('a reaction names only her; an echo the owner typed carries its mid', () => {
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'reaction',
+        contactInstagramUserId: SENDER,
+        payload: messaging({ reaction: { mid: 'm_9', action: 'react' } }),
+      }),
+    ).toEqual({ inboundKind: 'reaction', contactInstagramUserId: SENDER });
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'echo',
+        contactInstagramUserId: SENDER,
+        payload: { message: { mid: 'm_10', is_echo: true, text: 'typed by hand' } },
+      }),
+    ).toEqual({
+      inboundKind: 'owner_message',
+      contactInstagramUserId: SENDER,
+      instagramMessageId: 'm_10',
+    });
+  });
 
   it.each([
-    {
-      name: 'no sender',
-      input: { eventKind: 'message', contactInstagramUserId: null, payload: { message: {} } },
-      reason: 'event_payload_invalid:contact_missing',
-    },
+    { name: 'no person', eventKind: 'message', contact: null, payload: messaging({ message: {} }) },
     {
       name: 'a comment without its post',
-      input: {
-        eventKind: 'comment',
-        contactInstagramUserId: SENDER,
-        payload: commentPayload({ id: '18000000000000002', text: 'hi' }),
-      },
-      reason: 'event_payload_invalid:comment_media_missing',
-    },
-    {
-      name: 'a comment id that is not digits',
-      input: {
-        eventKind: 'comment',
-        contactInstagramUserId: SENDER,
-        payload: commentPayload({ id: 'abc', media: { id: '17900000000000001' } }),
-      },
-      reason: 'event_payload_invalid:comment_id_missing',
-    },
-    {
-      name: 'a story reply without its story',
-      input: {
-        eventKind: 'story_reply',
-        contactInstagramUserId: SENDER,
-        payload: { message: { mid: 'm_6', reply_to: {} } },
-      },
-      reason: 'event_payload_invalid:story_id_missing',
+      eventKind: 'comment',
+      contact: SENDER,
+      payload: commentPayload({ id: '18000000000000001' }),
     },
     {
       name: 'a message without `message`',
-      input: { eventKind: 'message', contactInstagramUserId: SENDER, payload: { read: {} } },
-      reason: 'event_payload_invalid:message_missing',
+      eventKind: 'message',
+      contact: SENDER,
+      payload: messaging({}),
     },
     {
-      name: 'a kind the processor does not dispatch',
-      input: { eventKind: 'reaction', contactInstagramUserId: SENDER, payload: {} },
-      reason: 'event_payload_invalid:unhandled_kind:reaction',
+      name: 'a story reply without its story',
+      eventKind: 'story_reply',
+      contact: SENDER,
+      payload: messaging({ message: { mid: 'm' } }),
     },
-  ])('fails $name at once, with a code and no payload text (WH14)', ({ input, reason }) => {
-    const read = () => readInstagramWebhookEventDispatch(input);
-    expect(read).toThrow(InstagramWebhookEventPermanentError);
-    expect(read).toThrow(reason);
-  });
-});
-
-describe('toContactInteractionKind', () => {
-  it('records a comment as a comment and every other trigger as a direct interaction (CT10)', () => {
-    expect(toContactInteractionKind('comment')).toBe('comment');
-    expect(toContactInteractionKind('direct_message')).toBe('direct_message');
-    expect(toContactInteractionKind('story_reply')).toBe('story_reply');
-    expect(toContactInteractionKind('button_click')).toBe('button_click');
+    {
+      name: 'a postback without `postback`',
+      eventKind: 'postback',
+      contact: SENDER,
+      payload: messaging({}),
+    },
+    {
+      name: 'a referral without `referral`',
+      eventKind: 'referral',
+      contact: SENDER,
+      payload: messaging({}),
+    },
+    { name: 'an echo without `mid`', eventKind: 'echo', contact: SENDER, payload: { message: {} } },
+    { name: 'an edit (never crosses)', eventKind: 'edit', contact: SENDER, payload: messaging({}) },
+  ])('fails at once on $name', ({ eventKind, contact, payload }) => {
+    expect(() =>
+      readInstagramWebhookEventDispatch({ eventKind, contactInstagramUserId: contact, payload }),
+    ).toThrow(InstagramWebhookEventPermanentError);
   });
 });

@@ -571,3 +571,25 @@ export const INSTAGRAM_SENDING_WATCH_SETTINGS = {
   /** The "Redis lost" watch's cadence in each server process (P7: a 10-second Redis-down check). */
   redisWatchMilliseconds: 10_000,
 } as const;
+
+/**
+ * The sending repair duties' numbers (feat-instagram-dm-sending § 6 SN6, WC-13–WC-20; P94), one
+ * place. The 40 s budget and the 500-row piece are every repair duty's (`repair-duty.util.ts`).
+ *
+ * @remarks
+ * Consequences of change: none for the lanes — the duties read these, the lanes do not.
+ */
+export const INSTAGRAM_SENDING_REPAIR_SETTINGS = {
+  /** A turn or a fast message over this late with no ticket is lost (WC-13). */
+  lateTurnMilliseconds: 60_000,
+  /** After a fast stop ended, its waiting fast messages are spread over this time (WC-13). */
+  fastSpreadAfterStopMilliseconds: 5 * 60_000,
+  /** "Reply like a person": waiting public replies kept per automation (WC-18). */
+  replyBacklogMax: 500,
+  /** Minute counts are kept this long (WC-20). */
+  minuteCountKeepMilliseconds: 2 * 60 * 60_000,
+  /** Gate 1's quick count may differ from the minute counts by this much before it is a mismatch (WC-20). */
+  quickCountTolerance: 2,
+  /** The UTC hour of the daily month-count comparison (WC-20, "once a day"). */
+  dailyMonthCheckHourUtc: 3,
+} as const;

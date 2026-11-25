@@ -16,6 +16,12 @@ import {
   INSTAGRAM_REPAIR_PAGE_SIZE,
   INSTAGRAM_REPAIR_PLAN_STOPS_JOB_NAME,
 } from './instagram-sending-repair.constants.js';
+import {
+  INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAME_SET,
+  type InstagramSendRepairDutyServices,
+  runInstagramSendRepairDuty,
+} from './instagram-send-repair-duties.processor.js';
+import type { RepairDutyRound } from '@/infrastructure/queue/worker-runtime/repair-duty.util.js';
 
 /**
  * What one repair duty did.
@@ -35,11 +41,14 @@ export interface InstagramSendingRepairResult {
 type RepairTarget = { organizationPublicId: string; month: string };
 
 /**
- * Runs one repair duty of ROUTE row R52 (routes-final § 6 SN6, P94): the month wake's check
- * (`repair-month-wake`, WC-37) or the plan-stop backup (`repair-plan-stops`, WC-38).
+ * Runs one repair duty of the sending repair queue (routes-final § 6 SN6, P94): one of ROUTE row
+ * R47's eleven every-minute repairs (handed to `runInstagramSendRepairDuty` with
+ * `sendRepairDuties`), or one of R52's two — the month wake's check (`repair-month-wake`, WC-37)
+ * or the plan-stop backup (`repair-plan-stops`, WC-38).
  *
  * @remarks
- * - **Algorithm:** pages of {@link INSTAGRAM_REPAIR_PAGE_SIZE} organizations by id, each one short
+ * - **Algorithm:** an R47 duty runs its own round (`runRepairDutyRound`: the sending gate where it
+ *   works tickets, the 40 s budget, every database unit through `runInDatabaseSlot`). R52's: pages of {@link INSTAGRAM_REPAIR_PAGE_SIZE} organizations by id, each one short
  *   read across organizations under the retention maintenance context (the account policy's sweep
  *   arm, `USING` only): for the month wake, the organizations with a live account holding
  *   `plan_limit` since before their month turned (their time zone); for the backup, those with one
@@ -47,7 +56,8 @@ type RepairTarget = { organizationPublicId: string; month: string };
  *   the organization's month and the hour (once an hour while still due), or `plan-change` (`backup`) keyed by the 15-minute
  *   slot; the task changes each organization in its own scope. Works until
  *   {@link INSTAGRAM_REPAIR_BUDGET_MILLISECONDS} is spent; the next run goes on.
- * - **Failure modes:** an unknown duty name throws `UnrecoverableError`; a read failure propagates
+ * - **Failure modes:** an unknown duty name throws `UnrecoverableError`; an R47 duty without
+ *   `sendRepairDuties` (a test or a process that did not wire them) is skipped and logged; a read failure propagates
  *   (the run fails, the next one runs); an add failure
  *   is logged and the duty goes on — the organization is found again at the next run.
  * - **Side effects:** tasks on `instagram-database-tasks`.
@@ -58,12 +68,22 @@ export async function runInstagramSendingRepairDuty({
   duty,
   now = () => Date.now(),
   runInDatabaseSlot,
+  sendRepairDuties,
 }: {
   duty: string;
   now?: () => number;
   /** Each database unit in a slot of the process's `instagram-database` limiter (SN24, R48). */
   runInDatabaseSlot?: (<T>(callback: () => Promise<T>) => Promise<T>) | undefined;
-}): Promise<InstagramSendingRepairResult> {
+  /** R47's duties' services (the worker composition root's); absent — an R47 duty is skipped. */
+  sendRepairDuties?: InstagramSendRepairDutyServices | undefined;
+}): Promise<InstagramSendingRepairResult | RepairDutyRound | null> {
+  if (INSTAGRAM_SEND_REPAIR_DUTY_JOB_NAME_SET.has(duty)) {
+    if (sendRepairDuties === undefined) {
+      logger.warn({ duty }, 'app.instagram_repair.not_wired');
+      return null;
+    }
+    return runInstagramSendRepairDuty({ duty, services: sendRepairDuties });
+  }
   const inSlot = <T>(callback: () => Promise<T>): Promise<T> =>
     runInDatabaseSlot === undefined ? callback() : runInDatabaseSlot(callback);
   if (

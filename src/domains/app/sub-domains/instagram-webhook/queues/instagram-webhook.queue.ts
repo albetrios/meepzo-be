@@ -13,38 +13,68 @@ import { INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS } from '@/shared/consta
 import { FIVE_SECONDS_MS, SEVEN_DAYS_SECONDS } from '@/shared/constants/ttl.constants.js';
 import { parseBullMQJobData } from '@/shared/utils/validation/bullmq-job-validation.util.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
-import type { InstagramWebhookAccountProcessingRequest } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
+import type { ContactTagEventIntakeJobInput } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.types.js';
+import type { InstagramWebhookEventIntakeGroup } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
 import {
-  type InstagramWebhookAccountJobDataValidated,
-  instagramWebhookAccountJobDataSchema,
+  INSTAGRAM_INTAKE_LOW_PRIORITY,
+  INSTAGRAM_INTAKE_PRIORITY,
+  INSTAGRAM_TAG_EVENT_INTAKE_PRIORITY,
+} from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.constants.js';
+import type { InstagramWebhookIntakeRequest } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
+import {
+  type InstagramTagEventIntakeJobDataValidated,
+  type InstagramWebhookIntakeJobDataValidated,
+  instagramTagEventIntakeJobDataSchema,
+  instagramWebhookIntakeJobDataSchema,
 } from './instagram-webhook.job.schema.js';
 
 /**
- * BullMQ queue of Instagram webhook event processing (WH5, WHC10): one job per Instagram account
- * works through that account's waiting events, plus the stuck-event pick-up (WH15) — a second job
- * name on the same queue, run by the same worker.
+ * BullMQ queue of Instagram intake (feat-instagram-dm-sending § 5 WH5, WHC4): four job names —
+ * one per kind group of an account ({@link INSTAGRAM_WEBHOOK_INTAKE_JOB_NAMES}) and one for tag
+ * events ({@link INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME}) — plus the stuck-event pick-up, all run by
+ * the one intake worker.
  */
 export const INSTAGRAM_WEBHOOK_QUEUE_NAME = 'instagram-webhook';
 
-/** Job name of one account's processing run — "work through this account's waiting events". */
-export const INSTAGRAM_WEBHOOK_PROCESS_JOB_NAME = 'process-instagram-webhook-events';
+/**
+ * The job name of each kind group's intake (WH5, WH11): `intake-messages` (taps, typed answers,
+ * DMs, story replies and mentions, shared posts, starter questions, links, ad messages, reactions,
+ * echoes), `intake-live` (Live comments), `intake-comments` (comments, ad comments).
+ */
+export const INSTAGRAM_WEBHOOK_INTAKE_JOB_NAMES = {
+  messages: 'intake-messages',
+  live: 'intake-live',
+  comments: 'intake-comments',
+} as const satisfies Record<InstagramWebhookEventIntakeGroup, string>;
 
-/** Validated payload of a processing job on {@link INSTAGRAM_WEBHOOK_QUEUE_NAME}. */
-export type InstagramWebhookAccountJobData = InstagramWebhookAccountJobDataValidated;
+/** The job name of one tag-intake job (WH15, WC-4): one contact, or up to 500 of a bulk change. */
+export const INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME = 'intake-tag-events';
 
-let instagramWebhookQueue: Queue<InstagramWebhookAccountJobData> | null = null;
+/** Validated payload of a kind group's intake job on {@link INSTAGRAM_WEBHOOK_QUEUE_NAME}. */
+export type InstagramWebhookIntakeJobData = InstagramWebhookIntakeJobDataValidated;
 
-function getInstagramWebhookQueue(): Queue<InstagramWebhookAccountJobData> {
+/** Validated payload of a tag-intake job on {@link INSTAGRAM_WEBHOOK_QUEUE_NAME}. */
+export type InstagramTagEventIntakeJobData = InstagramTagEventIntakeJobDataValidated;
+
+/** Any payload this queue carries (the pick-up's is empty). */
+type InstagramWebhookQueueJobData =
+  | InstagramWebhookIntakeJobData
+  | InstagramTagEventIntakeJobData
+  | Record<string, never>;
+
+let instagramWebhookQueue: Queue<InstagramWebhookQueueJobData> | null = null;
+
+function getInstagramWebhookQueue(): Queue<InstagramWebhookQueueJobData> {
   if (instagramWebhookQueue) return instagramWebhookQueue;
-  instagramWebhookQueue = new Queue<InstagramWebhookAccountJobData>(INSTAGRAM_WEBHOOK_QUEUE_NAME, {
+  instagramWebhookQueue = new Queue<InstagramWebhookQueueJobData>(INSTAGRAM_WEBHOOK_QUEUE_NAME, {
     connection: getBullMQProducerConnectionOptions(),
     prefix: getBullMQKeyPrefix(),
     defaultJobOptions: {
       removeOnComplete: { count: DEFAULT_JOB_RETENTION_COUNT, age: SEVEN_DAYS_SECONDS },
       removeOnFail: { count: DEFAULT_JOB_RETENTION_COUNT, age: SEVEN_DAYS_SECONDS },
-      // WH14: a temporary failure of the account's head event retries the job — five attempts,
-      // growing waits from 5 s with jitter, as `subscription-seat-sync`. The event's own attempt
-      // count (the same cap) decides when it is `failed`; an Instagram outage spends neither.
+      // WH12: a job that throws (Postgres unreachable, an event's temporary failure before its
+      // 5th try) is retried — five attempts, growing waits from 5 s with jitter. The event's own
+      // try count decides when it is `failed`; a database outage spends none.
       attempts: INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS,
       backoff: { type: 'exponential', delay: FIVE_SECONDS_MS, jitter: QUEUE_RETRY_JITTER_RATIO },
     },
@@ -53,65 +83,116 @@ function getInstagramWebhookQueue(): Queue<InstagramWebhookAccountJobData> {
 }
 
 /**
- * One processing job per channel account at a time, on any replica (WH5) — BullMQ
- * `deduplication` keyed by the account's `cha_…` (WHC4), with `keepLastIfActive`.
+ * The deduplication of one kind group's intake job of one account (WH5, WHC4, S11):
+ * `intake-<kind>-<cha_…>`, with `-<slot>` for the second and later comment-intake jobs.
  *
  * @remarks
- * - **Algorithm:** while the account's job waits or sits delayed (a retry backoff, an Instagram
- *   outage park) a further add is dropped — that job has not claimed the new events yet, so it will
- *   find them in Postgres. While the job runs, a further add is stored, and when the running job
- *   finishes it becomes ONE new job: events stored mid-run are worked through right after it.
+ * - **Algorithm:** `keepLastIfActive` — while the job waits or sits delayed, a further add is
+ *   dropped (that job has not claimed the new events yet, Postgres holds them); while it runs, one
+ *   further add is kept and runs right after it.
  * - **Failure modes:** none — pure options. The key is released when the job completes or fails;
- *   a key whose job Redis lost is recovered by the next add (the stuck-event pick-up adds one every
- *   minute while an event waits).
+ *   a key whose job Redis lost is recovered by the next add (the pick-up).
  * - **Side effects:** none.
  * - **Notes:** the `subscriptionSeatSyncDeduplication` pattern (be-workers-events › per-aggregate
- *   ordering). Two replicas never work one account at once, so its events run strictly in order;
- *   the event claim's 5-minute lease is the backstop. Never a stable `jobId` — a retained completed
- *   job would drop every later add.
+ *   ordering). Messages and Live run one job per account (strict order in the group); comments up
+ *   to `INSTAGRAM_COMMENT_INTAKE_JOBS_PER_ACCOUNT` (S11 — `SKIP LOCKED`). Never a stable `jobId`.
  */
-export function instagramWebhookAccountProcessingDeduplication(
-  channelAccountPublicId: string,
-): DeduplicationOptions {
-  return { id: `instagram-webhook-events-${channelAccountPublicId}`, keepLastIfActive: true };
+export function instagramWebhookIntakeDeduplication({
+  intakeKind,
+  channelAccountPublicId,
+  slot = 0,
+}: {
+  intakeKind: InstagramWebhookEventIntakeGroup;
+  channelAccountPublicId: string;
+  /** The comment-intake job's slot (0 for every other kind). */
+  slot?: number;
+}): DeduplicationOptions {
+  const suffix = slot === 0 ? '' : `-${slot}`;
+  return { id: `intake-${intakeKind}-${channelAccountPublicId}${suffix}`, keepLastIfActive: true };
 }
 
 /**
- * Adds the account's processing job (WH5, WH10): the receiver's hook after each stored entry, the
- * stuck-event pick-up (WH15) and a job that yielded after its 25 events (WH12).
+ * Adds one kind group's intake job of an account (WH5): the receiver's hook after each stored
+ * entry (one per kind that got events), the pick-up, and a job that yielded after its 25 events.
  *
  * @remarks
- * - **Algorithm:** validates the payload (`organizationPublicId` for the job scope, K8), then
- *   `queue.add` with a unique `jobId` (`instagram-webhook-events-<cha_…>-<uuid>`) and the account's
- *   deduplication ({@link instagramWebhookAccountProcessingDeduplication}).
+ * - **Algorithm:** validates the payload (public ids only, K8), then `queue.add` under the kind's
+ *   job name ({@link INSTAGRAM_WEBHOOK_INTAKE_JOB_NAMES}) with a unique `jobId`, the kind's
+ *   deduplication ({@link instagramWebhookIntakeDeduplication}) and its priority — the request's,
+ *   else {@link INSTAGRAM_INTAKE_PRIORITY} of the kind (1 · 1 · 5).
  * - **Failure modes:** propagates BullMQ / Redis errors — the receiver logs them and leaves the
- *   events `received` for the stuck-event pick-up; it never fails Meta's answer.
- * - **Side effects:** at most one job on the processing queue (none while the account's job waits).
- * - **Notes:** matches `InstagramWebhookAccountProcessingEnqueue`, the receiver's hook the app
- *   container wires.
+ *   events `received` for the pick-up; it never fails Meta's answer.
+ * - **Side effects:** at most one job on the queue.
+ * - **Notes:** matches `InstagramWebhookIntakeEnqueue`, the receiver's hook the app container wires.
  */
-export async function enqueueInstagramWebhookAccountProcessing({
+export async function enqueueInstagramWebhookIntake({
   organizationPublicId,
   channelAccountPublicId,
+  intakeKind,
   requestId,
-}: InstagramWebhookAccountProcessingRequest): Promise<void> {
+  priority,
+  slot = 0,
+}: InstagramWebhookIntakeRequest): Promise<void> {
   const jobData = parseBullMQJobData({
-    schema: instagramWebhookAccountJobDataSchema,
+    schema: instagramWebhookIntakeJobDataSchema,
     data: omitUndefined({
       organizationPublicId,
       channelAccountPublicId,
+      intakeKind,
       requestId,
       ...captureTraceContextForPropagation(),
     }),
     queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
   });
-  await getInstagramWebhookQueue().add(INSTAGRAM_WEBHOOK_PROCESS_JOB_NAME, jobData, {
-    jobId: `instagram-webhook-events-${channelAccountPublicId}-${randomUUID()}`,
-    deduplication: instagramWebhookAccountProcessingDeduplication(channelAccountPublicId),
+  await getInstagramWebhookQueue().add(INSTAGRAM_WEBHOOK_INTAKE_JOB_NAMES[intakeKind], jobData, {
+    jobId: `intake-${intakeKind}-${channelAccountPublicId}-${randomUUID()}`,
+    priority: priority ?? INSTAGRAM_INTAKE_PRIORITY[intakeKind],
+    deduplication: instagramWebhookIntakeDeduplication({
+      intakeKind,
+      channelAccountPublicId,
+      slot,
+    }),
   });
 }
 
-/** Closes the lazily created processing producer queue (graceful shutdown). */
+/**
+ * Adds one tag-intake job (WH15, WC-4, S20) — contact's `ContactTagEventIntakeQueue` port, called
+ * after the tag change's commit.
+ *
+ * @remarks
+ * - **Algorithm:** validates the payload; one contact → priority
+ *   {@link INSTAGRAM_TAG_EVENT_INTAKE_PRIORITY} and the deduplication `intake-tag-events-<con_…>`;
+ *   several (a bulk change's piece of up to 500) → {@link INSTAGRAM_INTAKE_LOW_PRIORITY} and no
+ *   deduplication (the rows' `done_at` guard makes a repeat harmless).
+ * - **Failure modes:** propagates BullMQ / Redis errors — the tag-event service logs them and the
+ *   pick-up (WC-27, ROUTE row R47) hands the events over again.
+ * - **Side effects:** at most one job on the queue.
+ */
+export async function enqueueInstagramTagEventIntake({
+  organizationPublicId,
+  contactPublicIds,
+}: ContactTagEventIntakeJobInput): Promise<void> {
+  const jobData = parseBullMQJobData({
+    schema: instagramTagEventIntakeJobDataSchema,
+    data: omitUndefined({
+      organizationPublicId,
+      contactPublicIds: [...contactPublicIds],
+      ...captureTraceContextForPropagation(),
+    }),
+    queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+  });
+  const [onlyContact] = contactPublicIds;
+  const isOneContact = contactPublicIds.length === 1 && onlyContact !== undefined;
+  await getInstagramWebhookQueue().add(INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME, jobData, {
+    jobId: `intake-tag-events-${onlyContact ?? 'none'}-${randomUUID()}`,
+    priority: isOneContact ? INSTAGRAM_TAG_EVENT_INTAKE_PRIORITY : INSTAGRAM_INTAKE_LOW_PRIORITY,
+    ...(isOneContact
+      ? { deduplication: { id: `intake-tag-events-${onlyContact}`, keepLastIfActive: true } }
+      : {}),
+  });
+}
+
+/** Closes the lazily created intake producer queue (graceful shutdown). */
 export async function closeInstagramWebhookQueue(): Promise<void> {
   if (instagramWebhookQueue) {
     await instagramWebhookQueue.close();

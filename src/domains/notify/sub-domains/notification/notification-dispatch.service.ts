@@ -81,6 +81,11 @@ export interface DispatchNotificationInput {
   channels: readonly NotificationDeliveryChannel[];
   locale: SupportedLanguage;
   dedupe_key: string;
+  /**
+   * The emitter's own facts for the inbox row (`data`, beside `channels`, `locale`, `dedupe_key` —
+   * e.g. the month line's `percent`); never personal data.
+   */
+  data?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /**
@@ -221,6 +226,7 @@ async function writeInAppRow(options: {
     message: input.message,
     ...(input.action_url === undefined ? {} : { action_url: input.action_url }),
     data: {
+      ...input.data,
       channels: options.withEmail ? ['in_app', 'email'] : ['in_app'],
       locale: input.locale,
       dedupe_key: input.dedupe_key,

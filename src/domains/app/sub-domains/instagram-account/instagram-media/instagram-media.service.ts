@@ -266,6 +266,31 @@ export class InstagramMediaService {
   }
 
   /**
+   * The account's watched posts the missed-comment look reads next (WC-26, sub-domain 5): the due
+   * ones (or, for the full pass after an outage, every watched one), a Live left out, read longest
+   * ago first, at most `limit`.
+   *
+   * @remarks
+   * Algorithm: one read in the account's organization scope. Failure modes: none of its own. Side
+   * effects: none. Never Meta.
+   */
+  async listWatchedPosts({
+    scope,
+    channelAccount,
+    isDueOnly,
+    limit,
+  }: Omit<InstagramStoredMediaTarget, 'instagramMediaId'> & {
+    isDueOnly: boolean;
+    limit: number;
+  }): Promise<InstagramMediaRow[]> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.mediaRepository.listWatchedPosts({ ...channelAccount, isDueOnly, limit }),
+    });
+  }
+
+  /**
    * Records that a Live ended (D40, IA17) — the Live check (WC-16, sub-domain 6) — so its waiting
    * private replies expire without a call.
    *

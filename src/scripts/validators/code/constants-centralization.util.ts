@@ -18,10 +18,12 @@ const ALLOWED_DUPLICATE_NUMBERS = new Set([
   4, // small independent thresholds (phone-search digits, a score scale, a record number's digits)
   5, // small independent counters (webhook delivery max attempts, postgres-error cause-chain depth)
   6, // small independent sizes (a verification code's length)
+  9, // small independent values (a masked phone's minimum digits, the weekly summary's local hour)
   10, // parseInt radix, deciles
   16, // hex
   20, // small independent thresholds (migration header scan limit, rejection burst threshold)
   24, // hours per day (non-TTL context)
+  40, // independent bounds (a masked webhook text's length, the missed-comment look's pages per post)
   60, // seconds per minute in expressions
   90, // independent bounds (a near-expiry discount's percent cap, the 90-day re-target default)
   100, // percentages, env defaults

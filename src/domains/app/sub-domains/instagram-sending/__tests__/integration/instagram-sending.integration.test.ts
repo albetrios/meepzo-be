@@ -269,7 +269,7 @@ describe('Instagram sending routes and lane steps', () => {
     });
   });
 
-  describe('GET /app/usage (route 64, AC-10.1)', () => {
+  describe('GET /app/usage (route 64, AC-10.1, AC-10.8)', () => {
     it('answers used, limit, the reset day and the accounts used — nearly at 80 %, reached at 100 %', async () => {
       // A Free plan subscription: 1,000 messages a month, one account (P37).
       const free = await createTestPlan({
@@ -304,6 +304,14 @@ describe('Instagram sending routes and lane steps', () => {
       const reached = dataOf<AppUsageAnswer>(await readUsage());
       expect(reached.direct_messages.state).toBe('reached');
       expect(reached.notices[0]?.kind).toBe('direct_message_limit_reached');
+      // A Viewer sees the meter and the notices (AC-10.8).
+      const viewerSees = dataOf<AppUsageAnswer>(await readUsage(team.viewerToken));
+      expect(viewerSees.direct_messages).toMatchObject({
+        used: 1000,
+        limit: 1000,
+        state: 'reached',
+      });
+      expect(viewerSees.notices[0]?.kind).toBe('direct_message_limit_reached');
     });
 
     it('answers 404 team_organization_required on a personal organization', async () => {

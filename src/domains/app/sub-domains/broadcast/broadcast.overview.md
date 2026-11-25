@@ -73,7 +73,13 @@ settled by the end duty (R47).
 ## Ports for later rows
 
 - `BroadcastSendQueuePort` (R46) — the audience task (WC-40) and the matched count (WC-39).
-- The start and end duties (WC-28, WC-29) and intake's `handleChatOpened` (R47).
+- Built at R47: `workers/broadcast-start.processor.ts` (WC-28 — due `scheduled` → `sending` with `started_at`, then
+  the audience task through `BroadcastSendQueuePort`; without the port nothing starts) and
+  `workers/broadcast-end.processor.ts` (WC-29 — a cancelled broadcast's waiting recipients skipped and their waiting
+  messages cancelled through the channel port, 500 a piece; a "when her chat opens" one past `ends_at`, or a sending
+  one whose audience is built, `done` with the `broadcast.done` notice once nobody waits), both on `instagram-tasks`;
+  `BroadcastRecipientService.handleChatOpened` (intake's hook, BC17). The "audience built" mark is R46's
+  `audience_built_at`; until that column is in, no `sending` broadcast is ended (P319).
 - The broadcast lane (R45) sends what the recipients saved; the purge and the recipients' 90-day
   clean-up (R50).
 - `BroadcastRecipientService` (R23) for later rows: `buildAudiencePiece` (the `broadcast-audience`

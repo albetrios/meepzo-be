@@ -1,4 +1,7 @@
-import type { ChannelActivityCursor } from '@/domains/app/app.channel-ports.js';
+import type {
+  ChannelActivityCursor,
+  ChannelInboundEventKind,
+} from '@/domains/app/app.channel-ports.js';
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import type {
@@ -205,6 +208,29 @@ export interface RecordContactInteractionInput extends ContactWorkerTarget {
   /** The event's own time. */
   occurredAt: Date;
   interactionKind: ContactInteractionKind;
+}
+
+/**
+ * Input of `recordInboundContactEvent` (routes-final § 3.A.10, CT18 — the inbound seam): one saved
+ * event of a person, in channel-neutral words — the provider's person id and the normalized kind.
+ */
+export interface RecordInboundContactEventInput extends ContactWorkerTarget {
+  /** `app.channel_accounts.id` — the account the event came to (CT2). */
+  channelAccountId: number;
+  /** The provider's id of the person (Instagram's `sender.id` / `from.id`) — digits. */
+  providerUserId: string;
+  /** The normalized kind (WH27); `owner_message` never reaches contacts. */
+  kind: Exclude<ChannelInboundEventKind, 'owner_message'>;
+  /** The event's own time. */
+  occurredAt: Date;
+  /** The username the event carried, when it carried one. */
+  username: string | null;
+}
+
+/** The result of `recordInboundContactEvent`. */
+export interface InboundContactEventResult extends ContactInteractionResult {
+  /** `true` when this event is her first message in the chat (`first_message_at` was empty). */
+  isFirstMessage: boolean;
 }
 
 /** The result of `recordContactInteraction`: the live contact and whether this event created it. */

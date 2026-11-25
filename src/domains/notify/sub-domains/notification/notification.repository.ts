@@ -143,6 +143,28 @@ export class NotificationRepository {
    * (`data.dedupe_key`) — the once-only check of
    * `NotificationService.createOrganizationNotifications`.
    */
+  /**
+   * Serializes the emitters of one organization notification key until the caller's unit ends
+   * (`pg_advisory_xact_lock` on the organization, type and dedupe key).
+   *
+   * @remarks
+   * Two units emitting the same key at once (two servers crossing one month line) queue here, so
+   * the second reads the first's committed rows in {@link existsOrganizationNotificationWithDedupeKey}.
+   */
+  async lockOrganizationNotificationKey({
+    organization_id,
+    type,
+    dedupe_key,
+  }: {
+    organization_id: number;
+    type: string;
+    dedupe_key: string;
+  }): Promise<void> {
+    await this.db().execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`notification:${String(organization_id)}:${type}:${dedupe_key}`}, 0))`,
+    );
+  }
+
   async existsOrganizationNotificationWithDedupeKey({
     organization_id,
     type,

@@ -5,8 +5,11 @@ import {
 import { INACTIVE_SUBSCRIPTION_STATUSES } from '@/domains/billing/sub-domains/subscription/subscription.repository.js';
 import type { StripeSubscriptionPriorState } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
 
-/** The statuses a paid plan is kept in while Stripe retries the payment (BL3 grace). */
-const DUNNING_STATUSES: ReadonlySet<string> = new Set(['PAST_DUE', 'UNPAID']);
+/**
+ * The statuses a paid plan is kept in while Stripe retries the payment (BL3 grace) — entering one
+ * is a failed payment (the webhook's "payment failed" notice, WC-57).
+ */
+export const DUNNING_STATUSES: ReadonlySet<string> = new Set(['PAST_DUE', 'UNPAID']);
 
 /** The statuses that hold the plan's features: paid, or in its trial. */
 const PAID_ENTITLEMENT_STATUSES: ReadonlySet<string> = new Set(['ACTIVE', 'TRIALING']);

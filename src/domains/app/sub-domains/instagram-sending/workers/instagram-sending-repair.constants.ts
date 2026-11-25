@@ -1,3 +1,4 @@
+import { REPAIR_DUTY_BUDGET_MILLISECONDS } from '@/infrastructure/queue/worker-runtime/repair-duty.util.js';
 import { INSTAGRAM_PLAN_STOP_BACKUP_MINUTES } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 
 /**
@@ -31,4 +32,4 @@ export const INSTAGRAM_REPAIR_PLAN_STOPS_CRON = `*/${INSTAGRAM_PLAN_STOP_BACKUP_
 export const INSTAGRAM_REPAIR_PAGE_SIZE = 500;
 
 /** Each duty works until this budget is spent (SN6, P94: no fixed cap), then the next run goes on. */
-export const INSTAGRAM_REPAIR_BUDGET_MILLISECONDS = 40_000;
+export const INSTAGRAM_REPAIR_BUDGET_MILLISECONDS = REPAIR_DUTY_BUDGET_MILLISECONDS;

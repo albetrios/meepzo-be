@@ -10,6 +10,10 @@ import {
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import {
+  type MessageMonthNoticeService,
+  decideMessageMonthLine,
+} from './message-month-notice.service.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
@@ -123,7 +127,9 @@ export type InstagramSendClaim =
  *   (nothing was sent, the ticket goes back).
  * - **Side effects:** the claim's rows; after commit the month's Redis copy is tombstoned and gate 1
  *   records the claim.
- * - **Notes:** the month at 80 % and 100 % notices and emails are WC-56's (ROUTE row R53).
+ * - **Notes:** a counted DM that moves the month over its 80 % or 100 % line tells the organization
+ *   after the commit (`monthNotice`, WC-56, ROUTE row R53); the every-minute backup check covers a
+ *   lost call.
  */
 export class InstagramSendGateService {
   private gateOneTimeoutsInARow = 0;
@@ -132,6 +138,8 @@ export class InstagramSendGateService {
   constructor(
     private readonly options: {
       laneService: Pick<InstagramSendLaneService, 'recordPlanStop'>;
+      /** The month's 80 % / 100 % notice (WC-56), told after the claim that crossed a line. */
+      monthNotice?: Pick<MessageMonthNoticeService, 'tellMonthLineAfterCommit'> | undefined;
       /** Gate 1's Redis (the cache connection); `null` skips gate 1 (Postgres decides). */
       redis?: Redis | null | undefined;
     },
@@ -284,6 +292,35 @@ export class InstagramSendGateService {
   }
 
   /**
+   * Gate 1's count of the last hour for one account and group (WC-20, the repair's comparison with
+   * the minute counts) — `null` when Redis did not answer in time.
+   *
+   * @remarks
+   * Algorithm: one `ZCOUNT` over the last hour (no prune — a read only). Failure modes: a timeout or
+   * Redis error answers `null`. Side effects: none. Notes: the ids come from the duty's database
+   * read under the job's own scope (K8), never from a request.
+   */
+  async readGateOneCount({
+    scope,
+    channelAccountPublicId,
+    countGroup,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+    countGroup: InstagramSendAttemptCountGroup;
+  }): Promise<number | null> {
+    if (countGroup === 'none') return 0;
+    const key = gateOneKey({
+      organizationPublicId: scope.organizationPublicId,
+      channelAccountPublicId,
+      countGroup,
+    });
+    return this.withGateOneTimeout((redis) =>
+      redis.zcount(key, Date.now() - MILLISECONDS_PER_HOUR, '+inf'),
+    );
+  }
+
+  /**
    * The claim's one commit (SN3 (a)–(d), SN8): gate 2, her hour, the month, the adds, `sending` and
    * the attempt — or why the message stays `waiting`.
    *
@@ -300,6 +337,39 @@ export class InstagramSendGateService {
         return this.claimInUnit({ input, databaseHandle });
       },
     });
+  }
+
+  /**
+   * The claim's month step (SN3 (c), WC-56): a counted message over the month's limit starts the
+   * `plan_limit` stop and is refused; else whether this one reaches the limit, and a crossed 80 % /
+   * 100 % line is told after the commit (R53).
+   */
+  private async checkMonth({
+    input,
+    found,
+    month,
+  }: {
+    input: InstagramSendClaimInput;
+    found: { organization_id: number; is_counted_as_direct_message: boolean };
+    month: MessageMonthCountRepository;
+  }): Promise<'month_limit' | { isMonthLimitReached: boolean }> {
+    if (!found.is_counted_as_direct_message || input.monthLimit === null) {
+      return { isMonthLimitReached: false };
+    }
+    const used = (await month.readMonth(found.organization_id))?.used ?? 0;
+    if (used >= input.monthLimit) {
+      await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
+      return 'month_limit';
+    }
+    const lineBefore = decideMessageMonthLine({ used, limit: input.monthLimit });
+    const lineAfter = decideMessageMonthLine({ used: used + 1, limit: input.monthLimit });
+    const monthNotice = this.options.monthNotice;
+    if (lineAfter !== lineBefore && monthNotice !== undefined) {
+      await runEnqueueAfterCommit(() =>
+        monthNotice.tellMonthLineAfterCommit({ scope: input.scope }),
+      );
+    }
+    return { isMonthLimitReached: used + 1 >= input.monthLimit };
   }
 
   /** {@link claimSend}'s unit. */
@@ -346,15 +416,9 @@ export class InstagramSendGateService {
     if (hourRefusal !== null) return { kind: 'refused', reason: hourRefusal };
     const isCounted = found.is_counted_as_direct_message;
     const month = new MessageMonthCountRepository(databaseHandle);
-    let isMonthLimitReached = false;
-    if (isCounted && input.monthLimit !== null) {
-      const used = (await month.readMonth(found.organization_id))?.used ?? 0;
-      if (used >= input.monthLimit) {
-        await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
-        return { kind: 'refused', reason: 'month_limit' };
-      }
-      isMonthLimitReached = used + 1 >= input.monthLimit;
-    }
+    const monthCheck = await this.checkMonth({ input, found, month });
+    if (monthCheck === 'month_limit') return { kind: 'refused', reason: 'month_limit' };
+    const { isMonthLimitReached } = monthCheck;
     if (input.countGroup !== 'none') {
       await minutes.addToMinute({ ...account, countGroup: input.countGroup, count: 1 });
     }

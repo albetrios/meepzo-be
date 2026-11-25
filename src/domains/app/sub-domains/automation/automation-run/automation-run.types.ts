@@ -98,12 +98,20 @@ export interface AutomationDirectMessageInput extends AutomationRunTriggerInput 
 }
 
 /** The tap kinds `handleButtonClick` takes (normalized — 4.B.10). */
-export type AutomationTapKind = 'postback' | 'starter_question' | 'ref_link' | 'ad_message';
+export type AutomationTapKind =
+  | 'postback'
+  | 'starter_question'
+  | 'ref_link'
+  | 'ad_message'
+  | 'broadcast_tap';
 
 /** Input of `handleButtonClick` — a tap on our button, a starter question, an ig.me link, an ad. */
 export interface AutomationButtonClickInput extends AutomationRunTriggerInput {
   kind?: AutomationTapKind;
-  /** `aut_…` from a postback payload. */
+  /**
+   * `aut_…` from a postback payload; for `broadcast_tap`, the automation a broadcast button's
+   * "start automation" names (§ 7.A.10).
+   */
   automationPublicId?: string | null;
   /** `run_…` from a postback payload. */
   runPublicId?: string | null;
@@ -137,7 +145,7 @@ export interface AutomationTagRunInput extends AutomationRunTriggerInput {
  * - `ignored` — held back (once key, open run, paused, opted out, a tap we do not take, an
  *   automation deleted or turned off before its lock, an erased contact);
  * - `nothing_matched` — no automation of the account matched;
- * - `account_unavailable` — the account is not this organization's connected account;
+ * - `account_unavailable` — the account is gone or `revoked`, or not the contact's;
  * - `already_handled` — a retried event whose work was already done.
  */
 export type AutomationRunHandlingOutcome =
@@ -158,21 +166,6 @@ export interface AutomationRunHandlingResult {
   runPublicIds: string[];
   /** Kept for the intake's contract: the engine no longer calls a channel, so always `null`. */
   failedErrorType: null;
-}
-
-/**
- * A webhook event the intake marked `failed`, or `skipped` after a claim, as it tells the run engine
- * — the runs it left `running` are failed with its code.
- */
-export interface AutomationFailedEventInput {
-  /** The job's organization scope, relayed by the intake. */
-  scope: OrganizationPrincipalDatabaseScope;
-  /** `tenancy.organizations.id` of the scope's organization. */
-  organizationId: number;
-  /** The event's key — `last_instagram_event_key` of the runs it moved last. */
-  eventKey: string;
-  /** The failed event's own code, or the skipped one's reason — never text a person wrote. */
-  errorCode: string;
 }
 
 /** The organization, the internal id and the start month every single-run statement names. */

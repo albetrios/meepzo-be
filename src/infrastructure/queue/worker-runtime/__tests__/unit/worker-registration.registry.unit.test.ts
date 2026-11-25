@@ -58,16 +58,17 @@ describe('worker-registration.registry', () => {
     // the run and automation clean-ups (retention family, crons, Postgres-backed — the hourly 7-day
     // wait cancel and the deleted-automation purge; run and comment-log retention retired at
     // feat-instagram-dm-sending R14, P133 — their month parts are dropped);
-    // +1 for the Instagram webhook event processing (instagram family, throughput,
-    // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
-    // WH12–WH15); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
+    // +1 for Instagram intake (instagram family, throughput, Postgres-backed through the shared
+    // limiter, its stuck-event pick-up riding the queue — launch WH5, feat-instagram-dm-sending R38); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
     // `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks`, all in family `instagram`
     // (P140); throughput, event-driven, their database through the shared limiter); +1 for the
     // channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34; the
     // launch daily account check it replaced is gone, −1, R40 × R51 merge); +1 for the
     // database-heavy Instagram task queue (`instagram-database-tasks`, S19 — R46); +2 for the
     // plan-state check and the sending repair queue (R52, R48); the webhook event clean-up gave
-    // way to the shared partition upkeep (R49, ±0).
+    // way to the shared partition upkeep (R49, ±0); the weekly summary and the grouped
+    // contact-details note (R53) ride the notification worker and R47's repair duties the sending
+    // repair queue — no new one.
     expect(definitions).toHaveLength(46);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
@@ -105,9 +106,10 @@ describe('worker-registration.registry', () => {
     // the database-heavy task queue (S19, R46) one more Postgres-backed, event-driven throughput one;
     // R52 the plan-state check (WC-59) and the sending repair duties (WC-37, WC-38) two more
     // Postgres-backed, scheduled, maintenance workers, and the seat sync is no longer scheduled
-    // (its hourly reconcile is off with the seat sync, BL9, WC-65).
+    // (its hourly reconcile is off with the seat sync, BL9, WC-65); the notification worker is
+    // scheduled since R53 (the weekly summary's hourly sweep rides its queue).
     expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(43);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(36);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(37);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(12);
@@ -126,11 +128,12 @@ describe('worker-registration.registry', () => {
     ).toEqual([]);
   });
 
-  it('puts the Instagram send and task queues on one database limiter in the instagram family, gated on sending (SN24, P140, S19)', () => {
+  it('puts Instagram intake and the send and task queues on one database limiter in the instagram family, the send and Meta-calling ones gated on sending (SN24, P140, S19, R38)', () => {
     const sendingQueues = getWorkerQueueRegistrationDefinitions().filter(
       (definition) => definition.databaseSlotLimiterName !== undefined,
     );
     expect(sendingQueues.map((definition) => [definition.queueName, definition.family])).toEqual([
+      ['instagram-webhook', 'instagram'],
       ['instagram-send-slow', 'instagram'],
       ['instagram-send-fast', 'instagram'],
       ['instagram-tasks', 'instagram'],
@@ -147,6 +150,7 @@ describe('worker-registration.registry', () => {
     expect(
       sendingQueues.map((definition) => [definition.queueName, definition.isEnabled !== undefined]),
     ).toEqual([
+      ['instagram-webhook', true],
       ['instagram-send-slow', true],
       ['instagram-send-fast', true],
       ['instagram-tasks', true],

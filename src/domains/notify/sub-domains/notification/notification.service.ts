@@ -41,6 +41,8 @@ export interface OrganizationNotificationContent {
   actionUrl: string;
   channels: readonly ('in_app' | 'email')[];
   locale: SupportedLanguage;
+  /** The emitter's own facts for the inbox row's `data` (never personal data). */
+  data?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /**
@@ -280,6 +282,13 @@ export class NotificationService {
           scope.organizationPublicId,
         );
         if (organizationId === null) throw new NotFoundError('Organization');
+        // Two emitters of one key at once (two servers crossing the same month line) wait here, so
+        // the second sees the first's rows and sends nothing (feat-instagram-dm-sending AC-10.5).
+        await this.repository.lockOrganizationNotificationKey({
+          organization_id: organizationId,
+          type: notification.type,
+          dedupe_key: dedupeKey,
+        });
         const alreadySent = await this.repository.existsOrganizationNotificationWithDedupeKey({
           organization_id: organizationId,
           type: notification.type,
@@ -298,6 +307,7 @@ export class NotificationService {
             channels: notification.channels,
             locale: notification.locale,
             dedupe_key: dedupeKey,
+            data: notification.data,
           },
         });
         await runEnqueueAfterCommit(async () => {

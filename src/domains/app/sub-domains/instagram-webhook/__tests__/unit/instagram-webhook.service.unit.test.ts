@@ -4,7 +4,7 @@ import type { InstagramAccountService } from '@/domains/app/sub-domains/instagra
 import type { InstagramWebhookAccountState } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import type { InstagramWebhookEventService } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import type { NewInstagramWebhookEvent } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
-import type { InstagramWebhookAccountProcessingEnqueue } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
+import type { InstagramWebhookIntakeEnqueue } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
 
 const mockEnvironment = vi.hoisted(() => ({
   META_WEBHOOK_VERIFY_TOKEN: 'unit-test-verify-token-of-thirty-two-chars' as string | undefined,
@@ -78,7 +78,7 @@ function setup({
 }: {
   organizationPublicId?: string | null;
   account?: InstagramWebhookAccountState | null;
-  enqueue?: InstagramWebhookAccountProcessingEnqueue;
+  enqueue?: InstagramWebhookIntakeEnqueue;
 } = {}) {
   let nextEventId = 100;
   const accountService = {
@@ -91,11 +91,16 @@ function setup({
         id: nextEventId++,
         status: event.skipReason === null ? 'received' : 'skipped',
         event_key: event.eventKey,
+        intake_group:
+          event.eventKind === 'comment'
+            ? 'comments'
+            : event.eventKind === 'live_comment'
+              ? 'live'
+              : 'messages',
       })),
   );
   const eventService = {
     recordReceivedEvents,
-    markEventsQueued: vi.fn(async () => 0),
     limitStoreStatementTime: vi.fn(async () => undefined),
   };
   const service = new InstagramWebhookService(
@@ -627,39 +632,47 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
   });
 });
 
-describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => {
+describe('receiveDelivery — the intake enqueue per kind group (WH5, WH9 step 8, S25)', () => {
   const body = delivery([
     {
       id: INSTAGRAM_USER_ID,
       changes: [comment('1')],
-      messaging: [{ sender: { id: CONTACT_ID }, message_edit: { mid: 'm', num_edit: 1 } }],
+      messaging: [
+        { sender: { id: CONTACT_ID }, message: { mid: 'm_1', text: 'hi' } },
+        { sender: { id: CONTACT_ID }, message_edit: { mid: 'm', num_edit: 1 } },
+      ],
     },
   ]);
 
-  it('unwired (R13): nothing is enqueued and every stored event stays received', async () => {
-    const { service, eventService } = setup();
+  it('unwired: nothing is enqueued', async () => {
+    const { service } = setup();
 
-    await service.receiveDelivery({ body, requestId: REQUEST_ID });
-
-    expect(eventService.markEventsQueued).not.toHaveBeenCalled();
+    await expect(service.receiveDelivery({ body, requestId: REQUEST_ID })).resolves.toMatchObject({
+      storedEventCount: 3,
+    });
   });
 
-  it('wired: adds the account job after the store, then turns only the received rows queued', async () => {
-    const enqueue = vi.fn(async () => undefined);
+  it('wired: one job per kind group that got received events, in the groups’ order — no `queued` update', async () => {
+    const enqueue = vi.fn(async (_request: unknown) => undefined);
     const { service, eventService } = setup({ enqueue });
 
     await service.receiveDelivery({ body, requestId: REQUEST_ID });
 
-    expect(enqueue).toHaveBeenCalledWith({
-      organizationPublicId: ORGANIZATION_PUBLIC_ID,
-      channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
-      requestId: REQUEST_ID,
-    });
-    expect(eventService.markEventsQueued).toHaveBeenCalledWith({
-      scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'verified' },
-      channelAccount: { organizationId: 7, channelAccountId: 13 },
-      eventIds: [100],
-    });
+    expect(enqueue.mock.calls.map(([request]) => request)).toEqual([
+      {
+        organizationPublicId: ORGANIZATION_PUBLIC_ID,
+        channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
+        intakeKind: 'comments',
+        requestId: REQUEST_ID,
+      },
+      {
+        organizationPublicId: ORGANIZATION_PUBLIC_ID,
+        channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
+        intakeKind: 'messages',
+        requestId: REQUEST_ID,
+      },
+    ]);
+    expect(Object.keys(eventService)).not.toContain('markEventsQueued');
   });
 
   it('wired, nothing received (all skipped or repeated): no job is added', async () => {
@@ -671,23 +684,24 @@ describe("receiveDelivery — R14's processing enqueue hook (WH5, WH10)", () => 
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('a failed add is logged and left to the stuck-event pick-up — it never fails the answer', async () => {
+  it('a failed add is logged and left to the stuck-event pick-up — it never fails the answer, the next group is still added', async () => {
     const enqueue = vi.fn(async () => {
       throw new Error('redis down');
     });
-    const { service, eventService } = setup({ enqueue });
+    const { service } = setup({ enqueue });
 
     await expect(service.receiveDelivery({ body, requestId: REQUEST_ID })).resolves.toMatchObject({
-      storedEventCount: 2,
+      storedEventCount: 3,
     });
-    expect(eventService.markEventsQueued).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledTimes(2);
     expect(logger.warn).toHaveBeenCalledWith(
       {
         requestId: REQUEST_ID,
         channelAccountPublicId: 'cha_aaaaaaaaaaaaaaaaaaaaa',
+        intakeKind: 'comments',
         errorName: 'Error',
       },
-      'instagram.webhook.processing_enqueue_failed',
+      'instagram.webhook.intake_enqueue_failed',
     );
   });
 });

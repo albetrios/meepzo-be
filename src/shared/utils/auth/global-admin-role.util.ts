@@ -15,6 +15,14 @@ function parseGlobalAdminEmails(): Set<string> {
   );
 }
 
+/**
+ * The platform team's addresses (`GLOBAL_ADMIN_EMAILS`, lower-cased, in order, no repeats) — the
+ * recipients of a team alert (feat-instagram-dm-sending WC-57's team part, MC16).
+ */
+export function listGlobalAdminEmails(): string[] {
+  return [...parseGlobalAdminEmails()];
+}
+
 /** Returns super_admin when email is listed in GLOBAL_ADMIN_EMAILS; otherwise undefined. */
 export function resolveGlobalRoleForEmail(email: string): GlobalRole | undefined {
   const normalizedEmail = email.trim().toLowerCase();

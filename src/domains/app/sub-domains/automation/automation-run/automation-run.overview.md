@@ -36,6 +36,7 @@ reader (the contact's "what happened").
 | `automation-run-button-payload.util.ts` | `<aut_…>::<run_…>::<igm_…>` — the payload our buttons carry back (the message part since R44; a two-part one still reads) |
 | `automation-run.constants.ts`, `automation-run.types.ts` | value lists (mirror the CHECKs) and the seam's input shapes |
 | `workers/automation-run-wait-expiry.*` | WC-45 — the hourly 7-day wait cancel |
+| `workers/automation-run-open-key-repair.processor.ts` | WC-67 — the every-minute open-run key repair on `instagram-sending-repair` (R47; each piece in an `instagram-database` limiter slot): `repairOpenRunKeys` in pieces of 500 until its 40 s budget |
 | `seed/` | demo runs in every status with their events, logs and open keys |
 
 ## Key invariants

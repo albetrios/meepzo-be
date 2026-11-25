@@ -16,7 +16,7 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). ROUTE row R42 built the **send core** (below), R43 the slow and reply lanes' rules, R44 the fast lane's, R45 the broadcast lane's; the repair duties (R47) come with their row; the watches are R48's (below). ROUTE
+connection's usage, SN23). ROUTE row R42 built the **send core** (below), R43 the slow and reply lanes' rules, R44 the fast lane's, R45 the broadcast lane's; the repair duties are R47's (below, the **repair duties**) and the watches R48's (below), all on the repair queue `instagram-sending-repair`. ROUTE
 row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
 to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
@@ -31,6 +31,18 @@ Team organizations only: a personal one reads `404 team_organization_required`. 
 instagram_not_connected` for another organization's, a revoked or a non-Instagram account.
 
 ## Layout
+
+- **Repair duties (R47, SN6, P94)** — `instagram-sending-repair.service.ts` (`InstagramSendingRepairService`: WC-13 lost
+  turns, WC-14 stuck sends, WC-15 the 7-day expiry, WC-17 closed windows, WC-18 the reply trim, WC-19 the paused cancel,
+  WC-20 the send counts) over `instagram-sending-repair.repository.ts` (the cross-organization reads under the
+  `app.global_retention_cleanup` arm, each organization's writes in its job scope); `workers/instagram-send-repair-duties.processor.ts`
+  routes the eleven every-minute jobs on the repair queue `instagram-sending-repair` (these seven, 7's broadcast start
+  and end, 3.B's tag-event pick-up and 4.B's open-run key repair — handed over by `runInstagramSendingRepairDuty`) through
+  `runRepairDutyRound` (`src/infrastructure/queue/worker-runtime/repair-duty.util.ts`: the `mayTakeTickets` gate, the 40 s
+  budget, pieces of 500, `repair_duty_round_seconds` / `repair_duty_backlog`). Lost tickets are re-added in one `addBulk`
+  per piece by `addMissingInstagramSendLaneTurns` / `addMissingInstagramSendFastMessages` (a ticket still on its way is
+  only counted). Waiting messages end through `InstagramMessageService.settleWaitingMessages` (the result save's
+  bookkeeping, the engine told); a stuck send through `saveSendResult`.
 
 - `instagram-sending.constants.ts` — the **sending settings file** (P4): the settings-file limits an empty owner value
   falls back to (route 12 and the lanes read one source), `STOP_WORDS`, the untested Meta features, ways to start and
@@ -50,6 +62,13 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   (shared, P43): per organization, month of its time zone and 16 slots. The service is the channel account's plan-stop
   port (`plan_limit`), the month add (tombstones the copy after commit) and route 64's read through the 10-second
   Redis copy `app:message_month_count:<organization>`.
+- `message-month-notice.service.ts` — the month at 80 % and 100 % (WC-56, R53): one `billing.usage_threshold`
+  notice and email per organization, month and line (`month-limit:<month>:<line>`), told after the claim that crossed
+  a line; `workers/message-month-notice-check.*` is its every-minute backup check on the intake queue.
+- `workers/instagram-owner-problem-email.*` — the owners' problem emails (WC-57, R53): every minute on the intake
+  queue, the stops that came due (a block, a connection, message access, plan ended or switched off at once; any
+  other stop after an hour) told once per account and kind in 6 hours (`automation.stopped`, `data.problem`), and
+  one team email grouping them by kind.
 - `instagram-send-day-count.schema.ts` / `.repository.ts` — one account's results of its organization's day (S8):
   route 63's "today" line.
 - `sending-state.schema.ts` / `.repository.ts` / `.service.ts` — `app.sending_states`, the one tenantless row (P16):
@@ -150,11 +169,12 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   stop — `plan_ended`, else `plan_limit`, else none), on a move down or a trial end cancels the scheduled and waiting
   broadcasts and fails the unfinished past-comment reads (`plan_feature_off`) when the new plan lacks the switch, then
   wakes the accounts whose stop got weaker, spread over 5 minutes. `workers/instagram-sending-repair.*` — the repair
-  queue `instagram-sending-repair` (SN6, one repeat job per duty; R47 adds the rest): `repair-month-wake` every minute
+  queue `instagram-sending-repair` (SN6, one repeat job per duty; R47's eleven and R48's watches beside them): `repair-month-wake` every minute
   (organizations holding `plan_limit` since before their month turned, their time zone) and `repair-plan-stops` every
   15 minutes (organizations still holding `plan_ended`), each adding one task per organization. The queue runs
-  `INSTAGRAM_SENDING_REPAIR_CONCURRENCY` (4) duties at once, every database unit of a duty in a slot of the
-  `instagram-database` limiter (R48 — so the queue adds no Postgres demand of its own).
+  `INSTAGRAM_SENDING_REPAIR_CONCURRENCY` (16 — one place per duty, so a 40 s round never holds another back) duties
+  at once, every database unit of a duty in a slot of the `instagram-database` limiter (R48 — so the queue adds no
+  Postgres demand of its own).
 - **The watches (ROUTE row R48)** — `workers/instagram-sending-watch.*` on the repair queue, over
   `InstagramSendingWatchService` and `InstagramSendingWatchRepository` (the cross-organization reads, retention
   context): `outage-check` every 10 s (`everyMilliseconds`, WC-22 — 30 % bad of ≥ 50 calls in 30 s, or 30 % of the

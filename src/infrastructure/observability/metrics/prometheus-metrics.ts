@@ -39,6 +39,8 @@ let readCacheRequestsTotal: Counter<'cache' | 'result'> | null = null;
 let databaseUnscopedQueriesTotal: Counter | null = null;
 let bullmqProviderOutageParkedJobsTotal: Counter<'queue' | 'provider' | 'reason'> | null = null;
 let instagramWebhookUnknownAccountEntriesTotal: Counter | null = null;
+let repairDutyRoundSeconds: Histogram<'duty'> | null = null;
+let repairDutyBacklog: Gauge<'duty'> | null = null;
 let appPartitionReadyDays: Gauge<'table'> | null = null;
 let appPartitionDefaultRows: Gauge<'table'> | null = null;
 let appPartitionOldestOverdueSeconds: Gauge<'table'> | null = null;
@@ -100,6 +102,21 @@ function registerQueueMetrics(registry: Registry): void {
     help: 'BullMQ job processing duration in seconds',
     labelNames: ['queue', 'job_name'],
     buckets: JOB_DURATION_BUCKETS_SECONDS,
+    registers: [registry],
+  });
+
+  repairDutyRoundSeconds = new Histogram({
+    name: 'repair_duty_round_seconds',
+    help: 'How long one round of a scheduled repair duty took, by duty (feat-instagram-dm-sending P94: each duty works until its 40 s budget is spent). Rounds that keep hitting 40 s mean the duty cannot keep up — read repair_duty_backlog beside it',
+    labelNames: ['duty'],
+    buckets: JOB_DURATION_BUCKETS_SECONDS,
+    registers: [registry],
+  });
+
+  repairDutyBacklog = new Gauge({
+    name: 'repair_duty_backlog',
+    help: 'Rows a scheduled repair duty left due at the end of its last round, by duty (0 = it caught up; otherwise at least this many, its last piece). A backlog that stays above 0 for several minutes is the alert (P94)',
+    labelNames: ['duty'],
     registers: [registry],
   });
 
@@ -288,6 +305,10 @@ function bindMetricHandlesFromRegistry(registry: Registry): void {
   bullmqProviderOutageParkedJobsTotal = registry.getSingleMetric(
     'bullmq_provider_outage_parked_jobs_total',
   ) as Counter<'queue' | 'provider' | 'reason'>;
+  repairDutyRoundSeconds = registry.getSingleMetric(
+    'repair_duty_round_seconds',
+  ) as Histogram<'duty'>;
+  repairDutyBacklog = registry.getSingleMetric('repair_duty_backlog') as Gauge<'duty'>;
   readCacheRequestsTotal = registry.getSingleMetric('read_cache_requests_total') as Counter<
     'cache' | 'result'
   >;
@@ -577,6 +598,26 @@ export function setAppPartitionUpkeepGauges({
   appPartitionReadyDays?.set({ table }, readyDays);
   appPartitionDefaultRows?.set({ table }, defaultRows);
   appPartitionOldestOverdueSeconds?.set({ table }, oldestOverdueSeconds);
+}
+
+/**
+ * Records one round of a scheduled repair duty (feat-instagram-dm-sending P94): its time on
+ * `repair_duty_round_seconds{duty}` and what it left due on `repair_duty_backlog{duty}`. No-op when
+ * metrics are disabled; the duty still logs its counts.
+ */
+export function recordRepairDutyRound({
+  duty,
+  roundSeconds,
+  backlog,
+}: {
+  duty: string;
+  roundSeconds: number;
+  backlog: number;
+}): void {
+  if (!isMetricsEnabled()) return;
+  ensurePrometheusMetricsRegistered(getMetricsRegistry());
+  repairDutyRoundSeconds?.observe({ duty }, roundSeconds);
+  repairDutyBacklog?.set({ duty }, backlog);
 }
 
 /**

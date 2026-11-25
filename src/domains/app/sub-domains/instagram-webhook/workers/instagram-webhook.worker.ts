@@ -1,86 +1,193 @@
-import { getBullMQConnectionOptions } from '@/infrastructure/queue/connection.js';
+import { Worker } from 'bullmq';
+import {
+  getBullMQConnectionOptions,
+  getBullMQKeyPrefix,
+} from '@/infrastructure/queue/connection.js';
 import { parseJobDataOrDeadLetter } from '@/infrastructure/queue/dlq/poison-job.util.js';
 import { runWithPropagatedTraceContext } from '@/infrastructure/observability/tracing/trace-context.util.js';
 import type { WorkerHandle } from '@/infrastructure/queue/bootstrap.js';
-import { createProviderPausableWorker } from '@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js';
 import { buildWorkerHandle } from '@/infrastructure/queue/worker-runtime/worker-close.util.js';
+import type { WorkerDatabaseSlotLimiter } from '@/infrastructure/queue/worker-runtime/worker-database-slot-limiter.js';
 import { getDefaultWorkerOptions } from '@/infrastructure/queue/worker-runtime/worker-options.js';
 import { getWorkerConcurrencyInstagram } from '@/shared/config/worker-concurrency.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { getInstagramDatabaseSlotLimiter } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-ticket.processor.js';
 import {
+  INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME,
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
-  type InstagramWebhookAccountJobData,
 } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
-import { instagramWebhookAccountJobDataSchema } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.job.schema.js';
+import {
+  instagramTagEventIntakeJobDataSchema,
+  instagramWebhookIntakeJobDataSchema,
+} from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.job.schema.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from './instagram-webhook-reclaim.constants.js';
 import { runInstagramWebhookReclaimJob } from './instagram-webhook-reclaim.processor.js';
+import { INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME } from './instagram-missed-comment-check.constants.js';
+import { runInstagramMissedCommentSweepJob } from './instagram-missed-comment-check.processor.js';
+import { AUTOMATION_BACKFILL_WATCH_JOB_NAME } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.constants.js';
+import { runAutomationBackfillWatchJob } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.processor.js';
+import { AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.constants.js';
+import type { MessageMonthNoticeService } from '@/domains/app/sub-domains/instagram-sending/message-month-notice.service.js';
+import { INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.constants.js';
+import { runInstagramOwnerProblemEmailJob } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.processor.js';
+import { MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.constants.js';
+import { runMessageMonthNoticeCheckJob } from '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.processor.js';
+import { runAutomationNextPostLinkingSweepJob } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.processor.js';
+import { createInstagramNextPostLinkingEnqueue } from './instagram-next-post-linking.processor.js';
+import { INSTAGRAM_PAST_COMMENT_READ_QUEUE } from './instagram-past-comment-read.processor.js';
 import {
-  type InstagramWebhookProcessingServices,
-  processInstagramWebhookAccountJob,
-} from './instagram-webhook.processor.js';
+  type InstagramContactProfileReadEnqueue,
+  type InstagramLateCommentTimeReader,
+  type InstagramWebhookIntakeServices,
+  processInstagramWebhookIntakeJob,
+} from './instagram-webhook-intake.processor.js';
+import {
+  type InstagramTagEventIntakeServices,
+  processInstagramTagEventIntakeJob,
+} from './instagram-tag-event-intake.processor.js';
 
 /**
- * BullMQ worker of Instagram webhook event processing (routes-final § 4.A WH5, WH12–WH15,
- * WHC10–WHC11): one account's events per job, and the every-minute stuck-event pick-up, on one
- * queue.
+ * What the intake worker drives: the event intake's and the tag intake's services, and the
+ * after-commit profile-read task (S11).
+ *
+ * @remarks
+ * Notes: built by the worker registry from the worker composition root (`appDomain`,
+ * `tenancyDomain`).
+ */
+export interface InstagramWebhookWorkerServices {
+  intake: InstagramWebhookIntakeServices;
+  tagIntake: InstagramTagEventIntakeServices;
+  enqueueProfileRead: InstagramContactProfileReadEnqueue | null;
+  /** A late comment's own time from Meta (WH12 step 2, R39); absent — the received time. */
+  readLateCommentTime?: InstagramLateCommentTimeReader | undefined;
+  /** The month notices' backup check (WC-56, R53); absent — the check finds nothing to do. */
+  monthNotice?: Pick<MessageMonthNoticeService, 'tellMonthLine'> | undefined;
+}
+
+/**
+ * BullMQ worker of Instagram intake (feat-instagram-dm-sending § 5 WH5, WH11–WH16, WH25; WC-1–WC-4):
+ * the three kind groups' jobs, the tag-intake jobs, the every-minute stuck-event pick-up, the
+ * 30-minute missed-comment sweep (WH17) and the automations' 10-minute past-comments watch and
+ * 15-minute "next post" linking sweep (WC-41, WC-43), on one queue.
  *
  * @remarks
  * - **Algorithm:** routes on `job.name` — the pick-up ({@link INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME},
- *   no payload) runs {@link runInstagramWebhookReclaimJob}; every other job validates its payload
- *   at the boundary (`parseJobDataOrDeadLetter`), carries the organization's public id
- *   (`organizationPublicId`) into the job scope, and runs {@link processInstagramWebhookAccountJob}
- *   under the propagated trace context. Concurrency `WORKER_CONCURRENCY_INSTAGRAM` (falling back to
- *   `WORKER_CONCURRENCY`): different accounts side by side; one account never twice at once (the
- *   queue's per-account deduplication).
- * - **Failure modes:** built with `createProviderPausableWorker` for the `instagram` provider:
- *   while Instagram is down (its circuit open) the queue pauses on every replica and probes every
- *   five minutes, the parked job spending no attempt — and the processor has given the event its
- *   attempt back. A temporary failure takes the queue's 5 attempts with growing waits from 5 s; a
- *   malformed payload is dead-lettered at once.
- * - **Side effects:** see {@link processInstagramWebhookAccountJob} and
- *   {@link runInstagramWebhookReclaimJob}; holds a Redis connection until the handle closes.
+ *   no payload) runs {@link runInstagramWebhookReclaimJob}; the missed-comment sweep
+ *   ({@link INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME}, no payload) runs
+ *   {@link runInstagramMissedCommentSweepJob}; the watch ({@link AUTOMATION_BACKFILL_WATCH_JOB_NAME})
+ *   and the linking sweep ({@link AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME}) run their
+ *   channel-neutral processors with Instagram's task enqueues; the owners' problem emails
+ *   ({@link INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME}) and the month notices' backup check
+ *   ({@link MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME}) run every minute (WC-57, WC-56); `intake-tag-events` validates its payload
+ *   and runs {@link processInstagramTagEventIntakeJob}; `intake-messages`, `intake-live` and
+ *   `intake-comments` validate theirs and run {@link processInstagramWebhookIntakeJob} — every unit
+ *   of work in a slot of the process's Instagram database limiter (`getInstagramDatabaseSlotLimiter`,
+ *   SN24). Concurrency `WORKER_CONCURRENCY_INSTAGRAM`: different accounts and groups side by side;
+ *   one group of one account never twice at once but comments (the deduplication, S11).
+ * - **Failure modes:** a **plain** worker — never paused by an Instagram outage (WH25, P47 F3):
+ *   intake makes no Meta call but a late comment's time read, which fails open. A thrown job (a
+ *   database outage, an event's temporary failure) takes the queue's 5 attempts with growing waits
+ *   from 5 s; a malformed payload is dead-lettered at once.
+ * - **Side effects:** see the processors; holds a Redis connection until the handle closes.
  * - **Notes:** registered in `worker-registration.registry.ts` (family `instagram`, throughput,
- *   gated on the Instagram app settings); the services come from the worker composition root
- *   (`appDomain`), never built here. Log lines carry ids and counts only, never message text (WH6).
+ *   gated on the Meta app settings, `databaseSlotLimiterName` `instagram-database`); log lines carry
+ *   ids and counts only, never message text (WH6).
  */
-export function createInstagramWebhookWorker(
-  services: InstagramWebhookProcessingServices,
-): WorkerHandle {
-  const worker = createProviderPausableWorker<InstagramWebhookAccountJobData>({
-    queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
-    provider: 'meta',
-    processor: async (job) => {
+export function createInstagramWebhookWorker({
+  services,
+  limiter = getInstagramDatabaseSlotLimiter(),
+}: {
+  services: InstagramWebhookWorkerServices;
+  /** The process's Instagram database limiter (SN24); tests pass a fake. */
+  limiter?: WorkerDatabaseSlotLimiter;
+}): WorkerHandle {
+  const worker = new Worker(
+    INSTAGRAM_WEBHOOK_QUEUE_NAME,
+    async (job) => {
       // The every-minute pick-up rides this queue (no worker or pool of its own); no payload.
       if (job.name === INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME) {
         return runInstagramWebhookReclaimJob({ requestId: job.id });
       }
+      // The 30-minute missed-comment sweep rides this queue too; its looks run on `instagram-tasks`.
+      if (job.name === INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME) {
+        return runInstagramMissedCommentSweepJob();
+      }
+      // The automations' two channel-neutral sweeps ride this queue too (R41): the 10-minute
+      // past-comments watch (WC-41) and the 15-minute "next post" linking (WC-43); their work runs
+      // as Instagram's tasks on `instagram-tasks`.
+      if (job.name === AUTOMATION_BACKFILL_WATCH_JOB_NAME) {
+        return runAutomationBackfillWatchJob({ readQueue: INSTAGRAM_PAST_COMMENT_READ_QUEUE });
+      }
+      if (job.name === AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME) {
+        return runAutomationNextPostLinkingSweepJob({
+          enqueueByChannel: { instagram: createInstagramNextPostLinkingEnqueue() },
+        });
+      }
+      // The owners' problem emails and the month notices' backup check ride this queue too (R53):
+      // every minute, each its own scheduled run (WC-56, WC-57).
+      if (job.name === INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME) {
+        return runInstagramOwnerProblemEmailJob();
+      }
+      if (job.name === MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME) {
+        const monthNotice = services.monthNotice;
+        if (monthNotice === undefined) return { skipped: true };
+        return runMessageMonthNoticeCheckJob({ monthNotice });
+      }
+      const jobId = job.id ?? INSTAGRAM_WEBHOOK_QUEUE_NAME;
+      if (job.name === INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME) {
+        const jobData = await parseJobDataOrDeadLetter({
+          schema: instagramTagEventIntakeJobDataSchema,
+          job,
+          queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        });
+        return runWithPropagatedTraceContext({
+          carrier: { traceparent: jobData.traceparent, tracestate: jobData.tracestate },
+          spanName: job.name,
+          callback: () =>
+            processInstagramTagEventIntakeJob({
+              jobData,
+              services: services.tagIntake,
+              jobId,
+              limiter,
+            }),
+        });
+      }
       const jobData = await parseJobDataOrDeadLetter({
-        schema: instagramWebhookAccountJobDataSchema,
+        schema: instagramWebhookIntakeJobDataSchema,
         job,
         queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
       });
-      const { organizationPublicId, channelAccountPublicId, requestId } = jobData;
       logger.info(
-        { jobId: job.id, organizationPublicId, channelAccountPublicId, requestId },
-        'app.instagram_webhook.processing',
+        {
+          jobId: job.id,
+          organizationPublicId: jobData.organizationPublicId,
+          channelAccountPublicId: jobData.channelAccountPublicId,
+          intakeKind: jobData.intakeKind,
+          requestId: jobData.requestId,
+        },
+        'app.instagram_webhook.intake',
       );
       return runWithPropagatedTraceContext({
         carrier: { traceparent: jobData.traceparent, tracestate: jobData.tracestate },
         spanName: job.name,
         callback: () =>
-          processInstagramWebhookAccountJob({
+          processInstagramWebhookIntakeJob({
             jobData,
-            services,
-            jobId: job.id ?? INSTAGRAM_WEBHOOK_QUEUE_NAME,
+            services: services.intake,
+            jobId,
+            enqueueProfileRead: services.enqueueProfileRead,
+            readLateCommentTime: services.readLateCommentTime,
+            limiter,
           }),
       });
     },
-    workerOptions: {
+    {
       connection: getBullMQConnectionOptions(),
+      prefix: getBullMQKeyPrefix(),
       concurrency: getWorkerConcurrencyInstagram(),
       ...getDefaultWorkerOptions(),
     },
-  });
+  );
 
   worker.on('stalled', (jobId) => {
     logger.warn(

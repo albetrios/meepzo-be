@@ -12,6 +12,8 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
+  or,
   sql,
   type SQL,
 } from 'drizzle-orm';
@@ -590,6 +592,36 @@ export class ContactRepository {
   }
 
   /**
+   * Locks the account's live contact with this provider person id `FOR UPDATE` (intake's first
+   * lock, WH26) and answers its id, or `null` when she has none (new, or erased meanwhile — the lock
+   * waits for an erase that holds her, then finds nothing).
+   */
+  async lockLiveIdByInstagramUserId({
+    organizationId,
+    channelAccountId,
+    instagramUserId,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    instagramUserId: string;
+  }): Promise<number | null> {
+    const locked = await this.db()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.organization_id, organizationId),
+          eq(contacts.channel_account_id, channelAccountId),
+          eq(contacts.instagram_user_id, instagramUserId),
+          LIVE_CONTACT,
+        ),
+      )
+      .limit(1)
+      .for('update');
+    return locked[0]?.id ?? null;
+  }
+
+  /**
    * Erases the contact in place (route 23, CT11): `deleted_at` set and every personal column cleared
    * — the provider id, username, full name, picture, followers, the follow status, email and phone
    * with their times, tags, the note, the opt-out, the pause and the came-in ref — and her activity
@@ -636,6 +668,38 @@ export class ContactRepository {
         );
     }
     return erased;
+  }
+
+  /**
+   * How many live contacts of the account saved an email or a phone in `[since, until]` — the
+   * grouped "new contact details" note's count (feat-instagram-dm-sending UN13, WC-63).
+   */
+  async countWithDetailsLeftBetween({
+    organizationId,
+    channelAccountId,
+    since,
+    until,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    since: Date;
+    until: Date;
+  }): Promise<number> {
+    const [row] = await this.db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.organization_id, organizationId),
+          eq(contacts.channel_account_id, channelAccountId),
+          isNull(contacts.deleted_at),
+          or(
+            and(gte(contacts.email_collected_at, since), lte(contacts.email_collected_at, until)),
+            and(gte(contacts.phone_collected_at, since), lte(contacts.phone_collected_at, until)),
+          ),
+        ),
+      );
+    return row?.count ?? 0;
   }
 
   /** The organization's live contact with this internal id, or `null` once erased (`findLiveContact`). */

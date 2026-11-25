@@ -580,6 +580,112 @@ export async function readInstagramMediaItem({
   return answer;
 }
 
+/** The fields of one comment the missed-comment look reads (WC-26) — the webhook's comment shape. */
+const INSTAGRAM_COMMENT_FIELDS = 'id,text,timestamp,username,from,parent_id';
+
+/** One page of a post's comments: Meta's own page size (WH17, plan §34 rule 19 — 50). */
+export const INSTAGRAM_COMMENT_PAGE_SIZE = 50;
+
+/**
+ * A comment as Meta lists it under a post (`GET /{media_id}/comments`), with its replies when they
+ * were asked for — the wire shape, kept as read so the missed-comment look can save it as the
+ * webhook would (WH17).
+ */
+export interface InstagramCommentGraphItem {
+  id: string;
+  text?: string;
+  timestamp?: string;
+  username?: string;
+  from?: { id?: string; username?: string };
+  parent_id?: string;
+  replies?: { data?: InstagramCommentGraphItem[] };
+}
+
+/** Options of {@link listInstagramMediaComments}. */
+export interface ListInstagramMediaCommentsOptions extends MetaGraphCallTracing {
+  encryptedAccessToken: string;
+  /** The post's Instagram media id. */
+  instagramMediaId: string;
+  /** `true` asks for each comment's replies too (D64: only while comment replies start runs). */
+  isRepliesIncluded: boolean;
+  /** Meta's `after` cursor from the previous page. */
+  after?: string | undefined;
+}
+
+/**
+ * Lists one page of a post's comments, newest first (`GET /{media_id}/comments`, WH17, WC-26) — the
+ * missed-comment look's read.
+ *
+ * @remarks
+ * - **Algorithm:** `GET /v27.0/{media_id}/comments?fields=id,text,timestamp,username,from,parent_id
+ *   [,replies{…}]&limit=50&after=…` with the token in the `Authorization` header; items without an
+ *   id are dropped. Meta has no time filter, so the caller pages until a comment is older than it
+ *   needs.
+ * - **Failure modes:** `MetaGraphApiError` (`auth`, `throttled`, `refused`, `outage`); no `data`
+ *   list → `outage`.
+ * - **Side effects:** one Instagram call; the usage recorder's write after it.
+ * - **Notes:** whether Meta returns replies through `replies` is a §43 test (D64); `nextCursor` only
+ *   when Meta has `paging.next`.
+ */
+export async function listInstagramMediaComments(
+  options: ListInstagramMediaCommentsOptions,
+): Promise<InstagramGraphPage<InstagramCommentGraphItem>> {
+  const fields = options.isRepliesIncluded
+    ? `${INSTAGRAM_COMMENT_FIELDS},replies{${INSTAGRAM_COMMENT_FIELDS}}`
+    : INSTAGRAM_COMMENT_FIELDS;
+  const answer = await callMetaGraphWithToken<InstagramGraphListAnswer>({
+    encryptedAccessToken: options.encryptedAccessToken,
+    path: `${encodeURIComponent(options.instagramMediaId)}/comments`,
+    query: { fields, limit: String(INSTAGRAM_COMMENT_PAGE_SIZE), after: options.after },
+    requestId: options.requestId,
+    recordUsage: options.recordUsage,
+  });
+  if (!Array.isArray(answer.data)) {
+    throw buildMetaGraphMalformedAnswerError({ operation: '/comments', missing: 'data' });
+  }
+  const items = answer.data.filter(
+    (item): item is InstagramCommentGraphItem =>
+      typeof item === 'object' &&
+      item !== null &&
+      readAnswerId((item as InstagramCommentGraphItem).id) !== null,
+  );
+  const hasNextPage = readAnswerText(answer.paging?.next) !== null;
+  const afterCursor = readAnswerText(answer.paging?.cursors?.after);
+  return { items, nextCursor: hasNextPage ? afterCursor : null };
+}
+
+/**
+ * Reads one comment's own time (`GET /{comment_id}?fields=timestamp`) — intake's read for a comment
+ * whose webhook came over an hour late (WH12 step 2).
+ *
+ * @remarks
+ * - **Algorithm:** one call with the token in the `Authorization` header.
+ * - **Failure modes:** `MetaGraphApiError`; an answer without a readable `timestamp` → `null`.
+ * - **Side effects:** one Instagram call.
+ * - **Notes:** intake fails open on any failure (WH25).
+ */
+export async function readInstagramCommentTime({
+  encryptedAccessToken,
+  instagramCommentId,
+  requestId,
+  recordUsage,
+}: {
+  encryptedAccessToken: string;
+  instagramCommentId: string;
+} & MetaGraphCallTracing): Promise<Date | null> {
+  const answer = await callMetaGraphWithToken<Record<string, unknown>>({
+    encryptedAccessToken,
+    path: encodeURIComponent(instagramCommentId),
+    query: { fields: 'timestamp' },
+    requestId,
+    recordUsage,
+  });
+  const timestamp = readAnswerText(answer.timestamp);
+  if (timestamp === null) return null;
+  const time = new Date(timestamp);
+  return Number.isNaN(time.getTime()) ? null : time;
+}
+
 /** Options of the webhook subscription calls. */
 export interface InstagramWebhookSubscriptionOptions extends MetaGraphCallTracing {
   encryptedAccessToken: string;
@@ -1368,4 +1474,31 @@ export async function listMetaAdAccountAds({
   });
   const hasNextPage = readAnswerText(answer.paging?.next) !== null;
   return { items, nextCursor: hasNextPage ? readAnswerText(answer.paging?.cursors?.after) : null };
+}
+
+/**
+ * Reads the Instagram post an ad runs (`GET /{ad_id}?fields=creative{effective_instagram_media_id}`)
+ * — the post a past-comments read of an ad-comment automation reads (feat-instagram-dm-sending
+ * § 4.C AU32, WC-41).
+ *
+ * @remarks
+ * - **Algorithm:** one Graph read with the token in `Authorization` and `appsecret_proof`.
+ * - **Failure modes:** `MetaGraphApiError` (`refused` for an ad the token cannot read).
+ * - **Side effects:** one Meta call; its usage goes to `recordUsage`.
+ * - **Notes:** `null` when the ad's creative names no Instagram post.
+ */
+export async function readMetaAdInstagramMediaId({
+  encryptedAccessToken,
+  adId,
+  requestId,
+  recordUsage,
+}: MetaConnectionReadOptions & { adId: string }): Promise<string | null> {
+  const answer = await callMetaGraphWithToken<Record<string, unknown>>({
+    encryptedAccessToken,
+    path: encodeURIComponent(adId),
+    query: { fields: 'creative{effective_instagram_media_id}' },
+    requestId,
+    recordUsage,
+  });
+  return readAnswerId(readAnswerObject(answer.creative).effective_instagram_media_id);
 }

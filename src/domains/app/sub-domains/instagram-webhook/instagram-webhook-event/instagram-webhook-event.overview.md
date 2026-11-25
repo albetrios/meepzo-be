@@ -34,9 +34,12 @@ daily 30-day clean-up is retired (WHC15).
   `(organization_id, channel_account_id, event_key, event_day)`), RLS policy; no routes
 - `instagram-webhook-event.constants.ts` — the 13 kinds, the statuses, the 6 skip reasons, the 3
   intake groups, the launch's 30 days
-- `instagram-webhook-event.repository.ts` — the insert of new events, the `queued` mark, the claim (a
-  `MATERIALIZED` CTE), the claim-guarded marks (which clear the body) and release, route 62's keyset
-  page, the stuck-event read, the launch clean-up; a worker factory and a retention factory
+- `instagram-webhook-event.repository.ts` — the insert of new events, the claim of a kind group (a
+  `MATERIALIZED` CTE; `SKIP LOCKED` for comments, S11), the claim-guarded marks (which clear the
+  body; a failure's `next_attempt_at`) and release, intake's reads (the flood count, the owner's
+  echoes, the capped waiting count), route 62's keyset page, the stuck-event read, the launch
+  clean-up; a worker factory and a retention factory. Nothing writes `queued` since R38 (S25): the
+  status stays in the check and the filter for rows saved before
 - `instagram-webhook-event-key.repository.ts` — the one key write (`ON CONFLICT DO NOTHING RETURNING`)
 - `instagram-webhook-event.service.ts` — route 62's list (team-only read); **the store function**
   (`recordReceivedEvents`: the 8-day replay guard, each key filed under its Meta day, keys first, then
@@ -87,13 +90,10 @@ daily 30-day clean-up is retired (WHC15).
 stateDiagram-v2
     [*] --> received: saved with its body (a new key)
     [*] --> skipped: saved without a body (own comment, edit, unsupported, switch off)
-    received --> queued: intake job added
-    received --> processed: claimed and handled (body cleared)
-    queued --> processed: claimed and handled (body cleared)
-    received --> skipped: switch off or account revoked at intake (body cleared)
-    queued --> skipped: switch off or account revoked at intake (body cleared)
-    received --> failed: permanent failure, or 5 attempts spent (body kept)
-    queued --> failed: permanent failure, or 5 attempts spent (body kept)
+    received --> processed: its group's intake job took it in — one transaction (body cleared)
+    received --> skipped: switch off, account revoked or a flood at intake (body cleared)
+    received --> failed: a refusal, or the 5th try (next_attempt_at +1 h; body kept)
+    failed --> received: next_attempt_at due, under 7 days — the pick-up (R39)
     processed --> [*]: its day part dropped after 8 days (R49)
     skipped --> [*]: its day part dropped after 8 days (R49)
     failed --> [*]: its day part dropped after 8 days (R49)

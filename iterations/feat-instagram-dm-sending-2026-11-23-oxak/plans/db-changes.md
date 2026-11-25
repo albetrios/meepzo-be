@@ -689,6 +689,11 @@ erDiagram
   (`instagram_media_channel_account_fk` → `app.channel_accounts`, `ON DELETE RESTRICT`), `comments_checked_at`,
   `comments_next_check_at`, `last_comment_at`, `live_ended_at`; `media_product_type` adds `live`;
   `idx_instagram_media_comments_next_check` (partial). The launch migration changed in place (P29).
+- **Used R39 ([AS-BUILT](../AS-BUILT.md), [P313](decisions.md)):** intake starts the watch
+  (`comments_next_check_at` +30 min, `last_comment_at`) on a matched comment; the missed-comment look
+  writes `comments_checked_at`, `comments_next_check_at` (+30 min, or empty to stop) and
+  `last_comment_at`; the sweep reads due posts across organizations over the partial index. No column
+  added.
 
 ```mermaid
 erDiagram
@@ -1005,6 +1010,9 @@ erDiagram
   `days`, `status`, `posts_read`, `found`, `matched`, `queued_count`, `fail_reason`, `last_error`,
   `requested_by_user_id`, `started_at`, `done_at`, `created_at`, `updated_at`; + two plain indexes for the
   foreign keys ([AS-BUILT](../AS-BUILT.md), [P311](decisions.md)).
+- **R41:** no schema change — the read job uses `idx_automation_backfills_account_queued` (the next read)
+  and `idx_automation_backfills_watch` (the 10-minute watch, retention arm), and the advisory lock `ABFR`
+  per account ([P314](decisions.md)).
 
 ```mermaid
 erDiagram
@@ -1272,7 +1280,10 @@ move to a table of their own.
   `channel_account_id` → `app.channel_accounts` (`instagram_webhook_events_channel_account_fk`),
   `intake_group` generated, `next_attempt_at`, `payload` nullable with `chk_instagram_webhook_events_body`
   and `chk_instagram_webhook_events_next_attempt`; indexes of 5.B.3 (`..._organization_account_created_at`,
-  `..._pending` by group, `..._next_attempt_at`, `..._flood`).
+  `..._pending` by group, `..._next_attempt_at`, `..._flood`). **Used from R38** (no schema change,
+  [P312](decisions.md)): intake claims by `intake_group` (`SKIP LOCKED` for comments), sets
+  `next_attempt_at` on a failure, counts the flood over `..._flood`; `queued` is no longer written
+  (S25) but stays in `chk_instagram_webhook_events_status`.
 - **Sources:** plan:L3207–L3225, plan:L3926–L3941; D15, D64; current schema
   `src/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.ts`.
 - **Added:** `next_attempt_at`; `intake_group`; five event kinds; `own_comment`, `flood`.

@@ -12,9 +12,14 @@ a live comment or ad-comment automation, a PRO feature (`past_comments`, P83). R
 (`POST /api/v1/app/automations/{automation_id}/backfills`, `automation:update`, `X-Idempotency-Key`)
 saves a `queued` read; route 39 (`GET …/backfills/{automation_backfill_id}`, `automation:read`)
 reads one; the automation's object (routes 28–30, 32–34) carries its open read as `open_backfill`.
-The read itself — Meta's comments saved as "old" comment events, one read at a time per account,
-the 10-minute watch, the `automation.backfill_done` notice — is the read job of ROUTE row R41
-(WC-41), enqueued through the `AutomationBackfillReadQueue` port once R41 wires it.
+The read itself (WC-41, ROUTE row R41) is Instagram's `automation-backfill-read` task on
+`instagram-tasks` (`instagram-webhook/workers/instagram-past-comment-read.processor.ts` — the
+automation folder imports no channel, AUC13), woken through the `AutomationBackfillReadQueue` port:
+Meta's comments saved as "old" comment events that intake takes in at the low priority, one read at
+a time per account, its start, numbers and end through this service; the 10-minute watch
+(`workers/automation-backfill-watch.*`) wakes a stuck one. A read that ends `done` tells who started it
+and the Owner and Admin in the same unit — the `automation.backfill_done` notice with the numbers,
+in-app on and email off by default (AC-8.8, R53).
 
 ## Layout
 
@@ -22,15 +27,21 @@ the 10-minute watch, the `automation.backfill_done` notice — is the read job o
   `RESTRICT`), the checks of 4.C.3, the open, watch and queued indexes, the RLS policy (the
   organization arm plus the retention sweep arm in `USING` for the watch)
 - `automation-backfill.repository.ts` — the open read of an automation, one read by its public id
-  under its automation, the `queued` insert
+  under its automation, the `queued` insert; the read job's account lock (`ABFR`), start, counters,
+  end, the move down's `plan_feature_off`, and the watch's read across organizations
 - `automation-backfill.service.ts` — `AutomationBackfillService`: route 38's checks and insert,
-  route 39, `findOpenAutomationBackfill` (the automation service's `openBackfills` port)
+  route 39, `findOpenAutomationBackfill` (the automation service's `openBackfills` port); the read
+  job's `beginAutomationBackfillRead` / `recordAutomationBackfillProgress` /
+  `finishAutomationBackfillRead`, and `failOpenBackfillsForPlanFeatureOff` (WC-38, R52)
+- `workers/automation-backfill-watch.*` — the 10-minute watch (job `watch-automation-backfill-reads`
+  on the intake queue, run by the intake worker)
 - `automation-backfill.routes.ts` / `.controller.ts` / `.dto.ts` / `.validator.ts` — routes 38–39:
   the strict body (`days` 1–7), the audit entry after commit
 - `automation-backfill.serializer.ts` / `.types.ts` — the Automation backfill object (4.C.6); the
   ports `AutomationBackfillReadQueue` (R41) and `AutomationOpenBackfillReader`
 - `automation-backfill.constants.ts` — statuses, fail reasons, `PAST_COMMENTS_MAX_DAYS` (7), the
-  ways to start it supports
+  ways to start it supports, `PAST_COMMENTS_POSTS_MAX` (50), the watch's 30 / 10 minutes,
+  `META_TASK_RETRY_MINUTES` (1, 5, 15, 60), the 7-days-minus-30-minutes comment age
 - `seed/` — bulk: a read in every status on each seeded team's live comment automations
 - `__tests__/` — unit (validator, serializer), the repository against the database, routes 38–39
   over HTTP
@@ -51,6 +62,14 @@ the 10-minute watch, the `automation.backfill_done` notice — is the read job o
 - **`fail_reason` is set exactly when `failed`** (`meta_error` · `plan_feature_off`); `last_error`
   holds codes only and never leaves (support reads the logs).
 - **No Meta call in a request** (4.10): the start writes a row; the job reads.
+- **One read at a time per account** (AU32): the job's start runs under the account's advisory lock
+  — a `reading` read with a page in the last 30 minutes leaves the job idle, an older one is started
+  again from zero (the watch), else the oldest `queued` read starts; every later write is guarded by
+  the read's `started_at`, so a read started again stops the old job. An ended read wakes the next.
+- **The read never sends** (4.C.10): its comments go through the webhook's store function (key
+  `comment:<id>` — a comment Meta delivered keeps its one event and handling) and intake; `found` is
+  the comments in the window, `matched` those the automation's keywords match, `queued_count` the
+  matched ones saved as new events (P316).
 - **Kept with its automation**: the purge of a deleted automation takes its reads by cascade.
 
 ## Lifecycle
@@ -59,9 +78,10 @@ the 10-minute watch, the `automation.backfill_done` notice — is the read job o
 stateDiagram-v2
     [*] --> queued: POST backfills (route 38)
     queued --> reading: the account's read starts (R41)
+    reading --> reading: no page for 30 min — the watch starts it again
     reading --> done: every post read (R41)
     reading --> failed: meta_error or plan_feature_off (R41)
-    queued --> failed: plan_feature_off (R41)
+    queued --> failed: plan_feature_off (the move down, R52)
     done --> [*]
     failed --> [*]
 ```

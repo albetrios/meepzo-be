@@ -40,6 +40,7 @@ import {
   resolveKeysetSort,
 } from '@/shared/utils/http/list-query.util.js';
 import type { RecordDeleteReason } from '@/shared/constants/record-fields.constants.js';
+import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import {
   AUTOMATION_LAST_TRIGGERED_UPDATE_SECONDS,
@@ -51,6 +52,18 @@ import type {
   AutomationRepositoryListQuery,
   AutomationWritableFields,
 } from './automation.types.js';
+
+/**
+ * One account the "next post" linking sweep reads (WC-43, AUC3): its organization and account public
+ * ids, its channel, and the earliest go-live of its waiting "my next post" automations — the oldest
+ * publish time a post it links can have.
+ */
+export interface AutomationPostLinkingAccount {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  channel: string;
+  postsSince: Date;
+}
 
 /** `updated_at` for every change of an automation — never before the row's `created_at`. */
 const automationUpdatedAtTimestamp = databaseUpdatedAtTimestamp(automations.created_at);
@@ -845,6 +858,49 @@ export class AutomationRepository {
           sql`(${automations.last_triggered_at} IS NULL OR ${automations.last_triggered_at} < now() - make_interval(secs => ${AUTOMATION_LAST_TRIGGERED_UPDATE_SECONDS}))`,
         ),
       );
+  }
+
+  /**
+   * The "next post" linking sweep's read across organizations (WC-43, AUC3): the connected channel
+   * accounts of live organizations with a live waiting "my next post" automation
+   * (`idx_automations_next_post_waiting`) — each once, with the earliest go-live among them.
+   * Needs the retention context ({@link createRetentionAutomationRepository}): the sweep arm is in
+   * the policies' `USING`, so it reads every organization's rows and can change none.
+   */
+  async listAccountsForPostLinking({
+    limit,
+  }: {
+    limit: number;
+  }): Promise<AutomationPostLinkingAccount[]> {
+    const rows = await this.db()
+      .select({
+        organizationPublicId: organizations.public_id,
+        channelAccountPublicId: channel_accounts.public_id,
+        channel: channel_accounts.channel,
+        postsSince: sql<string>`min(${automations.target_starts_at})`,
+      })
+      .from(automations)
+      .innerJoin(channel_accounts, OWN_CHANNEL_ACCOUNT)
+      .innerJoin(organizations, eq(organizations.id, automations.organization_id))
+      .where(
+        and(
+          LIVE_AUTOMATION,
+          eq(automations.status, 'live'),
+          eq(automations.next_post_status, 'waiting'),
+          isNotNull(automations.target_starts_at),
+          eq(channel_accounts.connection_status, 'connected'),
+          isNull(organizations.deleted_at),
+        ),
+      )
+      .groupBy(
+        organizations.public_id,
+        channel_accounts.public_id,
+        channel_accounts.channel,
+        channel_accounts.id,
+      )
+      .orderBy(channel_accounts.id)
+      .limit(limit);
+    return rows.map((row) => ({ ...row, postsSince: new Date(row.postsSince) }));
   }
 
   /**

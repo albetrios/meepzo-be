@@ -27,7 +27,7 @@ launch's connect route 1 retired with Instagram Login, RC-6; the tables `app.ins
 (launch routes 9 and 10, now routes 18–23 of the DM-sending iteration; the tables `app.contacts`, `app.contact_activities`, `app.contact_tag_counts` and, nested in `contact/contact-tag-event/` since ROUTE R11, `app.contact_tag_events`, in `migrations/20261121094503_app_contacts.sql`), the
 automations (routes 11–15 and the 15-minute "next post" expiry; the table `app.automations`, created by
 `migrations/20261121150135_app_automations.sql`) and the Instagram webhook — Meta's subscription check
-and delivery receiver (routes 60–61 since feat-instagram-dm-sending R17) and its stored events (route 62 and the 30-day clean-up; the table
+and delivery receiver (routes 60–61 since feat-instagram-dm-sending R17) and its stored events (route 62; split by day, dropped after 8 days by the partition upkeep; the table
 `app.instagram_webhook_events`, created by `migrations/20261121094626_app_instagram_webhook_events.sql`).
 The other sub-domains fill it in one ROUTE row at a time (`iterations/launch-2026-11-20-ujai/KICKOFF.md`).
 
@@ -62,10 +62,17 @@ calls Meta, and the only code that decrypts a Meta token).
   The Instagram token table alone has no retention sweep arm (IA5).
 - **Background work in the `instagram` worker family** (WH5): Instagram webhook event processing (one
   job per account, provider-pausable, `WORKER_CONCURRENCY_INSTAGRAM`) with its every-minute
-  stuck-event pick-up on the same queue, and the daily 30-day clean-up of the webhook events (03:00,
-  `runGlobalRetentionWorkerJob`). The automation timers run in the `retention` family (AU6): the
-  "next post" expiry every 15 minutes, the 7-day wait cancel every hour, and the daily run (03:20
-  UTC), comment-log (03:30) and deleted-automation (03:40) clean-ups.
+  stuck-event pick-up on the same queue. The automation timers run in the `retention` family (AU6): the
+  "next post" expiry every 15 minutes, the 7-day wait cancel every hour and the daily deleted-automation
+  clean-up (03:40 UTC).
+- **The shared partition upkeep** (`workers/app-partition-upkeep.*`, feat-instagram-dm-sending WC-55,
+  R49, P410) — the domain's one root `workers/` folder, family `retention`: the seven time-split
+  tables (webhook events and keys, send attempts by day; messages by week; comment logs, run events
+  and runs by month) get their parts 14 days ahead (daily at 02:23 UTC and at worker start) and lose
+  the expired ones every hour, through `app.fn_manage_time_partitions` (SECURITY DEFINER, the
+  maintenance role only, `MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP`); an alert on fewer than 7 ready
+  days, any DEFAULT-part row, a runs part held by an open run, or a part over a day late. It replaces
+  the launch's daily webhook-event, run and comment-log batch deletes.
 - **A read-only plan stops the automation writes only** (AQ8, D27): `app-plan-access.ts` builds the
   preHandler (`SubscriptionService.assertOrganizationWritable`, `403 organization_read_only`) that
   `app.routes.ts` attaches to routes 12, 14 and 15; the domain's other writes stay open.

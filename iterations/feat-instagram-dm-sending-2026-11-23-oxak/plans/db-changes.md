@@ -201,6 +201,13 @@ scope, never the migration login; it makes parts at least 14 days ahead (alert b
 lock timeout, and each split table has an explicit DEFAULT part whose any row alerts (S17, P97). This file
 records only how long each table keeps its rows (in each table's **Holds**) — no physical design.
 
+**Built R49 ([AS-BUILT](../AS-BUILT.md), [P410](decisions.md)):** no table changed; the upkeep is the function
+`app.fn_manage_time_partitions(parent, make_ahead_days, keep_days, drop_parts)` (migration
+`20261125190000_app_partition_upkeep.sql` — SECURITY DEFINER, the maintenance role only) over the seven split tables
+`app.instagram_webhook_events`, `app.instagram_webhook_event_keys`, `app.instagram_send_attempts` (day),
+`app.instagram_messages` (week), `app.automation_comment_logs`, `app.automation_run_events`, `app.automation_runs`
+(month); keep 8 / 8 / 8 / 30 / 90 / 98 / 98 days after a part's range ends; DEFAULT parts `<table>_default`.
+
 ## Overview
 
 ```mermaid

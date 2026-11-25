@@ -24,6 +24,11 @@ src/
     │   │   ├── integration/
     │   │   │   └── app-route-smoke.integration.test.ts
     │   │   └── unit/
+    │   │   │   ├── events/
+    │   │   │       └── worker/
+    │   │   │       │   └── app-partition-upkeep.worker.unit.test.ts
+    │   │   │   ├── app-partition-upkeep.db.unit.test.ts
+    │   │   │   ├── app-partition-upkeep.processor.unit.test.ts
     │   │   │   ├── app-updated-at.db.unit.test.ts
     │   │   │   └── app.domain-wiring.unit.test.ts
     │   ├── seed/
@@ -562,12 +567,7 @@ src/
     │   │   │       │   ├── factories/
     │   │   │       │   │   └── instagram-webhook-event.factory.ts
     │   │   │       │   └── unit/
-    │   │   │       │   │   ├── events/
-    │   │   │       │   │       └── worker/
-    │   │   │       │   │       │   └── instagram-webhook-event-retention.worker.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-payload-masking.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event-retention.processor.db.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event-retention.processor.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-seed.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-store.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.controller.unit.test.ts
@@ -579,10 +579,6 @@ src/
     │   │   │       │   ├── index.ts
     │   │   │       │   ├── instagram-webhook-event.bulk.seed.ts
     │   │   │       │   └── instagram-webhook-event.faker.ts
-    │   │   │       ├── workers/
-    │   │   │       │   ├── instagram-webhook-event-retention.constants.ts
-    │   │   │       │   ├── instagram-webhook-event-retention.processor.ts
-    │   │   │       │   └── instagram-webhook-event-retention.worker.ts
     │   │   │       ├── instagram-webhook-event-key.repository.ts
     │   │   │       ├── instagram-webhook-event-key.schema.ts
     │   │   │       ├── instagram-webhook-event-payload-masking.util.ts
@@ -616,6 +612,11 @@ src/
     │   │   │   ├── instagram-webhook.routes.ts
     │   │   │   ├── instagram-webhook.service.ts
     │   │   │   └── instagram-webhook.types.ts
+    │   ├── workers/
+    │   │   ├── app-partition-upkeep.constants.ts
+    │   │   ├── app-partition-upkeep.processor.ts
+    │   │   ├── app-partition-upkeep.repository.ts
+    │   │   └── app-partition-upkeep.worker.ts
     │   ├── app-plan-access.ts
     │   ├── app.channel-ports.ts
     │   ├── app.container.ts

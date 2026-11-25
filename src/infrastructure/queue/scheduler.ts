@@ -52,7 +52,11 @@ import {
   INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
   INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME,
 } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.constants.js';
-import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
+import {
+  APP_PARTITION_UPKEEP_DROP_JOB_NAME,
+  APP_PARTITION_UPKEEP_MAKE_JOB_NAME,
+  APP_PARTITION_UPKEEP_QUEUE_NAME,
+} from '@/domains/app/workers/app-partition-upkeep.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
@@ -130,11 +134,13 @@ const DEFAULT_SUBSCRIPTION_SEAT_RECONCILE_CRON = '17 * * * *';
 const DEFAULT_INSTAGRAM_WEBHOOK_RECLAIM_CRON = '* * * * *';
 const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 /**
- * Daily at 03:00 (UTC with `SCHEDULER_TIMEZONE=UTC`): the 30-day clean-up of the Instagram webhook
- * events, before the app domain's other clean-ups (launch-2026-11-20-ujai WH19, worker-changes
- * rule 11). A fixed time, not a setting.
+ * feat-instagram-dm-sending WC-55 (WHC13, S17): the shared partition upkeep makes the coming parts
+ * once a day at a quiet hour (02:23 UTC with `SCHEDULER_TIMEZONE=UTC`) — besides the pass at worker
+ * start — and drops the expired ones every hour (WC-48–WC-52, P92), off the hour's busy minute. The
+ * launch's 03:00 webhook-event batch delete is retired (WHC15). Fixed times, not settings.
  */
-const DEFAULT_INSTAGRAM_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
+const DEFAULT_APP_PARTITION_UPKEEP_MAKE_CRON = '23 2 * * *';
+const DEFAULT_APP_PARTITION_UPKEEP_DROP_CRON = '37 * * * *';
 const DEFAULT_AUDIT_EXPORT_CRON = '15 2 * * *';
 /**
  * Launch IA8: the daily Instagram account check — renew tokens ending within 7 days, refresh the
@@ -153,10 +159,10 @@ const DEFAULT_INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_CRON = '*/10 * * * *';
  */
 const DEFAULT_AUTOMATION_RUN_WAIT_EXPIRY_CRON = '0 * * * *';
 /**
- * Launch D8 (AU25, AQ7; worker-changes rule 11): the app domain's daily clean-up after the webhook
- * events (03:00) — the automations deleted more than 180 days ago that nothing points at any more at
- * 03:40 (WC-15). A fixed time, not a setting. (The 03:20 run and 03:30 comment-log batch deletes
- * retired with feat-instagram-dm-sending R14: their month parts are dropped by the shared upkeep.)
+ * Launch D8 (AU25, AQ7; worker-changes rule 11): the automations deleted more than 180 days ago that
+ * nothing points at any more are removed at 03:40 (WC-15). A fixed time, not a setting. (The 03:00
+ * webhook-event, 03:20 run and 03:30 comment-log batch deletes are retired — feat-instagram-dm-sending
+ * R14 and R49: their parts are dropped by the shared upkeep.)
  */
 const DEFAULT_AUTOMATION_TOMBSTONE_RETENTION_CRON = '40 3 * * *';
 
@@ -171,13 +177,32 @@ function withSchedulerTimezone({
 }
 
 /**
- * Launch D8 (routes-final § 3.B AU25, AQ7): the automation runs' and deleted automations' clean-ups
- * — the hourly 7-day wait cancel and the daily deleted-automation removal. Runs, run events and
- * comment logs are no longer batch-deleted: their month parts are dropped by the shared upkeep
- * (feat-instagram-dm-sending AU36, P96 — ROUTE row R49).
+ * The app domain's clean-ups: the shared partition upkeep of the seven time-split tables (the daily
+ * make and the hourly drop, feat-instagram-dm-sending WC-55, P96 — ROUTE row R49; runs, run events,
+ * comment logs, messages, send attempts, webhook events and their keys expire by part drops), and
+ * launch D8's (routes-final § 3.B AU25, AQ7) hourly 7-day wait cancel and daily deleted-automation
+ * removal.
  */
 function getAutomationCleanupScheduledJobs(timezone: string | undefined): ScheduledJob[] {
   return [
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: APP_PARTITION_UPKEEP_QUEUE_NAME,
+        schedulerId: 'daily-app-partition-make',
+        jobName: APP_PARTITION_UPKEEP_MAKE_JOB_NAME,
+        cronPattern: DEFAULT_APP_PARTITION_UPKEEP_MAKE_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: APP_PARTITION_UPKEEP_QUEUE_NAME,
+        schedulerId: 'hourly-app-partition-drop',
+        jobName: APP_PARTITION_UPKEEP_DROP_JOB_NAME,
+        cronPattern: DEFAULT_APP_PARTITION_UPKEEP_DROP_CRON,
+      },
+    }),
     withSchedulerTimezone({
       timezone,
       job: {
@@ -519,15 +544,6 @@ export function getScheduledJobs(): ScheduledJob[] {
         jobName: 'purge-old-stripe-webhook-events',
         cronPattern:
           env.STRIPE_WEBHOOK_EVENT_RETENTION_CRON ?? DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON,
-      },
-    }),
-    withSchedulerTimezone({
-      timezone,
-      job: {
-        queueName: INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
-        schedulerId: 'daily-instagram-webhook-event-cleanup',
-        jobName: 'purge-old-instagram-webhook-events',
-        cronPattern: DEFAULT_INSTAGRAM_WEBHOOK_EVENT_RETENTION_CRON,
       },
     }),
     withSchedulerTimezone({

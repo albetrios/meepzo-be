@@ -24,7 +24,7 @@ import { RecordingSendingPort } from '@/domains/app/sub-domains/automation/autom
 import { runAutomationRunWaitExpiryJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.processor.js';
 import { runAutomationTombstoneRetentionJob } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.processor.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
-import { runInstagramWebhookEventRetentionJob } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.processor.js';
+import { runAppPartitionUpkeepJob } from '@/domains/app/workers/app-partition-upkeep.processor.js';
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
   insertAutomationRun,
@@ -375,7 +375,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(JSON.stringify(audit)).not.toContain(JORDAN.username);
     });
 
-    it('leaves the person’s webhook events, masked in the list, until the 30-day clean-up (AC-12.10)', async () => {
+    it('leaves the person’s webhook events, masked in the list, until their day part is dropped (AC-12.10; 8 days, WC-48)', async () => {
       const team = await connectInstagramTeam(app);
       mockInstagramConversation({ instagramAppUserId: team.profile.id, people: [JORDAN] });
       const automations = await historyAutomations({ team });
@@ -393,12 +393,22 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(listed.body).not.toContain(JORDAN.email);
       expect(listed.body).not.toContain(JORDAN.phone);
 
-      expect(await runInstagramWebhookEventRetentionJob(daysFromNow(29))).toMatchObject({
-        deletedCount: 0,
-      });
-      expect(await runInstagramWebhookEventRetentionJob(daysFromNow(31))).toMatchObject({
-        deletedCount: 3,
-      });
+      // Today's day part is inside its 8 days: the hourly drop leaves it.
+      await runAppPartitionUpkeepJob({ mode: 'drop' });
+      expect(await readWebhookEventRows(team)).toEqual(before);
+
+      // Received 9 days ago, the events sit in a day part past its keep time (made through the
+      // part maker, as the migration makes them): the hourly drop takes the whole part.
+      const nineDaysAgo = daysFromNow(-9).toISOString().slice(0, 10);
+      await operatorQuery`SELECT app.fn_create_daily_partitions('app.instagram_webhook_events'::regclass, ${nineDaysAgo}::date, ${nineDaysAgo}::date)`;
+      await operatorQuery`
+        UPDATE app.instagram_webhook_events
+           SET created_at = ${nineDaysAgo}::date + interval '12 hours',
+               updated_at = ${nineDaysAgo}::date + interval '12 hours',
+               processed_at = CASE WHEN processed_at IS NULL THEN NULL ELSE ${nineDaysAgo}::date + interval '12 hours' END
+         WHERE organization_id = ${team.organization.id}
+      `;
+      await runAppPartitionUpkeepJob({ mode: 'drop' });
       expect(await readWebhookEventRows(team)).toEqual([]);
     });
 
@@ -794,7 +804,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
 
     async function runEveryTimer(now: Date): Promise<void> {
       await runWaitCheck(now);
-      await runInstagramWebhookEventRetentionJob(now);
+      await runAppPartitionUpkeepJob({ mode: 'drop' });
       await runAutomationTombstoneRetentionJob({ now });
     }
 
@@ -849,7 +859,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
           'app.instagram_webhook.event_processed',
           'app.instagram_webhook.event_retry_scheduled',
           'app.automation_run.comment_matched',
-          'instagram-webhook-event-retention.completed',
+          'app-partition-upkeep.completed',
           'automation-tombstone-retention.completed',
           'request.complete',
         ]) {

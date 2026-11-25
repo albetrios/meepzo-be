@@ -2736,6 +2736,19 @@ WHC13's upkeep (R49) builds on; the replay guard (WH9 step 5) and the key day li
 WHC5 (R17) the launch classifier saves read receipts `unknown` · `unsupported` and reactions and DM echoes
 `unsupported`; WHC15's seed part is done (every kind, status and reason).
 
+**As built (R49, [P410](decisions.md)):** WHC13 and WHC15 built. `app.fn_manage_time_partitions(parent, make_ahead_days,
+keep_days, drop_parts)` (migration `20261125190000_app_partition_upkeep.sql`) is SECURITY DEFINER with EXECUTE for
+`meepzo_be_maintenance` **only** — the role-taxonomy gate lists it as the one maintenance-only definer (the app role never
+reaches a part-dropping function); it makes the parts 14 days ahead through R16 / R19 / R14's part makers, drops an expired
+part by DETACH then DROP (2 s lock timeout, 3 tries, else the next hour), keeps a runs / run-events part holding an open
+run, moves the DEFAULT part's rows into a new part for a table nothing points into (runs: reported blocked), and reports
+ready days, DEFAULT rows and the oldest kept part's overdue seconds. Scope `MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP` (no
+GUC); worker `src/domains/app/workers/app-partition-upkeep.*` on queue `app-partition-upkeep` (family `retention`): the
+daily make at 02:23 UTC and at worker start, the hourly make-and-drop at :37, the seven tables in the order events, keys,
+attempts, messages, comment logs, run events, runs; gauges `app_partition_ready_days`, `app_partition_default_rows`,
+`app_partition_oldest_overdue_seconds` with logger + Sentry alerts. WHC15: the launch's retention queue, worker, schedule
+and `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS` are gone; `INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS` (8) is the one constant.
+
 ---
 ## 6. Instagram sending — rev 5 (2026-11-24) — nested sub-domains 6.A–6.C; final (rev 5, confirmed 2026-11-24)
 

@@ -225,6 +225,7 @@ HTTP requests set `app.current_organization_public_id` per unit of work: the aut
 | `withAppDatabaseContext` (user job scope) / `runUserScopedWorkerJob`  | `app.current_user_public_id` — GDPR export                                      |
 | `MAINTENANCE_SCOPE.SESSION_RETENTION_CLEANUP`                               | `app.session_retention_cleanup` — session cleanup worker                 |
 | `withMaintenanceDatabaseContext(MAINTENANCE_SCOPE.SYSTEM_TABLE_WORKER)`     | No tenant RLS — `auth.mail_outbox`, `billing.stripe_webhook_events` only |
+| `withMaintenanceDatabaseContext(MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP)`    | EXECUTE on `app.fn_manage_time_partitions` only — the partition upkeep's processor (`src/domains/app/workers/app-partition-upkeep.*`, P410) |
 
 `src/worker.ts` sets `MEEPZO_BE_RUNTIME=worker`. Calling `getRequestDatabase()` without a pinned ALS session throws `WorkerDatabaseContextError`. Pass `databaseHandle` into `createWorker*Repository(databaseHandle)` for tenant-scoped work.
 
@@ -286,7 +287,8 @@ Operational sizing per family is documented in [resource-limits.md → Worker Po
 | --------------------- | ----------------- | ---------------------------------- | ---------------------------------------------------------------- |
 | `daily-audit-export`  | `audit-export`    | `15 2 * * *` (`AUDIT_EXPORT_CRON`) | [audit-export.md](../security/audit-export.md)                   |
 | `daily-audit-cleanup` | `audit-retention` | `0 3 * * *`                        | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
-| `daily-instagram-webhook-event-cleanup` | `instagram-webhook-event-retention` | `0 3 * * *` (fixed, no setting) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `daily-app-partition-make` | `app-partition-upkeep` (job `make-app-partitions`) | `23 2 * * *` (fixed, no setting — WC-55: parts 14 days ahead; also once at worker start) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `hourly-app-partition-drop` | `app-partition-upkeep` (job `drop-expired-app-partitions`) | `37 * * * *` (fixed, no setting — WC-48–WC-52: expired parts of the seven time-split app tables dropped) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `automation-run-wait-expiry-hourly` | `automation-run-wait-expiry` | `0 * * * *` (fixed, no setting — launch D8: runs waiting more than 7 days cancelled) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `daily-automation-tombstone-cleanup` | `automation-tombstone-retention` | `40 3 * * *` (fixed, no setting — launch AQ7) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `instagram-webhook-reclaim` | `instagram-webhook` (job `reclaim-instagram-webhook-events`) | `* * * * *` (fixed, no setting — launch WH15) | [FLOWS.md › instagram-webhook-processing-flow](../../../src/FLOWS.md#instagram-webhook-processing-flow) |

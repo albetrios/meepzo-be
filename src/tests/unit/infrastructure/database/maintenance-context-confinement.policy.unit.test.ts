@@ -51,6 +51,8 @@ const ALLOWED_PATH_FRAGMENTS: Record<MaintenanceContextKind, readonly string[]> 
   // The one tenantless sending row (feat-instagram-dm-sending § 6.A.3, P16): its service only —
   // prepareDatabase's create, the may-send check, the rollback's minimum and the app-level usage.
   SENDING_STATE: ['instagram-sending/sending-state.'],
+  // The shared partition upkeep (feat-instagram-dm-sending WC-55, P410): its processor only.
+  APP_PARTITION_UPKEEP: ['app/workers/app-partition-upkeep.'],
   SYSTEM_TABLE_RETENTION: [
     'stripe-webhook/workers/', // stripe_webhook_events ledger retention (non-RLS table)
   ],

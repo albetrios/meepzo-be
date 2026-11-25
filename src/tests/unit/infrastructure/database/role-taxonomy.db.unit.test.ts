@@ -16,6 +16,15 @@ async function queryRows<T extends Record<string, unknown>>(
   return Array.isArray(result) ? (result as T[]) : ((result as { rows?: T[] }).rows ?? []);
 }
 
+/**
+ * The SECURITY DEFINER functions only the maintenance role may run — they change the schema, so the
+ * application role must never reach them: the shared partition upkeep (feat-instagram-dm-sending
+ * WC-55, P410) makes and drops the time-split tables' parts as its owner.
+ */
+const MAINTENANCE_ONLY_DEFINER_FUNCTIONS: readonly string[] = [
+  'app.fn_manage_time_partitions(regclass,integer,integer,boolean)',
+];
+
 describe('role taxonomy (owner / operator / migrator / app / maintenance)', () => {
   it('all five roles exist; none of the runtime/DDL roles is superuser or BYPASSRLS', async () => {
     const rows = await queryRows<{ rolname: string; rolsuper: boolean; rolbypassrls: boolean }>(
@@ -78,7 +87,8 @@ describe('role taxonomy (owner / operator / migrator / app / maintenance)', () =
 
   it('SECURITY DEFINER functions are executable by the two runtime roles only, never PUBLIC', async () => {
     // They run as their RLS-exempt owner (one returns a password hash): PUBLIC would hand that to
-    // every role that can log in.
+    // every role that can log in. The maintenance-only definers (MAINTENANCE_ONLY_DEFINER_FUNCTIONS)
+    // are narrower still: the maintenance role alone, never the app role.
     const rows = await queryRows<{
       signature: string;
       public_can_execute: boolean;
@@ -96,8 +106,21 @@ describe('role taxonomy (owner / operator / migrator / app / maintenance)', () =
                  WHERE p.prosecdef AND n.nspname IN ('auth','tenancy','billing','notify','audit','upload','app')`,
     );
     expect(rows.length).toBeGreaterThan(0);
+    for (const signature of MAINTENANCE_ONLY_DEFINER_FUNCTIONS) {
+      expect(
+        rows.map((row) => row.signature),
+        `${signature} is a SECURITY DEFINER function`,
+      ).toContain(signature);
+    }
     for (const row of rows) {
       expect(row.public_can_execute, `${row.signature}: REVOKE EXECUTE … FROM PUBLIC`).toBe(false);
+      if (MAINTENANCE_ONLY_DEFINER_FUNCTIONS.includes(row.signature)) {
+        expect(row.app_can_execute, `${row.signature}: never EXECUTE for meepzo_be_app`).toBe(
+          false,
+        );
+        expect(row.maintenance_can_execute, `${row.signature}: maintenance only`).toBe(true);
+        continue;
+      }
       expect(row.app_can_execute, `${row.signature}: GRANT EXECUTE … TO meepzo_be_app`).toBe(true);
       expect(
         row.maintenance_can_execute,

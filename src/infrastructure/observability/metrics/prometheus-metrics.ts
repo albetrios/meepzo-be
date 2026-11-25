@@ -39,6 +39,31 @@ let readCacheRequestsTotal: Counter<'cache' | 'result'> | null = null;
 let databaseUnscopedQueriesTotal: Counter | null = null;
 let bullmqProviderOutageParkedJobsTotal: Counter<'queue' | 'provider' | 'reason'> | null = null;
 let instagramWebhookUnknownAccountEntriesTotal: Counter | null = null;
+let appPartitionReadyDays: Gauge<'table'> | null = null;
+let appPartitionDefaultRows: Gauge<'table'> | null = null;
+let appPartitionOldestOverdueSeconds: Gauge<'table'> | null = null;
+
+/** The partition upkeep's three gauges (WC-55, P92, S17) — split out of {@link registerOn}. */
+function registerPartitionUpkeepMetrics(registry: Registry): void {
+  appPartitionReadyDays = new Gauge({
+    name: 'app_partition_ready_days',
+    help: 'Days ahead, from today (UTC), whose parts exist for each time-split app table (feat-instagram-dm-sending WC-55, S17). Made at least 14 days ahead; below 7 the upkeep alerts — rows of a day without a part land in the DEFAULT part',
+    labelNames: ['table'],
+    registers: [registry],
+  });
+  appPartitionDefaultRows = new Gauge({
+    name: 'app_partition_default_rows',
+    help: 'Rows in the DEFAULT part of each time-split app table (capped at 1000). Any row alerts: its day had no part, and that day cannot get one until the upkeep moves the rows (S17)',
+    labelNames: ['table'],
+    registers: [registry],
+  });
+  appPartitionOldestOverdueSeconds = new Gauge({
+    name: 'app_partition_oldest_overdue_seconds',
+    help: 'Seconds the oldest kept part holding rows is past its drop time, per time-split app table — the "oldest row past its keep time" gauge at part granularity (P92). Alerts after 1 day',
+    labelNames: ['table'],
+    registers: [registry],
+  });
+}
 
 /** The BullMQ queue and job metrics — split out of {@link registerOn} to keep each short. */
 function registerQueueMetrics(registry: Registry): void {
@@ -208,6 +233,8 @@ function registerOn(registry: Registry): void {
     registers: [registry],
   });
 
+  registerPartitionUpkeepMetrics(registry);
+
   readCacheRequestsTotal = new Counter({
     name: 'read_cache_requests_total',
     help: 'Read-through cache lookups by cache name and result (hit | miss). A cache whose hit ratio sits near zero is pure overhead — it is paying a Redis round trip to still ask Postgres — and one whose ratio collapses after a deploy usually means an invalidation became too broad. Alert on a sustained drop, not on an absolute value: the right ratio differs per cache',
@@ -267,6 +294,13 @@ function bindMetricHandlesFromRegistry(registry: Registry): void {
   instagramWebhookUnknownAccountEntriesTotal = registry.getSingleMetric(
     'instagram_webhook_unknown_account_entries_total',
   ) as Counter;
+  appPartitionReadyDays = registry.getSingleMetric('app_partition_ready_days') as Gauge<'table'>;
+  appPartitionDefaultRows = registry.getSingleMetric(
+    'app_partition_default_rows',
+  ) as Gauge<'table'>;
+  appPartitionOldestOverdueSeconds = registry.getSingleMetric(
+    'app_partition_oldest_overdue_seconds',
+  ) as Gauge<'table'>;
   registeredMetricsRegistry = registry;
 }
 
@@ -520,6 +554,29 @@ export function recordInstagramWebhookUnknownAccountEntry(): void {
   ensurePrometheusMetricsRegistered(getMetricsRegistry());
   if (!instagramWebhookUnknownAccountEntriesTotal) return;
   instagramWebhookUnknownAccountEntriesTotal.inc();
+}
+
+/**
+ * Sets the partition upkeep's three gauges for one time-split table (feat-instagram-dm-sending WC-55,
+ * P92, S17): the ready days ahead, the DEFAULT part's rows and the oldest kept part's overdue
+ * seconds. No-op when metrics are disabled — the upkeep still logs and alerts.
+ */
+export function setAppPartitionUpkeepGauges({
+  table,
+  readyDays,
+  defaultRows,
+  oldestOverdueSeconds,
+}: {
+  table: string;
+  readyDays: number;
+  defaultRows: number;
+  oldestOverdueSeconds: number;
+}): void {
+  if (!isMetricsEnabled()) return;
+  ensurePrometheusMetricsRegistered(getMetricsRegistry());
+  appPartitionReadyDays?.set({ table }, readyDays);
+  appPartitionDefaultRows?.set({ table }, defaultRows);
+  appPartitionOldestOverdueSeconds?.set({ table }, oldestOverdueSeconds);
 }
 
 /**

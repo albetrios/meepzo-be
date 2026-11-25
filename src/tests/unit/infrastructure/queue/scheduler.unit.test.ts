@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(36);
+    expect(scheduledJobs).toHaveLength(37);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -63,8 +63,6 @@ describe('infrastructure queue scheduler', () => {
       'user-offboarding-reconcile',
       'organization-offboarding-reconcile',
       'stripe-webhook-event-retention',
-      // launch-2026-11-20-ujai WH19: the 30-day Instagram webhook event clean-up, daily at 03:00
-      'instagram-webhook-event-retention',
       'audit-export',
       // Launch IA8: the daily Instagram account check's sweep rides its queue
       // (job `sweep-connected-instagram-accounts`).
@@ -72,6 +70,11 @@ describe('infrastructure queue scheduler', () => {
       // feat-instagram-dm-sending WC-25 (R40): the 10-minute webhook subscription sweep rides it too
       // (job `sweep-instagram-webhook-subscriptions`).
       'instagram-account-daily-check',
+      // feat-instagram-dm-sending WC-55 (R49): the partition upkeep's daily make and hourly drop —
+      // webhook events and keys, attempts, messages, comment logs, run events and runs expire by
+      // part drops (the launch's 03:00 webhook-event batch delete is retired, WHC15)
+      'app-partition-upkeep',
+      'app-partition-upkeep',
       // launch-2026-11-20-ujai D8 (AU25, AQ7): the hourly 7-day wait cancel, then the daily
       // deleted-automation (03:40) clean-up; runs and comment logs go by month-part drops since
       // feat-instagram-dm-sending R14 (AU36)
@@ -118,16 +121,30 @@ describe('infrastructure queue scheduler', () => {
     expect(organizationIndex).toBeLessThan(userIndex);
   });
 
-  it('runs the Instagram webhook event clean-up daily at 03:00 (WH19, worker-changes rule 11)', async () => {
+  it('keeps the time-split parts: a daily make at 02:23 and an hourly drop at :37; no webhook-event batch delete remains (WC-55, WHC15)', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
-    const job = getScheduledJobs().find(
-      (scheduledJob) => scheduledJob.queueName === 'instagram-webhook-event-retention',
-    );
-    expect(job).toMatchObject({
-      schedulerId: 'daily-instagram-webhook-event-cleanup',
-      jobName: 'purge-old-instagram-webhook-events',
-      cronPattern: '0 3 * * *',
-    });
+    const scheduledJobs = getScheduledJobs();
+    expect(
+      scheduledJobs.find(
+        (scheduledJob) => scheduledJob.queueName === 'instagram-webhook-event-retention',
+      ),
+    ).toBeUndefined();
+    expect(
+      scheduledJobs
+        .filter((scheduledJob) => scheduledJob.queueName === 'app-partition-upkeep')
+        .map(({ schedulerId, jobName, cronPattern }) => ({ schedulerId, jobName, cronPattern })),
+    ).toEqual([
+      {
+        schedulerId: 'daily-app-partition-make',
+        jobName: 'make-app-partitions',
+        cronPattern: '23 2 * * *',
+      },
+      {
+        schedulerId: 'hourly-app-partition-drop',
+        jobName: 'drop-expired-app-partitions',
+        cronPattern: '37 * * * *',
+      },
+    ]);
   });
 
   it('picks up stuck Instagram webhook events every minute on the processing queue (WH15, WC-2)', async () => {
@@ -229,16 +246,17 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(36);
-    // Each scheduled job opens one Queue for upsert (36) + the reconcile pass opens one Queue per
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(37);
+    // Each scheduled job opens one Queue for upsert (37) + the reconcile pass opens one Queue per
     // unique queue name (35 — the seat reconcile, the export reclaim, the Instagram daily-check
     // sweep and the Instagram stuck-event pick-up ride queues no other cron uses; the 10-minute
-    // webhook subscription sweep shares the daily-check queue, R40), each closed in
+    // webhook subscription sweep shares the daily-check queue, R40; the partition upkeep's make and
+    // drop share one queue, R49), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(71);
+    expect(queueCloseMock).toHaveBeenCalledTimes(72);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(71);
+    expect(queueCloseMock).toHaveBeenCalledTimes(72);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

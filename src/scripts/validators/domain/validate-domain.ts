@@ -41,8 +41,11 @@ const RESERVED_DOMAIN_ROOT_DIRS = new Set([
  */
 const MAX_DOMAIN_ENTRY_DEPTH = 8;
 
-/** Domains whose root `workers/` holds domain-wide retention (user: offboarding and tombstones). */
-const DOMAIN_WIDE_WORKER_DOMAINS = new Set(['user']);
+/**
+ * Domains whose root `workers/` holds domain-wide retention (user: offboarding and tombstones; app:
+ * the partition upkeep shared by its time-split tables across sub-domains).
+ */
+const DOMAIN_WIDE_WORKER_DOMAINS = new Set(['user', 'app']);
 
 /** Allowed subdirectories directly under `__tests__/`. */
 const ALLOWED_TESTS_SUBDIRS = new Set(['unit', 'integration', 'e2e', 'factories']);

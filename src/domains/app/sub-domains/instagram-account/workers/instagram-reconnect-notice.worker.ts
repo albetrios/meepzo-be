@@ -22,7 +22,7 @@ import {
 
 /**
  * BullMQ worker of the reconnect notice (IA9, IAC9): one job per account and break, each sending
- * the organization's `instagram-account:manage` holders one in-app notification and one email.
+ * the organization's `channel-account:manage` holders one in-app notification and one email.
  *
  * @remarks
  * - **Algorithm:** validates the payload at the boundary (`parseJobDataOrDeadLetter`), carries the

@@ -2541,7 +2541,7 @@ export class MembershipService {
    *   resolve.
    * - **Side effects:** none — read-only.
    * - **Notes:** the app domain's reconnect notice (launch IA9) finds its recipients here
-   *   (`instagram-account:manage` holders); other domains read memberships only through this
+   *   (`channel-account:manage` holders); other domains read memberships only through this
    *   service, never the repository.
    */
   async findActiveUserIdsWithPermission({

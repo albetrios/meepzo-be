@@ -4,10 +4,7 @@ import {
   runOrganizationScopedWorkerJob,
 } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import { ProviderOutageError } from '@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js';
-import {
-  readInstagramAccountProfile,
-  subscribeInstagramWebhookFields,
-} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { subscribeInstagramWebhookFields } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
   MetaGraphApiError,
   describeMetaGraphError,
@@ -120,11 +117,10 @@ export type InstagramAccountDailyCheckResult =
   | {
       outcome: 'broken';
       connectionStatus: InstagramAccountBrokenConnectionStatus;
-      step: 'profile' | 'subscription';
+      step: 'subscription';
     }
   | {
       outcome: 'checked';
-      profile: 'refreshed' | 'refused' | 'mismatch';
       subscription: 'subscribed' | 'already_subscribed' | 'refused';
     };
 
@@ -170,7 +166,7 @@ async function handleStepFailure({
 }: {
   target: DailyCheckTarget;
   error: unknown;
-  step: 'profile' | 'subscription';
+  step: 'subscription';
 }): Promise<InstagramAccountDailyCheckResult | 'refused'> {
   const failure = classifyInstagramDailyCheckFailure(error);
   if (failure.action === 'break') {
@@ -187,46 +183,6 @@ async function handleStepFailure({
     `app.instagram_account.daily_check.${step}_refused`,
   );
   return 'refused';
-}
-
-/** IA8 step 2 — read `/me` outside any context, then write the profile in its own unit of work. */
-async function refreshProfile({
-  target,
-  encryptedAccessToken,
-}: {
-  target: DailyCheckTarget;
-  encryptedAccessToken: string;
-}): Promise<InstagramAccountDailyCheckResult | 'refreshed' | 'refused' | 'mismatch'> {
-  let profile: Awaited<ReturnType<typeof readInstagramAccountProfile>>;
-  try {
-    profile = await readInstagramAccountProfile({
-      encryptedAccessToken,
-      instagramUserId: target.account.instagram_user_id,
-      requestId: target.requestId,
-    });
-  } catch (error) {
-    return handleStepFailure({ target, error, step: 'profile' });
-  }
-  if (profile.instagramUserId !== target.account.instagram_user_id) {
-    logger.warn(
-      {
-        organizationPublicId: target.organizationPublicId,
-        instagramAccountPublicId: target.account.public_id,
-      },
-      'app.instagram_account.daily_check.profile_mismatch',
-    );
-    return 'mismatch';
-  }
-  await runOrganizationScopedWorkerJob({
-    job: { organizationPublicId: target.organizationPublicId },
-    processor: (databaseHandle) =>
-      createWorkerInstagramAccountRepository(databaseHandle).recordProfileRefresh({
-        ...target.key,
-        instagramUserId: profile.instagramUserId,
-        profile,
-      }),
-  });
-  return 'refreshed';
 }
 
 /**
@@ -259,28 +215,28 @@ async function subscribeWhenNotSubscribed({
 }
 
 /**
- * The daily account check of one organization's connected account (IA8, D9): refresh the profile
- * and subscribe the account to the webhook fields again when it is not subscribed. The launch's
- * token renewal is gone (feat-instagram-dm-sending WC-35): the account's channel connection holds
- * one token that never ends (D24); the connection's own token check replaces this job at ROUTE row
- * R51 (MC10).
+ * The daily account check of one organization's connected account (IA8, D9): subscribe the account
+ * to the webhook fields again when it is not subscribed. The launch's token renewal is gone
+ * (feat-instagram-dm-sending WC-35), and since ROUTE row R51 the profile refresh is the channel
+ * connection's token check's (MC10, P17); this job is deleted when the webhook subscription check
+ * (WC-25, ROUTE row R40) takes the retry over (AS-BUILT R51).
  *
  * @remarks
  * - **Algorithm:** every database step runs in the organization's job scope
  *   (`runOrganizationScopedWorkerJob`, K8) and every Meta call outside any database context
  *   (1.10). (1) Read the account by its public id and its connection's encrypted token; an account
- *   no longer `connected` is skipped. (2) `GET /{instagram_user_id}` → the profile and
- *   `profile_synced_at`. (3) `subscribed_apps` when `webhook_subscribed_at` is empty, then the stamp.
+ *   no longer `connected` is skipped. (2) `subscribed_apps` when `webhook_subscribed_at` is empty,
+ *   then the stamp.
  * - **Failure modes:** Meta refusing the token (`auth`) → the account service's guarded change to
  *   `error` at once; Meta down or busy (`outage`, `throttled`, an open circuit) → the account stays
  *   `connected` and the error is rethrown — a throttle as a `ProviderOutageError` with Meta's wait —
  *   so the provider-pausable worker waits the outage out without spending an attempt; a refusal of
  *   one request (`refused`) is logged and the next day tries again. Anything else (the database, a
  *   token that does not decrypt) is rethrown and takes the queue's attempts.
- * - **Side effects:** Meta calls (`/{instagram_user_id}`, `subscribed_apps`); writes the account
- *   row; a break enqueues the reconnect notice after its commit (IA9).
- * - **Notes:** safe to repeat — one job per account per day (the job id), the profile write is the
- *   same data, and a subscribed account is not subscribed again. Reads the token table through the
+ * - **Side effects:** a Meta call (`subscribed_apps`); writes the account row; a break enqueues the
+ *   reconnect notice after its commit (IA9).
+ * - **Notes:** safe to repeat — one job per account per day (the job id), and a subscribed account
+ *   is not subscribed again. Reads the token table through the
  *   worker token repository — a worker path `channel-connection-token-isolation.policy.unit.test.ts`
  *   allows (MC9).
  */
@@ -338,17 +294,10 @@ export async function processInstagramAccountDailyCheckJob({
 
   const { encryptedAccessToken } = snapshot.token;
 
-  const profile = await refreshProfile({ target, encryptedAccessToken });
-  if (typeof profile !== 'string') return profile;
-
   const subscription = await subscribeWhenNotSubscribed({ target, encryptedAccessToken });
   if (typeof subscription !== 'string') return subscription;
 
-  const result: InstagramAccountDailyCheckResult = {
-    outcome: 'checked',
-    profile,
-    subscription,
-  };
+  const result: InstagramAccountDailyCheckResult = { outcome: 'checked', subscription };
   logger.info(
     { organizationPublicId, instagramAccountPublicId, ...result },
     'app.instagram_account.daily_check.completed',
@@ -384,7 +333,7 @@ export interface InstagramAccountDailyCheckSweepResult {
  *   `addBulk` of the page's checks keyed by account and UTC day.
  * - **Failure modes:** a failed read throws to BullMQ; a failed add is logged
  *   (`app.instagram_account.daily_check.enqueue_failed`) and those accounts are listed again by
- *   tomorrow's sweep — one missed day costs one profile refresh. Reaching
+ *   tomorrow's sweep — one missed day costs one subscription retry. Reaching
  *   {@link INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_MAX_PAGES} logs `…sweep_capped` at error.
  * - **Side effects:** jobs on the daily-check queue; no row is changed.
  * - **Notes:** a repeatable job on the daily-check queue, run by the daily-check worker

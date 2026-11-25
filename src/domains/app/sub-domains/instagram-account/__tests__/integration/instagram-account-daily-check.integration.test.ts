@@ -49,9 +49,8 @@ import {
 /**
  * The daily account check (launch R7 — routes-final § 1 IA8, IAC8; AC-11.2–AC-11.5) against real
  * Postgres and Redis, Meta mocked with nock, after feat-instagram-dm-sending R3 took the token renewal
- * out (WC-35 — the connection's token never ends): the profile is refreshed through
- * `GET /{instagram_user_id}` with the connection's token; an unsubscribed account is subscribed
- * again; Meta down keeps the account `connected`; Meta refusing the token makes it `error`; twice
+ * out (WC-35 — the connection's token never ends) and R51 moved the profile refresh to the
+ * connection's token check (P17): an unsubscribed account is subscribed again; Meta down keeps the account `connected`; Meta refusing the token makes it `error`; twice
  * equals once; the sweep hands one check per connected account to the queue, once a day.
  */
 
@@ -169,11 +168,10 @@ describe('Instagram account daily check (IA8)', () => {
     });
   }
 
-  function mockProfile(profile: TestInstagramProfile): nock.Scope {
+  function mockSubscription(profile: TestInstagramProfile): nock.Interceptor {
     return nock(META_GRAPH_BASE_URL)
-      .get(`/${META_GRAPH_VERSION}/${profile.user_id}`)
-      .query(true)
-      .reply(200, profile);
+      .post(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)
+      .query(true);
   }
 
   async function noticeJobOf(target: { key: InstagramAccountKey; publicId: string }) {
@@ -188,35 +186,23 @@ describe('Instagram account daily check (IA8)', () => {
     );
   }
 
-  it('refreshes the profile through the connection token, with no renewal (AC-11.2, WC-35)', async () => {
+  it('leaves the profile to the token check and renews nothing (WC-35, R51)', async () => {
     const target = await seedConnectedAccount();
-    const profileRead = mockProfile({
-      ...target.profile,
-      biography: 'Handmade things, renamed.',
-      followers_count: 2048,
-    });
+    const before = await readState(target.key.instagramAccountId);
 
     await expect(runCheck(target)).resolves.toEqual({
       outcome: 'checked',
-      profile: 'refreshed',
       subscription: 'already_subscribed',
     });
 
-    expect(profileRead.isDone()).toBe(true);
     const { account } = await readState(target.key.instagramAccountId);
     expect(account?.connection_status).toBe('connected');
-    expect(account?.biography).toBe('Handmade things, renamed.');
-    expect(account?.followers_count).toBe(2048);
-    expect(account?.profile_synced_at).not.toBeNull();
+    expect(account?.profile_synced_at).toEqual(before.account?.profile_synced_at);
   });
 
   it('subscribes an account that is not subscribed to the webhook fields again (AC-11.3)', async () => {
     const target = await seedConnectedAccount({ isWebhookSubscribed: false });
-    mockProfile(target.profile);
-    const subscription = nock(META_GRAPH_BASE_URL)
-      .post(`/${META_GRAPH_VERSION}/${target.profile.id}/subscribed_apps`)
-      .query(true)
-      .reply(200, { success: true });
+    const subscription = mockSubscription(target.profile).reply(200, { success: true });
 
     await expect(runCheck(target)).resolves.toMatchObject({ subscription: 'subscribed' });
 
@@ -226,11 +212,10 @@ describe('Instagram account daily check (IA8)', () => {
   });
 
   it('keeps the account connected when Meta is down: the job waits (AC-11.4)', async () => {
-    const target = await seedConnectedAccount();
-    nock(META_GRAPH_BASE_URL)
-      .get(`/${META_GRAPH_VERSION}/${target.profile.user_id}`)
-      .query(true)
-      .reply(503, { error: { message: 'Service temporarily unavailable', code: 2 } });
+    const target = await seedConnectedAccount({ isWebhookSubscribed: false });
+    mockSubscription(target.profile).reply(503, {
+      error: { message: 'Service temporarily unavailable', code: 2 },
+    });
 
     await expect(runCheck(target)).rejects.toThrow();
 
@@ -240,18 +225,15 @@ describe('Instagram account daily check (IA8)', () => {
   });
 
   it('marks the account error at once when Meta refuses the token, and tells it (AC-11.5)', async () => {
-    const target = await seedConnectedAccount();
-    nock(META_GRAPH_BASE_URL)
-      .get(`/${META_GRAPH_VERSION}/${target.profile.user_id}`)
-      .query(true)
-      .reply(400, {
-        error: { message: 'Error validating access token', code: 190, error_subcode: 460 },
-      });
+    const target = await seedConnectedAccount({ isWebhookSubscribed: false });
+    mockSubscription(target.profile).reply(400, {
+      error: { message: 'Error validating access token', code: 190, error_subcode: 460 },
+    });
 
     await expect(runCheck(target)).resolves.toEqual({
       outcome: 'broken',
       connectionStatus: 'error',
-      step: 'profile',
+      step: 'subscription',
     });
 
     const { account } = await readState(target.key.instagramAccountId);
@@ -265,17 +247,15 @@ describe('Instagram account daily check (IA8)', () => {
   });
 
   it('run twice the same day changes nothing more (AC-11.6)', async () => {
-    const target = await seedConnectedAccount();
-    mockProfile(target.profile);
-    mockProfile(target.profile);
+    const target = await seedConnectedAccount({ isWebhookSubscribed: false });
+    const subscription = mockSubscription(target.profile).reply(200, { success: true });
 
-    await runCheck(target);
-    const afterFirst = await readState(target.key.instagramAccountId);
-    await expect(runCheck(target)).resolves.toMatchObject({ profile: 'refreshed' });
-    const afterSecond = await readState(target.key.instagramAccountId);
+    await expect(runCheck(target)).resolves.toMatchObject({ subscription: 'subscribed' });
+    await expect(runCheck(target)).resolves.toMatchObject({ subscription: 'already_subscribed' });
 
-    expect(afterSecond.account?.connection_status).toBe('connected');
-    expect(afterSecond.account?.biography).toBe(afterFirst.account?.biography);
+    expect(subscription.isDone()).toBe(true);
+    const { account } = await readState(target.key.instagramAccountId);
+    expect(account?.connection_status).toBe('connected');
   });
 
   it('skips an account that is no longer connected', async () => {

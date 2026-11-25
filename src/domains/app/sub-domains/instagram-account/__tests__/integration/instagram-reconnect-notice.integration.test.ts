@@ -50,7 +50,7 @@ import {
  * The reconnect notice (launch R7 — routes-final § 1 IA9, IAC9; AC-11.7–AC-11.10) against real
  * Postgres and Redis: only the guarded change that wins enqueues, after its commit, one notice job
  * per account and break; the job sends an in-app notification (with the email channel) in the
- * organization's language to every active member holding `instagram-account:manage`, once; a new
+ * organization's language to every active member holding `channel-account:manage`, once; a new
  * break after a reconnect is told again.
  */
 
@@ -205,11 +205,11 @@ describe('Instagram reconnect notice (IA9)', () => {
     expect(row?.connection_status).toBe('connected');
   });
 
-  it('tells every active holder of instagram-account:manage, in the app and by email, once (AC-11.7, AC-11.9)', async () => {
+  it('tells every active holder of channel-account:manage, in the app and by email, once (AC-11.7, AC-11.9)', async () => {
     // A custom role holding the code is told; a suspended holder is not.
     const customRole = await createRoleWithPermissions({
       organizationId: team.organization.id,
-      permissionCodes: [APP_PERMISSIONS.INSTAGRAM_ACCOUNT_MANAGE],
+      permissionCodes: [APP_PERMISSIONS.CHANNEL_ACCOUNT_MANAGE],
     });
     const customHolder = await createTestUser();
     await createMembership({

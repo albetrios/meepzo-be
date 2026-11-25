@@ -214,6 +214,29 @@ export interface ChannelConnectionAccountPort {
   markAccountsOfConnectionBroken(
     options: ChannelConnectionAccountScope & { channelConnectionId: number; requestId: string },
   ): Promise<ChannelConnectionAccount[]>;
+  /**
+   * CA4: one account `connected → error` alone (the token check found it missing from the
+   * connection's assigned list — `account_not_shared`), its lanes stopped and, for the winner, one
+   * reconnect notice after the commit (WC-46). `false` when it was not `connected` any more.
+   */
+  markAccountBroken(
+    options: ChannelConnectionAccountScope & {
+      channelAccountId: number;
+      requestId?: string | undefined;
+      stopReason?: 'login_expired' | 'account_not_shared' | undefined;
+    },
+  ): Promise<boolean>;
+  /**
+   * The token check's profile refresh (P17, IA6 (4)): the Instagram extension's profile and the
+   * channel account's `display_name`, in one unit — only while the account is not revoked and still
+   * this Instagram account. Returns whether it wrote.
+   */
+  refreshAccountProfile(
+    options: ChannelConnectionAccountScope & {
+      channelAccountId: number;
+      profile: InstagramAccountProfile;
+    },
+  ): Promise<boolean>;
   /** How many not-revoked accounts still use the connection. */
   countLiveAccountsOfConnection(
     options: ChannelConnectionAccountScope & { channelConnectionId: number },

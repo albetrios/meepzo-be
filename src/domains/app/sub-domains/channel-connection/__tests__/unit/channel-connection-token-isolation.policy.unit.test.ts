@@ -26,12 +26,15 @@ import { describe, expect, it } from 'vitest';
  * resolvers' security test and the token's database tests write and read the table to prove these
  * rules, and the contract test decrypts to prove the client encrypts. They never ship.
  *
- * The allowlists are exact paths, each with its reason. The daily account check's processor (launch
- * R7, IA8) is the one worker path in {@link TOKEN_REPOSITORY_IMPORTERS} today — MC9's "the token
- * service, the sender and the token check" (the sender lands at ROUTE row R42, the token check at
- * R51); any other addition is deliberate, never casual.
+ * The allowlists are exact paths, each with its reason. The worker paths in
+ * {@link TOKEN_REPOSITORY_IMPORTERS} are MC9's "the token service, the sender and the token check":
+ * the connection's token check (MC10, ROUTE row R51) and, until it is deleted, the launch daily
+ * account check's subscription retry (the sender lands at ROUTE row R42); any other addition is
+ * deliberate, never casual.
  * The secrets-key rotation script (D37) is in {@link TOKEN_SCHEMA_IMPORTERS} and
- * {@link TOKEN_DECRYPTERS}: it re-encrypts the column onto the current key version.
+ * {@link TOKEN_DECRYPTERS}: it re-encrypts the column onto the current key version through the
+ * shared field-secret util's `reencryptFieldSecretToCurrentVersion`, as the token check does for a
+ * token still on an old key (S26) — the plain token never leaves that util.
  */
 
 const PROJECT_ROOT = process.cwd();
@@ -69,7 +72,12 @@ const TOKEN_REPOSITORY_IMPORTERS: ReadonlyArray<{ file: string; reason: string }
   {
     file: `${INSTAGRAM_ACCOUNT_FOLDER}/workers/instagram-account-daily-check.processor.ts`,
     reason:
-      "the daily account check (IA8): reads the account's connection ciphertext for its Meta calls and hands it to the client; it never decrypts or writes it (no renewal since WC-35)",
+      "the daily account check (IA8): reads the account's connection ciphertext for its subscription retry and hands it to the client; it never decrypts or writes it (no renewal since WC-35); deleted when R40's subscription check takes the retry over",
+  },
+  {
+    file: `${CHANNEL_CONNECTION_FOLDER}/workers/channel-connection-token-check.processor.ts`,
+    reason:
+      "the connection's daily token check (MC10, WC-34): reads the ciphertext for its Meta calls and hands it to the client; rewrites it only when reencryptFieldSecretToCurrentVersion moves it off an old key version (S26) — it never sees the plain token",
   },
 ];
 

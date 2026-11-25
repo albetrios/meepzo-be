@@ -52,6 +52,7 @@ import { closeNotificationQueue } from '@/domains/notify/sub-domains/notificatio
 import { closeWebhookDeliveryQueue } from '@/domains/notify/sub-domains/webhook/webhook-delivery/queues/webhook-delivery.queue.js';
 import { closeUserDataExportQueue } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
 import { closeInstagramAccountDailyCheckQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { closeChannelConnectionTokenCheckQueue } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { closeInstagramReconnectNoticeQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { closeInstagramSendSlowQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
@@ -148,6 +149,8 @@ async function main() {
         // Launch IA8 / IA9: the daily check's sweep adds its checks; a break enqueues its notice.
         closeInstagramAccountDailyCheckQueue(),
         closeInstagramReconnectNoticeQueue(),
+        // feat-instagram-dm-sending MC10: the token check's hourly sweep adds its checks.
+        closeChannelConnectionTokenCheckQueue(),
         // WH12 / WH15: a job that yielded adds its follow-up; the stuck-event pick-up adds jobs.
         closeInstagramWebhookQueue(),
         // SN2 (R37): the send and task producers — a released turn, a repair duty or a task adds

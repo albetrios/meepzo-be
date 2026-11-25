@@ -39,6 +39,7 @@ import { DLQ_DEPTH_QUEUE_NAME } from '@/infrastructure/observability/dlq-depth/d
 import { DLQ_AUTO_RETRY_QUEUE_NAME } from '@/infrastructure/queue/dlq/dlq-auto-retry.constants.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 
@@ -94,6 +95,7 @@ export const WORKER_QUEUE_NAMES = [
   UPLOAD_PENDING_SWEEP_QUEUE_NAME,
   USER_DATA_EXPORT_RETENTION_QUEUE_NAME,
   INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
+  CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
   AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
   AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
   IDEMPOTENCY_CARDINALITY_QUEUE_NAME,

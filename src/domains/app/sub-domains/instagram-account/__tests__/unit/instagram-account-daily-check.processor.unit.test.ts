@@ -91,7 +91,8 @@ import { INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_PAGE_SIZE } from '@/domains/app/sub
 /**
  * The daily account check (launch IA8, IAC8) with its database steps and Meta mocked, after
  * feat-instagram-dm-sending R3 took the renewal out (WC-35): the token is the account's connection's
- * and is read, never renewed; the profile and subscription steps and how each failed call is classed.
+ * and is read, never renewed; since R51 the profile refresh is the connection's token check's, so
+ * only the subscription step is left; how each failed call is classed.
  * The same rules against Postgres: `__tests__/integration/instagram-account-daily-check.integration.test.ts`.
  */
 
@@ -244,10 +245,15 @@ describe('describeMetaGraphError', () => {
 });
 
 describe('processInstagramAccountDailyCheckJob', () => {
-  it("reads the connection's token, refreshes the profile, never renews (WC-35)", async () => {
+  function unsubscribed() {
+    accountRepository.findByPublicIdInOrganization.mockResolvedValue(
+      connectedAccount({ webhook_subscribed_at: null }),
+    );
+  }
+
+  it("reads the connection's token, never renews (WC-35) and leaves the profile to the token check (R51)", async () => {
     await expect(runCheck()).resolves.toEqual({
       outcome: 'checked',
-      profile: 'refreshed',
       subscription: 'already_subscribed',
     });
 
@@ -255,28 +261,24 @@ describe('processInstagramAccountDailyCheckJob', () => {
       organizationId: 7,
       channelConnectionId: 5,
     });
-    expect(instagramClient.readInstagramAccountProfile).toHaveBeenCalledWith({
-      encryptedAccessToken: STORED_CIPHERTEXT,
-      instagramUserId: '17841400000000001',
-      requestId: 'instagram-account-daily-check-test',
-    });
-    expect(accountRepository.recordProfileRefresh).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationId: 7, instagramAccountId: 41 }),
-    );
+    expect(instagramClient.readInstagramAccountProfile).not.toHaveBeenCalled();
+    expect(accountRepository.recordProfileRefresh).not.toHaveBeenCalled();
     expect(markConnectionBroken).not.toHaveBeenCalled();
   });
 
   it('keeps the account connected when Meta is down: the job waits', async () => {
+    unsubscribed();
     const outage = outageError();
-    instagramClient.readInstagramAccountProfile.mockRejectedValue(outage);
+    instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(outage);
 
     await expect(runCheck()).rejects.toBe(outage);
     expect(markConnectionBroken).not.toHaveBeenCalled();
-    expect(accountRepository.recordProfileRefresh).not.toHaveBeenCalled();
+    expect(accountRepository.recordWebhookSubscribed).not.toHaveBeenCalled();
   });
 
-  it('turns a throttled read into a provider pause for the time Meta asked', async () => {
-    instagramClient.readInstagramAccountProfile.mockRejectedValue(
+  it('turns a throttled call into a provider pause for the time Meta asked', async () => {
+    unsubscribed();
+    instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(
       instagramError({
         httpStatus: 429,
         body: { error: { message: 'Too many calls', code: 4 } },
@@ -298,20 +300,18 @@ describe('processInstagramAccountDailyCheckJob', () => {
 
     await expect(runCheck()).resolves.toEqual({ outcome: 'skipped', reason: 'not_connected' });
     expect(tokenRepository.findByConnection).not.toHaveBeenCalled();
-    expect(instagramClient.readInstagramAccountProfile).not.toHaveBeenCalled();
+    expect(instagramClient.subscribeInstagramWebhookFields).not.toHaveBeenCalled();
   });
 
   it('skips an account whose connection has no token', async () => {
     tokenRepository.findByConnection.mockResolvedValue(null);
 
     await expect(runCheck()).resolves.toEqual({ outcome: 'skipped', reason: 'token_missing' });
-    expect(instagramClient.readInstagramAccountProfile).not.toHaveBeenCalled();
+    expect(instagramClient.subscribeInstagramWebhookFields).not.toHaveBeenCalled();
   });
 
   it('subscribes an account that is not subscribed, then stamps it', async () => {
-    accountRepository.findByPublicIdInOrganization.mockResolvedValue(
-      connectedAccount({ webhook_subscribed_at: null }),
-    );
+    unsubscribed();
 
     await expect(runCheck()).resolves.toMatchObject({ subscription: 'subscribed' });
     expect(instagramClient.subscribeInstagramWebhookFields).toHaveBeenCalledWith({
@@ -325,26 +325,28 @@ describe('processInstagramAccountDailyCheckJob', () => {
     });
   });
 
-  it('keeps going after a refused profile read; a messaging-window refusal never breaks (D32)', async () => {
-    instagramClient.readInstagramAccountProfile.mockRejectedValue(
+  it('keeps going after a refused subscription; a messaging-window refusal never breaks (D32)', async () => {
+    unsubscribed();
+    instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(
       instagramError({
         httpStatus: 400,
         body: { error: { message: 'outside of allowed window', code: 10, error_subcode: 2018278 } },
       }),
     );
 
-    await expect(runCheck()).resolves.toMatchObject({ outcome: 'checked', profile: 'refused' });
+    await expect(runCheck()).resolves.toEqual({ outcome: 'checked', subscription: 'refused' });
     expect(markConnectionBroken).not.toHaveBeenCalled();
-    expect(accountRepository.recordProfileRefresh).not.toHaveBeenCalled();
+    expect(accountRepository.recordWebhookSubscribed).not.toHaveBeenCalled();
   });
 
-  it('breaks the connection when the profile read finds the token refused', async () => {
-    instagramClient.readInstagramAccountProfile.mockRejectedValue(dyingTokenError());
+  it('breaks the account when the subscription finds the token refused', async () => {
+    unsubscribed();
+    instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(dyingTokenError());
 
     await expect(runCheck()).resolves.toEqual({
       outcome: 'broken',
       connectionStatus: 'error',
-      step: 'profile',
+      step: 'subscription',
     });
     expect(markConnectionBroken).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -353,13 +355,6 @@ describe('processInstagramAccountDailyCheckJob', () => {
         connectionStatus: 'error',
       }),
     );
-  });
-
-  it('does not write a profile that belongs to another Instagram account', async () => {
-    instagramClient.readInstagramAccountProfile.mockResolvedValue(profileOf('17841499999999999'));
-
-    await expect(runCheck()).resolves.toMatchObject({ profile: 'mismatch' });
-    expect(accountRepository.recordProfileRefresh).not.toHaveBeenCalled();
   });
 });
 

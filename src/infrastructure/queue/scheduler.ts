@@ -49,6 +49,8 @@ import { STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/billing/sub
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.constants.js';
+import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
+import { CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.constants.js';
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
@@ -134,10 +136,17 @@ const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 const DEFAULT_INSTAGRAM_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 const DEFAULT_AUDIT_EXPORT_CRON = '15 2 * * *';
 /**
- * Launch IA8: the daily Instagram account check — renew tokens ending within 7 days, refresh the
- * profiles, subscribe again what is not subscribed — after the 03:xx clean-ups.
+ * Launch IA8: the daily Instagram account check — since feat-instagram-dm-sending R51 only the
+ * subscription retry of an account that is not subscribed (the renewal went at R3, WC-35; the
+ * profile refresh moved to the connection's token check, P17) — after the 03:xx clean-ups.
  */
 const DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON = '0 4 * * *';
+/**
+ * feat-instagram-dm-sending MC10 (WC-34): the channel connection's token check sweep, every hour —
+ * each connection is checked once every 24 hours, spread over the day by connection. A fixed
+ * cadence, not a setting.
+ */
+const DEFAULT_CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_CRON = '0 * * * *';
 /**
  * Launch D8 (routes-final § 3.B AU25, WC-13): every hour, cancel the runs that have waited more
  * than 7 days. A fixed cadence, not a setting.
@@ -538,6 +547,16 @@ export function getScheduledJobs(): ScheduledJob[] {
         schedulerId: 'daily-instagram-account-check',
         jobName: INSTAGRAM_ACCOUNT_DAILY_CHECK_SWEEP_JOB_NAME,
         cronPattern: DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON,
+      },
+    }),
+    // The hourly sweep rides the token-check queue; its worker adds one check per due connection.
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
+        schedulerId: 'hourly-channel-connection-token-check',
+        jobName: CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_CRON,
       },
     }),
     ...getAutomationCleanupScheduledJobs(timezone),

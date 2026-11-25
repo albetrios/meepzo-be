@@ -28,7 +28,7 @@ import { env, getEnv } from '@/shared/config/env.config.js';
 import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
-import { processInstagramAccountDailyCheckJob } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
+import { processChannelConnectionTokenCheckJob } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.processor.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
@@ -669,33 +669,44 @@ describe('Instagram acceptance across features (e2e)', () => {
         token: team.ownerToken,
         accounts: [{ id: profile.user_id, username: profile.username }],
       });
-      const [account] = await readInstagramAccountRows(team.organization.id);
       const accountPath = await organizationChannelAccountPath(team.organization.id);
-      /** The account's daily check (no renewal since WC-35: the connection's token never ends). */
+      const [connection] = await operatorQuery<Array<{ public_id: string }>>`
+        SELECT public_id FROM app.channel_connections WHERE organization_id = ${team.organization.id}`;
+      /** The connection's daily token check (MC10, R51) — it refreshes the account's profile (P17). */
       const checkDaily = () =>
-        processInstagramAccountDailyCheckJob({
+        processChannelConnectionTokenCheckJob({
           jobData: {
             organizationPublicId: team.organization.public_id,
-            instagramAccountPublicId: account?.public_id ?? '',
+            channelConnectionPublicId: connection?.public_id ?? '',
           },
-          accountService: app.appDomain.instagramAccountService,
+          services: {
+            connectionService: app.appDomain.channelConnectionService,
+            accountPort: app.appDomain.channelAccountService,
+          },
           requestId: 'acceptance-gaps-daily-check',
         });
+      const mockAssignedAccounts = () =>
+        nock(META_GRAPH_BASE_URL)
+          .get(`/${META_GRAPH_VERSION}/me/assigned_instagram_accounts`)
+          .query(true)
+          .reply(200, { data: [{ id: profile.user_id, username: profile.username }] });
 
       await expectNoSecretLogged({
         code: 'no-code-in-this-test',
         act: async () => {
+          mockAssignedAccounts();
           nock(META_GRAPH_BASE_URL)
             .get(`/${META_GRAPH_VERSION}/${profile.user_id}`)
             .query(true)
             .reply(400, errorAnswerQuoting({ quoted: TEST_INSTAGRAM_LONG_LIVED_TOKEN, code: 100 }));
-          expect(await checkDaily()).toMatchObject({ outcome: 'checked', profile: 'refused' });
+          expect(await checkDaily()).toMatchObject({ outcome: 'checked', refreshedCount: 0 });
 
+          mockAssignedAccounts();
           nock(META_GRAPH_BASE_URL)
             .get(`/${META_GRAPH_VERSION}/${profile.user_id}`)
             .query(true)
             .reply(200, profile);
-          expect(await checkDaily()).toMatchObject({ outcome: 'checked', profile: 'refreshed' });
+          expect(await checkDaily()).toMatchObject({ outcome: 'checked', refreshedCount: 1 });
 
           nock(META_GRAPH_BASE_URL)
             .delete(`/${META_GRAPH_VERSION}/${profile.id}/subscribed_apps`)
@@ -710,7 +721,7 @@ describe('Instagram acceptance across features (e2e)', () => {
         },
         expectedMessages: [
           'outbound.call.failed',
-          'app.instagram_account.daily_check.completed',
+          'app.channel_connection.token_check.completed',
           'request.complete',
           // The log names the route pattern, not the account's id.
           CHANNEL_ACCOUNTS_PATH,

@@ -62,8 +62,9 @@ describe('worker-registration.registry', () => {
     // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
     // WH12–WH15); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
     // `instagram-send-slow` and `instagram-send-fast` in family `instagram-send`, `instagram-tasks`
-    // in `instagram`; throughput, event-driven, their database through the shared limiter).
-    expect(definitions).toHaveLength(43);
+    // in `instagram`; throughput, event-driven, their database through the shared limiter); +1 for
+    // the channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34).
+    expect(definitions).toHaveLength(44);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -95,15 +96,16 @@ describe('worker-registration.registry', () => {
     // worker; the two run and automation clean-ups (the 7-day wait cancel, the deleted-automation purge)
     // two more; the Instagram webhook event processing (WH5, WH15) one
     // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the Instagram
-    // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers.
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(40);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(35);
+    // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers; the
+    // channel connection's token check (MC10) one more Postgres-backed, scheduled, maintenance worker.
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(41);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(36);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(11);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
-    ).toHaveLength(30);
+    ).toHaveLength(31);
     expect(
       definitions.filter((definition) => definition.criticality === 'observability'),
     ).toHaveLength(2);

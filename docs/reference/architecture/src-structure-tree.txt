@@ -232,6 +232,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   ├── channel-connection-ad-picker.integration.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback.integration.test.ts
+    │   │   │   │   │   ├── channel-connection-token-check.integration.test.ts
     │   │   │   │   │   └── channel-connection.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── channel-connection-error.util.unit.test.ts
@@ -239,6 +240,7 @@ src/
     │   │   │   │   │   ├── channel-connection-meta-callback.serializer.unit.test.ts
     │   │   │   │   │   ├── channel-connection-meta-callback.service.unit.test.ts
     │   │   │   │   │   ├── channel-connection-state.unit.test.ts
+    │   │   │   │   │   ├── channel-connection-token-check.processor.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token-isolation.policy.unit.test.ts
     │   │   │   │   │   ├── channel-connection-token.service.db.unit.test.ts
     │   │   │   │   │   ├── channel-connection-usage.repository.db.unit.test.ts
@@ -260,9 +262,16 @@ src/
     │   │   │   │   ├── meta-graph.client.ts
     │   │   │   │   ├── meta-login.ts
     │   │   │   │   └── meta-signature.ts
+    │   │   │   ├── queues/
+    │   │   │   │   ├── channel-connection-token-check.job.schema.ts
+    │   │   │   │   └── channel-connection-token-check.queue.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── channel-connection.bulk.seed.ts
     │   │   │   │   └── index.ts
+    │   │   │   ├── workers/
+    │   │   │   │   ├── channel-connection-token-check.constants.ts
+    │   │   │   │   ├── channel-connection-token-check.processor.ts
+    │   │   │   │   └── channel-connection-token-check.worker.ts
     │   │   │   ├── channel-connection-error.util.ts
     │   │   │   ├── channel-connection-meta-callback-confirmation-code.util.ts
     │   │   │   ├── channel-connection-meta-callback-ingress.plugin.ts

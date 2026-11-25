@@ -1008,6 +1008,54 @@ export class ChannelAccountService
   }
 
   /**
+   * The token check's profile refresh (P17, IA6 (4), MC10): the Instagram extension's profile and
+   * the channel account's `display_name` (`@username`, as the pick writes it) in one unit — only
+   * while the account is not revoked and is still this Instagram account.
+   *
+   * @remarks
+   * Algorithm: one unit — the account, its Instagram row, the extension's guarded profile write,
+   * then the display name when Meta named the username. Failure modes: none of its own — `false`
+   * when the account is gone, revoked or no longer this Instagram account. Side effects: at most one
+   * row of each table written.
+   */
+  async refreshAccountProfile({
+    scope,
+    organizationId,
+    channelAccountId,
+    profile,
+  }: ChannelConnectionAccountScope & {
+    channelAccountId: number;
+    profile: InstagramAccountProfile;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const account = await this.accountRepository.findById({ organizationId, channelAccountId });
+        if (account === null || account.provider_account_id !== profile.instagramUserId) {
+          return false;
+        }
+        const instagram = await this.findInstagramRow({ scope, organizationId, account });
+        if (instagram === null) return false;
+        const refreshed = await this.instagramExtensionService.recordProfileRefresh({
+          scope,
+          instagramAccount: instagramKeyOf(instagram),
+          instagramUserId: profile.instagramUserId,
+          profile,
+        });
+        if (!refreshed) return false;
+        if (profile.username !== null) {
+          await this.accountRepository.updateDisplayName({
+            organizationId,
+            channelAccountId,
+            displayName: `@${profile.username}`.slice(0, 100),
+          });
+        }
+        return true;
+      },
+    });
+  }
+
+  /**
    * Billing's accounts port (routes-final § 8.10, `BillingChannelAccountsPort`): the organization's
    * not-revoked channel accounts, oldest connected first, as `{ publicId, instagramUserId,
    * connectedAt }` — the trial's accounts (route 102) and the kept accounts of a move down (route 103).

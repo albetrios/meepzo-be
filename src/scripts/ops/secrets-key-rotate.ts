@@ -38,10 +38,7 @@ import { webhooks } from '@/domains/notify/sub-domains/webhook/webhook.schema.js
 import { channel_connection_tokens } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.schema.js';
 import { getEnv } from '@/shared/config/env.config.js';
 import { ConfigurationError } from '@/shared/errors/index.js';
-import {
-  decryptFieldSecret,
-  encryptFieldSecret,
-} from '@/shared/utils/security/field-secret-encryption.util.js';
+import { reencryptFieldSecretToCurrentVersion } from '@/shared/utils/security/field-secret-encryption.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { isMain, parseCommandLine } from '@tooling/setup/common/script.js';
 
@@ -55,32 +52,6 @@ function parseOptions(): RotateOptions {
     options: { apply: { type: 'boolean' } },
   });
   return { apply: values.apply === true };
-}
-
-/** Current write-version prefix (e.g. `v1:`) that fully-migrated rows already carry. */
-function currentVersionPrefix(): string {
-  return `${getEnv().SECRETS_ENCRYPTION_CURRENT_VERSION}:`;
-}
-
-/**
- * Re-encrypts one stored value onto the current version. Returns the rewritten value plus a
- * `changed` flag; rows already at the current version are left byte-for-byte untouched.
- */
-function reencryptToCurrentVersion({
-  stored,
-  currentPrefix,
-}: {
-  stored: string | null;
-  currentPrefix: string;
-}): { next: string | null; changed: boolean } {
-  if (stored === null || stored.length === 0) {
-    return { next: stored, changed: false };
-  }
-  if (stored.startsWith(currentPrefix)) {
-    return { next: stored, changed: false };
-  }
-  const next = encryptFieldSecret(decryptFieldSecret(stored));
-  return { next, changed: next !== stored };
 }
 
 /** One stored value a rotation pass reads: its row id and its ciphertext. */
@@ -228,13 +199,13 @@ export async function rotateFieldSecrets({
   apply: boolean;
 }): Promise<FieldSecretRotationReport> {
   await assertConnectedRoleBypassesRowLevelSecurity();
-  const currentPrefix = currentVersionPrefix();
   const updatedByColumn: Record<string, number> = {};
   for (const { column, readStoredValues, writeStoredValue } of FIELD_SECRET_ROTATION_COLUMNS) {
     let updated = 0;
     for (const row of await readStoredValues()) {
-      const { next, changed } = reencryptToCurrentVersion({ stored: row.stored, currentPrefix });
-      if (!changed || next === null) continue;
+      if (row.stored === null) continue;
+      const next = reencryptFieldSecretToCurrentVersion(row.stored);
+      if (next === null) continue;
       updated += 1;
       if (apply) await writeStoredValue({ id: row.id, next });
     }

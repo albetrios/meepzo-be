@@ -164,25 +164,26 @@ told again.
 
 ### The daily account check (IA8)
 
+Since feat-instagram-dm-sending R51 only the subscription retry is left here: the profile refresh moved to the channel
+connection's token check (MC10, P17). The job is deleted when the webhook subscription check (WC-25, R40) takes the
+retry over.
+
 ```mermaid
 stateDiagram-v2
     [*] --> listed: 04:00 UTC sweep — every connected account of a live organization
     listed --> queued: one job per account per UTC day (job id account + day)
     queued --> parked: Instagram down (circuit open) or throttling — no attempt spent
     parked --> queued: the pause ends (5 min, or Instagram's wait)
-    queued --> checked: token ends later, or renewed; profile refreshed; subscribed if not
-    queued --> broken: token end passed (no call), or Instagram refuses the token
-    queued --> superseded: a reconnect saved a newer token while renewing
-    queued --> kept: Instagram down while renewing — error kept, account connected, job retried
+    queued --> checked: subscribed if not (no renewal since WC-35; the profile refresh is the connection's token check's since R51)
+    queued --> broken: Instagram refuses the token at the subscription
     broken --> [*]: markConnectionBroken → reconnect notice after commit
     checked --> [*]
-    superseded --> [*]
 ```
 
 ### The reconnect notice (IA9)
 
 One job per account and break. It re-reads the account (a break that is over by then is skipped),
-finds every active member holding `instagram-account:manage` through tenancy's membership service,
+finds every active member holding `channel-account:manage` (Owner, Admin — CA4, WC-46) through tenancy's membership service,
 and sends each an in-app notification with the email channel — type `instagram.reconnect_required`,
 in the organization's language, linking to the frontend's Instagram page — through notify's
 `NotificationService.createOrganizationNotifications`, keyed once-only by the break.

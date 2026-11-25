@@ -79,6 +79,8 @@ import { createNotificationRetentionWorker } from '@/domains/notify/sub-domains/
 import { NOTIFICATION_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-retention.constants.js';
 import { createInstagramAccountDailyCheckWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.worker.js';
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { createChannelConnectionTokenCheckWorker } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.worker.js';
+import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { createInstagramSendSlowWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-slow.worker.js';
@@ -247,8 +249,8 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: () => createNotificationWorker(),
   },
   {
-    // Launch IA9: tells the organization's `instagram-account:manage` holders, in the app and by
-    // email, that its Instagram account must be connected again — one job per account and break,
+    // Launch IA9 (WC-46): tells the organization's `channel-account:manage` holders (CA4), in the app
+    // and by email, that its Instagram account must be connected again — one job per account and break,
     // enqueued after the guarded status change commits (API and worker processes alike).
     queueName: INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME,
     family: 'notify',
@@ -563,6 +565,23 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: (workerContainers) =>
       createInstagramAccountDailyCheckWorker({
         accountService: workerContainers.appDomain.instagramAccountService,
+      }),
+  }),
+  // feat-instagram-dm-sending MC10 (WC-34): the channel connection's daily token check — the hourly
+  // sweep and one check per due connection ride one queue. Never paused (F3): a check that meets
+  // Meta down returns `deferred` and the next sweep adds it again. Every Meta call runs between two
+  // short organization contexts, never inside one. Off until the Meta app is configured.
+  retentionDefinition({
+    queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'channel connection token check worker',
+    holdsConnectionDuringExternalIo: false,
+    isEnabled: () => isMetaConfigured(),
+    create: (workerContainers) =>
+      createChannelConnectionTokenCheckWorker({
+        connectionService: workerContainers.appDomain.channelConnectionService,
+        accountPort: workerContainers.appDomain.channelAccountService,
+        usageService: workerContainers.appDomain.channelConnectionUsageService,
       }),
   }),
   // Launch D8 (routes-final § 3.B AU25, AQ7): the run and automation clean-ups — every hour the

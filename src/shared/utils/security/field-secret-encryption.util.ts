@@ -138,3 +138,24 @@ export function decryptFieldSecret(stored: string): string {
   decipher.setAuthTag(authTag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
 }
+
+/**
+ * The stored value re-encrypted onto the current key version (`SECRETS_ENCRYPTION_CURRENT_VERSION`),
+ * or `null` when it already is there (or is the empty "no secret" value).
+ *
+ * @remarks
+ * - Algorithm: a value whose `<version>:` prefix is the current version is left alone; any other is
+ *   decrypted with its own version's key and encrypted again with the current one, in one step, so
+ *   the plain value never leaves this function.
+ * - Failure modes: as {@link decryptFieldSecret} — a value without a recognised prefix, a version
+ *   with no key, or a failed auth tag throws.
+ * - Side effects: none.
+ * - Notes: one rule for the operator rotation (`pnpm ops:secrets:rotate`) and the channel
+ *   connection's daily token check, which moves a token still on an old key as it goes
+ *   (feat-instagram-dm-sending S26, WC-34).
+ */
+export function reencryptFieldSecretToCurrentVersion(stored: string): string | null {
+  if (stored === '') return null;
+  if (stored.startsWith(`${getEnv().SECRETS_ENCRYPTION_CURRENT_VERSION}:`)) return null;
+  return encryptFieldSecret(decryptFieldSecret(stored));
+}

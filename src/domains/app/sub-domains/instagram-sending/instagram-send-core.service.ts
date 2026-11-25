@@ -911,10 +911,13 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     allTest: { reason: string } | null;
     context: InstagramSendTicketContext;
   }): Promise<boolean> {
-    const checkFastMessage = rules.checkFastMessage;
-    if (checkFastMessage === undefined) return true;
-    const check = await context.runInDatabaseSlot(() =>
-      checkFastMessage({ scope: target.scope, target, key, now }),
+    if (rules.checkFastMessage === undefined) return true;
+    // Called on `rules` so a class-method check keeps its `this`.
+    const check = await context.runInDatabaseSlot(
+      async () =>
+        (await rules.checkFastMessage?.({ scope: target.scope, target, key, now })) ?? {
+          kind: 'send' as const,
+        },
     );
     if (check.kind === 'send') return true;
     if (isTest) await this.endTest({ target, context });

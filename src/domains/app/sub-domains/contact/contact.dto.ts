@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { listSearchSortSchema } from '@/shared/utils/http/list-query.util.js';
+import { cursorPaginationSchema } from '@/shared/utils/http/pagination.util.js';
 import { publicIdPatternFor } from '@/shared/utils/identity/public-id.util.js';
 import {
   expectedUpdatedAtSchema,
@@ -7,6 +8,7 @@ import {
 } from '@/shared/utils/validation/record-fields.util.js';
 import { trimmedStringMinMax } from '@/shared/utils/validation/validation.util.js';
 import {
+  CONTACT_ACTIVITY_LIMIT_MAX,
   CONTACT_BULK_ACTIONS,
   CONTACT_BULK_ACTION_IDS_MAX_COUNT,
   CONTACT_CAME_IN_VIA_VALUES,
@@ -233,6 +235,19 @@ export const listContactTagsQueryDto = z
     limit: z.coerce.number().int().min(1).max(CONTACT_TAG_LIST_MAX_COUNT).optional(),
   })
   .strict();
+
+/**
+ * Query of `GET /app/contacts/{contact_id}/activity` (route 24, CT14): `limit` (1–100, default 50 in
+ * the validator — a defaulted param serializes as `required` in OpenAPI) and the opaque `after`.
+ */
+export const contactActivityQueryDto = cursorPaginationSchema
+  .extend({
+    limit: z.coerce.number().int().min(1).max(CONTACT_ACTIVITY_LIMIT_MAX).optional(),
+  })
+  .strict();
+
+/** Route 26's body (CT15): strictly empty — absent or `{}`. */
+export const emptyContactActionBodyDto = z.object({}).strict().nullish();
 
 /** The parsed query of {@link listContactsQueryDto}. */
 export type ListContactsQueryInput = z.infer<typeof listContactsQueryDto>;

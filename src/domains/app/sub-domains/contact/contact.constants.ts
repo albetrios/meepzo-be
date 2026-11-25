@@ -54,6 +54,12 @@ export type ContactBulkAction = (typeof CONTACT_BULK_ACTIONS)[number];
 /** The tag list's page size: default and most (route 22, CT8). */
 export const CONTACT_TAG_LIST_MAX_COUNT = 1000;
 
+/** Route 24's page size (CT14): at most 100 entries. */
+export const CONTACT_ACTIVITY_LIMIT_MAX = 100;
+
+/** Route 24's page size without `limit` (3.A.8). */
+export const CONTACT_ACTIVITY_LIMIT_DEFAULT = 50;
+
 /**
  * How she came in (`came_in_via`, CT3): the way to start of her first run — every channel's
  * `trigger_type` values (AU8). Mirrors `chk_contacts_came_in_via`.

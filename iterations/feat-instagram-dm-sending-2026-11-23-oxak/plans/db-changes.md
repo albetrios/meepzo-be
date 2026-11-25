@@ -1549,6 +1549,7 @@ erDiagram
   row while it waits. Copies of the account, automation and contact are kept without a reference.
   Kept 30 days (D50) — split by week of the run start (P33, P13), one of the seven split tables (P96). Has a public
   id (prefix not named by the plan).
+- **Built R19** ([AS-BUILT](../AS-BUILT.md), [P136](decisions.md)): `app.instagram_messages` in the new migration `20261125090000_app_instagram_messages.sql`, split by the ISO week (UTC) of `automation_run_started_at` (`app.fn_create_weekly_partitions`, parts `_pIYYYwIW`, 5 weeks back to 3 ahead, DEFAULT part); prefix `igm`; columns as designed with the plan's names renamed (`message_number`, `version_number`, `wording_number`, `text_number`, `is_counted_as_direct_message`, `channel_account_id`); `message_kind` NOT NULL (`text` for the non-list types), `not_before` / `trigger_occurred_at` nullable (a broadcast has no trigger); the reason list adds `wait_expired`, `following`, `not_following`; the plan's CHECKs 1–8; the run key `CASCADE`; indexes: public id, run place (`NULLS NOT DISTINCT`), run, pick, automation waiting, broadcast, own-message lookup, person sent, automation failed, **contact** `(organization_id, contact_id, created_at)` (route 24 and the contact's failed messages — replaces the failed-per-contact partial), expiry, sending.
 - **Table:** `app.instagram_messages` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3234–L3355, plan:L3850–L3891; D8, D9, D13, D17, D29–D33, D50, D68, D72.
 - **Added:** new — the launch claimed a send on the run and sent inline (Standing deviation "Sending
@@ -1612,6 +1613,7 @@ erDiagram
   for example `too_fast`, `bad_text`, `no_answer`), HTTP status, error codes and how long it took.
   Feeds the "in a row" and "30% bad" rules. The message, automation and contact are copies without a
   reference. Kept 8 days (D16) — split by day (P33), one of the seven split tables (P96). No public id.
+- **Built R19** ([AS-BUILT](../AS-BUILT.md)): as designed, split by UTC day of `started_at` (8 days back to 14 ahead, DEFAULT part); `instagram_message_id` is our message's internal id (the plan's `message_id`); `duration_milliseconds`; indexes account, automation (the organization cascade), started (INCLUDE `result_group`).
 - **Table:** `app.instagram_send_attempts` (P38; Instagram's, [P43](decisions.md))
 - **Sources:** plan:L3357–L3383, plan:L5915–L5943; D16, D19.
 - **Added:** new.

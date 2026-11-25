@@ -68,6 +68,7 @@ describe('app domain wiring', () => {
       'instagramAccountService',
       'instagramAccountSettingsService',
       'instagramMediaService',
+      'instagramMessageService',
       'instagramSendLaneService',
       'instagramSendingService',
       'instagramWebhookEventService',
@@ -79,6 +80,10 @@ describe('app domain wiring', () => {
     expect(application.appDomain.contactService).toBeInstanceOf(ContactService);
     expect(application.appDomain.automationService).toBeInstanceOf(AutomationService);
     expect(application.appDomain.automationRunService).toBeInstanceOf(AutomationRunService);
+    // Instagram's sending port is its message service (AU35, ROUTE row R19).
+    expect(application.appDomain.channelSendingPorts.instagram).toBe(
+      application.appDomain.instagramMessageService,
+    );
     expect(application.appDomain.instagramWebhookEventService).toBeInstanceOf(
       InstagramWebhookEventService,
     );
@@ -128,9 +133,12 @@ describe('app domain wiring', () => {
       `GET ${APP_PREFIX}/automations`,
       `GET ${APP_PREFIX}/automations/:automation_id`,
       `GET ${APP_PREFIX}/automations/:automation_id/backfills/:automation_backfill_id`,
+      `GET ${APP_PREFIX}/automations/:automation_id/failed-messages/summary`,
       `GET ${APP_PREFIX}/contact-tags`,
       `GET ${APP_PREFIX}/contacts`,
       `GET ${APP_PREFIX}/contacts/:contact_id`,
+      `GET ${APP_PREFIX}/contacts/:contact_id/activity`,
+      `GET ${APP_PREFIX}/contacts/:contact_id/failed-messages/summary`,
       `GET ${APP_PREFIX}/segments`,
       `GET ${APP_PREFIX}/segments/:segment_id`,
       `GET ${APP_PREFIX}/social/channel-accounts`,
@@ -152,9 +160,11 @@ describe('app domain wiring', () => {
       `POST ${APP_PREFIX}/automations`,
       `POST ${APP_PREFIX}/automations/:automation_id/backfills`,
       `POST ${APP_PREFIX}/automations/:automation_id/duplicate`,
+      `POST ${APP_PREFIX}/automations/:automation_id/failed-messages/retry`,
       `POST ${APP_PREFIX}/automations/:automation_id/go-live`,
       `POST ${APP_PREFIX}/automations/:automation_id/keyword-test`,
       `POST ${APP_PREFIX}/automations/:automation_id/pause`,
+      `POST ${APP_PREFIX}/contacts/:contact_id/failed-messages/retry`,
       `POST ${APP_PREFIX}/contacts/bulk-actions`,
       `POST ${APP_PREFIX}/segments`,
       `POST ${APP_PREFIX}/segments/audience-count`,

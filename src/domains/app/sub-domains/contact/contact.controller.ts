@@ -11,16 +11,21 @@ import {
   buildAuditActorFields,
   recordScopedAuditEvent,
 } from '@/shared/utils/infrastructure/audit-request-context.util.js';
+import {
+  FAILED_MESSAGES_RETRY_AUDIT_ACTION,
+  failedMessagesRetryAuditMetadata,
+} from '@/domains/app/app.failed-messages.serializer.js';
 import { CONTACT_AUDIT_RESOURCE_TYPE } from './contact.constants.js';
 import type { ContactCaller, ContactService } from './contact.service.js';
 import {
+  validateContactActivityQuery,
   validateContactBulkActionBody,
   validateListContactTagsQuery,
   validateListContactsQuery,
   validateUpdateContactBody,
 } from './contact.validator.js';
 
-/** A request on one contact (routes 19, 20, 23). */
+/** A request on one contact (routes 19, 20, 23–26). */
 type ContactRequest = FastifyRequest<{ Params: { contact_id: string } }>;
 
 /** The `{contact_id}` path id, validated. */
@@ -36,8 +41,79 @@ function contactCallerOf(request: FastifyRequest): ContactCaller {
   };
 }
 
+/** One audit entry of a contact route (resource `contact`). */
+async function recordContactAudit({
+  request,
+  action,
+  severity,
+  metadata,
+}: {
+  request: FastifyRequest;
+  action: string;
+  severity: 'INFO' | 'WARNING';
+  metadata: Record<string, unknown>;
+}): Promise<void> {
+  await recordScopedAuditEvent({
+    request,
+    input: {
+      ...buildAuditActorFields(requirePrincipal(request)),
+      action,
+      resource_type: CONTACT_AUDIT_RESOURCE_TYPE,
+      organizationPublicId: requireOrganizationScope(request).organizationPublicId,
+      severity,
+      metadata,
+    },
+  });
+}
+
 /**
- * Builds the handler map for the contact routes (routes-final § 3.A — routes 18–23): reads the
+ * The handlers of routes 24–26 (routes-final § 3.A, CTC9): "what happened" and her failed messages'
+ * summary and retry, over her channel's sending port (6.B).
+ */
+function createContactMessageHandlers(service: ContactService) {
+  return {
+    listContactActivity: async (request: ContactRequest, _reply: FastifyReply) => {
+      const page = await service.listContactActivity({
+        scope: requireOrganizationScope(request),
+        contactPublicId: contactPublicIdOf(request),
+        query: validateContactActivityQuery(request.query),
+      });
+      return paginatedResponse({
+        data: page.items,
+        request_id: getRequestIdentifier(request),
+        pagination: { per_page: page.limit, next: page.next_cursor, has_more: page.has_more },
+        extraMeta: { message_horizon_days: page.messageHorizonDays },
+      });
+    },
+    summarizeContactFailedMessages: async (request: ContactRequest, _reply: FastifyReply) => {
+      const data = await service.summarizeContactFailedMessages({
+        scope: requireOrganizationScope(request),
+        contactPublicId: contactPublicIdOf(request),
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    retryContactFailedMessages: async (request: ContactRequest, _reply: FastifyReply) => {
+      const contactPublicId = contactPublicIdOf(request);
+      const { data, retry } = await service.retryContactFailedMessages({
+        caller: contactCallerOf(request),
+        contactPublicId,
+      });
+      await recordContactAudit({
+        request,
+        action: FAILED_MESSAGES_RETRY_AUDIT_ACTION,
+        severity: 'INFO',
+        metadata: {
+          contact_public_id: contactPublicId,
+          ...failedMessagesRetryAuditMetadata(retry),
+        },
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+  };
+}
+
+/**
+ * Builds the handler map for the contact routes (routes-final § 3.A — routes 18–26): reads the
  * organization scope, validates the query, path id or body, calls {@link ContactService} and shapes
  * the answer.
  *
@@ -46,35 +122,12 @@ function contactCallerOf(request: FastifyRequest): ContactCaller {
  * with public ids and field names only, never a value (CT4): route 20 records `app.contact.update`
  * (INFO, `changed_fields`) when the note or tags changed, and `app.contact.automations_pause` /
  * `.automations_resume` (WARNING) when the pause flipped; route 21 `app.contact.bulk_action` (INFO,
- * the action and `matched_count`); route 23 `app.contact.delete` (WARNING). The reads write none.
+ * the action and `matched_count`); route 23 `app.contact.delete` (WARNING); route 26
+ * `app.instagram_message.retry` (INFO, the counts — SN18). The reads write none.
  */
 export function createContactController(service: ContactService) {
-  /** One audit entry of a contact route (resource `contact`). */
-  async function recordContactAudit({
-    request,
-    action,
-    severity,
-    metadata,
-  }: {
-    request: FastifyRequest;
-    action: string;
-    severity: 'INFO' | 'WARNING';
-    metadata: Record<string, unknown>;
-  }): Promise<void> {
-    await recordScopedAuditEvent({
-      request,
-      input: {
-        ...buildAuditActorFields(requirePrincipal(request)),
-        action,
-        resource_type: CONTACT_AUDIT_RESOURCE_TYPE,
-        organizationPublicId: requireOrganizationScope(request).organizationPublicId,
-        severity,
-        metadata,
-      },
-    });
-  }
-
   return {
+    ...createContactMessageHandlers(service),
     listContacts: async (request: FastifyRequest, _reply: FastifyReply) => {
       const page = await service.listContacts({
         scope: requireOrganizationScope(request),

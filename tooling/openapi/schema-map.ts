@@ -8,6 +8,7 @@
  */
 import {
   contactBulkActionBodyDto,
+  emptyContactActionBodyDto,
   updateContactBodyDto,
 } from '@/domains/app/sub-domains/contact/contact.dto.js';
 import {
@@ -247,4 +248,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   'POST /api/v1/app/segments': createSegmentBodyDto,
   'PATCH /api/v1/app/segments/{segment_id}': updateSegmentBodyDto,
   'POST /api/v1/app/segments/audience-count': segmentAudienceCountBodyDto,
+  // The failed-message retries (routes 26 and 37, ROUTE R19): strictly empty bodies.
+  'POST /api/v1/app/contacts/{contact_id}/failed-messages/retry': emptyContactActionBodyDto,
+  'POST /api/v1/app/automations/{automation_id}/failed-messages/retry': emptyAutomationActionDto,
 };

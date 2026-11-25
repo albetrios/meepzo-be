@@ -1558,7 +1558,7 @@ As 3.5.
 
 **Contact bulk action result** (route 21): `action`, `matched_count`, `is_queued` (always `true`).
 
-**Contact activity item** (route 24): `id` (the message's or run event's public id), `source` (`message` · `run_event`),
+**Contact activity item** (route 24): `id` (the message's public id; `null` for a run event, which has none — [P136](decisions.md)), `source` (`message` · `run_event`),
 `occurred_at`, `automation` (`{ id, name }` or null for a broadcast), `automation_run_id` (`run_…` or null),
 `broadcast_id` (or null), and per source — `message`: `message_type`, `message_number`, `status`, `reason`, `channel`;
 `run_event`: `event_type`, `status`.
@@ -3157,8 +3157,10 @@ Indexes (local to each part): unique `(public_id, automation_run_started_at)`; t
 not_before) WHERE status = 'waiting'`; per run `(automation_run_id) WHERE automation_run_id IS NOT NULL`; per broadcast
 `(broadcast_id, status) WHERE broadcast_id IS NOT NULL`; the own-message lookup (5, WHQ1) `(channel_account_id,
 instagram_message_id) WHERE instagram_message_id IS NOT NULL`; the person limit `(contact_id, sent_at) WHERE status =
-'sent'`; the retry summaries `(organization_id, automation_id, created_at) WHERE status = 'failed'` and
-`(organization_id, contact_id, created_at) WHERE status = 'failed'`; the expiry `(trigger_occurred_at) WHERE status =
+'sent'`; the retry summaries `(organization_id, automation_id, created_at) WHERE status = 'failed'` and, as built, `(organization_id,
+contact_id, created_at)` for every status (route 24 and the contact's failed messages — [P136](decisions.md)); the
+run place unique `(organization_id, automation_run_id, message_type, message_number, message_kind,
+automation_run_started_at) NULLS NOT DISTINCT` (plan §19.1); the expiry `(trigger_occurred_at) WHERE status =
 'waiting' AND lane IN ('slow', 'reply')`. RLS: organization policy + the retention arm in `USING`; enabled and forced.
 
 `app.instagram_send_attempts` — split by day of `started_at`: `id`, `organization_id`, copies `channel_account_id`,
@@ -3166,6 +3168,11 @@ instagram_message_id) WHERE instagram_message_id IS NOT NULL`; the person limit 
 `reply` · `fast` · `broadcast` · `none`); `started_at`; `result_group` (`sent` or a group of 6.A.10; empty while the call
 runs); `http_status`, `error_code`, `error_subcode`; `duration_milliseconds`. Indexes `(channel_account_id, started_at
 DESC)` ("in a row", the outage check), `(started_at)`. RLS as messages.
+
+**As built (ROUTE R19, [P136](decisions.md)):** migration `20261125090000_app_instagram_messages.sql` with
+`app.fn_create_weekly_partitions` (ISO weeks); public id `igm`; `message_kind` NOT NULL, `trigger_occurred_at`
+nullable; the reason list adds `wait_expired`, `following`, `not_following`. The retry runs in the request
+(`is_queued: false`) until the `retry-failed` job lands (R46); route 24's run-event items carry `id: null`.
 
 #### 6.B.4 Permissions
 

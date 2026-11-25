@@ -27,6 +27,8 @@ TableGroup app {
   app.instagram_account_settings
   app.instagram_accounts
   app.instagram_media
+  app.instagram_messages
+  app.instagram_send_attempts
   app.instagram_send_day_counts
   app.instagram_send_lanes
   app.instagram_send_minute_counts
@@ -589,6 +591,74 @@ Table app.instagram_media {
 
 Note app.instagram_media {
   'RLS: enabled\nPolicies: instagram_media_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_messages {
+  AND text
+  asks smallint [not null]
+  automation_id bigint
+  automation_run_id bigint
+  automation_run_started_at timestamptz [not null]
+  broadcast_id bigint
+  channel varchar(14)
+  channel_account_id bigint [not null]
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  error_code int
+  error_subcode int
+  id bigint [increment, not null]
+  instagram_message_id varchar(128)
+  is_counted_as_direct_message =
+  lane varchar(9) [not null]
+  message_kind varchar(14) [not null]
+  message_number smallint
+  message_type varchar(16) [not null]
+  not_before timestamptz
+  OR 
+  organization_id bigint [not null]
+  owner_retry_at timestamptz
+  public_id varchar(28) [not null]
+  reason varchar(30)
+  sending_at timestamptz
+  sent_at timestamptz
+  status varchar(9) [not null]
+  text_number smallint
+  tries smallint [not null]
+  trigger_occurred_at timestamptz
+  updated_at timestamptz [not null]
+  version_number smallint
+  wording_number smallint
+  indexes {
+    (id, automation_run_started_at) [pk]
+  }
+}
+
+Note app.instagram_messages {
+  'Partitioned BY RANGE (automation_run_started_at)\nRLS: enabled\nPolicies: instagram_messages_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_send_attempts {
+  automation_id bigint
+  channel_account_id bigint [not null]
+  contact_id bigint [not null]
+  count_group varchar(9) [not null]
+  duration_milliseconds int
+  error_code int
+  error_subcode int
+  http_status smallint
+  id bigint [increment, not null]
+  instagram_message_id bigint [not null]
+  lane varchar(9) [not null]
+  organization_id bigint [not null]
+  result_group varchar(20)
+  started_at timestamptz [not null]
+  indexes {
+    (id, started_at) [pk]
+  }
+}
+
+Note app.instagram_send_attempts {
+  'Partitioned BY RANGE (started_at)\nRLS: enabled\nPolicies: instagram_send_attempts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.instagram_send_day_counts {

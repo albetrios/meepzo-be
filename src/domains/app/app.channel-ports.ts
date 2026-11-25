@@ -11,12 +11,12 @@ import type { ChannelAccountChannel } from '@/domains/app/sub-domains/channel-ac
  * the caller picks it by the account's `channel`.
  *
  * @remarks
- * Types only: Instagram's implementation is sub-domain 6's message service (ROUTE rows R19–R20); the
+ * Types, plus the empty failed-message summary: Instagram's implementation is sub-domain 6's message service (ROUTE rows R19–R20); the
  * run engine (4.B) saves every step through it since ROUTE row R14 and takes results at its
  * `recordMessageResult` (a follow check's `sent` result carries `reason` `following` or
- * `not_following`). Until R19–R20 wire `channelSendingPorts.instagram`, the engine throws on an event
- * of that channel and the automation routes skip the port's side effects (a pause's cancel is still
- * recorded as `cancelled_before_at`, which the lanes read).
+ * `not_following`). Instagram's port is wired since ROUTE row R19 (`InstagramMessageService`); a
+ * channel without one makes the engine throw on its event and the automation routes skip the port's
+ * side effects (a pause's cancel is still recorded as `cancelled_before_at`, which the lanes read).
  */
 
 /** A database handle the caller's transaction runs on — the port writes in the caller's commit. */
@@ -38,7 +38,12 @@ export type ChannelMessageStep =
 /** Where a waiting message comes from: a run of an automation, or a broadcast recipient. */
 export type ChannelMessageSource =
   | { automationId: number; automationRunId: number; automationRunStartedAt: Date }
-  | { broadcastId: number; broadcastRecipientId: number };
+  | {
+      broadcastId: number;
+      broadcastRecipientId: number;
+      /** The recipient row's creation — the message's week split key (SN17). */
+      broadcastRecipientCreatedAt: Date;
+    };
 
 /**
  * What `saveWaitingMessage` is passed (AU35): the content **by reference only** — the step path and
@@ -119,9 +124,72 @@ export type ChannelInboundEventKind =
   | 'tag_added'
   | 'tag_removed';
 
+/** Why a failed message cannot go again now (SN18, CT15, AU18). */
+export type ChannelFailedMessageBlock =
+  | 'too_old'
+  | 'chat_closed'
+  | 'final_for_person'
+  | 'text_refused'
+  | 'broadcast'
+  | 'already_retried';
+
+/**
+ * Whose failed messages a summary or retry reads (routes 25–26 for a contact, 36–37 for an
+ * automation): the verified organization scope and the internal id.
+ */
+export interface ChannelFailedMessagesTarget {
+  scope: OrganizationPrincipalDatabaseScope;
+  organizationId: number;
+  by: 'automation' | 'contact';
+  id: number;
+}
+
+/** The failed messages of about the last 30 days, counted (SN18; the Failed messages summary). */
+export interface ChannelFailedMessagesSummary {
+  failedCount: number;
+  retryableCount: number;
+  notRetryable: Record<ChannelFailedMessageBlock, number>;
+  horizonDays: number;
+}
+
+/** What one press of "Retry failed messages" did (SN18; the Failed messages retry). */
+export interface ChannelFailedMessagesRetry {
+  /** The summary at the press — the retry's audit counts. */
+  summary: ChannelFailedMessagesSummary;
+  /** How many go back to `waiting`. */
+  expectedRetryCount: number;
+  /** `true` when a background job does it; `false` when it was done in the request. */
+  isQueued: boolean;
+}
+
+/** A keyset position in a contact's "what happened" (CT14): `(occurred_at, source, id)`, newest first. */
+export interface ChannelActivityCursor {
+  /** The entry's time as `cursorTimestampSelection` text (microseconds kept). */
+  occurredAt: string;
+  source: 'message' | 'run_event';
+  id: number;
+}
+
+/** One message of a contact's "what happened" (CT14, route 24) — never text. */
+export interface ChannelContactMessageEntry {
+  id: number;
+  publicId: string;
+  /** `cursorTimestampSelection` text of `created_at`. */
+  occurredAt: string;
+  automation: { id: string; name: string } | null;
+  automationRunPublicId: string | null;
+  broadcastPublicId: string | null;
+  messageType: string;
+  messageNumber: number | null;
+  status: string;
+  reason: string | null;
+  channel: string | null;
+}
+
 /**
  * The outbound port a channel's sending sub-domain implements (AU35, SN22): save a waiting message in
- * the caller's transaction, cancel or skip waiting ones, read the month's use.
+ * the caller's transaction, cancel or skip waiting ones, read a contact's messages, and count and
+ * retry the failed ones.
  */
 export interface ChannelSendingPort {
   /** Writes one waiting message in the caller's transaction and wakes its lane after commit. */
@@ -130,7 +198,38 @@ export interface ChannelSendingPort {
   cancelWaitingMessages(input: ChannelWaitingMessageSelection): Promise<number>;
   /** Skips the selected waiting messages (`skipped` with the reason) — live edits, P35's `replaced`. */
   skipWaitingMessages(input: ChannelWaitingMessageSelection): Promise<number>;
+  /** Her messages of about the last 30 days, newest first, after the cursor (route 24, CT14). */
+  listContactMessages(input: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    contactId: number;
+    after: ChannelActivityCursor | null;
+    limit: number;
+  }): Promise<ChannelContactMessageEntry[]>;
+  /** Counts the failed messages of an automation or a contact, changing nothing (routes 25, 36). */
+  summarizeFailedMessages(
+    input: ChannelFailedMessagesTarget,
+  ): Promise<ChannelFailedMessagesSummary>;
+  /** Puts the allowed failed messages back to `waiting`, each at most once (routes 26, 37). */
+  retryFailedMessages(input: ChannelFailedMessagesTarget): Promise<ChannelFailedMessagesRetry>;
 }
 
 /** One sending port per channel — the caller picks it by the account's `channel`. */
 export type ChannelSendingPorts = Partial<Record<ChannelAccountChannel, ChannelSendingPort>>;
+
+/** A summary with nothing failed — the answer for a channel without a sending port. */
+export function emptyFailedMessagesSummary(): ChannelFailedMessagesSummary {
+  return {
+    failedCount: 0,
+    retryableCount: 0,
+    notRetryable: {
+      too_old: 0,
+      chat_closed: 0,
+      final_for_person: 0,
+      text_refused: 0,
+      broadcast: 0,
+      already_retried: 0,
+    },
+    horizonDays: 30,
+  };
+}

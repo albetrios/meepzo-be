@@ -13,7 +13,8 @@ starter questions, the ad, the trigger tag), its public reply and "Reply like a 
 one `steps` object for what it sends (hello, follow, email, phone, 1–10 messages of 7 kinds, tags)
 (`app.automations`). `draft` → `live` ⇄ `paused`, by actions only. The team lists one account's
 automations, saves drafts, reads, saves content, deletes, goes live, pauses, duplicates and tries a
-keyword (routes 27–35, `/api/v1/app/automations`). All-time counts live in 16 slot rows
+keyword (routes 27–35, `/api/v1/app/automations`; its failed messages' summary and retry, routes
+36–37 `…/{automation_id}/failed-messages/summary` · `/retry`, over the channel's sending port — R19). All-time counts live in 16 slot rows
 (`app.automation_counts`) and the reply pacing in `app.automation_reply_states`. Event processing
 (sub-domain 5) links waiting "next post" automations to a new post through this service (no end
 date — P12); a worker removes for good the automations deleted long ago that nothing points at. The

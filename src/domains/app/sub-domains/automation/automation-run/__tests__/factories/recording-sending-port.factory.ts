@@ -1,13 +1,29 @@
 import { randomUUID } from 'node:crypto';
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
-import type {
-  ChannelMessageResult,
-  ChannelSendingPort,
-  ChannelWaitingMessageSelection,
-  SaveWaitingMessageInput,
-  SaveWaitingMessageResult,
+import {
+  type ChannelFailedMessagesRetry,
+  type ChannelMessageResult,
+  type ChannelSendingPort,
+  type ChannelWaitingMessageSelection,
+  type SaveWaitingMessageInput,
+  type SaveWaitingMessageResult,
+  emptyFailedMessagesSummary,
 } from '@/domains/app/app.channel-ports.js';
 import type { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
+
+/**
+ * The read and retry side of a fake sending port (routes 24–26, 36–37): no messages, nothing failed.
+ * The engine never calls these; a fake port spreads them in.
+ */
+export const EMPTY_MESSAGE_HISTORY_PORT_PARTS = {
+  listContactMessages: async () => [],
+  summarizeFailedMessages: async () => emptyFailedMessagesSummary(),
+  retryFailedMessages: async (): Promise<ChannelFailedMessagesRetry> => ({
+    summary: emptyFailedMessagesSummary(),
+    expectedRetryCount: 0,
+    isQueued: false,
+  }),
+};
 
 /** One waiting message the engine saved through the port (the handle left out). */
 export type RecordedWaitingMessage = Omit<SaveWaitingMessageInput, 'databaseHandle'> & {
@@ -47,6 +63,10 @@ export class RecordingSendingPort implements ChannelSendingPort {
     this.skipped.push(rest);
     return 0;
   }
+
+  readonly listContactMessages = EMPTY_MESSAGE_HISTORY_PORT_PARTS.listContactMessages;
+  readonly summarizeFailedMessages = EMPTY_MESSAGE_HISTORY_PORT_PARTS.summarizeFailedMessages;
+  readonly retryFailedMessages = EMPTY_MESSAGE_HISTORY_PORT_PARTS.retryFailedMessages;
 
   /** How many of {@link saved} {@link sendAll} has sent. */
   sentCount = 0;

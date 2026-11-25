@@ -37,6 +37,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   segment: 'segment',
   automationBackfill: 'past-comments read',
   trialAccount: 'trial account',
+  instagramMessage: 'Instagram message',
 };
 
 /** Stable, realistic 21-char example core (alphabet [a-z0-9]). */

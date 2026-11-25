@@ -24,6 +24,10 @@ import {
   type TestInstagramAccount,
   insertTestInstagramAccount,
 } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
+import { insertContact } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
+import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
+import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
+import { insertInstagramMessage } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
 
 /**
  * The delivery's Meta times: an hour ago, so the store function's 8-day replay guard (WH9 step 5,
@@ -564,6 +568,46 @@ describe('Instagram webhook — routes 16–17', () => {
         { event_kind: 'edit', skip_reason: 'edit', status: 'skipped' },
       ]);
       expect(events.some((event) => event.event_key.startsWith('read:'))).toBe(false);
+    });
+
+    it('saves nothing for the echo of our own sent message, found by its Meta id (WH9 step 3, WHQ1, P62, AC-16.3)', async () => {
+      const contact = await insertContact({
+        organizationId: team.organization.id,
+        instagramAccountId: account.id,
+        instagram_user_id: TEST_CONTACT_INSTAGRAM_USER_ID,
+      });
+      const automation = await insertAutomation({
+        organizationId: team.organization.id,
+        channelAccountId: account.channelAccountId,
+      });
+      const run = await insertAutomationRun({
+        organizationId: team.organization.id,
+        automationId: automation.id,
+        contactId: contact.id,
+      });
+      await insertInstagramMessage({
+        run,
+        channelAccountId: account.channelAccountId,
+        status: 'sent',
+        reason: null,
+        sent_at: new Date(),
+        instagram_message_id: 'm_ours',
+      });
+      const echoOf = (mid: string) => ({
+        sender: { id: account.instagramUserId },
+        recipient: { id: TEST_CONTACT_INSTAGRAM_USER_ID },
+        timestamp: ITEM_TIME_MILLISECONDS,
+        message: { mid, is_echo: true },
+      });
+
+      await deliver({
+        rawBody: deliveryBody({ changes: [], messaging: [echoOf('m_ours'), echoOf('m_hand')] }),
+      });
+
+      const events = await storedEvents(team.organization.id);
+      expect(events.map(({ event_kind, event_key }) => [event_kind, event_key])).toEqual([
+        ['echo', expect.stringContaining('m_hand')],
+      ]);
     });
 
     it('saves the new kinds received: a Live comment, a story mention, a shared post, a starter tap, a referral (WH8)', async () => {

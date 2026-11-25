@@ -2,6 +2,7 @@ import { INTERNATIONAL_PHONE_NUMBER_PATTERN } from '@/shared/constants/record-fi
 import { parseWithSchema } from '@/shared/utils/validation/parse-with-schema.util.js';
 import { queryInstantRange } from '@/shared/utils/validation/record-fields.util.js';
 import {
+  CONTACT_ACTIVITY_LIMIT_DEFAULT,
   CONTACT_EMAIL_MAX_LENGTH,
   CONTACT_EMAIL_PATTERN,
   CONTACT_TAG_LIST_MAX_COUNT,
@@ -9,6 +10,7 @@ import {
   CONTACT_TAGS_MAX_COUNT,
 } from './contact.constants.js';
 import {
+  contactActivityQueryDto,
   contactBulkActionBodyDto,
   listContactTagsQueryDto,
   listContactsQueryDto,
@@ -152,6 +154,15 @@ export function validateListContactTagsQuery(data: unknown): {
     channelAccountPublicId: parsed.channel_account_id,
     limit: parsed.limit ?? CONTACT_TAG_LIST_MAX_COUNT,
   };
+}
+
+/** Route 24's query (CT14): `limit` (default 50) and the opaque `after`. */
+export function validateContactActivityQuery(data: unknown): {
+  limit: number;
+  after: string | undefined;
+} {
+  const parsed = parseWithSchema({ schema: contactActivityQueryDto, data });
+  return { limit: parsed.limit ?? CONTACT_ACTIVITY_LIMIT_DEFAULT, after: parsed.after };
 }
 
 /**

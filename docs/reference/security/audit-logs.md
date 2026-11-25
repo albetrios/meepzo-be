@@ -123,6 +123,7 @@ A webhook URL is recorded as its origin only — the path and query can carry th
 | `app.contact.automations_pause` | `contact` | The team paused automations for one contact (`WARNING`, `metadata.contact_public_id`; D71) — after commit, best-effort |
 | `app.contact.automations_resume` | `contact` | The team switched that pause off (`WARNING`, `metadata.contact_public_id`) — after commit, best-effort |
 | `app.contact.bulk_action` | `contact` | A bulk tag or pause action on one account's contacts was queued (`INFO`, `metadata.channel_account_public_id`, `action`, `matched_count`) — after the job is queued (CT7) |
+| `app.instagram_message.retry` | `contact` · `automation` | The owner pressed "Retry failed messages" on a contact (route 26) or an automation (route 37) (`INFO`, `metadata.contact_public_id` or `automation_public_id`, `failed_count`, `retried_count`, `not_retryable`, `is_queued`) — counts only (SN18) |
 | `app.automation.create` | `automation` | Automation created — also the frontend's Duplicate (`INFO`, `metadata.automation_public_id`) — recorded after the create commits, best-effort |
 | `app.automation.update` | `automation` | Automation edited or turned on or off (`INFO`, `metadata.automation_public_id`, `metadata.changed_fields` — names only, never values; `expected_updated_at` is not a change) |
 | `app.automation.go_live` | `automation` | Automation went live — every go-live check passed (`INFO`, `metadata.automation_public_id`) — none when it was already live (feat-instagram-dm-sending R13, route 32) |

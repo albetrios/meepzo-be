@@ -676,6 +676,26 @@ export async function writeSendingHistory(organizationId: number): Promise<void>
       (public_id, organization_id, channel_account_id, automation_id, days, status, done_at)
     SELECT 'abf_' || lpad(id::text, 21, '0'), organization_id, channel_account_id, id, 7, 'done', now()
     FROM app.automations WHERE organization_id = ${organizationId}`;
+  // One sent opening DM per run and its call to Meta (feat-instagram-dm-sending R19, § 6.B.3).
+  await operatorQuery`
+    INSERT INTO app.instagram_messages
+      (public_id, organization_id, channel_account_id, automation_id, automation_run_id,
+       automation_run_started_at, contact_id, message_type, message_kind, lane, channel,
+       is_counted_as_direct_message, status, sent_at, trigger_occurred_at)
+    SELECT 'igm_' || substr(md5(runs.id::text || runs.public_id), 1, 21), runs.organization_id,
+           automations.channel_account_id, runs.automation_id, runs.id, runs.started_at,
+           runs.contact_id, 'opening_message', 'text', 'slow', 'private_reply', true, 'sent', now(),
+           runs.trigger_occurred_at
+    FROM app.automation_runs AS runs
+    JOIN app.automations AS automations
+      ON automations.organization_id = runs.organization_id AND automations.id = runs.automation_id
+    WHERE runs.organization_id = ${organizationId}`;
+  await operatorQuery`
+    INSERT INTO app.instagram_send_attempts
+      (organization_id, channel_account_id, instagram_message_id, automation_id, contact_id, lane,
+       count_group, result_group)
+    SELECT organization_id, channel_account_id, id, automation_id, contact_id, lane, 'open', 'sent'
+    FROM app.instagram_messages WHERE organization_id = ${organizationId}`;
 }
 
 /**

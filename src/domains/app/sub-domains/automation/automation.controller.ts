@@ -13,6 +13,10 @@ import {
   listBodyFieldNames,
   recordScopedAuditEvent,
 } from '@/shared/utils/infrastructure/audit-request-context.util.js';
+import {
+  FAILED_MESSAGES_RETRY_AUDIT_ACTION,
+  failedMessagesRetryAuditMetadata,
+} from '@/domains/app/app.failed-messages.serializer.js';
 import { AUTOMATION_AUDIT_RESOURCE_TYPE } from './automation.constants.js';
 import type { AutomationService } from './automation.service.js';
 import type { AutomationWarning } from './automation.types.js';
@@ -255,6 +259,36 @@ function createAutomationActionHandlers(service: AutomationService) {
         },
       });
       return successResponse({ data: automation, request_id: getRequestIdentifier(request) });
+    },
+    summarizeAutomationFailedMessages: async (
+      request: FastifyRequest<{ Params: { automation_id: string } }>,
+      _reply: FastifyReply,
+    ) => {
+      const data = await service.summarizeAutomationFailedMessages({
+        scope: requireOrganizationScope(request),
+        automationPublicId: readAutomationPublicId(request),
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
+    },
+    retryAutomationFailedMessages: async (
+      request: FastifyRequest<{ Params: { automation_id: string } }>,
+      _reply: FastifyReply,
+    ) => {
+      validateEmptyAutomationAction(request.body);
+      const automationPublicId = readAutomationPublicId(request);
+      const { data, retry } = await service.retryAutomationFailedMessages({
+        scope: requireOrganizationScope(request),
+        automationPublicId,
+      });
+      await recordAutomationAudit({
+        request,
+        action: FAILED_MESSAGES_RETRY_AUDIT_ACTION,
+        metadata: {
+          automation_public_id: automationPublicId,
+          ...failedMessagesRetryAuditMetadata(retry),
+        },
+      });
+      return successResponse({ data, request_id: getRequestIdentifier(request) });
     },
     testAutomationKeyword: async (
       request: FastifyRequest<{ Params: { automation_id: string } }>,

@@ -185,5 +185,10 @@
   "PUT /api/v1/tenancy/organization/roles/:role_id/permissions": 200,
   "PUT /api/v1/users/me/avatar": 200,
   "PUT /api/v1/users/me/notification-preferences": 200,
-  "PUT /api/v1/users/me/presence": 200
+  "PUT /api/v1/users/me/presence": 200,
+  "GET /api/v1/app/automations/:automation_id/failed-messages/summary": 200,
+  "GET /api/v1/app/contacts/:contact_id/activity": 200,
+  "GET /api/v1/app/contacts/:contact_id/failed-messages/summary": 200,
+  "POST /api/v1/app/automations/:automation_id/failed-messages/retry": 200,
+  "POST /api/v1/app/contacts/:contact_id/failed-messages/retry": 200
 }

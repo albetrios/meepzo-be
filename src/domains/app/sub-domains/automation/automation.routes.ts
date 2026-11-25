@@ -20,14 +20,14 @@ import {
  * Returns the Fastify plugin that registers the automation routes (feat-instagram-dm-sending
  * routes-final § 4.A.7 — routes 27–35), mounted under `/api/v1/app`: list and save a draft
  * (`/automations`), read, save content and delete (`/automations/{automation_id}`), and the actions
- * `go-live`, `pause`, `duplicate` and `keyword-test`. Routes 36–37 (failed messages) land with
- * ROUTE row R19.
+ * `go-live`, `pause`, `duplicate` and `keyword-test`, and its failed messages' summary and retry
+ * (routes 36–37, over sub-domain 6's message service — M6, ROUTE row R19).
  *
  * @remarks
- * Gates (4.A.4): `automation:read` on 27, 29, 35; `automation:create` on 28, 34;
- * `automation:update` on 30, 32, 33; `automation:delete` on 31. The read-only plan guard
+ * Gates (4.A.4): `automation:read` on 27, 29, 35, 36; `automation:create` on 28, 34;
+ * `automation:update` on 30, 32, 33, 37; `automation:delete` on 31. The read-only plan guard
  * (`planAccessPreHandler`, AU4 (1), P10) runs on route 32 only, first — create, edit, pause,
- * duplicate and delete stay open. `X-Idempotency-Key` is required on 28 and 34 (AU5); 32, 33 (state
+ * duplicate and delete stay open. `X-Idempotency-Key` is required on 28, 34 and 37 (AU5); 32, 33 (state
  * no-ops) and 35 (saves nothing) take none. The writes and route 35 carry the organization-scoped
  * rate limit; the reads ride the global limiter.
  */
@@ -176,6 +176,38 @@ export function automationRoutes({
         },
       },
       controller.duplicateAutomation,
+    );
+    zodApplication.get<{ Params: { automation_id: string } }>(
+      '/automations/:automation_id/failed-messages/summary',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_READ)],
+        schema: {
+          summary: "Count an automation's failed messages",
+          description:
+            "Counts the automation's messages that failed in about the last 30 days (never the not-sure, skipped, expired or cancelled ones): how many can go again now, and how many cannot and why — too_old (an opening private reply past its comment's 7 days less 30 minutes, or a public reply or hide past 7 days), chat_closed (any other message while her 24-hour chat is closed), final_for_person (she blocked the account, cannot be found, gave no consent, another app answers her chat, or she opted out or her automations are paused), text_refused (the automation is still stopped for a refused text: fix the text first), broadcast and already_retried (each message goes again at most once). Changes nothing. 404 automation_not_found when it is not this organization's or was deleted. Team organizations only. Requires AUTOMATION_READ permission.",
+          tags: ['Automation'],
+          params: automationIdParamsDto,
+        },
+      },
+      controller.summarizeAutomationFailedMessages,
+    );
+    zodApplication.post<{ Params: { automation_id: string } }>(
+      '/automations/:automation_id/failed-messages/retry',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.AUTOMATION_UPDATE)],
+        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        schema: {
+          summary: "Retry an automation's failed messages",
+          description:
+            "Puts the automation's failed messages that can go again now (as the summary counts them) back in line, each at most once; they go through the normal sending limits and count in the month's messages when sent. A message that fails again stays failed; while the automation is stopped for a refused text nothing goes. Answers expected_retry_count and is_queued (false while the retry runs in the request). Strictly empty body. Needs X-Idempotency-Key. 404 automation_not_found when it is not this organization's or was deleted. Team organizations only. Requires AUTOMATION_UPDATE permission.",
+          tags: ['Automation'],
+          params: automationIdParamsDto,
+          body: emptyAutomationActionDto,
+        },
+      },
+      controller.retryAutomationFailedMessages,
     );
     zodApplication.post<{ Params: { automation_id: string } }>(
       '/automations/:automation_id/keyword-test',

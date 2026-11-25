@@ -102,6 +102,18 @@ const RUNTIME_COVERAGE: Readonly<Record<string, string>> = {
     'cross-organization-mutation: automation backfill start',
   'GET /api/v1/app/automations/:automation_id/backfills/:automation_backfill_id':
     'cross-organization-resource: automation backfill',
+  // feat-instagram-dm-sending R19: instagram-message.integration.test.ts reads another
+  // organization's contact activity and failed messages and an automation's → 404; the retries
+  // → 404 with every message unchanged.
+  'GET /api/v1/app/contacts/:contact_id/activity': 'cross-organization-resource: contact activity',
+  'GET /api/v1/app/contacts/:contact_id/failed-messages/summary':
+    'cross-organization-resource: contact failed messages',
+  'POST /api/v1/app/contacts/:contact_id/failed-messages/retry':
+    'cross-organization-mutation: contact failed-message retry',
+  'GET /api/v1/app/automations/:automation_id/failed-messages/summary':
+    'cross-organization-resource: automation failed messages',
+  'POST /api/v1/app/automations/:automation_id/failed-messages/retry':
+    'cross-organization-mutation: automation failed-message retry',
   // feat-instagram-dm-sending R3: channel-connection.integration.test.ts reads, reconnects, picks
   // and disconnects another organization's connection → 404 channel_connection_not_found with the
   // row and token unchanged; a login state another organization started is refused (400) and

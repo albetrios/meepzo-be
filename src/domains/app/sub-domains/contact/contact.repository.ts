@@ -417,6 +417,31 @@ export class ContactRepository {
   }
 
   /**
+   * The organization's live contact's internal id and channel by public id (routes 24–26), or `null`
+   * when absent, another organization's or erased.
+   */
+  async findLiveKeyByPublicId({
+    organizationId,
+    contactPublicId,
+  }: {
+    organizationId: number;
+    contactPublicId: string;
+  }): Promise<{ id: number; channel: string } | null> {
+    const [row] = await this.db()
+      .select({ id: contacts.id, channel: contacts.channel })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.organization_id, organizationId),
+          eq(contacts.public_id, contactPublicId),
+          LIVE_CONTACT,
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
    * The organization's live contact with this public id as the routes show it (route 19, CT13): the
    * view row, her first automation's name and how many of her runs are open. `null` when absent,
    * another organization's or erased.

@@ -693,6 +693,90 @@ export const contactBulkActionResultExample = {
   is_queued: true,
 };
 
+// Routes 25 and 36 (3.A.6 Failed messages summary) — mirrors serializeFailedMessagesSummary.
+export const failedMessagesSummarySchema = {
+  type: 'object',
+  properties: {
+    failed_count: { type: 'integer', minimum: 0 },
+    retryable_count: { type: 'integer', minimum: 0 },
+    not_retryable: {
+      type: 'object',
+      properties: Object.fromEntries(
+        [
+          'too_old',
+          'chat_closed',
+          'final_for_person',
+          'text_refused',
+          'broadcast',
+          'already_retried',
+        ].map((reason) => [reason, { type: 'integer', minimum: 0 }]),
+      ),
+    },
+    horizon_days: { type: 'integer', minimum: 1 },
+  },
+};
+
+export const failedMessagesSummaryExample = {
+  failed_count: 42,
+  retryable_count: 30,
+  not_retryable: {
+    too_old: 5,
+    chat_closed: 4,
+    final_for_person: 2,
+    text_refused: 0,
+    broadcast: 0,
+    already_retried: 1,
+  },
+  horizon_days: 30,
+};
+
+// Routes 26 and 37 (3.A.6 Failed messages retry) — mirrors serializeFailedMessagesRetry.
+export const failedMessagesRetrySchema = {
+  type: 'object',
+  properties: {
+    expected_retry_count: { type: 'integer', minimum: 0 },
+    is_queued: { type: 'boolean' },
+  },
+};
+
+export const failedMessagesRetryExample = { expected_retry_count: 30, is_queued: false };
+
+// Route 24 (3.A.6 Contact activity item) — a message or a run event, never her text.
+export const contactActivityItemSchema = {
+  type: 'object',
+  properties: {
+    id: { type: ['string', 'null'] },
+    source: { type: 'string', enum: ['message', 'run_event'] },
+    occurred_at: { type: 'string', format: 'date-time' },
+    automation: {
+      type: ['object', 'null'],
+      properties: { id: { type: 'string' }, name: { type: 'string' } },
+    },
+    automation_run_id: { type: ['string', 'null'] },
+    broadcast_id: { type: ['string', 'null'] },
+    message_type: { type: 'string' },
+    message_number: { type: ['integer', 'null'] },
+    status: { type: ['string', 'null'] },
+    reason: { type: ['string', 'null'] },
+    channel: { type: ['string', 'null'] },
+    event_type: { type: 'string' },
+  },
+};
+
+export const contactActivityItemExample = {
+  id: 'igm_q2w8e4r6t1y3u5i7o9p0a',
+  source: 'message',
+  occurred_at: '2026-11-24T10:15:00.000000Z',
+  automation: { id: 'aut_m4q8x2k9p7r3n1v5a1b2c', name: 'Price reply' },
+  automation_run_id: 'run_k3j5h7g9f1d2s4a6p8o0i',
+  broadcast_id: null,
+  message_type: 'message',
+  message_number: 1,
+  status: 'sent',
+  reason: null,
+  channel: 'direct',
+};
+
 // ── Instagram webhook event ──
 // Mirrors serializeInstagramWebhookEvent key for key. The payload is masked (WH17).
 export const instagramWebhookEventSchema = {

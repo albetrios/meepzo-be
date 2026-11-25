@@ -69,6 +69,11 @@ export const PUBLIC_ID_PREFIXES = {
    * prefix chosen at kickoff, P22).
    */
   segment: 'seg',
+  /**
+   * One message the sending engine sends or plans to send to a person (`app.instagram_messages`,
+   * feat-instagram-dm-sending SN1; prefix chosen at kickoff, P22) — carried in fast tickets.
+   */
+  instagramMessage: 'igm',
 } as const;
 
 /** Entity keys of {@link PUBLIC_ID_PREFIXES}. */

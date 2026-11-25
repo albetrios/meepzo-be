@@ -6,6 +6,7 @@ import {
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type {
+  ChannelActivityCursor,
   ChannelMessageResultInput,
   ChannelMessageStep,
   ChannelSendingPort,
@@ -63,6 +64,7 @@ import {
   createWorkerAutomationRunRepository,
 } from './automation-run.repository.js';
 import {
+  type AutomationContactRunEventRow,
   AutomationRunEventRepository,
   type AutomationRunEventValues,
   createWorkerAutomationRunEventRepository,
@@ -464,6 +466,39 @@ export class AutomationRunService {
         };
         await this.applyResult({ unit, run, automation, input });
       },
+    });
+  }
+
+  /**
+   * Her runs' history for a contact's "what happened" (routes-final § 3.A CT14, route 24): run
+   * events newest first, after the keyset `(occurred_at, source, id)` — each with its automation and
+   * run ids; never a collected value.
+   *
+   * @remarks
+   * Algorithm: one read in the scope's unit. Failure modes: none of its own. Side effects: none.
+   */
+  async listContactRunEvents({
+    scope,
+    organizationId,
+    contactId,
+    after,
+    limit,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    contactId: number;
+    after: ChannelActivityCursor | null;
+    limit: number;
+  }): Promise<AutomationContactRunEventRow[]> {
+    return withAppDatabaseContext({
+      scope,
+      callback: (databaseHandle) =>
+        new AutomationRunEventRepository(databaseHandle).listForContact({
+          organizationId,
+          contactId,
+          after,
+          limit,
+        }),
     });
   }
 

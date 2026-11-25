@@ -18,3 +18,9 @@ export type ContactTagEventSource = (typeof CONTACT_TAG_EVENT_SOURCES)[number];
  * one commit are handed to intake in one job per 500 contacts, never one job per contact.
  */
 export const CONTACT_TAG_EVENT_INTAKE_CONTACTS_PER_JOB = 500;
+
+/**
+ * Days a contact tag event is kept before the hourly clean-up deletes it (WC-54, plan
+ * `TAG_EVENT_KEEP_DAYS`): long enough for the pick-up (24 hours) and a week of support questions.
+ */
+export const CONTACT_TAG_EVENT_KEEP_DAYS = 8;

@@ -1,8 +1,15 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
+  assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import {
+  type BatchDeleteResult,
+  deleteInBatchesByCondition,
+  readOldestOverdueSeconds,
+} from '@/infrastructure/database/utils/batch-delete.util.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { ChannelAccountPlanStopReason } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
@@ -190,4 +197,54 @@ export class InstagramSendStopRepository {
       .orderBy(desc(instagram_send_stops.started_at), desc(instagram_send_stops.id))
       .limit(limit);
   }
+
+  /**
+   * The stop history's clean-up (WC-53): deletes ENDED stops that started before `cutoff`, at most
+   * `maxBatches` batches in this unit of work (`idx_instagram_send_stops_started`). A stop still
+   * open is kept whatever its age — it is the account's current state. Needs the retention context
+   * ({@link createRetentionInstagramSendStopRepository}).
+   */
+  async deleteEndedStartedBefore({
+    cutoff,
+    maxBatches,
+  }: {
+    cutoff: Date;
+    maxBatches: number;
+  }): Promise<BatchDeleteResult> {
+    return deleteInBatchesByCondition({
+      databaseHandle: this.db(),
+      table: instagram_send_stops,
+      idColumn: instagram_send_stops.id,
+      whereCondition: this.endedStartedBefore(cutoff),
+      maxBatches,
+      logContext: 'instagram-send-stop-retention',
+      tableLabel: 'app.instagram_send_stops',
+    });
+  }
+
+  /** Seconds the oldest ended stop started before `cutoff` is past it — the clean-up's gauge (P92). */
+  async readEndedStartedOverdueSeconds(cutoff: Date): Promise<number> {
+    return readOldestOverdueSeconds({
+      databaseHandle: this.db(),
+      table: instagram_send_stops,
+      column: instagram_send_stops.started_at,
+      cutoff,
+      whereCondition: this.endedStartedBefore(cutoff),
+    });
+  }
+
+  private endedStartedBefore(cutoff: Date) {
+    return sql`${instagram_send_stops.started_at} < ${cutoff.toISOString()}::timestamptz AND ${instagram_send_stops.ended_at} IS NOT NULL`;
+  }
+}
+
+/**
+ * {@link InstagramSendStopRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) — the stop history's 90-day clean-up (WC-53), which only
+ * deletes (the policy's sweep arm is in `USING`).
+ */
+export function createRetentionInstagramSendStopRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): InstagramSendStopRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new InstagramSendStopRepository(databaseHandle);
 }

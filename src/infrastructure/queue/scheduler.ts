@@ -57,6 +57,7 @@ import {
   APP_PARTITION_UPKEEP_MAKE_JOB_NAME,
   APP_PARTITION_UPKEEP_QUEUE_NAME,
 } from '@/domains/app/workers/app-partition-upkeep.constants.js';
+import { APP_TABLE_CLEAN_UP_JOB_NAME } from '@/domains/app/workers/app-table-clean-up.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
@@ -93,7 +94,11 @@ const DEFAULT_AUDIT_RETENTION_CRON = '0 3 * * *';
 const DEFAULT_NOTIFICATION_RETENTION_CRON = '30 3 * * *';
 /** Offboarding reconcilers run every 15 minutes so a stuck delete completes promptly, not next day. */
 const DEFAULT_OFFBOARDING_RECONCILE_CRON = '*/15 * * * *';
-const DEFAULT_SESSION_CLEANUP_CRON = '0 4 * * *';
+/**
+ * feat-instagram-dm-sending WC-64 (P92): hourly within the clean-up time budget (was daily at
+ * 04:00 UTC) — sessions and, since ROUTE row R50, ended trusted devices.
+ */
+const DEFAULT_SESSION_CLEANUP_CRON = '12 * * * *';
 /** GDPR export artifact purge runs before upload tombstone retention. */
 const DEFAULT_USER_DATA_EXPORT_RETENTION_CRON = '44 5 * * *';
 /** Tombstone purge order: uploads → organizations → child tombstones → users (FK-safe). */
@@ -141,6 +146,12 @@ const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
  */
 const DEFAULT_APP_PARTITION_UPKEEP_MAKE_CRON = '23 2 * * *';
 const DEFAULT_APP_PARTITION_UPKEEP_DROP_CRON = '37 * * * *';
+/**
+ * feat-instagram-dm-sending WC-53, WC-54, WC-62 (P92, ROUTE row R50): the hourly batch clean-up of
+ * the plain app tables, on the partition upkeep's queue — at :07, so its 10-minute budget ends
+ * before the :37 drop.
+ */
+const DEFAULT_APP_TABLE_CLEAN_UP_CRON = '7 * * * *';
 const DEFAULT_AUDIT_EXPORT_CRON = '15 2 * * *';
 /**
  * Launch IA8: the daily Instagram account check — renew tokens ending within 7 days, refresh the
@@ -159,12 +170,12 @@ const DEFAULT_INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_CRON = '*/10 * * * *';
  */
 const DEFAULT_AUTOMATION_RUN_WAIT_EXPIRY_CRON = '0 * * * *';
 /**
- * Launch D8 (AU25, AQ7; worker-changes rule 11): the automations deleted more than 180 days ago that
- * nothing points at any more are removed at 03:40 (WC-15). A fixed time, not a setting. (The 03:00
- * webhook-event, 03:20 run and 03:30 comment-log batch deletes are retired — feat-instagram-dm-sending
- * R14 and R49: their parts are dropped by the shared upkeep.)
+ * Launch D8 (AU25, AQ7): the automations deleted more than 180 days ago that nothing points at any
+ * more are removed — hourly at :47 within the clean-up time budget since feat-instagram-dm-sending
+ * WC-47 (P92; was 03:40 daily). A fixed cadence, not a setting. (The launch's webhook-event, run and
+ * comment-log batch deletes are retired — R14 and R49: their parts are dropped by the shared upkeep.)
  */
-const DEFAULT_AUTOMATION_TOMBSTONE_RETENTION_CRON = '40 3 * * *';
+const DEFAULT_AUTOMATION_TOMBSTONE_RETENTION_CRON = '47 * * * *';
 
 function withSchedulerTimezone({
   timezone,
@@ -206,6 +217,15 @@ function getAutomationCleanupScheduledJobs(timezone: string | undefined): Schedu
     withSchedulerTimezone({
       timezone,
       job: {
+        queueName: APP_PARTITION_UPKEEP_QUEUE_NAME,
+        schedulerId: 'hourly-app-table-clean-up',
+        jobName: APP_TABLE_CLEAN_UP_JOB_NAME,
+        cronPattern: DEFAULT_APP_TABLE_CLEAN_UP_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
         queueName: AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
         schedulerId: 'automation-run-wait-expiry-hourly',
         jobName: 'cancel-long-waiting-automation-runs',
@@ -216,7 +236,7 @@ function getAutomationCleanupScheduledJobs(timezone: string | undefined): Schedu
       timezone,
       job: {
         queueName: AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
-        schedulerId: 'daily-automation-tombstone-cleanup',
+        schedulerId: 'hourly-automation-tombstone-cleanup',
         jobName: 'purge-old-deleted-automations',
         cronPattern: DEFAULT_AUTOMATION_TOMBSTONE_RETENTION_CRON,
       },
@@ -513,7 +533,7 @@ export function getScheduledJobs(): ScheduledJob[] {
       timezone,
       job: {
         queueName: SESSION_CLEANUP_QUEUE_NAME,
-        schedulerId: 'daily-session-cleanup',
+        schedulerId: 'hourly-session-cleanup',
         jobName: 'cleanup-sessions',
         cronPattern: env.AUTH_SESSION_CLEANUP_CRON ?? DEFAULT_SESSION_CLEANUP_CRON,
       },

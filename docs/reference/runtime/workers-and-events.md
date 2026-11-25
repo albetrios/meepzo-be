@@ -289,8 +289,10 @@ Operational sizing per family is documented in [resource-limits.md → Worker Po
 | `daily-audit-cleanup` | `audit-retention` | `0 3 * * *`                        | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `daily-app-partition-make` | `app-partition-upkeep` (job `make-app-partitions`) | `23 2 * * *` (fixed, no setting — WC-55: parts 14 days ahead; also once at worker start) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `hourly-app-partition-drop` | `app-partition-upkeep` (job `drop-expired-app-partitions`) | `37 * * * *` (fixed, no setting — WC-48–WC-52: expired parts of the seven time-split app tables dropped) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `hourly-app-table-clean-up` | `app-partition-upkeep` (job `clean-up-app-tables`) | `7 * * * *` (fixed, no setting — WC-53, WC-54, WC-62, P92: deleted broadcasts and segments, recipients, stop history, tag events and month counts, within a 10-minute budget; gauge `retention_cleanup_oldest_overdue_seconds`) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `hourly-session-cleanup` | `session-cleanup` | `12 * * * *` (`AUTH_SESSION_CLEANUP_CRON` — WC-64, P92: sessions and trusted devices, within the budget) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `automation-run-wait-expiry-hourly` | `automation-run-wait-expiry` | `0 * * * *` (fixed, no setting — launch D8: runs waiting more than 7 days cancelled) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
-| `daily-automation-tombstone-cleanup` | `automation-tombstone-retention` | `40 3 * * *` (fixed, no setting — launch AQ7) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `hourly-automation-tombstone-cleanup` | `automation-tombstone-retention` | `47 * * * *` (fixed, no setting — launch AQ7; WC-47, P92: within the budget, with the automations' unused file links) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `instagram-webhook-reclaim` | `instagram-webhook` (job `reclaim-instagram-webhook-events`) | `* * * * *` (fixed, no setting — launch WH15) | [FLOWS.md › instagram-webhook-processing-flow](../../../src/FLOWS.md#instagram-webhook-processing-flow) |
 
 ---

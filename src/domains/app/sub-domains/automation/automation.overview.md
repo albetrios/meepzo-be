@@ -45,7 +45,7 @@ the read job at R41); the automation object shows the open one as `open_backfill
   `AutomationMonthLimitPort`, `AutomationMessageFilePort`) and `AutomationOpenRunCancelStep`
 - `automation.dto.ts`, `automation.serializer.ts`, `automation.controller.ts`,
   `automation.routes.ts`, `automation.constants.ts`
-- `workers/` — the deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC)
+- `workers/` — the deleted-automation purge (`automation-tombstone-retention`, hourly at :47 within the clean-up time budget — WC-47, P92; the unused file links go a day earlier with the app-table clean-up)
 - `automation-run/` — the nested run sub-domain: runs, run events and comment logs split by month,
   the open-run keys and the run engine over `steps` (R14), which saves its steps through
   `ChannelSendingPort` and reads automations through this folder's repository

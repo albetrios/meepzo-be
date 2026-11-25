@@ -7,11 +7,20 @@ import {
 import {
   type BatchDeleteResult,
   deleteInBatchesByCondition,
+  readOldestOverdueSeconds,
 } from '@/infrastructure/database/utils/batch-delete.util.js';
 import type { PostgresDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { trusted_devices } from './auth-trusted-device.schema.js';
+
+/** The clean-up's condition: expired, or revoked, before `cutoff` (WC-64). */
+function endedBefore(cutoff: Date) {
+  return or(
+    lt(trusted_devices.expires_at, cutoff),
+    and(isNotNull(trusted_devices.revoked_at), lt(trusted_devices.revoked_at, cutoff)),
+  )!;
+}
 
 /** Drizzle row type of {@link trusted_devices}. */
 export type TrustedDeviceRow = typeof trusted_devices.$inferSelect;
@@ -129,26 +138,53 @@ export class TrustedDeviceRepository {
    *
    * @remarks
    * - **Algorithm:** one {@link deleteInBatchesByCondition} pass over `expires_at < cutoff OR
-   *   revoked_at < cutoff`.
-   * - **Notes:** the hourly clean-up of ROUTE R50 calls it inside
-   *   the session-retention maintenance context (`app.session_retention_cleanup`) — the policy's
-   *   maintenance arm admits only that context — and passes its handle; cutoff = now minus
-   *   `TRUSTED_DEVICE_ENDED_KEEP_DAYS`. Nothing calls it before R50.
+   *   revoked_at < cutoff` (`idx_trusted_devices_expires_at`), at most `maxBatches` batches.
+   * - **Notes:** the hourly session clean-up (ROUTE R50, `session-cleanup.processor.ts`) calls it
+   *   inside the session-retention maintenance context (`app.session_retention_cleanup`) — the
+   *   policy's maintenance arm admits only that context — and passes its handle; cutoff = now
+   *   minus `TRUSTED_DEVICE_ENDED_KEEP_DAYS`.
    */
   async deleteEndedBefore(options: {
     databaseHandle: PostgresDatabaseHandle;
     cutoff: Date;
+    maxBatches?: number;
   }): Promise<BatchDeleteResult> {
     return deleteInBatchesByCondition({
       databaseHandle: options.databaseHandle,
       table: trusted_devices,
       idColumn: trusted_devices.id,
-      whereCondition: or(
-        lt(trusted_devices.expires_at, options.cutoff),
-        and(isNotNull(trusted_devices.revoked_at), lt(trusted_devices.revoked_at, options.cutoff)),
-      )!,
+      whereCondition: endedBefore(options.cutoff),
+      ...(options.maxBatches === undefined ? {} : { maxBatches: options.maxBatches }),
       logContext: 'trusted-device-cleanup',
       tableLabel: 'auth.trusted_devices',
     });
+  }
+
+  /**
+   * Seconds the oldest row that expired or was revoked before `cutoff` is past it — the clean-up's
+   * gauge (P92): the larger of the two arms' waits.
+   */
+  async readEndedOverdueSeconds(options: {
+    databaseHandle: PostgresDatabaseHandle;
+    cutoff: Date;
+  }): Promise<number> {
+    const expired = await readOldestOverdueSeconds({
+      databaseHandle: options.databaseHandle,
+      table: trusted_devices,
+      column: trusted_devices.expires_at,
+      cutoff: options.cutoff,
+      whereCondition: lt(trusted_devices.expires_at, options.cutoff),
+    });
+    const revoked = await readOldestOverdueSeconds({
+      databaseHandle: options.databaseHandle,
+      table: trusted_devices,
+      column: trusted_devices.revoked_at,
+      cutoff: options.cutoff,
+      whereCondition: and(
+        isNotNull(trusted_devices.revoked_at),
+        lt(trusted_devices.revoked_at, options.cutoff),
+      )!,
+    });
+    return Math.max(expired, revoked);
   }
 }

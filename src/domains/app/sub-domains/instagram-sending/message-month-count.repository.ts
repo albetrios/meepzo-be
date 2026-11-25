@@ -1,8 +1,15 @@
 import { and, eq, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
+  assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import {
+  type BatchDeleteResult,
+  readOldestOverdueSeconds,
+} from '@/infrastructure/database/utils/batch-delete.util.js';
+import { DEFAULT_BATCH_DELETE_ROW_COUNT } from '@/shared/constants/limits.constants.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { message_month_counts } from './message-month-count.schema.js';
 import { MESSAGE_MONTH_COUNT_SLOTS } from './instagram-sending.constants.js';
@@ -34,7 +41,7 @@ function organizationMonthStart(organizationId: number) {
  *   wait on each other's row lock. Every statement names `organization_id`.
  * - **Failure modes:** none of its own; an organization the scope cannot see reads a zero month.
  * - **Side effects:** the add upserts one slot row.
- * - **Notes:** the 13-month delete (WC-54) is the hourly clean-up's (ROUTE row R47).
+ * - **Notes:** the 13-month delete (WC-54) is the hourly clean-up's (ROUTE row R50, {@link MessageMonthCountRepository.deleteMonthsBefore}).
  */
 export class MessageMonthCountRepository {
   constructor(private readonly databaseHandle?: RequestScopedPostgresDatabase) {}
@@ -124,4 +131,58 @@ export class MessageMonthCountRepository {
         ),
       );
   }
+
+  /**
+   * The month counts' clean-up (WC-54): deletes the months that began before `cutoff` (13 months
+   * back), at most `maxBatches` batches of {@link DEFAULT_BATCH_DELETE_ROW_COUNT} rows in this
+   * unit of work (`idx_message_month_counts_month`). The table has no single id (its key is
+   * organization, month and slot), so each batch deletes by `ctid` from a capped pick. Needs the
+   * retention context ({@link createRetentionMessageMonthCountRepository}).
+   */
+  async deleteMonthsBefore({
+    cutoff,
+    maxBatches,
+  }: {
+    cutoff: Date;
+    maxBatches: number;
+  }): Promise<BatchDeleteResult> {
+    let deletedCount = 0;
+    for (let batch = 0; batch < maxBatches; batch += 1) {
+      const result = await this.db().execute(sql`
+        DELETE FROM app.message_month_counts
+        WHERE ctid IN (
+          SELECT ctid FROM app.message_month_counts
+          WHERE month_start < ${cutoff.toISOString()}::timestamptz::date
+          LIMIT ${DEFAULT_BATCH_DELETE_ROW_COUNT}
+        )`);
+      const deleted = result.rowCount ?? 0;
+      deletedCount += deleted;
+      if (deleted < DEFAULT_BATCH_DELETE_ROW_COUNT) {
+        return { deletedCount, blockedCount: 0, hasMore: false };
+      }
+    }
+    return { deletedCount, blockedCount: 0, hasMore: true };
+  }
+
+  /** Seconds the oldest month that began before `cutoff` is past it — the clean-up's gauge (P92). */
+  async readMonthsOverdueSeconds(cutoff: Date): Promise<number> {
+    return readOldestOverdueSeconds({
+      databaseHandle: this.db(),
+      table: message_month_counts,
+      column: message_month_counts.month_start,
+      cutoff,
+      whereCondition: sql`${message_month_counts.month_start} < ${cutoff.toISOString()}::timestamptz::date`,
+    });
+  }
+}
+
+/**
+ * {@link MessageMonthCountRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) — the month counts' 13-month clean-up (WC-54), which only
+ * deletes (the policy's sweep arm is in `USING`).
+ */
+export function createRetentionMessageMonthCountRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): MessageMonthCountRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new MessageMonthCountRepository(databaseHandle);
 }

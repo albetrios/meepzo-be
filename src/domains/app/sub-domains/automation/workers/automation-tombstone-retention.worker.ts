@@ -14,9 +14,9 @@ import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from './automation-tombston
 import { runAutomationTombstoneRetentionJob } from './automation-tombstone-retention.processor.js';
 
 /**
- * The daily deleted-automation purge of `app.automations` (routes-final § 3.B AU25, AQ7, AUC12;
- * WC-15) — family `retention`, registered with `retentionDefinition`; its repeatable schedule
- * (03:40 UTC, worker-changes rule 11) lives in `src/infrastructure/queue/scheduler.ts`.
+ * The hourly deleted-automation purge of `app.automations` (routes-final § 3.B AU25, AQ7, AUC12;
+ * WC-15, now WC-47) — family `retention`, registered with `retentionDefinition`; its repeatable schedule
+ * (hourly at :47, P92) lives in `src/infrastructure/queue/scheduler.ts`.
  *
  * @remarks
  * - **Algorithm:** every job runs {@link runAutomationTombstoneRetentionJob}, which opens its own

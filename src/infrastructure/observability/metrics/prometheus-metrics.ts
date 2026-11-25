@@ -42,6 +42,8 @@ let instagramWebhookUnknownAccountEntriesTotal: Counter | null = null;
 let appPartitionReadyDays: Gauge<'table'> | null = null;
 let appPartitionDefaultRows: Gauge<'table'> | null = null;
 let appPartitionOldestOverdueSeconds: Gauge<'table'> | null = null;
+let retentionCleanupOldestOverdueSeconds: Gauge<'table'> | null = null;
+let retentionCleanupDeletedRows: Gauge<'table'> | null = null;
 
 /** The partition upkeep's three gauges (WC-55, P92, S17) — split out of {@link registerOn}. */
 function registerPartitionUpkeepMetrics(registry: Registry): void {
@@ -60,6 +62,22 @@ function registerPartitionUpkeepMetrics(registry: Registry): void {
   appPartitionOldestOverdueSeconds = new Gauge({
     name: 'app_partition_oldest_overdue_seconds',
     help: 'Seconds the oldest kept part holding rows is past its drop time, per time-split app table — the "oldest row past its keep time" gauge at part granularity (P92). Alerts after 1 day',
+    labelNames: ['table'],
+    registers: [registry],
+  });
+}
+
+/** The hourly batch clean-ups' two gauges (feat-instagram-dm-sending P92) — split out of {@link registerOn}. */
+function registerRetentionCleanupMetrics(registry: Registry): void {
+  retentionCleanupOldestOverdueSeconds = new Gauge({
+    name: 'retention_cleanup_oldest_overdue_seconds',
+    help: 'Seconds the oldest row past its keep time still waits, per plain table an hourly batch clean-up empties — the "oldest row past its keep time" gauge (P92). Alerts after 1 day',
+    labelNames: ['table'],
+    registers: [registry],
+  });
+  retentionCleanupDeletedRows = new Gauge({
+    name: 'retention_cleanup_deleted_rows',
+    help: 'Rows the last run of an hourly batch clean-up deleted, per table (P92) — each run stops at its time budget or the table cap',
     labelNames: ['table'],
     registers: [registry],
   });
@@ -234,6 +252,7 @@ function registerOn(registry: Registry): void {
   });
 
   registerPartitionUpkeepMetrics(registry);
+  registerRetentionCleanupMetrics(registry);
 
   readCacheRequestsTotal = new Counter({
     name: 'read_cache_requests_total',
@@ -295,6 +314,12 @@ function bindMetricHandlesFromRegistry(registry: Registry): void {
     'instagram_webhook_unknown_account_entries_total',
   ) as Counter;
   appPartitionReadyDays = registry.getSingleMetric('app_partition_ready_days') as Gauge<'table'>;
+  retentionCleanupOldestOverdueSeconds = registry.getSingleMetric(
+    'retention_cleanup_oldest_overdue_seconds',
+  ) as Gauge<'table'>;
+  retentionCleanupDeletedRows = registry.getSingleMetric(
+    'retention_cleanup_deleted_rows',
+  ) as Gauge<'table'>;
   appPartitionDefaultRows = registry.getSingleMetric(
     'app_partition_default_rows',
   ) as Gauge<'table'>;
@@ -577,6 +602,26 @@ export function setAppPartitionUpkeepGauges({
   appPartitionReadyDays?.set({ table }, readyDays);
   appPartitionDefaultRows?.set({ table }, defaultRows);
   appPartitionOldestOverdueSeconds?.set({ table }, oldestOverdueSeconds);
+}
+
+/**
+ * Sets an hourly batch clean-up's two gauges for one plain table (feat-instagram-dm-sending P92):
+ * the oldest due row's overdue seconds and the rows the run deleted. No-op when metrics are
+ * disabled — the clean-up still logs and alerts.
+ */
+export function setRetentionCleanupGauges({
+  table,
+  oldestOverdueSeconds,
+  deletedRows,
+}: {
+  table: string;
+  oldestOverdueSeconds: number;
+  deletedRows: number;
+}): void {
+  if (!isMetricsEnabled()) return;
+  ensurePrometheusMetricsRegistered(getMetricsRegistry());
+  retentionCleanupOldestOverdueSeconds?.set({ table }, oldestOverdueSeconds);
+  retentionCleanupDeletedRows?.set({ table }, deletedRows);
 }
 
 /**

@@ -17,8 +17,15 @@ import {
 } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
+  assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import {
+  type BatchDeleteResult,
+  deleteInBatchesByCondition,
+  readOldestOverdueSeconds,
+} from '@/infrastructure/database/utils/batch-delete.util.js';
 import { countWithCap } from '@/infrastructure/database/utils/capped-count.util.js';
 import { databaseUpdatedAtTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
@@ -681,4 +688,60 @@ export class BroadcastSegmentRepository {
       countedAt: row === undefined ? new Date() : new Date(row.counted_at),
     };
   }
+
+  /**
+   * The deleted segments' purge (WC-62, BC4, P75): deletes the segments deleted before `cutoff`
+   * that no live broadcast points at (a deleted one's key is set null), at most `maxBatches`
+   * batches in this unit of work (`idx_segments_tombstoned`, `idx_broadcasts_segment`). Needs the
+   * retention context ({@link createRetentionBroadcastSegmentRepository}).
+   */
+  async deleteTombstonedBefore({
+    cutoff,
+    maxBatches,
+  }: {
+    cutoff: Date;
+    maxBatches: number;
+  }): Promise<BatchDeleteResult> {
+    return deleteInBatchesByCondition({
+      databaseHandle: this.db(),
+      table: segments,
+      idColumn: segments.id,
+      whereCondition: this.purgeableBefore(cutoff),
+      maxBatches,
+      logContext: 'segment-tombstone-retention',
+      tableLabel: 'app.segments',
+    });
+  }
+
+  /** Seconds the oldest purgeable segment deleted before `cutoff` is past it — the purge's gauge (P92). */
+  async readTombstonedOverdueSeconds(cutoff: Date): Promise<number> {
+    return readOldestOverdueSeconds({
+      databaseHandle: this.db(),
+      table: segments,
+      column: segments.deleted_at,
+      cutoff,
+      whereCondition: this.purgeableBefore(cutoff),
+    });
+  }
+
+  private purgeableBefore(cutoff: Date): SQL {
+    return sql`${segments.deleted_at} IS NOT NULL AND ${segments.deleted_at} < ${cutoff.toISOString()}::timestamptz
+      AND NOT EXISTS (
+        SELECT 1 FROM app.broadcasts AS live_broadcast
+        WHERE live_broadcast.organization_id = ${segments.organization_id}
+          AND live_broadcast.segment_id = ${segments.id}
+          AND live_broadcast.deleted_at IS NULL
+      )`;
+  }
+}
+
+/**
+ * {@link BroadcastSegmentRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) — the deleted segments' 90-day purge (WC-62), which only
+ * deletes (the policy's sweep arm is in `USING`).
+ */
+export function createRetentionBroadcastSegmentRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): BroadcastSegmentRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new BroadcastSegmentRepository(databaseHandle);
 }

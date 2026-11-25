@@ -22,6 +22,7 @@ const ALLOWED_DUPLICATE_NUMBERS = new Set([
   16, // hex
   20, // small independent thresholds (migration header scan limit, rejection burst threshold)
   24, // hours per day (non-TTL context)
+  40, // independent bounds (a masked webhook text's characters, a comment read's page cap per post)
   60, // seconds per minute in expressions
   90, // independent bounds (a near-expiry discount's percent cap, the 90-day re-target default)
   100, // percentages, env defaults

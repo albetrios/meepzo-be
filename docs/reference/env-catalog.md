@@ -104,6 +104,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `JWT_PRIVATE_KEY` | — | — *(required)* |  | — |
 | `JWT_PUBLIC_KEY` | — | — *(required)* |  | — |
 | `JWT_SIGNING_KID` | — | `default` |  | — |
+| `LAPSED_PLAN_READ_ONLY_ENABLED` | true \| false (or 1 \| 0) | `true` | ✓ | Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. While read-only, the automation writes and sending answer 403 organization_read_only; billing, auth, team management, data export and the other app writes stay open, so the owner can always pay. Off, every organization reports plan_access active. |
 | `LOG_LEVEL` | fatal \| error \| warn \| info \| debug \| trace \| silent | `info` | ✓ | Pino log level. Enum-constrained so a typo fails at boot instead of silently degrading. |
 | `LOG_PRETTY` | — | `false` |  | — |
 | `MAIL_OUTBOX_RECLAIM_SENDING_MINUTES` | — | `30` |  | — |
@@ -144,7 +145,6 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `ORGANIZATION_API_KEY_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
 | `ORGANIZATION_NOTIFICATION_POLICY_MAX_PER_ORG` | — | `100` |  | — |
 | `ORGANIZATION_NOTIFICATION_POLICY_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
-| `ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING` | true \| false (or 1 \| 0) | `true` | ✓ | Read-only mode for lapsed paid plans: a TEAM organization whose paid plan lapsed reports plan_access read_only once its grace ends (BILLING_DUNNING_GRACE_DAYS after the period end), and a cancelled paid plan from its period end. Free never ends. Off, every organization reports plan_access active. |
 | `ORGANIZATION_TOMBSTONE_RETENTION_CRON` | — | — *(optional)* |  | — |
 | `OVERLOAD_DB_ACQUIRE_WAIT_SHED_MS` | integer 0–60000 (ms; 0 disables) | `2000` | ✓ | Overload-guard shed threshold: how long the oldest unit of work may wait for a pooled connection before new requests get a 503. |
 | `OVERLOAD_DB_POOL_SHED_RATIO` | number 0–10 | `10` | ✓ | Multiple of DATABASE_POOL_MAX in-flight units of work (running plus waiting for a connection) at which the overload guard sheds requests; above 1 lets a bounded queue form. |
@@ -199,7 +199,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `SCALAR_SLUG` | — | — *(optional)* |  | — |
 | `SCHEDULER_ENABLED` | — | `true` |  | — |
 | `SCHEDULER_REGISTRY_AUDIT_STRICT` | — | `true` |  | — |
-| `SCHEDULER_TIMEZONE` | — | — *(optional)* |  | — |
+| `SCHEDULER_TIMEZONE` | — | `UTC` |  | — |
 | `SECRETS_ENCRYPTION_CURRENT_VERSION` | — | `v1` |  | — |
 | `SECRETS_ENCRYPTION_KEY` | — | — *(required)* |  | — |
 | `SECRETS_ENCRYPTION_KEYS` | — | — *(optional)* |  | — |

@@ -382,7 +382,7 @@ export class MembershipInvitationService {
     }
     const token = generateInvitationToken();
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + params.expires_in_days);
+    expiresAt.setUTCDate(expiresAt.getUTCDate() + params.expires_in_days);
     const row = await this.invitationRepository.create({
       membership_id: params.membership_id,
       email: params.email,
@@ -757,7 +757,7 @@ export class MembershipInvitationService {
         // T11: an expired invite gets a new token and a new expiry like any other.
         const token = generateInvitationToken();
         const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + parsed.expires_in_days);
+        expiresAt.setUTCDate(expiresAt.getUTCDate() + parsed.expires_in_days);
         const updated = await this.invitationRepository.resend(
           row.public_id,
           hashInvitationToken(token),

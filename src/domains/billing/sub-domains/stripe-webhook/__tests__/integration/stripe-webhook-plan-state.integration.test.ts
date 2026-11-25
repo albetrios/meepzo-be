@@ -40,7 +40,7 @@ const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 describe('Stripe webhook — the plan-state cases (R26)', () => {
   let service: StripeWebhookService;
   const planStateEvents: PlanStateChangedPayload[] = [];
-  const readOnlyEnforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
+  const readOnlyEnforced = env.LAPSED_PLAN_READ_ONLY_ENABLED;
 
   beforeAll(async () => {
     await initializeI18nextForBackgroundWork();
@@ -54,7 +54,7 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
   });
 
   afterAll(async () => {
-    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = readOnlyEnforced;
+    env.LAPSED_PLAN_READ_ONLY_ENABLED = readOnlyEnforced;
     await cleanupDatabase();
   });
 
@@ -63,7 +63,7 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
     // The billing notices go to `subscription:manage` holders (the Owner), so the roles need theirs.
     await seedAllPermissions();
     planStateEvents.length = 0;
-    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
+    env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
   });
 
   /** Free, Creator and Studio with Stripe prices; the migration's own rows are turned off. */

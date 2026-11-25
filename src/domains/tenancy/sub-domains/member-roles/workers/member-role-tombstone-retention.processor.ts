@@ -32,7 +32,7 @@ export async function runMemberRoleTombstoneRetentionJob(
 }> {
   const retentionDays = env.TOMBSTONE_RETENTION_DAYS;
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+  cutoffDate.setUTCDate(cutoffDate.getUTCDate() - retentionDays);
 
   logger.info(
     { retentionDays, cutoffDate: cutoffDate.toISOString() },

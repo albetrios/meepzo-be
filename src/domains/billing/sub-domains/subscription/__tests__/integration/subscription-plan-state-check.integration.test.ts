@@ -45,7 +45,7 @@ describe('Subscription plan-state check (R52, WC-59)', () => {
   let creator: { id: number; public_id: string };
   let growth: { id: number; public_id: string };
   const events: PlanStateChangedPayload[] = [];
-  const readOnlyEnforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
+  const readOnlyEnforced = env.LAPSED_PLAN_READ_ONLY_ENABLED;
 
   beforeAll(async () => {
     await initializeI18nextForBackgroundWork();
@@ -59,7 +59,7 @@ describe('Subscription plan-state check (R52, WC-59)', () => {
   });
 
   afterAll(async () => {
-    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = readOnlyEnforced;
+    env.LAPSED_PLAN_READ_ONLY_ENABLED = readOnlyEnforced;
     await cleanupDatabase();
   });
 
@@ -67,7 +67,7 @@ describe('Subscription plan-state check (R52, WC-59)', () => {
     await cleanupDatabase();
     await seedAllPermissions();
     events.length = 0;
-    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
+    env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
     await getOperatorDatabase().update(plans).set({ is_active: false });
     await createTestPlan({
       name: `Free ${randomUUID()}`,

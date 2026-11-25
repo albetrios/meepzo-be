@@ -85,7 +85,10 @@ ARG PNPM_VERSION
 ARG INSTALL_MCP_OPTIONAL
 WORKDIR /app
 
-ENV NODE_ENV=production
+# Pin the process time zone to UTC: every stored time is UTC, and no date math may follow the
+# host's zone.
+ENV NODE_ENV=production \
+    TZ=UTC
 
 # Refresh the apk index before upgrading so published security patches actually
 # install: the pinned alpine base ships a stale cached index, so a bare `apk upgrade`

@@ -82,14 +82,14 @@ describe('Flow: a move down at the period end (R58)', () => {
   let app: FastifyInstance;
   let team: InstagramTeamFixture;
   let catalog: Catalog;
-  const readOnlyEnforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
+  const readOnlyEnforced = env.LAPSED_PLAN_READ_ONLY_ENABLED;
 
   beforeAll(async () => {
     ({ app } = await createTestApp());
   });
 
   afterAll(async () => {
-    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = readOnlyEnforced;
+    env.LAPSED_PLAN_READ_ONLY_ENABLED = readOnlyEnforced;
     await app.close();
   });
 
@@ -98,7 +98,7 @@ describe('Flow: a move down at the period end (R58)', () => {
     await seedAllPermissions();
     nock.cleanAll();
     handedTasks.length = 0;
-    env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
+    env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
     await getOperatorDatabase().update(plans).set({ is_active: false });
     catalog = {
       free: await createTestPlan({

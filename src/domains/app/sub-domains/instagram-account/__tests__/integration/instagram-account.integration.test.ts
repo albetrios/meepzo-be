@@ -86,15 +86,15 @@ describe('Instagram account (read-only plan, guarded break)', () => {
   }
 
   describe('a read-only plan (D27, AC-2.25)', () => {
-    const enforced = env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING;
+    const enforced = env.LAPSED_PLAN_READ_ONLY_ENABLED;
 
     afterEach(() => {
-      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = enforced;
+      env.LAPSED_PLAN_READ_ONLY_ENABLED = enforced;
     });
 
     it('leaves connect, the settings change and disconnect open — only the automation writes are refused', async () => {
       await endPaidPlanWithoutPaying(team.organization.id);
-      env.ORGANIZATION_READ_ONLY_ENFORCED_EXCEPT_BILLING = true;
+      env.LAPSED_PLAN_READ_ONLY_ENABLED = true;
 
       const profile = buildInstagramProfile();
       const account = await connectAccount(profile);

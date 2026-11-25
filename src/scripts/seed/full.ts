@@ -144,7 +144,7 @@ export async function runFullSeed(): Promise<void> {
         .update(`invite-${inviteeEmail}-${Date.now()}`)
         .digest('hex');
       const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      expiresAt.setUTCDate(expiresAt.getUTCDate() + 7);
       await seedMembershipInvitation({
         membership_id: invitedMembership.id,
         email: inviteeEmail,

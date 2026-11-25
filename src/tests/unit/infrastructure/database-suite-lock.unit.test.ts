@@ -139,18 +139,21 @@ describe('database suite lock', () => {
       pointHarnessAtLocalTestDatabase();
       return lockPathFor(`local/${PROJECT_SLUG.replaceAll('-', '_')}_test_${suffix}`);
     };
-    const laneBLock = laneLockPath('lane_b');
-    const laneCLock = laneLockPath('lane_c');
+    // Private lane names per process: a real lane's lock file must never be touched by this test.
+    const laneB = `unitlockb${process.pid}`;
+    const laneC = `unitlockc${process.pid}`;
+    const laneBLock = laneLockPath(laneB);
+    const laneCLock = laneLockPath(laneC);
     try {
       writeFileSync(
         laneBLock,
         JSON.stringify({ pid: process.ppid, startedAt: new Date().toISOString(), command: 'b' }),
       );
-      laneLockPath('lane_c');
+      laneLockPath(laneC);
       const releaseLaneC = acquireDatabaseSuiteLock();
       expect(existsSync(laneCLock)).toBe(true);
       releaseLaneC();
-      laneLockPath('lane_b');
+      laneLockPath(laneB);
       expect(() => acquireDatabaseSuiteLock()).toThrow(/Another test run is already using/);
     } finally {
       for (const path of [laneBLock, laneCLock]) if (existsSync(path)) unlinkSync(path);

@@ -177,3 +177,23 @@ Tests after the merge on main: channel-connection (unit + integration), instagra
   entry the database refuses" integration test refused the FIRST `recordReceivedEvents` call, but since
   P253 the accounts' entries store at once, so either account could be first. Fixed: the test refuses the
   first account's entry by its comment id. Re-run 3 times: 46/46 each.
+
+## Main ← lane B ba91a8d, ac378c3 (fast-forward) — 2026-11-25
+
+The webhook store's process-wide cap (P262) and the contact factory's place on the job-scope minting
+allowlist (the first `ci:local` failed on `principal-scope-minting.policy.unit.test.ts`: the in-flight
+erase tests' `eraseContactRow` mints `PRINCIPAL_SCOPE.JOB`). No conflicts.
+
+## Close — the final gates on the final tree (2026-11-25)
+
+| Gate | Tree | Result |
+| --- | --- | --- |
+| `pnpm ci:local` (every `ci:quality` step incl. contract tests, knip, migration lint, build, full test suite) | ac378c3 | all steps passed — fast 881 files / 7,961 tests (1 skipped); database projects 457 files / 3,942 tests (1 skipped) |
+| `pnpm test:rls-role` (first run) | ac378c3 | 1 failed: the trial flow's lane turn read its lane row outside a database context (the lane harness) — fixed in cf84485 |
+| `pnpm sonar:scan` (first run) | ac378c3 + harness fix | 3 issues (two cognitive-complexity, one in-expression sort) — fixed in cf84485 |
+| `pnpm sonar:scan` | cf84485 | 0 issues / 0 hotspots |
+| `pnpm test:rls-role` | cf84485 | 214 files passed (5 skipped), 1,819 tests passed (10 skipped) |
+| Targeted re-runs after cf84485 | cf84485 | channel-connection, automation-run, instagram-webhook, other-starts e2e: 60 files / 892 tests; trial e2e + instagram-sending unit: 31 files / 211 tests |
+| Read-only reviews (RLS, production hardening) of `2c1a20f..HEAD` | a3ea97b | RLS: no findings beyond one nit (accepted, P262 c); hardening: the per-delivery cap (fixed, P262) and two minor limits (accepted, P262 a, b) |
+
+The pre-push hook runs the full unit suite and `sonar:scan` once more at the push.

@@ -249,7 +249,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R60 | Flow — a token error, the reconnect, the lanes waking | flow | R51, R42 | `/be-build-requirement` | AC-25.* | Rimeet Mavani | done |
 | R61 | Flow — Meta's data deletion and a contact erase | flow | R9, R46, R50 | `/be-build-requirement` | AC-26.* | Rimeet Mavani | done |
 | R62 | Flow — recovery after an outage: Meta down, Redis lost, a restore that must not send | flow | R39, R47, R48, R49 | `/be-build-requirement` | AC-27.* | Rimeet Mavani | done |
-| R63 | Close — `plans/acceptance.md` filled, the gates green, the frontend route map, `AS-BUILT.md` summary and Standing deviations | flow | R1–R62 | be-kickoff-iteration › Close | every AC, BRIEF-1–BRIEF-10, every decision item | Rimeet Mavani | open |
+| R63 | Close — `plans/acceptance.md` filled, the gates green, the frontend route map, `AS-BUILT.md` summary and Standing deviations | flow | R1–R62 | be-kickoff-iteration › Close | every AC, BRIEF-1–BRIEF-10, every decision item | Rimeet Mavani | done |
 
 ## 6. Requirements index
 

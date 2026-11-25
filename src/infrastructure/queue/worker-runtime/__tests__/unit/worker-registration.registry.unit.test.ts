@@ -65,7 +65,7 @@ describe('worker-registration.registry', () => {
     // in `instagram`; throughput, event-driven, their database through the shared limiter); +1 for
     // the channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34);
     // +1 for the database-heavy Instagram task queue (`instagram-database-tasks`, S19 — R46).
-    expect(definitions).toHaveLength(45);
+    expect(definitions).toHaveLength(47);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -99,15 +99,18 @@ describe('worker-registration.registry', () => {
     // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the Instagram
     // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers; the
     // channel connection's token check (MC10) one more Postgres-backed, scheduled, maintenance worker;
-    // the database-heavy task queue (S19, R46) one more Postgres-backed, event-driven throughput one.
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(42);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(36);
+    // the database-heavy task queue (S19, R46) one more Postgres-backed, event-driven throughput one;
+    // R52 the plan-state check (WC-59) and the sending repair duties (WC-37, WC-38) two more
+    // Postgres-backed, scheduled, maintenance workers, and the seat sync is no longer scheduled
+    // (its hourly reconcile is off with the seat sync, BL9, WC-65).
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(44);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(37);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(12);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
-    ).toHaveLength(31);
+    ).toHaveLength(33);
     expect(
       definitions.filter((definition) => definition.criticality === 'observability'),
     ).toHaveLength(2);

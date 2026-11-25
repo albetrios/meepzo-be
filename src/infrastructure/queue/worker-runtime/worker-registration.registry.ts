@@ -71,6 +71,11 @@ import {
   type SubscriptionSeatSyncWorkerBillingContainer,
 } from '@/domains/billing/sub-domains/subscription/workers/subscription-seat-sync.worker.js';
 import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
+import { BILLING_SEAT_SYNC_ENABLED } from '@/domains/billing/sub-domains/subscription/subscription.constants.js';
+import { createSubscriptionPlanStateCheckWorker } from '@/domains/billing/sub-domains/subscription/workers/subscription-plan-state-check.worker.js';
+import { SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-plan-state-check.queue.js';
+import { createInstagramSendingRepairWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-repair.worker.js';
+import { INSTAGRAM_SENDING_REPAIR_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-repair.constants.js';
 import { createInstagramWebhookWorker } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { createInstagramWebhookEventRetentionWorker } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.worker.js';
@@ -353,12 +358,14 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     // Stripe outage never fails member management. Event-driven (enqueued on member add/remove +
     // change-plan), plus the hourly `reconcile-subscription-seats` job (lost enqueues, lapsed dunning
     // entitlements). Stripe-gated like the rest of the family; the service phases the Stripe call
-    // outside its DB context so no checkout is held during external IO.
+    // outside its DB context so no checkout is held during external IO. Switched off by
+    // `BILLING_SEAT_SYNC_ENABLED` (BL9, WC-65): nothing is enqueued and the reconcile is not
+    // scheduled; the worker stays to drain jobs an older release left.
     queueName: SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
     family: 'stripe',
     logLabel: 'subscription seat sync worker',
     usesPostgres: true,
-    scheduled: true,
+    scheduled: BILLING_SEAT_SYNC_ENABLED,
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
     resolvePostgresConcurrency: () => getWorkerConcurrencyStripe(),
@@ -603,6 +610,30 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
         accountPort: workerContainers.appDomain.channelAccountService,
         usageService: workerContainers.appDomain.channelConnectionUsageService,
       }),
+  }),
+  // feat-instagram-dm-sending BL17 (WC-59): the 15-minute plan-state check — a sweep across
+  // organizations under the retention context, then one check per due subscription inside its
+  // organization (a grace that ended, the trial notices, a switched-off plan row). No Stripe call.
+  retentionDefinition({
+    queueName: SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'subscription plan-state check worker',
+    create: (workerContainers) =>
+      createSubscriptionPlanStateCheckWorker({
+        subscriptionService: workerContainers.billingDomain.subscriptionService,
+        notificationService: workerContainers.notifyDomain.notificationService,
+        membershipService: workerContainers.tenancyDomain.membershipService,
+        organizationSettingsService: workerContainers.tenancyDomain.organizationSettingsService,
+      }),
+  }),
+  // feat-instagram-dm-sending SN6 (P94): the sending repair duties, one repeat job each — at R52 the
+  // month wake's check (WC-37) and the plan-stop backup (WC-38). Database sweeps that hand each
+  // organization a task on `instagram-database-tasks`; no Meta call, so not gated on sending.
+  retentionDefinition({
+    queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+    family: 'instagram',
+    logLabel: 'Instagram sending repair worker',
+    create: () => createInstagramSendingRepairWorker(),
   }),
   // Launch D8 (routes-final § 3.B AU25, AQ7): the run and automation clean-ups — every hour the
   // runs waiting more than 7 days are cancelled with their open keys (a cross-organization scan, then

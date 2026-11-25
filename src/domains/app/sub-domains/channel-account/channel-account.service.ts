@@ -34,6 +34,7 @@ import {
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
   CHANNEL_ACCOUNT_STATUS,
   type ChannelAccountChannel,
+  type ChannelAccountPlanStopReason,
 } from './channel-account.constants.js';
 import {
   APP_UNTESTED_META_FEATURES,
@@ -66,11 +67,15 @@ import type {
   ChannelAccountChange,
   ChannelAccountLanePort,
   ChannelAccountOutput,
+  ChannelAccountPlanStopMove,
   ChannelAccountPlanStopPort,
+  ChannelAccountPlanStopsInput,
+  ChannelAccountPlanStopsResult,
   ChannelAccountSummaryOutput,
   ChannelFeatureCheckResult,
   ChannelFeatureProblem,
 } from './channel-account.types.js';
+import { pickChannelAccountsInPlan } from './channel-account-plan-stop.util.js';
 
 /**
  * The plan read route 11 and the feature check take the plan from (sub-domain 8, P83).
@@ -542,6 +547,87 @@ export class ChannelAccountService
       change: result.change,
       stoppedChannelAccountPublicId: result.stoppedChannelAccountPublicId,
     };
+  }
+
+  /**
+   * Puts the organization's accounts' plan stops in line with its plan now (CA3, CA9 — WC-37, WC-38,
+   * ROUTE row R52): the accounts over the plan's limit take `plan_downgrade`, every account in the
+   * plan takes the organization's own stop (`plan_ended`, else `plan_limit`, else none).
+   *
+   * @remarks
+   * Algorithm: outside any unit, billing's plan read (the limit and the features, P83); then one
+   * unit under the organization's account-limit lock (the pick's and route 11's, MC7): the live
+   * accounts (oldest connected first); the organization's stop through
+   * {@link ChannelAccountPlanStopPort} (read in this unit — the month count against the plan's
+   * limit now); the accounts in the plan by {@link pickChannelAccountsInPlan} (while the plan has
+   * ended every account stays — nothing is trimmed or let back); each account whose
+   * stop differs is changed — a new `plan_ended` or `plan_downgrade` stops its lanes with its history
+   * row, a new `plan_limit` writes its history row only (the reply lane goes on, D62). One reason at
+   * a time (CA3): `plan_downgrade` is never replaced by the other two, `plan_ended` replaces
+   * `plan_limit`, and ending `plan_ended` re-derives `plan_limit`. Failure modes: none of its own —
+   * a read failure rolls the unit back. Side effects: the account rows; the lanes' stops and history.
+   * Notes: returns the organization's id, the plan's features and the moves; the caller wakes the
+   * lanes of each account whose stop got weaker, after the commit. Running it twice changes nothing
+   * the second time.
+   */
+  async applyOrganizationPlanStops({
+    scope,
+    keptChannelAccountPublicIds,
+    mayActivate,
+  }: ChannelAccountPlanStopsInput): Promise<ChannelAccountPlanStopsResult> {
+    const planAccess = await this.planAccessService.getPlanAccess({
+      organizationPublicId: scope.organizationPublicId,
+    });
+    const accountsMax =
+      planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN;
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organizationId = await this.resolveOrganizationId(scope);
+        await this.accountRepository.lockOrganizationForAccountLimit(organizationId);
+        const live = await this.accountRepository.listLive({
+          organizationId,
+          channels: CHANNEL_ACCOUNT_CHANNELS,
+        });
+        const organizationStop =
+          (await this.planStopPort?.readOrganizationPlanStop({ scope, organizationId })) ?? null;
+        // A plan that ended holds every account where it is (CA3): its Free features trim nothing —
+        // the limit applies again once a plan is picked.
+        const isPlanEnded = organizationStop === CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_ENDED;
+        const inPlan = pickChannelAccountsInPlan({
+          live,
+          accountsMax: isPlanEnded ? live.length : accountsMax,
+          keptChannelAccountPublicIds,
+          mayActivate: mayActivate && !isPlanEnded,
+        });
+        const moves: ChannelAccountPlanStopMove[] = [];
+        for (const account of live) {
+          const to = inPlan.has(account.id)
+            ? organizationStop
+            : CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_DOWNGRADE;
+          if (account.plan_stop_reason === to) continue;
+          const changed = await this.accountRepository.setPlanStop({
+            organizationId,
+            channelAccountId: account.id,
+            reason: to,
+          });
+          if (changed === null) continue;
+          const key = { scope, organizationId, channelAccountId: account.id };
+          if (to === CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_LIMIT) {
+            await this.lanePort?.recordPlanStop?.({ ...key, planStopReason: to });
+          } else if (to !== null) {
+            await this.lanePort?.stopLanes({ ...key, planStopReason: to });
+          }
+          moves.push({
+            channelAccountId: account.id,
+            channelAccountPublicId: account.public_id,
+            from: account.plan_stop_reason as ChannelAccountPlanStopReason | null,
+            to,
+          });
+        }
+        return { organizationId, features: planAccess.features, moves };
+      },
+    });
   }
 
   /**

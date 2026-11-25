@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -115,5 +115,28 @@ export class AutomationBackfillRepository {
       throw new Error('automation backfill insert returned no row');
     }
     return row;
+  }
+
+  /**
+   * Ends the organization's unfinished reads (`queued`, `reading`) `failed` · `plan_feature_off` — a
+   * move down turned the plan's `past_comments` switch off (AU32, WC-38, AC-8.7). Returns how many.
+   */
+  async failOpenForPlanFeatureOff(organizationId: number): Promise<number> {
+    const rows = await this.db()
+      .update(automation_backfills)
+      .set({
+        status: 'failed',
+        fail_reason: 'plan_feature_off',
+        done_at: sql`now()`,
+        updated_at: sql`greatest(${automation_backfills.created_at}, now())`,
+      })
+      .where(
+        and(
+          eq(automation_backfills.organization_id, organizationId),
+          inArray(automation_backfills.status, [...AUTOMATION_BACKFILL_OPEN_STATUSES]),
+        ),
+      )
+      .returning({ id: automation_backfills.id });
+    return rows.length;
   }
 }

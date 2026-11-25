@@ -623,6 +623,105 @@ export class SubscriptionRepository {
   }
 
   /**
+   * One page of the subscriptions the plan-state check must look at (BL17, BL24 — WC-59): read across
+   * tenants, so only under the retention maintenance context (the subscriptions policy's `USING`
+   * bypass arm). A row is due when (a) its dunning grace ended within the last `lookbackDays`, (b)
+   * its trial ends within `trialNoticeMaxDays`, or (c) it is live on a switched-off plan row.
+   *
+   * @remarks
+   * Keyset by `subscriptions.id` (`afterId`), `limit` rows a page, team organizations not deleted
+   * only. Served by the plan-state indexes of R24 (`current_period_end` of the dunning rows,
+   * `trial_end` of the trialing rows) and `plan_id`'s index.
+   */
+  async listPlanStateCheckDue(options: {
+    dunningGraceDays: number;
+    lookbackDays: number;
+    trialNoticeMaxDays: number;
+    afterId: number;
+    limit: number;
+  }): Promise<
+    { subscriptionId: number; subscriptionPublicId: string; organizationPublicId: string }[]
+  > {
+    const graceEnd = sql`${subscriptions.current_period_end} + make_interval(days => ${options.dunningGraceDays})`;
+    return this.db()
+      .select({
+        subscriptionId: subscriptions.id,
+        subscriptionPublicId: subscriptions.public_id,
+        organizationPublicId: organizations.public_id,
+      })
+      .from(subscriptions)
+      .innerJoin(organizations, eq(organizations.id, subscriptions.organization_id))
+      .where(
+        and(
+          eq(organizations.type, 'TEAM'),
+          isNull(organizations.deleted_at),
+          sql`${subscriptions.id} > ${options.afterId}`,
+          or(
+            and(
+              inArray(subscriptions.status, ['PAST_DUE', 'UNPAID']),
+              sql`${graceEnd} <= now()`,
+              sql`${graceEnd} > now() - make_interval(days => ${options.lookbackDays})`,
+            ),
+            and(
+              eq(subscriptions.status, 'TRIALING'),
+              sql`${subscriptions.trial_end} > now()`,
+              sql`${subscriptions.trial_end} <= now() + make_interval(days => ${options.trialNoticeMaxDays})`,
+            ),
+            and(
+              notInArray(subscriptions.status, [...INACTIVE_SUBSCRIPTION_STATUSES]),
+              sql`${subscriptions.plan_id} IN (SELECT ${plans.id} FROM ${plans} WHERE NOT ${plans.is_active})`,
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(subscriptions.id))
+      .limit(options.limit);
+  }
+
+  /**
+   * One subscription of the organization as the plan-state check re-reads it inside the organization
+   * (BL17): its status, period end, trial end, plan and whether that plan row is still on, and the
+   * organization's name (the notices' text); `null` when absent.
+   */
+  async findPlanStateCheckRow({
+    organizationId,
+    subscriptionPublicId,
+  }: {
+    organizationId: number;
+    subscriptionPublicId: string;
+  }): Promise<{
+    publicId: string;
+    status: string;
+    currentPeriodEnd: Date;
+    trialEnd: Date | null;
+    planPublicId: string | null;
+    isPlanActive: boolean | null;
+    organizationName: string;
+  } | null> {
+    const rows = await this.db()
+      .select({
+        publicId: subscriptions.public_id,
+        status: subscriptions.status,
+        currentPeriodEnd: subscriptions.current_period_end,
+        trialEnd: subscriptions.trial_end,
+        planPublicId: plans.public_id,
+        isPlanActive: plans.is_active,
+        organizationName: organizations.name,
+      })
+      .from(subscriptions)
+      .innerJoin(organizations, eq(organizations.id, subscriptions.organization_id))
+      .leftJoin(plans, eq(plans.id, subscriptions.plan_id))
+      .where(
+        and(
+          eq(subscriptions.organization_id, organizationId),
+          eq(subscriptions.public_id, subscriptionPublicId),
+        ),
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  /**
    * The customer-visible fields a Stripe sync can change, and what decides its plan-state case (the
    * trial end, the scheduled move down), before the sync runs (`null` when absent).
    */
@@ -731,8 +830,9 @@ export class SubscriptionRepository {
 }
 
 /**
- * {@link SubscriptionRepository} bound to a retention maintenance handle — the seat reconcile's
- * cross-tenant read ({@link SubscriptionRepository.findSeatReconcileCandidates}).
+ * {@link SubscriptionRepository} bound to a retention maintenance handle — the cross-tenant reads of
+ * the seat reconcile ({@link SubscriptionRepository.findSeatReconcileCandidates}) and the plan-state
+ * check's sweep ({@link SubscriptionRepository.listPlanStateCheckDue}).
  */
 export function createRetentionSubscriptionRepository(
   databaseHandle: WorkerDatabaseHandle,

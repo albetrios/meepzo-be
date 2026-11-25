@@ -40,7 +40,9 @@ snapshots; the frontend's half of this list is
 - [x] **No staff lock-out on a lapsed plan** (2026-10-17) — a lapsed entitlement no longer
       suspends members: the Stripe-event path logs `billing.entitlement_lost`, the hourly
       seat-reconcile job logs `subscription-seat-reconcile.entitlement_lapsed`. The Free plan's
-      single seat had suspended every non-owner member.
+      single seat had suspended every non-owner member. (Since feat-instagram-dm-sending R52 the
+      seat sync and its reconcile are off — members are unlimited — and a lapsed grace ends through
+      the 15-minute plan-state check, which stops the accounts' lanes with `plan_ended`.)
 
 ## Owner actions that don't wait on code
 

@@ -381,6 +381,31 @@ export class BroadcastRepository {
   }
 
   /**
+   * Cancels the organization's live `scheduled` and `waiting_for_chats` broadcasts because a move
+   * down turned the plan's `broadcasts` switch off (BC9, WC-38, AC-9.11) — `cancel_reason`
+   * `plan_feature_off`; drafts stay. Returns how many it cancelled.
+   */
+  async cancelForPlanFeatureOff(organizationId: number): Promise<number> {
+    const rows = await this.db()
+      .update(broadcasts)
+      .set({
+        status: 'cancelled',
+        cancelled_at: sql`now()`,
+        cancel_reason: 'plan_feature_off',
+        updated_at: broadcastUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          eq(broadcasts.organization_id, organizationId),
+          LIVE_BROADCAST,
+          inArray(broadcasts.status, ['scheduled', 'waiting_for_chats']),
+        ),
+      )
+      .returning({ id: broadcasts.id });
+    return rows.length;
+  }
+
+  /**
    * Soft-deletes a live broadcast that is not active (route 74, BC4, BC11); `false` when it is
    * `scheduled`, `sending`, `waiting_for_chats` or already deleted.
    */

@@ -211,6 +211,7 @@ describe('Stripe webhook — the plan-state cases (R26)', () => {
         current: { state: 'active', plan_public_id: free.public_id },
         features: FREE_PLAN_FEATURES,
         kept_channel_account_public_ids: null,
+        change_key: null,
       },
     ]);
   });

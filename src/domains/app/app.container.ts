@@ -92,6 +92,7 @@ import {
   instagramMessageRetryQueue,
   segmentBackgroundCountPort,
 } from './app.tasks.js';
+import { registerInstagramPlanChangeEventHandlers } from './sub-domains/instagram-sending/events/instagram-plan-change.event-handlers.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
@@ -703,7 +704,7 @@ function createSendAccessServices({
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
  * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45); the task handlers of R46 (`createAppTaskHandlers`), R40's and R41's at theirs.
+ * rules yet (R43–R45); the task handlers of R46 and R52 (`createAppTaskHandlers`), R40's and R41's at theirs.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -899,6 +900,8 @@ export function createAppContainer({
     instagramMessageService,
     ...sendAccess,
   };
+  // WC-38 (ROUTE row R52): billing's plan-state change → the plan-change task, in both processes.
+  registerInstagramPlanChangeEventHandlers();
   return { ...container, instagramSendWork: createInstagramSendWork(container) };
 }
 

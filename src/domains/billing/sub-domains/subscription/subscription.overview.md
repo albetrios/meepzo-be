@@ -32,6 +32,8 @@ stateDiagram-v2
 
 ## Seats (REQ-4)
 
+> **Switched off since feat-instagram-dm-sending R52 (BL9, D55, WC-65):** `BILLING_SEAT_SYNC_ENABLED` (a billing code constant) is `false` — members are unlimited on every plan, `enqueueSeatQuantitySync` enqueues nothing (Stripe's quantity stays 1) and the hourly reconcile is not scheduled (one an older release left returns at once). A lapsed grace ends through the plan-state check below. The machinery here is kept for a plan that carries seats again.
+
 - The public subscription response carries `seats_total` (the plan's `included_seats`, or the Free ceiling while unpaid or past dunning grace; `null` = unlimited) and `seats_used` (count of ACTIVE + INVITED memberships, resolved cross-domain via the tenancy membership service).
 - **Seat enforcement** lives in tenancy's `MembershipService.create`: it calls back into `SubscriptionService.reserveSeatCeilingForMemberAdd` (a `SELECT ... FOR UPDATE` on the active subscription row) and rejects the add with `409 seat_limit_reached` when `used >= ceiling`. No-op when the organization has no active subscription or the plan is unlimited.
 - **Billed from the first invoice.** Create passes the organization's ACTIVE + INVITED count (at least 1) as the Stripe `quantity`; a member who joins between that read and the commit is reconciled by the seat sync enqueued after the create.
@@ -59,6 +61,13 @@ stateDiagram-v2
 - **Change plan** (route 103, BL5, BL6, BL15; `subscription-plan-change.util.ts`): **up** (dearer, or away from a switched-off plan) — the price swaps at once, any scheduled move released; **down** (cheaper or Free) — a Stripe subscription schedule for the period end (Free: `cancel_at_period_end`), mirrored in `scheduled_plan_id`, `scheduled_change_at`, `downgrade_keep` (`keep_channel_account_ids`, checked through the accounts port against the new plan's `channel_accounts_max`); the entitlement does not move until the Stripe webhook applies it at the period end (8.D — the schedule's flip moves `plan_id` and clears the three columns; a move to Free ends the Stripe row and inserts the local Free row; see the stripe-webhook overview); **the same plan** — the scheduled move is taken back. The answer's `scheduled_change` shows it.
 - **The accounts port** (`BillingChannelAccountsPort`, § 8.10): billing never reads app tables — the app's `ChannelAccountService` implements `listActiveChannelAccounts` / `countConnectedChannelAccounts`, wired by the composition roots with `subscriptionService.wireChannelAccounts`.
 
+## The plan-state check (feat-instagram-dm-sending § 8.B BL17, BL24, ROUTE row R52 — WC-59)
+
+- **Every 15 minutes** (`PLAN_STATE_CHECK_MINUTES`; queue `subscription-plan-state-check`, `workers/subscription-plan-state-check.*`) a sweep reads across organizations under the retention maintenance context (the subscriptions policy's `USING` arm — `listPlanStateCheckDue`) and adds one check per due subscription (job id per subscription and 15-minute slot). Inside its organization the job re-reads the row (`findPlanStateCheckRow`, `decidePlanStateCheckFindings` in `subscription-plan-state.util.ts`):
+  - **a grace that ended** (`PAST_DUE` / `UNPAID`, `current_period_end` + `BILLING_DUNNING_GRACE_DAYS` passed within the last `PLAN_STATE_CHECK_GRACE_END_LOOKBACK_DAYS` 7) → `emitPlanStateCheckFinding` emits `plan_ended` with `change_key` = the period end, so the app's plan-change job id drops every repeat (no marker column) — the lanes stop with no Stripe event (AC-11.8);
+  - **a trial ending** within 3 days, then 1 day (`TRIAL_NOTICE_DAYS`) → `billing.trial_ending` to the `subscription:manage` holders, dedupe key `trial-ending:<sub>:<days>`;
+  - **a switched-off plan row** (Starter, Growth, Pro — Free's features, BL24) → one `billing.plan_choice_required` (dedupe `plan-choice:<sub>`), and only when that notice went out a `moved_down` (`change_key` = the subscription): one email and one event however often the check runs; Stripe is never called.
+
 ## Cards (feat-instagram-dm-sending § 8.C, ROUTE row R25)
 
 - **Cards live only in Stripe** — no table. Route 104 lists the customer's cards with `is_default`; route 105 (`DELETE /billing/payment-methods/{payment_method_id}`) detaches one; route 106 (`POST …/{payment_method_id}/default`, `X-Idempotency-Key`) sets the customer's `invoice_settings.default_payment_method` and the live Stripe subscription's `default_payment_method`, then answers the cards.
@@ -68,7 +77,7 @@ stateDiagram-v2
 
 ## Events
 
-- Emits `subscription.created` / `.updated` / `.cancelled` (customer webhooks, notify) and, internal only, `subscription.plan_state_changed` (BL8, `emitPlanStateChanged`) after commit whenever the entitlement moved — a trial start (`trial_started`), a move up (`upgraded`), a Free row ending a plan-ended state (`resumed`); the Stripe webhook's plan-state cases (`emitPlanStateChangedAfterCommit` — `trial_ended`, `moved_down`, `plan_ended`, `resumed`, `upgraded`) and the 15-minute plan-state check (WC-59, R52) emit through the same method. Payload: the organization, `change`, previous / current `{ state, plan_public_id }`, the current `features`, `kept_channel_account_public_ids`.
+- Emits `subscription.created` / `.updated` / `.cancelled` (customer webhooks, notify) and, internal only, `subscription.plan_state_changed` (BL8, `emitPlanStateChanged`) after commit whenever the entitlement moved — a trial start (`trial_started`), a move up (`upgraded`), a Free row ending a plan-ended state (`resumed`); the Stripe webhook's plan-state cases (`emitPlanStateChangedAfterCommit` — `trial_ended`, `moved_down`, `plan_ended`, `resumed`, `upgraded`) and the 15-minute plan-state check (WC-59, R52) emit through the same method. Payload: the organization, `change`, previous / current `{ state, plan_public_id }`, the current `features`, `kept_channel_account_public_ids`, `change_key` (the check's findings only, R52). The app's handler (`instagram-plan-change.event-handlers.ts`, registered by the app container in both processes) enqueues its `plan-change` task (WC-38).
 
 ## External integrations
 
@@ -82,5 +91,5 @@ stateDiagram-v2
 
 ## Policy constants
 
-- `PAID_TRIAL_DAYS = 7`, `TRIAL_NOTICE_DAYS = [3, 1]` (`subscription.constants.ts`)
+- `PAID_TRIAL_DAYS = 7`, `TRIAL_NOTICE_DAYS = [3, 1]`, `PLAN_STATE_CHECK_MINUTES = 15`, `PLAN_STATE_CHECK_GRACE_END_LOOKBACK_DAYS = 7`, `BILLING_SEAT_SYNC_ENABLED = false` (`subscription.constants.ts`)
 - `IDEMPOTENCY_RESPONSE_CACHE_TTL_SECONDS = 86 400`

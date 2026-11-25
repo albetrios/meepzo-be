@@ -215,6 +215,7 @@ src/
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts
     │   │   │   │   │   ├── channel-account-feature-check.service.unit.test.ts
+    │   │   │   │   │   ├── channel-account-plan-stop.util.unit.test.ts
     │   │   │   │   │   ├── channel-account.serializer.unit.test.ts
     │   │   │   │   │   ├── channel-account.service.unit.test.ts
     │   │   │   │   │   └── channel-account.validator.unit.test.ts
@@ -224,6 +225,7 @@ src/
     │   │   │   ├── channel-account-capabilities.constants.ts
     │   │   │   ├── channel-account-error.util.ts
     │   │   │   ├── channel-account-plan-stop.service.ts
+    │   │   │   ├── channel-account-plan-stop.util.ts
     │   │   │   ├── channel-account.constants.ts
     │   │   │   ├── channel-account.controller.ts
     │   │   │   ├── channel-account.dto.ts
@@ -466,8 +468,11 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── instagram-sending.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── instagram-plan-change.integration.test.ts
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── events/
+    │   │   │   │   │       └── instagram-plan-change.event-handlers.unit.test.ts
     │   │   │   │   │   ├── instagram-attachment-upload.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
@@ -482,6 +487,8 @@ src/
     │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
+    │   │   │   ├── events/
+    │   │   │   │   └── instagram-plan-change.event-handlers.ts
     │   │   │   ├── instagram-attachment/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   └── unit/
@@ -518,6 +525,7 @@ src/
     │   │   │   │   ├── instagram-attachment-upload.job.schema.ts
     │   │   │   │   ├── instagram-database-tasks.job.schema.ts
     │   │   │   │   ├── instagram-database-tasks.queue.ts
+    │   │   │   │   ├── instagram-plan-change.job.schema.ts
     │   │   │   │   ├── instagram-retry-failed.job.schema.ts
     │   │   │   │   ├── instagram-send-fast.job.schema.ts
     │   │   │   │   ├── instagram-send-fast.queue.ts
@@ -531,12 +539,16 @@ src/
     │   │   │   ├── workers/
     │   │   │   │   ├── instagram-attachment-upload.processor.ts
     │   │   │   │   ├── instagram-database-tasks.worker.ts
+    │   │   │   │   ├── instagram-plan-change.processor.ts
     │   │   │   │   ├── instagram-retry-failed.processor.ts
     │   │   │   │   ├── instagram-send-fast.processor.ts
     │   │   │   │   ├── instagram-send-fast.worker.ts
     │   │   │   │   ├── instagram-send-slow.processor.ts
     │   │   │   │   ├── instagram-send-slow.worker.ts
     │   │   │   │   ├── instagram-send-ticket.processor.ts
+    │   │   │   │   ├── instagram-sending-repair.constants.ts
+    │   │   │   │   ├── instagram-sending-repair.processor.ts
+    │   │   │   │   ├── instagram-sending-repair.worker.ts
     │   │   │   │   ├── instagram-tasks.processor.ts
     │   │   │   │   └── instagram-tasks.worker.ts
     │   │   │   ├── instagram-send-access.service.ts
@@ -1077,6 +1089,7 @@ src/
     │   │   │       │   ├── subscription-happy.integration.test.ts
     │   │   │       │   ├── subscription-lifecycle.integration.test.ts
     │   │   │       │   ├── subscription-payment-method.integration.test.ts
+    │   │   │       │   ├── subscription-plan-state-check.integration.test.ts
     │   │   │       │   ├── subscription-refusals.integration.test.ts
     │   │   │       │   ├── subscription-seat-ceiling.integration.test.ts
     │   │   │       │   ├── subscription-seat-entitlement.integration.test.ts
@@ -1089,6 +1102,7 @@ src/
     │   │   │       │   ├── subscription-entitlement.util.unit.test.ts
     │   │   │       │   ├── subscription-period.util.unit.test.ts
     │   │   │       │   ├── subscription-plan-change.util.unit.test.ts
+    │   │   │       │   ├── subscription-plan-state.util.unit.test.ts
     │   │   │       │   ├── subscription-routes-rate-limit.policy.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.job.schema.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.processor.unit.test.ts
@@ -1114,12 +1128,17 @@ src/
     │   │   │   ├── events/
     │   │   │       └── subscription.events.ts
     │   │   │   ├── queues/
+    │   │   │       ├── subscription-plan-state-check.job.schema.ts
+    │   │   │       ├── subscription-plan-state-check.queue.ts
     │   │   │       ├── subscription-seat-sync.job.schema.ts
     │   │   │       └── subscription-seat-sync.queue.ts
     │   │   │   ├── seed/
     │   │   │       ├── subscription.bulk.seed.ts
     │   │   │       └── subscription.faker.ts
     │   │   │   ├── workers/
+    │   │   │       ├── subscription-plan-state-check.constants.ts
+    │   │   │       ├── subscription-plan-state-check.processor.ts
+    │   │   │       ├── subscription-plan-state-check.worker.ts
     │   │   │       ├── subscription-seat-reconcile.constants.ts
     │   │   │       ├── subscription-seat-reconcile.processor.ts
     │   │   │       ├── subscription-seat-sync.processor.ts
@@ -1130,6 +1149,7 @@ src/
     │   │   │   ├── subscription-entitlement.util.ts
     │   │   │   ├── subscription-period.util.ts
     │   │   │   ├── subscription-plan-change.util.ts
+    │   │   │   ├── subscription-plan-state.util.ts
     │   │   │   ├── subscription-trial.service.ts
     │   │   │   ├── subscription.constants.ts
     │   │   │   ├── subscription.controller.ts
@@ -1437,7 +1457,6 @@ src/
     │   │   │   │   │   ├── membership.service.directory-and-lifecycle.unit.test.ts
     │   │   │   │   │   ├── membership.service.grantable-permissions.unit.test.ts
     │   │   │   │   │   ├── membership.service.invitation-endings.unit.test.ts
-    │   │   │   │   │   ├── membership.service.seat-downgrade.unit.test.ts
     │   │   │   │   │   ├── membership.service.unit.test.ts
     │   │   │   │   │   └── membership.validator.unit.test.ts
     │   │   │   ├── events/

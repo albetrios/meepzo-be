@@ -100,6 +100,18 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   `plan_limit` on every account of the organization (the reply lane goes on).
 - `instagram-send-error.util.ts` — Meta's answer → its one group (the code table `INSTAGRAM_SEND_ERROR_CODE_GROUPS` in
   the settings file) → the message's outcome and the stop it starts.
+- **The plan change and the month wake** (R52, WC-37, WC-38): `events/instagram-plan-change.event-handlers.ts` turns
+  billing's `subscription.plan_state_changed` into one `plan-change` task on `instagram-database-tasks` (job id
+  `plan-change-<org>-<change>-<key>` — the plan-state check's findings carry their key, so a repeat is dropped);
+  `workers/instagram-plan-change.processor.ts` (also the `month-wake` job) puts the accounts' plan stops in line with
+  the plan through `ChannelAccountService.applyOrganizationPlanStops` (over the limit → `plan_downgrade`, the kept and
+  then the oldest stay; a move up lets `plan_downgrade` back; every account in the plan takes the organization's own
+  stop — `plan_ended`, else `plan_limit`, else none), on a move down or a trial end cancels the scheduled and waiting
+  broadcasts and fails the unfinished past-comment reads (`plan_feature_off`) when the new plan lacks the switch, then
+  wakes the accounts whose stop got weaker, spread over 5 minutes. `workers/instagram-sending-repair.*` — the repair
+  queue `instagram-sending-repair` (SN6, one repeat job per duty; R47 adds the rest): `repair-month-wake` every minute
+  (organizations holding `plan_limit` since before their month turned, their time zone) and `repair-plan-stops` every
+  15 minutes (organizations still holding `plan_ended`), each adding one task per organization.
 - `seed/` — four lanes per seeded account, an ended stop, this minute's and this month's counts.
 
 ## Rules

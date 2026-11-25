@@ -590,6 +590,29 @@ export class BroadcastService {
   }
 
   /**
+   * A move down turned the plan's `broadcasts` switch off (P83, WC-38 — ROUTE row R52, AC-9.11): the
+   * organization's scheduled and waiting-for-chats broadcasts end `cancelled` · `plan_feature_off`;
+   * drafts and segments stay saved.
+   *
+   * @remarks
+   * Algorithm: one guarded `UPDATE` in the scope's unit (joining the caller's). Failure modes: none
+   * of its own. Side effects: the broadcast rows; their recipients and messages are settled by the
+   * end duty (WC-29, R47), and until then the broadcast lane skips them (R45). Returns the count.
+   */
+  async cancelBroadcastsForPlanFeatureOff({
+    scope,
+    organizationId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.broadcastRepository.cancelForPlanFeatureOff(organizationId),
+    });
+  }
+
+  /**
    * The segment delete's step (route 81, BC17): empties `segment_id` on the organization's drafts
    * that use the segment, in the delete's transaction — registered as a `SegmentDeleteStep`.
    *

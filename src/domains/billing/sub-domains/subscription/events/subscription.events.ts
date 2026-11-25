@@ -54,4 +54,11 @@ export interface PlanStateChangedPayload {
   features: PlanFeatures | null;
   /** `cha_…` ids kept active (`moved_down` / `trial_ended`); `null` otherwise or when none was picked. */
   kept_channel_account_public_ids: string[] | null;
+  /**
+   * What makes this change once (WC-59, ROUTE row R52): the plan-state check's findings name it — the
+   * period end of a grace that ended, the subscription of a switched-off plan row — so the app's
+   * handler keys its plan-change task by it and drops a repeat; `null` for every other change (a
+   * route or a Stripe event, each its own change).
+   */
+  change_key: string | null;
 }

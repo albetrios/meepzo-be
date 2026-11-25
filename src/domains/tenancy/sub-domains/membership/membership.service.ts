@@ -638,37 +638,6 @@ export class MembershipService {
     }
   }
 
-  /**
-   * The same purge for a whole set of members, in one id lookup instead of one per member.
-   *
-   * @remarks
-   * The single-member version above resolves one internal id per call, so running it in a loop
-   * costs a round trip per member — and the seat-ceiling path's loop is as long as the number
-   * of members being suspended, which a large downgrade makes unbounded. One batch resolve,
-   * then the Redis purges together: `invalidatePermissions` swallows its own failures (it retries,
-   * then fails closed by bypassing the cache — B2-9), so no purge can reject the others.
-   *
-   * An id the resolver does not return has no active user, which is exactly the case the
-   * single-member version skips on `null`.
-   */
-  /**
-   * Purges each listed member's cached permission set in one organization — Redis only, so it is
-   * safe after the unit of work that changed their access has committed, in any process.
-   */
-  private async invalidatePermissionsForUsers({
-    user_public_ids,
-    organization_public_id,
-  }: {
-    user_public_ids: readonly string[];
-    organization_public_id: string;
-  }): Promise<void> {
-    await Promise.all(
-      user_public_ids.map((userPublicId) =>
-        invalidatePermissions({ userId: userPublicId, organizationId: organization_public_id }),
-      ),
-    );
-  }
-
   private async applyOrganizationLocaleDefaults({
     userPublicId,
     organizationPublicId,
@@ -2589,74 +2558,6 @@ export class MembershipService {
         return this.membershipRepository.findActiveUserIds(organization.id);
       },
     });
-  }
-
-  /**
-   * F2: suspends the most-recently-joined non-owner ACTIVE members until the org's active headcount
-   * fits `ceiling`; returns how many were suspended. Cross-domain entry point billing's
-   * `SubscriptionService` calls after a downgrade commits.
-   *
-   * @remarks
-   * - **Algorithm:** counts ACTIVE + INVITED seats; if `seatsUsed > ceiling`, suspends
-   *   `seatsUsed - ceiling` non-owner ACTIVE members ordered by `joined_at DESC` (longest-tenured
-   *   kept) and reads their user public ids in the same context, then — after the commit, Redis
-   *   only — purges each suspended member's permission cache so access is revoked at once rather
-   *   than lingering for the cache TTL. Nothing touches the database after the commit, so the
-   *   worker process (the hourly seat reconcile) runs it whole. The **owner is never suspended**, so an owner-only or
-   *   owner-plus-invites organization may remain above `ceiling` (invitations are not suspendable) — the
-   *   add-member ceiling check still blocks further growth.
-   * - **Failure modes:** `NotFoundError('Organization')` for a missing organization; otherwise none beyond the
-   *   underlying queries. Runs in the organization DB context + transaction so the count and suspend are
-   *   consistent and RLS-scoped.
-   * - **Side effects:** flips excess memberships to `SUSPENDED` (one `membership.updated` event
-   *   each); invalidates permission caches.
-   */
-  async suspendExcessActiveMembersToFitCeiling(options: {
-    organizationPublicId: string;
-    ceiling: number;
-  }): Promise<number> {
-    const suspended = await withAppDatabaseContext({
-      scope: PRINCIPAL_SCOPE.VERIFIED({ organizationPublicId: options.organizationPublicId }),
-      callback: async () => {
-        const organization = await this.organizationService.requireOrganizationRecordByPublicId(
-          options.organizationPublicId,
-        );
-        const seatsUsed = await this.membershipRepository.countActiveByOrganization(
-          organization.id,
-        );
-        const excess = seatsUsed - options.ceiling;
-        if (excess <= 0) return { count: 0, userPublicIds: [] as string[] };
-        const suspendedMemberships = await this.membershipRepository.suspendExcessActiveMembers({
-          organization_id: organization.id,
-          owner_user_id: organization.owner_user_id,
-          suspend_count: excess,
-        });
-        await this.emitMembershipEvents({
-          type: MEMBERSHIP_EVENT.UPDATED,
-          memberships: suspendedMemberships,
-          organization,
-        });
-        // Their public ids are read here, in the organization's context: after the commit there is
-        // none, and the worker process — the hourly seat reconcile — refuses database access
-        // outside one, which left the suspended members' permissions cached.
-        const publicIdsByInternalId =
-          await this.organizationService.resolveUserPublicIdsByInternalIds(
-            suspendedMemberships.map((membership) => membership.user_id),
-          );
-        return {
-          count: suspendedMemberships.length,
-          userPublicIds: [...publicIdsByInternalId.values()],
-        };
-      },
-    });
-    // Post-commit (policy audit R11): purge each suspended member's permission cache OUTSIDE the
-    // organization context block, so a concurrent recompute can't re-cache the pre-suspension permission set
-    // before the suspend transaction commits.
-    await this.invalidatePermissionsForUsers({
-      user_public_ids: suspended.userPublicIds,
-      organization_public_id: options.organizationPublicId,
-    });
-    return suspended.count;
   }
 
   /**

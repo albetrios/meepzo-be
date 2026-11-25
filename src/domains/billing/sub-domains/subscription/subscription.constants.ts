@@ -33,6 +33,26 @@ export const PAID_TRIAL_DAYS = 7;
 export const TRIAL_NOTICE_DAYS: readonly number[] = Object.freeze([3, 1]);
 
 /**
+ * How often the plan-state check sweeps (BL17, WC-59 — ROUTE row R52): every 15 minutes. A billing
+ * constant, not environment-varying (P4); the scheduler's cron follows it.
+ */
+export const PLAN_STATE_CHECK_MINUTES = 15;
+
+/**
+ * How far back the plan-state check still finds a grace that ended (BL17): 7 days — the time a
+ * finished app plan-change job keeps its id, so a lapsed grace is re-emitted only while the app
+ * drops the repeat; Stripe's own cancel at the end of its retries ends the row after that.
+ */
+export const PLAN_STATE_CHECK_GRACE_END_LOOKBACK_DAYS = 7;
+
+/**
+ * The seat sync (BL9, D55 — WC-65, ROUTE row R52): off. Members are unlimited on every plan, so the
+ * member count is no longer pushed to Stripe as the quantity (it stays 1) and the hourly seat
+ * reconcile is not scheduled. A billing product switch, not an environment setting (P4).
+ */
+export const BILLING_SEAT_SYNC_ENABLED: boolean = false;
+
+/**
  * Statuses in which the organization's paid plan needs a card on file: removing its only card is
  * refused `409 default_card_in_use` (routes-final § 8.C BL20) — a trial too, whose end would then have
  * nothing to charge.

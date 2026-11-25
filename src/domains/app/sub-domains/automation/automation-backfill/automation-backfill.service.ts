@@ -239,6 +239,29 @@ export class AutomationBackfillService implements AutomationOpenBackfillReader {
     });
   }
 
+  /**
+   * A move down turned the plan's `past_comments` switch off (P83, WC-38 — ROUTE row R52, AC-8.7):
+   * the organization's unfinished reads end `failed` · `plan_feature_off`; the opening DMs they
+   * already queued still go (they are messages now, sub-domain 6's).
+   *
+   * @remarks
+   * Algorithm: one guarded `UPDATE` in the scope's unit (joining the caller's). Failure modes: none
+   * of its own. Side effects: the read rows; a read job that wakes on a `failed` row stops at its
+   * next claim (R41). Returns the count.
+   */
+  async failOpenBackfillsForPlanFeatureOff({
+    scope,
+    organizationId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.backfillRepository.failOpenForPlanFeatureOff(organizationId),
+    });
+  }
+
   /** Enqueues the account's read after commit when wired (WC-41, ROUTE row R41). */
   private async enqueueRead({
     scope,

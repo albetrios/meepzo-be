@@ -18,6 +18,7 @@ import {
 import { addMonths } from './subscription-period.util.js';
 import { INACTIVE_SUBSCRIPTION_STATUSES } from './subscription.repository.js';
 import {
+  BILLING_SEAT_SYNC_ENABLED,
   CARD_REQUIRED_SUBSCRIPTION_STATUSES,
   PAID_TRIAL_DAYS,
   PLAN_ACCESS_STATE,
@@ -92,6 +93,7 @@ import {
   SUBSCRIPTION_EVENT,
   type PlanStateChange,
   type PlanStateChangedPayload,
+  type PlanStateSnapshot,
   type SubscriptionEventType,
 } from './events/subscription.events.js';
 import {
@@ -400,6 +402,46 @@ export class SubscriptionService {
           current: { state: current.state, plan_public_id: current.plan?.publicId ?? null },
           features: current.features,
           kept_channel_account_public_ids: options.keptChannelAccountPublicIds ?? null,
+          change_key: null,
+        },
+      }),
+    );
+  }
+
+  /**
+   * Emits one finding of the plan-state check (WC-59, BL17, BL24 — ROUTE row R52) as
+   * `subscription.plan_state_changed`: a grace that ended (`plan_ended`) or a subscription still on a
+   * switched-off plan row (`moved_down`).
+   *
+   * @remarks
+   * - **Algorithm:** re-reads the entitlement ({@link getPlanAccess}) for `current` and the features;
+   *   `previous` is the state the finding left (the grace, or the old row's own plan) — not compared,
+   *   because the entitlement moved by time (the grace end) or never moved (an off row already reads
+   *   Free's). `changeKey` makes it once: the app keys its plan-change task by it.
+   * - **Failure modes:** a read failure propagates; handler failures are logged by the bus.
+   * - **Side effects:** the app's handler enqueues its plan-change task (WC-38).
+   * - **Notes:** called by the check's job after its organization unit returned.
+   */
+  async emitPlanStateCheckFinding(options: {
+    organizationPublicId: string;
+    change: typeof PLAN_STATE_CHANGE.PLAN_ENDED | typeof PLAN_STATE_CHANGE.MOVED_DOWN;
+    previous: PlanStateSnapshot;
+    changeKey: string;
+  }): Promise<void> {
+    const current = await this.getPlanAccess({
+      organizationPublicId: options.organizationPublicId,
+    });
+    await eventBus.emit(
+      buildDomainEvent<PlanStateChangedPayload>({
+        type: SUBSCRIPTION_EVENT.PLAN_STATE_CHANGED,
+        payload: {
+          organizationPublicId: options.organizationPublicId,
+          change: options.change,
+          previous: options.previous,
+          current: { state: current.state, plan_public_id: current.plan?.publicId ?? null },
+          features: current.features,
+          kept_channel_account_public_ids: null,
+          change_key: options.changeKey,
         },
       }),
     );
@@ -651,7 +693,9 @@ export class SubscriptionService {
    *   member-management or change-plan request that triggered it.
    * - **Side effects:** writes one job to the seat-sync queue.
    * - **Notes:** the cross-domain entry point tenancy's `MembershipService` calls after a member
-   *   add/remove commits, and `changePlan` calls after a successful plan change.
+   *   add/remove commits, and `changePlan` calls after a successful plan change. Off while
+   *   {@link BILLING_SEAT_SYNC_ENABLED} is `false` (BL9, WC-65): members are unlimited, Stripe's
+   *   quantity stays 1, nothing is enqueued.
    */
   enqueueSeatQuantitySync({
     organization_public_id,
@@ -660,6 +704,7 @@ export class SubscriptionService {
     organization_public_id: string;
     idempotencyKey?: string | undefined;
   }): void {
+    if (!BILLING_SEAT_SYNC_ENABLED) return;
     // audit #1: stamp a STABLE idempotency token so every RETRY of the same job reuses it — the
     // Stripe quantity update is then deduped at Stripe instead of re-issued (which, with
     // proration/usage billing, would post duplicate proration line items). The member add/remove hot

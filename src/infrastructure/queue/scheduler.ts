@@ -41,6 +41,19 @@ import {
 import { STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-reclaim.constants.js';
 import { SUBSCRIPTION_SEAT_RECONCILE_JOB_NAME } from '@/domains/billing/sub-domains/subscription/workers/subscription-seat-reconcile.constants.js';
 import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
+import { BILLING_SEAT_SYNC_ENABLED } from '@/domains/billing/sub-domains/subscription/subscription.constants.js';
+import { SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-plan-state-check.queue.js';
+import {
+  SUBSCRIPTION_PLAN_STATE_CHECK_CRON,
+  SUBSCRIPTION_PLAN_STATE_CHECK_SWEEP_JOB_NAME,
+} from '@/domains/billing/sub-domains/subscription/workers/subscription-plan-state-check.constants.js';
+import {
+  INSTAGRAM_REPAIR_MONTH_WAKE_CRON,
+  INSTAGRAM_REPAIR_MONTH_WAKE_JOB_NAME,
+  INSTAGRAM_REPAIR_PLAN_STOPS_CRON,
+  INSTAGRAM_REPAIR_PLAN_STOPS_JOB_NAME,
+  INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+} from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-repair.constants.js';
 import { WEBHOOK_DELIVERY_RECLAIM_QUEUE_NAME } from '@/domains/notify/sub-domains/webhook/webhook-delivery/workers/webhook-delivery-reclaim.constants.js';
 import { USER_DATA_EXPORT_QUEUE_NAME } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
 import { USER_DATA_EXPORT_RECLAIM_JOB_NAME } from '@/domains/user/sub-domains/user-data-export/workers/user-data-export-reclaim.constants.js';
@@ -361,13 +374,49 @@ function getRecoverySweepScheduledJobs(timezone: string | undefined): ScheduledJ
           env.STRIPE_WEBHOOK_EVENT_CATCHUP_CRON ?? DEFAULT_STRIPE_WEBHOOK_EVENT_CATCHUP_CRON,
       },
     }),
+    // Off with the seat sync (BL9, WC-65 — feat-instagram-dm-sending R52): members are unlimited.
+    ...(BILLING_SEAT_SYNC_ENABLED
+      ? [
+          withSchedulerTimezone({
+            timezone,
+            job: {
+              queueName: SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
+              schedulerId: 'subscription-seat-reconcile',
+              jobName: SUBSCRIPTION_SEAT_RECONCILE_JOB_NAME,
+              cronPattern: DEFAULT_SUBSCRIPTION_SEAT_RECONCILE_CRON,
+            },
+          }),
+        ]
+      : []),
+    // feat-instagram-dm-sending BL17 (WC-59): the plan-state check sweeps every 15 minutes — a
+    // grace that ended, the trial notices, a subscription on a switched-off plan row.
     withSchedulerTimezone({
       timezone,
       job: {
-        queueName: SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
-        schedulerId: 'subscription-seat-reconcile',
-        jobName: SUBSCRIPTION_SEAT_RECONCILE_JOB_NAME,
-        cronPattern: DEFAULT_SUBSCRIPTION_SEAT_RECONCILE_CRON,
+        queueName: SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME,
+        schedulerId: 'subscription-plan-state-check',
+        jobName: SUBSCRIPTION_PLAN_STATE_CHECK_SWEEP_JOB_NAME,
+        cronPattern: SUBSCRIPTION_PLAN_STATE_CHECK_CRON,
+      },
+    }),
+    // feat-instagram-dm-sending SN6 (P94): the sending repair duties, one scheduler each — the month
+    // wake's check every minute (WC-37) and the plan-stop backup every 15 minutes (WC-38).
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+        schedulerId: 'instagram-repair-month-wake',
+        jobName: INSTAGRAM_REPAIR_MONTH_WAKE_JOB_NAME,
+        cronPattern: INSTAGRAM_REPAIR_MONTH_WAKE_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+        schedulerId: 'instagram-repair-plan-stops',
+        jobName: INSTAGRAM_REPAIR_PLAN_STOPS_JOB_NAME,
+        cronPattern: INSTAGRAM_REPAIR_PLAN_STOPS_CRON,
       },
     }),
     withSchedulerTimezone({

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+import { type SQL, and, asc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -15,6 +15,7 @@ import {
 } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
+import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from './channel-account.schema.js';
 import {
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
@@ -504,6 +505,57 @@ export class ChannelAccountRepository {
   }
 
   /**
+   * One page of the organizations whose plan stop is due a look (WC-37, WC-38 — ROUTE row R52), read
+   * across tenants through the policy's sweep arm (retention handle only,
+   * {@link createRetentionChannelAccountRepository}): the organizations with a live account holding
+   * `reason` — for `plan_limit` only those whose month (in the organization's time zone) has turned
+   * since the stop began (`isMonthTurned`). Each with the organization's month now (`YYYY-MM`).
+   *
+   * @remarks
+   * Keyset by `organizations.id`; served by `idx_channel_accounts_plan_stop`.
+   */
+  async listOrganizationsHoldingPlanStop({
+    reason,
+    isMonthTurned,
+    afterOrganizationId,
+    limit,
+  }: {
+    reason: ChannelAccountPlanStopReason;
+    isMonthTurned: boolean;
+    afterOrganizationId: number;
+    limit: number;
+  }): Promise<{ organizationId: number; organizationPublicId: string; month: string }[]> {
+    const localMonth = (moment: SQL) =>
+      sql`date_trunc('month', ${moment} AT TIME ZONE ${organizations.timezone})`;
+    return this.db()
+      .select({
+        organizationId: organizations.id,
+        organizationPublicId: organizations.public_id,
+        month: sql<string>`to_char(now() AT TIME ZONE ${organizations.timezone}, 'YYYY-MM')`,
+      })
+      .from(organizations)
+      .where(
+        and(
+          isNull(organizations.deleted_at),
+          sql`${organizations.id} > ${afterOrganizationId}`,
+          sql`EXISTS (
+            SELECT 1 FROM ${channel_accounts}
+            WHERE ${channel_accounts.organization_id} = ${organizations.id}
+              AND ${channel_accounts.plan_stop_reason} = ${reason}
+              AND ${channel_accounts.connection_status} <> ${CHANNEL_ACCOUNT_STATUS.REVOKED}
+              ${
+                isMonthTurned
+                  ? sql`AND ${localMonth(sql`${channel_accounts.plan_stopped_at}`)} < ${localMonth(sql`now()`)}`
+                  : sql``
+              }
+          )`,
+        ),
+      )
+      .orderBy(asc(organizations.id))
+      .limit(limit);
+  }
+
+  /**
    * The organization's account-limit lock (MC7, CA9) — the one the pick takes, so a swap and a pick
    * never count at the same time. Held until the unit of work ends.
    */
@@ -538,5 +590,18 @@ export function createWorkerChannelAccountRepository(
   databaseHandle: WorkerDatabaseHandle,
 ): ChannelAccountRepository {
   assertWorkerDatabaseContext(['organization']);
+  return new ChannelAccountRepository(databaseHandle);
+}
+
+/**
+ * {@link ChannelAccountRepository} bound to a retention maintenance handle — the repair duties'
+ * cross-organization reads of the plan stops (WC-37's month wake, WC-38's backup — ROUTE row R52),
+ * through the sweep arm the account policy carries in `USING` only (it reads every organization's
+ * row and can write none).
+ */
+export function createRetentionChannelAccountRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): ChannelAccountRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
   return new ChannelAccountRepository(databaseHandle);
 }

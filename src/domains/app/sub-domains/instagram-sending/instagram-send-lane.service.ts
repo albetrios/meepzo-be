@@ -200,9 +200,12 @@ export class InstagramSendLaneService
     organizationId,
     channelAccountId,
     channelAccountPublicId,
+    extraDelayMilliseconds = 0,
     enqueueLaneTurn = enqueueInstagramSendLaneTurn,
   }: InstagramSendLaneTarget & {
     channelAccountPublicId: string | null;
+    /** Added to each ticket's delay — the plan change spreads an organization's wake (WC-37). */
+    extraDelayMilliseconds?: number;
     enqueueLaneTurn?: typeof enqueueInstagramSendLaneTurn;
   }): Promise<void> {
     await this.wakeLanes({ scope, organizationId, channelAccountId });
@@ -219,7 +222,7 @@ export class InstagramSendLaneService
           channelAccountPublicId,
           lane: lane as InstagramSlowQueueLane,
           turnNumber: row.turn_number,
-          delayMilliseconds: Math.max(row.next_run_at.getTime() - now, 0),
+          delayMilliseconds: Math.max(row.next_run_at.getTime() - now, 0) + extraDelayMilliseconds,
         });
       } catch (error) {
         logger.warn(

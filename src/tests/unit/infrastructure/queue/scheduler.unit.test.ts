@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(36);
+    expect(scheduledJobs).toHaveLength(38);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -91,8 +91,12 @@ describe('infrastructure queue scheduler', () => {
       'upload-pending-sweep',
       'stripe-webhook-event-reclaim',
       'stripe-webhook-event-catchup',
-      // The hourly seat reconcile rides the seat-sync queue (job `reconcile-subscription-seats`).
-      'subscription-seat-sync',
+      // feat-instagram-dm-sending R52: the hourly seat reconcile is off with the seat sync (BL9,
+      // WC-65); the 15-minute plan-state check (WC-59) and the sending repair duties — the month
+      // wake's check every minute (WC-37) and the plan-stop backup every 15 minutes (WC-38).
+      'subscription-plan-state-check',
+      'instagram-sending-repair',
+      'instagram-sending-repair',
       'webhook-delivery-reclaim',
       // The export lost-enqueue sweep rides the export queue (job `reclaim-pending-user-data-exports`).
       'user-data-export',
@@ -229,16 +233,16 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(36);
-    // Each scheduled job opens one Queue for upsert (36) + the reconcile pass opens one Queue per
-    // unique queue name (36 — the seat reconcile, the export reclaim, the Instagram daily-check
-    // sweep, the channel connection token-check sweep and the Instagram stuck-event pick-up ride
-    // queues no other cron uses), each closed in
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(38);
+    // Each scheduled job opens one Queue for upsert (38) + the reconcile pass opens one Queue per
+    // unique queue name (37 — the export reclaim, the Instagram daily-check sweep, the channel
+    // connection token-check sweep, the plan-state check and the Instagram stuck-event pick-up ride
+    // queues no other cron uses; the sending repair queue carries two duties), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(72);
+    expect(queueCloseMock).toHaveBeenCalledTimes(75);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(72);
+    expect(queueCloseMock).toHaveBeenCalledTimes(75);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

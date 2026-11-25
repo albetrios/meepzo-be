@@ -416,3 +416,12 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   /** A lane turn with nothing to send looks again after this many seconds. */
   idleTurnSeconds: 60,
 } as const;
+
+/**
+ * How often the plan-stop backup looks for organizations still holding `plan_ended` (WC-38's
+ * 15-minute backup — ROUTE row R52): every 15 minutes, its own repair duty.
+ */
+export const INSTAGRAM_PLAN_STOP_BACKUP_MINUTES = 15;
+
+/** An organization's lane wake after its plan stops end is spread over 5 minutes (WC-37). */
+export const INSTAGRAM_PLAN_WAKE_SPREAD_MINUTES = 5;

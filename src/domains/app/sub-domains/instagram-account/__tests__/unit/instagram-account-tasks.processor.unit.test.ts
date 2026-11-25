@@ -128,6 +128,7 @@ const context = {
 };
 
 const markAccountBroken = vi.fn();
+const startLaneStop = vi.fn();
 const extensionService = {
   recordWebhookSubscribed: vi.fn(),
   recordWebhookSubscriptionLost: vi.fn(),
@@ -142,6 +143,7 @@ const services: InstagramAccountTaskServices = {
   channelAccountService: { markAccountBroken },
   extensionService,
   starterQuestionSource: { listLiveStarterQuestions },
+  sendLaneService: { startLaneStop },
   readMissedCommentPort: () => ({ lookForMissedComments }),
   readNoticeServices: () =>
     isNoticeWired
@@ -233,10 +235,22 @@ describe('the account set-up (WC-30, AC-1.7)', () => {
 
   it('leaves the starter questions alone when none is live, and logs message access off', async () => {
     instagramClient.probeInstagramMessageAccess.mockResolvedValue('off');
+    const before = Date.now();
     await expect(setup()).resolves.toMatchObject({
       starterQuestions: 'none',
       messageAccess: 'off',
     });
+    // P354: the account's `access_off` stop on every lane, tested again after an hour.
+    expect(startLaneStop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 7,
+        channelAccountId: 9,
+        lanes: 'all',
+        reason: 'access_off',
+      }),
+    );
+    const [stopInput] = startLaneStop.mock.calls[0] as [{ stopUntil: Date }];
+    expect(stopInput.stopUntil.getTime()).toBeGreaterThanOrEqual(before + 60 * MINUTE);
     expect(instagramClient.setInstagramIceBreakers).not.toHaveBeenCalled();
     expect(instagramClient.deleteInstagramIceBreakers).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
@@ -317,8 +331,30 @@ describe('the account set-up (WC-30, AC-1.7)', () => {
   it('breaks the account at once when Meta refuses the token, without a retry', async () => {
     instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(tokenRefusedError());
     await expect(setup()).resolves.toEqual({ outcome: 'broken' });
-    expect(markAccountBroken).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'job-1' }));
+    expect(markAccountBroken).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: 'job-1', stopReason: 'login_expired' }),
+    );
     expect(taskQueue.enqueueInstagramTask).not.toHaveBeenCalled();
+  });
+
+  it('breaks the account with the `wrong_permission` stop when Meta refuses a permission (code 10, P354)', async () => {
+    instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(
+      readMetaGraphErrorResponse({
+        httpStatus: 400,
+        body: JSON.stringify({ error: { message: '(#10) Access is denied', code: 10 } }),
+        retryAfterHeader: null,
+      }),
+    );
+    await expect(setup()).resolves.toEqual({ outcome: 'broken' });
+    expect(markAccountBroken).toHaveBeenCalledWith(
+      expect.objectContaining({ stopReason: 'wrong_permission' }),
+    );
+    expect(startLaneStop).not.toHaveBeenCalled();
+  });
+
+  it('starts no lane stop when message access is on', async () => {
+    await setup();
+    expect(startLaneStop).not.toHaveBeenCalled();
   });
 
   it('hands a refused starter-question write to its own sync chain and finishes the set-up', async () => {

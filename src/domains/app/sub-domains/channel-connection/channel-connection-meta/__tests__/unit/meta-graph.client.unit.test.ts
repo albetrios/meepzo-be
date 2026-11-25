@@ -24,6 +24,7 @@ import {
   isMetaConfigured,
   listMetaAdAccountAds,
   listMetaAdAccounts,
+  META_ASSIGNED_ACCOUNTS_MAX_PAGES,
   listMetaAssignedInstagramAccounts,
   readMetaClientBusinessId,
   readMetaGrantedPermissions,
@@ -738,10 +739,79 @@ describe('Unified Login reads with a connection token (MC2)', () => {
       });
     await expect(
       listMetaAssignedInstagramAccounts({ encryptedAccessToken: encryptedAccountToken }),
-    ).resolves.toEqual([
-      { instagramUserId: '17841400000000001', username: 'shop.one' },
-      { instagramUserId: '17841400000000002', username: null },
-    ]);
+    ).resolves.toEqual({
+      accounts: [
+        { instagramUserId: '17841400000000001', username: 'shop.one' },
+        { instagramUserId: '17841400000000002', username: null },
+      ],
+      isComplete: true,
+    });
+  });
+
+  it('follows paging.next to the last page and answers the whole list (P353)', async () => {
+    const firstPage = Array.from({ length: 100 }, (_unused, index) => ({
+      id: `178414000000${String(index).padStart(5, '0')}`,
+    }));
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me/assigned_instagram_accounts`)
+      .query(withProof({ fields: 'id,username', limit: '100' }))
+      .reply(200, {
+        data: firstPage,
+        paging: { cursors: { after: 'cursor-two' }, next: 'https://graph.facebook.com/next' },
+      })
+      .get(`${VERSION_PATH}/me/assigned_instagram_accounts`)
+      .query(withProof({ fields: 'id,username', limit: '100', after: 'cursor-two' }))
+      .reply(200, {
+        data: [{ id: '17841400000000101', username: 'account.one.hundred.one' }],
+        paging: { cursors: { after: 'cursor-end' } },
+      });
+
+    const list = await listMetaAssignedInstagramAccounts({
+      encryptedAccessToken: encryptedAccountToken,
+    });
+    expect(list.isComplete).toBe(true);
+    expect(list.accounts).toHaveLength(101);
+    expect(list.accounts.at(-1)).toEqual({
+      instagramUserId: '17841400000000101',
+      username: 'account.one.hundred.one',
+    });
+  });
+
+  it('stops at the page cap and says the list is not complete', async () => {
+    const scope = graphWithAccountToken();
+    for (let page = 0; page < META_ASSIGNED_ACCOUNTS_MAX_PAGES; page += 1) {
+      scope
+        .get(`${VERSION_PATH}/me/assigned_instagram_accounts`)
+        .query(true)
+        .reply(200, {
+          data: [{ id: `178414000000${String(page).padStart(5, '0')}` }],
+          paging: {
+            cursors: { after: `cursor-${page + 1}` },
+            next: 'https://graph.facebook.com/next',
+          },
+        });
+    }
+    const list = await listMetaAssignedInstagramAccounts({
+      encryptedAccessToken: encryptedAccountToken,
+    });
+    expect(list.isComplete).toBe(false);
+    expect(list.accounts).toHaveLength(META_ASSIGNED_ACCOUNTS_MAX_PAGES);
+  });
+
+  it('fails the whole list when a later page fails — never answers part of it', async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/me/assigned_instagram_accounts`)
+      .query(true)
+      .reply(200, {
+        data: [{ id: '17841400000000001' }],
+        paging: { cursors: { after: 'cursor-two' }, next: 'https://graph.facebook.com/next' },
+      })
+      .get(`${VERSION_PATH}/me/assigned_instagram_accounts`)
+      .query(true)
+      .reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });
+    await expect(
+      listMetaAssignedInstagramAccounts({ encryptedAccessToken: encryptedAccountToken }),
+    ).rejects.toMatchObject({ errorClass: 'outage' });
   });
 
   it('reads only the granted permissions', async () => {

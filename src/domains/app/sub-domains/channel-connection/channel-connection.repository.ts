@@ -360,19 +360,25 @@ export class ChannelConnectionRepository {
 
   /**
    * The token check's stamp (MC10): `last_checked_at` = now and `last_check_error` (cleared on a
-   * pass, Meta's codes only on a refused read) — only while the connection is still `connected`.
-   * Returns whether a row was written.
+   * pass, Meta's codes only on a refused read, `token_expires_soon …` near the token's end) — only
+   * while the connection is still `connected`; `scopes`, when given, replaces the granted
+   * permissions (a permission Meta now refuses — P354). Returns whether a row was written.
    */
   async recordTokenCheck({
     organizationId,
     channelConnectionId,
     lastCheckError,
-  }: ChannelConnectionKey & { lastCheckError: string | null }): Promise<boolean> {
+    scopes,
+  }: ChannelConnectionKey & {
+    lastCheckError: string | null;
+    scopes?: readonly string[] | undefined;
+  }): Promise<boolean> {
     const rows = await this.db()
       .update(channel_connections)
       .set({
         last_checked_at: databaseNowTimestamp,
         last_check_error: lastCheckError,
+        ...(scopes === undefined ? {} : { scopes: [...scopes] }),
         updated_at: connectionUpdatedAtTimestamp,
       })
       .where(

@@ -228,6 +228,9 @@ describe('Channel connection token check (MC10)', () => {
       outcome: 'checked',
       refreshedCount: 2,
       missingCount: 0,
+      permissionRefusedCount: 0,
+      isListComplete: true,
+      isExpiringSoon: false,
       reencrypted: false,
     });
 
@@ -312,6 +315,70 @@ describe('Channel connection token check (MC10)', () => {
       reason: 'not_connected',
     });
     expect(await noticeJobs()).toHaveLength(2);
+  });
+
+  it('account #101 on the second page of the assigned list stays connected (P353)', async () => {
+    const { channelConnectionPublicId, accounts } = await connectTwoAccounts();
+    const [first, second] = accounts as [TestAssignedAccount, TestAssignedAccount];
+    const graph = nock(META_GRAPH_BASE_URL)
+      .get(`${GRAPH_PATH}/me/assigned_instagram_accounts`)
+      .query((query) => query.after === undefined)
+      .reply(200, {
+        data: [{ id: first.id, username: first.username }],
+        paging: {
+          cursors: { after: 'page-two' },
+          next: `${META_GRAPH_BASE_URL}${GRAPH_PATH}/me/assigned_instagram_accounts?after=page-two`,
+        },
+      })
+      .get(`${GRAPH_PATH}/me/assigned_instagram_accounts`)
+      .query((query) => query.after === 'page-two')
+      .reply(200, { data: [{ id: second.id, username: second.username }] });
+    mockProfile(first);
+    mockProfile(second);
+
+    await expect(runCheck(channelConnectionPublicId)).resolves.toMatchObject({
+      outcome: 'checked',
+      refreshedCount: 2,
+      missingCount: 0,
+    });
+    expect(graph.isDone()).toBe(true);
+    const rows = await readInstagramAccountRows(team.organization.id);
+    expect(rows.map((row) => row.connection_status)).toEqual(['connected', 'connected']);
+    expect(await readStops()).toHaveLength(0);
+  });
+
+  it('Meta refusing one account for its type (code 10) breaks that account alone — the connection stays (P354)', async () => {
+    const { channelConnectionPublicId, accounts } = await connectTwoAccounts();
+    const [personal, business] = accounts as [TestAssignedAccount, TestAssignedAccount];
+    mockAssigned(accounts);
+    nock(META_GRAPH_BASE_URL)
+      .get(`${GRAPH_PATH}/${personal.id}`)
+      .query(true)
+      .reply(400, {
+        error: {
+          message:
+            '(#10) Access is denied because the instagram account type is not business or creator.',
+          type: 'OAuthException',
+          code: 10,
+        },
+      });
+    mockProfile(business);
+
+    await expect(runCheck(channelConnectionPublicId)).resolves.toMatchObject({
+      outcome: 'checked',
+      refreshedCount: 1,
+      permissionRefusedCount: 1,
+    });
+    const [connection] = await readChannelConnectionRows(team.organization.id);
+    expect(connection?.status).toBe('connected');
+    const rows = await readInstagramAccountRows(team.organization.id);
+    const byInstagramId = new Map(rows.map((row) => [row.instagram_user_id, row]));
+    expect(byInstagramId.get(personal.id)?.connection_status).toBe('error');
+    expect(byInstagramId.get(business.id)?.connection_status).toBe('connected');
+    expect((await noticeJobs()).map((job) => job.data.instagramAccountPublicId)).toEqual([
+      byInstagramId.get(personal.id)?.public_id,
+    ]);
+    expect((await readStops()).map((stop) => stop.reason)).toEqual(['wrong_permission']);
   });
 
   it('a token refused at a profile read breaks the connection too', async () => {

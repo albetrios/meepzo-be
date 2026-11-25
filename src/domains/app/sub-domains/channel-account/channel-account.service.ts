@@ -674,7 +674,8 @@ export class ChannelAccountService
    * The guarded break of CA4: `connected → error`, for the connection's break (sub-domain 1, MC11),
    * an account missing from the assigned list, and the send errors (5, 6). The winner enqueues the
    * reconnect notice (WC-46, through the Instagram account service) and stops the account's lanes
-   * until a reconnect (`login_expired`, or `account_not_shared` — SN5, through the lane port).
+   * until a reconnect (`login_expired`, `account_not_shared`, or `wrong_permission` for Meta's
+   * permission refusal of that account alone — SN5, P354, through the lane port).
    *
    * @remarks
    * Algorithm: one unit — the account, its Instagram row, the guarded change of the account's
@@ -693,7 +694,7 @@ export class ChannelAccountService
     channelAccountId: number;
     requestId?: string | undefined;
     /** The lanes' stop the break starts (SN5): a refused token by default. */
-    stopReason?: 'login_expired' | 'account_not_shared' | undefined;
+    stopReason?: 'login_expired' | 'account_not_shared' | 'wrong_permission' | undefined;
   }): Promise<boolean> {
     return withAppDatabaseContext({
       scope,

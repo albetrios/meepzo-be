@@ -284,7 +284,9 @@ export class InstagramSendLaneService
     organizationId,
     channelAccountId,
     reason,
-  }: InstagramSendLaneTarget & { reason: 'login_expired' | 'account_not_shared' }): Promise<void> {
+  }: InstagramSendLaneTarget & {
+    reason: 'login_expired' | 'account_not_shared' | 'wrong_permission';
+  }): Promise<void> {
     await this.startLaneStop({
       scope,
       organizationId,

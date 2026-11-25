@@ -310,7 +310,8 @@ export class ChannelConnectionService {
    * exchange; (3) the business id, the assigned accounts and the granted permissions — a state of
    * route 40 for another business → 409; (4) a missing required permission → 422; (5) outside the
    * transaction, which assigned account is live in another organization and the plan's limit; (6)
-   * one commit: the connection upserted `connected` with its scopes, its token, every not-revoked
+   * one commit: the connection upserted `connected` with its scopes and the state's `config_id`
+   * (P356), its token with its end (`expires_at` from Meta's `expires_in`, P355), every not-revoked
    * account of the organization in the assigned list attached and `connected` (their login stops
    * end — R18), a connection left with no account by a move revoked with its token; (7) after
    * commit, each reconnected account subscribed to the webhook fields (best effort; the account
@@ -375,7 +376,8 @@ export class ChannelConnectionService {
           organizationId: caller.organizationId,
           provider,
           clientBusinessId: login.clientBusinessId,
-          configId: readMetaAppSettings().configId,
+          // P356: the configuration the login address carried, kept in its one-use state.
+          configId: payload.config_id,
           scopes: [...new Set(login.grantedPermissions)].slice(0, 20),
           connectedByUserId: caller.userId,
         });
@@ -390,7 +392,8 @@ export class ChannelConnectionService {
             encryptedAccessToken: login.encryptedAccessToken,
             encryptedRefreshToken: null,
             tokenType: 'system_user',
-            expiresAt: null,
+            // P355: whether it ends depends on the login configuration — Meta's `expires_in`.
+            expiresAt: login.tokenExpiresAt,
           },
         });
         const reconnected = await this.accountPort.reconnectAccounts({
@@ -501,11 +504,11 @@ export class ChannelConnectionService {
 
     let assigned: MetaAssignedInstagramAccount[];
     try {
-      assigned = await listMetaAssignedInstagramAccounts({
+      ({ accounts: assigned } = await listMetaAssignedInstagramAccounts({
         encryptedAccessToken: token.encryptedAccessToken,
         requestId,
         recordUsage,
-      });
+      }));
     } catch (error) {
       throw toChannelConnectionReadError(error);
     }
@@ -973,20 +976,26 @@ export class ChannelConnectionService {
   /** MC5 steps 2–3: the code exchange, then the business, the assigned accounts and permissions. */
   private async readLogin({ code, requestId }: { code: string; requestId: string }): Promise<{
     encryptedAccessToken: string;
+    /** The token's end from the exchange (P355), `null` when it never ends. */
+    tokenExpiresAt: Date | null;
     clientBusinessId: string;
     assignedAccounts: MetaAssignedInstagramAccount[];
     grantedPermissions: string[];
   }> {
     let encryptedAccessToken: string;
+    let tokenExpiresAt: Date | null;
     try {
-      ({ encryptedAccessToken } = await exchangeMetaLoginCode({ code, requestId }));
+      ({ encryptedAccessToken, expiresAt: tokenExpiresAt } = await exchangeMetaLoginCode({
+        code,
+        requestId,
+      }));
     } catch (error) {
       this.logFailedConnect({ requestId, step: 'exchange', error });
       throw toChannelConnectRouteError({ error, isCodeSpent: false });
     }
     try {
       const clientBusinessId = await readMetaClientBusinessId({ encryptedAccessToken, requestId });
-      const assignedAccounts = await listMetaAssignedInstagramAccounts({
+      const { accounts: assignedAccounts } = await listMetaAssignedInstagramAccounts({
         encryptedAccessToken,
         requestId,
       });
@@ -994,7 +1003,13 @@ export class ChannelConnectionService {
         encryptedAccessToken,
         requestId,
       });
-      return { encryptedAccessToken, clientBusinessId, assignedAccounts, grantedPermissions };
+      return {
+        encryptedAccessToken,
+        tokenExpiresAt,
+        clientBusinessId,
+        assignedAccounts,
+        grantedPermissions,
+      };
     } catch (error) {
       this.logFailedConnect({ requestId, step: 'read', error });
       throw toChannelConnectRouteError({ error, isCodeSpent: true });
@@ -1118,7 +1133,7 @@ export class ChannelConnectionService {
     };
   }
 
-  /** Mints the state and answers the login address (routes 1 and 40). */
+  /** Mints the state (with the login configuration, P356) and answers the login address (routes 1 and 40). */
   private async mintLogin({
     scope,
     userPublicId,
@@ -1130,7 +1145,7 @@ export class ChannelConnectionService {
     provider: ChannelConnectionProvider;
     channelConnectionPublicId: string | null;
   }): Promise<ChannelConnectStartOutput> {
-    readMetaAppSettings();
+    const { configId } = readMetaAppSettings();
     const state = await mintChannelConnectState({
       redis: this.redis,
       payload: {
@@ -1138,6 +1153,7 @@ export class ChannelConnectionService {
         organization_public_id: scope.organizationPublicId,
         user_public_id: userPublicId,
         channel_connection_public_id: channelConnectionPublicId,
+        config_id: configId,
       },
     });
     return {

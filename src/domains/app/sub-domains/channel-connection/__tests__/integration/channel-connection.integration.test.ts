@@ -13,6 +13,7 @@ import { INSTAGRAM_ACCOUNT_SETUP_JOB_NAME } from '@/domains/app/sub-domains/inst
 import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
+import { getEnv, resetEnvCacheForTests } from '@/shared/config/env.config.js';
 import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
@@ -44,6 +45,7 @@ import {
   nextClientBusinessId,
   readChannelConnectionRows,
   readChannelConnectionTokenCiphertexts,
+  readChannelConnectionTokenExpiries,
   readStateFromLoginUrl,
 } from '@/domains/app/sub-domains/channel-connection/__tests__/factories/channel-connection.factory.js';
 import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
@@ -243,6 +245,42 @@ describe('Channel connection routes', () => {
         action: 'app.channel_connection.connect',
       });
       expect(audit).toHaveLength(1);
+    });
+
+    it("stores the start's login configuration and the token's end from Meta's expires_in (P355, P356)", async () => {
+      const state = await start();
+      const configAtStart = getEnv().META_CONFIG_ID;
+      const saved = process.env.META_CONFIG_ID;
+      process.env.META_CONFIG_ID = 'config-changed-meanwhile';
+      resetEnvCacheForTests();
+      try {
+        mockMetaLogin({
+          clientBusinessId: nextClientBusinessId(),
+          assignedAccounts: [nextAccount()],
+          expiresInSeconds: 60 * 24 * 60 * 60,
+        });
+        const before = Date.now();
+        const response = await callback({ state });
+        expect(response.statusCode, response.body).toBe(200);
+        const [row] = await readChannelConnectionRows(team.organization.id);
+        expect(row?.config_id).toBe(configAtStart);
+        const [expiresAt] = await readChannelConnectionTokenExpiries(team.organization.id);
+        expect(expiresAt?.getTime()).toBeGreaterThanOrEqual(before + 60 * 24 * 60 * 60 * 1000);
+        expect(expiresAt?.getTime()).toBeLessThanOrEqual(Date.now() + 60 * 24 * 60 * 60 * 1000);
+      } finally {
+        process.env.META_CONFIG_ID = saved;
+        resetEnvCacheForTests();
+      }
+    });
+
+    it('keeps no end for a token Meta names none for (a configuration whose token never ends)', async () => {
+      const state = await start();
+      mockMetaLogin({
+        clientBusinessId: nextClientBusinessId(),
+        assignedAccounts: [nextAccount()],
+      });
+      expect((await callback({ state })).statusCode).toBe(200);
+      expect(await readChannelConnectionTokenExpiries(team.organization.id)).toEqual([null]);
     });
 
     it('refuses a used, foreign or unknown state with 400 channel_connect_state_invalid and saves nothing (AC-1.1)', async () => {

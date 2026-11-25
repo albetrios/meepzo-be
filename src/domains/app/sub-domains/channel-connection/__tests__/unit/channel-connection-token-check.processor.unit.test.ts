@@ -14,6 +14,7 @@ const {
   metaClient: {
     listMetaAssignedInstagramAccounts: vi.fn(),
     readInstagramAccountProfile: vi.fn(),
+    readMetaGrantedPermissions: vi.fn(),
   },
   enqueueChecksMock: vi.fn(),
   reencryptMock: vi.fn(),
@@ -101,6 +102,12 @@ const outage = () =>
   metaError({ httpStatus: 503, body: { error: { message: 'Service unavailable', code: 2 } } });
 const refused = () =>
   metaError({ httpStatus: 400, body: { error: { message: 'Unsupported request', code: 100 } } });
+/** Meta's eligibility page: `(#10) Access is denied because the instagram account type is not business or creator.` */
+const accountTypeRefused = () =>
+  metaError({ httpStatus: 400, body: { error: { message: '(#10) Access is denied', code: 10 } } });
+/** Meta's eligibility page: `(#10) App is missing the instagram_manage_messages permission …`. */
+const permissionMissing = () =>
+  metaError({ httpStatus: 403, body: { error: { message: '(#10) App is missing', code: 10 } } });
 
 function account(overrides: Record<string, unknown> = {}) {
   return {
@@ -170,15 +177,22 @@ beforeEach(() => {
   accountPort.markAccountBroken.mockResolvedValue(true);
   accountPort.refreshAccountProfile.mockResolvedValue(true);
   connectionService.markConnectionBroken.mockResolvedValue(true);
-  metaClient.listMetaAssignedInstagramAccounts.mockResolvedValue([
-    { instagramUserId: '17841400000000001', username: 'acme.shop' },
-  ]);
+  metaClient.listMetaAssignedInstagramAccounts.mockResolvedValue({
+    accounts: [{ instagramUserId: '17841400000000001', username: 'acme.shop' }],
+    isComplete: true,
+  });
   metaClient.readInstagramAccountProfile.mockResolvedValue(profileOf());
 });
 
 describe('classifyChannelConnectionTokenCheckFailure', () => {
-  it('breaks on any token refusal, keeps a refused request, defers everything else', () => {
+  it('breaks on code 190 only, keeps a permission refusal apart, keeps a refused request, defers everything else', () => {
     expect(classifyChannelConnectionTokenCheckFailure(tokenRefused())).toBe('break');
+    expect(classifyChannelConnectionTokenCheckFailure(accountTypeRefused())).toBe('permission');
+    expect(
+      classifyChannelConnectionTokenCheckFailure(
+        metaError({ httpStatus: 403, body: { error: { message: '(#200) disabled', code: 200 } } }),
+      ),
+    ).toBe('permission');
     expect(classifyChannelConnectionTokenCheckFailure(refused())).toBe('refused');
     expect(classifyChannelConnectionTokenCheckFailure(outage())).toBe('defer');
     expect(
@@ -196,6 +210,9 @@ describe('processChannelConnectionTokenCheckJob', () => {
       outcome: 'checked',
       refreshedCount: 1,
       missingCount: 0,
+      permissionRefusedCount: 0,
+      isListComplete: true,
+      isExpiringSoon: false,
       reencrypted: false,
     });
 
@@ -219,7 +236,10 @@ describe('processChannelConnectionTokenCheckJob', () => {
   });
 
   it('breaks an account missing from the list alone (`account_not_shared`), never calling its profile', async () => {
-    metaClient.listMetaAssignedInstagramAccounts.mockResolvedValue([]);
+    metaClient.listMetaAssignedInstagramAccounts.mockResolvedValue({
+      accounts: [],
+      isComplete: true,
+    });
 
     await expect(runCheck()).resolves.toMatchObject({ outcome: 'checked', missingCount: 1 });
     expect(accountPort.markAccountBroken).toHaveBeenCalledWith({
@@ -236,7 +256,10 @@ describe('processChannelConnectionTokenCheckJob', () => {
     accountPort.listAccountsOfConnections.mockResolvedValue([
       account({ connectionStatus: 'error' }),
     ]);
-    metaClient.listMetaAssignedInstagramAccounts.mockResolvedValue([]);
+    metaClient.listMetaAssignedInstagramAccounts.mockResolvedValue({
+      accounts: [],
+      isComplete: true,
+    });
 
     await expect(runCheck()).resolves.toMatchObject({ refreshedCount: 0, missingCount: 0 });
     expect(accountPort.markAccountBroken).not.toHaveBeenCalled();
@@ -297,6 +320,115 @@ describe('processChannelConnectionTokenCheckJob', () => {
 
     await expect(runCheck()).resolves.toMatchObject({ outcome: 'checked', refreshedCount: 0 });
     expect(connectionService.markConnectionBroken).not.toHaveBeenCalled();
+  });
+
+  it('keeps account #101 connected when the list stopped at the page cap — never marks it unshared (P353)', async () => {
+    accountPort.listAccountsOfConnections.mockResolvedValue([
+      account(),
+      account({
+        internalId: 32,
+        publicId: 'cha_acmeshop00000000000101',
+        providerAccountId: '17841400000000101',
+      }),
+    ]);
+    metaClient.listMetaAssignedInstagramAccounts.mockResolvedValue({
+      accounts: [{ instagramUserId: '17841400000000001', username: 'acme.shop' }],
+      isComplete: false,
+    });
+
+    await expect(runCheck()).resolves.toMatchObject({
+      outcome: 'checked',
+      refreshedCount: 1,
+      missingCount: 0,
+      isListComplete: false,
+    });
+    expect(accountPort.markAccountBroken).not.toHaveBeenCalled();
+    expect(connectionService.markConnectionBroken).not.toHaveBeenCalled();
+  });
+
+  it('breaks only the account Meta refuses for its type or a permission (code 10) — `wrong_permission`, never the connection (P354)', async () => {
+    metaClient.readInstagramAccountProfile.mockRejectedValue(accountTypeRefused());
+
+    await expect(runCheck()).resolves.toMatchObject({
+      outcome: 'checked',
+      refreshedCount: 0,
+      permissionRefusedCount: 1,
+    });
+    expect(accountPort.markAccountBroken).toHaveBeenCalledWith({
+      scope: SCOPE,
+      organizationId: 7,
+      channelAccountId: 31,
+      requestId: 'token-check-test',
+      stopReason: 'wrong_permission',
+    });
+    expect(connectionService.markConnectionBroken).not.toHaveBeenCalled();
+    expect(connectionRepository.recordTokenCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ lastCheckError: null }),
+    );
+  });
+
+  it('keeps the connection when the list read is refused for a permission: the granted permissions re-read into scopes (P354, P50)', async () => {
+    metaClient.listMetaAssignedInstagramAccounts.mockRejectedValue(permissionMissing());
+    metaClient.readMetaGrantedPermissions.mockResolvedValue(['instagram_manage_comments']);
+
+    await expect(runCheck()).resolves.toEqual({
+      outcome: 'permission_missing',
+      scopesRefreshed: true,
+      reencrypted: false,
+    });
+    expect(connectionService.markConnectionBroken).not.toHaveBeenCalled();
+    expect(accountPort.markAccountBroken).not.toHaveBeenCalled();
+    expect(connectionRepository.recordTokenCheck).toHaveBeenCalledWith({
+      organizationId: 7,
+      channelConnectionId: 5,
+      lastCheckError: 'auth (code 10, HTTP 403)',
+      scopes: ['instagram_manage_comments'],
+    });
+  });
+
+  it('stamps the codes alone when the permissions cannot be re-read either', async () => {
+    metaClient.listMetaAssignedInstagramAccounts.mockRejectedValue(permissionMissing());
+    metaClient.readMetaGrantedPermissions.mockRejectedValue(outage());
+
+    await expect(runCheck()).resolves.toMatchObject({
+      outcome: 'permission_missing',
+      scopesRefreshed: false,
+    });
+    expect(connectionRepository.recordTokenCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ lastCheckError: 'auth (code 10, HTTP 403)', scopes: undefined }),
+    );
+  });
+
+  it('flags a token that ends within 7 days for a reconnect; a later one passes clean (P355)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    try {
+      tokenRepository.findByConnection.mockResolvedValue({
+        encryptedAccessToken: STORED_CIPHERTEXT,
+        encryptedRefreshToken: null,
+        tokenType: 'system_user',
+        expiresAt: new Date('2026-11-30T10:00:00.000Z'),
+      });
+      await expect(runCheck()).resolves.toMatchObject({ outcome: 'checked', isExpiringSoon: true });
+      expect(connectionRepository.recordTokenCheck).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          lastCheckError: 'token_expires_soon (expires_at 2026-11-30T10:00:00.000Z)',
+        }),
+      );
+
+      tokenRepository.findByConnection.mockResolvedValue({
+        encryptedAccessToken: STORED_CIPHERTEXT,
+        encryptedRefreshToken: null,
+        tokenType: 'system_user',
+        expiresAt: new Date('2027-01-24T10:00:00.000Z'),
+      });
+      await expect(runCheck()).resolves.toMatchObject({ isExpiringSoon: false });
+      expect(connectionRepository.recordTokenCheck).toHaveBeenLastCalledWith(
+        expect.objectContaining({ lastCheckError: null }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('skips a connection that is not connected, calling nothing', async () => {

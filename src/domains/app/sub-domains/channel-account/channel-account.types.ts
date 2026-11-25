@@ -114,12 +114,13 @@ export interface ChannelAccountLanePort {
   /**
    * The break's stop (CA4, SN5), in the caller's unit: every lane of the account stopped until the
    * owner reconnects — `login_expired` for a token the provider refused, `account_not_shared` for an
-   * account missing from the connection's assigned list. A reconnect ends it (MC6).
+   * account missing from the connection's assigned list, `wrong_permission` for Meta's permission
+   * refusal of that account alone (code 10 / 200–299 — P354). A reconnect ends it (MC6).
    */
   startBrokenAccountStop(
     options: ChannelAccountPortScope & {
       channelAccountId: number;
-      reason: 'login_expired' | 'account_not_shared';
+      reason: 'login_expired' | 'account_not_shared' | 'wrong_permission';
     },
   ): Promise<void>;
 }

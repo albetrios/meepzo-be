@@ -18,7 +18,8 @@ export type ChannelConnectionProvider = 'meta';
 
 /**
  * What a channel connection's login state holds (routes-final § 1 MC4): who started the login, in
- * which organization, for which provider, and — for a reconnect (route 40, MC17) — which connection.
+ * which organization, for which provider, with which Meta login configuration (P356) and — for a
+ * reconnect (route 40, MC17) — which connection.
  */
 export interface ChannelConnectStatePayload {
   provider: ChannelConnectionProvider;
@@ -26,6 +27,11 @@ export interface ChannelConnectStatePayload {
   user_public_id: string;
   /** Set by route 40 (a reconnect bound to this connection); `null` for route 1. */
   channel_connection_public_id: string | null;
+  /**
+   * The Meta login configuration the login address carried (`META_CONFIG_ID` when the state was
+   * minted) — the callback stores this one on the connection, never a later setting (P356).
+   */
+  config_id: string;
 }
 
 /**
@@ -76,6 +82,8 @@ function parseStatePayload(raw: string): ChannelConnectStatePayload | null {
       payload.provider !== 'meta' ||
       typeof payload.organization_public_id !== 'string' ||
       typeof payload.user_public_id !== 'string' ||
+      typeof payload.config_id !== 'string' ||
+      payload.config_id.length === 0 ||
       !(
         payload.channel_connection_public_id === null ||
         typeof payload.channel_connection_public_id === 'string'

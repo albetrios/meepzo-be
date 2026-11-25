@@ -1,0 +1,7 @@
+{
+  "data": [{ "id": "17841400000000101", "username": "contract.fixture.first.page" }],
+  "paging": {
+    "cursors": { "before": "QVFIUmZAmaXJzdA", "after": "QVFIUm5leHRwYWdl" },
+    "next": "https://graph.facebook.com/v27.0/me/assigned_instagram_accounts?fields=id%2Cusername&limit=100&after=QVFIUm5leHRwYWdl"
+  }
+}

@@ -112,7 +112,8 @@ stays here (`InstagramAccountErasureService`).
 - **The token table has no cross-organization arm.** Its RLS policy is the organization arm only,
   in `USING` and `WITH CHECK` — no retention sweep arm — so no maintenance process can read a token.
   The account and its settings carry the sweep arm in `USING` only.
-- **No expiry to copy.** The connection's system-user token never ends (D24); `token_expires_at`,
+- **No expiry to copy.** The connection's system-user token ends only if its login configuration says so — its end
+  is the connection token's `expires_at` (P355), never the account's; `token_expires_at`,
   `scopes` and the app-scoped id left the extension at R6 (IA8).
 - **The token goes with the connection's last account** (route 4, Meta's deauthorize and data
   deletion, routes 7–8, and the organization's delete, D54): a disconnect revokes the account and,

@@ -1277,7 +1277,7 @@ export interface MetaAssignedInstagramAccount {
   username: string | null;
 }
 
-/** The largest page Meta answers for a connection's lists (its first 100 — MC13). */
+/** The largest page Meta answers for a connection's lists (100 a page — MC13). */
 const META_CONNECTION_LIST_LIMIT = '100';
 
 /** The `data` list of a Graph list answer as plain objects, or `outage` when it is not a list. */
@@ -1295,36 +1295,76 @@ function readGraphListData({
 }
 
 /**
- * Lists the Instagram accounts the token's business shares with the app
- * (`GET /me/assigned_instagram_accounts?fields=id,username`, MC5 step 3, MC7, MC10).
+ * The most pages of `/me/assigned_instagram_accounts` one read follows (100 accounts a page).
  *
  * @remarks
- * - **Algorithm:** one Graph read (Meta's first 100) with the token in `Authorization` and
- *   `appsecret_proof`; items without an id are dropped.
- * - **Failure modes:** `MetaGraphApiError` (`auth` for a dead token — MC11); no `data` list → `outage`.
- * - **Side effects:** one Meta call; its usage goes to `recordUsage`.
- * - **Notes:** re-read at every pick (P55); never cached.
+ * Rationale: a business portfolio shares a handful of Instagram accounts; ten pages (1,000
+ * accounts) is far past any real portfolio and still bounds a misbehaving `paging.next` loop.
+ *
+ * Consequences of change:
+ * - Decreasing → a large portfolio's list is read in part more often (`isComplete` false), so
+ *   the token check marks no account of it `account_not_shared`.
+ * - Increasing → more Meta calls (and usage) a read can spend before it stops.
+ *
+ * Last reviewed: 2026-11-25.
+ */
+export const META_ASSIGNED_ACCOUNTS_MAX_PAGES = 10;
+
+/** The Instagram accounts a token is assigned, and whether Meta's whole list was read. */
+export interface MetaAssignedInstagramAccountList {
+  /** The accounts read, in Meta's order. */
+  accounts: MetaAssignedInstagramAccount[];
+  /**
+   * `false` when the read stopped at {@link META_ASSIGNED_ACCOUNTS_MAX_PAGES} while Meta still had
+   * a next page — an account missing from `accounts` may still be shared.
+   */
+  isComplete: boolean;
+}
+
+/**
+ * Lists the Instagram accounts the token's business shares with the app
+ * (`GET /me/assigned_instagram_accounts?fields=id,username`, MC5 step 3, MC7, MC10), every page.
+ *
+ * @remarks
+ * - **Algorithm:** Graph reads of 100 with the token in `Authorization` and `appsecret_proof`,
+ *   following `paging.cursors.after` while Meta answers `paging.next`, at most
+ *   {@link META_ASSIGNED_ACCOUNTS_MAX_PAGES} pages; items without an id are dropped.
+ * - **Failure modes:** `MetaGraphApiError` on any page (`auth` for a dead token — MC11), so a list
+ *   is never answered with a page missing; no `data` list → `outage`.
+ * - **Side effects:** one Meta call per page; its usage goes to `recordUsage`.
+ * - **Notes:** re-read at every pick (P55); never cached. `isComplete` is `false` only when the cap
+ *   cut the list — the token check then marks no account unshared (P353).
  */
 export async function listMetaAssignedInstagramAccounts({
   encryptedAccessToken,
   requestId,
   recordUsage,
-}: MetaConnectionReadOptions): Promise<MetaAssignedInstagramAccount[]> {
-  const answer = await callMetaGraphWithToken<InstagramGraphListAnswer>({
-    encryptedAccessToken,
-    path: 'me/assigned_instagram_accounts',
-    query: { fields: 'id,username', limit: META_CONNECTION_LIST_LIMIT },
-    requestId,
-    recordUsage,
-  });
-  return readGraphListData({ answer, operation: '/me/assigned_instagram_accounts' }).flatMap(
-    (item) => {
+}: MetaConnectionReadOptions): Promise<MetaAssignedInstagramAccountList> {
+  const accounts: MetaAssignedInstagramAccount[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < META_ASSIGNED_ACCOUNTS_MAX_PAGES; page += 1) {
+    const answer = await callMetaGraphWithToken<InstagramGraphListAnswer>({
+      encryptedAccessToken,
+      path: 'me/assigned_instagram_accounts',
+      query: { fields: 'id,username', limit: META_CONNECTION_LIST_LIMIT, after },
+      requestId,
+      recordUsage,
+    });
+    for (const item of readGraphListData({
+      answer,
+      operation: '/me/assigned_instagram_accounts',
+    })) {
       const instagramUserId = readAnswerId(item.id);
-      return instagramUserId === null
-        ? []
-        : [{ instagramUserId, username: readAnswerText(item.username) }];
-    },
-  );
+      if (instagramUserId !== null) {
+        accounts.push({ instagramUserId, username: readAnswerText(item.username) });
+      }
+    }
+    const hasNextPage = readAnswerText(answer.paging?.next) !== null;
+    const afterCursor = readAnswerText(answer.paging?.cursors?.after);
+    if (!hasNextPage || afterCursor === null) return { accounts, isComplete: true };
+    after = afterCursor;
+  }
+  return { accounts, isComplete: false };
 }
 
 /**

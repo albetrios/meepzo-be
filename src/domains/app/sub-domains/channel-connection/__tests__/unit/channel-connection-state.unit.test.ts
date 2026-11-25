@@ -26,6 +26,7 @@ const PAYLOAD: ChannelConnectStatePayload = {
   organization_public_id: 'org_aaaaaaaaaaaaaaaaaaaaa',
   user_public_id: 'usr_aaaaaaaaaaaaaaaaaaaaa',
   channel_connection_public_id: null,
+  config_id: '1234567890',
 };
 const CALLER = {
   provider: 'meta' as const,
@@ -87,6 +88,14 @@ describe('channel connection login state (MC4, P26)', () => {
     values.set(`${CHANNEL_CONNECT_STATE_KEY_PREFIX}bad`, '{"provider":"tiktok"}');
     await expect(
       consumeChannelConnectState({ redis, state: 'bad', ...CALLER }),
+    ).rejects.toMatchObject({ reason: 'channel_connect_state_invalid' });
+  });
+
+  it('refuses a stored payload without the login configuration (P356)', async () => {
+    const { config_id: _configId, ...withoutConfig } = PAYLOAD;
+    values.set(`${CHANNEL_CONNECT_STATE_KEY_PREFIX}old`, JSON.stringify(withoutConfig));
+    await expect(
+      consumeChannelConnectState({ redis, state: 'old', ...CALLER }),
     ).rejects.toMatchObject({ reason: 'channel_connect_state_invalid' });
   });
 });

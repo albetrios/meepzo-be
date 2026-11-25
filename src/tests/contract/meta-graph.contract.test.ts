@@ -50,6 +50,9 @@ import adsSuccessFixture from './fixtures/meta-graph/ads.success.response.json' 
 import assignedInstagramAccountsSuccessFixture from './fixtures/meta-graph/assigned-instagram-accounts.success.response.json' with {
   type: 'json',
 };
+import assignedInstagramAccountsFirstPageFixture from './fixtures/meta-graph/assigned-instagram-accounts.first-page.response.json' with {
+  type: 'json',
+};
 import commentRepliesSuccessFixture from './fixtures/meta-graph/comment-replies.success.response.json' with {
   type: 'json',
 };
@@ -178,6 +181,8 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
   const UnifiedLoginTokenContractSchema = z.object({
     access_token: z.string().min(1),
     token_type: z.literal('bearer'),
+    /** Present only for a configuration whose token ends (P355). */
+    expires_in: z.number().int().nonnegative().optional(),
   });
   /** One page of an edge with Graph's cursor paging. */
   const GraphListPageContractSchema = z.object({
@@ -296,6 +301,8 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       expect(decryptFieldSecret(token.encryptedAccessToken)).toBe(
         unifiedLoginAccessTokenSuccessFixture.access_token,
       );
+      // No `expires_in`: the configuration's token never ends (P355).
+      expect(token.expiresAt).toBeNull();
       // The secret rides the query, as Meta documents the exchange; every logged URL is redacted.
       expect(redactSensitiveUrl(interceptedUrl)).not.toContain(String(environment.META_APP_SECRET));
       expect(redactSensitiveUrl(interceptedUrl)).toContain(SENSITIVE_REDACTION_PLACEHOLDER);
@@ -339,12 +346,13 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       ).resolves.toBe(meClientBusinessSuccessFixture.client_business_id);
       await expect(
         listMetaAssignedInstagramAccounts({ encryptedAccessToken: encryptedAccountAccessToken }),
-      ).resolves.toEqual(
-        assignedInstagramAccountsSuccessFixture.data.map((account) => ({
+      ).resolves.toEqual({
+        accounts: assignedInstagramAccountsSuccessFixture.data.map((account) => ({
           instagramUserId: account.id,
           username: account.username,
         })),
-      );
+        isComplete: true,
+      });
       // A declined permission is not granted.
       await expect(
         readMetaGrantedPermissions({ encryptedAccessToken: encryptedAccountAccessToken }),
@@ -354,6 +362,34 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
         'instagram_manage_comments',
       ]);
       for (const url of interceptedUrls) expectUrlWithoutToken(url);
+    });
+
+    test("the assigned accounts follow Meta's paging.next with the after cursor until the last page (P353)", async () => {
+      GraphListPageContractSchema.parse(assignedInstagramAccountsFirstPageFixture);
+      graphWithAccountToken()
+        .get(`${GRAPH_VERSION_PATH}/me/assigned_instagram_accounts`)
+        .query(
+          (query) =>
+            query.fields === 'id,username' && query.limit === '100' && query.after === undefined,
+        )
+        .reply(200, assignedInstagramAccountsFirstPageFixture)
+        .get(`${GRAPH_VERSION_PATH}/me/assigned_instagram_accounts`)
+        .query(
+          (query) =>
+            query.after === assignedInstagramAccountsFirstPageFixture.paging.cursors.after &&
+            Boolean(query.appsecret_proof),
+        )
+        .reply(200, assignedInstagramAccountsSuccessFixture);
+
+      const list = await listMetaAssignedInstagramAccounts({
+        encryptedAccessToken: encryptedAccountAccessToken,
+      });
+
+      expect(list.isComplete).toBe(true);
+      expect(list.accounts.map((account) => account.instagramUserId)).toEqual([
+        '17841400000000101',
+        ...assignedInstagramAccountsSuccessFixture.data.map((account) => account.id),
+      ]);
     });
 
     test("the ad accounts, then one ad account's ads with their Instagram post and Meta's cursor", async () => {

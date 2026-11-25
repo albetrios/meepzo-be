@@ -5,6 +5,7 @@ import {
   readMetaAppSettings,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { buildMetaGraphMalformedAnswerError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 import { encryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 
 /** Meta's login dialog (Unified Login, routes-final § 1 MC4). */
@@ -37,6 +38,17 @@ export function buildMetaLoginUrl({ state }: { state: string }): string {
 export interface MetaLoginAccessToken {
   /** The business's system-user token, encrypted with `encryptFieldSecret`. */
   encryptedAccessToken: string;
+  /**
+   * When the token ends — now + Meta's `expires_in` seconds — or `null` when Meta named no end
+   * (whether the token ends depends on the login configuration — P355).
+   */
+  expiresAt: Date | null;
+}
+
+/** Meta's `expires_in` as a whole, positive number of seconds, else `null` (no end named). */
+function readExpiresInSeconds(value: unknown): number | null {
+  const seconds = typeof value === 'string' && /^\d{1,12}$/.test(value) ? Number(value) : value;
+  return typeof seconds === 'number' && Number.isInteger(seconds) && seconds > 0 ? seconds : null;
 }
 
 /**
@@ -45,7 +57,8 @@ export interface MetaLoginAccessToken {
  *
  * @remarks
  * - **Algorithm:** `GET https://graph.facebook.com/v27.0/oauth/access_token?client_id&client_secret
- *   &redirect_uri&code`; the token comes back encrypted.
+ *   &redirect_uri&code`; the token comes back encrypted, with its end from Meta's `expires_in`
+ *   (`null` when the configuration's token never ends — Meta sends none, or `0`; P355).
  * - **Failure modes:** a setting unset → 503 `instagram_not_configured`; a bad, used or expired code
  *   → `MetaGraphApiError` `refused` (the callback's 422 `provider_code_invalid`); Meta down →
  *   `outage`; an answer without `access_token` → `outage`.
@@ -62,7 +75,7 @@ export async function exchangeMetaLoginCode({
   requestId?: string | undefined;
 }): Promise<MetaLoginAccessToken> {
   const { appId, appSecret, redirectUri } = readMetaAppSettings();
-  const answer = await callMetaGraph<{ access_token?: unknown }>({
+  const answer = await callMetaGraph<{ access_token?: unknown; expires_in?: unknown }>({
     url: buildMetaGraphUrl({
       path: 'oauth/access_token',
       query: { client_id: appId, client_secret: appSecret, redirect_uri: redirectUri, code },
@@ -76,5 +89,12 @@ export async function exchangeMetaLoginCode({
       missing: 'access_token',
     });
   }
-  return { encryptedAccessToken: encryptFieldSecret(accessToken) };
+  const expiresInSeconds = readExpiresInSeconds(answer.expires_in);
+  return {
+    encryptedAccessToken: encryptFieldSecret(accessToken),
+    expiresAt:
+      expiresInSeconds === null
+        ? null
+        : new Date(Date.now() + expiresInSeconds * MILLISECONDS_PER_SECOND),
+  };
 }

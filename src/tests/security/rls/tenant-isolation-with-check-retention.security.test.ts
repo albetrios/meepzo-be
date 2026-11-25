@@ -57,6 +57,10 @@ const ORG_SCOPED_TABLES = [
   { schemaName: 'app', tableName: 'automation_runs' },
   { schemaName: 'app', tableName: 'automation_run_events' },
   { schemaName: 'app', tableName: 'automation_comment_logs' },
+  // Instagram's messages and send attempts (feat-instagram-dm-sending § 6.B.3, R19): the sweep arm
+  // in USING only (the repair duties and the part upkeep read across organizations).
+  { schemaName: 'app', tableName: 'instagram_messages' },
+  { schemaName: 'app', tableName: 'instagram_send_attempts' },
 ] as const;
 
 async function resolveOrganizationInternalId(organizationPublicId: string): Promise<number> {

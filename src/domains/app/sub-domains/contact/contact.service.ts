@@ -1,4 +1,19 @@
 import { withAppDatabaseContext } from '@/infrastructure/database/contexts/database-context.js';
+import {
+  type ChannelActivityCursor,
+  type ChannelFailedMessagesRetry,
+  type ChannelSendingPort,
+  type ChannelSendingPorts,
+  emptyFailedMessagesSummary,
+} from '@/domains/app/app.channel-ports.js';
+import {
+  type FailedMessagesRetryOutput,
+  type FailedMessagesSummaryOutput,
+  serializeFailedMessagesRetry,
+  serializeFailedMessagesSummary,
+} from '@/domains/app/app.failed-messages.serializer.js';
+import { finishKeysetPage } from '@/shared/utils/http/list-query.util.js';
+import { parseListCursor } from '@/shared/utils/http/pagination.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
   assertTeamOrganization,
@@ -36,6 +51,8 @@ import {
   serializeContactTagCount,
 } from './contact.serializer.js';
 import type {
+  ContactActivityItemOutput,
+  ContactActivityPageOutput,
   ContactAutomationFilterResolver,
   ContactBulkActionFilter,
   ContactBulkActionInput,
@@ -50,6 +67,7 @@ import type {
   ContactPageOutput,
   ContactPauseStep,
   ContactProfileInput,
+  ContactRunEventReader,
   ContactSendState,
   ContactTagChangeEvent,
   ContactTagCountOutput,
@@ -79,6 +97,13 @@ export interface ContactServicePorts {
   tagEventRecorder?: ContactTagEventRecorder;
   /** Enqueues route 21's job (R46). */
   bulkActionQueue?: ContactBulkActionQueue;
+  /**
+   * The channels' sending ports (AU35) — her messages (route 24) and the failed-message summary and
+   * retry (routes 25–26) by the contact's `channel` (6, ROUTE row R19).
+   */
+  sendingPorts?: ChannelSendingPorts;
+  /** Her runs' history (route 24) — the run engine's reader (4.B, R19). */
+  runEventReader?: ContactRunEventReader;
 }
 
 /**
@@ -142,6 +167,9 @@ function tagCountDeltas({
 
 /** An Instagram user id as the webhook sends it: digits only (`chk_contacts_instagram_user_id`). */
 const INSTAGRAM_USER_ID = /^\d{1,64}$/;
+
+/** "What happened" shows our messages of about this many days (CT14 `meta.message_horizon_days`, P13). */
+const CONTACT_MESSAGE_HORIZON_DAYS = 30;
 
 /** `404 contact_not_found` — absent, another organization's, or already erased (K1, CT9). */
 function contactNotFoundError(): NotFoundError {
@@ -317,6 +345,189 @@ export class ContactService {
         return this.readDetail({ organizationId: organization.id, contactPublicId });
       },
     });
+  }
+
+  /**
+   * Her live contact's id and her channel's sending port (routes 24–26): the team check (a read's
+   * `404 team_organization_required`, a write's `422`), the live contact (`404 contact_not_found`).
+   */
+  private async resolveContactMessages({
+    scope,
+    contactPublicId,
+    isWrite,
+  }: {
+    scope: ContactCaller['scope'];
+    contactPublicId: string;
+    isWrite: boolean;
+  }): Promise<{ organizationId: number; contactId: number; port: ChannelSendingPort | undefined }> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.requireOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        if (isWrite) assertTeamOrganization({ organization, capability: 'INSTAGRAM' });
+        else assertTeamOrganizationForRead({ organization });
+        const contact = await this.contactRepository.findLiveKeyByPublicId({
+          organizationId: organization.id,
+          contactPublicId,
+        });
+        if (contact === null) throw contactNotFoundError();
+        return {
+          organizationId: organization.id,
+          contactId: contact.id,
+          port: this.ports.sendingPorts?.[contact.channel as keyof ChannelSendingPorts],
+        };
+      },
+    });
+  }
+
+  /**
+   * "What happened" (route 24, CT14, D46, D50): our messages of about the last 30 days and her runs'
+   * history, merged newest first — never her own text, never a collected value.
+   *
+   * @remarks
+   * Algorithm: the contact read, then each source reads `limit + 1` after the keyset `(occurred_at,
+   * source, id)`; the merge sorts and `finishKeysetPage` cuts and mints the next cursor (its
+   * `sort_value` is the source). Failure modes: `404 contact_not_found`, `404
+   * team_organization_required`. Side effects: none.
+   */
+  async listContactActivity({
+    scope,
+    contactPublicId,
+    query,
+  }: {
+    scope: ContactCaller['scope'];
+    contactPublicId: string;
+    query: { limit: number; after: string | undefined };
+  }): Promise<ContactActivityPageOutput> {
+    const { organizationId, contactId, port } = await this.resolveContactMessages({
+      scope,
+      contactPublicId,
+      isWrite: false,
+    });
+    const parsed = parseListCursor(query.after);
+    const after: ChannelActivityCursor | null =
+      parsed?.id !== undefined &&
+      (parsed.sort_value === 'message' || parsed.sort_value === 'run_event')
+        ? { occurredAt: parsed.created_at, source: parsed.sort_value, id: parsed.id }
+        : null;
+    const read = { scope, organizationId, contactId, after, limit: query.limit + 1 };
+    const messages = (await port?.listContactMessages(read)) ?? [];
+    const events = (await this.ports.runEventReader?.(read)) ?? [];
+    type Entry = {
+      id: number;
+      cursor_created_at: string;
+      source: 'message' | 'run_event';
+      item: ContactActivityItemOutput;
+    };
+    const entries: Entry[] = [
+      ...messages.map((message) => ({
+        id: message.id,
+        cursor_created_at: message.occurredAt,
+        source: 'message' as const,
+        item: {
+          id: message.publicId,
+          source: 'message' as const,
+          occurred_at: message.occurredAt,
+          automation: message.automation,
+          automation_run_id: message.automationRunPublicId,
+          broadcast_id: message.broadcastPublicId,
+          message_type: message.messageType,
+          message_number: message.messageNumber,
+          status: message.status,
+          reason: message.reason,
+          channel: message.channel,
+        },
+      })),
+      ...events.map((event) => ({
+        id: event.id,
+        cursor_created_at: event.cursor_created_at,
+        source: 'run_event' as const,
+        item: {
+          id: null,
+          source: 'run_event' as const,
+          occurred_at: event.cursor_created_at,
+          automation: { id: event.automation_public_id, name: event.automation_name },
+          automation_run_id: event.automation_run_public_id,
+          broadcast_id: null,
+          event_type: event.event_type,
+          status: event.status,
+        },
+      })),
+    ];
+    // Newest first: time, then `run_event` before `message`, then the higher id.
+    entries.sort(
+      (left, right) =>
+        right.cursor_created_at.localeCompare(left.cursor_created_at) ||
+        right.source.localeCompare(left.source) ||
+        right.id - left.id,
+    );
+    const page = finishKeysetPage({
+      rows: entries.slice(0, query.limit + 1),
+      args: { limit: query.limit, sortValueFor: (entry) => entry.source },
+    });
+    return {
+      items: page.items.map((entry) => entry.item),
+      limit: page.limit,
+      has_more: page.has_more,
+      next_cursor: page.next_cursor,
+      messageHorizonDays: CONTACT_MESSAGE_HORIZON_DAYS,
+    };
+  }
+
+  /**
+   * Her failed messages of about the last 30 days, counted (route 25, CT15) — changes nothing.
+   *
+   * @remarks
+   * Algorithm: the contact read, then her channel's summary. Failure modes: `404
+   * contact_not_found`. Side effects: none. Notes: a channel without a port counts nothing.
+   */
+  async summarizeContactFailedMessages({
+    scope,
+    contactPublicId,
+  }: {
+    scope: ContactCaller['scope'];
+    contactPublicId: string;
+  }): Promise<FailedMessagesSummaryOutput> {
+    const { organizationId, contactId, port } = await this.resolveContactMessages({
+      scope,
+      contactPublicId,
+      isWrite: false,
+    });
+    const target = { scope, organizationId, by: 'contact' as const, id: contactId };
+    const summary = await port?.summarizeFailedMessages(target);
+    return serializeFailedMessagesSummary(summary ?? emptyFailedMessagesSummary());
+  }
+
+  /**
+   * Retries her failed messages (route 26, CT15, D72): the allowed ones go back to `waiting`, each at
+   * most once; an opted-out or paused contact has none allowed, so nothing goes. Answers the object
+   * and the press (the controller's audit counts).
+   *
+   * @remarks
+   * Algorithm: the contact read (a write's team check), then her channel's retry. Failure modes:
+   * `404 contact_not_found`, `422` for a personal organization. Side effects: the channel's.
+   */
+  async retryContactFailedMessages({
+    caller,
+    contactPublicId,
+  }: {
+    caller: ContactCaller;
+    contactPublicId: string;
+  }): Promise<{ data: FailedMessagesRetryOutput; retry: ChannelFailedMessagesRetry }> {
+    const { organizationId, contactId, port } = await this.resolveContactMessages({
+      scope: caller.scope,
+      contactPublicId,
+      isWrite: true,
+    });
+    const retry = (await port?.retryFailedMessages({
+      scope: caller.scope,
+      organizationId,
+      by: 'contact',
+      id: contactId,
+    })) ?? { summary: emptyFailedMessagesSummary(), expectedRetryCount: 0, isQueued: false };
+    return { data: serializeFailedMessagesRetry(retry), retry };
   }
 
   /**

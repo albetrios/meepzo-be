@@ -10,6 +10,7 @@ import { ListAuditLogsQueryDto } from '@/domains/audit/audit.dto.js';
 import { ListInstagramWebhookEventsQueryDto } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.dto.js';
 import { InstagramWebhookSubscriptionQueryDto } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.dto.js';
 import {
+  contactActivityQueryDto,
   listContactTagsQueryDto,
   listContactsQueryDto,
 } from '@/domains/app/sub-domains/contact/contact.dto.js';
@@ -78,9 +79,10 @@ export const routeQuerySchemaMap: Record<string, ZodTypeAny> = {
   'GET /api/v1/app/social/channel-connections/{channel_connection_id}/ads':
     listChannelConnectionAdsQueryDto,
   // App: the Instagram account's route 2 takes no query (strict).
-  // App: contacts (DM-sending routes-final § 3.A.8, routes 18 and 22).
+  // App: contacts (DM-sending routes-final § 3.A.8, routes 18, 22 and 24).
   'GET /api/v1/app/contacts': listContactsQueryDto,
   'GET /api/v1/app/contact-tags': listContactTagsQueryDto,
+  'GET /api/v1/app/contacts/{contact_id}/activity': contactActivityQueryDto,
   // App: automations (routes-final § 3.A.8, routes 11 and 15).
   'GET /api/v1/app/automations': listAutomationsQueryDto,
   'DELETE /api/v1/app/automations/{automation_id}': deleteAutomationQueryDto,

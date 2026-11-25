@@ -16,8 +16,12 @@ both through this sub-domain's service; the team lists one account's contacts (r
 `GET /api/v1/app/contacts?channel_account_id=`), opens one (19), writes a note, tags and pauses her
 (20, `PATCH /contacts/{contact_id}`), runs one tag or pause on many (21,
 `POST /contacts/bulk-actions`), reads the account's tags with counts (22, `GET /contact-tags`) and
-erases one at the person's request (23). Routes 24–26 ("What happened", the failed messages) are
-ROUTE row R19's. Every tag change is an event in the nested
+erases one at the person's request (23), shows "what happened" — our messages of about 30 days and
+her runs' history, merged newest first (24, `GET /contacts/{contact_id}/activity`) — and counts and
+retries her failed messages (25–26, `…/failed-messages/summary` · `/retry`), over her channel's
+sending port (`ChannelSendingPorts`, 6.B) and the run engine's reader (`ContactRunEventReader`),
+ROUTE row R19. Her erase cancels her waiting messages (`contact_deleted`) and a pause or opt-out
+skips them (`contact_excluded` · `opted_out`) in the same commit. Every tag change is an event in the nested
 [contact tag events](contact-tag-event/contact-tag-event.overview.md) (3.B, ROUTE row R11).
 
 ## Layout

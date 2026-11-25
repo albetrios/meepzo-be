@@ -11,8 +11,10 @@ SN1–SN24). Intake saves `waiting` messages; this sub-domain sends them through
 fast, broadcast), two gates and the month count in the claim's commit, one shared result save, the Instagram error
 groups and stops, and repair duties that never send. ROUTE row R18 built the **folder root** (§ 6.A): the lane, stop,
 minute, month and day count tables, the global sending row, routes 63–64, the sending switch and environment id, the
-month meter's Redis copy and the lane steps of the connection, the channel account and route 12. The messages and
-attempts (6.B, R19), the attachments (6.C), the queues and workers (R37), the send core (R42), the repair duties (R47)
+month meter's Redis copy and the lane steps of the connection, the channel account and route 12. ROUTE row R19 built
+the nested [Instagram messages](instagram-message/instagram-message.overview.md) (6.B — the messages and attempts,
+Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). The
+attachments (6.C), the queues and workers (R37), the send core (R42), the repair duties (R47)
 and the watches (R48) come with their rows. No table here has a public id; route 63 takes the account's `cha_` id.
 
 ## Routes (under `/api/v1/app`)

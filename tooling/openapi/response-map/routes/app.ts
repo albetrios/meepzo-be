@@ -188,6 +188,21 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
     schema: null,
     example: null,
   },
+  'GET /api/v1/app/contacts/{contact_id}/activity': {
+    statusCode: 200,
+    schema: wrapPaginated(schemas.contactActivityItemSchema, [schemas.contactActivityItemExample]),
+    example: null,
+  },
+  'GET /api/v1/app/contacts/{contact_id}/failed-messages/summary': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.failedMessagesSummarySchema, schemas.failedMessagesSummaryExample),
+    example: null,
+  },
+  'POST /api/v1/app/contacts/{contact_id}/failed-messages/retry': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.failedMessagesRetrySchema, schemas.failedMessagesRetryExample),
+    example: null,
+  },
 
   // ── Automations (feat-instagram-dm-sending § 4.A, ROUTE R13) ──
   'GET /api/v1/app/automations': {
@@ -252,6 +267,16 @@ export const appRouteResponses: Record<string, ResponseDefinition> = {
   'DELETE /api/v1/app/automations/{automation_id}': {
     statusCode: 204,
     schema: null,
+    example: null,
+  },
+  'GET /api/v1/app/automations/{automation_id}/failed-messages/summary': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.failedMessagesSummarySchema, schemas.failedMessagesSummaryExample),
+    example: null,
+  },
+  'POST /api/v1/app/automations/{automation_id}/failed-messages/retry': {
+    statusCode: 200,
+    schema: wrapSuccess(schemas.failedMessagesRetrySchema, schemas.failedMessagesRetryExample),
     example: null,
   },
 

@@ -35,6 +35,7 @@ const ENTITY_LABELS: Record<PublicIdEntity, string> = {
   automationRun: 'automation run',
   automationCommentLog: 'automation comment log',
   trialAccount: 'trial account',
+  instagramMessage: 'Instagram message',
 };
 
 /** Stable, realistic 21-char example core (alphabet [a-z0-9]). */

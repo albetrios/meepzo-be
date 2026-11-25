@@ -20,7 +20,18 @@ import {
 } from '@/shared/errors/index.js';
 import { assertRecordNotChangedSince } from '@/shared/utils/validation/record-fields.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import type { ChannelSendingPorts } from '@/domains/app/app.channel-ports.js';
+import {
+  type ChannelFailedMessagesRetry,
+  type ChannelSendingPort,
+  type ChannelSendingPorts,
+  emptyFailedMessagesSummary,
+} from '@/domains/app/app.channel-ports.js';
+import {
+  type FailedMessagesRetryOutput,
+  type FailedMessagesSummaryOutput,
+  serializeFailedMessagesRetry,
+  serializeFailedMessagesSummary,
+} from '@/domains/app/app.failed-messages.serializer.js';
 import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
 import type { ChannelAccountPlanAccessService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
@@ -720,6 +731,104 @@ export class AutomationService {
         return { automation, warnings: [], isChanged: true };
       },
     });
+  }
+
+  /**
+   * The automation's live row and its channel's sending port (routes 36–37): the team check (a read's
+   * `404 team_organization_required`, a write's `422`), the automation (`404 automation_not_found`).
+   */
+  private async resolveAutomationMessages({
+    scope,
+    automationPublicId,
+    isWrite,
+  }: {
+    scope: AutomationActionInput['scope'];
+    automationPublicId: string;
+    isWrite: boolean;
+  }): Promise<{
+    organizationId: number;
+    automationId: number;
+    port: ChannelSendingPort | undefined;
+  }> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.requireOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        if (isWrite) assertTeamOrganization({ organization, capability: 'INSTAGRAM' });
+        else assertTeamOrganizationForRead({ organization });
+        const row = await this.automationRepository.findLiveByPublicId({
+          organizationId: organization.id,
+          automationPublicId,
+        });
+        if (row === null) throw automationNotFoundError();
+        return {
+          organizationId: organization.id,
+          automationId: row.id,
+          port: this.ports.sendingPorts?.[row.channel as keyof ChannelSendingPorts],
+        };
+      },
+    });
+  }
+
+  /**
+   * Its failed messages of about the last 30 days, counted (route 36, AU18, D72) — never `unknown`,
+   * `skipped`, `expired` or `cancelled`; changes nothing.
+   *
+   * @remarks
+   * Algorithm: the automation read, then its channel's summary. Failure modes: `404
+   * automation_not_found`. Side effects: none.
+   */
+  async summarizeAutomationFailedMessages({
+    scope,
+    automationPublicId,
+  }: Pick<
+    AutomationActionInput,
+    'scope' | 'automationPublicId'
+  >): Promise<FailedMessagesSummaryOutput> {
+    const { organizationId, automationId, port } = await this.resolveAutomationMessages({
+      scope,
+      automationPublicId,
+      isWrite: false,
+    });
+    const summary = await port?.summarizeFailedMessages({
+      scope,
+      organizationId,
+      by: 'automation',
+      id: automationId,
+    });
+    return serializeFailedMessagesSummary(summary ?? emptyFailedMessagesSummary());
+  }
+
+  /**
+   * Retries its failed messages (route 37, AU18, D72): the allowed ones go back to `waiting`, each at
+   * most once — none while its text is still refused (`text_refused`). Answers the object and the
+   * press (the controller's audit counts).
+   *
+   * @remarks
+   * Algorithm: the automation read (a write's team check), then its channel's retry. Failure modes:
+   * `404 automation_not_found`, `422` for a personal organization. Side effects: the channel's.
+   */
+  async retryAutomationFailedMessages({
+    scope,
+    automationPublicId,
+  }: Pick<AutomationActionInput, 'scope' | 'automationPublicId'>): Promise<{
+    data: FailedMessagesRetryOutput;
+    retry: ChannelFailedMessagesRetry;
+  }> {
+    const { organizationId, automationId, port } = await this.resolveAutomationMessages({
+      scope,
+      automationPublicId,
+      isWrite: true,
+    });
+    const retry = (await port?.retryFailedMessages({
+      scope,
+      organizationId,
+      by: 'automation',
+      id: automationId,
+    })) ?? { summary: emptyFailedMessagesSummary(), expectedRetryCount: 0, isQueued: false };
+    return { data: serializeFailedMessagesRetry(retry), retry };
   }
 
   /**

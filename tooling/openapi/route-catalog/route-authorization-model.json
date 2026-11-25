@@ -292,5 +292,22 @@
   "POST /api/v1/tenancy/membership-invitations/:membership_invitation_id/decline": {
     "model": "email",
     "verifyNoMutation": true
+  },
+  "GET /api/v1/app/contacts/:contact_id/activity": {
+    "model": "organization"
+  },
+  "GET /api/v1/app/contacts/:contact_id/failed-messages/summary": {
+    "model": "organization"
+  },
+  "POST /api/v1/app/contacts/:contact_id/failed-messages/retry": {
+    "model": "organization",
+    "verifyNoMutation": true
+  },
+  "GET /api/v1/app/automations/:automation_id/failed-messages/summary": {
+    "model": "organization"
+  },
+  "POST /api/v1/app/automations/:automation_id/failed-messages/retry": {
+    "model": "organization",
+    "verifyNoMutation": true
   }
 }

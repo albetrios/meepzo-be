@@ -44,6 +44,8 @@ import { automation_counts } from '@/domains/app/sub-domains/automation/automati
 import { automation_reply_states } from '@/domains/app/sub-domains/automation/automation-reply-state.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
+import { instagram_messages } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.schema.js';
+import { instagram_send_attempts } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-send-attempt.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
 import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.schema.js';
 import { instagram_send_stops } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.schema.js';
@@ -864,6 +866,8 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   const runIds = { organizationA: 0, organizationB: 0 };
   const runEventIds = { organizationA: 0, organizationB: 0 };
   const commentLogIds = { organizationA: 0, organizationB: 0 };
+  const messageIds = { organizationA: 0, organizationB: 0 };
+  const attemptIds = { organizationA: 0, organizationB: 0 };
   for (const [side, organization] of [
     ['organizationA', organizationA],
     ['organizationB', organizationB],
@@ -915,10 +919,49 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
         waiting_for: 'opening_message_button',
       })
       .returning();
+    // The run's opening private reply, waiting, and one call to Meta for it (§ 6.B.3, R19).
+    const [message] = await database
+      .insert(instagram_messages)
+      .values({
+        public_id: generatePublicId('instagramMessage'),
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        automation_id: automationIds[side],
+        automation_run_id: run!.id,
+        automation_run_started_at: run!.started_at,
+        contact_id: contactIds[side],
+        message_type: 'opening_message',
+        message_kind: 'text',
+        lane: 'slow',
+        channel: 'private_reply',
+        is_counted_as_direct_message: true,
+        not_before: new Date(),
+        trigger_occurred_at: run!.trigger_occurred_at,
+      })
+      .returning();
+    const [attempt] = await database
+      .insert(instagram_send_attempts)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        instagram_message_id: message!.id,
+        automation_id: automationIds[side],
+        contact_id: contactIds[side],
+        lane: 'slow',
+        count_group: 'open',
+      })
+      .returning();
     runIds[side] = run!.id;
     runEventIds[side] = runEvent!.id;
     commentLogIds[side] = commentLog!.id;
+    messageIds[side] = message!.id;
+    attemptIds[side] = attempt!.id;
   }
+  rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'instagram_messages' }), messageIds);
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_send_attempts' }),
+    attemptIds,
+  );
   rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'automation_runs' }), runIds);
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'automation_run_events' }),

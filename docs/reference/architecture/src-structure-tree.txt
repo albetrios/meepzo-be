@@ -361,6 +361,24 @@ src/
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
+    │   │   │   ├── instagram-message/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   ├── factories/
+    │   │   │   │   │   │   └── instagram-message.factory.ts
+    │   │   │   │   │   ├── integration/
+    │   │   │   │   │   │   └── instagram-message.integration.test.ts
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-message.service.db.unit.test.ts
+    │   │   │   │   │   │   └── instagram-message.util.unit.test.ts
+    │   │   │   │   ├── instagram-message.constants.ts
+    │   │   │   │   ├── instagram-message.overview.md
+    │   │   │   │   ├── instagram-message.repository.ts
+    │   │   │   │   ├── instagram-message.schema.ts
+    │   │   │   │   ├── instagram-message.service.ts
+    │   │   │   │   ├── instagram-message.types.ts
+    │   │   │   │   ├── instagram-message.util.ts
+    │   │   │   │   ├── instagram-send-attempt.repository.ts
+    │   │   │   │   └── instagram-send-attempt.schema.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── instagram-sending.bulk.seed.ts
@@ -470,6 +488,7 @@ src/
     │   ├── app-plan-access.ts
     │   ├── app.channel-ports.ts
     │   ├── app.container.ts
+    │   ├── app.failed-messages.serializer.ts
     │   ├── app.overview.md
     │   ├── app.permissions.ts
     │   └── app.routes.ts

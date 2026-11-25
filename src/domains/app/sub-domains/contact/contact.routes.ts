@@ -6,24 +6,26 @@ import { APP_PERMISSIONS } from '@/domains/app/app.permissions.js';
 import type { ContactService } from './contact.service.js';
 import { createContactController } from './contact.controller.js';
 import {
+  contactActivityQueryDto,
   contactBulkActionBodyDto,
   contactIdParamsDto,
+  emptyContactActionBodyDto,
   listContactTagsQueryDto,
   listContactsQueryDto,
   updateContactBodyDto,
 } from './contact.dto.js';
 
 /**
- * Returns the Fastify plugin that registers the contact routes (routes-final § 3.7, routes 18–23),
+ * Returns the Fastify plugin that registers the contact routes (routes-final § 3.7, routes 18–26),
  * mounted under `/api/v1/app`: the list (18), open one (19), the owner's change (20), the bulk
- * action (21), the tag list (22) and the erase (23).
+ * action (21), the tag list (22), the erase (23), "what happened" (24) and her failed messages'
+ * summary and retry (25–26, over sub-domain 6's message service — M6).
  *
  * @remarks
- * Gates (3.4): `contact:read` on 18, 19, 22; `contact:update` on 20, 21 (Owner, Admin, Editor — P20);
- * `contact:delete` on 23 (Owner, Admin). Route 21 starts background work, so it needs
+ * Gates (3.4): `contact:read` on 18, 19, 22, 24, 25; `contact:update` on 20, 21, 26 (Owner, Admin,
+ * Editor — P20); `contact:delete` on 23 (Owner, Admin). Routes 21 and 26 start work, so they need
  * `X-Idempotency-Key` (`idempotencyRequired`); route 20 takes an optional `expected_updated_at`. The
- * writes carry the organization-scoped rate limit; the reads ride the global limiter. Routes 24–26
- * ("What happened", the failed messages) are ROUTE row R19's.
+ * writes carry the organization-scoped rate limit; the reads ride the global limiter.
  */
 export function contactRoutes(service: ContactService): FastifyPluginAsync {
   const controller = createContactController(service);
@@ -107,6 +109,54 @@ export function contactRoutes(service: ContactService): FastifyPluginAsync {
         },
       },
       controller.listContactTags,
+    );
+    zodApplication.get<{ Params: { contact_id: string } }>(
+      '/contacts/:contact_id/activity',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_READ)],
+        schema: {
+          summary: "List a contact's activity",
+          description:
+            "What happened with one contact, newest first: the messages the automations sent or planned for her in about the last 30 days (each with its type, list number, status, reason and how it was delivered) and her automation runs' history (started, step changes, her email or phone received, her taps, ended), each with its automation and run. Her own words and the email or phone values never appear (they are on the contact). Pages by limit (1–100, default 50) and after; meta.message_horizon_days (30) says why older entries show only run history. 404 contact_not_found when it is not this organization's or was deleted. Team organizations only. Requires CONTACT_READ permission.",
+          tags: ['Contact'],
+          params: contactIdParamsDto,
+          querystring: contactActivityQueryDto,
+        },
+      },
+      controller.listContactActivity,
+    );
+    zodApplication.get<{ Params: { contact_id: string } }>(
+      '/contacts/:contact_id/failed-messages/summary',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_READ)],
+        schema: {
+          summary: "Count a contact's failed messages",
+          description:
+            "Counts the messages to one contact that failed in about the last 30 days: how many can go again now, and how many cannot and why — too_old (an opening private reply past its comment's 7 days less 30 minutes, or a public reply or hide past 7 days), chat_closed (any other message while her 24-hour chat is closed), final_for_person (she blocked the account, cannot be found, gave no consent, another app answers her chat, or she opted out or her automations are paused), text_refused (the automation is still stopped for a refused text), broadcast (never retried) and already_retried (each message goes again at most once). Changes nothing. 404 contact_not_found when it is not this organization's or was deleted. Team organizations only. Requires CONTACT_READ permission.",
+          tags: ['Contact'],
+          params: contactIdParamsDto,
+        },
+      },
+      controller.summarizeContactFailedMessages,
+    );
+    zodApplication.post<{ Params: { contact_id: string } }>(
+      '/contacts/:contact_id/failed-messages/retry',
+      {
+        onRequest: [app.authenticate],
+        preHandler: [requireOrganizationPermission(APP_PERMISSIONS.CONTACT_UPDATE)],
+        config: { idempotencyRequired: true, ...ORGANIZATION_SCOPED_AUTHED_RATE_LIMIT.config },
+        schema: {
+          summary: "Retry a contact's failed messages",
+          description:
+            "Puts the failed messages to one contact that can go again now (as the summary counts them) back in line, each at most once; they go through the normal sending limits and count in the month's messages when sent. A message that fails again stays failed. An opted-out or paused contact has none to retry. Answers expected_retry_count and is_queued (false while the retry runs in the request). The body is empty. Needs X-Idempotency-Key. 404 contact_not_found when it is not this organization's or was deleted. Team organizations only. Requires CONTACT_UPDATE permission.",
+          tags: ['Contact'],
+          params: contactIdParamsDto,
+          body: emptyContactActionBodyDto,
+        },
+      },
+      controller.retryContactFailedMessages,
     );
     zodApplication.delete<{ Params: { contact_id: string } }>(
       '/contacts/:contact_id',

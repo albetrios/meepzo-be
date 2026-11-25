@@ -8,8 +8,10 @@
  */
 import {
   contactBulkActionBodyDto,
+  emptyContactActionBodyDto,
   updateContactBodyDto,
 } from '@/domains/app/sub-domains/contact/contact.dto.js';
+import { emptyAutomationActionDto } from '@/domains/app/sub-domains/automation/automation.dto.js';
 import type { ZodTypeAny } from 'zod';
 
 // ─── Auth ──────────────────────────────────────────────────────────────
@@ -226,4 +228,7 @@ export const routeSchemaMap: Record<string, ZodTypeAny> = {
   // App: contacts (DM-sending routes-final § 3.A.8, routes 20 and 21).
   'PATCH /api/v1/app/contacts/{contact_id}': updateContactBodyDto,
   'POST /api/v1/app/contacts/bulk-actions': contactBulkActionBodyDto,
+  // The failed-message retries (routes 26 and 37, ROUTE R19): strictly empty bodies.
+  'POST /api/v1/app/contacts/{contact_id}/failed-messages/retry': emptyContactActionBodyDto,
+  'POST /api/v1/app/automations/{automation_id}/failed-messages/retry': emptyAutomationActionDto,
 };

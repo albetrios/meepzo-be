@@ -40,7 +40,11 @@ import { ContactTagEventRepository } from './sub-domains/contact/contact-tag-eve
 import { ContactTagEventService } from './sub-domains/contact/contact-tag-event/contact-tag-event.service.js';
 import { ContactRepository } from './sub-domains/contact/contact.repository.js';
 import { ContactService } from './sub-domains/contact/contact.service.js';
-import type { ContactErasureStep, ContactPauseStep } from './sub-domains/contact/contact.types.js';
+import type {
+  ContactErasureStep,
+  ContactPauseStep,
+  ContactRunEventReader,
+} from './sub-domains/contact/contact.types.js';
 import { AutomationRepository } from './sub-domains/automation/automation.repository.js';
 import { AutomationCountRepository } from './sub-domains/automation/automation-count.repository.js';
 import { AutomationCountService } from './sub-domains/automation/automation-count.service.js';
@@ -59,6 +63,7 @@ import { MessageMonthCountRepository } from './sub-domains/instagram-sending/mes
 import { MessageMonthCountService } from './sub-domains/instagram-sending/message-month-count.service.js';
 import { SendingStateService } from './sub-domains/instagram-sending/sending-state.service.js';
 import { InstagramSendingService } from './sub-domains/instagram-sending/instagram-sending.service.js';
+import { InstagramMessageService } from './sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
 import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 
 /**
@@ -115,13 +120,19 @@ export type AppContainer = {
   automationRunService: AutomationRunService;
   /**
    * The channels' sending ports (AU35), one record shared by the automations and the run engine —
-   * Instagram's is wired by its sending sub-domain (ROUTE rows R19–R20); tests put a recording one.
+   * Instagram's is its message service (ROUTE row R19); tests may put a recording one.
    */
   channelSendingPorts: ChannelSendingPorts;
   instagramSendLaneService: InstagramSendLaneService;
   messageMonthCountService: MessageMonthCountService;
   sendingStateService: SendingStateService;
   instagramSendingService: InstagramSendingService;
+  /**
+   * Instagram's messages (§ 6.B, ROUTE row R19): Instagram's `ChannelSendingPort` (the value of
+   * `channelSendingPorts.instagram`), the claim and the one result save the lanes call (R42), the
+   * webhook's own-echo lookup and route 63's waiting counts.
+   */
+  instagramMessageService: InstagramMessageService;
 };
 
 /**
@@ -247,6 +258,39 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
 }
 
 /**
+ * Routes 63–64's read service (routes-final § 6.A): the sending root's services, the day counts and
+ * route 63's sources from the messages (6.B — the waiting counts per lane and the last retry, R19).
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
+ */
+function createInstagramSendingStatusService({
+  organizationService,
+  channelAccountService,
+  planAccessService,
+  sending,
+  instagramMessageService,
+}: {
+  organizationService: OrganizationService;
+  channelAccountService: ChannelAccountService;
+  planAccessService: ChannelConnectionPlanAccessService;
+  sending: ReturnType<typeof createInstagramSendingServices>;
+  instagramMessageService: InstagramMessageService;
+}): InstagramSendingService {
+  return new InstagramSendingService({
+    organizationService,
+    channelAccountService,
+    planAccessService,
+    ...sending,
+    dayCountRepository: new InstagramSendDayCountRepository(),
+    sources: {
+      countWaitingByLane: (target) => instagramMessageService.countWaitingByLane(target),
+      findLastRetry: (target) => instagramMessageService.findLastRetry(target),
+    },
+  });
+}
+
+/**
  * The Instagram account's media and erasure services and Meta's callbacks (routes-final § 2, § 1):
  * the post and story pickers (routes 13–14, R8), the one erase of an account's data (which the
  * organization's delete and Meta's callbacks call, IAC5) and the connection's deauthorize /
@@ -296,20 +340,25 @@ function createInstagramMediaAndErasureServices(options: {
 function createInstagramWebhookServices({
   instagramAccountService,
   organizationService,
+  instagramMessageService,
 }: {
   instagramAccountService: InstagramAccountService;
   organizationService: OrganizationService;
+  /** The own-echo lookup (WHQ1, P62) — sub-domain 6's message service (R19). */
+  instagramMessageService: InstagramMessageService;
 }) {
   const instagramWebhookEventService = new InstagramWebhookEventService(
     new InstagramWebhookEventRepository(),
     organizationService,
   );
   // The receiver stores through the events service (WH1), then adds the account's processing job
-  // after each entry's commit and turns the stored `received` rows `queued` (WH5, WH10).
+  // after each entry's commit and turns the stored `received` rows `queued` (WH5, WH10). Our own
+  // echoes are dropped by the message table's lookup (WHQ1, R19).
   const instagramWebhookService = new InstagramWebhookService(
     instagramAccountService,
     instagramWebhookEventService,
     enqueueInstagramWebhookAccountProcessing,
+    instagramMessageService.findOwnSentMessageIds,
   );
   return { instagramWebhookEventService, instagramWebhookService };
 }
@@ -329,10 +378,16 @@ function createContactServices({
   organizationService,
   automationService,
   cancelContactOpenRuns,
+  channelSendingPorts,
+  runEventReader,
 }: {
   organizationService: OrganizationService;
   automationService: AutomationService;
   cancelContactOpenRuns: ContactPauseStep;
+  /** The channels' sending ports (AU35): her messages' erase / pause steps and routes 24–26. */
+  channelSendingPorts: ChannelSendingPorts;
+  /** Her runs' history for route 24 (4.B) — a closure, the engine is built after. */
+  runEventReader: ContactRunEventReader;
 }): {
   contactService: ContactService;
   contactTagEventService: ContactTagEventService;
@@ -341,13 +396,47 @@ function createContactServices({
   const contactTagEventService = new ContactTagEventService(new ContactTagEventRepository());
   const contactErasureSteps: ContactErasureStep[] = [
     (input) => contactTagEventService.deleteContactTagEvents(input),
+    // Her waiting messages cancelled in the erase's commit (CT11, AC-5.12) — every channel's.
+    async ({ organizationId, contactId }) => {
+      for (const port of Object.values(channelSendingPorts)) {
+        await port.cancelWaitingMessages({
+          organizationId,
+          by: 'contact',
+          id: contactId,
+          reason: 'contact_deleted',
+        });
+      }
+    },
   ];
+  // Her waiting messages skipped with the pause's reason (`contact_excluded`, `opted_out`) in its
+  // commit (CTC4, AC-5.8).
+  const skipContactWaitingMessages: ContactPauseStep = async ({
+    organizationId,
+    contactId,
+    reason,
+    databaseHandle,
+  }) => {
+    for (const port of Object.values(channelSendingPorts)) {
+      await port.skipWaitingMessages({
+        databaseHandle,
+        organizationId,
+        by: 'contact',
+        id: contactId,
+        reason,
+      });
+    }
+  };
   const contactService = new ContactService(
     new ContactRepository(),
     organizationService,
     contactErasureSteps,
     (input) => automationService.findAutomationIdForFilter(input),
-    { pauseSteps: [cancelContactOpenRuns], tagEventRecorder: contactTagEventService },
+    {
+      pauseSteps: [cancelContactOpenRuns, skipContactWaitingMessages],
+      tagEventRecorder: contactTagEventService,
+      sendingPorts: channelSendingPorts,
+      runEventReader,
+    },
   );
   return { contactService, contactTagEventService, contactErasureSteps };
 }
@@ -406,6 +495,8 @@ function createAutomationServices({
     organizationService,
     automationService,
     cancelContactOpenRuns: (input) => automationRunService.cancelContactOpenRuns(input),
+    channelSendingPorts,
+    runEventReader: (input) => automationRunService.listContactRunEvents(input),
   });
   // The run engine (sub-domain 4.B, R14): the intake calls its entry points; it saves every step
   // as a waiting message through the channel's sending port (AU35 — the shared record, filled per
@@ -461,8 +552,12 @@ export function createAppContainer({
    */
   messageFilePort?: AutomationMessageFilePort | undefined;
 }): AppContainer {
-  // Filled per channel as its sending sub-domain lands (Instagram's at R19–R20).
-  const channelSendingPorts: ChannelSendingPorts = {};
+  // One port per channel (AU35): Instagram's is its message service (§ 6.B, R19), which reports a
+  // run message's result to the engine (built below, so a closure).
+  const instagramMessageService = new InstagramMessageService({
+    recordRunMessageResult: (input) => automationRunService.recordMessageResult(input),
+  });
+  const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
     new ChannelConnectionTokenRepository(),
@@ -516,13 +611,14 @@ export function createAppContainer({
     lanePort: sending.instagramSendLaneService,
     trialPort,
   });
-  // Routes 63–64 (§ 6.A); route 63's later parts (R19 on) join through its sources argument.
-  const instagramSendingService = new InstagramSendingService({
+  // Routes 63–64 (§ 6.A); route 63's later parts join through its sources argument — the waiting
+  // counts and the last retry from the messages (R19).
+  const instagramSendingService = createInstagramSendingStatusService({
     organizationService,
     channelAccountService,
     planAccessService,
-    ...sending,
-    dayCountRepository: new InstagramSendDayCountRepository(),
+    sending,
+    instagramMessageService,
   });
   const {
     instagramMediaService,
@@ -553,6 +649,7 @@ export function createAppContainer({
   const { instagramWebhookEventService, instagramWebhookService } = createInstagramWebhookServices({
     instagramAccountService,
     organizationService,
+    instagramMessageService,
   });
   return {
     channelConnectionService,
@@ -577,6 +674,7 @@ export function createAppContainer({
     messageMonthCountService: sending.messageMonthCountService,
     sendingStateService: sending.sendingStateService,
     instagramSendingService,
+    instagramMessageService,
   };
 }
 

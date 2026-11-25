@@ -35,8 +35,8 @@ root holds no table of its own and writes the events only through the nested sub
 - `instagram-webhook.service.ts` — the subscription check (WH4) and the save of a delivery (WH9):
   the store unit capped at 3 s (`INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS`, WH2), read receipts and our own
   echoes dropped (the `InstagramOwnSentMessageLookup` port — sub-domain 6's
-  `InstagramMessageService.findOwnSentMessageIds` from ROUTE row R19, `NO_OWN_SENT_MESSAGES` until
-  then), the rest handed to `InstagramWebhookEventService.recordReceivedEvents`
+  `InstagramMessageService.findOwnSentMessageIds`, wired since ROUTE row R19 — a Postgres lookup of
+  the echo's `mid` in `app.instagram_messages`, P62), the rest handed to `InstagramWebhookEventService.recordReceivedEvents`
 - `instagram-webhook-ingress.plugin.ts` — `X-Hub-Signature-256` over the raw body with the Meta app
   secret (channel-connection's `readMetaWebhookSettings`, WHC3) before anything is parsed (WH4): a
   request without the header is refused before its body is read, and the verified bytes are parsed

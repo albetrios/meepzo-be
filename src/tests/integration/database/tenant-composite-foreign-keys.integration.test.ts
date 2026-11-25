@@ -491,7 +491,7 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
     expect(singleColumn.map((row) => row.constraint_name)).toEqual([]);
   });
 
-  it('names a run by (organization_id, id, started_at) from its run events and open keys (AU36, AU37)', async () => {
+  it('names a run by (organization_id, id, started_at) from its run events, open keys and messages (AU36, AU37, SN17)', async () => {
     const rows = rowsOf<{ constraint_name: string; child_columns: string; parent_columns: string }>(
       await operatorQuery.unsafe(
         `
@@ -506,7 +506,13 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
          WHERE c.contype = 'f' AND c.conparentid = 0 AND c.conname = ANY($1)
          ORDER BY c.conname
         `,
-        [['automation_run_events_automation_run_fk', 'automation_run_open_keys_automation_run_fk']],
+        [
+          [
+            'automation_run_events_automation_run_fk',
+            'automation_run_open_keys_automation_run_fk',
+            'instagram_messages_automation_run_fk',
+          ],
+        ],
       ),
     );
     expect(rows).toEqual([
@@ -517,6 +523,11 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
       },
       {
         constraint_name: 'automation_run_open_keys_automation_run_fk',
+        child_columns: 'organization_id,automation_run_id,automation_run_started_at',
+        parent_columns: 'organization_id,id,started_at',
+      },
+      {
+        constraint_name: 'instagram_messages_automation_run_fk',
         child_columns: 'organization_id,automation_run_id,automation_run_started_at',
         parent_columns: 'organization_id,id,started_at',
       },

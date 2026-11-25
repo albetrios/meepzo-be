@@ -1,3 +1,4 @@
+import type { ChannelActivityCursor } from '@/domains/app/app.channel-ports.js';
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import type {
@@ -363,4 +364,55 @@ export interface ContactBulkActionInput {
   tag: string | null;
   contactPublicIds: readonly string[] | null;
   filter: ContactBulkActionFilter | null;
+}
+
+/**
+ * One run event of her "what happened" (routes-final § 3.A CT14, route 24), as the run engine's
+ * reader answers it — the app container passes `AutomationRunService.listContactRunEvents`, so
+ * contacts never import the automation sub-domain.
+ */
+export interface ContactRunEventEntry {
+  id: number;
+  /** `cursorTimestampSelection` text of the event's time. */
+  cursor_created_at: string;
+  event_type: string;
+  status: string | null;
+  automation_public_id: string;
+  automation_name: string;
+  automation_run_public_id: string;
+}
+
+/** The run engine's reader of her runs' history (route 24), newest first after the cursor. */
+export type ContactRunEventReader = (input: {
+  scope: OrganizationPrincipalDatabaseScope;
+  organizationId: number;
+  contactId: number;
+  after: ChannelActivityCursor | null;
+  limit: number;
+}) => Promise<ContactRunEventEntry[]>;
+
+/** One Contact activity item (routes-final § 3.A.6, route 24) — never her own text. */
+export interface ContactActivityItemOutput {
+  /** The message's `igm_…`; `null` for a run event (run events carry no public id). */
+  id: string | null;
+  source: 'message' | 'run_event';
+  occurred_at: string;
+  automation: { id: string; name: string } | null;
+  automation_run_id: string | null;
+  broadcast_id: string | null;
+  message_type?: string;
+  message_number?: number | null;
+  status: string | null;
+  reason?: string | null;
+  channel?: string | null;
+  event_type?: string;
+}
+
+/** Route 24's page: the items, the next cursor and why older entries show only run history. */
+export interface ContactActivityPageOutput {
+  items: ContactActivityItemOutput[];
+  limit: number;
+  has_more: boolean;
+  next_cursor: string | null;
+  messageHorizonDays: number;
 }

@@ -17,8 +17,9 @@ with the automation delete and the contact erase and pause.
 **The engine decides; it never sends** (AU24, WC-9 removed): every step is one waiting message saved
 through the account's channel's `ChannelSendingPort` (`app.channel-ports.ts`, AU35) — content by
 reference (the `steps` path and upload public ids, never text). Instagram's port is sub-domain 6's
-message service (ROUTE rows R19–R20); until it is wired, `app.container.ts`'s `channelSendingPorts`
-holds no Instagram port and an event of that channel throws.
+message service (`InstagramMessageService`, wired in `app.container.ts` since ROUTE row R19); a
+channel without a port makes its event throw. `listContactRunEvents` is route 24's run-history
+reader (the contact's "what happened").
 
 ## Layout
 

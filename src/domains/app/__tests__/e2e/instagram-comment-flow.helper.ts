@@ -12,6 +12,7 @@ import type {
   SaveWaitingMessageInput,
   SaveWaitingMessageResult,
 } from '@/domains/app/app.channel-ports.js';
+import { EMPTY_MESSAGE_HISTORY_PORT_PARTS } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/recording-sending-port.factory.js';
 import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { buildAutomationButtonPayload } from '@/domains/app/sub-domains/automation/automation-run/automation-run-button-payload.util.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
@@ -265,6 +266,7 @@ export class FakeInstagram {
     },
     cancelWaitingMessages: async (_input: ChannelWaitingMessageSelection) => 0,
     skipWaitingMessages: async (_input: ChannelWaitingMessageSelection) => 0,
+    ...EMPTY_MESSAGE_HISTORY_PORT_PARTS,
   };
 
   /** Event processing's client: a new contact's profile and a post seen for the first time. */

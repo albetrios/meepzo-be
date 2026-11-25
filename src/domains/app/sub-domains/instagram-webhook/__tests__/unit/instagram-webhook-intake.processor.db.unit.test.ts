@@ -653,6 +653,140 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
     expect(await readRunRows(organization.id)).toEqual([]);
   });
 
+  /** Sets an event's own time (Meta's), as the receive step stores it. */
+  async function setOccurredAt(eventId: number, occurredAt: Date): Promise<void> {
+    await operatorQuery`
+      UPDATE app.instagram_webhook_events SET occurred_at = ${occurredAt} WHERE id = ${eventId}`;
+  }
+
+  it('out of order — her tap stored before the hello’s send result: the tap is ignored (the run is not waiting yet), the late result makes it wait once, her next tap continues it once', async () => {
+    const automation = await liveAutomation({ keywords: ['link'] });
+    await storeComment({ text: 'link', postId: nextInstagramObjectId() });
+    await runJob('comments');
+    const [running] = await readRunRows(organization.id);
+    expect(running).toMatchObject({ status: 'running', current_step: 'comment_reply' });
+    const tap = () => {
+      const clickId = `m_${nextInstagramObjectId()}`;
+      return storeEvent({
+        eventKind: 'postback',
+        eventKey: `postback:${clickId}`,
+        payload: {
+          sender: { id: SENDER },
+          timestamp: Date.now(),
+          postback: { mid: clickId, payload: `${automation.public_id}::${running?.public_id}` },
+        },
+      });
+    };
+
+    // The tap is taken in before the hello's result is saved: a postback on a run that is not
+    // waiting is `ignored` by the engine — the event is processed, nothing moves, nothing is saved.
+    const early = await tap();
+    await expect(runJob('messages')).resolves.toMatchObject({
+      processedEventCount: 1,
+      failedEventCount: 0,
+    });
+    expect((await readTestInstagramWebhookEvent(early.id))?.status).toBe('processed');
+    expect(await readRunRows(organization.id)).toMatchObject([
+      { status: 'running', current_step: 'comment_reply', waiting_for: null },
+    ]);
+    expect(port.steps()).toEqual(['hello']);
+
+    // The late result: the run now waits for her tap — once, no second run, no second hello.
+    await reportSent('hello');
+    expect(await readRunRows(organization.id)).toMatchObject([
+      { status: 'waiting', waiting_for: 'opening_message_button' },
+    ]);
+    expect(port.steps()).toEqual(['hello']);
+
+    // Her next tap continues the one run to its first message, once; the same tap again is a no-op.
+    const next = await tap();
+    await runJob('messages');
+    expect((await readTestInstagramWebhookEvent(next.id))?.status).toBe('processed');
+    expect(port.steps()).toEqual(['hello', 'messages#1']);
+    await runJob('messages');
+    expect(port.steps()).toEqual(['hello', 'messages#1']);
+    expect(await readRunRows(organization.id)).toHaveLength(1);
+  });
+
+  it('out of order — her DM’s edit stored before the DM itself: the edit is born skipped and never runs; the DM runs once', async () => {
+    await liveAutomation({
+      trigger_type: 'dm',
+      keywords: ['catalog'],
+      is_opening_message_enabled: false,
+      opening_message: null,
+    });
+    const messageId = `m_${nextInstagramObjectId()}`;
+    // Meta delivers the edit first (its text holds the keyword too); the receive step stores an
+    // edit `skipped` · `edit` (WH18), so intake never claims it.
+    const edit = await storeEvent({
+      eventKind: 'edit',
+      eventKey: `edit:${messageId}`,
+      status: 'skipped',
+      skipReason: 'edit',
+      receivedAt: new Date(Date.now() - 1_000),
+      payload: {
+        sender: { id: SENDER },
+        timestamp: Date.now(),
+        message_edit: { mid: messageId, text: 'catalog please', num_edit: 1 },
+      },
+    });
+    const message = await storeDirectMessage('catalog', messageId);
+
+    await expect(runJob()).resolves.toMatchObject({ processedEventCount: 1, skippedEventCount: 0 });
+
+    expect(await readTestInstagramWebhookEvent(edit.id)).toMatchObject({
+      status: 'skipped',
+      skip_reason: 'edit',
+      attempt_count: 0,
+    });
+    expect((await readTestInstagramWebhookEvent(message.id))?.status).toBe('processed');
+    expect(await readRunRows(organization.id)).toHaveLength(1);
+    expect(port.steps()).toEqual(['messages#1']);
+    // A second job finds nothing left to claim: still one run.
+    await expect(runJob()).resolves.toMatchObject({ processedEventCount: 0 });
+    expect(await readRunRows(organization.id)).toHaveLength(1);
+  });
+
+  it('out of order — her older comment taken in after her newer one on the same post: one run, the older one `ignored` · `once_per_post`, her last comment time never moves back', async () => {
+    const automation = await liveAutomation({ keywords: ['link'] });
+    const postId = nextInstagramObjectId();
+    const newerAt = new Date(Date.now() - 60_000);
+    const olderAt = new Date(Date.now() - 5 * 60_000);
+    const newer = await storeComment({ text: 'link now', postId });
+    await setOccurredAt(newer.id, newerAt);
+    await runJob('comments');
+    const older = await storeComment({ text: 'link before', postId });
+    await setOccurredAt(older.id, olderAt);
+
+    await expect(runJob('comments')).resolves.toMatchObject({
+      processedEventCount: 1,
+      failedEventCount: 0,
+    });
+
+    expect((await readTestInstagramWebhookEvent(older.id))?.status).toBe('processed');
+    const runs = await readRunRows(organization.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      automation_id: automation.id,
+      trigger_occurred_at: newerAt,
+      status: 'running',
+    });
+    expect(
+      (await readCommentLogRows(organization.id)).map((log) => [
+        log.comment_text,
+        log.overall_status,
+        log.ignored_reason,
+      ]),
+    ).toEqual([
+      ['link now', 'started', null],
+      ['link before', 'ignored', 'once_per_post'],
+    ]);
+    expect(port.steps()).toEqual(['hello']);
+    const [activity] = await operatorQuery<Array<{ last_comment_at: Date }>>`
+      SELECT last_comment_at FROM app.contact_activities WHERE organization_id = ${organization.id}`;
+    expect(activity?.last_comment_at).toEqual(newerAt);
+  });
+
   it('her DM and her comment taken in by two jobs at once never deadlock and lose nothing (WH26, AC-16.8)', async () => {
     await liveAutomation({ keywords: ['link'] });
     await liveAutomation({

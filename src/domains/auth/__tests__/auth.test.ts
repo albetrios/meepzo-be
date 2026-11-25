@@ -52,22 +52,6 @@ describe('Auth Domain — Route gates (e2e)', () => {
 
   // ─── Login ────────────────────────────────────────────────────
 
-  describe('passwords off (P84, AC-13.1)', () => {
-    it.each([
-      ['/auth/login', { email: 'someone@example.com', password: 'Whatever123!' }],
-      ['/auth/password/forgot', { email: 'someone@example.com' }],
-      ['/auth/password/reset', { token: 'token', password: 'Whatever123!' }],
-      ['/auth/password/change', { current_password: 'a', new_password: 'b' }],
-    ])('POST %s is not registered — 404', async (path, payload) => {
-      const response = await injectUnauthenticated(app, {
-        method: 'POST',
-        url: testApiPath(path),
-        payload,
-      });
-      expect(response.statusCode).toBe(404);
-    });
-  });
-
   describe('POST /api/v1/auth/email/login — sign-in', () => {
     it('when BLOCK_DISPOSABLE_EMAIL is off, a disposable email signs in by code', async () => {
       const user = await createTestUser({

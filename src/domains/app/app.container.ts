@@ -1060,7 +1060,10 @@ function createInstagramAccountTaskWork({
   channelAccountService,
   automationService,
 }: {
-  sending: { instagramSendWork: InstagramSendWork };
+  sending: {
+    instagramSendWork: InstagramSendWork;
+    instagramSendLaneService: InstagramSendLaneService;
+  };
   channelAccountService: ChannelAccountService;
   automationService: AutomationService;
 }): { instagramSendWork: InstagramSendWork; instagramAccountTaskSlots: InstagramAccountTaskSlots } {
@@ -1080,6 +1083,8 @@ function createInstagramAccountTaskWork({
         // The extension's one writer (2.A.10) — stateless, so the jobs hold their own instance.
         extensionService: new InstagramAccountExtensionService(new InstagramAccountRepository()),
         starterQuestionSource: automationService,
+        // The set-up probe's `access_off` stop (SN5, P354).
+        sendLaneService: sending.instagramSendLaneService,
         readMissedCommentPort: () => instagramAccountTaskSlots.missedCommentPort,
         readNoticeServices: () => instagramAccountTaskSlots.noticeServices,
       }),

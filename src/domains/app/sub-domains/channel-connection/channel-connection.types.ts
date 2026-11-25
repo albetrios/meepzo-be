@@ -216,14 +216,15 @@ export interface ChannelConnectionAccountPort {
   ): Promise<ChannelConnectionAccount[]>;
   /**
    * CA4: one account `connected → error` alone (the token check found it missing from the
-   * connection's assigned list — `account_not_shared`), its lanes stopped and, for the winner, one
+   * connection's assigned list — `account_not_shared`; Meta refused that account's read with a
+   * permission code — `wrong_permission`, P354), its lanes stopped and, for the winner, one
    * reconnect notice after the commit (WC-46). `false` when it was not `connected` any more.
    */
   markAccountBroken(
     options: ChannelConnectionAccountScope & {
       channelAccountId: number;
       requestId?: string | undefined;
-      stopReason?: 'login_expired' | 'account_not_shared' | undefined;
+      stopReason?: 'login_expired' | 'account_not_shared' | 'wrong_permission' | undefined;
     },
   ): Promise<boolean>;
   /**

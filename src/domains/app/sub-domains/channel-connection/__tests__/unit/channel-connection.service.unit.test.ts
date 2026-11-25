@@ -206,6 +206,7 @@ beforeEach(() => {
   unitOfWork.openCount = 0;
   unitOfWork.openCountAtMetaCalls = [];
   readMetaAppSettings.mockReset();
+  readMetaAppSettings.mockReturnValue({ configId: 'config-at-start' });
   mintChannelConnectState.mockClear();
 });
 
@@ -214,7 +215,7 @@ afterEach(() => {
 });
 
 describe('ChannelConnectionService.startLogin (route 1)', () => {
-  it('mints a one-use state for this organization and user and answers the login address', async () => {
+  it('mints a one-use state for this organization, user and login configuration (P356) and answers the login address', async () => {
     const { service } = setup();
 
     const output = await service.startLogin({
@@ -230,6 +231,7 @@ describe('ChannelConnectionService.startLogin (route 1)', () => {
           organization_public_id: ORGANIZATION_PUBLIC_ID,
           user_public_id: USER_PUBLIC_ID,
           channel_connection_public_id: null,
+          config_id: 'config-at-start',
         },
       }),
     );

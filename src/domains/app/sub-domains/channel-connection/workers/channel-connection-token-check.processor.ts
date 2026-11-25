@@ -10,11 +10,13 @@ import {
   type MetaGraphUsageRecorder,
   listMetaAssignedInstagramAccounts,
   readInstagramAccountProfile,
+  readMetaGrantedPermissions,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import {
   MetaGraphApiError,
   describeMetaGraphError,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import { isMetaTokenRefused } from '@/domains/app/sub-domains/channel-connection/channel-connection-error.util.js';
 import {
   type ChannelConnectionKey,
   createRetentionChannelConnectionRepository,
@@ -31,46 +33,53 @@ import {
   type ChannelConnectionTokenCheckJobData,
   enqueueChannelConnectionTokenChecks,
 } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
+import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import {
   CHANNEL_CONNECTION_TOKEN_CHECK_INTERVAL_MS,
   CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_MAX_PAGES,
   CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_PAGE_SIZE,
+  CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS,
 } from './channel-connection-token-check.constants.js';
 
 /**
  * What a failed Meta call of the token check means (MC10, MC11): `break` — Meta refused the token
- * (code 190 or another "token not valid" answer), every account of the connection leaves
- * `connected`; `defer` — Meta is down or busy, its circuit is open, or the call failed on the way,
- * nothing changes and a later sweep tries again; `refused` — Meta refused only this request.
+ * itself (code 190), every account of the connection leaves `connected`; `permission` — Meta
+ * refused a permission (code 10 or 200–299: the account is not Business or Creator any more, or a
+ * permission was not granted — P354), only what that call read is touched; `defer` — Meta is down
+ * or busy, its circuit is open, or the call failed on the way, nothing changes and a later sweep
+ * tries again; `refused` — Meta refused only this request.
  *
  * @remarks
  * - **Algorithm:** filled by {@link classifyChannelConnectionTokenCheckFailure}.
  * - **Failure modes:** none — a value.
  * - **Side effects:** none.
  * - **Notes:** a code-10 "outside the messaging window" answer is `refused` in the client (D32),
- *   so it never breaks a connection here.
+ *   so it never breaks anything here.
  */
-export type ChannelConnectionTokenCheckFailureAction = 'break' | 'defer' | 'refused';
+export type ChannelConnectionTokenCheckFailureAction = 'break' | 'permission' | 'defer' | 'refused';
 
 /**
- * Classes one failed Meta call of the token check (MC10): an `auth` answer breaks the connection,
- * a `refused` answer is kept as this check's error, anything else defers the check.
+ * Classes one failed Meta call of the token check (MC10): Meta's code 190 breaks the connection,
+ * any other `auth` answer is a permission refusal, a `refused` answer is kept as this check's
+ * error, anything else defers the check.
  *
  * @remarks
- * - **Algorithm:** an `MetaGraphApiError` of class `auth` → `break`; `refused` → `refused`;
- *   `throttled`, `outage` (an open `metaGraphCircuit`, a timeout, a 5xx) or a failure that is not
- *   Meta's answer → `defer`.
+ * - **Algorithm:** code 190 (`isMetaTokenRefused`, the routes' own test) → `break`; any other
+ *   `MetaGraphApiError` of class `auth` (codes 10, 200–299) → `permission` (P354); `refused` →
+ *   `refused`; `throttled`, `outage` (an open `metaGraphCircuit`, a timeout, a 5xx) or a failure
+ *   that is not Meta's answer → `defer`.
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
  * - **Notes:** exported for the unit test and for the Instagram account jobs (set-up, subscription
- *   check, starter-question sync — ROUTE row R40), whose token refusal breaks the account the same
- *   way; the launch daily check's own classifier went with it at the R40 × R51 merge.
+ *   check, starter-question sync — ROUTE row R40), which break the account alone on `break` and
+ *   `permission`; the launch daily check's own classifier went with it at the R40 × R51 merge.
  */
 export function classifyChannelConnectionTokenCheckFailure(
   error: unknown,
 ): ChannelConnectionTokenCheckFailureAction {
   if (!(error instanceof MetaGraphApiError)) return 'defer';
-  if (error.errorClass === 'auth') return 'break';
+  if (isMetaTokenRefused(error)) return 'break';
+  if (error.errorClass === 'auth') return 'permission';
   if (error.errorClass === 'refused') return 'refused';
   return 'defer';
 }
@@ -111,8 +120,12 @@ export interface ChannelConnectionTokenCheckServices {
  *   `deferred` — Meta was down or busy, nothing changed; `broken` — Meta refused the token at
  *   `step` and the connection was broken (`isWinner` false when another caller broke it first);
  *   `refused` — Meta refused the account-list read, its codes kept as `last_check_error`;
- *   `checked` — the counts of accounts refreshed and found missing. `reencrypted` tells whether
- *   the token moved off an old key version (S26).
+ *   `permission_missing` — Meta refused the account-list read for a permission (P354): its codes
+ *   kept, the granted permissions re-read into `scopes` (`scopesRefreshed`);
+ *   `checked` — the counts of accounts refreshed, found missing and refused for a permission
+ *   (`permissionRefusedCount`), whether the list was read in full (`isListComplete`, P353) and
+ *   whether the token ends soon (`isExpiringSoon`, P355). `reencrypted` tells whether the token
+ *   moved off an old key version (S26).
  * - **Failure modes:** none — a return shape (Bull Board shows it as the job's return value).
  * - **Side effects:** none.
  * - **Notes:** logged as `app.channel_connection.token_check.completed`.
@@ -127,10 +140,14 @@ export type ChannelConnectionTokenCheckResult =
       reencrypted: boolean;
     }
   | { outcome: 'refused'; reencrypted: boolean }
+  | { outcome: 'permission_missing'; scopesRefreshed: boolean; reencrypted: boolean }
   | {
       outcome: 'checked';
       refreshedCount: number;
       missingCount: number;
+      permissionRefusedCount: number;
+      isListComplete: boolean;
+      isExpiringSoon: boolean;
       reencrypted: boolean;
     };
 
@@ -139,6 +156,8 @@ interface TokenCheckTarget {
   organizationPublicId: string;
   connection: ChannelConnectionKey & { publicId: string };
   encryptedAccessToken: string;
+  /** The token's end (`channel_connection_tokens.expires_at`), `null` when it never ends. */
+  tokenExpiresAt: Date | null;
   accounts: ChannelConnectionAccount[];
   reencrypted: boolean;
   services: ChannelConnectionTokenCheckServices;
@@ -199,6 +218,7 @@ async function readTarget({
         organizationPublicId,
         connection: { ...key, publicId: connection.public_id },
         encryptedAccessToken,
+        tokenExpiresAt: token.expiresAt,
         accounts,
         reencrypted,
       };
@@ -238,13 +258,18 @@ async function breakConnection({
   return { outcome: 'broken', step, isWinner, reencrypted: target.reencrypted };
 }
 
-/** The check's stamp: `last_checked_at` now, `last_check_error` cleared or Meta's codes. */
+/**
+ * The check's stamp: `last_checked_at` now, `last_check_error` cleared, Meta's codes or the
+ * expiry flag; `scopes` replaced when given (P354).
+ */
 async function recordCheck({
   target,
   lastCheckError,
+  scopes,
 }: {
   target: TokenCheckTarget;
   lastCheckError: string | null;
+  scopes?: readonly string[] | undefined;
 }): Promise<void> {
   await runOrganizationScopedWorkerJob({
     job: { organizationPublicId: target.organizationPublicId },
@@ -253,8 +278,72 @@ async function recordCheck({
         organizationId: target.connection.organizationId,
         channelConnectionId: target.connection.channelConnectionId,
         lastCheckError,
+        scopes,
       }),
   });
+}
+
+/**
+ * MC10 / P354: Meta refused the account-list read for a permission (code 10, 200–299) — the token
+ * still works, so nothing breaks. The granted permissions are re-read (best effort) into the
+ * connection's `scopes`, so the feature check (P50) answers `permission_not_granted` — reconnect to
+ * allow it — and Meta's codes are kept as `last_check_error`.
+ */
+async function recordPermissionMissing({
+  target,
+  error,
+}: {
+  target: TokenCheckTarget;
+  error: unknown;
+}): Promise<ChannelConnectionTokenCheckResult> {
+  let scopes: string[] | undefined;
+  try {
+    const granted = await readMetaGrantedPermissions({
+      encryptedAccessToken: target.encryptedAccessToken,
+      requestId: target.requestId,
+      recordUsage: target.recordUsage,
+    });
+    scopes = [...new Set(granted)].slice(0, 20);
+  } catch (permissionError) {
+    logger.warn(
+      {
+        organizationPublicId: target.organizationPublicId,
+        channelConnectionPublicId: target.connection.publicId,
+        failure: describeMetaGraphError(permissionError),
+      },
+      'app.channel_connection.token_check.permissions_unread',
+    );
+  }
+  await recordCheck({ target, lastCheckError: describeMetaGraphError(error), scopes });
+  logger.warn(
+    {
+      organizationPublicId: target.organizationPublicId,
+      channelConnectionPublicId: target.connection.publicId,
+      failure: describeMetaGraphError(error),
+      scopesRefreshed: scopes !== undefined,
+    },
+    'app.channel_connection.token_check.permission_missing',
+  );
+  return {
+    outcome: 'permission_missing',
+    scopesRefreshed: scopes !== undefined,
+    reencrypted: target.reencrypted,
+  };
+}
+
+/**
+ * P355: the `last_check_error` of a passing check — `null`, or `token_expires_soon (expires_at …)`
+ * when the token ends within {@link CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS} days (a
+ * configuration whose token ends — Meta refuses it with code 190 once it has).
+ */
+function readExpiryFlag({ target, now }: { target: TokenCheckTarget; now: Date }): string | null {
+  if (target.tokenExpiresAt === null) return null;
+  const warnFrom =
+    target.tokenExpiresAt.getTime() -
+    CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS * MILLISECONDS_PER_DAY;
+  return now.getTime() >= warnFrom
+    ? `token_expires_soon (expires_at ${target.tokenExpiresAt.toISOString()})`
+    : null;
 }
 
 /** The profile read of one present account, or the failure's action. */
@@ -282,22 +371,35 @@ async function readProfile({
 /** One account of {@link checkAccounts}: what its step did, or the check's end (a break, a defer). */
 type AccountCheckOutcome =
   | 'missing'
+  | 'permission_refused'
   | 'refreshed'
   | 'unchanged'
   | ChannelConnectionTokenCheckResult;
 
-/** MC10 for one connected Instagram account: missing → it breaks alone; present → its profile. */
+/** What the token check knows of the assigned list (P353). */
+interface AssignedList {
+  ids: ReadonlySet<string>;
+  /** `false` when the read stopped at the page cap — an account missing from it is not marked. */
+  isComplete: boolean;
+}
+
+/**
+ * MC10 for one connected Instagram account: missing from a list read in full → it breaks alone
+ * (`account_not_shared`); present → its profile, a permission refusal of which breaks it alone
+ * (`wrong_permission`, P354); missing from a capped list → left alone (P353).
+ */
 async function checkOneAccount({
   target,
   account,
-  assignedIds,
+  assigned,
 }: {
   target: TokenCheckTarget;
   account: TokenCheckTarget['accounts'][number];
-  assignedIds: ReadonlySet<string>;
+  assigned: AssignedList;
 }): Promise<AccountCheckOutcome> {
   const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId: target.organizationPublicId });
-  if (!assignedIds.has(account.providerAccountId)) {
+  if (!assigned.ids.has(account.providerAccountId)) {
+    if (!assigned.isComplete) return 'unchanged';
     // §25.9: the business no longer shares this account — it breaks alone (CA4).
     const isBroken = await target.services.accountPort.markAccountBroken({
       scope,
@@ -315,6 +417,26 @@ async function checkOneAccount({
     }
     if (profile.failure === 'defer') {
       return { outcome: 'deferred', step: 'profile', reencrypted: target.reencrypted };
+    }
+    if (profile.failure === 'permission') {
+      // P354: Meta refused this account alone (code 10 — not Business or Creator any more, or a
+      // permission not granted): it breaks alone, its reconnect notice and its lanes stopped.
+      logger.warn(
+        {
+          organizationPublicId: target.organizationPublicId,
+          channelAccountPublicId: account.publicId,
+          failure: describeMetaGraphError(profile.error),
+        },
+        'app.channel_connection.token_check.profile_permission_refused',
+      );
+      const isBroken = await target.services.accountPort.markAccountBroken({
+        scope,
+        organizationId: target.connection.organizationId,
+        channelAccountId: account.internalId,
+        requestId: target.requestId,
+        stopReason: 'wrong_permission',
+      });
+      return isBroken ? 'permission_refused' : 'unchanged';
     }
     logger.warn(
       {
@@ -338,21 +460,26 @@ async function checkOneAccount({
 /** MC10 for the accounts: a missing one breaks alone; a present one gets its profile refreshed. */
 async function checkAccounts({
   target,
-  assignedIds,
+  assigned,
 }: {
   target: TokenCheckTarget;
-  assignedIds: ReadonlySet<string>;
-}): Promise<ChannelConnectionTokenCheckResult | { refreshedCount: number; missingCount: number }> {
+  assigned: AssignedList;
+}): Promise<
+  | ChannelConnectionTokenCheckResult
+  | { refreshedCount: number; missingCount: number; permissionRefusedCount: number }
+> {
   let refreshedCount = 0;
   let missingCount = 0;
+  let permissionRefusedCount = 0;
   for (const account of target.accounts) {
     if (account.connectionStatus !== 'connected' || account.channel !== 'instagram') continue;
-    const outcome = await checkOneAccount({ target, account, assignedIds });
+    const outcome = await checkOneAccount({ target, account, assigned });
     if (outcome === 'missing') missingCount += 1;
+    else if (outcome === 'permission_refused') permissionRefusedCount += 1;
     else if (outcome === 'refreshed') refreshedCount += 1;
     else if (outcome !== 'unchanged') return outcome;
   }
-  return { refreshedCount, missingCount };
+  return { refreshedCount, missingCount, permissionRefusedCount };
 }
 
 /**
@@ -365,18 +492,23 @@ async function checkAccounts({
  *   (`runOrganizationScopedWorkerJob`, K8) and every Meta call outside any database context.
  *   (1) Read the connection by its public id — not `connected` → skipped — its token (none →
  *   skipped, logged) and its not-revoked accounts; a token on an old key version is re-encrypted
- *   onto the current one in the same unit (S26). (2) `GET /me/assigned_instagram_accounts`.
- *   (3) Each `connected` Instagram account: missing from the list → that account `error` alone
- *   (`account_not_shared` stop, its reconnect notice — CA4); present → `GET /{instagram_user_id}`
- *   and the profile written with the channel account's `display_name` (P17). (4) `last_checked_at`
- *   now, `last_check_error` cleared.
- * - **Failure modes:** Meta refusing the token at any call (`auth`) →
+ *   onto the current one in the same unit (S26). (2) `GET /me/assigned_instagram_accounts`, every
+ *   page (P353). (3) Each `connected` Instagram account: missing from a list read in full → that
+ *   account `error` alone (`account_not_shared` stop, its reconnect notice — CA4; never from a list
+ *   the page cap cut); present → `GET /{instagram_user_id}` and the profile written with the
+ *   channel account's `display_name` (P17). (4) `last_checked_at` now, `last_check_error` cleared —
+ *   or `token_expires_soon (expires_at …)` when a dated token ends within
+ *   {@link CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS} days (P355).
+ * - **Failure modes:** Meta refusing the token itself (code 190) at any call →
  *   `ChannelConnectionService.markConnectionBroken` (the connection and every connected account
- *   `error`, their lanes stopped, one reconnect notice per account — MC11, WC-46); Meta down, busy
- *   or its circuit open → `deferred`, nothing changes and the next hourly sweep adds the connection
- *   again (F3: the worker is never paused); Meta refusing the account list (`refused`) → stamped
- *   with its codes; a refused profile read is logged and skipped. Our own failures (the database, a
- *   token that does not decrypt) are rethrown and take the queue's attempts.
+ *   `error`, their lanes stopped, one reconnect notice per account — MC11, WC-46); another `auth`
+ *   answer (codes 10, 200–299 — P354) on the list → nothing breaks, the granted permissions re-read
+ *   into `scopes` and the codes stamped (`permission_missing`), on a profile → that account `error`
+ *   alone (`wrong_permission` stop, its reconnect notice); Meta down, busy or its circuit open →
+ *   `deferred`, nothing changes and the next hourly sweep adds the connection again (F3: the worker
+ *   is never paused); Meta refusing the account list (`refused`) → stamped with its codes; a refused
+ *   profile read is logged and skipped. Our own failures (the database, a token that does not
+ *   decrypt) are rethrown and take the queue's attempts.
  * - **Side effects:** Meta calls (their usage recorded per connection, MC19); writes the
  *   connection's check columns, the token's ciphertext (S26), profiles and display names; a break
  *   enqueues reconnect notices after its commit.
@@ -421,17 +553,27 @@ export async function processChannelConnectionTokenCheckJob({
     }),
   };
 
-  let assignedIds: Set<string>;
+  let assigned: AssignedList;
   try {
-    const assigned = await listMetaAssignedInstagramAccounts({
+    const list = await listMetaAssignedInstagramAccounts({
       encryptedAccessToken: target.encryptedAccessToken,
       requestId,
       recordUsage: target.recordUsage,
     });
-    assignedIds = new Set(assigned.map((account) => account.instagramUserId));
+    assigned = {
+      ids: new Set(list.accounts.map((account) => account.instagramUserId)),
+      isComplete: list.isComplete,
+    };
+    if (!list.isComplete) {
+      logger.warn(
+        { organizationPublicId, channelConnectionPublicId, listedCount: list.accounts.length },
+        'app.channel_connection.token_check.assigned_list_capped',
+      );
+    }
   } catch (error) {
     const failure = classifyChannelConnectionTokenCheckFailure(error);
     if (failure === 'break') return breakConnection({ target, error, step: 'assigned_accounts' });
+    if (failure === 'permission') return recordPermissionMissing({ target, error });
     if (failure === 'defer') {
       logger.warn(
         { organizationPublicId, channelConnectionPublicId, failure: describeMetaGraphError(error) },
@@ -443,12 +585,21 @@ export async function processChannelConnectionTokenCheckJob({
     return { outcome: 'refused', reencrypted: target.reencrypted };
   }
 
-  const accounts = await checkAccounts({ target, assignedIds });
+  const accounts = await checkAccounts({ target, assigned });
   if ('outcome' in accounts) return accounts;
-  await recordCheck({ target, lastCheckError: null });
+  const expiryFlag = readExpiryFlag({ target, now: new Date() });
+  await recordCheck({ target, lastCheckError: expiryFlag });
+  if (expiryFlag !== null) {
+    logger.warn(
+      { organizationPublicId, channelConnectionPublicId, expiresAt: target.tokenExpiresAt },
+      'app.channel_connection.token_check.token_expires_soon',
+    );
+  }
   const result: ChannelConnectionTokenCheckResult = {
     outcome: 'checked',
     ...accounts,
+    isListComplete: assigned.isComplete,
+    isExpiringSoon: expiryFlag !== null,
     reencrypted: target.reencrypted,
   };
   logger.info(

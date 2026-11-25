@@ -157,7 +157,7 @@ export interface InstagramSendBreakPort {
     organizationId: number;
     channelAccountId: number;
     requestId?: string | undefined;
-    stopReason?: 'login_expired' | 'account_not_shared' | undefined;
+    stopReason?: 'login_expired' | 'account_not_shared' | 'wrong_permission' | undefined;
   }): Promise<boolean>;
 }
 

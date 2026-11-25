@@ -65,6 +65,24 @@ describe('exchangeMetaLoginCode (MC5 step 2)', () => {
     expect(decryptFieldSecret(token.encryptedAccessToken)).toBe('system-user-token');
   });
 
+  it("keeps the token's end from Meta's expires_in, and no end when Meta names none (P355)", async () => {
+    nock(META_GRAPH_BASE_URL)
+      .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
+      .query(true)
+      .reply(200, { access_token: 'dated-token', token_type: 'bearer', expires_in: 5_184_000 })
+      .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
+      .query(true)
+      .reply(200, { access_token: 'lasting-token', token_type: 'bearer', expires_in: 0 });
+
+    const before = Date.now();
+    const dated = await exchangeMetaLoginCode({ code: 'dated-code' });
+    expect(dated.expiresAt?.getTime()).toBeGreaterThanOrEqual(before + 5_184_000_000);
+    expect(dated.expiresAt?.getTime()).toBeLessThanOrEqual(Date.now() + 5_184_000_000);
+    await expect(exchangeMetaLoginCode({ code: 'lasting-code' })).resolves.toMatchObject({
+      expiresAt: null,
+    });
+  });
+
   it('a refused code is a refusal; an answer without a token is an outage', async () => {
     nock(META_GRAPH_BASE_URL)
       .get(`/${META_GRAPH_VERSION}/oauth/access_token`)

@@ -89,11 +89,14 @@ export function mockMetaLogin({
   assignedAccounts,
   grantedPermissions = [...META_REQUIRED_PERMISSIONS],
   exchange = 'success',
+  expiresInSeconds,
 }: {
   clientBusinessId: string;
   assignedAccounts: readonly TestAssignedAccount[];
   grantedPermissions?: readonly string[];
   exchange?: 'success' | 'refused' | 'outage';
+  /** The exchange's `expires_in` — absent for a configuration whose token never ends (P355). */
+  expiresInSeconds?: number;
 }): nock.Scope {
   const graph = nock(META_GRAPH_BASE_URL)
     .get(`/${META_GRAPH_VERSION}/oauth/access_token`)
@@ -107,7 +110,11 @@ export function mockMetaLogin({
     return graph.reply(500, { error: { message: 'An unexpected error has occurred.', code: 2 } });
   }
   return graph
-    .reply(200, { access_token: TEST_META_SYSTEM_USER_TOKEN, token_type: 'bearer' })
+    .reply(200, {
+      access_token: TEST_META_SYSTEM_USER_TOKEN,
+      token_type: 'bearer',
+      ...(expiresInSeconds === undefined ? {} : { expires_in: expiresInSeconds }),
+    })
     .get(`/${META_GRAPH_VERSION}/me`)
     .query(true)
     .reply(200, { client_business_id: clientBusinessId, id: '10001' })
@@ -291,6 +298,15 @@ export async function readChannelConnectionRows(organizationId: number) {
     .from(channel_connections)
     .where(eq(channel_connections.organization_id, organizationId))
     .orderBy(channel_connections.id);
+}
+
+/** The token rows' ends (`expires_at`) of the organization's connections — operator (P355). */
+export async function readChannelConnectionTokenExpiries(organizationId: number) {
+  const rows = await getOperatorDatabase()
+    .select({ expiresAt: channel_connection_tokens.expires_at })
+    .from(channel_connection_tokens)
+    .where(eq(channel_connection_tokens.organization_id, organizationId));
+  return rows.map((row) => row.expiresAt);
 }
 
 /** The token ciphertexts of one connection (or every connection of the organization) — operator. */

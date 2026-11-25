@@ -15,10 +15,14 @@ business) and the token path; ROUTE row R4 the ad picker (routes 41 and 15) and 
 (MC11); ROUTE row R9 moved Meta's two callbacks here (routes 16–17, P46) with the account-then-business match (P56).
 ROUTE row R51 added the connection's daily token check (MC10, WC-34): `queues/channel-connection-token-check.*`
 and `workers/channel-connection-token-check.*` — an hourly sweep hands one check per connection due 24 hours after its
-last check to the `channel-connection-token-check` queue; the check reads `/me/assigned_instagram_accounts`, breaks the
-connection on a refused token (MC11), breaks an account missing from the list alone (`account_not_shared`), refreshes
+last check to the `channel-connection-token-check` queue; the check reads `/me/assigned_instagram_accounts` (every
+page, at most 10 — P353), breaks the connection on Meta's code 190 only (MC11), breaks an account missing from a list
+read in full alone (`account_not_shared`), breaks an account whose profile Meta refuses with a permission code alone
+(`wrong_permission` — code 10: not Business or Creator any more, P354), re-reads the granted permissions into `scopes`
+when the list itself is refused for a permission (the feature check then answers `permission_not_granted`), refreshes
 each connected account's profile and `display_name` (P17), re-encrypts a token still on an old key (S26) and stamps
-`last_checked_at`; Meta down defers the check to a later sweep (never a paused queue, F3).
+`last_checked_at` — `last_check_error` `token_expires_soon (expires_at …)` for a dated token within 7 days of its end
+(P355); Meta down defers the check to a later sweep (never a paused queue, F3).
 
 ## Routes (under `/api/v1/app`)
 
@@ -117,6 +121,10 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
   `connected → error` on the connection (`last_check_error`, Meta's codes only) and, in the same commit, every
   `connected` account of it → `error` through the account port, one reconnect notice each. Routes 15 and 41 call it
   today; the daily token check (R51) and the senders (R20) call the same. Only code 190 breaks: a permission code on
-  an ad read means the ad access is missing.
+  an ad read means the ad access is missing, and on the token check it touches only what that call read (P354).
+- **The login keeps its configuration and its token's end** (P355, P356): routes 1 and 40 put `META_CONFIG_ID` into
+  the one-use state and the callback stores that `config_id`, never a setting changed meanwhile; the exchange's
+  `expires_in` becomes `channel_connection_tokens.expires_at` (empty when Meta names none — whether the token ends
+  depends on the login configuration).
 - **A reconnect moves accounts** (MC6): every not-revoked account of the organization the business still assigns is
   attached to the connection and goes `connected`; a connection a move left without accounts is revoked with its token.

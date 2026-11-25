@@ -157,3 +157,10 @@ tests). The merged `trial.e2e.test.ts` is re-run before the Close.
   Main's harness pool is the operator login, which has no `CREATE` on the database (lane E ran with the
   Compose superuser). Fixed: the test's clock schema DDL now runs as the migration login (the schema
   owner), with `USAGE`/`EXECUTE` granted to `PUBLIC`. Re-run on main: 4/4. `trial.e2e`: passed.
+
+## Main ← lane C 00b362a (Unified Login gap fixes, P353–P357) — 2026-11-25
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `plans/decisions.md` (tail) | ours P147–P149 (renumbered owner rename and UTC rows); theirs P353–P357 plus the pre-renumber copies P144–P146 | ours, then P353–P357; the stale P144–P146 copies dropped (they duplicate P147–P149) | none: no duplicate row numbers left |
+Tests after the merge on main: channel-connection (unit + integration), instagram-account unit, meta-graph contract — 31 files, 463 passed.

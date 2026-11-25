@@ -57,6 +57,8 @@ import { buildInstagramReconnectNoticeActionUrl } from './instagram-reconnect-no
 import type { InstagramReconnectNoticeServices } from './instagram-reconnect-notice.processor.js';
 import { classifyChannelConnectionTokenCheckFailure } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.processor.js';
 import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import { stopDurationOf } from '@/domains/app/sub-domains/instagram-sending/instagram-send-error.util.js';
+import type { InstagramSendLaneService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.service.js';
 
 /** The notification type of the set-up failure email (the `automation_problem` kind, UN8). */
 const INSTAGRAM_ACCOUNT_SETUP_FAILED_NOTIFICATION_TYPE = 'instagram.reconnect_required';
@@ -113,6 +115,11 @@ export interface InstagramAccountTaskServices {
     'recordWebhookSubscribed' | 'recordWebhookSubscriptionLost' | 'recordStarterQuestionsSet'
   >;
   starterQuestionSource: InstagramStarterQuestionSource;
+  /**
+   * The lanes' error stop (SN5) — the set-up probe's `access_off` stop when "Allow access to
+   * messages" is off (P354); absent in a test that leaves it out, and the probe then only logs.
+   */
+  sendLaneService?: Pick<InstagramSendLaneService, 'startLaneStop'> | undefined;
   readMissedCommentPort(): InstagramMissedCommentPort | null;
   readNoticeServices(): InstagramReconnectNoticeServices | null;
 }
@@ -238,19 +245,35 @@ async function readAccountTaskTarget({
 }
 
 /**
+ * The lanes' stop a failed Meta call of an account job breaks the account with: `login_expired`
+ * for Meta's code 190, `wrong_permission` for another permission refusal (codes 10, 200–299 — the
+ * account is not Business or Creator any more, or a permission was not granted, P354), `null` when
+ * the account does not break.
+ */
+function readAccountBreakReason(error: unknown): 'login_expired' | 'wrong_permission' | null {
+  const action = classifyChannelConnectionTokenCheckFailure(error);
+  if (action === 'break') return 'login_expired';
+  if (action === 'permission') return 'wrong_permission';
+  return null;
+}
+
+/**
  * Moves the account to `error` through the channel account's guarded break — its reconnect notice
- * after commit and its lanes stopped (`login_expired`), the path intake takes too (R38).
+ * after commit and its lanes stopped (`login_expired`, or `wrong_permission` — P354), the path
+ * intake takes too (R38).
  */
 async function breakAccount({
   target,
   error,
   services,
   context,
+  stopReason = 'login_expired',
 }: {
   target: AccountTaskTarget;
   error: unknown;
   services: InstagramAccountTaskServices;
   context: InstagramSendTicketContext;
+  stopReason?: 'login_expired' | 'wrong_permission' | undefined;
 }): Promise<{ outcome: 'broken' }> {
   logger.warn(
     {
@@ -266,9 +289,40 @@ async function breakAccount({
       organizationId: target.account.organization_id,
       channelAccountId: target.account.channel_account_id,
       requestId: target.requestId,
+      stopReason,
     }),
   );
   return { outcome: 'broken' };
+}
+
+/**
+ * P354: the set-up probe found "Allow access to messages" off — the account's `access_off` stop on
+ * every lane (SN5: tested again after `accessTestMinutes`, as a send's own `access_off` answer), so
+ * the owner is told at once (`message_access_off`, WC-57) instead of at the first send.
+ */
+async function startMessageAccessOffStop({
+  target,
+  services,
+  context,
+}: {
+  target: AccountTaskTarget;
+  services: InstagramAccountTaskServices;
+  context: InstagramSendTicketContext;
+}): Promise<void> {
+  const laneService = services.sendLaneService;
+  if (laneService === undefined) return;
+  const durationMilliseconds =
+    stopDurationOf({ reason: 'access_off', stopCount: 0, lane: 'slow' }) ?? 0;
+  await context.runInDatabaseSlot(() =>
+    laneService.startLaneStop({
+      scope: target.scope,
+      organizationId: target.account.organization_id,
+      channelAccountId: target.account.channel_account_id,
+      lanes: 'all',
+      reason: 'access_off',
+      stopUntil: new Date(Date.now() + durationMilliseconds),
+    }),
+  );
 }
 
 /**
@@ -371,8 +425,9 @@ async function handleChainFailure({
   services: InstagramAccountTaskServices;
   context: InstagramSendTicketContext;
 }): Promise<AccountTaskFailure> {
-  if (classifyChannelConnectionTokenCheckFailure(error) === 'break') {
-    return breakAccount({ target, error, services, context });
+  const breakReason = readAccountBreakReason(error);
+  if (breakReason !== null) {
+    return breakAccount({ target, error, services, context, stopReason: breakReason });
   }
   const delayMilliseconds = instagramAccountTaskRetryDelayMilliseconds(input.tryNumber);
   const nextTryNumber = input.tryNumber + 1;
@@ -449,9 +504,11 @@ async function writeStarterQuestions({
  *   connection's token. (2) `subscribed_apps` → `webhook_subscribed_at` through the extension service.
  *   (3) Live starter questions → `messenger_profile` → `starter_questions_set_at`; their failure
  *   starts the sync's own chain (a retry after 1 minute) and the set-up goes on. (4) The read-only
- *   message-access probe; `off` is logged (`app.instagram_account.setup.message_access_off`).
- * - **Failure modes:** a refused token → the guarded break (reconnect notice); any other Meta failure
- *   at step 2 → the next try on the ladder (1, 5, 15, 60 minutes, then hourly) and, after the last
+ *   message-access probe; `off` is logged (`app.instagram_account.setup.message_access_off`) and
+ *   starts the account's `access_off` stop on every lane (P354 — the owner's problem email).
+ * - **Failure modes:** a refused token (code 190) → the guarded break (reconnect notice); another
+ *   permission refusal (codes 10, 200–299) → the same break with the `wrong_permission` stop
+ *   (P354); any other Meta failure at step 2 → the next try on the ladder (1, 5, 15, 60 minutes, then hourly) and, after the last
  *   quick try, one email to the owners and admins; database errors propagate (one attempt, dead
  *   letter).
  * - **Side effects:** Meta calls; the account's stamps; at most one next-try job; the email once.
@@ -512,8 +569,9 @@ export async function processInstagramAccountSetupTask({
       );
       starterQuestions = 'set';
     } catch (error) {
-      if (classifyChannelConnectionTokenCheckFailure(error) === 'break') {
-        return breakAccount({ target, error, services, context });
+      const breakReason = readAccountBreakReason(error);
+      if (breakReason !== null) {
+        return breakAccount({ target, error, services, context, stopReason: breakReason });
       }
       await startInstagramAccountChainBestEffort({
         jobName: INSTAGRAM_STARTER_QUESTION_SYNC_JOB_NAME,
@@ -540,6 +598,7 @@ export async function processInstagramAccountSetupTask({
       { organizationPublicId, channelAccountPublicId: input.channelAccountPublicId },
       'app.instagram_account.setup.message_access_off',
     );
+    await startMessageAccessOffStop({ target, services, context });
   }
   const result: InstagramAccountSetupResult = {
     outcome: 'set_up',
@@ -648,8 +707,9 @@ export async function processInstagramWebhookSubscriptionCheckTask({
       requestId: target.requestId,
     });
   } catch (error) {
-    if (classifyChannelConnectionTokenCheckFailure(error) === 'break') {
-      return breakAccount({ target, error, services, context });
+    const breakReason = readAccountBreakReason(error);
+    if (breakReason !== null) {
+      return breakAccount({ target, error, services, context, stopReason: breakReason });
     }
     logger.warn(
       { organizationPublicId, channelAccountPublicId, failure: describeMetaGraphError(error) },

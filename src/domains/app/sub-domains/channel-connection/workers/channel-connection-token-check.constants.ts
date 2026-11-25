@@ -32,3 +32,20 @@ export const CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_MAX_PAGES = 200;
  */
 export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME =
   'sweep-instagram-webhook-subscriptions';
+
+/**
+ * A token that ends within this many days is flagged by the token check for a reconnect
+ * (`last_check_error` = `token_expires_soon (expires_at …)` — P355).
+ *
+ * @remarks
+ * Rationale: whether Meta's system-user token ends depends on the login configuration (Meta's
+ * "Authentication and access tokens"); a dated token is read at the callback. A week gives the
+ * owner several daily checks to see the flag before Meta refuses the token (code 190).
+ *
+ * Consequences of change:
+ * - Decreasing → the owner is told later, closer to the break.
+ * - Increasing → the flag shows sooner and stays longer.
+ *
+ * Last reviewed: 2026-11-25.
+ */
+export const CHANNEL_CONNECTION_TOKEN_EXPIRY_WARNING_DAYS = 7;

@@ -297,30 +297,40 @@ function byteLength(text: string): number {
   return Buffer.byteLength(text, 'utf8');
 }
 
+/**
+ * Go-live check 6's target part — the scope the way to start allows, the specific post or story,
+ * and both ends of "posts between" (plan §18.5); `null` when the target is complete.
+ */
+function targetScopeProblem(fields: AutomationWritableFields): AutomationProblem | null {
+  const type = fields.trigger_type;
+  const allowedScopes = AUTOMATION_TARGET_SCOPES_BY_TRIGGER_TYPE[type] ?? ['any'];
+  if (!allowedScopes.includes(fields.target_scope)) {
+    return problem({ field: 'target_scope', reason: 'target_scope_not_allowed' });
+  }
+  if (fields.target_scope === 'specific') {
+    const isStory = type === 'story_reply';
+    const id = isStory ? fields.target_instagram_story_id : fields.target_instagram_media_id;
+    if (id !== null) return null;
+    return problem({
+      field: isStory ? 'target_instagram_story_id' : 'target_instagram_media_id',
+      reason: 'missing',
+    });
+  }
+  if (
+    fields.target_scope === 'between' &&
+    (fields.target_starts_at === null || fields.target_ends_at === null)
+  ) {
+    return problem({ field: 'target_starts_at', reason: 'missing' });
+  }
+  return null;
+}
+
 /** Go-live check 6 — the way to start's own field, and where it listens (plan §18.5). */
 function listTriggerProblems(fields: AutomationWritableFields): AutomationProblem[] {
   const problems: AutomationProblem[] = [];
   const type = fields.trigger_type;
-  const allowedScopes = AUTOMATION_TARGET_SCOPES_BY_TRIGGER_TYPE[type] ?? ['any'];
-  if (!allowedScopes.includes(fields.target_scope)) {
-    problems.push(problem({ field: 'target_scope', reason: 'target_scope_not_allowed' }));
-  } else if (fields.target_scope === 'specific') {
-    const isStory = type === 'story_reply';
-    const id = isStory ? fields.target_instagram_story_id : fields.target_instagram_media_id;
-    if (id === null) {
-      problems.push(
-        problem({
-          field: isStory ? 'target_instagram_story_id' : 'target_instagram_media_id',
-          reason: 'missing',
-        }),
-      );
-    }
-  } else if (
-    fields.target_scope === 'between' &&
-    (fields.target_starts_at === null || fields.target_ends_at === null)
-  ) {
-    problems.push(problem({ field: 'target_starts_at', reason: 'missing' }));
-  }
+  const targetProblem = targetScopeProblem(fields);
+  if (targetProblem !== null) problems.push(targetProblem);
   if (type === 'ref_link' && fields.ref_code === null) {
     problems.push(problem({ field: 'ref_code', reason: 'missing' }));
   }

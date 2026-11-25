@@ -22,6 +22,7 @@ import type { AutomationRunChannelAccount } from '@/domains/app/sub-domains/chan
 import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import type { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
 import type {
+  ContactCollectedValueResult,
   ContactErasureStepInput,
   ContactPauseStepInput,
 } from '@/domains/app/sub-domains/contact/contact.types.js';
@@ -109,6 +110,7 @@ import {
 } from './automation-run-step.util.js';
 import type {
   AutomationButtonClickInput,
+  AutomationTapKind,
   AutomationCommentRunInput,
   AutomationDirectMessageInput,
   AutomationFailedEventInput,
@@ -252,6 +254,19 @@ function cancelReasonOfSkip(reason: string | null): AutomationRunCancelReason | 
   return (AUTOMATION_RUN_CANCEL_REASONS as readonly string[]).includes(reason ?? '')
     ? (reason as AutomationRunCancelReason)
     : null;
+}
+
+/** The text an exact-source tap carries: the starter question, the ig.me ref code or the ad id. */
+function exactSourceValueOf({
+  kind,
+  input,
+}: {
+  kind: Exclude<AutomationTapKind, 'postback'>;
+  input: AutomationButtonClickInput;
+}): string | null | undefined {
+  if (kind === 'starter_question') return input.starterQuestion;
+  if (kind === 'ref_link') return input.refCode;
+  return input.adId;
 }
 
 /**
@@ -989,12 +1004,7 @@ export class AutomationRunService {
         runPublicId: input.runPublicId,
       });
     }
-    const value =
-      kind === 'starter_question'
-        ? input.starterQuestion
-        : kind === 'ref_link'
-          ? input.refCode
-          : input.adId;
+    const value = exactSourceValueOf({ kind, input });
     if (value == null || value.trim() === '') return handlingResult({ outcome: 'ignored' });
     const candidates = await unit.automations.listRunCandidates({
       organizationId: unit.organizationId,
@@ -1151,7 +1161,7 @@ export class AutomationRunService {
     automation: AutomationRow;
     isTap: boolean;
   }): Promise<void> {
-    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    const versions = run.version_numbers;
     if (isTap) {
       await unit.runEvents.insertMany([
         { ...runKeyOf({ organizationId: unit.organizationId, run }), eventType: 'hello_tapped' },
@@ -1219,15 +1229,23 @@ export class AutomationRunService {
       contactId: unit.contact.id,
       collectedAt: unit.now,
     };
-    const saved =
-      answer === null
-        ? { outcome: 'invalid' as const }
-        : part === 'email'
-          ? await this.dependencies.contactService.recordContactEmail({ ...target, email: answer })
-          : await this.dependencies.contactService.recordContactPhone({ ...target, phone: answer });
+    let saved: ContactCollectedValueResult | null;
+    if (answer === null) {
+      saved = { outcome: 'invalid' };
+    } else if (part === 'email') {
+      saved = await this.dependencies.contactService.recordContactEmail({
+        ...target,
+        email: answer,
+      });
+    } else {
+      saved = await this.dependencies.contactService.recordContactPhone({
+        ...target,
+        phone: answer,
+      });
+    }
     if (saved === null) return handlingResult({ outcome: 'ignored' });
     if (saved.outcome === 'invalid') {
-      const versions = run.version_numbers as AutomationRunVersionNumbers;
+      const versions = run.version_numbers;
       const asks = (part === 'email' ? versions.email_asks : versions.phone_asks) ?? 1;
       if (asks < AUTOMATION_RUN_ASK_MAX_COUNT) {
         await this.askQuestion({ unit, run, automation, part });
@@ -1534,7 +1552,7 @@ export class AutomationRunService {
     stage: 'hello' | 'follow' | 'email' | 'phone' | 'messages';
   }): Promise<boolean> {
     const steps = automation.steps;
-    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    const versions = run.version_numbers;
     switch (stage) {
       case 'hello':
         if (helloStepOf(steps) === null) return false;
@@ -1631,7 +1649,7 @@ export class AutomationRunService {
     part: 'email' | 'phone';
   }): Promise<void> {
     const question = automation.steps[part];
-    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    const versions = run.version_numbers;
     const wordingNumber = pickWordingNumber({
       count: question?.wordings.length ?? 1,
       lastWordingNumber: versions[part] ?? null,
@@ -1784,7 +1802,7 @@ export class AutomationRunService {
         await this.proceed({ unit, run, automation, from: 'hello' });
         return;
       case 'follow_check': {
-        const versions = run.version_numbers as AutomationRunVersionNumbers;
+        const versions = run.version_numbers;
         await this.saveBlockingMessage({
           unit,
           run,
@@ -1822,7 +1840,7 @@ export class AutomationRunService {
   }): Promise<void> {
     const tags = tagsOf(automation.steps);
     if (tags.length > 0) {
-      const versions = run.version_numbers as AutomationRunVersionNumbers;
+      const versions = run.version_numbers;
       const isTagStart = run.trigger_type === 'tag_added' || run.trigger_type === 'tag_removed';
       await this.dependencies.contactService.addContactTags({
         databaseHandle: unit.databaseHandle,
@@ -2016,7 +2034,7 @@ export class AutomationRunService {
     reason: string | null;
   }): Promise<void> {
     if (result === 'sent' && reason === 'not_following') {
-      const versions = run.version_numbers as AutomationRunVersionNumbers;
+      const versions = run.version_numbers;
       await this.saveBlockingMessage({
         unit,
         run,
@@ -2135,7 +2153,7 @@ export class AutomationRunService {
     run: AutomationRunRow;
     automation: AutomationRow;
   }): Promise<void> {
-    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    const versions = run.version_numbers;
     const logChanges: AutomationCommentLogChanges = {
       opening_dm_status: 'sent',
       opening_dm_at: unit.now,
@@ -2181,60 +2199,7 @@ export class AutomationRunService {
     const commentId = run.trigger_instagram_comment_id;
     const logChanges: AutomationCommentLogChanges = {};
     if (automation.is_public_reply_enabled && automation.public_reply_texts.length > 0) {
-      const logs = await unit.commentLogs.listForComment({
-        organizationId: unit.organizationId,
-        commentId,
-        since: lastTwoMonthsStart(unit.now),
-      });
-      const isDuplicate = logs.some(
-        (log) =>
-          log.automation_run_id !== run.id &&
-          (log.public_reply_status === 'waiting' || log.public_reply_status === 'sent'),
-      );
-      const isLikePerson =
-        automation.is_reply_like_person_enabled &&
-        isPlanSwitchOn({ switches: unit.switches, feature: 'reply_like_person' });
-      const skipReason: AutomationPublicReplySkipReason | null = isDuplicate
-        ? 'duplicate'
-        : isLikePerson &&
-            this.drawInteger(AUTOMATION_PUBLIC_REPLY_CHANCE_SCALE) >=
-              AUTOMATION_PUBLIC_REPLY_CHANCE_PERCENT
-          ? 'random'
-          : null;
-      if (skipReason !== null) {
-        Object.assign(logChanges, {
-          public_reply_status: 'skipped',
-          public_reply_skip_reason: skipReason,
-        });
-      } else {
-        const saved = await this.saveMessage({
-          unit,
-          run,
-          message: {
-            step: 'public_reply',
-            stepPath: 'public_reply_texts',
-            answersEventId: commentId,
-          },
-        });
-        if (saved.status === 'waiting') {
-          await this.dependencies.replyStateService.addWaitingReply({
-            scope: unit.scope,
-            key: { organizationId: unit.organizationId, automationId: automation.id },
-            channelAccountId: unit.channelAccountId,
-          });
-          Object.assign(logChanges, { public_reply_status: 'waiting' });
-        } else {
-          Object.assign(
-            logChanges,
-            this.replyLogChanges({
-              step: 'public_reply',
-              result: 'skipped',
-              reason: saved.reason,
-              at: unit.now,
-            }),
-          );
-        }
-      }
+      Object.assign(logChanges, await this.makePublicReply({ unit, run, automation, commentId }));
     }
     if (automation.is_hide_comment_after_direct_message_enabled) {
       const saved = await this.saveMessage({
@@ -2255,6 +2220,91 @@ export class AutomationRunService {
       );
     }
     await this.updateCommentLog({ unit, run, changes: logChanges });
+  }
+
+  /**
+   * The public reply of {@link makePublicReplyAndHide}: skipped as a duplicate or by the 80 % draw,
+   * else saved as a waiting message (with the automation's waiting-reply count) — the comment log
+   * changes it makes.
+   */
+  private async makePublicReply({
+    unit,
+    run,
+    automation,
+    commentId,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    commentId: string;
+  }): Promise<AutomationCommentLogChanges> {
+    const skipReason = await this.publicReplySkipReason({ unit, run, automation, commentId });
+    if (skipReason !== null) {
+      return { public_reply_status: 'skipped', public_reply_skip_reason: skipReason };
+    }
+    const saved = await this.saveMessage({
+      unit,
+      run,
+      message: {
+        step: 'public_reply',
+        stepPath: 'public_reply_texts',
+        answersEventId: commentId,
+      },
+    });
+    if (saved.status !== 'waiting') {
+      return this.replyLogChanges({
+        step: 'public_reply',
+        result: 'skipped',
+        reason: saved.reason,
+        at: unit.now,
+      });
+    }
+    await this.dependencies.replyStateService.addWaitingReply({
+      scope: unit.scope,
+      key: { organizationId: unit.organizationId, automationId: automation.id },
+      channelAccountId: unit.channelAccountId,
+    });
+    return { public_reply_status: 'waiting' };
+  }
+
+  /**
+   * Why the public reply is skipped: `duplicate` when another run's reply to the comment is waiting
+   * or sent in the last two months, `random` when "Reply like a person" (with its PRO switch) draws
+   * the skip, else `null`.
+   */
+  private async publicReplySkipReason({
+    unit,
+    run,
+    automation,
+    commentId,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    commentId: string;
+  }): Promise<AutomationPublicReplySkipReason | null> {
+    const logs = await unit.commentLogs.listForComment({
+      organizationId: unit.organizationId,
+      commentId,
+      since: lastTwoMonthsStart(unit.now),
+    });
+    const isDuplicate = logs.some(
+      (log) =>
+        log.automation_run_id !== run.id &&
+        (log.public_reply_status === 'waiting' || log.public_reply_status === 'sent'),
+    );
+    if (isDuplicate) return 'duplicate';
+    const isLikePerson =
+      automation.is_reply_like_person_enabled &&
+      isPlanSwitchOn({ switches: unit.switches, feature: 'reply_like_person' });
+    if (
+      isLikePerson &&
+      this.drawInteger(AUTOMATION_PUBLIC_REPLY_CHANCE_SCALE) >=
+        AUTOMATION_PUBLIC_REPLY_CHANCE_PERCENT
+    ) {
+      return 'random';
+    }
+    return null;
   }
 
   // ── Run state ────────────────────────────────────────────────────────────────────────────

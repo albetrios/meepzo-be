@@ -57,6 +57,20 @@ export function trimmedSlug(): z.ZodType<string> {
     .regex(SLUG_REGEX, 'Slug must be lowercase alphanumeric and hyphens only');
 }
 
+/** `text` without its leading hyphens — a linear scan, no backtracking regex. */
+function withoutLeadingHyphens(text: string): string {
+  let start = 0;
+  while (start < text.length && text[start] === '-') start += 1;
+  return text.slice(start);
+}
+
+/** `text` without its trailing hyphens — a linear scan, no backtracking regex. */
+function withoutTrailingHyphens(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '-') end -= 1;
+  return text.slice(0, end);
+}
+
 /**
  * Makes a kebab slug matching SLUG_REGEX from free text: `"Café Ölberg & Co."` → `cafe-olberg-co`.
  *
@@ -67,14 +81,12 @@ export function trimmedSlug(): z.ZodType<string> {
  * supplies its own fallback.
  */
 export function slugFromText({ text, maxLength }: { text: string; maxLength: number }): string {
-  return text
+  const hyphenated = text
     .normalize('NFKD')
     .replace(/\p{M}+/gu, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, maxLength)
-    .replace(/-+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-');
+  return withoutTrailingHyphens(withoutLeadingHyphens(hyphenated).slice(0, maxLength));
 }
 
 /** Escapes SQL LIKE wildcards (`%`, `_`, `\`) in user-provided search terms. */

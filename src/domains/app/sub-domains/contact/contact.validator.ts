@@ -32,8 +32,11 @@ const PHONE_NUMBER_SEPARATORS = /[\s\-.()[\]]/g;
 /** {@link INTERNATIONAL_PHONE_NUMBER_PATTERN}, compiled once. */
 const INTERNATIONAL_PHONE_NUMBER = new RegExp(INTERNATIONAL_PHONE_NUMBER_PATTERN);
 
+/** A boolean query flag as sent: the text `true` or `false`. */
+type QueryFlagText = 'true' | 'false';
+
 /** `true` / `false` query text as a boolean; absent stays `undefined`. */
-function readQueryFlag(value: 'true' | 'false' | undefined): boolean | undefined {
+function readQueryFlag(value: QueryFlagText | undefined): boolean | undefined {
   return value === undefined ? undefined : value === 'true';
 }
 
@@ -41,11 +44,11 @@ function readQueryFlag(value: 'true' | 'false' | undefined): boolean | undefined
 interface ParsedContactFilter {
   q?: string | undefined;
   tags?: string | undefined;
-  has_email?: 'true' | 'false' | undefined;
-  has_phone?: 'true' | 'false' | undefined;
-  is_following_account?: 'true' | 'false' | undefined;
-  is_opted_out?: 'true' | 'false' | undefined;
-  is_automations_paused?: 'true' | 'false' | undefined;
+  has_email?: QueryFlagText | undefined;
+  has_phone?: QueryFlagText | undefined;
+  is_following_account?: QueryFlagText | undefined;
+  is_opted_out?: QueryFlagText | undefined;
+  is_automations_paused?: QueryFlagText | undefined;
   came_in_via?: string | undefined;
   first_automation_id?: string | undefined;
   first_seen_from?: string | undefined;

@@ -94,5 +94,19 @@ describe('validation.util', () => {
       expect(slugFromText({ text: 'Acme Studio Group', maxLength: 12 })).toBe('acme-studio');
       expect(slugFromText({ text: '🌸 — 🌸', maxLength: 100 })).toBe('');
     });
+
+    it('drops the leading and trailing hyphens and keeps one between words', () => {
+      expect(slugFromText({ text: '--- a -- b ---', maxLength: 100 })).toBe('a-b');
+      expect(slugFromText({ text: '-', maxLength: 100 })).toBe('');
+      expect(slugFromText({ text: 'ab cd', maxLength: 3 })).toBe('ab');
+    });
+
+    it('stays linear on a long run of separators (no backtracking)', () => {
+      const separators = `a${' -'.repeat(100_000)}!`;
+      const startedAt = performance.now();
+      expect(slugFromText({ text: separators, maxLength: 100 })).toBe('a');
+      expect(slugFromText({ text: `${'-'.repeat(200_000)}x`, maxLength: 100 })).toBe('x');
+      expect(performance.now() - startedAt).toBeLessThan(1_000);
+    });
   });
 });

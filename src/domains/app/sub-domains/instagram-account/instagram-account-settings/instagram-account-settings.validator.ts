@@ -42,7 +42,8 @@ function mergedValue<Key extends keyof InstagramAccountSettingsMergeable>({
   key: Key;
 }): InstagramAccountSettingsMergeable[Key] {
   const sent = changes[key];
-  return sent === undefined ? saved[key] : sent;
+  if (sent !== undefined) return sent;
+  return saved[key];
 }
 
 /**

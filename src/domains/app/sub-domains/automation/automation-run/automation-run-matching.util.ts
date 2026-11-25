@@ -169,6 +169,35 @@ function isPostLinked<T extends AutomationMatchCandidate>({
 }
 
 /**
+ * Which group of {@link chooseCommentAutomation} a keyword-matching candidate joins: `linked` (a
+ * post-linked comment automation, or the ad-comment automation of the comment's ad), `any_post`
+ * (an "any post" comment automation, or a Live automation for a Live comment), or `null` (none).
+ */
+function commentCandidateGroup<T extends AutomationMatchCandidate>({
+  candidate,
+  kind,
+  mediaId,
+  adId,
+  mediaPublishedAt,
+}: {
+  candidate: T;
+  kind: 'comment' | 'live_comment' | 'ad_comment';
+  mediaId: string;
+  adId: string | null;
+  mediaPublishedAt: Date | null;
+}): 'linked' | 'any_post' | null {
+  if (kind === 'live_comment') {
+    return candidate.trigger_type === 'live_comment' ? 'any_post' : null;
+  }
+  if (candidate.trigger_type === 'ad_comment') {
+    return adId !== null && candidate.ad_id === adId ? 'linked' : null;
+  }
+  if (candidate.trigger_type !== 'comment') return null;
+  if (candidate.target_scope === 'any') return 'any_post';
+  return isPostLinked({ candidate, mediaId, mediaPublishedAt }) ? 'linked' : null;
+}
+
+/**
  * One automation answers a comment (plan §4.4, D37): among the account's live comment automations
  * whose keywords the comment matches (none = every comment), the post-linked ones — one post, a
  * linked "next post", "posts between" holding the post, an ad-comment automation of the comment's
@@ -200,17 +229,9 @@ export function chooseCommentAutomation<T extends AutomationMatchCandidate>({
   const anyPost: T[] = [];
   for (const candidate of candidates) {
     if (!isKeywordMatch(candidate)) continue;
-    if (kind === 'live_comment') {
-      if (candidate.trigger_type === 'live_comment') anyPost.push(candidate);
-      continue;
-    }
-    if (candidate.trigger_type === 'ad_comment') {
-      if (adId !== null && candidate.ad_id === adId) linked.push(candidate);
-      continue;
-    }
-    if (candidate.trigger_type !== 'comment') continue;
-    if (candidate.target_scope === 'any') anyPost.push(candidate);
-    else if (isPostLinked({ candidate, mediaId, mediaPublishedAt })) linked.push(candidate);
+    const group = commentCandidateGroup({ candidate, kind, mediaId, adId, mediaPublishedAt });
+    if (group === 'linked') linked.push(candidate);
+    else if (group === 'any_post') anyPost.push(candidate);
   }
   linked.sort((left, right) => byAge({ left, right }));
   anyPost.sort((left, right) => byAge({ left, right }));
@@ -245,6 +266,32 @@ interface RankedMatch<T extends AutomationMatchCandidate> {
   isOwnWay: boolean;
 }
 
+/**
+ * A candidate started its own targeted way (a story reply, a shared post): its trigger is
+ * `triggerType`, its target is "any" or the event's, and the text matches its keywords (none = all).
+ */
+function isOwnTargetedMatch<T extends AutomationMatchCandidate>({
+  candidate,
+  triggerType,
+  targetId,
+  eventId,
+  text,
+}: {
+  candidate: T;
+  triggerType: AutomationTriggerType;
+  targetId: string | null;
+  eventId: string | null;
+  text: string | null;
+}): boolean {
+  if (candidate.trigger_type !== triggerType) return false;
+  const isTargetMatch =
+    candidate.target_scope === 'any' || (eventId !== null && targetId === eventId);
+  return (
+    isTargetMatch &&
+    matchesAutomationKeywords({ keywords: candidate.keywords, text, isMatchWithoutKeywords: true })
+  );
+}
+
 /** A level-3 match of one candidate for one message kind, or `null`. */
 function levelThreeMatchOf<T extends AutomationMatchCandidate>({
   candidate,
@@ -268,13 +315,6 @@ function levelThreeMatchOf<T extends AutomationMatchCandidate>({
     isExactTarget: boolean;
     isOwnWay: boolean;
   }) => ({ automation: candidate, triggerType, isExactTarget, isOwnWay });
-  const isTargetMatch = ({
-    targetId,
-    eventId,
-  }: {
-    targetId: string | null;
-    eventId: string | null;
-  }) => candidate.target_scope === 'any' || (eventId !== null && targetId === eventId);
   const isAlso = (way: string) => candidate.also_start_from.includes(way) && keywordMatch(false);
   switch (input.kind) {
     case 'message':
@@ -286,9 +326,13 @@ function levelThreeMatchOf<T extends AutomationMatchCandidate>({
         : null;
     case 'story_reply':
       if (
-        candidate.trigger_type === 'story_reply' &&
-        isTargetMatch({ targetId: candidate.target_instagram_story_id, eventId: input.storyId }) &&
-        keywordMatch(true)
+        isOwnTargetedMatch({
+          candidate,
+          triggerType: 'story_reply',
+          targetId: candidate.target_instagram_story_id,
+          eventId: input.storyId,
+          text: input.text,
+        })
       ) {
         return ranked({
           triggerType: 'story_reply',
@@ -304,12 +348,13 @@ function levelThreeMatchOf<T extends AutomationMatchCandidate>({
         ? ranked({ triggerType: 'story_mention', isExactTarget: false, isOwnWay: true })
         : null;
     case 'shared_post':
-      return candidate.trigger_type === 'shared_post' &&
-        isTargetMatch({
-          targetId: candidate.target_instagram_media_id,
-          eventId: input.sharedMediaId,
-        }) &&
-        keywordMatch(true)
+      return isOwnTargetedMatch({
+        candidate,
+        triggerType: 'shared_post',
+        targetId: candidate.target_instagram_media_id,
+        eventId: input.sharedMediaId,
+        text: input.text,
+      })
         ? ranked({
             triggerType: 'shared_post',
             isExactTarget: candidate.target_scope !== 'any',

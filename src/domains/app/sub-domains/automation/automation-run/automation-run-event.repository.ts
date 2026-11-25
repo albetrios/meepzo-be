@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -83,14 +83,7 @@ export class AutomationRunEventRepository {
     after: { occurredAt: string; source: 'message' | 'run_event'; id: number } | null;
     limit: number;
   }): Promise<AutomationContactRunEventRow[]> {
-    const cursorCondition =
-      after === null
-        ? sql`TRUE`
-        : after.source === 'message'
-          ? // 'message' sorts below 'run_event' at one time: this time's events are already shown.
-            sql`e.created_at < ${after.occurredAt}::timestamptz`
-          : sql`(e.created_at < ${after.occurredAt}::timestamptz
-                 OR (e.created_at = ${after.occurredAt}::timestamptz AND e.id < ${after.id}))`;
+    const cursorCondition = contactRunEventCursorCondition(after);
     const result = await this.db().execute(sql`
       SELECT e.id,
              to_char(e.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,
@@ -132,6 +125,19 @@ export class AutomationRunEventRepository {
       )
       .orderBy(asc(automation_run_events.created_at), asc(automation_run_events.id));
   }
+}
+
+/** The keyset condition of the contact's merged run-event list after `after` (none on the first page). */
+function contactRunEventCursorCondition(
+  after: { occurredAt: string; source: 'message' | 'run_event'; id: number } | null,
+): SQL {
+  if (after === null) return sql`TRUE`;
+  if (after.source === 'message') {
+    // 'message' sorts below 'run_event' at one time: this time's events are already shown.
+    return sql`e.created_at < ${after.occurredAt}::timestamptz`;
+  }
+  return sql`(e.created_at < ${after.occurredAt}::timestamptz
+                 OR (e.created_at = ${after.occurredAt}::timestamptz AND e.id < ${after.id}))`;
 }
 
 /** The rows of a raw `execute` — postgres-js answers an array, node-postgres `{ rows }`. */

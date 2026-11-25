@@ -842,9 +842,7 @@ export class ContactRepository {
     channelAccountId: number;
     deltas: readonly ContactTagCountDelta[];
   }): Promise<void> {
-    const sorted = deltas
-      .filter((entry) => entry.delta !== 0)
-      .sort((left, right) => (left.tag < right.tag ? -1 : left.tag > right.tag ? 1 : 0));
+    const sorted = deltas.filter((entry) => entry.delta !== 0).sort(compareTagDeltas);
     const increments = sorted.filter((entry) => entry.delta > 0);
     const decrements = sorted.filter((entry) => entry.delta < 0);
     if (increments.length > 0) {
@@ -945,6 +943,13 @@ export class ContactRepository {
 export interface ContactActivityChange {
   kind: 'comment' | 'story' | 'first_message' | 'opening_message' | 'broadcast' | 'message_sent';
   at: Date;
+}
+
+/** Orders two tag deltas by tag, in code-unit order. */
+function compareTagDeltas(left: ContactTagCountDelta, right: ContactTagCountDelta): number {
+  if (left.tag < right.tag) return -1;
+  if (left.tag > right.tag) return 1;
+  return 0;
 }
 
 /** The activity-row values one {@link ContactActivityChange} sets. */

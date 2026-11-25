@@ -15,7 +15,7 @@ export const CHANNEL_CONNECT_CODE_REDIRECT_SUFFIX = '#_';
 /** A login state: 32 random bytes as base64url — 43 characters (MC4). */
 const CHANNEL_CONNECT_STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 /** A provider's account id — digits (Instagram user ids). */
-const PROVIDER_ACCOUNT_ID_PATTERN = /^[0-9]{1,64}$/;
+const PROVIDER_ACCOUNT_ID_PATTERN = /^\d{1,64}$/;
 
 /** Path of routes 1, 2 (and Meta's callbacks 16–17, ROUTE row R9): `{provider}` — `meta` only. */
 export const channelConnectionProviderParamsDto = z
@@ -63,7 +63,7 @@ export const listChannelConnectionsQueryDto = z
   .strict();
 
 /** Meta's ad account id — digits, without the `act_` prefix (route 15's `ad_account_id`, 1.8). */
-const META_AD_ACCOUNT_ID_PATTERN = /^[0-9]{1,32}$/;
+const META_AD_ACCOUNT_ID_PATTERN = /^\d{1,32}$/;
 
 /** Query of `GET /app/social/channel-connections/{channel_connection_id}/ad-accounts` (route 41): none. Strict. */
 export const listChannelConnectionAdAccountsQueryDto = z.object({}).strict();

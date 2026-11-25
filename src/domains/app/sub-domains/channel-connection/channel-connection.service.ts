@@ -984,10 +984,14 @@ export class ChannelConnectionService {
     assignedAccounts: MetaAssignedInstagramAccount[];
     grantedPermissions: string[];
   }> {
-    let isCodeSpent = false;
+    let encryptedAccessToken: string;
     try {
-      const { encryptedAccessToken } = await exchangeMetaLoginCode({ code, requestId });
-      isCodeSpent = true;
+      ({ encryptedAccessToken } = await exchangeMetaLoginCode({ code, requestId }));
+    } catch (error) {
+      this.logFailedConnect({ requestId, step: 'exchange', error });
+      throw toChannelConnectRouteError({ error, isCodeSpent: false });
+    }
+    try {
       const clientBusinessId = await readMetaClientBusinessId({ encryptedAccessToken, requestId });
       const assignedAccounts = await listMetaAssignedInstagramAccounts({
         encryptedAccessToken,
@@ -999,8 +1003,8 @@ export class ChannelConnectionService {
       });
       return { encryptedAccessToken, clientBusinessId, assignedAccounts, grantedPermissions };
     } catch (error) {
-      this.logFailedConnect({ requestId, step: isCodeSpent ? 'read' : 'exchange', error });
-      throw toChannelConnectRouteError({ error, isCodeSpent });
+      this.logFailedConnect({ requestId, step: 'read', error });
+      throw toChannelConnectRouteError({ error, isCodeSpent: true });
     }
   }
 

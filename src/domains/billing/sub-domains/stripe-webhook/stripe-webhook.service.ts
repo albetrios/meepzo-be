@@ -1,6 +1,5 @@
 import type Stripe from 'stripe';
 import { retrieveStripeSubscriptionSnapshot } from '@/infrastructure/payment/stripe.client.js';
-import type { StripeSubscriptionOrderingState } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
 import type { SubscriptionRepository } from '@/domains/billing/sub-domains/subscription/subscription.repository.js';
 import {
   createWorkerSubscriptionRepository,
@@ -23,6 +22,7 @@ import {
 } from '@/domains/billing/sub-domains/subscription/events/subscription.events.js';
 import type {
   PlanAccess,
+  StripeSubscriptionOrderingState,
   StripeSubscriptionPriorState,
 } from '@/domains/billing/sub-domains/subscription/subscription.types.js';
 import {

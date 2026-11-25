@@ -27,7 +27,10 @@ import { InstagramAccountService } from './sub-domains/instagram-account/instagr
 import { InstagramAccountExtensionService } from './sub-domains/instagram-account/instagram-account-extension.service.js';
 import { InstagramAccountSettingsRepository } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
 import { InstagramAccountSettingsService } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.service.js';
-import type { InstagramAccountSettingsChannelAccountPort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
+import type {
+  InstagramAccountSettingsChannelAccountPort,
+  InstagramAccountSettingsLanePort,
+} from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
 import { InstagramMediaRepository } from './sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramMediaService } from './sub-domains/instagram-account/instagram-media/instagram-media.service.js';
@@ -50,11 +53,13 @@ import { AutomationCountRepository } from './sub-domains/automation/automation-c
 import { AutomationCountService } from './sub-domains/automation/automation-count.service.js';
 import { AutomationReplyStateRepository } from './sub-domains/automation/automation-reply-state.repository.js';
 import { AutomationReplyStateService } from './sub-domains/automation/automation-reply-state.service.js';
-import type { AutomationMessageFilePort } from './sub-domains/automation/automation.types.js';
+import type {
+  AutomationMessageFilePort,
+  AutomationOpenRunCancelStep,
+} from './sub-domains/automation/automation.types.js';
 import { AutomationService } from './sub-domains/automation/automation.service.js';
 import { AutomationBackfillRepository } from './sub-domains/automation/automation-backfill/automation-backfill.repository.js';
 import { AutomationBackfillService } from './sub-domains/automation/automation-backfill/automation-backfill.service.js';
-import type { AutomationOpenRunCancelStep } from './sub-domains/automation/automation.types.js';
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
 import { BroadcastSegmentRepository } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
 import { BroadcastSegmentService } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.service.js';
@@ -78,7 +83,6 @@ import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sendin
 import type { InstagramSendWork } from './sub-domains/instagram-sending/instagram-sending.types.js';
 import { InstagramSendCoreService } from './sub-domains/instagram-sending/instagram-send-core.service.js';
 import { InstagramSendGateService } from './sub-domains/instagram-sending/instagram-send-gate.service.js';
-import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection

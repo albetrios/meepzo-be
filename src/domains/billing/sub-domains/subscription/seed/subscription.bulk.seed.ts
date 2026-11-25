@@ -100,6 +100,36 @@ export async function seedSubscriptionsBulk(context: SeedContext): Promise<void>
   );
 }
 
+/** A bulk row's status: the first row is the organization's live one (rotated by index), the rest `CANCELED`. */
+function bulkSubscriptionStatus({
+  index,
+  organizationIndex,
+}: {
+  index: number;
+  organizationIndex: number;
+}): string {
+  if (index !== 0) return 'CANCELED';
+  return LIVE_STATUSES[organizationIndex % LIVE_STATUSES.length] as string;
+}
+
+/** R24: every third organization's ACTIVE row waits to move down to the cheapest plan. */
+function scheduledDowngradePlan({
+  status,
+  organizationIndex,
+  plan,
+  planPool,
+}: {
+  status: string;
+  organizationIndex: number;
+  plan: PlanReference;
+  planPool: PlanReference[];
+}): PlanReference | undefined {
+  const cheapest = planPool[0];
+  const isScheduled =
+    status === 'ACTIVE' && organizationIndex % 3 === 0 && plan.id !== cheapest?.id;
+  return isScheduled ? cheapest : undefined;
+}
+
 /** Seeds the missing bulk subscriptions for a single organization and returns how many were created. */
 async function seedSubscriptionsForOrganization(options: {
   context: SeedContext;
@@ -126,18 +156,11 @@ async function seedSubscriptionsForOrganization(options: {
 
   let created = 0;
   for (let index = existing.length; index < target; index += 1) {
-    const isLive = index === 0;
-    const status = isLive
-      ? (LIVE_STATUSES[organizationIndex % LIVE_STATUSES.length] as string)
-      : 'CANCELED';
+    const status = bulkSubscriptionStatus({ index, organizationIndex });
     const plan = planPool[(organizationIndex + index) % planPool.length] as PlanReference;
     const window = generateBulkSubscriptionWindow(context.faker);
 
-    // R24: every third organization's ACTIVE row waits to move down to the cheapest plan.
-    const scheduledPlan =
-      status === 'ACTIVE' && organizationIndex % 3 === 0 && plan.id !== planPool[0]?.id
-        ? planPool[0]
-        : undefined;
+    const scheduledPlan = scheduledDowngradePlan({ status, organizationIndex, plan, planPool });
     const [inserted] = await database
       .insert(subscriptions)
       .values({

@@ -414,6 +414,21 @@ export async function updateStripeSubscription({
   );
 }
 
+/**
+ * The Stripe request options of one call in a multi-call operation: the client's
+ * `X-Idempotency-Key` plus the call's own suffix, so each Stripe call keeps its own idempotency key;
+ * none when the client sent no key.
+ */
+function suffixedIdempotencyKey({
+  idempotencyKey,
+  suffix,
+}: {
+  idempotencyKey: string | undefined;
+  suffix: string;
+}): { idempotencyKey: string } | undefined {
+  return idempotencyKey ? { idempotencyKey: `${idempotencyKey}:${suffix}` } : undefined;
+}
+
 /** The id of a subscription's schedule, or `null` (the field is an id or, expanded, the object). */
 function readSubscriptionScheduleId(subscription: Stripe.Subscription): string | null {
   const { schedule } = subscription;
@@ -457,9 +472,7 @@ export async function scheduleStripeSubscriptionPriceChange(options: {
       operation: async () => {
         const stripe = getStripeClient();
         const keyed = (suffix: string) =>
-          options.idempotencyKey
-            ? { idempotencyKey: `${options.idempotencyKey}:${suffix}` }
-            : undefined;
+          suffixedIdempotencyKey({ idempotencyKey: options.idempotencyKey, suffix });
         const subscription = await stripe.subscriptions.retrieve(options.subscriptionId);
         const existingScheduleId = readSubscriptionScheduleId(subscription);
         const schedule = existingScheduleId
@@ -524,9 +537,10 @@ export async function releaseStripeSubscriptionSchedule(options: {
         await stripe.subscriptionSchedules.release(
           scheduleId,
           {},
-          options.idempotencyKey
-            ? { idempotencyKey: `${options.idempotencyKey}:schedule-release` }
-            : undefined,
+          suffixedIdempotencyKey({
+            idempotencyKey: options.idempotencyKey,
+            suffix: 'schedule-release',
+          }),
         );
         return true;
       },
@@ -771,9 +785,7 @@ export async function setStripeCustomerDefaultPaymentMethod(options: {
       operation: async () => {
         const stripe = getStripeClient();
         const keyed = (suffix: string) =>
-          options.idempotencyKey
-            ? { idempotencyKey: `${options.idempotencyKey}:${suffix}` }
-            : undefined;
+          suffixedIdempotencyKey({ idempotencyKey: options.idempotencyKey, suffix });
         await stripe.customers.update(
           options.customerId,
           { invoice_settings: { default_payment_method: options.paymentMethodId } },

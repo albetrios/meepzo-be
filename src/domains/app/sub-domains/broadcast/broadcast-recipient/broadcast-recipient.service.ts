@@ -5,7 +5,6 @@ import type {
   ChannelSendingPorts,
 } from '@/domains/app/app.channel-ports.js';
 import type { ChannelAccountChannel } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
-import type { AutomationMessage } from '@/domains/app/sub-domains/automation/automation-steps.dto.js';
 import { uploadPublicIdsOf } from '@/domains/app/sub-domains/automation/automation-run/automation-run-step.util.js';
 import {
   BroadcastSegmentRepository,
@@ -110,7 +109,7 @@ export class BroadcastRecipientService {
     messageNumber: number;
     now: Date;
   }): Promise<string | null> {
-    const message = (broadcast.messages as AutomationMessage[])[messageNumber - 1];
+    const message = broadcast.messages[messageNumber - 1];
     if (message === undefined) return null;
     const saved = await this.portOf(broadcast).saveWaitingMessage({
       databaseHandle,

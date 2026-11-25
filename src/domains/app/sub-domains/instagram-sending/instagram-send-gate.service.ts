@@ -269,18 +269,9 @@ export class InstagramSendGateService {
       lane: input.lane,
     });
     const minutes = new InstagramSendMinuteCountRepository(databaseHandle);
-    if (input.countGroup !== 'none') {
-      const lastHour = await minutes.sumLastHour({ ...account, countGroup: input.countGroup });
-      if (lastHour >= input.hourLimit) return { kind: 'refused', reason: 'hour_limit' };
-    }
+    const hourRefusal = await this.hourLimitRefusal({ input, found, messages, minutes });
+    if (hourRefusal !== null) return { kind: 'refused', reason: hourRefusal };
     const isCounted = found.is_counted_as_direct_message;
-    if (isCounted && input.personHourLimit !== null) {
-      const hers = await messages.countSentToContactInLastHour({
-        organizationId: found.organization_id,
-        contactId: found.contact_id,
-      });
-      if (hers >= input.personHourLimit) return { kind: 'refused', reason: 'person_limit' };
-    }
     const month = new MessageMonthCountRepository(databaseHandle);
     let isMonthLimitReached = false;
     if (isCounted && input.monthLimit !== null) {
@@ -318,6 +309,39 @@ export class InstagramSendGateService {
       await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
     }
     return { kind: 'claimed', message, attempt, isMonthLimitReached };
+  }
+
+  /**
+   * {@link claimInUnit}'s hour checks: the account's count group over its last-hour limit
+   * (`hour_limit`), else a counted DM over the person's last-hour limit (`person_limit`), else `null`.
+   */
+  private async hourLimitRefusal({
+    input,
+    found,
+    messages,
+    minutes,
+  }: {
+    input: InstagramSendClaimInput;
+    found: InstagramMessageRow;
+    messages: InstagramMessageRepository;
+    minutes: InstagramSendMinuteCountRepository;
+  }): Promise<'hour_limit' | 'person_limit' | null> {
+    if (input.countGroup !== 'none') {
+      const lastHour = await minutes.sumLastHour({
+        organizationId: found.organization_id,
+        channelAccountId: found.channel_account_id,
+        countGroup: input.countGroup,
+      });
+      if (lastHour >= input.hourLimit) return 'hour_limit';
+    }
+    if (found.is_counted_as_direct_message && input.personHourLimit !== null) {
+      const hers = await messages.countSentToContactInLastHour({
+        organizationId: found.organization_id,
+        contactId: found.contact_id,
+      });
+      if (hers >= input.personHourLimit) return 'person_limit';
+    }
+    return null;
   }
 
   /**

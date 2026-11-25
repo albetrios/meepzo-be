@@ -267,7 +267,7 @@ export class ChannelAccountRepository {
     const result = await this.db().execute(
       sql`SELECT organization_public_id, members_count, channel_accounts_count, live_automations_count FROM app.list_organization_counts_for_user(${userPublicId}, ARRAY[${organizationPublicIdValues}]::text[])`,
     );
-    return (result.rows as Record<string, unknown>[]).map((row) => ({
+    return result.rows.map((row) => ({
       organizationPublicId: String(row.organization_public_id),
       membersCount: Number(row.members_count),
       channelAccountsCount: Number(row.channel_accounts_count),

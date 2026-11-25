@@ -1,5 +1,8 @@
 import type { PlanAccess, PlanAccessOutput } from './subscription.types.js';
 
+/** A timestamp as the row carries it: a `Date` or its text form. */
+type RowTimestamp = Date | string;
+
 /**
  * Subscription row fields exposed to API consumers. Mirrors the live Drizzle row but with
  * the public-id rename baked in and every leak-class field excluded — see sec-T finding #17
@@ -10,11 +13,11 @@ interface SubscriptionRow {
   public_id: string;
   status: string;
   billing_cycle: string;
-  current_period_start: Date | string;
-  current_period_end: Date | string;
-  trial_end: Date | string | null;
+  current_period_start: RowTimestamp;
+  current_period_end: RowTimestamp;
+  trial_end: RowTimestamp | null;
   cancel_at_period_end: boolean;
-  canceled_at: Date | string | null;
+  canceled_at: RowTimestamp | null;
   provider: string | null;
   /** Joined `billing.plans.public_id` — surfaced as `plan_id` in the response (sec-re-07). */
   plan_public_id: string | null;
@@ -33,11 +36,11 @@ interface SubscriptionRow {
   seats_used: number;
   /** BL5: the scheduled plan's public id (joined), `null` with no scheduled change. */
   scheduled_plan_public_id?: string | null;
-  scheduled_change_at?: Date | string | null;
+  scheduled_change_at?: RowTimestamp | null;
   /** BL6: the `cha_…` ids kept active after the move down. */
   downgrade_keep?: string[] | null;
-  created_at: Date | string;
-  updated_at: Date | string;
+  created_at: RowTimestamp;
+  updated_at: RowTimestamp;
 }
 
 /** The move down waiting for the period end (8.B.6), or `null`. */
@@ -50,7 +53,7 @@ function serializeScheduledChange(row: SubscriptionRow) {
   };
 }
 
-function toIsoString(value: Date | string | null | undefined): string | null {
+function toIsoString(value: RowTimestamp | null | undefined): string | null {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
   return value;

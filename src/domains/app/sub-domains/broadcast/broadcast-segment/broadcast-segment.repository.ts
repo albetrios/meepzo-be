@@ -261,6 +261,13 @@ function activeCondition(
   return gte(contacts.first_seen_at, daysAgo(condition.first_seen_within_days ?? 0));
 }
 
+/** The `tags` condition: all of the tags, any of them, or none of them (BC12). */
+function tagsCondition(condition: Extract<SegmentCondition, { field: 'tags' }>): SQL {
+  if (condition.match === 'all') return arrayContains(contacts.tags, condition.values);
+  if (condition.match === 'any') return arrayOverlaps(contacts.tags, condition.values);
+  return not(arrayOverlaps(contacts.tags, condition.values));
+}
+
 /** The `details` condition (BC12). */
 function detailsCondition(
   condition: Extract<SegmentCondition, { field: 'details' }>,
@@ -288,12 +295,7 @@ function conditionSql({
   let built: SQL | undefined;
   switch (condition.field) {
     case 'tags':
-      built =
-        condition.match === 'all'
-          ? arrayContains(contacts.tags, condition.values)
-          : condition.match === 'any'
-            ? arrayOverlaps(contacts.tags, condition.values)
-            : not(arrayOverlaps(contacts.tags, condition.values));
+      built = tagsCondition(condition);
       break;
     case 'automation':
       built = automationCondition({ condition, automationIds });
@@ -321,7 +323,8 @@ function conditionSql({
       break;
   }
   // A comparison on a NULL time is NULL; inside NOT or OR that must read as "no match".
-  return sql`coalesce(${built ?? sql`true`}, false)`;
+  const conditionSqlOrTrue = built ?? sql`true`;
+  return sql`coalesce(${conditionSqlOrTrue}, false)`;
 }
 
 /** A group's items joined by its operator (BC12). */

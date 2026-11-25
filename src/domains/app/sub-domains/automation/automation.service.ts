@@ -32,8 +32,10 @@ import {
   serializeFailedMessagesRetry,
   serializeFailedMessagesSummary,
 } from '@/domains/app/app.failed-messages.serializer.js';
-import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
-import type { ChannelAccountPlanAccessService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type {
+  ChannelAccountPlanAccessService,
+  ChannelAccountService,
+} from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
 import type { ChannelFeature } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import { CHANNEL_FEATURES } from '@/domains/app/sub-domains/channel-account/channel-account-capabilities.constants.js';
 import type { AutomationChannelAccount } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
@@ -50,6 +52,7 @@ import {
   type AutomationTriggerType,
 } from './automation.constants.js';
 import type {
+  AutomationAccountKey,
   AutomationRepository,
   AutomationRow,
   AutomationWithAccountRow,
@@ -175,6 +178,20 @@ function toWritableFields(row: AutomationRow): AutomationWritableFields {
   };
 }
 
+/** The body path a feature-check problem points at (AU34). */
+function featureProblemField({
+  kind,
+  part,
+}: {
+  kind: 'trigger_type' | 'step' | 'message_kind' | 'feature';
+  part: string;
+}): string {
+  if (kind === 'trigger_type') return 'trigger_type';
+  if (kind === 'message_kind') return 'steps.messages';
+  if (kind === 'step') return `steps.${part}`;
+  return `features.${part}`;
+}
+
 /** A problem of the one feature check, with its step path and reason (AU34). */
 function featureProblem({
   kind,
@@ -185,16 +202,8 @@ function featureProblem({
   part: string;
   reason: string;
 }): AutomationProblem {
-  const field =
-    kind === 'trigger_type'
-      ? 'trigger_type'
-      : kind === 'message_kind'
-        ? 'steps.messages'
-        : kind === 'step'
-          ? `steps.${part}`
-          : `features.${part}`;
   return {
-    field,
+    field: featureProblemField({ kind, part }),
     reason,
     messageKey: `errors:automationProblems.${reason}`,
     messageParams: { part },
@@ -1009,14 +1018,11 @@ export class AutomationService {
           match_kind: ownMatch?.kind ?? null,
           first_answering_automation:
             first === null ? null : { id: first.public_id, name: first.name },
-          reason:
-            ownMatch === null
-              ? 'no_keyword'
-              : automation.status !== 'live'
-                ? 'not_live'
-                : isThisFirst
-                  ? null
-                  : 'other_answers_first',
+          reason: keywordTestReason({
+            hasOwnMatch: ownMatch !== null,
+            isLive: automation.status === 'live',
+            isThisFirst,
+          }),
         };
       },
     });
@@ -1151,28 +1157,7 @@ export class AutomationService {
       excludedAutomationId: stored.id,
     };
     if (fields.trigger_type === 'starter_question') {
-      const others = await this.automationRepository.listOtherLiveStarterQuestions(key);
-      const total = others.length + fields.starter_questions.length;
-      if (total > AUTOMATION_STARTER_QUESTIONS_MAX_COUNT) {
-        problems.push({
-          field: 'starter_questions',
-          reason: 'starter_questions_over_limit',
-          messageKey: 'errors:automationProblems.starter_questions_over_limit',
-          messageParams: { max: AUTOMATION_STARTER_QUESTIONS_MAX_COUNT },
-        });
-      }
-      const othersLowered = new Set(others.map((question) => question.trim().toLowerCase()));
-      const ownLowered = fields.starter_questions.map((question) => question.trim().toLowerCase());
-      if (
-        ownLowered.some((question) => othersLowered.has(question)) ||
-        new Set(ownLowered).size !== ownLowered.length
-      ) {
-        problems.push({
-          field: 'starter_questions',
-          reason: 'starter_question_repeated',
-          messageKey: 'errors:automationProblems.starter_question_repeated',
-        });
-      }
+      problems.push(...(await this.listStarterQuestionProblems({ key, fields })));
     }
     if (fields.ref_code !== null) {
       const holder = await this.automationRepository.findOtherWithRefCode({
@@ -1202,19 +1187,69 @@ export class AutomationService {
         });
       }
     }
-    if (this.ports.messageFiles !== undefined) {
-      for (const upload of listAutomationUploads(fields.steps)) {
-        const file = await this.ports.messageFiles.findUsableMessageFile({
-          scope,
-          uploadPublicId: upload.uploadPublicId,
+    problems.push(...(await this.listMessageFileProblems({ scope, fields })));
+    return problems;
+  }
+
+  /**
+   * Go-live's starter-question checks (AU13): at most
+   * {@link AUTOMATION_STARTER_QUESTIONS_MAX_COUNT} across the account's live automations, and no
+   * question repeated (case- and space-insensitive) there or within this automation.
+   */
+  private async listStarterQuestionProblems({
+    key,
+    fields,
+  }: {
+    key: AutomationAccountKey;
+    fields: AutomationWritableFields;
+  }): Promise<AutomationProblem[]> {
+    const problems: AutomationProblem[] = [];
+    const others = await this.automationRepository.listOtherLiveStarterQuestions(key);
+    const total = others.length + fields.starter_questions.length;
+    if (total > AUTOMATION_STARTER_QUESTIONS_MAX_COUNT) {
+      problems.push({
+        field: 'starter_questions',
+        reason: 'starter_questions_over_limit',
+        messageKey: 'errors:automationProblems.starter_questions_over_limit',
+        messageParams: { max: AUTOMATION_STARTER_QUESTIONS_MAX_COUNT },
+      });
+    }
+    const othersLowered = new Set(others.map((question) => question.trim().toLowerCase()));
+    const ownLowered = fields.starter_questions.map((question) => question.trim().toLowerCase());
+    if (
+      ownLowered.some((question) => othersLowered.has(question)) ||
+      new Set(ownLowered).size !== ownLowered.length
+    ) {
+      problems.push({
+        field: 'starter_questions',
+        reason: 'starter_question_repeated',
+        messageKey: 'errors:automationProblems.starter_question_repeated',
+      });
+    }
+    return problems;
+  }
+
+  /** Go-live's message-file check (AU13): every upload the steps use is still usable (none without the port). */
+  private async listMessageFileProblems({
+    scope,
+    fields,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    fields: AutomationWritableFields;
+  }): Promise<AutomationProblem[]> {
+    const problems: AutomationProblem[] = [];
+    if (this.ports.messageFiles === undefined) return problems;
+    for (const upload of listAutomationUploads(fields.steps)) {
+      const file = await this.ports.messageFiles.findUsableMessageFile({
+        scope,
+        uploadPublicId: upload.uploadPublicId,
+      });
+      if (file === null) {
+        problems.push({
+          field: upload.field,
+          reason: 'file_not_usable',
+          messageKey: 'errors:automationProblems.file_not_usable',
         });
-        if (file === null) {
-          problems.push({
-            field: upload.field,
-            reason: 'file_not_usable',
-            messageKey: 'errors:automationProblems.file_not_usable',
-          });
-        }
       }
     }
     return problems;
@@ -1336,11 +1371,7 @@ export class AutomationService {
     const isStillNext = stored.target_scope === 'next';
     return {
       ...merged,
-      target_starts_at: isStillNext
-        ? stored.target_starts_at
-        : stored.status === 'draft'
-          ? null
-          : new Date(),
+      target_starts_at: nextTargetStartsAt({ stored, isStillNext }),
       target_ends_at: null,
       target_instagram_story_id: null,
       target_instagram_media_id:
@@ -1500,6 +1531,54 @@ export class AutomationService {
   }
 }
 
+/** Whether the automation starts from the keyword test's source — its own way or "also start from". */
+function startsFromKeywordTestSource({
+  automation,
+  source,
+}: {
+  automation: AutomationRow;
+  source: AutomationKeywordTestSource;
+}): boolean {
+  const type = automation.trigger_type;
+  if (source === 'comment') {
+    return AUTOMATION_COMMENT_TRIGGER_TYPES.includes(type as AutomationTriggerType);
+  }
+  if (source === 'story_reply') {
+    return type === 'story_reply' || automation.also_start_from.includes('story_reply');
+  }
+  return type === 'dm_keyword' || automation.also_start_from.includes('dm');
+}
+
+/** Why a keyword test does not answer with this automation, or `null` when it does (route 35). */
+function keywordTestReason({
+  hasOwnMatch,
+  isLive,
+  isThisFirst,
+}: {
+  hasOwnMatch: boolean;
+  isLive: boolean;
+  isThisFirst: boolean;
+}): 'no_keyword' | 'not_live' | 'other_answers_first' | null {
+  if (!hasOwnMatch) return 'no_keyword';
+  if (!isLive) return 'not_live';
+  return isThisFirst ? null : 'other_answers_first';
+}
+
+/**
+ * The go-live time of a `next` target (AU20): kept while the stored scope is already `next`, else
+ * none for a draft and now for a saved automation.
+ */
+function nextTargetStartsAt({
+  stored,
+  isStillNext,
+}: {
+  stored: AutomationRow;
+  isStillNext: boolean;
+}): Date | null {
+  if (isStillNext) return stored.target_starts_at;
+  return stored.status === 'draft' ? null : new Date();
+}
+
 /** The source a keyword test reads by default: the automation's way to start (AU17). */
 function defaultKeywordTestSource(automation: AutomationRow): AutomationKeywordTestSource {
   if (AUTOMATION_COMMENT_TRIGGER_TYPES.includes(automation.trigger_type as AutomationTriggerType)) {
@@ -1518,14 +1597,7 @@ function keywordTestMatch({
   text: string;
   source: AutomationKeywordTestSource;
 }): { keyword: string | null; kind: 'exact' | 'close' | null } | null {
-  const type = automation.trigger_type;
-  const isApplicable =
-    source === 'comment'
-      ? AUTOMATION_COMMENT_TRIGGER_TYPES.includes(type as AutomationTriggerType)
-      : source === 'story_reply'
-        ? type === 'story_reply' || automation.also_start_from.includes('story_reply')
-        : type === 'dm_keyword' || automation.also_start_from.includes('dm');
-  if (!isApplicable) return null;
+  if (!startsFromKeywordTestSource({ automation, source })) return null;
   if (automation.keywords.length === 0) {
     return source === 'dm' ? null : { keyword: null, kind: null };
   }

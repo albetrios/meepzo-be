@@ -133,7 +133,7 @@ function checkFeature({
   untestedMetaFeatures: ReadonlySet<ChannelFeature>;
 }): ChannelFeatureCheckResult {
   const capability = CHANNEL_CAPABILITIES[inputs.channel];
-  if (capability === undefined || !capability.features.includes(feature)) {
+  if (!capability?.features.includes(feature)) {
     return { isAllowed: false, reason: 'channel_lacks_feature' };
   }
   const requirement = CHANNEL_FEATURES[feature];

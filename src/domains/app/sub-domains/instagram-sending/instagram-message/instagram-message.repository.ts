@@ -106,17 +106,31 @@ function rowsOf<Row>(result: unknown): Row[] {
   return (Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])) as Row[];
 }
 
+/** The message column each kind of cancel or skip selection matches on. */
+const SELECTION_COLUMNS = {
+  run: instagram_messages.automation_run_id,
+  automation: instagram_messages.automation_id,
+  contact: instagram_messages.contact_id,
+  broadcast: instagram_messages.broadcast_id,
+} satisfies Record<InstagramMessageWaitingSelection['by'], unknown>;
+
 /** The selection's column of a cancel or skip. */
 function selectionCondition({ organizationId, by, id }: InstagramMessageWaitingSelection): SQL {
-  const column =
-    by === 'run'
-      ? instagram_messages.automation_run_id
-      : by === 'automation'
-        ? instagram_messages.automation_id
-        : by === 'contact'
-          ? instagram_messages.contact_id
-          : instagram_messages.broadcast_id;
+  const column = SELECTION_COLUMNS[by];
   return and(eq(instagram_messages.organization_id, organizationId), eq(column, id)) as SQL;
+}
+
+/** The keyset condition of the contact's merged message list after `after` (none on the first page). */
+function contactMessageCursorCondition(
+  after: { occurredAt: string; source: 'message' | 'run_event'; id: number } | null,
+): SQL {
+  if (after === null) return sql`TRUE`;
+  if (after.source === 'run_event') {
+    // 'message' sorts below 'run_event' at one time: this time's messages are still ahead.
+    return sql`m.created_at <= ${after.occurredAt}::timestamptz`;
+  }
+  return sql`(m.created_at < ${after.occurredAt}::timestamptz
+                 OR (m.created_at = ${after.occurredAt}::timestamptz AND m.id < ${after.id}))`;
 }
 
 /** Meta's errors final for the person (SN18), as one SQL condition on a message row. */
@@ -126,7 +140,8 @@ function personFinalErrorCondition(): SQL {
       ? sql`(m.error_code = ${code})`
       : sql`(m.error_code = ${code} AND m.error_subcode = ${subcode})`,
   );
-  return sql`(${sql.join(parts, sql` OR `)})`;
+  const separator = sql` OR `;
+  return sql`(${sql.join(parts, separator)})`;
 }
 
 /**
@@ -626,14 +641,7 @@ export class InstagramMessageRepository {
     after: { occurredAt: string; source: 'message' | 'run_event'; id: number } | null;
     limit: number;
   }): Promise<InstagramContactMessageRow[]> {
-    const cursorCondition =
-      after === null
-        ? sql`TRUE`
-        : after.source === 'run_event'
-          ? // 'message' sorts below 'run_event' at one time: this time's messages are still ahead.
-            sql`m.created_at <= ${after.occurredAt}::timestamptz`
-          : sql`(m.created_at < ${after.occurredAt}::timestamptz
-                 OR (m.created_at = ${after.occurredAt}::timestamptz AND m.id < ${after.id}))`;
+    const cursorCondition = contactMessageCursorCondition(after);
     const result = await this.db().execute(sql`
       SELECT m.id, m.public_id,
              to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,

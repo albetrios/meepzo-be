@@ -21,9 +21,14 @@ export type InstagramSendLaneRow = typeof instagram_send_lanes.$inferSelect;
 /** `updated_at` for every change of a lane — never before the row's `created_at`. */
 const laneUpdatedAtTimestamp = databaseUpdatedAtTimestamp(instagram_send_lanes.created_at);
 
+/** One stop group as a quoted Postgres text literal (the groups are fixed constants, never input). */
+function quotedStopReason(reason: InstagramSendStopReason): string {
+  return `'${reason}'`;
+}
+
 /** The stop groups weakest first, as a Postgres array for `array_position` (SN5). */
 const STOP_STRENGTH_ARRAY = sql.raw(
-  `ARRAY[${INSTAGRAM_SEND_STOP_REASONS.map((reason) => `'${reason}'`).join(', ')}]::varchar[]`,
+  `ARRAY[${INSTAGRAM_SEND_STOP_REASONS.map(quotedStopReason).join(', ')}]::varchar[]`,
 );
 
 /** What a new error stop writes (SN5, SN12). */

@@ -123,7 +123,7 @@ export function readMetaWebhookSettings(): {
 } {
   const environment = getEnv();
   return {
-    appSecret: environment.META_APP_SECRET || null,
-    verifyToken: environment.META_WEBHOOK_VERIFY_TOKEN || null,
+    appSecret: environment.META_APP_SECRET ?? null,
+    verifyToken: environment.META_WEBHOOK_VERIFY_TOKEN ?? null,
   };
 }

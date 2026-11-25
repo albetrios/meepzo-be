@@ -643,7 +643,7 @@ sequenceDiagram
   Team->>Organization: DELETE /tenancy/organization (the owner, with a recent step-up)
   Organization->>Erasure: eraseForOrganizationOffboarding — after the subscription cancel, in the organization's own scope
   Erasure->>Instagram: unsubscribe the live account (best effort, outside any transaction)
-  Erasure->>DB: every account revoked, its token deleted, its profile erased, its stored posts deleted, COMMIT
+  Erasure->>DB: every account revoked, its token deleted, its profile erased, its stored posts deleted, the revoked accounts' sending lanes stopped (CA8), COMMIT
   Organization->>DB: the soft delete — the organization's rows are hidden from here on
   Purge->>DB: the organization tombstoned long enough — hard delete, every app row cascades
 ```

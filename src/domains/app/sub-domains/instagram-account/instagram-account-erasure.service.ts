@@ -3,6 +3,7 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import type { ChannelConnectionLanePort } from '@/domains/app/sub-domains/channel-connection/channel-connection.types.js';
 import type { InstagramMediaService } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.service.js';
 import type { InstagramAccountService } from './instagram-account.service.js';
 import type {
@@ -31,8 +32,10 @@ import type {
  * - Revokes the channel accounts and writes their Instagram extensions; deletes the connections'
  *   tokens (`app.channel_connection_tokens`, sub-domain 1) and the `app.instagram_media` rows, through
  *   the owners' services; on an organization delete, one best-effort Instagram call per live account
- *   outside the transaction, and every connection of the organization revoked (IAC5). The audit
- *   entries are the callers' controllers' (D36).
+ *   outside the transaction, and every connection of the organization revoked (IAC5) with the
+ *   sending lanes of each account it revoked stopped in the same transaction, through the lane port
+ *   (sub-domain 6's lane service, as route 8 does, CA8). The audit entries are the callers'
+ *   controllers' (D36).
  *
  * Notes:
  * - No run is cancelled and automations stay as they are (IQ1, D24): an automation names a post by
@@ -42,6 +45,8 @@ export class InstagramAccountErasureService {
   constructor(
     private readonly accountService: InstagramAccountService,
     private readonly mediaService: InstagramMediaService,
+    /** Sub-domain 6's lane service: an organization delete stops the revoked accounts' lanes. */
+    private readonly lanePort: Pick<ChannelConnectionLanePort, 'stopLanes'>,
   ) {}
 
   /**
@@ -84,7 +89,8 @@ export class InstagramAccountErasureService {
    * InstagramAccountService.unsubscribeForOrganizationOffboarding}, outside any unit of work), then one
    * transaction in the organization's scope —
    * {@link InstagramAccountService.disconnectForOrganizationOffboarding} (every account and every
-   * connection, IAC5) and the stored posts of every account. Failure modes: a failed unsubscribe is logged and never blocks; a database failure reaches
+   * connection, IAC5), the stored posts of every account and the lanes of each account it revoked
+   * stopped (CA8 — a deleted organization's waiting messages never reach a turn). Failure modes: a failed unsubscribe is logged and never blocks; a database failure reaches
    * the delete, which stops. Side effects: as the class lists. Returns `null` when the organization had
    * nothing to erase. Notes: safe to repeat — the reconcile worker runs the whole delete again after a
    * crash. It must run in the organization's own scope while the organization is live: row-level
@@ -98,7 +104,11 @@ export class InstagramAccountErasureService {
       scope,
       callback: async () => {
         const accounts = await this.accountService.disconnectForOrganizationOffboarding({ scope });
-        return this.eraseStoredPosts({ scope, accounts, shouldEraseData: true });
+        const erasure = await this.eraseStoredPosts({ scope, accounts, shouldEraseData: true });
+        for (const channelAccount of erasure?.revokedChannelAccounts ?? []) {
+          await this.lanePort.stopLanes({ scope, ...channelAccount });
+        }
+        return erasure;
       },
     });
   }

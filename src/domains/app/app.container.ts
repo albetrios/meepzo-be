@@ -525,6 +525,8 @@ function createInstagramMediaAndErasureServices(options: {
   const instagramAccountErasureService = new InstagramAccountErasureService(
     options.instagramAccountService,
     instagramMediaService,
+    // An organization delete stops the revoked accounts' lanes (CA8, R61).
+    options.lanePort,
   );
   const channelConnectionMetaCallbackService = new ChannelConnectionMetaCallbackService(
     options.channelConnectionRepository,

@@ -105,9 +105,11 @@ describe('ChannelConnectionMetaCallbackService (no database)', () => {
     } as unknown as ChannelConnectionRepository,
     { revokeConnection } as unknown as ChannelConnectionTokenService,
     { countLiveAccountsOfConnection },
-    new InstagramAccountErasureService(accountService, {
-      deleteForAccount,
-    } as unknown as InstagramMediaService),
+    new InstagramAccountErasureService(
+      accountService,
+      { deleteForAccount } as unknown as InstagramMediaService,
+      { stopLanes },
+    ),
     { stopLanes },
     { alertUnmatchedMetaCallback },
   );

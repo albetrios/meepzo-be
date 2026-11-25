@@ -17,6 +17,7 @@ src/
     │   │   │   ├── instagram-acceptance-gaps.e2e.test.ts
     │   │   │   ├── instagram-acceptance-gaps.helper.ts
     │   │   │   ├── instagram-comment-flow.helper.ts
+    │   │   │   ├── instagram-data-deletion-erase-flow.e2e.test.ts
     │   │   │   ├── instagram-intake-run.helper.ts
     │   │   │   ├── instagram-next-post-flow.e2e.test.ts
     │   │   │   ├── instagram-next-post-flow.helper.ts

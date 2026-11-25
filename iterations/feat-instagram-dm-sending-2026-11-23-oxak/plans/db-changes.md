@@ -1737,6 +1737,7 @@ erDiagram
   all accounts after it. No organization — a
   documented exemption, maintenance login only (A16).
 - **Built R18** ([AS-BUILT](../AS-BUILT.md), [P306](decisions.md)): as designed **plus** S13's `app_usage_percent`, `app_usage_read_at`; policy `sending_states_maintenance_access` on `app.sending_state_access` (`MAINTENANCE_SCOPE.SENDING_STATE`), granted to `meepzo_be_maintenance` only. **New with it (S8):** `app.instagram_send_day_counts` — `organization_id`, `channel_account_id`, `day_date` (organization time zone), `sent_count`, `unknown_count`, `skipped_count`, `skipped_window_closed_count`, `expired_count`, `updated_at`; primary key organization, account, day; FORCE RLS with the sweep arm; fillfactor 80.
+- **Built R42** ([AS-BUILT](../AS-BUILT.md), [P138](decisions.md)): migration `20261125174213_app_instagram_send_core.sql` adds `app_limit_channel_account_id` (bigint) and `app_limit_seen_at` (timestamptz), both empty or both set (`chk_sending_states_app_limit_seen`) — the last account that met Meta's app limit, so a second account within 5 minutes stops every account (plan §33.6, AC-17.11).
 - **Table:** `app.sending_states` (common, [P43](decisions.md): the global send switch; the plan names
   it in the singular, `app.sending_state`)
 - **Sources:** plan:L3496–L3505, plan:L6980–L6994; D20, D21; [P95](decisions.md).

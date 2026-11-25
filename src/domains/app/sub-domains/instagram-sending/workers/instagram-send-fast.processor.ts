@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type { InstagramFastMessageWork } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
@@ -66,6 +67,7 @@ export async function processInstagramSendFastTicket({
     gate: services.sendingGate,
     work: (context) =>
       fastMessage.sendFastMessage({
+        scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
         ticket: {
           organizationPublicId,
           channelAccountPublicId,

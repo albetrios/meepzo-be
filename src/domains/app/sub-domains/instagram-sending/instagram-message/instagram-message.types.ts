@@ -9,6 +9,7 @@ import type {
 } from './instagram-message.constants.js';
 import type { InstagramMessageKey } from './instagram-message.repository.js';
 import type { InstagramSendAttemptKey } from './instagram-send-attempt.repository.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 
 /**
  * The run engine's save-result entry point (4.B `AutomationRunService.recordMessageResult`, AU35) —
@@ -46,7 +47,8 @@ export interface InstagramSendResultInput {
   scope: OrganizationPrincipalDatabaseScope;
   key: InstagramMessageKey;
   attempt: InstagramSendAttemptKey | null;
-  status: InstagramMessageFinalStatus;
+  /** The final status, or `waiting` — back to the lane (a stop, a sure "not sent", SN5). */
+  status: InstagramMessageFinalStatus | 'waiting';
   reason: InstagramMessageReason | null;
   /** Meta's `mid` of a sent message. */
   instagramMessageId: string | null;
@@ -56,4 +58,24 @@ export interface InstagramSendResultInput {
   resultGroup: string;
   httpStatus: number | null;
   durationMilliseconds: number | null;
+  /** Back to `waiting` only: a try is used up (`tries` + 1). */
+  isTryUsed?: boolean | undefined;
+  /** Back to `waiting` only: when it may go again (default now). */
+  notBefore?: Date | undefined;
+  /**
+   * The claim's counts to give back in this commit (SN4: a sure "not sent") — the attempt's count
+   * group and when the claim added it; the month only for a counted DM.
+   */
+  giveBack?: { countGroup: InstagramSendAttemptCountGroup; claimedAt: Date } | null | undefined;
 }
+
+/**
+ * The contact's opening-DM bookkeeping (3.A.10 `ContactService.recordContactOpeningMessage`) the
+ * result save calls in its commit for an opening DM `sent` or `unknown` (SN4).
+ */
+export type InstagramMessageOpeningPort = (input: {
+  databaseHandle: WorkerDatabaseHandle;
+  organizationId: number;
+  contactId: number;
+  sentAt: Date;
+}) => Promise<unknown>;

@@ -22,6 +22,7 @@ import {
   type InstagramSendLane,
   type InstagramSendStopEndedBy,
   type InstagramSendStopReason,
+  type InstagramSendWaitReason,
 } from './instagram-sending.constants.js';
 import type {
   InstagramSendLaneStopInput,
@@ -106,6 +107,29 @@ export class InstagramSendLaneService
       callback: async () => {
         await this.laneRepository.stopTurns(key);
         if (planStopReason === undefined) return;
+        await this.recordPlanStop({ scope, organizationId, channelAccountId, planStopReason });
+      },
+    });
+  }
+
+  /**
+   * Records a plan stop of the account in the history (lane `all`, SN13) unless one of that reason
+   * is open — the lanes are not touched: a turn reads the account's plan stop (SN12, D62).
+   *
+   * @remarks
+   * Algorithm: one read and at most one insert in the caller's unit. Failure modes: none of its own.
+   * Side effects: one history row.
+   */
+  async recordPlanStop({
+    scope,
+    organizationId,
+    channelAccountId,
+    planStopReason,
+  }: InstagramSendLaneTarget & { planStopReason: ChannelAccountPlanStopReason }): Promise<void> {
+    const key = { organizationId, channelAccountId };
+    await withAppDatabaseContext({
+      scope,
+      callback: async () => {
         const isOpen = await this.stopRepository.hasOpenStop({
           ...key,
           lane: 'all',
@@ -344,10 +368,16 @@ export class InstagramSendLaneService
     lane,
     workingTurn,
     nextRunAt,
+    isHeld,
+    waitReason,
   }: InstagramSendLaneTarget & {
     lane: InstagramSendLane;
     workingTurn: number;
-    nextRunAt: Date;
+    /** `null` = no next run until a wake. */
+    nextRunAt: Date | null;
+    /** The account holds the lane (pause, suspend, plan stop): `stopped`. */
+    isHeld?: boolean | undefined;
+    waitReason?: InstagramSendWaitReason | null | undefined;
   }): Promise<InstagramSendLaneRow | null> {
     return withAppDatabaseContext({
       scope,
@@ -358,6 +388,8 @@ export class InstagramSendLaneService
           lane,
           workingTurn,
           nextRunAt,
+          isHeld: isHeld ?? false,
+          waitReason: waitReason ?? null,
         }),
     });
   }

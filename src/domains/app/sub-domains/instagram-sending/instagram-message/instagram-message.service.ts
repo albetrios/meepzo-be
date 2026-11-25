@@ -1,4 +1,12 @@
 import { withAppDatabaseContext } from '@/infrastructure/database/contexts/database-context.js';
+import type { RequestScopedPostgresDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import { InstagramSendDayCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
+import type { InstagramSendDayCounts } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
+import { InstagramSendMinuteCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-minute-count.repository.js';
+import { MessageMonthCountRepository } from '@/domains/app/sub-domains/instagram-sending/message-month-count.repository.js';
+import { invalidateCachedMessageMonthCount } from '@/domains/app/sub-domains/instagram-sending/message-month-count.cache.js';
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type {
   ChannelActivityCursor,
@@ -38,6 +46,7 @@ import {
 import { InstagramSendAttemptRepository } from './instagram-send-attempt.repository.js';
 import type {
   InstagramMessageClaimInput,
+  InstagramMessageOpeningPort,
   InstagramMessageRetryQueue,
   InstagramMessageRunResultPort,
   InstagramSendResultInput,
@@ -62,6 +71,28 @@ function emptyBlocks(): Record<ChannelFailedMessageBlock, number> {
   return Object.fromEntries(
     INSTAGRAM_MESSAGE_NOT_RETRYABLE_REASONS.map((reason) => [reason, 0]),
   ) as Record<ChannelFailedMessageBlock, number>;
+}
+
+/** Today's line (S8) of a settled status: `failed` has no column; `expired` counts as expired. */
+function dayCountsOf({
+  status,
+  reason,
+}: {
+  status: 'sent' | 'unknown' | 'failed' | 'skipped' | 'expired';
+  reason: InstagramMessageReason | null;
+}): Partial<InstagramSendDayCounts> | null {
+  switch (status) {
+    case 'sent':
+      return { sent: 1 };
+    case 'unknown':
+      return { unknown: 1 };
+    case 'skipped':
+      return reason === 'window_closed' ? { skipped: 1, skippedWindowClosed: 1 } : { skipped: 1 };
+    case 'expired':
+      return { expired: 1 };
+    default:
+      return null;
+  }
 }
 
 /**
@@ -93,6 +124,8 @@ export class InstagramMessageService implements ChannelSendingPort {
       recordRunMessageResult: InstagramMessageRunResultPort;
       /** WC-42's queue (R46); absent → the retry runs in the request. */
       retryQueue?: InstagramMessageRetryQueue | undefined;
+      /** The contact's opening-DM bookkeeping (3.A.10), called in the result's commit (R42). */
+      recordContactOpeningMessage?: InstagramMessageOpeningPort | undefined;
     },
   ) {}
 
@@ -499,28 +532,40 @@ export class InstagramMessageService implements ChannelSendingPort {
 
   /**
    * The one result save (SN4 `saveSendResult`): a `sending` message takes its final status, reason,
-   * Meta's id and codes, its attempt is finished, and a run's message reports to the engine's
-   * `recordMessageResult` in the same commit (`expired` as `skipped`). A repeat for a settled
-   * message changes nothing. Answers the saved row, or `null`.
+   * Meta's id and codes — or goes back to `waiting` (a stop, a sure "not sent") — its attempt is
+   * finished, the claim's counts are given back when asked, today's line moves (S8), an opening DM's
+   * bookkeeping moves, and a run's message reports to the engine's `recordMessageResult` in the same
+   * commit (`expired` as `skipped`; `waiting` reports nothing). A repeat for a settled message
+   * changes nothing. Answers the saved row, or `null`.
    *
    * @remarks
-   * Algorithm: one unit — the guarded update, the attempt, the engine. Failure modes: a database
-   * error rolls the whole save back (the lanes retry it inside the send, R42). Side effects: the
-   * message, the attempt, the run's next step. Notes: count give-backs, the day counts and the stop
-   * rules join this commit at R42.
+   * Algorithm: one unit — the guarded update, the attempt, the give-backs, the day counts, the
+   * contact, the engine. Failure modes: a database error rolls the whole save back (the send core
+   * retries it inside the send, R42). Side effects: the message, the attempt, the counts (the
+   * month's Redis copy tombstoned after commit), the run's next step.
    */
   async saveSendResult(input: InstagramSendResultInput): Promise<InstagramMessageRow | null> {
     return withAppDatabaseContext({
       scope: input.scope,
       callback: async (databaseHandle) => {
-        const message = await new InstagramMessageRepository(databaseHandle).finishSending({
-          key: input.key,
-          status: input.status,
-          reason: input.reason,
-          instagramMessageId: input.instagramMessageId,
-          errorCode: input.errorCode,
-          errorSubcode: input.errorSubcode,
-        });
+        const repository = new InstagramMessageRepository(databaseHandle);
+        const message =
+          input.status === 'waiting'
+            ? await repository.putBackWaiting({
+                key: input.key,
+                isTryUsed: input.isTryUsed ?? false,
+                notBefore: input.notBefore ?? new Date(),
+                errorCode: input.errorCode,
+                errorSubcode: input.errorSubcode,
+              })
+            : await repository.finishSending({
+                key: input.key,
+                status: input.status,
+                reason: input.reason,
+                instagramMessageId: input.instagramMessageId,
+                errorCode: input.errorCode,
+                errorSubcode: input.errorSubcode,
+              });
         if (message === null) return null;
         if (input.attempt !== null) {
           await new InstagramSendAttemptRepository(databaseHandle).finish({
@@ -532,27 +577,97 @@ export class InstagramMessageService implements ChannelSendingPort {
             durationMilliseconds: input.durationMilliseconds,
           });
         }
-        if (message.automation_run_id !== null) {
-          await this.options.recordRunMessageResult({
-            scope: input.scope,
-            databaseHandle,
-            organizationId: message.organization_id,
-            channelAccountId: message.channel_account_id,
-            automationRunId: message.automation_run_id,
-            automationRunStartedAt: message.automation_run_started_at,
-            messagePublicId: message.public_id,
-            step: instagramMessageStepOf(
-              message.message_type as Parameters<typeof instagramMessageStepOf>[0],
-            ),
-            messageNumber: message.message_number,
-            result: channelResultOf(input.status),
-            reason: input.reason,
-            occurredAt: new Date(),
-          });
-        }
+        await this.giveCountsBack({ input, message, databaseHandle });
+        if (input.status === 'waiting') return message;
+        await this.recordSettledMessage({ input, status: input.status, message, databaseHandle });
         return message;
       },
     });
+  }
+
+  /** The claim's minute and month counts given back (SN4), in the save's unit. */
+  private async giveCountsBack({
+    input,
+    message,
+    databaseHandle,
+  }: {
+    input: InstagramSendResultInput;
+    message: InstagramMessageRow;
+    databaseHandle: RequestScopedPostgresDatabase;
+  }): Promise<void> {
+    const giveBack = input.giveBack ?? null;
+    if (giveBack === null) return;
+    const key = {
+      organizationId: message.organization_id,
+      channelAccountId: message.channel_account_id,
+    };
+    if (giveBack.countGroup !== 'none') {
+      await new InstagramSendMinuteCountRepository(databaseHandle).subtractFromMinute({
+        ...key,
+        countGroup: giveBack.countGroup,
+        count: 1,
+        claimedAt: giveBack.claimedAt,
+      });
+    }
+    if (message.is_counted_as_direct_message) {
+      await new MessageMonthCountRepository(databaseHandle).subtractFromMonth({ ...key, count: 1 });
+      await runEnqueueAfterCommit(() =>
+        invalidateCachedMessageMonthCount(input.scope.organizationPublicId),
+      );
+    }
+  }
+
+  /** A settled message's day line (S8), opening bookkeeping and engine report, in the save's unit. */
+  private async recordSettledMessage({
+    input,
+    status,
+    message,
+    databaseHandle,
+  }: {
+    input: InstagramSendResultInput;
+    status: Exclude<InstagramSendResultInput['status'], 'waiting'>;
+    message: InstagramMessageRow;
+    databaseHandle: RequestScopedPostgresDatabase;
+  }): Promise<void> {
+    const occurredAt = new Date();
+    const dayCounts = dayCountsOf({ status, reason: input.reason });
+    if (dayCounts !== null) {
+      await new InstagramSendDayCountRepository(databaseHandle).addToToday({
+        organizationId: message.organization_id,
+        channelAccountId: message.channel_account_id,
+        counts: dayCounts,
+      });
+    }
+    if (
+      message.message_type === 'opening_message' &&
+      (status === 'sent' || status === 'unknown') &&
+      this.options.recordContactOpeningMessage !== undefined
+    ) {
+      await this.options.recordContactOpeningMessage({
+        databaseHandle: databaseHandle as WorkerDatabaseHandle,
+        organizationId: message.organization_id,
+        contactId: message.contact_id,
+        sentAt: occurredAt,
+      });
+    }
+    if (message.automation_run_id !== null) {
+      await this.options.recordRunMessageResult({
+        scope: input.scope,
+        databaseHandle,
+        organizationId: message.organization_id,
+        channelAccountId: message.channel_account_id,
+        automationRunId: message.automation_run_id,
+        automationRunStartedAt: message.automation_run_started_at,
+        messagePublicId: message.public_id,
+        step: instagramMessageStepOf(
+          message.message_type as Parameters<typeof instagramMessageStepOf>[0],
+        ),
+        messageNumber: message.message_number,
+        result: channelResultOf(status),
+        reason: input.reason,
+        occurredAt,
+      });
+    }
   }
 
   /**

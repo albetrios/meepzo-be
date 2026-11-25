@@ -73,15 +73,22 @@ export async function enqueueInstagramSendFastMessage(
     | 'instagramMessagePublicId'
     | 'automationRunStartedAt'
     | 'tries'
-  >,
+  > & {
+    /** Holds the ticket until the message's `not_before` (no worker ever waits, plan §24.6). */
+    delayMilliseconds?: number | undefined;
+  },
 ): Promise<void> {
+  const { delayMilliseconds, ...fields } = ticket;
   const jobData = parseBullMQJobData({
     schema: instagramSendFastJobDataSchema,
-    data: { ...ticket, ...captureTraceContextForPropagation() },
+    data: { ...fields, ...captureTraceContextForPropagation() },
     queueName: INSTAGRAM_SEND_FAST_QUEUE_NAME,
   });
   await getInstagramSendFastQueue().add(INSTAGRAM_SEND_FAST_MESSAGE_JOB_NAME, jobData, {
-    jobId: instagramSendFastMessageJobId(ticket),
+    jobId: instagramSendFastMessageJobId(fields),
+    ...(delayMilliseconds !== undefined && delayMilliseconds > 0
+      ? { delay: delayMilliseconds }
+      : {}),
   });
 }
 

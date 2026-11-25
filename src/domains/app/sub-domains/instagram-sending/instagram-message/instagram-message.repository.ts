@@ -409,6 +409,82 @@ export class InstagramMessageRepository {
     return row ?? null;
   }
 
+  /** One message by its key, or `null`. */
+  async findByKey(key: InstagramMessageKey): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .select()
+      .from(instagram_messages)
+      .where(this.whereKey(key))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * The result save's "back to `waiting`" (SN5: a stop never fails a DM; a sure "not sent"): a
+   * `sending` row waits again from `notBefore`, its try counted when `isTryUsed`. Answers the row, or
+   * `null` when it is not `sending` any more.
+   */
+  async putBackWaiting({
+    key,
+    isTryUsed,
+    notBefore,
+    errorCode,
+    errorSubcode,
+  }: {
+    key: InstagramMessageKey;
+    isTryUsed: boolean;
+    notBefore: Date;
+    errorCode: number | null;
+    errorSubcode: number | null;
+  }): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .update(instagram_messages)
+      .set({
+        status: 'waiting',
+        reason: null,
+        sending_at: null,
+        not_before: notBefore,
+        tries: isTryUsed ? sql`${instagram_messages.tries} + 1` : instagram_messages.tries,
+        error_code: errorCode,
+        error_subcode: errorSubcode,
+        updated_at: sql`now()`,
+      })
+      .where(and(this.whereKey(key), eq(instagram_messages.status, 'sending')))
+      .returning();
+    return row ?? null;
+  }
+
+  /** Her messages sent in the last hour (the person limit, SN3 — `idx_instagram_messages_person_sent`). */
+  async countSentToContactInLastHour({
+    organizationId,
+    contactId,
+  }: {
+    organizationId: number;
+    contactId: number;
+  }): Promise<number> {
+    const rows = await this.db()
+      .select({ total: sql<number>`count(*)::int` })
+      .from(instagram_messages)
+      .where(
+        and(
+          eq(instagram_messages.organization_id, organizationId),
+          eq(instagram_messages.contact_id, contactId),
+          eq(instagram_messages.status, 'sent'),
+          sql`${instagram_messages.sent_at} > now() - interval '1 hour'`,
+        ),
+      );
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  /** The `WHERE` of one message by key. */
+  private whereKey(key: InstagramMessageKey): SQL | undefined {
+    return and(
+      eq(instagram_messages.organization_id, key.organizationId),
+      eq(instagram_messages.public_id, key.publicId),
+      eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
+    );
+  }
+
   /** The Meta message ids among `messageIds` that one account sent (WHQ1, P62). */
   async findOwnSentMessageIds({
     organizationId,

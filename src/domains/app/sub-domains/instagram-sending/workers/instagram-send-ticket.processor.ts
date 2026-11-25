@@ -85,6 +85,17 @@ export async function runInstagramTicket({
   const context: InstagramSendTicketContext = {
     jobId: job.id ?? queueName,
     runInDatabaseSlot: (callback) => limiter.runInSlot({ callback }),
+    returnTicket: async (delayMilliseconds) => {
+      if (token === undefined)
+        throw new Error('instagram send ticket returned without a lock token');
+      return returnTicketWithoutTry({
+        job,
+        token,
+        delayMilliseconds,
+        logFields: { queueName },
+        logMessage: 'app.instagram_send.ticket_returned',
+      });
+    },
   };
   await runWithDatabaseSlotTicketReturn({ job, token, queueName, callback: () => work(context) });
 }

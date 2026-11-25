@@ -130,4 +130,41 @@ export class SendingStateRepository {
         ),
       );
   }
+
+  /** The row locked until the unit of work ends (the app-limit decision, plan §33.6). */
+  async lockRow(): Promise<SendingStateRow | null> {
+    const rows = await this.db()
+      .select()
+      .from(sending_states)
+      .where(eq(sending_states.id, SENDING_STATE_ROW_ID))
+      .for('update');
+    return rows[0] ?? null;
+  }
+
+  /** Records one account's app-limit answer (plan §33.6). */
+  async recordAppLimitSeen({ channelAccountId }: { channelAccountId: number }): Promise<void> {
+    await this.db()
+      .update(sending_states)
+      .set({
+        app_limit_channel_account_id: channelAccountId,
+        app_limit_seen_at: sql`now()`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(sending_states.id, SENDING_STATE_ROW_ID));
+  }
+
+  /** Starts the all-accounts `app_limit` stop until `stopUntil` and counts it (plan §33.6). */
+  async startAppLimitStop({ stopUntil }: { stopUntil: Date }): Promise<void> {
+    await this.db()
+      .update(sending_states)
+      .set({
+        all_stop_reason: 'app_limit',
+        all_stop_until: stopUntil,
+        all_stop_count: sql`${sending_states.all_stop_count} + 1`,
+        app_limit_channel_account_id: null,
+        app_limit_seen_at: null,
+        updated_at: sql`now()`,
+      })
+      .where(eq(sending_states.id, SENDING_STATE_ROW_ID));
+  }
 }

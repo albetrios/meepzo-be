@@ -266,3 +266,136 @@ export const INSTAGRAM_ATTACHMENT_TYPE_OF_CONTENT_TYPE: Readonly<
   'audio/wav': 'audio',
   'application/pdf': 'file',
 };
+
+/**
+ * The result group of one send attempt (plan §33.3, SN5): `sent`, or the one group of 6.A.10 Meta's
+ * answer (or its absence) maps to — `app.instagram_send_attempts.result_group`. "In a row" and the
+ * outage rules read these from the attempts, never Redis.
+ */
+export const INSTAGRAM_SEND_RESULT_GROUPS = [
+  'sent',
+  'too_fast',
+  'blocked',
+  'account_flagged',
+  'login_expired',
+  'account_not_shared',
+  'access_off',
+  'app_not_approved',
+  'app_limit',
+  'comment_gone',
+  'live_ended',
+  'attachment',
+  'other_app',
+  'window_closed',
+  'person',
+  'wrong_permission',
+  'bad_text',
+  'hide_failed',
+  'check_not_possible',
+  'try_later',
+  'no_answer',
+  'never_connected',
+  'already_sent_first',
+] as const;
+
+/** One value of {@link INSTAGRAM_SEND_RESULT_GROUPS}. */
+export type InstagramSendResultGroup = (typeof INSTAGRAM_SEND_RESULT_GROUPS)[number];
+
+/**
+ * Meta's error codes and the group each maps to (plan §33.1, 6.A.10; P4 — the code lists are
+ * constants). `subcode`: a number matches that subcode only, `'none'` an answer without a subcode,
+ * `'any'` every subcode. The first entry that matches wins, so a code's subcode entries come before
+ * its `'any'` entry; codes not listed are `wrong_permission` (other 10, 200–299), `bad_text` (other
+ * 100) or `try_later` (any other code) — `classifyInstagramSendError`.
+ *
+ * @remarks
+ * `CODES_ALREADY_SENT`, `CODES_LIVE_ENDED`, `CODES_ATTACHMENT_GONE` and the "account no longer
+ * shared" code are still to be named by Meta's tests (SN5, P36): those groups have no entry yet.
+ */
+export const INSTAGRAM_SEND_ERROR_CODE_GROUPS: readonly {
+  code: number;
+  subcode: number | 'none' | 'any';
+  group: InstagramSendResultGroup;
+}[] = [
+  { code: 190, subcode: 'any', group: 'login_expired' },
+  { code: 368, subcode: 'any', group: 'blocked' },
+  { code: 10, subcode: 1_893_063, group: 'blocked' },
+  { code: 100, subcode: 2_534_029, group: 'blocked' },
+  { code: 613, subcode: 2_018_338, group: 'blocked' },
+  { code: 613, subcode: 'any', group: 'too_fast' },
+  { code: 17, subcode: 'any', group: 'too_fast' },
+  { code: 32, subcode: 'any', group: 'too_fast' },
+  { code: 80_002, subcode: 'any', group: 'too_fast' },
+  { code: 80_006, subcode: 'any', group: 'too_fast' },
+  { code: 4, subcode: 'none', group: 'app_limit' },
+  { code: 4, subcode: 'any', group: 'account_flagged' },
+  { code: 341, subcode: 'any', group: 'app_limit' },
+  { code: 200, subcode: 2_534_041, group: 'access_off' },
+  { code: 10, subcode: 2_534_077, group: 'access_off' },
+  { code: 200, subcode: 2_018_028, group: 'app_not_approved' },
+  { code: 10, subcode: 2_018_300, group: 'other_app' },
+  { code: 100, subcode: 2_534_037, group: 'other_app' },
+  { code: 10, subcode: 2_018_278, group: 'window_closed' },
+  { code: 10, subcode: 2_534_022, group: 'window_closed' },
+  { code: 551, subcode: 'any', group: 'person' },
+  { code: 1_545_041, subcode: 'any', group: 'person' },
+  { code: 10, subcode: 2_018_108, group: 'person' },
+  { code: 100, subcode: 2_534_014, group: 'person' },
+  { code: 100, subcode: 2_018_001, group: 'person' },
+  { code: 100, subcode: 33, group: 'comment_gone' },
+  { code: 100, subcode: 2_534_025, group: 'comment_gone' },
+  { code: 1, subcode: 'any', group: 'try_later' },
+  { code: 2, subcode: 'any', group: 'try_later' },
+];
+
+/**
+ * The send core's numbers (plan §31, §33; SN3–SN5, P4), one place. Ladders are read by the stop's
+ * `stop_count` (the last step repeats).
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ */
+export const INSTAGRAM_SEND_CORE_SETTINGS = {
+  /** A claimed message's lease and a lane turn's lease (SN3 (d)): after it the repair settles it. */
+  leaseSeconds: 120,
+  /** Gate 1's Redis wait (SN3); a slower answer passes the gate. */
+  gateOneTimeoutMilliseconds: 100,
+  /** Timeouts in a row after which gate 1 is skipped (SN3). */
+  gateOneTimeoutsBeforeSkip: 3,
+  /** How long gate 1 is skipped after those timeouts (SN3). */
+  gateOneSkipMilliseconds: 30_000,
+  /** A result save that met a deadlock or a lock timeout is tried this many more times (SN4). */
+  saveLockRetries: 3,
+  /** A result save that lost its connection waits these seconds before each next try (SN4). */
+  saveConnectionRetrySeconds: [1, 2, 4, 8],
+  /** `too_fast` stops its lane this many minutes when Meta names no longer time (plan §33.1). */
+  tooFastStopMinutes: [15, 30, 60, 120, 240, 360],
+  /** `blocked` and `account_flagged` are tested after these hours (plan §33.1). */
+  blockedTestHours: [24, 48, 72],
+  /** `access_off` and `app_not_approved` are tested every this many minutes (`ACCESS_TEST_MINUTES`). */
+  accessTestMinutes: 60,
+  /** The all-accounts `app_limit` stop, by its count (`APP_STOP_MINUTES`, plan §33.6). */
+  appStopMinutes: [15, 30, 60],
+  /** `app_limit` from two accounts within this many minutes stops every account (`APP_LIMIT_WINDOW_MINUTES`). */
+  appLimitWindowMinutes: 5,
+  /** "No answer" or "try later" results in a row that stop an account (`DOWN_IN_A_ROW`). */
+  downInARow: 3,
+  /** The account's `instagram_down` stop, by its count (`DOWN_STOP_MINUTES`, plan §33.5). */
+  downStopMinutes: [5, 10, 20, 40],
+  /** Different people in a row with `wrong_permission` that stop every lane (plan §33.2 rule 3). */
+  wrongPermissionPeopleInARow: 3,
+  /** Half speed after a passed test (`HALF_SPEED_HOURS`, plan §33.4). */
+  halfSpeedHours: 1,
+  /** Half speed after a passed test of a block (`HALF_SPEED_AFTER_BLOCK_HOURS`). */
+  halfSpeedAfterBlockHours: 24,
+  /** One account test's lease (`TEST_LEASE_MINUTES`, plan §33.4). */
+  testLeaseMinutes: 2,
+  /** A waiting opening DM's "try later" waits, then `failed` (`TRY_LATER_MINUTES`). */
+  tryLaterMinutes: [1, 5, 15],
+  /** A surely-not-sent call ("never connected") comes back after these seconds (plan §33.1). */
+  neverConnectedRetrySeconds: [5, 15, 60],
+  /** A follow check that could not read the follow tries once more, then counts as following (§30.9). */
+  followCheckTries: 1,
+  /** A lane turn with nothing to send looks again after this many seconds. */
+  idleTurnSeconds: 60,
+} as const;

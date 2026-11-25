@@ -1,5 +1,8 @@
 import type { ChannelMessageStep } from '@/domains/app/app.channel-ports.js';
-import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
+import {
+  INSTAGRAM_SEND_ERROR_CODE_GROUPS,
+  type InstagramSendLane,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 
 /**
  * The message types of `app.instagram_messages` (feat-instagram-dm-sending routes-final § 6.B.3,
@@ -205,20 +208,18 @@ export const INSTAGRAM_COMMENT_REPLY_EXPIRY_MILLISECONDS = 7 * 24 * 60 * 60 * 10
  * Meta errors final for the person (plan §33, `CODES_PERSON` and `CODES_OTHER_APP`): she blocked
  * us, the user is not found, no consent, or another app controls her chat. A failed message whose
  * last error is one of these is never retried (SN18 `final_for_person`). `subcode: null` matches any
- * subcode. The full code → group table is the lanes' (6.A.10, ROUTE row R42), which folds these in.
+ * subcode. Read from the send core's one code → group table (SNC4, ROUTE row R42): its `person` and
+ * `other_app` entries.
  */
 export const INSTAGRAM_PERSON_FINAL_ERRORS: readonly {
   code: number;
   subcode: number | null;
-}[] = [
-  { code: 551, subcode: null },
-  { code: 1_545_041, subcode: null },
-  { code: 10, subcode: 2_018_108 },
-  { code: 100, subcode: 2_018_001 },
-  { code: 100, subcode: 2_534_014 },
-  { code: 10, subcode: 2_018_300 },
-  { code: 100, subcode: 2_534_037 },
-];
+}[] = INSTAGRAM_SEND_ERROR_CODE_GROUPS.filter(
+  (entry) => entry.group === 'person' || entry.group === 'other_app',
+).map((entry) => ({
+  code: entry.code,
+  subcode: typeof entry.subcode === 'number' ? entry.subcode : null,
+}));
 
 /** Why a failed message cannot go again now (SN18; the summary's `not_retryable` keys). */
 export const INSTAGRAM_MESSAGE_NOT_RETRYABLE_REASONS = [

@@ -1,4 +1,5 @@
 import type { Job } from 'bullmq';
+import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type { InstagramLaneTurnWork } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
@@ -60,6 +61,7 @@ export async function processInstagramSendSlowTicket({
     gate: services.sendingGate,
     work: (context) =>
       laneTurn.workLaneTurn({
+        scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
         ticket: { organizationPublicId, channelAccountPublicId, lane, turnNumber },
         context,
       }),

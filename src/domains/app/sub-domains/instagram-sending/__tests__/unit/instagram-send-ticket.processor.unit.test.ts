@@ -123,7 +123,12 @@ describe('Instagram send and task tickets (SN2, SN7, SN24 — ROUTE row R37)', (
     expect(allowed.mayTakeTickets).toHaveBeenCalledTimes(1);
     expect(workLaneTurn).toHaveBeenCalledWith({
       ticket: slowTicket,
-      context: { jobId: 'ticket-1', runInDatabaseSlot: expect.any(Function) },
+      scope: expect.objectContaining({ organizationPublicId: slowTicket.organizationPublicId }),
+      context: {
+        jobId: 'ticket-1',
+        runInDatabaseSlot: expect.any(Function),
+        returnTicket: expect.any(Function),
+      },
     });
   });
 
@@ -151,6 +156,7 @@ describe('Instagram send and task tickets (SN2, SN7, SN24 — ROUTE row R37)', (
     });
     expect(sendFastMessage).toHaveBeenCalledWith({
       ticket: jobData,
+      scope: expect.objectContaining({ organizationPublicId: jobData.organizationPublicId }),
       context: expect.objectContaining({ jobId: 'ticket-1' }),
     });
   });

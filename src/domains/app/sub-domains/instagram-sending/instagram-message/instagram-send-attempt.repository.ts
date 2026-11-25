@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -107,5 +107,41 @@ export class InstagramSendAttemptRepository {
       )
       .returning({ id: instagram_send_attempts.id });
     return finished.length > 0;
+  }
+
+  /**
+   * The account's last finished attempts, newest first ("in a row" — plan §33.2 rule 6, §33.5):
+   * result group, contact and count group only.
+   */
+  async listLastResults({
+    organizationId,
+    channelAccountId,
+    limit,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    limit: number;
+  }): Promise<{ resultGroup: string; contactId: number; countGroup: string }[]> {
+    const rows = await this.db()
+      .select({
+        resultGroup: instagram_send_attempts.result_group,
+        contactId: instagram_send_attempts.contact_id,
+        countGroup: instagram_send_attempts.count_group,
+      })
+      .from(instagram_send_attempts)
+      .where(
+        and(
+          eq(instagram_send_attempts.organization_id, organizationId),
+          eq(instagram_send_attempts.channel_account_id, channelAccountId),
+          isNotNull(instagram_send_attempts.result_group),
+        ),
+      )
+      .orderBy(desc(instagram_send_attempts.started_at), desc(instagram_send_attempts.id))
+      .limit(limit);
+    return rows.map((row) => ({
+      resultGroup: row.resultGroup ?? '',
+      contactId: row.contactId,
+      countGroup: row.countGroup,
+    }));
   }
 }

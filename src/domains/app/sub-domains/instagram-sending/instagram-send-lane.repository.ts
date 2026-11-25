@@ -12,6 +12,7 @@ import {
   INSTAGRAM_SEND_STOP_REASONS,
   type InstagramSendLane,
   type InstagramSendStopReason,
+  type InstagramSendWaitReason,
 } from './instagram-sending.constants.js';
 
 /** One `app.instagram_send_lanes` row as Drizzle reads it. */
@@ -278,13 +279,21 @@ export class InstagramSendLaneRepository {
     lane,
     workingTurn,
     nextRunAt,
+    isHeld = false,
+    waitReason = null,
     ...key
   }: ChannelAccountKey & {
     lane: InstagramSendLane;
     workingTurn: number;
-    nextRunAt: Date;
+    /** `null` = no next run: the lane waits for a wake (new work, a resume, a stop's end). */
+    nextRunAt: Date | null;
+    /** The account holds this lane (pause, suspend, plan stop): `stopped` until its wake. */
+    isHeld?: boolean;
+    waitReason?: InstagramSendWaitReason | null;
   }): Promise<InstagramSendLaneRow | null> {
-    const isStopped = sql`${instagram_send_lanes.stop_reason} IS NOT NULL`;
+    const isStopped = isHeld ? sql`true` : sql`${instagram_send_lanes.stop_reason} IS NOT NULL`;
+    const nextRun =
+      nextRunAt === null ? sql`NULL::timestamptz` : sql`${nextRunAt.toISOString()}::timestamptz`;
     // The fast lane is only ever `ready` or `stopped` (6.A.3).
     const idleState =
       lane === 'fast' ? INSTAGRAM_SEND_LANE_STATE.READY : INSTAGRAM_SEND_LANE_STATE.SLEEPING;
@@ -295,7 +304,8 @@ export class InstagramSendLaneRepository {
         working_turn: null,
         lease_until: null,
         turn_number: sql`${instagram_send_lanes.turn_number} + 1`,
-        next_run_at: sql`CASE WHEN ${isStopped} THEN NULL ELSE ${nextRunAt.toISOString()}::timestamptz END`,
+        next_run_at: sql`CASE WHEN ${isStopped} THEN NULL::timestamptz ELSE ${nextRun} END`,
+        wait_reason: sql`CASE WHEN ${isStopped} THEN 'stop' ELSE ${waitReason}::varchar END`,
         updated_at: laneUpdatedAtTimestamp,
       })
       .where(
@@ -308,5 +318,128 @@ export class InstagramSendLaneRepository {
       )
       .returning();
     return rows[0] ?? null;
+  }
+
+  /**
+   * Locks one lane row until the unit of work ends (the claim's commit, SN3): two claims of one
+   * account and group never check and add gate 2 at the same time.
+   */
+  async lockLane({
+    lane,
+    ...key
+  }: ChannelAccountKey & { lane: InstagramSendLane }): Promise<InstagramSendLaneRow | null> {
+    const rows = await this.db()
+      .select()
+      .from(instagram_send_lanes)
+      .where(and(this.keyOf(key), eq(instagram_send_lanes.lane, lane)))
+      .for('update');
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Claims a test turn of a stopped lane whose stop time is over (plan §33.4): only while the
+   * ticket's turn is the lane's and the stop is not one the owner must end. Sets the lease. Returns
+   * the claimed row, or `null`.
+   */
+  async claimTestTurn({
+    lane,
+    turnNumber,
+    leaseSeconds,
+    testableReasons,
+    ...key
+  }: ChannelAccountKey & {
+    lane: InstagramSendLane;
+    turnNumber: number;
+    leaseSeconds: number;
+    testableReasons: readonly InstagramSendStopReason[];
+  }): Promise<InstagramSendLaneRow | null> {
+    if (testableReasons.length === 0) return null;
+    const rows = await this.db()
+      .update(instagram_send_lanes)
+      .set({
+        state: INSTAGRAM_SEND_LANE_STATE.WORKING,
+        working_turn: turnNumber,
+        lease_until: sql`now() + make_interval(secs => ${leaseSeconds})`,
+        wait_reason: 'test',
+        updated_at: laneUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          this.keyOf(key),
+          eq(instagram_send_lanes.lane, lane),
+          eq(instagram_send_lanes.turn_number, turnNumber),
+          eq(instagram_send_lanes.state, INSTAGRAM_SEND_LANE_STATE.STOPPED),
+          inArray(instagram_send_lanes.stop_reason, [...testableReasons]),
+          sql`${instagram_send_lanes.stop_until} <= now()`,
+        ),
+      )
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Takes the account's one test claim on its `slow` row (plan §33.4 step 1): only when no test
+   * runs or its time is over. Answers whether this caller holds it now.
+   */
+  async claimAccountTest({
+    testingLane,
+    leaseSeconds,
+    ...key
+  }: ChannelAccountKey & {
+    testingLane: InstagramSendLane;
+    leaseSeconds: number;
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_send_lanes)
+      .set({
+        testing_lane: testingLane,
+        testing_until: sql`now() + make_interval(secs => ${leaseSeconds})`,
+        updated_at: laneUpdatedAtTimestamp,
+      })
+      .where(
+        and(
+          this.keyOf(key),
+          eq(instagram_send_lanes.lane, 'slow'),
+          sql`(${instagram_send_lanes.testing_until} IS NULL OR ${instagram_send_lanes.testing_until} <= now())`,
+        ),
+      )
+      .returning({ id: instagram_send_lanes.id });
+    return rows.length > 0;
+  }
+
+  /** Ends the account's test claim (plan §33.4): the test answered. */
+  async endAccountTest(key: ChannelAccountKey): Promise<void> {
+    await this.db()
+      .update(instagram_send_lanes)
+      .set({ testing_lane: null, testing_until: null, updated_at: laneUpdatedAtTimestamp })
+      .where(and(this.keyOf(key), eq(instagram_send_lanes.lane, 'slow')));
+  }
+
+  /**
+   * Puts a stop's end later without counting it up (plan §33.4: an unclear test waits the same time
+   * again). Only lanes still holding `reason`.
+   */
+  async extendStop({
+    reason,
+    stopUntil,
+    ...key
+  }: ChannelAccountKey & { reason: InstagramSendStopReason; stopUntil: Date }): Promise<void> {
+    await this.db()
+      .update(instagram_send_lanes)
+      .set({ stop_until: stopUntil, updated_at: laneUpdatedAtTimestamp })
+      .where(and(this.keyOf(key), eq(instagram_send_lanes.stop_reason, reason)));
+  }
+
+  /** Half speed on these lanes until `until` (plan §33.4: a passed test). */
+  async setHalfSpeed({
+    lanes,
+    until,
+    ...key
+  }: ChannelAccountKey & { lanes: readonly InstagramSendLane[]; until: Date }): Promise<void> {
+    if (lanes.length === 0) return;
+    await this.db()
+      .update(instagram_send_lanes)
+      .set({ half_speed_until: until, updated_at: laneUpdatedAtTimestamp })
+      .where(and(this.keyOf(key), inArray(instagram_send_lanes.lane, [...lanes])));
   }
 }

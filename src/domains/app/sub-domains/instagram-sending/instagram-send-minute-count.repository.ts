@@ -80,4 +80,35 @@ export class InstagramSendMinuteCountRepository {
       );
     return Number(rows[0]?.total ?? 0);
   }
+
+  /**
+   * Gives `count` back to the minute a claim added it to (SN4: the message went back to `waiting`),
+   * never below zero.
+   */
+  async subtractFromMinute({
+    countGroup,
+    count,
+    claimedAt,
+    ...key
+  }: ChannelAccountKey & {
+    countGroup: InstagramSendCountGroup;
+    count: number;
+    /** When the claim added it (the attempt's start). */
+    claimedAt: Date;
+  }): Promise<void> {
+    await this.db()
+      .update(instagram_send_minute_counts)
+      .set({ count: sql`greatest(${instagram_send_minute_counts.count} - ${count}, 0)` })
+      .where(
+        and(
+          eq(instagram_send_minute_counts.organization_id, key.organizationId),
+          eq(instagram_send_minute_counts.channel_account_id, key.channelAccountId),
+          eq(instagram_send_minute_counts.count_group, countGroup),
+          eq(
+            instagram_send_minute_counts.minute_start,
+            sql`date_trunc('minute', ${claimedAt.toISOString()}::timestamptz)`,
+          ),
+        ),
+      );
+  }
 }

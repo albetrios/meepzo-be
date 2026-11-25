@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, pgPolicy, smallint, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { bigint, check, pgPolicy, smallint, timestamp, varchar } from 'drizzle-orm/pg-core';
 import { appSchema, maintenanceBypassArm } from '@/infrastructure/database/pg-schemas.js';
 
 /**
@@ -43,9 +43,19 @@ export const sending_states = appSchema
       /** Meta's app-level usage (`X-App-Usage`, S13): the newer reading wins. */
       app_usage_percent: smallint('app_usage_percent'),
       app_usage_read_at: timestamp('app_usage_read_at', { withTimezone: true }),
+      /**
+       * The last account that met Meta's app limit and when (ROUTE row R42, plan §33.6): a second
+       * account within 5 minutes stops every account.
+       */
+      app_limit_channel_account_id: bigint('app_limit_channel_account_id', { mode: 'number' }),
+      app_limit_seen_at: timestamp('app_limit_seen_at', { withTimezone: true }),
       updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
+      check(
+        'chk_sending_states_app_limit_seen',
+        sql`(${table.app_limit_channel_account_id} IS NULL) = (${table.app_limit_seen_at} IS NULL)`,
+      ),
       check('chk_sending_states_single_row', sql`${table.id} = 1`),
       check('chk_sending_states_environment_id', sql`length(${table.environment_id}) > 0`),
       check(

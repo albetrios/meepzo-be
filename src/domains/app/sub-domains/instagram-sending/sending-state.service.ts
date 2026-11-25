@@ -7,9 +7,12 @@ import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type { MetaAppUsageStore } from '@/domains/app/sub-domains/channel-connection/channel-connection-usage.types.js';
 import { SendingStateRepository, type SendingStateRow } from './sending-state.repository.js';
 import {
+  INSTAGRAM_SEND_CORE_SETTINGS,
   SENDING_MINIMUM_COMPATIBLE_SETTINGS_VERSION,
   SENDING_SETTINGS_VERSION,
 } from './instagram-sending.constants.js';
+import { ladderStep } from './instagram-send-error.util.js';
+import { MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
 
 /** How long one server trusts its last sending check before reading the row again (SN7: per minute). */
 const SENDING_CHECK_REFRESH_MILLISECONDS = 60_000;
@@ -276,5 +279,67 @@ export class SendingStateService implements MetaAppUsageStore {
           readAt,
         }),
     });
+  }
+
+  /**
+   * One account met Meta's app limit (plan §33.6, AC-17.11): when another account met it within
+   * {@link INSTAGRAM_SEND_CORE_SETTINGS}`.appLimitWindowMinutes`, every account stops (`app_limit`,
+   * 15 · 30 · 60 minutes by its count) — answers `all`; else the sighting is kept and the caller
+   * stops that lane as "too fast" — answers `lane`.
+   *
+   * @remarks
+   * Algorithm: one maintenance unit with the row locked. Failure modes: propagates. Side effects:
+   * the row. Notes: no row (sending never set up) answers `lane`.
+   */
+  async recordAppLimit({
+    channelAccountId,
+    now = new Date(),
+  }: {
+    channelAccountId: number;
+    now?: Date | undefined;
+  }): Promise<'all' | 'lane'> {
+    return withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.SENDING_STATE,
+      callback: async (databaseHandle) => {
+        const repository = new SendingStateRepository(databaseHandle);
+        const row = await repository.lockRow();
+        if (row === null) return 'lane';
+        const windowStart =
+          now.getTime() -
+          INSTAGRAM_SEND_CORE_SETTINGS.appLimitWindowMinutes * MILLISECONDS_PER_MINUTE;
+        const isSecondAccount =
+          row.app_limit_seen_at !== null &&
+          row.app_limit_seen_at.getTime() >= windowStart &&
+          row.app_limit_channel_account_id !== channelAccountId;
+        if (!isSecondAccount) {
+          await repository.recordAppLimitSeen({ channelAccountId });
+          return 'lane';
+        }
+        const minutes = ladderStep({
+          ladder: INSTAGRAM_SEND_CORE_SETTINGS.appStopMinutes,
+          stopCount: row.all_stop_count,
+        });
+        await repository.startAppLimitStop({
+          stopUntil: new Date(now.getTime() + minutes * MILLISECONDS_PER_MINUTE),
+        });
+        return 'all';
+      },
+    });
+  }
+
+  /**
+   * The all-accounts stop holding every lane now (6.A.3), or `null`.
+   *
+   * @remarks
+   * Algorithm: one maintenance read. Failure modes: propagates. Side effects: none.
+   */
+  async readAllAccountsStop(
+    now: Date = new Date(),
+  ): Promise<{ reason: string; until: Date } | null> {
+    const row = await this.readSendingState();
+    if (row?.all_stop_until == null || row.all_stop_reason === null) return null;
+    return row.all_stop_until.getTime() > now.getTime()
+      ? { reason: row.all_stop_reason, until: row.all_stop_until }
+      : null;
   }
 }

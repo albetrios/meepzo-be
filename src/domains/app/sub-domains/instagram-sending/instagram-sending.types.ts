@@ -4,10 +4,16 @@ import type { ChannelAccountPlanStopReason } from '@/domains/app/sub-domains/cha
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import type { ChannelConnectionKey } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 import type { z } from 'zod';
+import type { MetaGraphUsageRecorder } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import type { MetaUsagePace } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-usage.util.js';
+import type { InstagramMessageReason } from './instagram-message/instagram-message.constants.js';
+import type { InstagramMessageRow } from './instagram-message/instagram-message.repository.js';
+import type { InstagramSendLaneRow } from './instagram-send-lane.repository.js';
 import type {
   InstagramSendLane,
   InstagramSendLaneState,
   InstagramSlowQueueLane,
+  InstagramSendResultGroup,
   InstagramSendStopReason,
   InstagramSendWaitReason,
 } from './instagram-sending.constants.js';
@@ -163,6 +169,12 @@ export interface InstagramSendingCaller {
 export interface InstagramSendTicketContext {
   jobId: string;
   runInDatabaseSlot<T>(callback: () => Promise<T>): Promise<T>;
+  /**
+   * Puts this ticket back `delayMilliseconds` later with no try used (BullMQ's `DelayedError`) — a
+   * fast message whose connection waits on Meta's usage, or a surely-unsent call (R42). Only before
+   * a result needs saving.
+   */
+  returnTicket(delayMilliseconds: number): Promise<never>;
 }
 
 /** One lane turn's ticket on `instagram-send-slow` (SN2), as validated by its job schema. */
@@ -190,6 +202,8 @@ export interface InstagramSendFastMessageTicket {
 export interface InstagramLaneTurnWork {
   workLaneTurn(input: {
     ticket: InstagramSendLaneTurnTicket;
+    /** The ticket's organization job scope, minted by the worker (a job scope). */
+    scope: OrganizationPrincipalDatabaseScope;
     context: InstagramSendTicketContext;
   }): Promise<void>;
 }
@@ -198,6 +212,8 @@ export interface InstagramLaneTurnWork {
 export interface InstagramFastMessageWork {
   sendFastMessage(input: {
     ticket: InstagramSendFastMessageTicket;
+    /** The ticket's organization job scope, minted by the worker (a job scope). */
+    scope: OrganizationPrincipalDatabaseScope;
     context: InstagramSendTicketContext;
   }): Promise<void>;
 }
@@ -251,4 +267,118 @@ export interface InstagramSendAccess {
   encryptedAccessToken: string | null;
   /** The account and its connection are `connected` and a token is kept: a Meta call may go. */
   isSendable: boolean;
+}
+
+/** The keys of one message a lane rule hands the send core (SN17: the public id and its split key). */
+export interface InstagramSendMessageKey {
+  organizationId: number;
+  publicId: string;
+  automationRunStartedAt: Date;
+}
+
+/**
+ * A lane turn's pick (plan §28.2): one message to send now, or none — with when the lane looks
+ * again (`null` = when new work wakes it) and why it waits.
+ */
+export type InstagramSendPick =
+  | { key: InstagramSendMessageKey }
+  | { key: null; nextRunAt: Date | null; waitReason: InstagramSendWaitReason | null };
+
+/**
+ * The Meta call of one claimed message, built by its lane at the last moment (plan §24.4): it gets
+ * the account's send access, the file's `attachment_id` when the message has one, and the
+ * connection's usage recorder, and answers Meta's message id. It throws Meta's error as is.
+ */
+export type InstagramSendCall = (input: {
+  access: InstagramSendAccess;
+  attachmentId: string | null;
+  recordUsage: MetaGraphUsageRecorder | undefined;
+}) => Promise<{ instagramMessageId: string | null }>;
+
+/**
+ * What a lane composes for a claimed message: `skip` (it can never go — the reason), or the call
+ * and the file (`upl_…`) it sends, uploaded once per account before the call (6.C).
+ */
+export type InstagramSendComposition =
+  | { kind: 'skip'; reason: InstagramMessageReason }
+  | { kind: 'send'; uploadPublicId: string | null; call: InstagramSendCall };
+
+/** The limits a lane reads for one send (the account's settings, `resolveInstagramEffectiveLimits`). */
+export interface InstagramSendLimits {
+  /** Gate 2's hour limit of the lane's count group. */
+  hourLimit: number;
+  /** Her hour limit (`person_hour_limit`); `null` = not checked. */
+  personHourLimit: number | null;
+}
+
+/** How one send ended for the lane (SN3–SN5): refused before the call, or Meta's answer saved. */
+export type InstagramSendResult =
+  | {
+      kind: 'refused';
+      reason:
+        | 'gone'
+        | 'hour_limit'
+        | 'person_limit'
+        | 'month_limit'
+        | 'not_sendable'
+        | 'usage_wait'
+        | 'gate_one';
+    }
+  | {
+      kind: 'done';
+      group: InstagramSendResultGroup;
+      status: InstagramSendOutcomeStatus;
+      /** Back to `waiting` with a used try: when it may go again. */
+      retryAt: Date | null;
+      /** The message's tries after the save. */
+      tries: number;
+    };
+
+/** The status a send's message ended in (or `waiting` when it went back). */
+export type InstagramSendOutcomeStatus =
+  | 'sent'
+  | 'unknown'
+  | 'failed'
+  | 'skipped'
+  | 'expired'
+  | 'waiting';
+
+/**
+ * One lane's own rules, plugged into the send core (feat-instagram-dm-sending § 6 WC-5–WC-8): the
+ * slow and reply lanes (ROUTE row R43), the fast lane (R44), the broadcast lane (R45). The core owns
+ * the turn, the gates, the month, the call, the one result save, the error groups and the stops; a
+ * lane owns its limits, its pick, its message's text and its pace.
+ */
+export interface InstagramSendLaneRules {
+  /** The lane's limits for this account now. */
+  readLimits(input: {
+    scope: OrganizationPrincipalDatabaseScope;
+    access: InstagramSendAccess;
+    now: Date;
+  }): Promise<InstagramSendLimits>;
+  /** A lane turn's pick (slow, reply, broadcast); the fast lane has one ticket per message. */
+  pickNextMessage?(input: {
+    scope: OrganizationPrincipalDatabaseScope;
+    target: InstagramSendLaneTarget;
+    lane: InstagramSendLaneRow;
+    now: Date;
+    isTest: boolean;
+  }): Promise<InstagramSendPick>;
+  /** The claimed message's Meta call, read from Postgres at the last moment (plan §24.4). */
+  composeMessage(input: {
+    scope: OrganizationPrincipalDatabaseScope;
+    message: InstagramMessageRow;
+    access: InstagramSendAccess;
+  }): Promise<InstagramSendComposition>;
+  /**
+   * When the lane's next turn is due after this one; absent → one box (3600 ÷ hour limit seconds,
+   * doubled at Meta's 80 % or at half speed).
+   */
+  nextTurnAt?(input: {
+    lane: InstagramSendLaneRow;
+    result: InstagramSendResult;
+    pace: MetaUsagePace;
+    limits: InstagramSendLimits;
+    now: Date;
+  }): Date;
 }

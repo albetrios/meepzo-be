@@ -357,6 +357,8 @@ src/
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
@@ -410,8 +412,11 @@ src/
     │   │   │   │   ├── instagram-tasks.processor.ts
     │   │   │   │   └── instagram-tasks.worker.ts
     │   │   │   ├── instagram-send-access.service.ts
+    │   │   │   ├── instagram-send-core.service.ts
     │   │   │   ├── instagram-send-day-count.repository.ts
     │   │   │   ├── instagram-send-day-count.schema.ts
+    │   │   │   ├── instagram-send-error.util.ts
+    │   │   │   ├── instagram-send-gate.service.ts
     │   │   │   ├── instagram-send-lane.repository.ts
     │   │   │   ├── instagram-send-lane.schema.ts
     │   │   │   ├── instagram-send-lane.service.ts

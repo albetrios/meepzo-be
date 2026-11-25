@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -95,5 +95,33 @@ export class MessageMonthCountRepository {
           updated_at: sql`greatest(${message_month_counts.updated_at}, now())`,
         },
       });
+  }
+
+  /**
+   * Gives `count` messages back to this month's slot of the channel account (SN4: a claimed DM went
+   * back to `waiting`), never below zero.
+   */
+  async subtractFromMonth({
+    organizationId,
+    channelAccountId,
+    count,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    count: number;
+  }): Promise<void> {
+    await this.db()
+      .update(message_month_counts)
+      .set({
+        count: sql`greatest(${message_month_counts.count} - ${count}, 0)`,
+        updated_at: sql`greatest(${message_month_counts.updated_at}, now())`,
+      })
+      .where(
+        and(
+          eq(message_month_counts.organization_id, organizationId),
+          eq(message_month_counts.month_start, sql`${organizationMonthStart(organizationId)}`),
+          eq(message_month_counts.slot, channelAccountId % MESSAGE_MONTH_COUNT_SLOTS),
+        ),
+      );
   }
 }

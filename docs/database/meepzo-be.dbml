@@ -806,6 +806,8 @@ Table app.sending_states {
   all_stop_count smallint [not null]
   all_stop_reason varchar(14)
   all_stop_until timestamptz
+  app_limit_channel_account_id bigint
+  app_limit_seen_at timestamptz
   app_usage_percent smallint
   app_usage_read_at timestamptz
   environment_id varchar(64) [not null]

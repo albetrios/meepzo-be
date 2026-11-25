@@ -68,6 +68,8 @@ import { InstagramSendAccessService } from './sub-domains/instagram-sending/inst
 import { InstagramAttachmentService } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.service.js';
 import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.types.js';
 import type { InstagramSendWork } from './sub-domains/instagram-sending/instagram-sending.types.js';
+import { InstagramSendCoreService } from './sub-domains/instagram-sending/instagram-send-core.service.js';
+import { InstagramSendGateService } from './sub-domains/instagram-sending/instagram-send-gate.service.js';
 import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 
 /**
@@ -282,8 +284,8 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
     sendingStateService,
     messageMonthCountService,
     channelConnectionUsageService,
-    // The tickets' work (SN2, SN24, R37): none until the lane turn (R42–R45), the fast send (R42,
-    // R44) and the task handlers (R40, R41, R46) are built.
+    // The tickets' work (SN2, SN24, R37): replaced by the send core in `createAppContainer` (R42);
+    // the task handlers come with R40, R41, R46.
     instagramSendWork: NO_INSTAGRAM_SEND_WORK,
   };
 }
@@ -580,6 +582,37 @@ function createSendAccessServices({
 }
 
 /**
+ * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
+ * the gates, the message's result save, the send access, the attachments and the breaks; no lane
+ * rules yet (R43–R45), and no task handlers (R40, R41, R46).
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
+ */
+function createInstagramSendWork(
+  container: Omit<AppContainer, 'instagramSendWork'>,
+): InstagramSendWork {
+  const lanes = container.instagramSendLaneService;
+  const sendCore = new InstagramSendCoreService({
+    laneService: lanes,
+    messageService: container.instagramMessageService,
+    gateService: new InstagramSendGateService({ laneService: lanes }),
+    accessService: container.instagramSendAccessService,
+    attachmentService: container.instagramAttachmentService,
+    sendingStateService: container.sendingStateService,
+    readMonthLimit: (scope) => container.messageMonthCountService.readMonthLimit(scope),
+    breakPort: {
+      markConnectionBroken: (input) =>
+        container.channelConnectionService.markConnectionBroken(input),
+      markAccountBroken: (input) => container.channelAccountService.markAccountBroken(input),
+    },
+    // The lanes' own rules plug in at R43–R45; until then a ticket is logged and finished.
+    laneRules: {},
+  });
+  return { ...NO_INSTAGRAM_SEND_WORK, laneTurn: sendCore, fastMessage: sendCore };
+}
+
+/**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
  * team check, user id resolution; billing's plan read: the channel account limit; billing's trial
@@ -611,6 +644,7 @@ export function createAppContainer({
   // One port per channel (AU35): Instagram's message service (R19) — the engine, built below.
   const instagramMessageService = new InstagramMessageService({
     recordRunMessageResult: (input) => automationRunService.recordMessageResult(input),
+    recordContactOpeningMessage: (input) => contactService.recordContactOpeningMessage(input),
   });
   const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
   const channelConnectionRepository = new ChannelConnectionRepository();
@@ -706,7 +740,7 @@ export function createAppContainer({
     organizationService,
     instagramMessageService,
   });
-  return {
+  const container = {
     ...sending,
     channelConnectionService,
     channelConnectionTokenService,
@@ -729,6 +763,7 @@ export function createAppContainer({
     instagramMessageService,
     ...createSendAccessServices({ instagramAccountService, sending, messageFilePort }),
   };
+  return { ...container, instagramSendWork: createInstagramSendWork(container) };
 }
 
 /**

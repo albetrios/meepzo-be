@@ -1049,7 +1049,7 @@ const envSchemaBase = z.object({
    * many units of work of one process hold a Postgres connection at once. The worker connection
    * budget counts these slots once per process, not the job places above. A unit of work that waits
    * 2 s for a slot puts its ticket back with no try used. Default 3 (P140): every queue runs in the
-   * one `worker` service, and its demand (61 + the slots) must fit the default pool of 80 with 25 %
+   * one `worker` service, and its demand (60 + the slots) must fit the default pool of 80 with 25 %
    * burst headroom; a deployment that raises the slots raises `DATABASE_POOL_MAX` with them
    * (`docs/deployment/runbooks/resource-limits.md`).
    */

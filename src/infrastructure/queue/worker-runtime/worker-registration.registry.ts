@@ -68,6 +68,7 @@ import { createStripeWebhookEventCatchupWorker } from '@/domains/billing/sub-dom
 import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-catchup.constants.js';
 import {
   createSubscriptionSeatSyncWorker,
+  getSubscriptionSeatSyncConcurrency,
   type SubscriptionSeatSyncWorkerBillingContainer,
 } from '@/domains/billing/sub-domains/subscription/workers/subscription-seat-sync.worker.js';
 import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
@@ -76,6 +77,10 @@ import { createSubscriptionPlanStateCheckWorker } from '@/domains/billing/sub-do
 import { SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-plan-state-check.queue.js';
 import { createInstagramSendingRepairWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-repair.worker.js';
 import { INSTAGRAM_SENDING_REPAIR_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-repair.constants.js';
+import { rebuildInstagramGateOneFromPostgres } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-watch.processor.js';
+import { registerWorkerRedisRebuildStep } from '@/infrastructure/queue/worker-runtime/worker-redis-watch.js';
+import { INSTAGRAM_REPAIR_DATABASE_SLOT_WAIT_MILLISECONDS } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-watch.constants.js';
+import { getInstagramDatabaseSlotLimiter } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-ticket.processor.js';
 import { createInstagramWebhookWorker } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { createInstagramWebhookEventRetentionWorker } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.worker.js';
@@ -360,7 +365,8 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     // entitlements). Stripe-gated like the rest of the family; the service phases the Stripe call
     // outside its DB context so no checkout is held during external IO. Switched off by
     // `BILLING_SEAT_SYNC_ENABLED` (BL9, WC-65): nothing is enqueued and the reconcile is not
-    // scheduled; the worker stays to drain jobs an older release left.
+    // scheduled; the worker stays to drain jobs an older release left, one at a time (R48: so it
+    // holds 1 of the worker's Postgres budget, not the family's 4).
     queueName: SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
     family: 'stripe',
     logLabel: 'subscription seat sync worker',
@@ -368,7 +374,7 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     scheduled: BILLING_SEAT_SYNC_ENABLED,
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
-    resolvePostgresConcurrency: () => getWorkerConcurrencyStripe(),
+    resolvePostgresConcurrency: () => getSubscriptionSeatSyncConcurrency(),
     isEnabled: () => isStripeConfigured(),
     create: (workerContainers) =>
       createSubscriptionSeatSyncWorker(
@@ -627,14 +633,46 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
       }),
   }),
   // feat-instagram-dm-sending SN6 (P94): the sending repair duties, one repeat job each — at R52 the
-  // month wake's check (WC-37) and the plan-stop backup (WC-38). Database sweeps that hand each
-  // organization a task on `instagram-database-tasks`; no Meta call, so not gated on sending.
-  retentionDefinition({
+  // month wake's check (WC-37) and the plan-stop backup (WC-38); at R48 the watches (the outage
+  // watch every 10 s, the Live check, the waiting estimate). Several at once (P94: in parallel), each
+  // database unit in a slot of the process's `instagram-database` limiter — counted once (SN24), so
+  // the duties add no Postgres demand. Not gated on sending (the Live check asks it before Meta).
+  {
     queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
     family: 'instagram',
     logLabel: 'Instagram sending repair worker',
-    create: () => createInstagramSendingRepairWorker(),
-  }),
+    usesPostgres: true,
+    scheduled: true,
+    criticality: 'maintenance',
+    holdsConnectionDuringExternalIo: false,
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
+    create: (workerContainers) => {
+      const limiter = getInstagramDatabaseSlotLimiter();
+      const runInDatabaseSlot = <T>(callback: () => Promise<T>): Promise<T> =>
+        limiter.runInSlot({
+          callback,
+          waitMilliseconds: INSTAGRAM_REPAIR_DATABASE_SLOT_WAIT_MILLISECONDS,
+        });
+      // WC-21: after Redis was lost, gate 1's counts come back from Postgres (the watch's step).
+      registerWorkerRedisRebuildStep({
+        name: 'instagram-send-gate-one',
+        run: async () => {
+          await rebuildInstagramGateOneFromPostgres({
+            gateService: workerContainers.appDomain.instagramSendGateService,
+            runInDatabaseSlot,
+          });
+        },
+      });
+      return createInstagramSendingRepairWorker({
+        runInDatabaseSlot,
+        watch: {
+          watchService: workerContainers.appDomain.instagramSendingWatchService,
+          runInDatabaseSlot,
+        },
+      });
+    },
+  },
   // Launch D8 (routes-final § 3.B AU25, AQ7): the run and automation clean-ups — every hour the
   // runs waiting more than 7 days are cancelled with their open keys (a cross-organization scan, then
   // each organization's cancel in its own context, through the run service — WC-45); daily at 03:40

@@ -447,4 +447,35 @@ export class InstagramSendLaneRepository {
       .set({ half_speed_until: until, updated_at: laneUpdatedAtTimestamp })
       .where(and(this.keyOf(key), inArray(instagram_send_lanes.lane, [...lanes])));
   }
+
+  /**
+   * Writes the slow lane's stored "will go / may expire" estimate (S29, WC-24 — ROUTE row R48);
+   * answers whether the slow row exists. `estimated_at` is Postgres's clock.
+   */
+  async writeEstimate({
+    key,
+    estimate,
+  }: {
+    key: ChannelAccountKey;
+    estimate: {
+      waitingCount: number;
+      willGoCount: number;
+      mayExpireCount: number;
+      doneAt: Date | null;
+    };
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_send_lanes)
+      .set({
+        estimate_waiting_count: estimate.waitingCount,
+        estimate_will_go_count: estimate.willGoCount,
+        estimate_may_expire_count: estimate.mayExpireCount,
+        estimate_done_at: estimate.doneAt,
+        estimated_at: sql`now()`,
+        updated_at: laneUpdatedAtTimestamp,
+      })
+      .where(and(this.keyOf(key), eq(instagram_send_lanes.lane, 'slow')))
+      .returning({ id: instagram_send_lanes.id });
+    return rows.length > 0;
+  }
 }

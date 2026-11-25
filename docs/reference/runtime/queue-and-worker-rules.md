@@ -100,7 +100,9 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
    120 s); connection `getBullMQConnectionOptions()`; `prefix: getBullMQKeyPrefix()`.
 2. **Concurrency**: a throughput worker reads its family's setting (`getWorkerConcurrencyMail /
    Notify / Webhook / Stripe / Instagram`, default `WORKER_CONCURRENCY` = 4); a cron or sweep runs at
-   `RETENTION_WORKER_CONCURRENCY` (1).
+   `RETENTION_WORKER_CONCURRENCY` (1) — except `instagram-sending-repair`, whose duties run four at once
+   with every database unit in a slot of the `instagram-database` limiter (P94, SN24). A scheduled job
+   repeats by a cron or, under a minute, by `everyMilliseconds` (exactly one — `resolveScheduledJobRepeat`).
 3. **Return a `WorkerHandle`** (`buildWorkerHandle`) and log the `stalled` event. Bootstrap attaches
    the dead-letter + Sentry hook, the job-duration histogram and the queue heartbeat to every
    registered worker — do not add your own `failed` handler that reports to Sentry.

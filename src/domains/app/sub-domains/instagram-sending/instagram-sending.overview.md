@@ -16,7 +16,7 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). ROUTE row R42 built the **send core** (below); the lanes' own rules (R43–R45), the repair duties (R47) and the watches (R48) come with their rows. ROUTE
+connection's usage, SN23). ROUTE row R42 built the **send core** (below); the lanes' own rules (R43–R45), the repair duties (R47) come with their row; the watches are R48's (below). ROUTE
 row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
 to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
@@ -111,7 +111,22 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   wakes the accounts whose stop got weaker, spread over 5 minutes. `workers/instagram-sending-repair.*` — the repair
   queue `instagram-sending-repair` (SN6, one repeat job per duty; R47 adds the rest): `repair-month-wake` every minute
   (organizations holding `plan_limit` since before their month turned, their time zone) and `repair-plan-stops` every
-  15 minutes (organizations still holding `plan_ended`), each adding one task per organization.
+  15 minutes (organizations still holding `plan_ended`), each adding one task per organization. The queue runs
+  `INSTAGRAM_SENDING_REPAIR_CONCURRENCY` (4) duties at once, every database unit of a duty in a slot of the
+  `instagram-database` limiter (R48 — so the queue adds no Postgres demand of its own).
+- **The watches (ROUTE row R48)** — `workers/instagram-sending-watch.*` on the repair queue, over
+  `InstagramSendingWatchService` and `InstagramSendingWatchRepository` (the cross-organization reads, retention
+  context): `outage-check` every 10 s (`everyMilliseconds`, WC-22 — 30 % bad of ≥ 50 calls in 30 s, or 30 % of the
+  active accounts in a down stop → the all-accounts `instagram_down` stop 5 · 10 · 20 · 40 min on `app.sending_states`;
+  the all-stop count back to 0 after 24 quiet hours; the late-lane gauge for readiness), `live-check` every minute
+  (WC-16 — `GET /<account>/live_media`, then the waiting Live replies of a Live off air or older than 240 min end
+  `expired` · `live_ended` and the Live's `live_ended_at` is saved) and `waiting-estimate` every 10 min (WC-24, S29 —
+  `computeInstagramWaitingEstimate`, plan §12.3, written to the slow lane's `estimate_*`). A down stop is tested with a
+  read-only profile read first (`probeAccount`, plan §33.5 rule 2). Two watches run in each worker process, not on the
+  schedule (worker-changes note 6): the clock against Postgres every minute (`worker-clock-watch.ts` — over 2 s and
+  `mayTakeTickets` refuses, WC-23) and the "Redis lost" watch every 10 s (`worker-redis-watch.ts` — schedules
+  re-registered and gate 1 rebuilt from the minute counts under one lock, WC-21). Readiness's `sending` part adds the
+  clock skew, the repair queue's last round and the late lanes (SNC9).
 - `seed/` — four lanes per seeded account, an ended stop, this minute's and this month's counts.
 
 ## Rules

@@ -459,7 +459,7 @@ async function listInstagramEdge<TItem extends { id: string }>({
   fields,
 }: {
   options: ListInstagramItemsOptions;
-  edge: 'media' | 'stories';
+  edge: 'media' | 'stories' | 'live_media';
   fields: string;
 }): Promise<InstagramGraphPage<TItem>> {
   const answer = await callMetaGraphWithToken<InstagramGraphListAnswer>({
@@ -520,6 +520,23 @@ export async function listInstagramStories(
     edge: 'stories',
     fields: INSTAGRAM_STORY_FIELDS,
   });
+}
+
+/**
+ * Lists the account's Lives on air now (`/{instagram_user_id}/live_media`, feat-instagram-dm-sending
+ * WC-16 — ROUTE row R48's Live check).
+ *
+ * @remarks
+ * - **Algorithm:** `GET /v27.0/{id}/live_media?fields=id&limit=…` with the token in the
+ *   `Authorization` header; items without an id are dropped. A Live no longer listed has ended.
+ * - **Failure modes:** as {@link listInstagramMedia}.
+ * - **Side effects:** one Instagram call; nothing is stored.
+ * - **Notes:** the Live comment way to start is go-live-gated until Meta's §43 test (P36).
+ */
+export async function listInstagramLiveMedia(
+  options: ListInstagramItemsOptions,
+): Promise<InstagramGraphPage<{ id: string }>> {
+  return listInstagramEdge<{ id: string }>({ options, edge: 'live_media', fields: 'id' });
 }
 
 /**

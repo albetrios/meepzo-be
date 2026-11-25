@@ -57,10 +57,15 @@ type RepairTarget = { organizationPublicId: string; month: string };
 export async function runInstagramSendingRepairDuty({
   duty,
   now = () => Date.now(),
+  runInDatabaseSlot,
 }: {
   duty: string;
   now?: () => number;
+  /** Each database unit in a slot of the process's `instagram-database` limiter (SN24, R48). */
+  runInDatabaseSlot?: (<T>(callback: () => Promise<T>) => Promise<T>) | undefined;
 }): Promise<InstagramSendingRepairResult> {
+  const inSlot = <T>(callback: () => Promise<T>): Promise<T> =>
+    runInDatabaseSlot === undefined ? callback() : runInDatabaseSlot(callback);
   if (
     duty !== INSTAGRAM_REPAIR_MONTH_WAKE_JOB_NAME &&
     duty !== INSTAGRAM_REPAIR_PLAN_STOPS_JOB_NAME
@@ -78,15 +83,17 @@ export async function runInstagramSendingRepairDuty({
       isBudgetSpent = true;
       break;
     }
-    const rows = await runGlobalRetentionWorkerJob((databaseHandle) =>
-      createRetentionChannelAccountRepository(databaseHandle).listOrganizationsHoldingPlanStop({
-        reason: isMonthWake
-          ? CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_LIMIT
-          : CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_ENDED,
-        isMonthTurned: isMonthWake,
-        afterOrganizationId,
-        limit: INSTAGRAM_REPAIR_PAGE_SIZE,
-      }),
+    const rows = await inSlot(() =>
+      runGlobalRetentionWorkerJob((databaseHandle) =>
+        createRetentionChannelAccountRepository(databaseHandle).listOrganizationsHoldingPlanStop({
+          reason: isMonthWake
+            ? CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_LIMIT
+            : CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_ENDED,
+          isMonthTurned: isMonthWake,
+          afterOrganizationId,
+          limit: INSTAGRAM_REPAIR_PAGE_SIZE,
+        }),
+      ),
     );
     for (const row of rows) {
       if (await addRepairTask({ isMonthWake, target: row })) addedCount += 1;

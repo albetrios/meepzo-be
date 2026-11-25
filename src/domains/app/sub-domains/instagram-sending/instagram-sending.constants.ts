@@ -425,3 +425,50 @@ export const INSTAGRAM_PLAN_STOP_BACKUP_MINUTES = 15;
 
 /** An organization's lane wake after its plan stops end is spread over 5 minutes (WC-37). */
 export const INSTAGRAM_PLAN_WAKE_SPREAD_MINUTES = 5;
+
+/**
+ * The watches' numbers (ROUTE row R48 — routes-final § 6 SN6, SNC5, SNC9; WC-16, WC-21–WC-24;
+ * plan §12.3, §33.5, §33.6, helper rules 10, 15–17): the outage watch, the Live check, the waiting
+ * estimate, the server clock and the "Redis lost" watch. Engine numbers in the one settings file
+ * (P4, AC-17.25).
+ */
+export const INSTAGRAM_SENDING_WATCH_SETTINGS = {
+  /** The outage watch's cadence (`DOWN_CHECK_EVERY_SECONDS`, P7): every 10 seconds. */
+  outageCheckMilliseconds: 10_000,
+  /** The window the "30 % bad calls" rule reads (`BAD_WINDOW_SECONDS`). */
+  badWindowSeconds: 30,
+  /** At least this many calls in the window before the rule counts (`BAD_MIN_CALLS`). */
+  badMinCalls: 50,
+  /** This share of bad calls in the window stops every account (`BAD_PERCENT`). */
+  badPercent: 30,
+  /** This share of active accounts in a down stop stops every account (`DOWN_ALL_SHARE_PERCENT`). */
+  downAllSharePercent: 30,
+  /** The all-accounts `instagram_down` stop, by its count (`DOWN_STOP_MINUTES`, plan §33.5). */
+  allDownStopMinutes: [5, 10, 20, 40],
+  /** The all-accounts stop count goes back to 0 after this many quiet hours (plan §33.6 rule 4). */
+  allStopCountResetHours: 24,
+  /** A lane `ready` or `sleeping` this many minutes past its turn counts as late (`LATE_TICKET_MINUTES`). */
+  lateTicketMinutes: 1,
+  /** A Live reply waits at most this long after its comment (`LIVE_REPLY_MAX_AGE_MINUTES`). */
+  liveReplyMaxAgeMinutes: 240,
+  /** Accounts one Live check page reads. */
+  liveCheckPageSize: 200,
+  /** The estimate's cadence (`PENDING_ESTIMATE_EVERY_MINUTES`, D10, S29). */
+  estimateEveryMinutes: 10,
+  /** Accounts one estimate page reads. */
+  estimatePageSize: 200,
+  /** The estimate looks this many hours ahead (plan §12.3: h = 1 … 168). */
+  estimateHorizonHours: 168,
+  /** The old line's share of an hour (plan §28: new : old 4 : 1). */
+  estimateOldShare: 1 / 5,
+  /** The old line's share with the urgent mix on (3 : 2, a waiting DM under 12 hours left). */
+  estimateUrgentOldShare: 2 / 5,
+  /** A waiting DM with under this many hours left turns the urgent mix on (plan §28). */
+  estimateUrgentHours: 12,
+  /** A server clock this far from Postgres's takes no tickets (`CLOCK_SKEW_MAX_MS`, WC-23). */
+  clockSkewMaxMilliseconds: 2_000,
+  /** The clock check's cadence in each server process (helper rule 15: every minute). */
+  clockCheckMilliseconds: 60_000,
+  /** The "Redis lost" watch's cadence in each server process (P7: a 10-second Redis-down check). */
+  redisWatchMilliseconds: 10_000,
+} as const;

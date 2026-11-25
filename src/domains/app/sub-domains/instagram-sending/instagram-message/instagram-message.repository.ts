@@ -11,6 +11,7 @@ import { automations } from '@/domains/app/sub-domains/automation/automation.sch
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
+import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
@@ -833,6 +834,150 @@ export class InstagramMessageRepository {
       channelAccountIds: [...new Set(rows.map((row) => Number(row.channel_account_id)))],
       runs: [...runs.values()],
     };
+  }
+
+  /**
+   * The account's waiting Live private replies whose Live is no longer on air (its media id not in
+   * `onAirMediaIds`, or already marked ended) or whose comment is older than `oldestCommentAt` end
+   * `expired` · `live_ended` (WC-16, plan helper rule 10) — a guarded update of `waiting` rows only.
+   * Answers the expired rows and the media ids of their Lives.
+   */
+  async expireWaitingLiveReplies({
+    organizationId,
+    channelAccountId,
+    onAirMediaIds,
+    oldestCommentAt,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    /** The Lives Instagram lists as on air; `null` = not read (only the age and stored ends count). */
+    onAirMediaIds: readonly string[] | null;
+    oldestCommentAt: Date;
+  }): Promise<{ rows: InstagramMessageRow[]; endedMediaIds: string[] }> {
+    const onAir =
+      onAirMediaIds === null
+        ? sql`TRUE`
+        : onAirMediaIds.length === 0
+          ? sql`FALSE`
+          : sql`r.trigger_instagram_media_id IN (${sql.join(
+              onAirMediaIds.map((mediaId) => sql`${mediaId}`),
+              sql`, `,
+            )})`;
+    const candidates = rowsOf<{
+      id: number | string;
+      automation_run_started_at: Date | string;
+      media_id: string | null;
+    }>(
+      await this.db().execute(sql`
+        SELECT m.id, m.automation_run_started_at, r.trigger_instagram_media_id AS media_id
+        FROM ${instagram_messages} m
+        JOIN ${automation_runs} r
+          ON r.organization_id = m.organization_id
+         AND r.id = m.automation_run_id
+         AND r.started_at = m.automation_run_started_at
+        WHERE m.organization_id = ${organizationId}
+          AND m.channel_account_id = ${channelAccountId}
+          AND m.status = 'waiting'
+          AND m.channel = 'private_reply'
+          AND r.trigger_type = 'live_comment'
+          AND (
+            m.trigger_occurred_at < ${oldestCommentAt.toISOString()}::timestamptz
+            OR r.trigger_instagram_media_id IS NULL
+            OR NOT (${onAir})
+            OR EXISTS (
+              SELECT 1 FROM ${instagram_media} media
+              WHERE media.organization_id = m.organization_id
+                AND media.channel_account_id = m.channel_account_id
+                AND media.instagram_media_id = r.trigger_instagram_media_id
+                AND media.live_ended_at IS NOT NULL)
+          )
+        FOR UPDATE OF m SKIP LOCKED`),
+    );
+    if (candidates.length === 0) return { rows: [], endedMediaIds: [] };
+    const rows = await this.db()
+      .update(instagram_messages)
+      .set({ status: 'expired', reason: 'live_ended', updated_at: sql`now()` })
+      .where(
+        and(
+          eq(instagram_messages.organization_id, organizationId),
+          eq(instagram_messages.status, 'waiting'),
+          sql`(${instagram_messages.id}, ${instagram_messages.automation_run_started_at}) IN (${sql.join(
+            candidates.map(
+              (candidate) =>
+                sql`(${Number(candidate.id)}, ${new Date(candidate.automation_run_started_at).toISOString()}::timestamptz)`,
+            ),
+            sql`, `,
+          )})`,
+        ),
+      )
+      .returning();
+    const endedMediaIds = new Set<string>();
+    for (const candidate of candidates) {
+      if (
+        candidate.media_id !== null &&
+        onAirMediaIds !== null &&
+        !onAirMediaIds.includes(candidate.media_id)
+      ) {
+        endedMediaIds.add(candidate.media_id);
+      }
+    }
+    return { rows, endedMediaIds: [...endedMediaIds] };
+  }
+
+  /**
+   * The account's waiting opening DMs counted by the hours left before they expire (0 = due now,
+   * else 1 … ), the latest expiry, and the opening DMs made in the last hour — the waiting
+   * estimate's one grouped read (WC-24, plan helper rule 17).
+   */
+  async summarizeWaitingOpeningMessages({
+    organizationId,
+    channelAccountId,
+    now,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    now: Date;
+  }): Promise<{
+    waitingByHoursLeft: Map<number, number>;
+    lastExpiresAt: Date | null;
+    newLastHour: number;
+  }> {
+    const expiry = sql`make_interval(secs => ${INSTAGRAM_PRIVATE_REPLY_EXPIRY_MILLISECONDS / 1000})`;
+    const result = await this.db().execute(sql`
+      SELECT greatest(ceil(extract(epoch FROM (m.trigger_occurred_at + ${expiry}
+                 - ${now.toISOString()}::timestamptz)) / 3600), 0)::int AS hours_left,
+             count(*)::int AS waiting_count,
+             max(m.trigger_occurred_at + ${expiry}) AS last_expires_at
+      FROM ${instagram_messages} m
+      WHERE m.organization_id = ${organizationId}
+        AND m.channel_account_id = ${channelAccountId}
+        AND m.lane = 'slow'
+        AND m.status = 'waiting'
+        AND m.message_type = 'opening_message'
+      GROUP BY 1`);
+    const waitingByHoursLeft = new Map<number, number>();
+    let lastExpiresAt: Date | null = null;
+    for (const row of rowsOf<{
+      hours_left: number;
+      waiting_count: number;
+      last_expires_at: Date | string | null;
+    }>(result)) {
+      waitingByHoursLeft.set(Number(row.hours_left), Number(row.waiting_count));
+      if (row.last_expires_at !== null) {
+        const expiresAt = new Date(row.last_expires_at);
+        if (lastExpiresAt === null || expiresAt > lastExpiresAt) lastExpiresAt = expiresAt;
+      }
+    }
+    const fresh = await this.db().execute(sql`
+      SELECT count(*)::int AS new_count
+      FROM ${instagram_messages} m
+      WHERE m.organization_id = ${organizationId}
+        AND m.channel_account_id = ${channelAccountId}
+        AND m.lane = 'slow'
+        AND m.message_type = 'opening_message'
+        AND m.created_at > ${now.toISOString()}::timestamptz - interval '1 hour'`);
+    const newLastHour = Number(rowsOf<{ new_count: number }>(fresh)[0]?.new_count ?? 0);
+    return { waitingByHoursLeft, lastExpiresAt, newLastHour };
   }
 }
 

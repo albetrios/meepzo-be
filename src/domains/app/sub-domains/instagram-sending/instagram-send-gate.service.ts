@@ -229,6 +229,49 @@ export class InstagramSendGateService {
   }
 
   /**
+   * Rebuilds gate 1 from Postgres's minute counts after Redis was lost (WC-21, SN10 — ROUTE row
+   * R48): each minute row becomes that many members at its minute, the key kept an hour. Answers
+   * how many keys it wrote.
+   *
+   * @remarks
+   * Algorithm: one `ZADD` per row with members `rebuild-<minute>-<n>` (a second rebuild of the same
+   * minute writes the same members, so twice changes nothing), `PEXPIRE` an hour. Failure modes: a
+   * Redis error propagates (the rebuild is tried again; gate 1 fails open meanwhile). Side effects:
+   * the Redis keys. Notes: the keys are built from the stored public ids — a maintenance rebuild,
+   * not a request.
+   */
+  async rebuildGateOne(
+    rows: readonly {
+      organizationPublicId: string;
+      channelAccountPublicId: string;
+      countGroup: string;
+      minuteStart: Date;
+      count: number;
+    }[],
+  ): Promise<number> {
+    const redis = this.redis();
+    if (redis === null) return 0;
+    const keys = new Set<string>();
+    for (const row of rows) {
+      if (row.countGroup === 'none' || row.count <= 0) continue;
+      const key = gateOneKey({
+        organizationPublicId: row.organizationPublicId,
+        channelAccountPublicId: row.channelAccountPublicId,
+        countGroup: row.countGroup as InstagramSendAttemptCountGroup,
+      });
+      const score = row.minuteStart.getTime();
+      const members: (string | number)[] = [];
+      for (let index = 0; index < row.count; index += 1) {
+        members.push(score, `rebuild-${String(score)}-${String(index)}`);
+      }
+      await redis.zadd(key, ...members);
+      await redis.pexpire(key, MILLISECONDS_PER_HOUR);
+      keys.add(key);
+    }
+    return keys.size;
+  }
+
+  /**
    * The claim's one commit (SN3 (a)–(d), SN8): gate 2, her hour, the month, the adds, `sending` and
    * the attempt — or why the message stays `waiting`.
    *

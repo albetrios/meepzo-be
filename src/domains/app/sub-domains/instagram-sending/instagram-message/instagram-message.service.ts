@@ -687,7 +687,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     message,
     databaseHandle,
   }: {
-    input: InstagramSendResultInput;
+    input: Pick<InstagramSendResultInput, 'scope' | 'reason'>;
     status: Exclude<InstagramSendResultInput['status'], 'waiting'>;
     message: InstagramMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;
@@ -743,6 +743,56 @@ export class InstagramMessageService implements ChannelSendingPort {
         occurredAt,
       });
     }
+  }
+
+  /**
+   * The Live check's end of the account's waiting Live private replies (WC-16, AC-16.18, plan helper
+   * rule 10): those whose Live is not in `onAirMediaIds` (or already marked ended), or whose comment
+   * is older than `LIVE_REPLY_MAX_AGE_MINUTES`, become `expired` · `live_ended`, each reported like a
+   * settled message (today's line, the run's `recordMessageResult` — `expired` as `skipped`) in the
+   * same commit. Answers how many and the media ids of the Lives seen ended.
+   *
+   * @remarks
+   * Algorithm: one unit in the job's organization scope — the guarded update of `waiting` rows
+   * (`SKIP LOCKED`: a row the lane holds is left to the next round), then each row's report.
+   * Failure modes: a database error rolls the unit back (the next round tries again). Side effects:
+   * the messages, today's line, the runs' next step.
+   */
+  async expireWaitingLiveReplies({
+    scope,
+    organizationId,
+    channelAccountId,
+    onAirMediaIds,
+    oldestCommentAt,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    channelAccountId: number;
+    onAirMediaIds: readonly string[] | null;
+    oldestCommentAt: Date;
+  }): Promise<{ expiredCount: number; endedMediaIds: string[] }> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const { rows, endedMediaIds } = await new InstagramMessageRepository(
+          databaseHandle,
+        ).expireWaitingLiveReplies({
+          organizationId,
+          channelAccountId,
+          onAirMediaIds,
+          oldestCommentAt,
+        });
+        for (const message of rows) {
+          await this.recordSettledMessage({
+            input: { scope, reason: 'live_ended' },
+            status: 'expired',
+            message,
+            databaseHandle,
+          });
+        }
+        return { expiredCount: rows.length, endedMediaIds };
+      },
+    });
   }
 
   /**

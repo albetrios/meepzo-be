@@ -170,6 +170,17 @@ export interface InstagramSendCoreDependencies {
   producers?: InstagramSendTicketProducers | undefined;
   /** Waits between result-save tries (tests pass a fake). */
   sleep?: ((milliseconds: number) => Promise<void>) | undefined;
+  /**
+   * The read-only call that tests an `instagram_down` stop before any real person is (plan §33.5
+   * rule 2, ROUTE row R48): `answered` lets the test DM go, `unclear` keeps the stop its time again.
+   * Absent = no read-only call (the test DM goes).
+   */
+  probeAccount?:
+    | ((input: {
+        scope: OrganizationPrincipalDatabaseScope;
+        access: InstagramSendAccess;
+      }) => Promise<'answered' | 'unclear'>)
+    | undefined;
 }
 
 /** The count group of a message (SN3): `none` for follow checks and hides. */
@@ -447,6 +458,11 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       if (turn.isTest) await this.endTest({ target, context });
       return { nextRunAt: pace.waitUntil, isHeld: false, waitReason: 'box' };
     }
+    if (await this.isDownTestUnclear({ target, access, turn })) {
+      // §33.5 rule 2: Instagram still gives no clear answer — no person is used as the test.
+      await this.extendTestedStop({ target, row: turn.row, delayMilliseconds: null, context });
+      return { nextRunAt: null, isHeld: false, waitReason: null };
+    }
     const pick = await context.runInDatabaseSlot(
       async () =>
         (await rules.pickNextMessage?.({
@@ -479,6 +495,26 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     });
     if (turn.isTest) await this.finishTest({ target, row: turn.row, result, context });
     return this.turnEndAfter({ rules, row: turn.row, result, pace: pace.pace, limits });
+  }
+
+  /**
+   * Whether a test turn of an `instagram_down` stop met an unclear read-only call (plan §33.5 rule
+   * 2): the probe runs outside any transaction and slot; no probe wired → `false`.
+   */
+  private async isDownTestUnclear({
+    target,
+    access,
+    turn,
+  }: {
+    target: InstagramSendLaneTarget;
+    access: InstagramSendAccess;
+    turn: { row: InstagramSendLaneRow; isTest: boolean };
+  }): Promise<boolean> {
+    const probe = this.dependencies.probeAccount;
+    if (!turn.isTest || turn.row.stop_reason !== 'instagram_down' || probe === undefined) {
+      return false;
+    }
+    return (await probe({ scope: target.scope, access })) === 'unclear';
   }
 
   /** When the lane goes again after a send (the lane's rule, else one box). */

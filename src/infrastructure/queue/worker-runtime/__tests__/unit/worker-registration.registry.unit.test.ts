@@ -132,6 +132,8 @@ describe('worker-registration.registry', () => {
       ['instagram-send-fast', 'instagram'],
       ['instagram-tasks', 'instagram'],
       ['instagram-database-tasks', 'instagram'],
+      // R48: the repair duties and watches run several at once on the same limiter (P94, SN24).
+      ['instagram-sending-repair', 'instagram'],
     ]);
     for (const definition of sendingQueues) {
       expect(definition.databaseSlotLimiterName).toBe('instagram-database');
@@ -146,6 +148,7 @@ describe('worker-registration.registry', () => {
       ['instagram-send-fast', true],
       ['instagram-tasks', true],
       ['instagram-database-tasks', false],
+      ['instagram-sending-repair', false],
     ]);
   });
 

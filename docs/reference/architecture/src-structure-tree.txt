@@ -477,14 +477,17 @@ src/
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-estimate.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-fast.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-slow.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending-watch.processor.db.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
     │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
+    │   │   │   │   │   ├── sending-state.clock.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
     │   │   │   ├── events/
@@ -549,6 +552,8 @@ src/
     │   │   │   │   ├── instagram-sending-repair.constants.ts
     │   │   │   │   ├── instagram-sending-repair.processor.ts
     │   │   │   │   ├── instagram-sending-repair.worker.ts
+    │   │   │   │   ├── instagram-sending-watch.constants.ts
+    │   │   │   │   ├── instagram-sending-watch.processor.ts
     │   │   │   │   ├── instagram-tasks.processor.ts
     │   │   │   │   └── instagram-tasks.worker.ts
     │   │   │   ├── instagram-send-access.service.ts
@@ -556,6 +561,7 @@ src/
     │   │   │   ├── instagram-send-day-count.repository.ts
     │   │   │   ├── instagram-send-day-count.schema.ts
     │   │   │   ├── instagram-send-error.util.ts
+    │   │   │   ├── instagram-send-estimate.util.ts
     │   │   │   ├── instagram-send-gate.service.ts
     │   │   │   ├── instagram-send-lane.repository.ts
     │   │   │   ├── instagram-send-lane.schema.ts
@@ -565,6 +571,8 @@ src/
     │   │   │   ├── instagram-send-minute-count.schema.ts
     │   │   │   ├── instagram-send-stop.repository.ts
     │   │   │   ├── instagram-send-stop.schema.ts
+    │   │   │   ├── instagram-sending-watch.repository.ts
+    │   │   │   ├── instagram-sending-watch.service.ts
     │   │   │   ├── instagram-sending.constants.ts
     │   │   │   ├── instagram-sending.controller.ts
     │   │   │   ├── instagram-sending.dto.ts
@@ -2157,11 +2165,13 @@ src/
     │   │   │   │   ├── worker-failure-sanitizer.util.unit.test.ts
     │   │   │   │   ├── worker-organization-group.util.unit.test.ts
     │   │   │   │   ├── worker-queue-family.util.unit.test.ts
+    │   │   │   │   ├── worker-redis-watch.unit.test.ts
     │   │   │   │   └── worker-registration.registry.unit.test.ts
     │   │   ├── provider-outage-pause.util.ts
     │   │   ├── provider-pause.util.ts
     │   │   ├── scheduler-registry-audit.ts
     │   │   ├── shutdown-timing.util.ts
+    │   │   ├── worker-clock-watch.ts
     │   │   ├── worker-close.util.ts
     │   │   ├── worker-connection-budget.ts
     │   │   ├── worker-database-slot-limiter.ts
@@ -2174,6 +2184,7 @@ src/
     │   │   ├── worker-queue-family.constants.ts
     │   │   ├── worker-queue-family.util.ts
     │   │   ├── worker-queue-heartbeat.ts
+    │   │   ├── worker-redis-watch.ts
     │   │   └── worker-registration.registry.ts
     │   ├── bootstrap.ts
     │   ├── connection.ts

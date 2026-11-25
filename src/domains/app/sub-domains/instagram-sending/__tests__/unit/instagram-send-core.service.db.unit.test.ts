@@ -553,6 +553,66 @@ describe('InstagramSendCoreService (database)', () => {
     expect(await sendingState.readAllAccountsStop()).toMatchObject({ reason: 'app_limit' });
   });
 
+  it('too fast on one lane, then a passed test, gives that lane half speed for 1 hour (AC-17.11, R48)', async () => {
+    await waitingOpeningMessage();
+    metaAnswers(400, { error: { code: 613 } });
+    await turn('slow');
+    expect((await laneRow(account, 'slow')).stop_reason).toBe('too_fast');
+    await operatorQuery`
+      UPDATE app.instagram_send_lanes SET stop_until = now() - interval '1 minute'
+      WHERE channel_account_id = ${account.channel_account_id} AND lane = 'slow'`;
+    metaAnswers(200, { message_id: 'mid.after-too-fast' });
+    await turn('slow');
+    const freed = await laneRow(account, 'slow');
+    expect(freed.stop_reason).toBeNull();
+    const halfSpeedMilliseconds = freed.half_speed_until!.getTime() - Date.now();
+    expect(halfSpeedMilliseconds).toBeGreaterThan(55 * 60_000);
+    expect(halfSpeedMilliseconds).toBeLessThanOrEqual(60 * 60_000);
+    expect((await laneRow(account, 'fast')).half_speed_until).toBeNull();
+  });
+
+  it('tests a down stop with a read-only call first: unclear keeps the stop and uses no person, answered lets the test DM go (plan §33.5 rule 2, R48)', async () => {
+    await waitingOpeningMessage();
+    await laneService.startLaneStop({
+      scope: scope(),
+      organizationId: organization.id,
+      channelAccountId: account.channel_account_id,
+      lanes: 'all',
+      reason: 'instagram_down',
+      stopUntil: new Date(Date.now() - 60_000),
+    });
+    const probes: string[] = [];
+    let probeAnswer: 'answered' | 'unclear' = 'unclear';
+    core = buildCore({
+      probeAccount: async ({ access }) => {
+        probes.push(access.channelAccountPublicId);
+        return probeAnswer;
+      },
+    });
+    // No Meta send is mocked: a DM call here would fail the test (nock refuses it).
+    await turn('slow');
+    expect(probes).toEqual([account.public_id]);
+    expect((await readInstagramMessages(organization.id))[0]).toMatchObject({
+      status: 'waiting',
+      tries: 0,
+    });
+    const held = await laneRow(account, 'slow');
+    expect(held.stop_reason).toBe('instagram_down');
+    expect(held.stop_until!.getTime()).toBeGreaterThan(Date.now());
+    expect(held.testing_lane).toBeNull();
+    expect(await readInstagramSendAttempts(organization.id)).toHaveLength(0);
+
+    probeAnswer = 'answered';
+    await operatorQuery`
+      UPDATE app.instagram_send_lanes SET stop_until = now() - interval '1 minute'
+      WHERE channel_account_id = ${account.channel_account_id}`;
+    metaAnswers(200, { message_id: 'mid.after-down' });
+    await turn('slow');
+    expect(probes).toHaveLength(2);
+    expect((await readInstagramMessages(organization.id))[0]?.status).toBe('sent');
+    expect((await laneRow(account, 'slow')).stop_reason).toBeNull();
+  });
+
   it('a token error breaks the connection — every account of it — at once (AC-17.12)', async () => {
     await waitingOpeningMessage();
     metaAnswers(401, { error: { code: 190, error_subcode: 463 } });

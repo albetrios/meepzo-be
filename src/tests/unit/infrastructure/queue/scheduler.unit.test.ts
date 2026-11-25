@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(38);
+    expect(scheduledJobs).toHaveLength(41);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -103,7 +103,42 @@ describe('infrastructure queue scheduler', () => {
       // launch-2026-11-20-ujai WH15: the stuck-event pick-up rides the Instagram processing queue
       // (job `reclaim-instagram-webhook-events`), every minute.
       'instagram-webhook',
+      // feat-instagram-dm-sending R48: the watches on the repair queue — the outage watch every
+      // 10 s, the Live check every minute, the waiting estimate every 10 minutes.
+      'instagram-sending-repair',
+      'instagram-sending-repair',
+      'instagram-sending-repair',
     ]);
+  });
+
+  it('repeats the outage watch every 10 seconds and the Live check and estimate by cron (SNC5, R48)', async () => {
+    const { getScheduledJobs, resolveScheduledJobRepeat } = await import(
+      '@/infrastructure/queue/scheduler.js'
+    );
+    const watches = getScheduledJobs().filter((job) =>
+      job.schedulerId.startsWith('instagram-watch-'),
+    );
+    expect(watches.map((job) => [job.jobName, resolveScheduledJobRepeat(job)])).toEqual([
+      ['outage-check', { every: 10_000 }],
+      ['live-check', expect.objectContaining({ pattern: '* * * * *' })],
+      ['waiting-estimate', expect.objectContaining({ pattern: '*/10 * * * *' })],
+    ]);
+    // Every registry row repeats exactly one way.
+    for (const job of getScheduledJobs())
+      expect(() => resolveScheduledJobRepeat(job)).not.toThrow();
+  });
+
+  it('refuses a scheduled job with both, neither or a sub-second interval (SNC5)', async () => {
+    const { resolveScheduledJobRepeat } = await import('@/infrastructure/queue/scheduler.js');
+    const base = { queueName: 'q', schedulerId: 's', jobName: 'j' };
+    expect(() => resolveScheduledJobRepeat(base)).toThrow(/exactly one/);
+    expect(() =>
+      resolveScheduledJobRepeat({ ...base, cronPattern: '* * * * *', everyMilliseconds: 10_000 }),
+    ).toThrow(/exactly one/);
+    expect(() => resolveScheduledJobRepeat({ ...base, everyMilliseconds: 500 })).toThrow(/1000/);
+    expect(
+      resolveScheduledJobRepeat({ ...base, cronPattern: '0 3 * * *', timezone: 'UTC' }),
+    ).toEqual({ pattern: '0 3 * * *', tz: 'UTC' });
   });
 
   it('tombstone retention jobs run in FK-safe order (uploads before organizations before users)', async () => {
@@ -226,6 +261,8 @@ describe('infrastructure queue scheduler', () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
     for (const job of scheduledJobs) {
+      // An interval (the 10-second outage watch, R48) has no wall clock.
+      if (job.everyMilliseconds !== undefined) continue;
       expect(job.timezone).toBe('America/New_York');
     }
   });
@@ -233,16 +270,16 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(38);
-    // Each scheduled job opens one Queue for upsert (38) + the reconcile pass opens one Queue per
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(41);
+    // Each scheduled job opens one Queue for upsert (41) + the reconcile pass opens one Queue per
     // unique queue name (37 — the export reclaim, the Instagram daily-check sweep, the channel
     // connection token-check sweep, the plan-state check and the Instagram stuck-event pick-up ride
-    // queues no other cron uses; the sending repair queue carries two duties), each closed in
+    // queues no other cron uses; the sending repair queue carries five duties), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(75);
+    expect(queueCloseMock).toHaveBeenCalledTimes(78);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(75);
+    expect(queueCloseMock).toHaveBeenCalledTimes(78);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

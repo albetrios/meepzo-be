@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -166,5 +166,51 @@ export class SendingStateRepository {
         updated_at: sql`now()`,
       })
       .where(eq(sending_states.id, SENDING_STATE_ROW_ID));
+  }
+
+  /**
+   * Starts an all-accounts stop until `stopUntil` and counts it (plan §33.5 rule 3 — the outage
+   * watch's `instagram_down`, ROUTE row R48).
+   */
+  async startAllStop({
+    reason,
+    stopUntil,
+  }: {
+    reason: 'instagram_down';
+    stopUntil: Date;
+  }): Promise<void> {
+    await this.db()
+      .update(sending_states)
+      .set({
+        all_stop_reason: reason,
+        all_stop_until: stopUntil,
+        all_stop_count: sql`${sending_states.all_stop_count} + 1`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(sending_states.id, SENDING_STATE_ROW_ID));
+  }
+
+  /**
+   * Clears an all-accounts stop that ended before `endedBefore` and its count (plan §33.6 rule 4);
+   * answers whether a row changed.
+   */
+  async clearAllStopEndedBefore(endedBefore: Date): Promise<boolean> {
+    const rows = await this.db()
+      .update(sending_states)
+      .set({
+        all_stop_reason: null,
+        all_stop_until: null,
+        all_stop_count: 0,
+        updated_at: sql`now()`,
+      })
+      .where(
+        and(
+          eq(sending_states.id, SENDING_STATE_ROW_ID),
+          isNotNull(sending_states.all_stop_until),
+          lt(sending_states.all_stop_until, endedBefore),
+        ),
+      )
+      .returning({ id: sending_states.id });
+    return rows.length > 0;
   }
 }

@@ -54,6 +54,14 @@ import {
   INSTAGRAM_REPAIR_PLAN_STOPS_JOB_NAME,
   INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
 } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-repair.constants.js';
+import {
+  INSTAGRAM_WATCH_LIVE_CHECK_CRON,
+  INSTAGRAM_WATCH_LIVE_CHECK_JOB_NAME,
+  INSTAGRAM_WATCH_OUTAGE_CHECK_EVERY_MILLISECONDS,
+  INSTAGRAM_WATCH_OUTAGE_CHECK_JOB_NAME,
+  INSTAGRAM_WATCH_WAITING_ESTIMATE_CRON,
+  INSTAGRAM_WATCH_WAITING_ESTIMATE_JOB_NAME,
+} from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-watch.constants.js';
 import { WEBHOOK_DELIVERY_RECLAIM_QUEUE_NAME } from '@/domains/notify/sub-domains/webhook/webhook-delivery/workers/webhook-delivery-reclaim.constants.js';
 import { USER_DATA_EXPORT_QUEUE_NAME } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
 import { USER_DATA_EXPORT_RECLAIM_JOB_NAME } from '@/domains/user/sub-domains/user-data-export/workers/user-data-export-reclaim.constants.js';
@@ -74,17 +82,55 @@ import { env } from '@/shared/config/env.config.js';
 
 /**
  * One row in the canonical scheduler registry: maps a BullMQ queue to its stable
- * `schedulerId` (used by BullMQ for upsert deduplication), the cron-driven job name, and
- * the cron pattern. The optional `timezone` is forwarded to BullMQ as `tz` and is sourced
- * from `SCHEDULER_TIMEZONE` so all scheduled runs agree on a wall clock.
+ * `schedulerId` (used by BullMQ for upsert deduplication), the job name, and how it repeats —
+ * exactly one of a cron pattern or a fixed interval in milliseconds (feat-instagram-dm-sending
+ * SNC5: the 10-second outage watch; {@link resolveScheduledJobRepeat} refuses both or neither).
+ * The optional `timezone` is forwarded to BullMQ as `tz` (cron only) and is sourced from
+ * `SCHEDULER_TIMEZONE` so all scheduled runs agree on a wall clock.
  */
 export interface ScheduledJob {
   queueName: string;
   schedulerId: string;
   jobName: string;
-  cronPattern: string;
-  /** Passed to BullMQ as `tz` when set. */
+  /** A cron pattern (minute granularity) — or set {@link ScheduledJob.everyMilliseconds}. */
+  cronPattern?: string;
+  /** A fixed repeat interval in milliseconds, for a cadence under a minute (SNC5). */
+  everyMilliseconds?: number;
+  /** Passed to BullMQ as `tz` when set (cron only). */
   timezone?: string;
+}
+
+/**
+ * The BullMQ repeat options of one scheduled job: `{ pattern, tz? }` for a cron, `{ every }` for
+ * an interval (feat-instagram-dm-sending SNC5).
+ *
+ * @remarks
+ * - **Algorithm:** exactly one of `cronPattern` / `everyMilliseconds` must be set; an interval
+ *   must be a whole number of milliseconds of at least 1,000.
+ * - **Failure modes:** throws on both, neither or a bad interval — a registry bug, caught by the
+ *   scheduler unit test before it ships.
+ * - **Side effects:** none.
+ */
+export function resolveScheduledJobRepeat(
+  job: ScheduledJob,
+): { pattern: string; tz?: string } | { every: number } {
+  const hasCron = job.cronPattern !== undefined;
+  const hasInterval = job.everyMilliseconds !== undefined;
+  if (hasCron === hasInterval) {
+    throw new Error(
+      `scheduled job ${job.schedulerId} needs exactly one of cronPattern / everyMilliseconds`,
+    );
+  }
+  if (job.everyMilliseconds !== undefined) {
+    if (!Number.isInteger(job.everyMilliseconds) || job.everyMilliseconds < 1000) {
+      throw new Error(`scheduled job ${job.schedulerId} needs an interval of at least 1000 ms`);
+    }
+    return { every: job.everyMilliseconds };
+  }
+  return {
+    pattern: job.cronPattern as string,
+    ...(job.timezone !== undefined ? { tz: job.timezone } : {}),
+  };
 }
 
 /**
@@ -612,6 +658,41 @@ export function getScheduledJobs(): ScheduledJob[] {
     ...getTombstoneRetentionScheduledJobs(timezone),
     ...getOperationalSweepScheduledJobs(timezone),
     ...getRecoverySweepScheduledJobs(timezone),
+    ...getInstagramSendingWatchScheduledJobs(timezone),
+  ];
+}
+
+/**
+ * feat-instagram-dm-sending SN6, SNC5 (P94 — ROUTE row R48): the sending watches on the repair
+ * queue, one scheduler each — the outage watch every 10 seconds (`everyMilliseconds`, WC-22), the
+ * Live check every minute (WC-16) and the waiting estimate every 10 minutes (WC-24).
+ */
+function getInstagramSendingWatchScheduledJobs(timezone: string | undefined): ScheduledJob[] {
+  return [
+    {
+      queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+      schedulerId: 'instagram-watch-outage-check',
+      jobName: INSTAGRAM_WATCH_OUTAGE_CHECK_JOB_NAME,
+      everyMilliseconds: INSTAGRAM_WATCH_OUTAGE_CHECK_EVERY_MILLISECONDS,
+    },
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+        schedulerId: 'instagram-watch-live-check',
+        jobName: INSTAGRAM_WATCH_LIVE_CHECK_JOB_NAME,
+        cronPattern: INSTAGRAM_WATCH_LIVE_CHECK_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
+        schedulerId: 'instagram-watch-waiting-estimate',
+        jobName: INSTAGRAM_WATCH_WAITING_ESTIMATE_JOB_NAME,
+        cronPattern: INSTAGRAM_WATCH_WAITING_ESTIMATE_CRON,
+      },
+    }),
   ];
 }
 
@@ -741,18 +822,15 @@ export async function registerScheduledJobs(
         defaultJobOptions: SCHEDULED_QUEUE_DEFAULT_JOB_OPTIONS,
       });
       queues.push(queue);
-      await queue.upsertJobScheduler(
-        job.schedulerId,
-        {
-          pattern: job.cronPattern,
-          ...(job.timezone !== undefined ? { tz: job.timezone } : {}),
-        },
-        { name: job.jobName, opts: SCHEDULED_QUEUE_DEFAULT_JOB_OPTIONS },
-      );
+      await queue.upsertJobScheduler(job.schedulerId, resolveScheduledJobRepeat(job), {
+        name: job.jobName,
+        opts: SCHEDULED_QUEUE_DEFAULT_JOB_OPTIONS,
+      });
       logger.info(
         {
           queueName: job.queueName,
-          cronPattern: job.cronPattern,
+          cronPattern: job.cronPattern ?? null,
+          everyMilliseconds: job.everyMilliseconds ?? null,
           timezone: job.timezone ?? null,
         },
         'scheduler.job.registered',

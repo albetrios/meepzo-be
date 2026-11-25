@@ -135,12 +135,12 @@ With default concurrency (`WORKER_CONCURRENCY=4`):
 | `mail`                 | `mail` (throughput), `mail-outbox-sweeper` (1), `commit-dispatch-recovery` (Redis-only)                                                                                | 2 / 3    | `4 + 1 = 5`     | `0`                                                                                    |
 | `notify`               | `notification` (throughput), `instagram-reconnect-notice` (throughput), `user-data-export` (throughput)                                                                 | 3 / 3    | `4 + 4 + 4 = 12` | `0` (the export uploads between two short contexts)                                    |
 | `webhook`              | `webhook-delivery` (throughput), `webhook-delivery-reclaim` (1)                                                                                                        | 2 / 2    | `4 + 1 = 5`     | `0` (short transactions around the POST, not across it; the reclaim adds jobs after its read) |
-| `stripe`               | `stripe-webhook` (throughput), `subscription-seat-sync` (throughput), `stripe-webhook-event-retention` (1), `stripe-webhook-event-reclaim` (1), `stripe-webhook-event-catchup` (1) | 5 / 5    | `4 + 4 + 1 + 1 + 1 = 11` | `0`                                                                                    |
-| `instagram`            | `instagram-webhook` (throughput — event processing; its every-minute stuck-event pick-up rides the queue), `instagram-webhook-event-retention` (1), `instagram-database-tasks` (throughput — the bulk contact changes, segment counts, broadcast audiences and retries, S19; on with sending off too; its units of work take slots of the Instagram database limiter) | 3 / 3    | `4 + 1 + 3 = 8` (the limiter, once) | `0` (short organization contexts around every Instagram call, never across one)        |
+| `stripe`               | `stripe-webhook` (throughput), `subscription-seat-sync` (1 while the seat sync is off — it only drains, BL9; the family's 4 once on), `stripe-webhook-event-retention` (1), `stripe-webhook-event-reclaim` (1), `stripe-webhook-event-catchup` (1) | 5 / 5    | `4 + 1 + 1 + 1 + 1 = 8` | `0`                                                                                    |
+| `instagram`            | `instagram-webhook` (throughput — event processing; its every-minute stuck-event pick-up rides the queue), `instagram-webhook-event-retention` (1), `instagram-database-tasks` (throughput — the bulk contact changes, segment counts, broadcast audiences and retries, S19; on with sending off too; its units of work take slots of the Instagram database limiter), `instagram-sending-repair` (the repair duties and watches, 4 at once, each database unit in a slot of the same limiter — R48) | 4 / 4    | `4 + 1 + 3 = 8` (the limiter, once) | `0` (short organization contexts around every Instagram call, never across one)        |
 | `instagram` (sending on) | + `instagram-send-slow`, `instagram-send-fast`, `instagram-tasks` (throughput — off unless `SENDING_ENABLED`; their units of work take slots of the same Instagram database limiter) | 6 / 6 | `8` (the limiter, once — not 50 + 100 + 20 + 4 places) | `0` (a send holds a connection only for its claim and its save; no context is held across a Meta call) |
-| `retention`            | 22 single-concurrency workers (audit retention/export/drain, session cleanup, notification retention, 2 offboarding reconcilers, 11 tombstone/retention/sweep workers, the membership invitation expiry sweep, the Instagram account daily check, the automation run wait expiry and the deleted-automation purge) | 22 / 22  | `22 × 1 = 22`   | `0` (the audit export, the upload sweep and both S3 retention purges keep S3 calls outside their short contexts; the Instagram daily check calls Instagram between two short contexts) |
+| `retention`            | 24 single-concurrency workers (audit retention/export/drain, session cleanup, notification retention, 2 offboarding reconcilers, 11 tombstone/retention/sweep workers, the membership invitation expiry sweep, the Instagram account daily check, the channel connection token check, the subscription plan-state check, the automation run wait expiry and the deleted-automation purge) | 24 / 24  | `24 × 1 = 24`   | `0` (the audit export, the upload sweep and both S3 retention purges keep S3 calls outside their short contexts; the Instagram daily check calls Instagram between two short contexts) |
 | `observability`        | `idempotency-cardinality`, `dlq-depth` (Redis-only), `dlq-auto-retry` (1)                                                                                              | 1 / 3    | `1`             | `0`                                                                                    |
-| **Total (monolithic)** | **43**                                                                                                                                                                 | **40**   | **`61`**, **`64`** with sending on (`+ 3` — one limiter for the process) | **`0`**                                                                                |
+| **Total (monolithic)** | **46**                                                                                                                                                                 | **43**   | **`63`** with the default 3 slots, sending on or off (the limiter is counted once; R51's token check and R52's plan-state check added 1 each, R48 moved the repair queue onto the limiter and the off seat sync to 1) | **`0`**                                                                                |
 
 The `External-IO holding` column is the **at-risk slice** of the Postgres budget — these are the slots that can starve when Stripe, Resend, or S3 latency spikes. Watch the `workerPeakPostgresConcurrencyHoldingExternalIo` extra in the `database.pool.exhaustion.*` Sentry alerts.
 
@@ -153,7 +153,7 @@ registry outgrows the template pool, or the template budget no longer fits the C
 
 | Mode                                                 | Trigger                                | Enforcement                                                                                                                                                                                              |
 | ---------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Monolithic**                                       | `WORKER_QUEUE_FAMILIES` unset or `all` | **Fails fast** at startup when peak Postgres demand exceeds `DATABASE_POOL_MAX` (peak demand 61 with every optional queue on at the default concurrency, 64 with sending on at the default 3 database slots; a pool lowered to 30 or 20 fails here — the 2026-10-13 production incident), and warns (`database.connection_budget.worker_demand_no_burst_headroom`) when demand fits but demand + 25% burst headroom (80) does not. The default pool of **80** covers the demand with exactly that headroom — the automation clean-ups (launch R11) and the Instagram event processing worker (launch R14) included — so the next queue raises it again: raise `DATABASE_POOL_MAX` on the worker service, or split services. CI's API boots share one small Postgres and allow no default above 80 (`ci-boot-connection-budget.policy.unit.test.ts`). |
+| **Monolithic**                                       | `WORKER_QUEUE_FAMILIES` unset or `all` | **Fails fast** at startup when peak Postgres demand exceeds `DATABASE_POOL_MAX` (peak demand 63 with every optional queue on at the default concurrency and the default 3 database slots, sending on or off; a pool lowered to 30 or 20 fails here — the 2026-10-13 production incident), and warns (`database.connection_budget.worker_demand_no_burst_headroom`) when demand fits but demand + 25% burst headroom (79) does not. The default pool of **80** covers the demand with that headroom — the automation clean-ups (launch R11) and the Instagram event processing worker (launch R14) included — so the next queue raises it again: raise `DATABASE_POOL_MAX` on the worker service, or split services. CI's API boots share one small Postgres and allow no default above 80 (`ci-boot-connection-budget.policy.unit.test.ts`). |
 | **Split** (e.g. `WORKER_QUEUE_FAMILIES=mail,notify`) | Explicit subset                        | **Fails fast** at startup when the subset's computed Postgres demand exceeds `DATABASE_POOL_MAX`; warns on missing burst headroom the same way. |
 
 #### Example Railway split (same image, different env per service)
@@ -178,9 +178,9 @@ the registry), so 50 slow-lane + 100 fast + 20 task places cost the slots, not 1
 **Every queue runs in the existing `worker` service** (owner, P140 — superseding P91's send service
 and P408's split layout): the send queues and `instagram-tasks` are family `instagram`, so the one
 deployed, monolithic `worker` runs them with `SENDING_ENABLED=true` and `SENDING_ENVIRONMENT_ID` —
-no third Railway service, no `RAILWAY_SEND_WORKER_SERVICE_ID`. Its demand is `61 + slots`, and the
-pool must hold that with the 25 % burst headroom: `DATABASE_POOL_MAX ≥ ceil((61 + slots) × 1.25)`.
-The defaults fit exactly — 3 slots, `61 + 3 = 64`, headroom 80 = the default pool
+no third Railway service, no `RAILWAY_SEND_WORKER_SERVICE_ID`. Its demand is `60 + slots`, and the
+pool must hold that with the 25 % burst headroom: `DATABASE_POOL_MAX ≥ ceil((60 + slots) × 1.25)`.
+The defaults fit — 3 slots, `60 + 3 = 63`, headroom 79 ≤ the default pool of 80
 (`src/tests/unit/ci/worker-pool-budget.policy.unit.test.ts` holds both the template and the schema
 defaults to it). Raise the slots, raise the pool with them.
 
@@ -191,7 +191,7 @@ largest pool decides:
 | Process | Slots | Pool (primary + maintenance) | Demand | Its boot check (3 processes) |
 | --- | --- | --- | --- | --- |
 | API × 2 | — | `80 + 10` | — | `3 × 90 = 270 ≤ 440` |
-| Worker (monolithic, sending on) | 16 | `100 + 10` | `61 + 16 = 77` (25 % headroom: 97) | `3 × 110 = 330 ≤ 440` |
+| Worker (monolithic, sending on) | 16 | `100 + 10` | `60 + 16 = 76` (25 % headroom: 95) | `3 × 110 = 330 ≤ 440` |
 | **Connections in use at most** | | **`2 × 90 + 110 = 290 ≤ 440`** | | |
 
 200 accounts at the default 600 opening messages an hour each is about 33 messages a second. The
@@ -205,7 +205,7 @@ messages: still one worker, with more slots and a larger pool:
 | Process | Slots | Pool (primary + maintenance) | Demand | Its boot check (3 processes) |
 | --- | --- | --- | --- | --- |
 | API × 2 | — | `80 + 10` | — | `3 × 90 = 270 ≤ 440` |
-| Worker | 24 | `110 + 10` | `61 + 24 = 85` (headroom: 107) | `3 × 120 = 360 ≤ 440` |
+| Worker | 24 | `110 + 10` | `60 + 24 = 84` (headroom: 105) | `3 × 120 = 360 ≤ 440` |
 | **Connections in use at most** | | **`2 × 90 + 120 = 300 ≤ 440`** | | |
 
 Past that — more send places than one process carries, or more API replicas — the per-process check

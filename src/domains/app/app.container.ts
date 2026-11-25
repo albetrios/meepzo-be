@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import {
+  InstagramSendingWatchService,
+  probeInstagramAccountReadOnly,
+} from './sub-domains/instagram-sending/instagram-sending-watch.service.js';
+import { measurePostgresClockSkewMilliseconds } from '@/infrastructure/queue/worker-runtime/worker-clock-watch.js';
+import { readWorkerQueueHeartbeats } from '@/infrastructure/queue/worker-runtime/worker-queue-heartbeat.js';
+import { INSTAGRAM_SENDING_REPAIR_QUEUE_NAME } from './sub-domains/instagram-sending/workers/instagram-sending-repair.constants.js';
+import { readInstagramLateLaneGauge } from './sub-domains/instagram-sending/workers/instagram-sending-watch.processor.js';
 import { registerHealthSendingProbe } from '@/shared/utils/infrastructure/health-operational-metrics.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { ChannelAccountRepository } from './sub-domains/channel-account/channel-account.repository.js';
@@ -189,6 +197,13 @@ export type AppContainer = {
    * R40 / R41 / R46's; until then a ticket is logged and finished without touching a row.
    */
   instagramSendWork: InstagramSendWork;
+  /** Gate 1 and the claim's commit (SN3, ROUTE row R42) — shared by the send core and the Redis rebuild (R48). */
+  instagramSendGateService: InstagramSendGateService;
+  /**
+   * The watches' work (§ 6 SN6, SNC5; WC-16, WC-22, WC-24 — ROUTE row R48): the all-accounts outage
+   * stop, the Live check and the waiting estimate, run by the repair worker's watch duties.
+   */
+  instagramSendingWatchService: InstagramSendingWatchService;
 };
 
 /**
@@ -338,14 +353,23 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
   );
   const sendingStateService = new SendingStateService();
   // The readiness body's sending part (SNC9): may this deployment send, and why not.
+  // R48 adds the clock skew, the repair age and the late lanes (SNC9, plan §40.1).
   registerHealthSendingProbe(async () => {
-    const check = await sendingStateService.checkSending();
+    const [check, clockSkewMilliseconds, heartbeats, lateLanes] = await Promise.all([
+      sendingStateService.checkSending(),
+      measurePostgresClockSkewMilliseconds().catch(() => null),
+      readWorkerQueueHeartbeats([INSTAGRAM_SENDING_REPAIR_QUEUE_NAME]).catch(() => []),
+      readInstagramLateLaneGauge(),
+    ]);
     return {
       may_send: check.maySend,
       reason: check.reason,
       settings_version: check.settingsVersion,
       minimum_compatible_settings_version: check.minimumCompatibleSettingsVersion,
       server_settings_version: check.serverSettingsVersion,
+      clock_skew_milliseconds: clockSkewMilliseconds,
+      repair_last_round_at: heartbeats[0]?.last_job_at ?? null,
+      late_lane_count: lateLanes?.count ?? null,
     };
   });
   const messageMonthCountService = new MessageMonthCountService(
@@ -698,7 +722,14 @@ function createSendAccessServices({
     // WC-32's `attachment-upload` task (R46): go-live and a live file change upload ahead.
     uploadQueue: instagramAttachmentUploadQueue,
   });
-  return { instagramSendAccessService, instagramAttachmentService };
+  return {
+    instagramSendAccessService,
+    instagramAttachmentService,
+    // Gate 1 and the claim (R42), shared by the send core and the Redis rebuild (R48).
+    instagramSendGateService: new InstagramSendGateService({
+      laneService: sending.instagramSendLaneService,
+    }),
+  };
 }
 
 /**
@@ -710,13 +741,13 @@ function createSendAccessServices({
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
  */
 function createInstagramSendWork(
-  container: Omit<AppContainer, 'instagramSendWork'>,
+  container: Omit<AppContainer, 'instagramSendWork' | 'instagramSendingWatchService'>,
 ): InstagramSendWork {
   const lanes = container.instagramSendLaneService;
   const sendCore = new InstagramSendCoreService({
     laneService: lanes,
     messageService: container.instagramMessageService,
-    gateService: new InstagramSendGateService({ laneService: lanes }),
+    gateService: container.instagramSendGateService,
     accessService: container.instagramSendAccessService,
     attachmentService: container.instagramAttachmentService,
     sendingStateService: container.sendingStateService,
@@ -728,6 +759,12 @@ function createInstagramSendWork(
     },
     // The lanes' own rules plug in at R43–R45; until then a ticket is logged and finished.
     laneRules: {},
+    // R48 (plan §33.5 rule 2): a down stop is tested by reading the account's own profile first.
+    probeAccount: (input) =>
+      probeInstagramAccountReadOnly({
+        ...input,
+        accessService: container.instagramSendAccessService,
+      }),
   });
   return {
     ...NO_INSTAGRAM_SEND_WORK,
@@ -736,6 +773,28 @@ function createInstagramSendWork(
     // ROUTE row R46's tasks (S19): the upload on `instagram-tasks`, the database-heavy four on
     // `instagram-database-tasks`.
     taskHandlers: { ...NO_INSTAGRAM_SEND_WORK.taskHandlers, ...createAppTaskHandlers(container) },
+  };
+}
+
+/**
+ * The container with its send work (R42) and the watches' service (§ 6 SN6, SNC5; WC-16, WC-22,
+ * WC-24 — ROUTE row R48: the outage stop, the Live check and the waiting estimate).
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
+ */
+function withSendWorkAndWatches(
+  container: Omit<AppContainer, 'instagramSendWork' | 'instagramSendingWatchService'>,
+): AppContainer {
+  return {
+    ...container,
+    instagramSendWork: createInstagramSendWork(container),
+    instagramSendingWatchService: new InstagramSendingWatchService({
+      sendingStateService: container.sendingStateService,
+      accessService: container.instagramSendAccessService,
+      messageService: container.instagramMessageService,
+      mediaService: container.instagramMediaService,
+    }),
   };
 }
 
@@ -902,7 +961,7 @@ export function createAppContainer({
   };
   // WC-38 (ROUTE row R52): billing's plan-state change → the plan-change task, in both processes.
   registerInstagramPlanChangeEventHandlers();
-  return { ...container, instagramSendWork: createInstagramSendWork(container) };
+  return withSendWorkAndWatches(container);
 }
 
 /**

@@ -324,8 +324,18 @@ export class InstagramCommentFlow {
   private constructor(
     private readonly app: FastifyInstance,
     readonly team: InstagramTeamFixture,
+    /** `app`: the app's own engine and sending port — sub-domain 6 really saves (ROUTE rows R54–R55). */
+    private readonly sending: 'fake' | 'app' = 'fake',
   ) {
     const { appDomain } = app;
+    if (sending === 'app') {
+      // The app's own engine, its random draws pinned to 0 like the fake's (version 1, the public
+      // reply always drawn, the next wording) — the one private field a suite sets.
+      Object.assign(appDomain.automationRunService, { drawInteger: () => 0 });
+      this.engine = appDomain.automationRunService;
+      this.services = appDomain;
+      return;
+    }
     // The real engine of the app's own services, its channel's sending port faked (AU35, R14).
     this.engine = new AutomationRunService({
       channelAccountService: appDomain.channelAccountService,
@@ -340,8 +350,11 @@ export class InstagramCommentFlow {
   }
 
   /** A fresh team with its Instagram account connected. Needs the permission catalog seeded. */
-  static async open(app: FastifyInstance): Promise<InstagramCommentFlow> {
-    const flow = new InstagramCommentFlow(app, await createInstagramTeam());
+  static async open(
+    app: FastifyInstance,
+    { sending = 'fake' }: { sending?: 'fake' | 'app' } = {},
+  ): Promise<InstagramCommentFlow> {
+    const flow = new InstagramCommentFlow(app, await createInstagramTeam(), sending);
     await flow.connectAccount();
     return flow;
   }
@@ -636,7 +649,7 @@ export class InstagramCommentFlow {
         readProfile: this.instagram.processingClient.readInstagramUserProfile,
       }),
     });
-    await this.sendWaitingMessages();
+    if (this.sending === 'fake') await this.sendWaitingMessages();
     return result;
   }
 

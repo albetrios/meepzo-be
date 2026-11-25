@@ -401,6 +401,11 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   downStopMinutes: [5, 10, 20, 40],
   /** Different people in a row with `wrong_permission` that stop every lane (plan §33.2 rule 3). */
   wrongPermissionPeopleInARow: 3,
+  /**
+   * Refused texts in a row on one automation (comments still there) that stop it — `bad_text`
+   * (`AUTOMATION_BAD_TEXT_IN_A_ROW`, plan §33.1; ROUTE row R54).
+   */
+  automationBadTextInARow: 5,
   /** Half speed after a passed test (`HALF_SPEED_HOURS`, plan §33.4). */
   halfSpeedHours: 1,
   /** Half speed after a passed test of a block (`HALF_SPEED_AFTER_BLOCK_HOURS`). */

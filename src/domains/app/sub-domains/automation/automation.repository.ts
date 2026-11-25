@@ -451,6 +451,41 @@ export class AutomationRepository {
   }
 
   /**
+   * Stops a live, not yet stopped automation for refused texts (`bad_text`, plan §33.1, §33.2 rule
+   * 7 — ROUTE row R54): `stopped_reason` + `stopped_at` now. Answers its public id, name and its
+   * account's display name, or `null` when it was already stopped or deleted (a repeat does nothing).
+   */
+  async markStoppedForRefusedText({ organizationId, automationId }: AutomationKey): Promise<{
+    publicId: string;
+    name: string;
+    accountDisplayName: string;
+  } | null> {
+    const rows = await this.db()
+      .update(automations)
+      .set({
+        stopped_reason: 'bad_text',
+        stopped_at: sql`now()`,
+        updated_at: automationUpdatedAtTimestamp,
+      })
+      .from(channel_accounts)
+      .where(
+        and(
+          eq(automations.organization_id, organizationId),
+          eq(automations.id, automationId),
+          isNull(automations.stopped_reason),
+          LIVE_AUTOMATION,
+          OWN_CHANNEL_ACCOUNT,
+        ),
+      )
+      .returning({
+        publicId: automations.public_id,
+        name: automations.name,
+        accountDisplayName: channel_accounts.display_name,
+      });
+    return rows[0] ?? null;
+  }
+
+  /**
    * An action's write (routes 32, 33 — AU13, AU14): the new status, a `next` automation's go-live
    * time and `waiting`, Pause + Cancel's `cancelled_before_at = now()`, the actor as last editor.
    * `null` when it was deleted meanwhile.

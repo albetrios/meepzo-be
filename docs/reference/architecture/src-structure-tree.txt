@@ -17,11 +17,14 @@ src/
     │   │   │   ├── instagram-acceptance-gaps.e2e.test.ts
     │   │   │   ├── instagram-acceptance-gaps.helper.ts
     │   │   │   ├── instagram-comment-flow.helper.ts
+    │   │   │   ├── instagram-comment-to-dm.e2e.test.ts
     │   │   │   ├── instagram-intake-run.helper.ts
     │   │   │   ├── instagram-next-post-flow.e2e.test.ts
     │   │   │   ├── instagram-next-post-flow.helper.ts
+    │   │   │   ├── instagram-other-starts.e2e.test.ts
     │   │   │   ├── instagram-retention-erasure.e2e.test.ts
-    │   │   │   └── instagram-retention-erasure.helper.ts
+    │   │   │   ├── instagram-retention-erasure.helper.ts
+    │   │   │   └── instagram-send-flow.helper.ts
     │   │   ├── integration/
     │   │   │   └── app-route-smoke.integration.test.ts
     │   │   └── unit/

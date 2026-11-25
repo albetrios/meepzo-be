@@ -7,6 +7,7 @@ import {
   RESOURCE_QUOTA_LOCK_NAMESPACE,
 } from '@/infrastructure/database/resource-quota-lock.util.js';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import { notifyOrganizationKind } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
   assertTeamOrganization,
@@ -1151,6 +1152,64 @@ export class AutomationService {
           automationPublicId,
         });
         return row?.id ?? null;
+      },
+    });
+  }
+
+  /**
+   * Stops an automation whose texts Instagram refused 5 times in a row (`bad_text`, plan §33.1,
+   * §33.2 rule 7; WC-57 "a refused text" — ROUTE row R54) and tells its owners once.
+   *
+   * @remarks
+   * - **Algorithm:** one unit in the caller's scope: `markStoppedForRefusedText` (only a live, not
+   *   yet stopped automation), then `notifyOrganizationKind` (`automation.stopped`, the
+   *   `automationStopped` copy, `data.problem` `refused_text`, key
+   *   `automation-stopped:<aut_…>:bad_text`) in the same unit.
+   * - **Failure modes:** a database or notice error propagates (the send core logs it; the message
+   *   result is already saved, and the next refused text tries the stop again).
+   * - **Side effects:** the automation's stop columns; notification and outbox rows.
+   * - **Notes:** a stopped automation's messages are passed over by the lanes (they wait); a saved
+   *   text change clears the stop (AU12). Answers whether this call stopped it.
+   */
+  async stopForRefusedText({
+    scope,
+    organizationId,
+    automationId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    automationId: number;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const stopped = await this.automationRepository.markStoppedForRefusedText({
+          organizationId,
+          automationId,
+        });
+        if (stopped === null) return false;
+        await notifyOrganizationKind({
+          scope,
+          type: 'automation.stopped',
+          copy: {
+            key: 'automationStopped',
+            values: {
+              automationName: stopped.name,
+              username: stopped.accountDisplayName.replace(/^@/, ''),
+            },
+          },
+          dedupeKey: `automation-stopped:${stopped.publicId}:bad_text`,
+          actionPath: `/automations/${stopped.publicId}`,
+          data: { problem: 'refused_text', automation_id: stopped.publicId },
+        });
+        logger.info(
+          {
+            organizationPublicId: scope.organizationPublicId,
+            automationPublicId: stopped.publicId,
+          },
+          'app.automation.stopped_bad_text',
+        );
+        return true;
       },
     });
   }

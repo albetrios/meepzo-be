@@ -309,11 +309,26 @@ function accountSkipReason(
   return null;
 }
 
+/**
+ * Her whole message cleaned as plan §14.4 rule 1 says: lower case, punctuation, symbols and emoji
+ * removed, spaces trimmed and folded — "STOP!" is "stop" (ROUTE row R54, AC-19.11).
+ */
+function cleanStopWordText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}\p{Extended_Pictographic}]|\u200d|\ufe0f/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 /** Whether her text is a stop word of the account (D49, CT6): `STOP_WORDS` plus `extra_stop_words`. */
 function isStopWord({ text, extraStopWords }: { text: string | null; extraStopWords: string[] }) {
   if (text === null) return false;
-  const word = text.trim().toLowerCase();
-  return word !== '' && (STOP_WORDS.includes(word) || extraStopWords.includes(word));
+  const word = cleanStopWordText(text);
+  return (
+    word !== '' &&
+    (STOP_WORDS.includes(word) || extraStopWords.some((extra) => cleanStopWordText(extra) === word))
+  );
 }
 
 /** The facts read before the event's transaction (WH12 step 2) — reads only, no lock held. */

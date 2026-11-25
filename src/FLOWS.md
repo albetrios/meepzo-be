@@ -742,7 +742,7 @@ sequenceDiagram
   loop up to 25 events of the group, oldest first
     Worker->>Events: claim — the group's head (comments: the oldest free row, SKIP LOCKED); one more try, 5-minute lease; a row at 5 tries → failed, next_attempt_at +1 h
     Worker->>Account: read again — gone or revoked → skipped account_disconnected; switch off → skipped automation_disabled (an error account is taken in)
-    Worker->>Events: no lock held — the flood count (> 20 of her message events a minute → skipped flood), the owner's echoes of 6 h (quiet time), the stop words
+    Worker->>Events: no lock held — the flood count (> 20 of her message events a minute → skipped flood), the owner's echoes of 6 h (quiet time), the stop words (her whole message cleaned: lower case, punctuation and emoji removed — "STOP!" is "stop")
     Note over Worker,Engine: ONE transaction
     Worker->>Contact: lockInboundContact — her live contact FOR UPDATE (an erase holding her goes first)
     Worker->>Events: mark processed / skipped while it still waits (0 rows → done already, stop)
@@ -893,7 +893,7 @@ sequenceDiagram
   Worker->>Engine: handleDirectMessage / handleButtonClick / startTagRun
   Engine->>DB: lock her contact, then the automations of her open runs
   alt one of her runs waits for this (level 1)
-    Engine->>DB: an email or phone answer (wrong → asked again, at most 3 asks), her text as the hello's answer, a tap, or `any` after an unknown result
+    Engine->>DB: an email or phone answer (wrong → asked again: the first question plus at most 3 asks again), her text as the hello's answer, a tap, or `any` after an unknown result
     Engine->>Port: the run's next step
   else a start (levels 2–5)
     Engine->>DB: exact source → keyword or kind → her first DM → "no other automation answered"; her stop word (only a keyword DM, a starter question or a link restarts her), the once key, her open run (run_in_progress)

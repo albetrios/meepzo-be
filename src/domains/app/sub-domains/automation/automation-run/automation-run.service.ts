@@ -1332,8 +1332,9 @@ export class AutomationRunService {
     if (saved === null) return handlingResult({ outcome: 'ignored' });
     if (saved.outcome === 'invalid') {
       const versions = run.version_numbers;
+      // `asks` counts the first question too: it plus at most 3 asks again (AC-19.5, R54).
       const asks = (part === 'email' ? versions.email_asks : versions.phone_asks) ?? 1;
-      if (asks < AUTOMATION_RUN_ASK_MAX_COUNT) {
+      if (asks <= AUTOMATION_RUN_ASK_MAX_COUNT) {
         await this.askQuestion({ unit, run, automation, part });
       }
       return handlingResult({ outcome: 'answer_invalid', runPublicIds: [run.public_id] });

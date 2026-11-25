@@ -354,8 +354,8 @@ function stopOf({
  * - **Side effects:** none.
  * - **Notes:** the counts stay for a final status: Meta was tried (WC-20's daily check compares the
  *   month with the tried DMs). The comment's re-read before `deleted_comment` is the lane's call
- *   (`callWithCommentCheck`, R43); the automation's `bad_text` stop after 5 in a row is the flows'
- *   (R54).
+ *   (`callWithCommentCheck`, R43); the automation's `bad_text` stop after 5 in a row is the send
+ *   core's, read from the attempts (`automationBadTextInARow`, R54).
  */
 export function decideInstagramSendOutcome({
   reading,

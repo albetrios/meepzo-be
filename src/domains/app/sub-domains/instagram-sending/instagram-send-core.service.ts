@@ -175,6 +175,19 @@ export interface InstagramSendCoreDependencies {
   /** Waits between result-save tries (tests pass a fake). */
   sleep?: ((milliseconds: number) => Promise<void>) | undefined;
   /**
+   * Stops an automation for a refused text (`bad_text`, plan §33.1; ROUTE row R54) and tells its
+   * owners — `AutomationService.stopForRefusedText`; absent = no automation stop.
+   */
+  automationStopPort?:
+    | {
+        stopForRefusedText(input: {
+          scope: OrganizationPrincipalDatabaseScope;
+          organizationId: number;
+          automationId: number;
+        }): Promise<boolean>;
+      }
+    | undefined;
+  /**
    * The read-only call that tests an `instagram_down` stop before any real person is (plan §33.5
    * rule 2, ROUTE row R48): `answered` lets the test DM go, `unclear` keeps the stop its time again.
    * Absent = no read-only call (the test DM goes).
@@ -1009,8 +1022,54 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         ? { ...decided, reason: answerReason }
         : decided;
     const result = await settle({ reading, outcome, instagramMessageId, durationMilliseconds });
-    await this.applyStops({ target, access, outcome, reading, callError, context });
+    const automationId = message.automation_id;
+    await this.applyStops({ target, access, outcome, reading, callError, context, automationId });
     return result;
+  }
+
+  /**
+   * The automation's `bad_text` stop (plan §33.1, §33.2 rules 6–7; ROUTE row R54): its last
+   * `automationBadTextInARow` (5) finished attempts all refused texts — a comment gone is
+   * `comment_gone`, never counted — stop it and tell its owners, once.
+   */
+  private async stopAutomationOnRefusedTexts({
+    target,
+    automationId,
+    context,
+  }: {
+    target: InstagramSendLaneTarget;
+    automationId: number;
+    context: InstagramSendTicketContext;
+  }): Promise<void> {
+    const stopPort = this.dependencies.automationStopPort;
+    if (stopPort === undefined) return;
+    const limit = SETTINGS.automationBadTextInARow;
+    const lastGroups = await this.untilSaved({
+      context,
+      what: 'refused texts in a row',
+      callback: () =>
+        withAppDatabaseContext({
+          scope: target.scope,
+          callback: () =>
+            new InstagramSendAttemptRepository().listLastAutomationResultGroups({
+              organizationId: target.organizationId,
+              automationId,
+              limit,
+            }),
+        }),
+    });
+    if (lastGroups === null || lastGroups.length < limit) return;
+    if (lastGroups.some((group) => group !== 'bad_text')) return;
+    await this.untilSaved({
+      context,
+      what: 'automation stop',
+      callback: () =>
+        stopPort.stopForRefusedText({
+          scope: target.scope,
+          organizationId: target.organizationId,
+          automationId,
+        }),
+    });
   }
 
   /** Saves an outcome through the one result save and answers the lane's result. */
@@ -1206,7 +1265,10 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     }
   }
 
-  /** The stop an answer starts, and the "in a row" rules read from the attempts (SN5). */
+  /**
+   * The stop an answer starts, and the "in a row" rules read from the attempts (SN5) — the
+   * account's, and an automation's refused texts (R54).
+   */
   private async applyStops({
     target,
     access,
@@ -1214,6 +1276,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     reading,
     callError,
     context,
+    automationId = null,
   }: {
     target: InstagramSendLaneTarget;
     access: InstagramSendAccess;
@@ -1221,7 +1284,13 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     reading: InstagramSendErrorReading;
     callError: unknown;
     context: InstagramSendTicketContext;
+    /** The sent message's automation (`null` for a broadcast's). */
+    automationId?: number | null;
   }): Promise<void> {
+    if (reading.group === 'bad_text' && automationId !== null) {
+      await this.stopAutomationOnRefusedTexts({ target, automationId, context });
+      return;
+    }
     if (outcome?.stop != null) {
       await this.startStop({ target, access, stop: outcome.stop, reading, callError, context });
       return;

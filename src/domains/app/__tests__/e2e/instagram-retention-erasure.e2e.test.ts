@@ -587,20 +587,29 @@ describe('Instagram retention and erasure flow (e2e)', () => {
   });
 
   /** Meta's signed data-deletion request for the account the team connected (route 8). */
-  function requestMetaDataDeletion(team: ConnectedInstagramTeam): Promise<InjectHttpResult> {
+  /** Meta's signed data-deletion request for the team's account — signed once, so a repeat is the same request. */
+  function signMetaDataDeletion(team: ConnectedInstagramTeam): string {
+    return metaCallbackFormBody(
+      buildMetaSignedRequest({
+        payload: metaSignedRequestPayload({
+          userId: team.profile.id,
+          issuedAt: metaIssuedAtAfterConnections(),
+        }),
+        appSecret: getEnv().META_APP_SECRET ?? '',
+      }),
+    );
+  }
+
+  /** Posts a signed data-deletion request — the one given, or a freshly signed one. */
+  function requestMetaDataDeletion(
+    team: ConnectedInstagramTeam,
+    payload: string = signMetaDataDeletion(team),
+  ): Promise<InjectHttpResult> {
     return injectRoute(app, {
       method: 'POST',
       url: META_DATA_DELETION_PATH,
       headers: { 'content-type': FORM_CONTENT_TYPE },
-      payload: metaCallbackFormBody(
-        buildMetaSignedRequest({
-          payload: metaSignedRequestPayload({
-            userId: team.profile.id,
-            issuedAt: metaIssuedAtAfterConnections(),
-          }),
-          appSecret: getEnv().META_APP_SECRET ?? '',
-        }),
-      ),
+      payload,
     });
   }
 
@@ -622,7 +631,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(tokensBefore).toHaveLength(1);
       expect(postsBefore).toHaveLength(2);
 
-      const response = await requestMetaDataDeletion(team);
+      const signedDeletion = signMetaDataDeletion(team);
+      const response = await requestMetaDataDeletion(team, signedDeletion);
 
       expect(response.statusCode).toBe(200);
       const after = await readAppRowsOfOrganization(team.organization.id);
@@ -656,8 +666,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(untouched).toEqual(before);
       expect(await readRunRow(waitingRun.id)).toMatchObject({ status: 'waiting' });
 
-      // Meta repeats itself: nothing is left to do.
-      expect((await requestMetaDataDeletion(team)).json()).toEqual(response.json());
+      // Meta repeats the same signed request: nothing is left to do, the same code answers.
+      expect((await requestMetaDataDeletion(team, signedDeletion)).json()).toEqual(response.json());
       expect(await readAppRowsOfOrganization(team.organization.id)).toEqual(after);
     });
   });

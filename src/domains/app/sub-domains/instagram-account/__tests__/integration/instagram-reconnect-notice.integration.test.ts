@@ -1,5 +1,11 @@
 import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
-import { buildInstagramPickValues } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
+import {
+  buildInstagramPickValues,
+  type InstagramTeamFixture,
+  type TestInstagramProfile,
+  buildInstagramProfile,
+  createInstagramTeam,
+} from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { Queue } from 'bullmq';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -39,12 +45,6 @@ import {
   closeInstagramReconnectNoticeQueue,
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { processInstagramReconnectNoticeJob } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.processor.js';
-import {
-  type InstagramTeamFixture,
-  type TestInstagramProfile,
-  buildInstagramProfile,
-  createInstagramTeam,
-} from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 
 /**
  * The reconnect notice (launch R7 — routes-final § 1 IA9, IAC9; AC-11.7–AC-11.10) against real

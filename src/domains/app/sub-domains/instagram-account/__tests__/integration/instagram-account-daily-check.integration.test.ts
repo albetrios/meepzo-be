@@ -1,5 +1,11 @@
 import { insertChannelAccount } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
-import { buildInstagramPickValues } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
+import {
+  buildInstagramPickValues,
+  type InstagramTeamFixture,
+  type TestInstagramProfile,
+  buildInstagramProfile,
+  createInstagramTeam,
+} from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 import { Queue } from 'bullmq';
 import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -39,12 +45,6 @@ import {
   processInstagramAccountDailyCheckJob,
   runInstagramAccountDailyCheckSweep,
 } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.processor.js';
-import {
-  type InstagramTeamFixture,
-  type TestInstagramProfile,
-  buildInstagramProfile,
-  createInstagramTeam,
-} from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
 
 /**
  * The daily account check (launch R7 — routes-final § 1 IA8, IAC8; AC-11.2–AC-11.5) against real

@@ -14,8 +14,10 @@ import {
 import { roles } from '@/domains/tenancy/sub-domains/member-roles/member-role.schema.js';
 import { membership_invitations } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.schema.js';
 import { hashInvitationToken } from '@/domains/tenancy/sub-domains/membership/membership-invitation/membership-invitation.token.js';
-import { OWNER_ROLE_NAME } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
-import { provisionOrganizationWithOwner } from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
+import {
+  OWNER_ROLE_NAME,
+  provisionOrganizationWithOwner,
+} from '@/domains/tenancy/sub-domains/organization/organization-provisioning.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import {

@@ -483,6 +483,8 @@ src/
     │   │   │   └── instagram-account.types.ts
     │   │   ├── instagram-sending/
     │   │   │   ├── __tests__/
+    │   │   │   │   ├── e2e/
+    │   │   │   │   │   └── instagram-month-limit.e2e.test.ts
     │   │   │   │   ├── factories/
     │   │   │   │   │   ├── instagram-lane-harness.factory.ts
     │   │   │   │   │   └── instagram-sending.factory.ts

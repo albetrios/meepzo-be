@@ -243,7 +243,7 @@ a CHANGE table, background work and flows → `/be-build-requirement`. Assignee:
 | R54 | Flow — a comment becomes a DM: intake, the match, the opening DM by lane, public reply and hide, the replacement rule | flow | R38, R43, R44 | `/be-build-requirement` | AC-19.* | Rimeet Mavani | open |
 | R55 | Flow — every other way to start: DMs, taps, story replies, mentions, refs, Live comments, tags | flow | R38, R40, R44 | `/be-build-requirement` | AC-20.* | Rimeet Mavani | open |
 | R56 | Flow — a broadcast from draft to done | flow | R45, R46, R47 | `/be-build-requirement` | AC-21.* | Rimeet Mavani | open |
-| R57 | Flow — the month limit: 80 %, 100 %, the new month | flow | R52, R53 | `/be-build-requirement` | AC-22.* | Rimeet Mavani | open |
+| R57 | Flow — the month limit: 80 %, 100 %, the new month | flow | R52, R53 | `/be-build-requirement` | AC-22.* | Rimeet Mavani | done |
 | R58 | Flow — a move down at the period end | flow | R25, R52 | `/be-build-requirement` | AC-23.* | Rimeet Mavani | open |
 | R59 | Flow — a trial from start to its end | flow | R52, R58 | `/be-build-requirement` | AC-24.* | Rimeet Mavani | open |
 | R60 | Flow — a token error, the reconnect, the lanes waking | flow | R51, R42 | `/be-build-requirement` | AC-25.* | Rimeet Mavani | open |

@@ -772,7 +772,8 @@ interface CapturableLogger {
 /**
  * One row in each of the sending sub-domain's per-organization tables (feat-instagram-dm-sending
  * § 6.A, R18) for every channel account of the organization: a stop, a minute count, a day count,
- * and the organization's month count — so the organization delete is seen erasing them too.
+ * the organization's month count, and the automations' counts, reply states and past-comments
+ * reads — so the organization delete is seen erasing them too.
  */
 export async function writeSendingHistory(organizationId: number): Promise<void> {
   await operatorQuery`
@@ -799,6 +800,12 @@ export async function writeSendingHistory(organizationId: number): Promise<void>
     INSERT INTO app.automation_reply_states (organization_id, automation_id, channel_account_id)
     SELECT organization_id, id, channel_account_id FROM app.automations
     WHERE organization_id = ${organizationId}`;
+  // A finished past-comments read of each automation (feat-instagram-dm-sending R15, AU1).
+  await operatorQuery`
+    INSERT INTO app.automation_backfills
+      (public_id, organization_id, channel_account_id, automation_id, days, status, done_at)
+    SELECT 'abf_' || lpad(id::text, 21, '0'), organization_id, channel_account_id, id, 7, 'done', now()
+    FROM app.automations WHERE organization_id = ${organizationId}`;
 }
 
 /**

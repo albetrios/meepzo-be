@@ -346,6 +346,36 @@ const SENDING_VARS = {
 } satisfies Record<string, EnvVarSpec>;
 
 /**
+ * The test harness's lane isolation (owner-approved 2026-11-25, feat-instagram-dm-sending decision
+ * P139): several checkouts of this repository on one machine run their Vitest suites at the same
+ * time, each on its own test databases and Redis namespace. Read only by the harness
+ * (`src/tests/helpers/local-test-database.ts`, before the schema parses); runtime code never reads
+ * them. Category-A: unset — the production-safe static default — is one test stack per machine,
+ * the behaviour before lanes, and a deployed runtime has no harness to change.
+ */
+const TEST_HARNESS_VARS = {
+  TEST_DATABASE_NAME_SUFFIX: envVar({
+    schema: z
+      .string()
+      .regex(/^[a-z0-9_]{1,32}$/)
+      .optional(),
+    meta: {
+      allowed: '1–32 lower-case letters, digits or underscores (e.g. `lane_b`); unset by default',
+      description:
+        "Test harness only: isolates this checkout's test run to a lane — the test databases become `<project>_test_<suffix>` and `<project>_test_<suffix>_worker_<n>`, the wipe guard accepts only those, the database-suite lock follows them, and the Redis test namespace (and with it the BullMQ prefix) becomes `<stem>:<suffix>:worker-<n>:test:`. Unset, the unsuffixed names.",
+    },
+  }),
+  TEST_REDIS_DATABASE: envVar({
+    schema: z.coerce.number().int().min(0).max(15).optional(),
+    meta: {
+      allowed: 'integer 0–15; unset by default',
+      description:
+        "Test harness only: the Redis logical database the harness points `REDIS_URL` at, so a lane keeps its keys out of the dev stack's database 0. Unset, the database of `REDIS_URL` itself.",
+    },
+  }),
+} satisfies Record<string, EnvVarSpec>;
+
+/**
  * The Meta app's settings (Unified Login, routes-final § 1 MC3, D24; full names and one app secret,
  * D20). Only the Meta adapter (`src/domains/app/sub-domains/channel-connection/channel-connection-meta/`)
  * and Meta's signature checks read them. The four app settings are optional everywhere, production
@@ -855,6 +885,9 @@ const envSchemaBase = z.object({
   // Instagram sending — the SENDING_VARS registry (the switch and the environment id).
   ...toSchemaShape(SENDING_VARS),
 
+  // Test harness lanes — the TEST_HARNESS_VARS registry (database suffix and Redis database).
+  ...toSchemaShape(TEST_HARNESS_VARS),
+
   // Stripe
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   // The Stripe publishable key is meepzo-fe's (`VITE_STRIPE_PUBLISHABLE_KEY`); the backend has none.
@@ -1008,9 +1041,12 @@ const envSchemaBase = z.object({
    * The in-process database limiter of the Instagram send, intake and task workers (SN24, P91): how
    * many units of work of one process hold a Postgres connection at once. The worker connection
    * budget counts these slots once per process, not the job places above. A unit of work that waits
-   * 2 s for a slot puts its ticket back with no try used.
+   * 2 s for a slot puts its ticket back with no try used. Default 3 (P140): every queue runs in the
+   * one `worker` service, and its demand (61 + the slots) must fit the default pool of 80 with 25 %
+   * burst headroom; a deployment that raises the slots raises `DATABASE_POOL_MAX` with them
+   * (`docs/deployment/runbooks/resource-limits.md`).
    */
-  WORKER_INSTAGRAM_DATABASE_SLOTS: z.coerce.number().int().min(1).max(64).default(16),
+  WORKER_INSTAGRAM_DATABASE_SLOTS: z.coerce.number().int().min(1).max(64).default(3),
   /** HTTP port for worker GET /livez, /readyz, and optional /metrics (default 9090). */
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(9090),
   /** Max age of throughput queue heartbeats before /readyz returns 503 (default 5 min). */
@@ -1022,8 +1058,9 @@ const envSchemaBase = z.object({
     .default(300_000),
   /**
    * Comma-separated BullMQ queue families this worker process runs: `mail`, `notify`,
-   * `webhook`, `stripe`, `instagram`, `instagram-send`, `retention`, `observability`, or `all`
-   * (default monolithic worker). The send service runs `instagram-send` alone (SN24, P91).
+   * `webhook`, `stripe`, `instagram`, `retention`, `observability`, or `all` (default monolithic
+   * worker). The Instagram send queues are family `instagram`: they run in the existing `worker`
+   * service, with no service of their own (P140).
    * Use split services in production so each process pool budget matches its registered workers.
    */
   WORKER_QUEUE_FAMILIES: z.string().min(1).default('all'),
@@ -2311,6 +2348,7 @@ export const ENV_VAR_REGISTRY: Readonly<Record<string, EnvVarSpec>> = {
   ...BILLING_POLICY_VARS,
   ...META_VARS,
   ...SENDING_VARS,
+  ...TEST_HARNESS_VARS,
 };
 
 /** Ordered list of env var names from the schema (for .env.example sync and scripts). */

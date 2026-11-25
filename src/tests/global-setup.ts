@@ -11,7 +11,7 @@ import pg from 'pg';
 import {
   buildMigrationChildEnvironment,
   isHarnessOnProvidedDatabase,
-  LOCAL_TEST_DATABASE_URL,
+  localTestDatabaseUrl,
   pointHarnessAtLocalTestDatabase,
 } from '@/tests/helpers/local-test-database.js';
 
@@ -57,7 +57,7 @@ export default async function globalSetup(project: TestProject): Promise<() => v
     return () => {};
   }
 
-  process.env.DATABASE_URL ??= LOCAL_TEST_DATABASE_URL;
+  process.env.DATABASE_URL ??= localTestDatabaseUrl();
 
   // Past every early return, this run WILL touch Postgres — so claim it. Placed here rather than
   // at the top so the no-database lanes (contract, property, the PR unit lane) never take a lock
@@ -87,7 +87,7 @@ export default async function globalSetup(project: TestProject): Promise<() => v
 /** Whether the test database's server answers, logging in the way the migrations will. */
 async function isServerReachable(): Promise<boolean> {
   const server = new URL(
-    process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL ?? LOCAL_TEST_DATABASE_URL,
+    process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL ?? localTestDatabaseUrl(),
   );
   server.pathname = '/postgres';
   const client = new pg.Client({ connectionString: server.toString() });

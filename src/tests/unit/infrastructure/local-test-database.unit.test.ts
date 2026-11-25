@@ -4,10 +4,12 @@ import {
   assertConnectedToTestDatabase,
   buildMigrationChildEnvironment,
   isHarnessOnProvidedDatabase,
-  LOCAL_TEST_DATABASE_NAME,
-  LOCAL_TEST_DATABASE_URL,
+  localTestDatabaseName,
+  localTestDatabaseUrl,
+  pointHarnessAtTestRedisDatabase,
   pointHarnessAtLocalTestDatabase,
   pointWorkerAtItsOwnDatabase,
+  testLaneSuffix,
   testRedisKeyPrefix,
 } from '@/tests/helpers/local-test-database.js';
 import {
@@ -26,6 +28,9 @@ const MANAGED_KEYS = [
   'ALLOW_HOSTED_TEST_DATABASE',
   'CI',
   'VITEST_POOL_ID',
+  'TEST_DATABASE_NAME_SUFFIX',
+  'TEST_REDIS_DATABASE',
+  'REDIS_URL',
 ] as const;
 
 /** A Drizzle `execute` stand-in answering `current_database()` with `databaseName`. */
@@ -78,11 +83,11 @@ describe('local test database harness', () => {
       pointHarnessAtLocalTestDatabase();
 
       expect(process.env.DATABASE_URL).toBe(
-        `postgresql://operator_login@localhost:5432/${LOCAL_TEST_DATABASE_NAME}`,
+        `postgresql://operator_login@localhost:5432/${localTestDatabaseName()}`,
       );
       expect(process.env.DATABASE_OPERATOR_URL).toBe(process.env.DATABASE_URL);
       expect(new URL(String(process.env.DATABASE_MIGRATION_URL)).pathname).toBe(
-        `/${LOCAL_TEST_DATABASE_NAME}`,
+        `/${localTestDatabaseName()}`,
       );
     });
 
@@ -94,9 +99,9 @@ describe('local test database harness', () => {
 
       pointHarnessAtLocalTestDatabase();
 
-      expect(process.env.DATABASE_URL).toBe(LOCAL_TEST_DATABASE_URL);
-      expect(process.env.DATABASE_MIGRATION_URL).toBe(LOCAL_TEST_DATABASE_URL);
-      expect(process.env.DATABASE_MAINTENANCE_URL).toBe(LOCAL_TEST_DATABASE_URL);
+      expect(process.env.DATABASE_URL).toBe(localTestDatabaseUrl());
+      expect(process.env.DATABASE_MIGRATION_URL).toBe(localTestDatabaseUrl());
+      expect(process.env.DATABASE_MAINTENANCE_URL).toBe(localTestDatabaseUrl());
       expect(process.env.DATABASE_OPERATOR_URL).toBeUndefined();
     });
 
@@ -107,9 +112,9 @@ describe('local test database harness', () => {
       pointHarnessAtLocalTestDatabase();
 
       expect(process.env.DATABASE_URL).toBe(
-        `postgresql://app_login@127.0.0.1:5432/${LOCAL_TEST_DATABASE_NAME}`,
+        `postgresql://app_login@127.0.0.1:5432/${localTestDatabaseName()}`,
       );
-      expect(process.env.DATABASE_MAINTENANCE_URL).toBe(LOCAL_TEST_DATABASE_URL);
+      expect(process.env.DATABASE_MAINTENANCE_URL).toBe(localTestDatabaseUrl());
     });
 
     it('leaves a provided database alone', () => {
@@ -124,12 +129,12 @@ describe('local test database harness', () => {
 
   describe('assertConnectedToTestDatabase', () => {
     it("passes on a worker's own clone of the local test database", async () => {
-      const { sql } = fakeQuery(`${LOCAL_TEST_DATABASE_NAME}_worker_1`);
+      const { sql } = fakeQuery(`${localTestDatabaseName()}_worker_1`);
       await expect(assertConnectedToTestDatabase(sql)).resolves.toBeUndefined();
     });
 
     it('refuses the test database itself: it is only the template', async () => {
-      const { sql } = fakeQuery(LOCAL_TEST_DATABASE_NAME);
+      const { sql } = fakeQuery(localTestDatabaseName());
       await expect(assertConnectedToTestDatabase(sql)).rejects.toThrow(/Refusing to wipe/);
     });
 
@@ -173,15 +178,15 @@ describe('local test database harness', () => {
   describe('worker databases', () => {
     it('points each worker at its own clone and Redis namespace, logins kept', () => {
       process.env.VITEST_POOL_ID = '3';
-      process.env.DATABASE_URL = LOCAL_TEST_DATABASE_URL;
-      process.env.DATABASE_OPERATOR_URL = `postgresql://operator:secret@localhost:5432/${LOCAL_TEST_DATABASE_NAME}`;
+      process.env.DATABASE_URL = localTestDatabaseUrl();
+      process.env.DATABASE_OPERATOR_URL = `postgresql://operator:secret@localhost:5432/${localTestDatabaseName()}`;
       pointWorkerAtItsOwnDatabase();
       expect(new URL(process.env.DATABASE_URL).pathname).toBe(
-        `/${workerDatabaseName({ database: LOCAL_TEST_DATABASE_NAME, worker: '3' })}`,
+        `/${workerDatabaseName({ database: localTestDatabaseName(), worker: '3' })}`,
       );
       const operator = new URL(process.env.DATABASE_OPERATOR_URL ?? '');
       expect(operator.username).toBe('operator');
-      expect(operator.pathname).toBe(`/${LOCAL_TEST_DATABASE_NAME}_worker_3`);
+      expect(operator.pathname).toBe(`/${localTestDatabaseName()}_worker_3`);
       expect(testRedisKeyPrefix('meepzo')).toBe('meepzo:worker-3:test:');
     });
 
@@ -195,13 +200,13 @@ describe('local test database harness', () => {
 
     it('lets the wipe guard accept exactly a worker clone of the test database', async () => {
       await expect(
-        assertConnectedToTestDatabase(fakeQuery(`${LOCAL_TEST_DATABASE_NAME}_worker_12`).sql),
+        assertConnectedToTestDatabase(fakeQuery(`${localTestDatabaseName()}_worker_12`).sql),
       ).resolves.toBeUndefined();
       for (const name of [
-        `${LOCAL_TEST_DATABASE_NAME}_worker_`,
-        `${LOCAL_TEST_DATABASE_NAME}_worker_1x`,
+        `${localTestDatabaseName()}_worker_`,
+        `${localTestDatabaseName()}_worker_1x`,
         'meepzo_be_worker_1',
-        `dev_${LOCAL_TEST_DATABASE_NAME}_worker_1`,
+        `dev_${localTestDatabaseName()}_worker_1`,
       ]) {
         await expect(assertConnectedToTestDatabase(fakeQuery(name).sql)).rejects.toThrow(
           /Refusing to wipe/,
@@ -210,7 +215,7 @@ describe('local test database harness', () => {
     });
 
     it('refuses to run outside a Vitest worker', () => {
-      process.env.DATABASE_URL = LOCAL_TEST_DATABASE_URL;
+      process.env.DATABASE_URL = localTestDatabaseUrl();
       expect(() => pointWorkerAtItsOwnDatabase()).toThrow(/VITEST_POOL_ID/);
       expect(() => testRedisKeyPrefix('meepzo')).toThrow(/VITEST_POOL_ID/);
     });
@@ -247,6 +252,69 @@ describe('local test database harness', () => {
     it('passes the environment through unchanged on a provided database', () => {
       process.env.GITHUB_ACTIONS = 'true';
       expect(buildMigrationChildEnvironment()).toBe(process.env);
+    });
+  });
+
+  describe('lanes (TEST_DATABASE_NAME_SUFFIX, TEST_REDIS_DATABASE)', () => {
+    it('keeps the unsuffixed names when no lane is set', () => {
+      expect(testLaneSuffix()).toBeUndefined();
+      expect(localTestDatabaseName()).toBe('meepzo_be_test');
+      process.env.TEST_DATABASE_NAME_SUFFIX = '';
+      expect(localTestDatabaseName()).toBe('meepzo_be_test');
+    });
+
+    it('suffixes the test database, its worker clones, the fallback URL and the Redis namespace', () => {
+      process.env.TEST_DATABASE_NAME_SUFFIX = 'lane_b';
+      process.env.VITEST_POOL_ID = '2';
+      expect(localTestDatabaseName()).toBe('meepzo_be_test_lane_b');
+      expect(new URL(localTestDatabaseUrl()).pathname).toBe('/meepzo_be_test_lane_b');
+      process.env.DATABASE_URL = 'postgresql://app_login@localhost:5432/devdb';
+      pointHarnessAtLocalTestDatabase();
+      pointWorkerAtItsOwnDatabase();
+      expect(new URL(process.env.DATABASE_URL).pathname).toBe('/meepzo_be_test_lane_b_worker_2');
+      expect(testRedisKeyPrefix('meepzo')).toBe('meepzo:lane_b:worker-2:test:');
+    });
+
+    it("lets a lane's wipe guard accept only its own worker clones", async () => {
+      process.env.TEST_DATABASE_NAME_SUFFIX = 'lane_b';
+      await expect(
+        assertConnectedToTestDatabase(fakeQuery('meepzo_be_test_lane_b_worker_3').sql),
+      ).resolves.toBeUndefined();
+      for (const name of [
+        'meepzo_be_test_worker_3',
+        'meepzo_be_test_lane_c_worker_3',
+        'meepzo_be_test_lane_b',
+        'meepzo_be_test_lane_bx_worker_3',
+      ]) {
+        await expect(assertConnectedToTestDatabase(fakeQuery(name).sql)).rejects.toThrow(
+          /Refusing to wipe/,
+        );
+      }
+      delete process.env.TEST_DATABASE_NAME_SUFFIX;
+      await expect(
+        assertConnectedToTestDatabase(fakeQuery('meepzo_be_test_lane_b_worker_3').sql),
+      ).rejects.toThrow(/Refusing to wipe/);
+    });
+
+    it('refuses a suffix that is not a safe database-name part', () => {
+      for (const suffix of ['Lane-B', 'lane;drop', 'a'.repeat(33)]) {
+        process.env.TEST_DATABASE_NAME_SUFFIX = suffix;
+        expect(() => localTestDatabaseName()).toThrow(/TEST_DATABASE_NAME_SUFFIX/);
+      }
+    });
+
+    it("points Redis at the lane's logical database, and leaves it alone when unset", () => {
+      process.env.REDIS_URL = 'redis://:secret@localhost:6379/0';
+      pointHarnessAtTestRedisDatabase();
+      expect(process.env.REDIS_URL).toBe('redis://:secret@localhost:6379/0');
+      process.env.TEST_REDIS_DATABASE = '4';
+      pointHarnessAtTestRedisDatabase();
+      expect(process.env.REDIS_URL).toBe('redis://:secret@localhost:6379/4');
+      process.env.REDIS_URL = 'redis://localhost:6379';
+      pointHarnessAtTestRedisDatabase();
+      expect(process.env.REDIS_URL).toBe('redis://localhost:6379/4');
+      process.env.TEST_REDIS_DATABASE = '16';
+      expect(() => pointHarnessAtTestRedisDatabase()).toThrow(/TEST_REDIS_DATABASE/);
     });
   });
 });

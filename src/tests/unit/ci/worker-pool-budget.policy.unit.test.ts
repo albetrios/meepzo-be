@@ -72,6 +72,22 @@ function readSchemaDefaultPool(): number {
 
 const schemaDefaultPool = readSchemaDefaultPool();
 
+/** The schema default of `WORKER_INSTAGRAM_DATABASE_SLOTS` — the limiter a worker gets when it is unset. */
+function readSchemaDefaultDatabaseSlots(): number {
+  const schemaSource = readFileSync(
+    resolve(REPOSITORY_ROOT, 'src/shared/config/env-schema.ts'),
+    'utf8',
+  );
+  const match =
+    /WORKER_INSTAGRAM_DATABASE_SLOTS: z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(64\)\.default\((\d+)\)/.exec(
+      schemaSource,
+    );
+  if (!match?.[1]) {
+    throw new Error('WORKER_INSTAGRAM_DATABASE_SLOTS schema default not found in env-schema.ts');
+  }
+  return Number(match[1]);
+}
+
 function computeTemplateWorkerDemand() {
   for (const key of Object.keys(template).filter((name) => name.startsWith('WORKER_'))) {
     const value = template[key] ?? '';
@@ -99,6 +115,33 @@ describe('env template worker pool budget', () => {
     const demand = computeTemplateWorkerDemand();
     expect(demand.peakPostgresConcurrencyWithSafetyMargin).toBeLessThanOrEqual(schemaDefaultPool);
     expect(schemaDefaultPool).toBe(templatePool);
+  });
+
+  it('one worker running every queue with sending on fits the schema default pool, with burst headroom (P140)', () => {
+    // Every queue — the Instagram send queues included — runs in the one deployed `worker`
+    // service (no send service). At the schema defaults (every WORKER_* unset, so concurrency 4
+    // and the default limiter) its demand must leave the 25 % headroom inside the default pool.
+    for (const key of Object.keys(envValues).filter((name) => name.startsWith('WORKER_'))) {
+      delete envValues[key];
+    }
+    envValues.WORKER_CONCURRENCY = 4;
+    envValues.WORKER_INSTAGRAM_DATABASE_SLOTS = readSchemaDefaultDatabaseSlots();
+    envValues.SENDING_ENABLED = true;
+    try {
+      const demand = computeWorkerPostgresPoolDemand();
+      expect(demand.monolithicWorker).toBe(true);
+      const sendQueues = demand.queues.filter((entry) =>
+        ['instagram-send-slow', 'instagram-send-fast', 'instagram-tasks'].includes(entry.queueName),
+      );
+      expect(sendQueues.map((entry) => [entry.family, entry.enabled])).toEqual([
+        ['instagram', true],
+        ['instagram', true],
+        ['instagram', true],
+      ]);
+      expect(demand.peakPostgresConcurrencyWithSafetyMargin).toBeLessThanOrEqual(schemaDefaultPool);
+    } finally {
+      delete envValues.SENDING_ENABLED;
+    }
   });
 
   it('fits every template process inside the Compose connection budget', () => {

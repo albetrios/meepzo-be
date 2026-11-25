@@ -420,11 +420,12 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   // places wait on Meta, not Postgres: every unit of work takes a slot of the process's Instagram
   // database limiter, which the budget counts once (`WORKER_INSTAGRAM_DATABASE_SLOTS`). Not
   // provider-pausable — the lanes' stops decide. Off unless this deployment may send
-  // (`SENDING_ENABLED`); each ticket also asks `mayTakeTickets` (SN7). The two send queues are
-  // family `instagram-send`: the send service runs them apart from the API and the other workers.
+  // (`SENDING_ENABLED`); each ticket also asks `mayTakeTickets` (SN7). All three are family
+  // `instagram` and run in the existing `worker` service beside every other queue (P140, which
+  // supersedes P91's send service): one limiter for the process.
   {
     queueName: INSTAGRAM_SEND_SLOW_QUEUE_NAME,
-    family: 'instagram-send',
+    family: 'instagram',
     logLabel: 'Instagram send worker (slow, reply and broadcast lane turns)',
     usesPostgres: true,
     scheduled: false,
@@ -441,7 +442,7 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
   },
   {
     queueName: INSTAGRAM_SEND_FAST_QUEUE_NAME,
-    family: 'instagram-send',
+    family: 'instagram',
     logLabel: 'Instagram send worker (fast messages)',
     usesPostgres: true,
     scheduled: false,

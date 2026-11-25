@@ -376,6 +376,23 @@ parallel workers on a 4-core machine pushed one API query past its 5 s statement
 (`DATABASE_HTTP_STATEMENT_TIMEOUT_MS`), a 500 in one test of 1,671 (18 Oct), while every plain
 parallel run stayed green — so `--coverage` runs those files one at a time, on the same clones.
 
+### Lanes: several checkouts at once
+
+Two checkouts (worktrees) of this repository on one machine would otherwise share
+`<project>_test`, its clones and the one suite lock, so the second run refused to start. Two
+harness-only variables give each checkout its own test stack (default: both unset — the single
+stack above; decision P139 of `feat-instagram-dm-sending-2026-11-23-oxak`):
+
+| Variable | Effect |
+| --- | --- |
+| `TEST_DATABASE_NAME_SUFFIX=lane_b` | test database `<project>_test_lane_b`, clones `<project>_test_lane_b_worker_<n>`; the wipe guard accepts only this lane's clones; the suite lock follows the database, so lanes never block each other; the Redis test namespace becomes `<stem>:lane_b:worker-<n>:test:` (BullMQ's `…bull` prefix moves with it) |
+| `TEST_REDIS_DATABASE=2` | the harness points `REDIS_URL` at logical database 2 (applied after the env files load, so a machine-local file cannot put the run back on the dev stack's database 0) |
+
+Set them on the command line: `TEST_DATABASE_NAME_SUFFIX=lane_b TEST_REDIS_DATABASE=2 pnpm vitest
+run --project e2e …`. The Redis cleanup (`src/tests/helpers/test-redis.ts`) deletes only keys
+under the worker's own `…:test:` prefix — never `FLUSHDB` — so the namespace alone already keeps
+lanes apart on one Redis database; the database index keeps test keys out of the dev stack's.
+
 ### What global setup prepares
 
 Before any database-backed suite, `src/tests/global-setup.ts` takes the lock above and calls

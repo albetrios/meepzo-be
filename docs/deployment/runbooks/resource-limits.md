@@ -104,11 +104,11 @@ Every worker is registered exactly once in [`worker-registration.registry.ts`](.
 
 | Variable                                                       | Meaning                                                                                                 | Default                           |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `WORKER_QUEUE_FAMILIES`                                        | Comma-separated families: `mail`, `notify`, `webhook`, `stripe`, `instagram`, `instagram-send`, `retention`, `observability`, or `all` | `all` (schema default)            |
+| `WORKER_QUEUE_FAMILIES`                                        | Comma-separated families: `mail`, `notify`, `webhook`, `stripe`, `instagram`, `retention`, `observability`, or `all` | `all` (schema default)            |
 | `WORKER_CONCURRENCY`                                           | Fallback BullMQ concurrency when `WORKER_CONCURRENCY_*` unset                                           | `4`                               |
 | `WORKER_CONCURRENCY_MAIL` / `_NOTIFY` / `_WEBHOOK` / `_STRIPE` / `_INSTAGRAM` | Per-family throughput caps                                                                              | fall back to `WORKER_CONCURRENCY` |
 | `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW` / `_SEND_FAST` / `_TASKS` | Job places of the Instagram send and task queues (max 200 each) — they wait on Meta and cost **no** connection | `50` / `100` / `20` |
-| `WORKER_INSTAGRAM_DATABASE_SLOTS`                              | The in-process database limiter those three queues (and intake, R38) share — what the budget counts for them, **once per process** | `16` |
+| `WORKER_INSTAGRAM_DATABASE_SLOTS`                              | The in-process database limiter those three queues (and intake, R38) share — what the budget counts for them, **once per process** | `3` |
 | `SCHEDULER_ENABLED`                                            | Registers repeatable cron jobs for **active queues in this process** only                               | `true`                            |
 
 #### What "uses Postgres" means
@@ -137,11 +137,10 @@ With default concurrency (`WORKER_CONCURRENCY=4`):
 | `webhook`              | `webhook-delivery` (throughput), `webhook-delivery-reclaim` (1)                                                                                                        | 2 / 2    | `4 + 1 = 5`     | `0` (short transactions around the POST, not across it; the reclaim adds jobs after its read) |
 | `stripe`               | `stripe-webhook` (throughput), `subscription-seat-sync` (throughput), `stripe-webhook-event-retention` (1), `stripe-webhook-event-reclaim` (1), `stripe-webhook-event-catchup` (1) | 5 / 5    | `4 + 4 + 1 + 1 + 1 = 11` | `0`                                                                                    |
 | `instagram`            | `instagram-webhook` (throughput — event processing; its every-minute stuck-event pick-up rides the queue), `instagram-webhook-event-retention` (1) | 2 / 2    | `4 + 1 = 5`     | `0` (short organization contexts around every Instagram call, never across one)        |
-| `instagram` (sending on) | + `instagram-tasks` (throughput — its units of work take slots of the Instagram database limiter) | 3 / 3 | `5 + 16 = 21` (the limiter, once) | `0` (no context is held across a Meta call) |
-| `instagram-send`       | `instagram-send-slow`, `instagram-send-fast` (throughput, the send service — off unless `SENDING_ENABLED`) | 2 / 2 | `16` (the limiter, once — not 50 + 100 places) | `0` (a send holds a connection only for its claim and its save) |
+| `instagram` (sending on) | + `instagram-send-slow`, `instagram-send-fast`, `instagram-tasks` (throughput — off unless `SENDING_ENABLED`; their units of work take slots of the Instagram database limiter) | 5 / 5 | `5 + 3 = 8` (the limiter, once — not 50 + 100 + 20 places) | `0` (a send holds a connection only for its claim and its save; no context is held across a Meta call) |
 | `retention`            | 22 single-concurrency workers (audit retention/export/drain, session cleanup, notification retention, 2 offboarding reconcilers, 11 tombstone/retention/sweep workers, the membership invitation expiry sweep, the Instagram account daily check, the automation run wait expiry and the deleted-automation purge) | 22 / 22  | `22 × 1 = 22`   | `0` (the audit export, the upload sweep and both S3 retention purges keep S3 calls outside their short contexts; the Instagram daily check calls Instagram between two short contexts) |
 | `observability`        | `idempotency-cardinality`, `dlq-depth` (Redis-only), `dlq-auto-retry` (1)                                                                                              | 1 / 3    | `1`             | `0`                                                                                    |
-| **Total (monolithic)** | **43**                                                                                                                                                                 | **40**   | **`61`**, **`77`** with sending on (`+ 16` — one limiter for the process) | **`0`**                                                                                |
+| **Total (monolithic)** | **43**                                                                                                                                                                 | **40**   | **`61`**, **`64`** with sending on (`+ 3` — one limiter for the process) | **`0`**                                                                                |
 
 The `External-IO holding` column is the **at-risk slice** of the Postgres budget — these are the slots that can starve when Stripe, Resend, or S3 latency spikes. Watch the `workerPeakPostgresConcurrencyHoldingExternalIo` extra in the `database.pool.exhaustion.*` Sentry alerts.
 
@@ -154,65 +153,65 @@ registry outgrows the template pool, or the template budget no longer fits the C
 
 | Mode                                                 | Trigger                                | Enforcement                                                                                                                                                                                              |
 | ---------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Monolithic**                                       | `WORKER_QUEUE_FAMILIES` unset or `all` | **Fails fast** at startup when peak Postgres demand exceeds `DATABASE_POOL_MAX` (peak demand 61 with every optional queue on at the default concurrency, 77 with sending on; a pool lowered to 30 or 20 fails here — the 2026-10-13 production incident), and warns (`database.connection_budget.worker_demand_no_burst_headroom`) when demand fits but demand + 25% burst headroom (80) does not. The default pool of **80** covers the demand with exactly that headroom — the automation clean-ups (launch R11) and the Instagram event processing worker (launch R14) included — so the next queue raises it again: raise `DATABASE_POOL_MAX` on the worker service, or split services. CI's API boots share one small Postgres and allow no default above 80 (`ci-boot-connection-budget.policy.unit.test.ts`). |
+| **Monolithic**                                       | `WORKER_QUEUE_FAMILIES` unset or `all` | **Fails fast** at startup when peak Postgres demand exceeds `DATABASE_POOL_MAX` (peak demand 61 with every optional queue on at the default concurrency, 64 with sending on at the default 3 database slots; a pool lowered to 30 or 20 fails here — the 2026-10-13 production incident), and warns (`database.connection_budget.worker_demand_no_burst_headroom`) when demand fits but demand + 25% burst headroom (80) does not. The default pool of **80** covers the demand with exactly that headroom — the automation clean-ups (launch R11) and the Instagram event processing worker (launch R14) included — so the next queue raises it again: raise `DATABASE_POOL_MAX` on the worker service, or split services. CI's API boots share one small Postgres and allow no default above 80 (`ci-boot-connection-budget.policy.unit.test.ts`). |
 | **Split** (e.g. `WORKER_QUEUE_FAMILIES=mail,notify`) | Explicit subset                        | **Fails fast** at startup when the subset's computed Postgres demand exceeds `DATABASE_POOL_MAX`; warns on missing burst headroom the same way. |
 
 #### Example Railway split (same image, different env per service)
 
 | Service              | `WORKER_QUEUE_FAMILIES`      | `SCHEDULER_ENABLED` | Postgres demand      | Suggested `DATABASE_POOL_MAX`                           |
 | -------------------- | ---------------------------- | ------------------- | -------------------- | ------------------------------------------------------- |
-| Worker throughput    | `mail,notify,webhook,stripe,instagram` | `true`              | `5 + 12 + 5 + 11 + 5 = 38`, `+ 16 = 54` with sending on (`instagram-tasks`' limiter) | `48`–`68`                                               |
+| Worker throughput    | `mail,notify,webhook,stripe,instagram` | `true`              | `5 + 12 + 5 + 11 + 5 = 38`, `+ slots` with sending on (the Instagram limiter, once) | `48`–`68`                                               |
 | Worker retention     | `retention`                  | `true`              | `22`                 | `24`–`28`                                               |
 | Worker observability | `observability`              | `true`              | `1`                  | `4` (mostly Redis-only; `dlq-auto-retry` uses Postgres) |
-| Worker send (`worker-send`) | `instagram-send`        | `true`              | `16`–`24` (`WORKER_INSTAGRAM_DATABASE_SLOTS`) | slots × 1.25: `20`–`30`                                 |
 
-#### Instagram sending: the database limiter and the send service
+#### Instagram sending: the database limiter in the one worker
 
 The Instagram send, intake and task workers do not count one connection per job place
 (feat-instagram-dm-sending SN24, P91). Their places wait on Meta — a send holds a connection only for
 its claim and its one result save, never across the Meta call — so they share one **in-process
-database limiter** per process (`WORKER_INSTAGRAM_DATABASE_SLOTS`, default 16; a send service runs
-16–24). Every unit of work takes a slot first; one that waits **2 s** for a slot puts its ticket back
-(`delayed`, no try used). The budget above counts the limiter **once per process** at its size
-(`databaseSlotLimiterName` in the registry), so 50 slow-lane + 100 fast places + 20 task places cost
-16 connections, not 170 ([`worker-database-slot-limiter.ts`](../../../src/infrastructure/queue/worker-runtime/worker-database-slot-limiter.ts)).
+database limiter** per process (`WORKER_INSTAGRAM_DATABASE_SLOTS`, default 3). Every unit of work
+takes a slot first; one that waits **2 s** for a slot puts its ticket back (`delayed`, no try used).
+The budget above counts the limiter **once per process** at its size (`databaseSlotLimiterName` in
+the registry), so 50 slow-lane + 100 fast + 20 task places cost the slots, not 170 connections
+([`worker-database-slot-limiter.ts`](../../../src/infrastructure/queue/worker-runtime/worker-database-slot-limiter.ts)).
 
-The two send queues are their own family, **`instagram-send`**, run by the **send service**
-(`worker-send`: `WORKER_QUEUE_FAMILIES=instagram-send`, `SENDING_ENABLED=true`,
-`SENDING_ENVIRONMENT_ID`, `DATABASE_POOL_MAX` = slots × 1.25), apart from the API and the other
-workers, so each side's pool is sized on its own. A monolithic worker still runs them (the template:
-`WORKER_INSTAGRAM_DATABASE_SLOTS=3`, so 61 + 3 = 64 fits the template pool of 80 with its headroom).
+**Every queue runs in the existing `worker` service** (owner, P140 — superseding P91's send service
+and P408's split layout): the send queues and `instagram-tasks` are family `instagram`, so the one
+deployed, monolithic `worker` runs them with `SENDING_ENABLED=true` and `SENDING_ENVIRONMENT_ID` —
+no third Railway service, no `RAILWAY_SEND_WORKER_SERVICE_ID`. Its demand is `61 + slots`, and the
+pool must hold that with the 25 % burst headroom: `DATABASE_POOL_MAX ≥ ceil((61 + slots) × 1.25)`.
+The defaults fit exactly — 3 slots, `61 + 3 = 64`, headroom 80 = the default pool
+(`src/tests/unit/ci/worker-pool-budget.policy.unit.test.ts` holds both the template and the schema
+defaults to it). Raise the slots, raise the pool with them.
 
-**Now — 2 API replicas, 1 worker, 1 send service, 20–200 accounts** (Neon `max_connections` 450,
-10 reserved → 440). Each service sets its own `WORKER_INSTAGRAM_DATABASE_SLOTS`: the worker's
-limiter serves only `instagram-tasks` (and intake from R38), the send service's the two send queues.
+**Now — 2 API replicas, 1 worker, 20–200 accounts** (Neon `max_connections` 450, 10 reserved → 440).
 Every process checks the cluster at **its own** pool (process count × own pools, above), so the
 largest pool decides:
 
-| Process | Slots | Pool (primary + maintenance) | Demand | Its boot check (4 processes) |
+| Process | Slots | Pool (primary + maintenance) | Demand | Its boot check (3 processes) |
 | --- | --- | --- | --- | --- |
-| API × 2 | — | `80 + 10` | — | `4 × 90 = 360 ≤ 440` |
-| Worker (`mail,notify,webhook,stripe,instagram,retention,observability`) | 3 | `80 + 10` | `61 + 3 = 64` (25 % headroom: 80) | `360 ≤ 440` |
-| Send service × 1 (`instagram-send`) | 16 | `20 + 10` | `16` (headroom: 20) | `4 × 30 = 120 ≤ 440` |
-| **Connections in use at most** | | **`2 × 90 + 90 + 30 = 300 ≤ 440`** | | |
+| API × 2 | — | `80 + 10` | — | `3 × 90 = 270 ≤ 440` |
+| Worker (monolithic, sending on) | 16 | `100 + 10` | `61 + 16 = 77` (25 % headroom: 97) | `3 × 110 = 330 ≤ 440` |
+| **Connections in use at most** | | **`2 × 90 + 110 = 290 ≤ 440`** | | |
 
-200 accounts at the default 600 opening messages an hour each is about 33 messages a second. One
-send replica's 16 slots, each held about 20 ms a message (claim + save), carry about 400 a second of
-database work; its 150 places, each about 0.5 s on a Meta call, about 300 messages a second.
+200 accounts at the default 600 opening messages an hour each is about 33 messages a second. The
+worker's 16 slots, each held about 20 ms a message (claim + save), carry about 800 units of database
+work a second, shared with intake and the tasks; its 150 send places, each about 0.5 s on a Meta
+call, about 300 messages a second.
 
 **1,000 accounts** — about 170 opening messages a second at the default limits, plus replies and fast
-messages: 5 processes, so every pool + maintenance must stay at or under `440 / 5 = 88`:
+messages: still one worker, with more slots and a larger pool:
 
-| Process | Slots | Pool (primary + maintenance) | Demand | Its boot check (5 processes) |
+| Process | Slots | Pool (primary + maintenance) | Demand | Its boot check (3 processes) |
 | --- | --- | --- | --- | --- |
-| API × 2 | — | `70 + 10` | — | `5 × 80 = 400 ≤ 440` |
-| Worker | 8 | `78 + 10` | `61 + 8 = 69` | `5 × 88 = 440 ≤ 440` |
-| Send service × 2 | 24 | `30 + 10` | `24` | `5 × 40 = 200 ≤ 440` |
-| **Connections in use at most** | | **`160 + 88 + 80 = 328 ≤ 440`** | | |
+| API × 2 | — | `80 + 10` | — | `3 × 90 = 270 ≤ 440` |
+| Worker | 24 | `110 + 10` | `61 + 24 = 85` (headroom: 107) | `3 × 120 = 360 ≤ 440` |
+| **Connections in use at most** | | **`2 × 90 + 120 = 300 ≤ 440`** | | |
 
-Past that — a third send replica or more API replicas — the per-process check needs a larger Neon
-compute (more `max_connections`) first. These figures are estimates from the plan's rates; measure
-the pooler's limits before relying on them (S2, P97).
+Past that — more send places than one process carries, or more API replicas — the per-process check
+needs a larger Neon compute (more `max_connections`) first, or a second worker replica (each replica
+counts in the process total, and the retention crons must then tolerate two processes). These figures
+are estimates from the plan's rates; measure the pooler's limits before relying on them (S2, P97).
 
 Keep **`SCHEDULER_ENABLED=true` (the default) on every worker service.** Each process registers only the crons of the queues it runs, so a service with the scheduler off leaves its families' crons unregistered — on the throughput service that is the mail outbox sweeper, the commit-dispatch recovery, the Stripe reclaim, catch-up and retention and the webhook delivery reclaim: the sweeps that recover lost work. Registration is an idempotent upsert keyed by scheduler id, so services and replicas that register the same cron never double it. A process that runs cron queues with the scheduler off logs `scheduler.disabled.crons_not_registered` with the list.
 

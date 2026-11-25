@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**22 / 257** variables migrated to an explicit `{ allowed, description }` entry.
+**24 / 259** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -231,7 +231,9 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `STRIPE_WEBHOOK_SECRET` | — | — *(optional)* |  | — |
 | `STRIPE_WEBHOOK_TOLERANCE_SECONDS` | — | `150` |  | — |
 | `TEAM_ORGANIZATION_ENABLED` | — | `true` |  | — |
+| `TEST_DATABASE_NAME_SUFFIX` | 1–32 lower-case letters, digits or underscores (e.g. `lane_b`); unset by default | — *(optional)* | ✓ | Test harness only: isolates this checkout's test run to a lane — the test databases become `<project>_test_<suffix>` and `<project>_test_<suffix>_worker_<n>`, the wipe guard accepts only those, the database-suite lock follows them, and the Redis test namespace (and with it the BullMQ prefix) becomes `<stem>:<suffix>:worker-<n>:test:`. Unset, the unsuffixed names. |
 | `TEST_MODE` | — | `false` |  | — |
+| `TEST_REDIS_DATABASE` | integer 0–15; unset by default | — *(optional)* | ✓ | Test harness only: the Redis logical database the harness points `REDIS_URL` at, so a lane keeps its keys out of the dev stack's database 0. Unset, the database of `REDIS_URL` itself. |
 | `TOMBSTONE_RETENTION_DAYS` | — | `90` |  | — |
 | `TRUST_PROXY` | false \| 0, integer 1–10, or comma-separated IP/CIDR list | `false` | ✓ | Reverse proxies Fastify trusts for X-Forwarded-* headers: a hop count, or the proxy addresses (CIDR list). |
 | `TRUST_PROXY_REQUIRED` | — | `true` |  | — |
@@ -264,5 +266,5 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `WORKER_CONCURRENCY_WEBHOOK` | — | — *(optional)* |  | — |
 | `WORKER_HEALTH_PORT` | — | `9090` |  | — |
 | `WORKER_HEALTH_STALL_TIMEOUT_MS` | — | `300000` |  | — |
-| `WORKER_INSTAGRAM_DATABASE_SLOTS` | — | `16` |  | — |
+| `WORKER_INSTAGRAM_DATABASE_SLOTS` | — | `3` |  | — |
 | `WORKER_QUEUE_FAMILIES` | — | `all` |  | — |

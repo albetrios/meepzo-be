@@ -14,7 +14,7 @@ import {
 
 /**
  * BullMQ queue of the fast lane (feat-instagram-dm-sending SN2): one ticket per fast message, family
- * `instagram-send` — run by the send service (SN24, P91).
+ * `instagram` — run in the existing `worker` service (P140).
  */
 export const INSTAGRAM_SEND_FAST_QUEUE_NAME = 'instagram-send-fast';
 

@@ -6,12 +6,11 @@ import {
 
 describe('worker-queue-family.util', () => {
   it('returns all families when unset or all', () => {
-    // Eight families: the Instagram family (launch-2026-11-20-ujai WH5) and the send service's
-    // `instagram-send` (feat-instagram-dm-sending SN2, SN24).
-    expect(parseWorkerQueueFamilies(undefined)).toHaveLength(8);
-    expect(parseWorkerQueueFamilies('all')).toHaveLength(8);
+    // Seven families: the Instagram family (launch-2026-11-20-ujai WH5) carries the send queues
+    // too (feat-instagram-dm-sending P140 — no send service, so no `instagram-send` family).
+    expect(parseWorkerQueueFamilies(undefined)).toHaveLength(7);
+    expect(parseWorkerQueueFamilies('all')).toHaveLength(7);
     expect(parseWorkerQueueFamilies('all')).toContain('instagram');
-    expect(parseWorkerQueueFamilies('all')).toContain('instagram-send');
     expect(isMonolithicWorkerQueueFamilies(parseWorkerQueueFamilies('all'))).toBe(true);
   });
 
@@ -20,7 +19,9 @@ describe('worker-queue-family.util', () => {
     expect(isMonolithicWorkerQueueFamilies(parseWorkerQueueFamilies('retention,mail'))).toBe(false);
   });
 
-  it('selects the send service on its own (SN24)', () => {
-    expect(parseWorkerQueueFamilies('instagram-send')).toEqual(['instagram-send']);
+  it('refuses the retired send-service family, so a stale WORKER_QUEUE_FAMILIES fails at boot (P140)', () => {
+    expect(() => parseWorkerQueueFamilies('instagram-send')).toThrow(
+      /Invalid WORKER_QUEUE_FAMILIES/,
+    );
   });
 });

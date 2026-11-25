@@ -48,7 +48,7 @@ import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-dom
  *
  * @remarks
  * - **Algorithm:** grouped by worker family (mail, notify, webhook, stripe, instagram,
- *   instagram-send, retention, observability), mirroring `worker-registration.registry.ts`.
+ *   retention, observability), mirroring `worker-registration.registry.ts`.
  * - **Failure modes:** none — a constant.
  * - **Side effects:** none.
  * - **Notes:** `queue-catalog.coverage.unit.test.ts` pins it to the registry: a worker registered

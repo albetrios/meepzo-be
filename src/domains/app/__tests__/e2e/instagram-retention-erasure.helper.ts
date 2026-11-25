@@ -745,12 +745,21 @@ export async function writeSegmentHistory(organizationId: number): Promise<void>
 }
 
 /**
- * One draft broadcast (feat-instagram-dm-sending § 7.A, R22) on every segment of the organization —
- * so the organization delete is seen erasing `app.broadcasts` too. Call after `writeSegmentHistory`.
+ * One draft broadcast (feat-instagram-dm-sending § 7.A, R22) on every segment of the organization,
+ * with each contact of its account as a recipient (§ 7.C, R23) — so the organization delete is seen
+ * erasing `app.broadcasts` and `app.broadcast_recipients` too. Call after `writeSegmentHistory`.
  */
 export async function writeBroadcastHistory(organizationId: number): Promise<void> {
   await operatorQuery`
     INSERT INTO app.broadcasts (public_id, organization_id, channel_account_id, name, segment_id)
     SELECT 'brc_' || lpad(id::text, 21, '0'), organization_id, channel_account_id, 'Drop', id
       FROM app.segments WHERE organization_id = ${organizationId}`;
+  // Every live contact of the account as a recipient of its broadcast (R23).
+  await operatorQuery`
+    INSERT INTO app.broadcast_recipients (organization_id, channel_account_id, broadcast_id, contact_id)
+    SELECT b.organization_id, b.channel_account_id, b.id, c.id
+      FROM app.broadcasts b
+      JOIN app.contacts c
+        ON c.organization_id = b.organization_id AND c.channel_account_id = b.channel_account_id
+     WHERE b.organization_id = ${organizationId}`;
 }

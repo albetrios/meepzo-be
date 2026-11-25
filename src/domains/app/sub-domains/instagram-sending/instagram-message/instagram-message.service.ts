@@ -37,6 +37,7 @@ import {
 } from './instagram-message.repository.js';
 import { InstagramSendAttemptRepository } from './instagram-send-attempt.repository.js';
 import type {
+  InstagramMessageBroadcastResultPort,
   InstagramMessageClaimInput,
   InstagramMessageRetryQueue,
   InstagramMessageRunResultPort,
@@ -91,6 +92,8 @@ export class InstagramMessageService implements ChannelSendingPort {
     private readonly options: {
       /** The engine's `recordMessageResult` (AU35) — a closure, the engine is built after. */
       recordRunMessageResult: InstagramMessageRunResultPort;
+      /** The broadcast recipients' `recordMessageResult` (BC18, R23) — a closure, built after. */
+      recordBroadcastMessageResult: InstagramMessageBroadcastResultPort;
       /** WC-42's queue (R46); absent → the retry runs in the request. */
       retryQueue?: InstagramMessageRetryQueue | undefined;
     },
@@ -500,13 +503,15 @@ export class InstagramMessageService implements ChannelSendingPort {
   /**
    * The one result save (SN4 `saveSendResult`): a `sending` message takes its final status, reason,
    * Meta's id and codes, its attempt is finished, and a run's message reports to the engine's
-   * `recordMessageResult` in the same commit (`expired` as `skipped`). A repeat for a settled
-   * message changes nothing. Answers the saved row, or `null`.
+   * `recordMessageResult` — a broadcast's to its recipients' `recordMessageResult` (R23) — in the
+   * same commit (`expired` as `skipped`). A repeat for a settled message changes nothing. Answers the
+   * saved row, or `null`.
    *
    * @remarks
-   * Algorithm: one unit — the guarded update, the attempt, the engine. Failure modes: a database
-   * error rolls the whole save back (the lanes retry it inside the send, R42). Side effects: the
-   * message, the attempt, the run's next step. Notes: count give-backs, the day counts and the stop
+   * Algorithm: one unit — the guarded update, the attempt, the engine or the recipient. Failure
+   * modes: a database error rolls the whole save back (the lanes retry it inside the send, R42).
+   * Side effects: the message, the attempt, the run's next step or the recipient, the broadcast's
+   * numbers and its next message. Notes: count give-backs, the day counts and the stop
    * rules join this commit at R42.
    */
   async saveSendResult(input: InstagramSendResultInput): Promise<InstagramMessageRow | null> {
@@ -544,6 +549,18 @@ export class InstagramMessageService implements ChannelSendingPort {
             step: instagramMessageStepOf(
               message.message_type as Parameters<typeof instagramMessageStepOf>[0],
             ),
+            messageNumber: message.message_number,
+            result: channelResultOf(input.status),
+            reason: input.reason,
+            occurredAt: new Date(),
+          });
+        } else if (message.broadcast_id !== null && message.message_number !== null) {
+          await this.options.recordBroadcastMessageResult({
+            databaseHandle,
+            organizationId: message.organization_id,
+            broadcastId: message.broadcast_id,
+            contactId: message.contact_id,
+            messagePublicId: message.public_id,
             messageNumber: message.message_number,
             result: channelResultOf(input.status),
             reason: input.reason,

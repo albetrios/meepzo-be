@@ -141,8 +141,19 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── broadcast.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── broadcast-channel-seam.policy.unit.test.ts
     │   │   │   │   │   ├── broadcast.serializer.unit.test.ts
     │   │   │   │   │   └── broadcast.validator.unit.test.ts
+    │   │   │   ├── broadcast-recipient/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   └── broadcast-recipient.service.db.unit.test.ts
+    │   │   │   │   ├── broadcast-recipient.constants.ts
+    │   │   │   │   ├── broadcast-recipient.overview.md
+    │   │   │   │   ├── broadcast-recipient.repository.ts
+    │   │   │   │   ├── broadcast-recipient.schema.ts
+    │   │   │   │   ├── broadcast-recipient.service.ts
+    │   │   │   │   └── broadcast-recipient.types.ts
     │   │   │   ├── broadcast-segment/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── integration/

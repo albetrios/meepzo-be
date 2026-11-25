@@ -49,6 +49,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'message_month_counts' },
   { schemaName: 'app', tableName: 'segments' },
   { schemaName: 'app', tableName: 'broadcasts' },
+  { schemaName: 'app', tableName: 'broadcast_recipients' },
   { schemaName: 'app', tableName: 'sending_states' },
   { schemaName: 'audit', tableName: 'dead_letter_jobs' },
   { schemaName: 'audit', tableName: 'logs' },

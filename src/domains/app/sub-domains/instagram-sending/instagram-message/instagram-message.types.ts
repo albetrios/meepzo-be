@@ -1,4 +1,7 @@
-import type { ChannelMessageResultInput } from '@/domains/app/app.channel-ports.js';
+import type {
+  ChannelBroadcastMessageResultInput,
+  ChannelMessageResultInput,
+} from '@/domains/app/app.channel-ports.js';
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import type {
@@ -15,6 +18,14 @@ import type { InstagramSendAttemptKey } from './instagram-send-attempt.repositor
  * a closure in the app container, since the engine is built after this service.
  */
 export type InstagramMessageRunResultPort = (input: ChannelMessageResultInput) => Promise<void>;
+
+/**
+ * The broadcast recipients' save-result entry point (7.C `BroadcastRecipientService.recordMessageResult`,
+ * BC18 — ROUTE row R23) — a closure in the app container, since broadcasts are built after this service.
+ */
+export type InstagramMessageBroadcastResultPort = (
+  input: ChannelBroadcastMessageResultInput,
+) => Promise<void>;
 
 /**
  * The `retry-failed` job on `instagram-tasks` (WC-42, ROUTE row R46): one job per automation or

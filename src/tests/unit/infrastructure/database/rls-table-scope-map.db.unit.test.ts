@@ -69,6 +69,12 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   // Broadcasts (feat-instagram-dm-sending R22): organization-scoped, plus the duties' and the
   // purge's sweep arm (7.3).
   'app.broadcasts': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
+  // Broadcast recipients (feat-instagram-dm-sending R23): organization-scoped, plus the 90-day
+  // clean-up's sweep arm (7.C.3).
+  'app.broadcast_recipients': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // Tag events (3.B): the organization arm, plus the pick-up scan and the 8-day clean-up (CT17).
   'app.contact_tag_events': ['app.current_organization_public_id', 'app.global_retention_cleanup'],
   // The channel connection: organization-scoped, plus the token check's sweep (MC10). Its token and

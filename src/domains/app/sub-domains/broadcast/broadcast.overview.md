@@ -11,7 +11,7 @@ every channel (P48; Instagram the only one now) — and the audiences themselves
 the DM-sending iteration, routes 70–82). Built one ROUTE row at a time: the saved segments and the
 audience count (7.B, routes 77–82) landed with ROUTE row R21; the broadcast at this folder's root
 (7.A, `app.broadcasts`, routes 70–76, the send) with R22 — its start and end duties are R47's; the
-recipients (7.C, `app.broadcast_recipients`) come with R23. Sending itself is sub-domain 6's
+recipients (7.C, `app.broadcast_recipients`, no routes) with R23. Sending itself is sub-domain 6's
 broadcast lane (R45).
 
 ## Layout
@@ -24,7 +24,9 @@ broadcast lane (R45).
   cancel, delete), DTOs (the automation's message schema and the segment condition tree reused),
   validator (each message's own automation checks), serializer, controller (the five audit
   actions), routes 70–76, `seed/`
-- `broadcast-recipient/` — who a broadcast goes to (ROUTE row R23)
+- `broadcast-recipient/` — who a broadcast goes to and what happened (`app.broadcast_recipients`,
+  no routes): the audience piece, each message's result through the port, the skips and her reply —
+  [Broadcast recipient](broadcast-recipient/broadcast-recipient.overview.md)
 
 ## Key invariants
 
@@ -71,4 +73,9 @@ settled by the end duty (R47).
 
 - `BroadcastSendQueuePort` (R46) — the audience task (WC-40) and the matched count (WC-39).
 - The start and end duties (WC-28, WC-29) and intake's `handleChatOpened` (R47).
-- The recipients table and `recordMessageResult` (R23); the broadcast lane (R45); the purge (R50).
+- The broadcast lane (R45) sends what the recipients saved; the purge and the recipients' 90-day
+  clean-up (R50).
+- `BroadcastRecipientService` (R23) for later rows: `buildAudiencePiece` (the `broadcast-audience`
+  task chains it, R46), `addChatOpenedRecipient` (intake's `handleChatOpened`, R47),
+  `skipBroadcastWaitingRecipients` (the end duty's cancelled settle, R47), `recordContactReply`
+  (intake's first reply, R38); `recordMessageResult` is wired to Instagram's result save.

@@ -60,6 +60,7 @@ import { BroadcastSegmentRepository } from './sub-domains/broadcast/broadcast-se
 import { BroadcastSegmentService } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.service.js';
 import { BroadcastRepository } from './sub-domains/broadcast/broadcast.repository.js';
 import { BroadcastService } from './sub-domains/broadcast/broadcast.service.js';
+import { BroadcastRecipientService } from './sub-domains/broadcast/broadcast-recipient/broadcast-recipient.service.js';
 import type { BroadcastFeatureCheck } from './sub-domains/broadcast/broadcast.types.js';
 import type { ChannelSendingPorts } from './app.channel-ports.js';
 import { InstagramSendLaneRepository } from './sub-domains/instagram-sending/instagram-send-lane.repository.js';
@@ -131,6 +132,11 @@ export type AppContainer = {
   broadcastSegmentService: BroadcastSegmentService;
   /** Broadcasts (§ 7.A, ROUTE row R22): routes 70–76, the send, the segment delete's draft step. */
   broadcastService: BroadcastService;
+  /**
+   * Broadcast recipients (§ 7.C, ROUTE row R23): the audience piece (R46's task), the "when her chat
+   * opens" row (R47), each broadcast message's result (6's result save), the skips and her reply.
+   */
+  broadcastRecipientService: BroadcastRecipientService;
   /**
    * The channels' sending ports (AU35), one record shared by the automations and the run engine —
    * Instagram's is its message service (ROUTE row R19); tests may put a recording one.
@@ -437,10 +443,13 @@ function createContactServices({
   cancelContactOpenRuns,
   channelSendingPorts,
   runEventReader,
+  broadcastRecipientService,
 }: {
   organizationService: OrganizationService;
   automationService: AutomationService;
   cancelContactOpenRuns: ContactPauseStep;
+  /** Broadcast recipients (7.C, R23): her waiting ones skipped at her erase and pause. */
+  broadcastRecipientService: BroadcastRecipientService;
   /** The channels' sending ports (AU35): her messages' erase / pause steps and routes 24–26. */
   channelSendingPorts: ChannelSendingPorts;
   /** Her runs' history for route 24 (4.B) — a closure, the engine is built after. */
@@ -464,6 +473,11 @@ function createContactServices({
         });
       }
     },
+    // Her waiting broadcast recipients `skipped` · `contact_deleted` (7.C BCC9, plan §20.10).
+    ({ organizationId, contactId }) =>
+      broadcastRecipientService
+        .skipContactWaitingRecipients({ organizationId, contactId, reason: 'contact_deleted' })
+        .then(() => undefined),
   ];
   // Her waiting messages skipped with the pause's reason (`contact_excluded`, `opted_out`) in its
   // commit (CTC4, AC-5.8).
@@ -489,7 +503,13 @@ function createContactServices({
     contactErasureSteps,
     (input) => automationService.findAutomationIdForFilter(input),
     {
-      pauseSteps: [cancelContactOpenRuns, skipContactWaitingMessages],
+      pauseSteps: [
+        cancelContactOpenRuns,
+        skipContactWaitingMessages,
+        // Her waiting broadcast recipients `skipped` with the pause's reason (plan §20.10).
+        (input) =>
+          broadcastRecipientService.skipContactWaitingRecipients(input).then(() => undefined),
+      ],
       tagEventRecorder: contactTagEventService,
       sendingPorts: channelSendingPorts,
       runEventReader,
@@ -517,6 +537,7 @@ function createAutomationServices({
   messageMonthCountService,
   messageFilePort,
   channelSendingPorts,
+  broadcastRecipientService,
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
@@ -525,6 +546,8 @@ function createAutomationServices({
   messageFilePort: AutomationMessageFilePort | undefined;
   /** The channels' sending ports (AU35) — one record shared by the automations and the run engine. */
   channelSendingPorts: ChannelSendingPorts;
+  /** Broadcast recipients (7.C, R23) — the contact erase and pause steps. */
+  broadcastRecipientService: BroadcastRecipientService;
 }) {
   // The automation delete's hook (AU16): every step registered here runs inside route 31's
   // transaction, after the soft delete, and answers how many open runs it cancelled. Sub-domain 4.B
@@ -564,6 +587,7 @@ function createAutomationServices({
     cancelContactOpenRuns: (input) => automationRunService.cancelContactOpenRuns(input),
     channelSendingPorts,
     runEventReader: (input) => automationRunService.listContactRunEvents(input),
+    broadcastRecipientService,
   });
   // The run engine (sub-domain 4.B, R14): the intake calls its entry points; it saves every step
   // as a waiting message through the channel's sending port (AU35 — the shared record, filled per
@@ -624,8 +648,13 @@ export function createAppContainer({
   // run message's result to the engine (built below, so a closure).
   const instagramMessageService = new InstagramMessageService({
     recordRunMessageResult: (input) => automation.automationRunService.recordMessageResult(input),
+    recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
   });
   const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
+  // Broadcast recipients (§ 7.C, R23): every broadcast message through the account's channel's port.
+  const broadcastRecipientService = new BroadcastRecipientService({
+    sendingPorts: channelSendingPorts,
+  });
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
     new ChannelConnectionTokenRepository(),
@@ -704,6 +733,7 @@ export function createAppContainer({
     messageMonthCountService: sending.messageMonthCountService,
     messageFilePort,
     channelSendingPorts,
+    broadcastRecipientService,
   });
   const { instagramWebhookEventService, instagramWebhookService } = createInstagramWebhookServices({
     instagramAccountService,
@@ -732,6 +762,7 @@ export function createAppContainer({
       messageMonthCountService: sending.messageMonthCountService,
       messageFilePort,
     }),
+    broadcastRecipientService,
     instagramMessageService,
   };
 }

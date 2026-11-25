@@ -52,6 +52,7 @@ import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sendin
 import { instagram_send_stops } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.schema.js';
 import { segments } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.schema.js';
 import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
+import { broadcast_recipients } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -1025,6 +1026,28 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
     attemptIds[side] = attempt!.id;
   }
   rowIdsByTable.set(tableKey({ schemaName: 'app', tableName: 'instagram_messages' }), messageIds);
+
+  // Broadcast recipients (feat-instagram-dm-sending R23): each organization's contact on its draft.
+  const broadcastRecipientIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [recipient] = await database
+      .insert(broadcast_recipients)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        broadcast_id: broadcastIds[side],
+        contact_id: contactIds[side],
+      })
+      .returning();
+    broadcastRecipientIds[side] = recipient!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'broadcast_recipients' }),
+    broadcastRecipientIds,
+  );
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_send_attempts' }),
     attemptIds,

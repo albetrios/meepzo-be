@@ -107,6 +107,26 @@ export interface ChannelMessageResultInput {
   occurredAt: Date;
 }
 
+/**
+ * What a channel's sending sub-domain reports to `BroadcastRecipientService.recordMessageResult`
+ * for a broadcast's message (BC17, BC18 — ROUTE row R23), in the result's commit: the recipient is
+ * found by its broadcast and contact (the once-per-person key).
+ */
+export interface ChannelBroadcastMessageResultInput {
+  /** The result save's handle — the recipient and the broadcast's numbers join its commit. */
+  databaseHandle: ChannelPortDatabaseHandle;
+  organizationId: number;
+  broadcastId: number;
+  contactId: number;
+  messagePublicId: string;
+  /** The broadcast's message number, 1–3. */
+  messageNumber: number;
+  result: ChannelMessageResult;
+  /** The channel's reason — set for `skipped` and `failed`. */
+  reason: string | null;
+  occurredAt: Date;
+}
+
 /** The normalized inbound kinds the run engine takes (4.B.10 — the inbound seam). */
 export type ChannelInboundEventKind =
   | 'comment'

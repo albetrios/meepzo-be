@@ -135,6 +135,22 @@ const CONVERSIONS: readonly Conversion[] = [
     'cascade',
     'instagram_messages_broadcast_fk',
   ),
+  // feat-instagram-dm-sending R23 (7.C.3): a recipient names its broadcast (CASCADE) and its
+  // contact (RESTRICT — contacts are erased in place).
+  link(
+    'app.broadcast_recipients',
+    'broadcast_id',
+    'app.broadcasts',
+    'cascade',
+    'broadcast_recipients_broadcast_fk',
+  ),
+  link(
+    'app.broadcast_recipients',
+    'contact_id',
+    'app.contacts',
+    'restrict',
+    'broadcast_recipients_contact_fk',
+  ),
   // feat-instagram-dm-sending R11 (CT16): a tag event names its contact (CASCADE) and, as a copy of
   // the contact's, its account (RESTRICT).
   link(
@@ -455,6 +471,12 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
       Number(broadcast?.id),
       Number(contact?.id),
     ],
+  );
+  // The contact as the broadcast's recipient (R23).
+  await operatorQuery.unsafe(
+    `INSERT INTO app.broadcast_recipients (organization_id, channel_account_id, broadcast_id, contact_id)
+     VALUES ($1, $2, $3, $4)`,
+    [organization.id, Number(channelAccount?.id), Number(broadcast?.id), Number(contact?.id)],
   );
   // One tag event of the contact (R11, CT16).
   await operatorQuery.unsafe(

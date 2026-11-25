@@ -565,6 +565,31 @@ export class AutomationRepository {
     return rows.flatMap((row) => row.questions);
   }
 
+  /**
+   * The account's live starter-question automations with their questions, oldest first — the whole
+   * ice-breaker list the starter-question sync writes (WC-31, IA6).
+   */
+  async listLiveStarterQuestionAutomations({
+    organizationId,
+    channelAccountId,
+  }: Omit<AutomationAccountKey, 'excludedAutomationId'>): Promise<
+    Array<{ publicId: string; questions: string[] }>
+  > {
+    return this.db()
+      .select({ publicId: automations.public_id, questions: automations.starter_questions })
+      .from(automations)
+      .where(
+        and(
+          eq(automations.organization_id, organizationId),
+          eq(automations.channel_account_id, channelAccountId),
+          eq(automations.status, 'live'),
+          eq(automations.trigger_type, 'starter_question'),
+          LIVE_AUTOMATION,
+        ),
+      )
+      .orderBy(asc(automations.created_at), asc(automations.id));
+  }
+
   /** The account's other automation holding this `ref_code`, drafts included (D43); `null` when none. */
   async findOtherWithRefCode({
     organizationId,

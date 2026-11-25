@@ -16,7 +16,7 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). ROUTE row R42 built the **send core** (below); the lanes' own rules (R43–R45), the repair duties (R47) come with their row; the watches are R48's (below). ROUTE
+connection's usage, SN23). ROUTE row R42 built the **send core** (below), R43 the slow and reply lanes' rules, R44 the fast lane's, R45 the broadcast lane's; the repair duties (R47) come with their row; the watches are R48's (below). ROUTE
 row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
 to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
@@ -66,8 +66,10 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
 - `instagram-attachment/` — the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md).
 - `queues/` — `instagram-send-slow` (one ticket per lane turn of `slow`, `reply`, `broadcast`; job id
   `<lane>-<cha_…>-<turn>`, a broadcast turn at priority 10) and `instagram-send-fast` (one ticket per fast message,
-  `fast-<igm_…>-<tries>`), and `instagram-tasks` (the jobs around sending, each owner's job name), all family `instagram` — run in the
-  existing `worker` service, no service of their own (P140). Ids only, one attempt per ticket, no rate limiter, never paused by the
+  `fast-<igm_…>-<tries>`), and `instagram-tasks` (the jobs around sending, each owner's job name — the account's set-up,
+  subscription check and starter-question sync since R40, `../instagram-account/`; `enqueueInstagramTask` takes an
+  optional delay for a retry or a spread), all family `instagram` — run in the existing `worker` service, no service of
+  their own (P140). Ids only, one attempt per ticket, no rate limiter, never paused by the
   Instagram circuit.
 - `workers/` — one plain worker per queue (`isEnabled: env.SENDING_ENABLED`) and `instagram-send-ticket.processor.ts`:
   every ticket asks `mayTakeTickets` first (a task only when it calls Meta) and goes back a minute later, no try used,
@@ -93,7 +95,46 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   or lock timeout 3 times, a lost connection after 1, 2, 4, 8 s; then the message stays `sending` for the repair, D17),
   the stops (lanes by ladder, the connection's break on 190, the account's break, the app limit, "in a row" from the
   attempts), the test's end and half speed, the next tickets. Each lane's own rules plug in through
-  `InstagramSendLaneRules` (R43–R45); a lane without rules sends nothing.
+  `InstagramSendLaneRules` (R43–R45; the fast lane's `checkFastMessage` before its claim, R44); a lane without rules
+  sends nothing. A test that says nothing about the
+  account (that person, that text) tests again up to 3 turns (`testMaxTurns`), then the stop waits its time again.
+- `instagram-slow-lane.service.ts` — `InstagramSlowLaneRules` (R43, WC-5): opening DMs as private replies, one per
+  box (3600 ÷ the opening hour limit — 600, ≤ 700, 150 for a new account's 7 days; doubled at half speed or Meta's
+  80 %) at a random millisecond, at least 1.5 s apart (`box_start`, `last_sent_at`, `pick_count` written in the
+  release); the pick mixes new (under 60 min, newest first) and old (oldest first) comments 4 : 1 (3 : 2 under 12 h
+  left), checks each again (expired, erased, opted out, excluded → ended with the engine told; window open → moved to
+  the fast lane with its ticket; an opening to her in the last 24 h → `not_before` + 24 h, D8).
+- `instagram-reply-lane.service.ts` — `InstagramReplyLaneRules` (R43, WC-6): hides and "Reply like a person" OFF
+  replies at once (a hide only after its reply ended), ON replies at their automation's hashed box second (10–100 an
+  hour) and 20 s after the account's last ON reply; the line never the last one (only the first without PRO, D57),
+  `@username` first; the reply state's box, line and waiting count. The 500 trim is the repair's (R47).
+- `instagram-fast-lane.service.ts` — `InstagramFastLaneRules` (R44, WC-7): every message after the opening, one
+  ticket `fast-<igm_…>-<tries>` per message at its `not_before` (the message service adds it after the save's commit:
+  a random 500–2,000 ms, the PRO extra delay on her event's first answer cut at 25 s, at once after a follow check).
+  Before the claim: gone / opted out / excluded → `skipped`; a Live private reply over 240 min → `expired` ·
+  `live_ended`; a nudge she answered → `cancelled` · `answered`; her window closed (24 h − 15 min) → a comment's DM
+  back to the slow lane, a Live comment's DM to a private reply, anything else `skipped` · `window_closed`. The
+  claim takes her contact `NO KEY UPDATE SKIP LOCKED` and one of hers `sending` at a time (else back in 1 s), the
+  account's 20 `sending` (`sending_count`, − 1 in the result save), 5 audio and the organization's 25 (S21; else back
+  in 500 ms). The follow check reads `is_user_follow_business` (2 tries, the second after 2–5 s, then "following").
+  Buttons carry `<aut_…>::<run_…>::<igm_…>`; `InstagramMessageService.markTappedMessageSent` proves an `unknown`
+  message `sent` (the intake calls it, R38). "Seen" after a reply is not sent (P36 keeps `mark_seen` off, P412).
+- `instagram-broadcast-lane.service.ts` — `InstagramBroadcastLaneRules` (R45, WC-8): broadcast messages (PRO) one per
+  box of the broadcast hour limit (600, ≤ 2,000; 3600 ÷ limit, a random second, ≥ 1.5 s apart, ×2 at half speed or
+  Meta's 80 %), her window closing soonest first across the account's broadcasts, at most 5 picks a turn. Checks
+  again before each send: the broadcast no longer active → message `cancelled`, recipient `skipped`, both
+  `broadcast_cancelled`; gone / opted out / excluded / window closed → `skipped`; message 1 within 24 h of her last
+  broadcast → `recent_broadcast`; her hour full → `not_before` + 5 min. The claim takes her contact skip locked; gate 2
+  counts the `broadcast` group, the month counts it as a DM (P3: the month's `plan_limit` holds this lane). The result
+  save moves her `last_broadcast_at` (`sent` or `unknown`), the recipient and message N + 1. Too fast here stops only
+  this lane for twice the time (Meta's too); the slow or fast lane's too fast holds it too. Buttons carry
+  `<brc_…>::<igm_…>` (`broadcast-recipient-button-payload.util.ts`, read by intake R38).
+- `instagram-send-compose.service.ts` — a run DM's Meta call composed at the last moment
+  (`instagram-message/instagram-message-compose.util.ts`: the hello, follow ask, email / phone questions with their
+  plain-text fallback and default texts, each list kind, `{name}`); `callWithCommentCheck` reads a maybe-gone comment
+  once before `deleted_comment` (§33.7). The fast lane (R44) composes its DMs here too; `composeBroadcastMessage` the
+  broadcast lane's (R45: the broadcast's message N as a list message, a normal DM to her id, no tag).
+- `instagram-send-pace.util.ts` — the boxes, the mix, the reply box second and the line pick (pure).
 - `instagram-send-gate.service.ts` — gate 1 (an advisory Redis sorted set per account and count group, 100 ms, skipped
   30 s after 3 timeouts) and the claim's **one commit**: the lane row locked, gate 2 over the 61 minute rows, her hour,
   the month's 16 slots against the plan's limit, the adds, `sending`, the attempt; the DM that fills the month starts

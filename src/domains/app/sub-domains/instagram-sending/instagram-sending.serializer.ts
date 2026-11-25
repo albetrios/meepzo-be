@@ -189,20 +189,24 @@ function dayOrNull(value: Date | null): string | null {
  * - Notices, in this order: the limit nearly reached or reached (`ends_on` the reset day);
  *   `payment_failed` during a lapsed paid plan's grace (`ends_on` the grace's end); `plan_ended`
  *   while read-only; `trial_ending` while the trial ends within
- *   {@link APP_USAGE_TRIAL_ENDING_NOTICE_DAYS} days. `being_set_up` and `paused` join with the
- *   account set-up (ROUTE row R40) and the organization's suspend (R24).
+ *   {@link APP_USAGE_TRIAL_ENDING_NOTICE_DAYS} days; `being_set_up` while the organization has no
+ *   not-revoked channel account (plan §46 "Workspace being set up", ROUTE row R40). `paused` joins
+ *   with the organization's suspend (R24).
  */
 export function serializeAppUsage({
   month,
   limit,
   accounts,
   planAccess,
+  hasLiveAccount,
   now,
 }: {
   month: MessageMonthCountRead;
   limit: number | null;
   accounts: { used: number; maximum: number };
   planAccess: Pick<PlanAccess, 'state' | 'graceEndsAt' | 'trialEndsAt'>;
+  /** Whether the organization has a not-revoked channel account (else `being_set_up`). */
+  hasLiveAccount: boolean;
   now: Date;
 }): AppUsageOutput {
   const state = meterState({ used: month.used, limit });
@@ -227,6 +231,7 @@ export function serializeAppUsage({
   ) {
     notices.push({ kind: 'trial_ending', ends_on: dayOrNull(planAccess.trialEndsAt) });
   }
+  if (!hasLiveAccount) notices.push({ kind: 'being_set_up', ends_on: null });
   return {
     direct_messages: { used: month.used, limit, resets_on: month.resetsOn, state },
     channel_accounts: accounts,

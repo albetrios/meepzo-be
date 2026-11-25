@@ -83,12 +83,11 @@ import { INSTAGRAM_REPAIR_DATABASE_SLOT_WAIT_MILLISECONDS } from '@/domains/app/
 import { getInstagramDatabaseSlotLimiter } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-send-ticket.processor.js';
 import { createInstagramWebhookWorker } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
-import { createInstagramWebhookEventRetentionWorker } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.worker.js';
-import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
+import { createAppPartitionUpkeepWorker } from '@/domains/app/workers/app-partition-upkeep.worker.js';
+import { APP_PARTITION_UPKEEP_QUEUE_NAME } from '@/domains/app/workers/app-partition-upkeep.constants.js';
 import { createNotificationRetentionWorker } from '@/domains/notify/sub-domains/notification/workers/notification-retention.worker.js';
 import { NOTIFICATION_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-retention.constants.js';
-import { createInstagramAccountDailyCheckWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-daily-check.worker.js';
-import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
+import { runInstagramWebhookSubscriptionCheckSweep } from '@/domains/app/sub-domains/instagram-account/workers/instagram-account-tasks.processor.js';
 import { createChannelConnectionTokenCheckWorker } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.worker.js';
 import { CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { createInstagramReconnectNoticeWorker } from '@/domains/app/sub-domains/instagram-account/workers/instagram-reconnect-notice.worker.js';
@@ -424,15 +423,6 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
         automationRunService: workerContainers.appDomain.automationRunService,
       }),
   },
-  // launch-2026-11-20-ujai WH19: the daily 30-day clean-up of the Instagram webhook events. Family
-  // `instagram` (beside event processing and its stuck-event pick-up, WH5); no `isEnabled` — the
-  // delete is harmless without Instagram settings, and rows stored before they were removed still go.
-  retentionDefinition({
-    queueName: INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
-    family: 'instagram',
-    logLabel: 'instagram webhook event retention worker',
-    create: () => createInstagramWebhookEventRetentionWorker(),
-  }),
   // feat-instagram-dm-sending SN2, SN24 (P91, ROUTE row R37): the send and task queues. Their job
   // places wait on Meta, not Postgres: every unit of work takes a slot of the process's Instagram
   // database limiter, which the budget counts once (`WORKER_INSTAGRAM_DATABASE_SLOTS`). Not
@@ -585,25 +575,11 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     holdsConnectionDuringExternalIo: false,
     create: () => createUserDataExportRetentionWorker(),
   }),
-  // Launch IA8: the daily Instagram account check — the 04:00 UTC sweep and one check per
-  // connected account ride one queue. Provider-pausable on the `instagram` circuit; every
-  // Instagram call runs between two short organization contexts, never inside one. Off until the
-  // Instagram app is configured (no account can be connected before).
-  retentionDefinition({
-    queueName: INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
-    family: 'retention',
-    logLabel: 'Instagram account daily check worker',
-    holdsConnectionDuringExternalIo: false,
-    isEnabled: () => isMetaConfigured(),
-    create: (workerContainers) =>
-      createInstagramAccountDailyCheckWorker({
-        accountService: workerContainers.appDomain.instagramAccountService,
-      }),
-  }),
   // feat-instagram-dm-sending MC10 (WC-34): the channel connection's daily token check — the hourly
-  // sweep and one check per due connection ride one queue. Never paused (F3): a check that meets
-  // Meta down returns `deferred` and the next sweep adds it again. Every Meta call runs between two
-  // short organization contexts, never inside one. Off until the Meta app is configured.
+  // sweep, the 10-minute webhook subscription sweep (WC-25, R40; the launch daily check is retired)
+  // and one check per due connection ride one queue. Never paused (F3): a check that meets Meta
+  // down returns `deferred` and the next sweep adds it again. Every Meta call runs between two short
+  // organization contexts, never inside one. Off until the Meta app is configured.
   retentionDefinition({
     queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
     family: 'retention',
@@ -615,6 +591,9 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
         connectionService: workerContainers.appDomain.channelConnectionService,
         accountPort: workerContainers.appDomain.channelAccountService,
         usageService: workerContainers.appDomain.channelConnectionUsageService,
+        // WC-25 (R40): the 10-minute webhook subscription sweep rides this queue since the launch
+        // daily check was retired (R40 × R51 merge).
+        webhookSubscriptionSweep: () => runInstagramWebhookSubscriptionCheckSweep(),
       }),
   }),
   // feat-instagram-dm-sending BL17 (WC-59): the 15-minute plan-state check — a sweep across
@@ -692,6 +671,18 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     family: 'retention',
     logLabel: 'automation tombstone retention worker',
     create: () => createAutomationTombstoneRetentionWorker(),
+  }),
+  // feat-instagram-dm-sending WC-55 (WHC13, P96, P410 — ROUTE row R49): the shared upkeep of the
+  // seven time-split app tables — parts made 14 days ahead daily and at worker start, expired parts
+  // dropped hourly (webhook events and keys, send attempts, messages, comment logs, run events,
+  // runs: WC-48–WC-52). Replaces the launch's daily webhook-event batch delete (WHC15). A pure
+  // database pass under its own maintenance scope; no `isEnabled` — the parts must keep coming
+  // whatever is configured.
+  retentionDefinition({
+    queueName: APP_PARTITION_UPKEEP_QUEUE_NAME,
+    family: 'retention',
+    logLabel: 'app partition upkeep worker',
+    create: () => createAppPartitionUpkeepWorker(),
   }),
   {
     queueName: IDEMPOTENCY_CARDINALITY_QUEUE_NAME,

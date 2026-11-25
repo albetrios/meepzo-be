@@ -159,7 +159,7 @@ export class ChannelConnectionTokenRepository {
 
 /**
  * {@link ChannelConnectionTokenRepository} bound to a job's organization handle — the worker paths
- * that read a token right before a provider call (the daily account check's subscription retry, the
+ * that read a token right before a provider call (the Instagram account jobs — R40 — the
  * connection's token check — MC10, which also re-encrypts an old-key token, S26 — and the sender at
  * R42).
  */

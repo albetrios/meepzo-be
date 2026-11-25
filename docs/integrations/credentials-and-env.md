@@ -418,7 +418,7 @@ all three; one left unticked on Meta's consent screen answers `422 provider_perm
 **The webhook fields.** Every connect subscribes the account to `comments`, `messages` and
 `messaging_postbacks` (`INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS` in the Instagram client, through
 `POST /{instagram_user_id}/subscribed_apps`); a failed subscription is retried by the next
-connect (and by the daily account check once it lands). The app itself must be subscribed to the
+connect's set-up task and, for a field later lost, the 10-minute webhook subscription check. The app itself must be subscribed to the
 same three fields (step 5), or no event arrives.
 
 **Locally:** `pnpm setup:local` copies `META_APP_ID`, `META_APP_SECRET` and `META_CONFIG_ID` from

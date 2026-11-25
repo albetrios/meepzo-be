@@ -1039,6 +1039,8 @@ Every route can answer the errors in 2.5; each route's own errors are in its nes
 | IAC3 | IA6: `instagram-account/queues/` + `workers/` for `instagram-account-setup`, `instagram-webhook-subscription-check`, `instagram-starter-question-sync`, `instagram-reconnect-notice` on `instagram-tasks` (payloads with `channelAccountPublicId`; registry, `WORKER_QUEUE_NAMES`, scheduler for the 10-minute check, DLQ); the launch's `instagram-account-daily-check` removed (sub-domain 1 takes the profile refresh); tests: retries 1/5/15/60, a field off re-runs set-up, a sync writes the whole list, twice = once |
 | IAC5 | `instagram-account-erasure.service.ts` (team delete, launch D54) loops every Instagram account of the organization and erases each connection's token through sub-domain 1; `instagram-account.overview.md` and the two nested overviews (the `instagram-account-meta-callback` one removed); `src/FLOWS.md` (connect with Meta, pick, reconnect, choose active accounts — across 1, 1B and 2) |
 
+**As built at ROUTE row R40** ([P409](decisions.md)): IAC3's three jobs are task handlers on `instagram-tasks` — `instagram-account-setup` (six fields, starter questions, the message-access probe; tries after 1, 5, 15, 60 minutes then hourly, one owner email after the 60-minute try, `instagram.reconnect_required` type), `instagram-webhook-subscription-check` (a 10-minute sweep on the daily-check queue adds one per connected account, spread by id; a field off on a stamped account → set-up again, team alert log, the missed-comment port R39 fills) and `instagram-starter-question-sync` (whole list; `starter_questions_set_at` set or emptied). The launch daily check stays until R51 (the profile refresh), carrying the sweep; the reconnect notice keeps its own queue. Banners are `is_webhook_subscribed` false and an empty `starter_questions_set_at`; the probe's "off" is logged only. Route 8 removes the starter questions before its unsubscribe.
+
 **As built at ROUTE row R6** ([P121](decisions.md)): the team delete unsubscribes every live account, revokes every account (channel account + extension) and erases each profile and stored posts, then `ChannelConnectionTokenService.revokeOrganizationConnections` revokes every connection still live with its token. The `instagram-account-meta-callback` folder and overview stay until R9 moves the callbacks to sub-domain 1.
 
 ### 2.12 Nested sub-domains
@@ -2734,6 +2736,19 @@ WHC13's upkeep (R49) builds on; the replay guard (WH9 step 5) and the key day li
 WHC5 (R17) the launch classifier saves read receipts `unknown` · `unsupported` and reactions and DM echoes
 `unsupported`; WHC15's seed part is done (every kind, status and reason).
 
+**As built (R49, [P410](decisions.md)):** WHC13 and WHC15 built. `app.fn_manage_time_partitions(parent, make_ahead_days,
+keep_days, drop_parts)` (migration `20261125190000_app_partition_upkeep.sql`) is SECURITY DEFINER with EXECUTE for
+`meepzo_be_maintenance` **only** — the role-taxonomy gate lists it as the one maintenance-only definer (the app role never
+reaches a part-dropping function); it makes the parts 14 days ahead through R16 / R19 / R14's part makers, drops an expired
+part by DETACH then DROP (2 s lock timeout, 3 tries, else the next hour), keeps a runs / run-events part holding an open
+run, moves the DEFAULT part's rows into a new part for a table nothing points into (runs: reported blocked), and reports
+ready days, DEFAULT rows and the oldest kept part's overdue seconds. Scope `MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP` (no
+GUC); worker `src/domains/app/workers/app-partition-upkeep.*` on queue `app-partition-upkeep` (family `retention`): the
+daily make at 02:23 UTC and at worker start, the hourly make-and-drop at :37, the seven tables in the order events, keys,
+attempts, messages, comment logs, run events, runs; gauges `app_partition_ready_days`, `app_partition_default_rows`,
+`app_partition_oldest_overdue_seconds` with logger + Sentry alerts. WHC15: the launch's retention queue, worker, schedule
+and `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS` are gone; `INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS` (8) is the one constant.
+
 ---
 ## 6. Instagram sending — rev 5 (2026-11-24) — nested sub-domains 6.A–6.C; final (rev 5, confirmed 2026-11-24)
 
@@ -2906,7 +2921,7 @@ fast message (plan §30): ticket fast-<igm>-<tries> at not_before ──► her 
 | WC-5 | slow-lane turn — opening DMs, new : old 4 : 1 (3 : 2 under 12 h), ≤ 5 picks, box 3600 ÷ hour limit (600, ≤ 700; new account 150 for 7 days), ≥ 1.5 s apart, half speed ×2 | `workers/instagram-send-slow.processor.ts` (lane `slow`) | each box second |
 | WC-6 | reply-lane turn — public replies and hides after their DM; OFF at once, ON 80 % chance, the automation's box (10–100), 20 s apart, ≤ 500 waiting; the connection's Meta usage (P51, SN23) at 80 % doubles the boxes, 95 % waits | same processor (lane `reply`) | each turn |
 | WC-7 | fast messages — answers, lists (waits 1 min – 23 h), the 60-minute nudge, follow checks, email and phone questions, Live replies, mark as seen, the PRO extra delay | `workers/instagram-send-fast.processor.ts` | at `not_before` |
-| WC-8 | broadcast-lane turn — 600 an hour (≤ 2,000), soonest-closing window first, once per person in 24 h, too-fast ×2 | slow processor (lane `broadcast`, priority 10) | each turn |
+| WC-8 | broadcast-lane turn — 600 an hour (≤ 2,000), soonest-closing window first, once per person in 24 h, too-fast ×2 **As built (R45, [P413](decisions.md))**: the lane rules `instagram-broadcast-lane.service.ts`; the `owner_chat` re-check is intake's hook (no owner-typed time kept); `last_broadcast_at` also on `unknown`; a slow / fast too fast holds this lane too | slow processor (lane `broadcast`, priority 10) | each turn |
 | WC-13 | lost turns put back; idle lanes with work; late fast messages; `sending_count` repaired; ended stops (fast spread over 5 min) [5–9] | `repair-lost-turns` | every minute |
 | WC-14 | lease over / fast `sending` over 120 s → `unknown` through `saveSendResult` [2, 7] | `repair-stuck-sends` | every minute |
 | WC-15 | waiting opening DMs, replies, hides past comment + 7 days − 30 min → `expired` (`plan_limit` when behind the month stop) [10] | `repair-expiry` | every minute |
@@ -2930,6 +2945,23 @@ fast message (plan §30): ticket fast-<igm>-<tries> at not_before ──► her 
 | WC-55 | the two split tables' parts made ahead (attempts by day, messages by week; with 4's three and 5's two — seven split tables since rev 5, P96) | shared partition upkeep (owned by 5) | daily, and at worker start |
 | WC-56 | 80 % / 100 % notices and emails, once per month; the accounts' `plan_limit` stop (1B) [25] | the claim's commit (after it), backup in `repair-month-notice` | at the crossing / every minute |
 | WC-57 | owner problem emails (one kind per account per 6 h; through `auth.mail_outbox` with a dedupe key) [14] | `repair-owner-emails` | every minute |
+
+**As built (ROUTE row R43, [P411](decisions.md)).** WC-5 is `InstagramSlowLaneRules` and WC-6 `InstagramReplyLaneRules`
+(`instagram-sending/instagram-slow-lane.service.ts`, `instagram-reply-lane.service.ts`), plugged into the send core's
+lane rules — not separate processors: both lanes' tickets reach the one slow-queue processor and the core (R37, R42).
+The lane's pace columns (`box_start`, `last_sent_at`, `pick_count`) are written in the turn's release; a pick's check
+again ends a message through `InstagramMessageService.endWaitingMessage`; the reply box second is a hash of the
+automation and its box start; the text is composed at the last moment by `InstagramSendComposeService` (the fast lane
+reuses it, R44).
+
+**As built (ROUTE row R44, [P412](decisions.md)).** WC-7 is `InstagramFastLaneRules`
+(`instagram-sending/instagram-fast-lane.service.ts`), plugged into the core's lane rules: its `checkFastMessage` runs
+§30.2 step 6 before the claim; the claim's one commit takes her contact (`NO KEY UPDATE SKIP LOCKED`), one of hers
+`sending` at a time, and — on the locked fast lane row — the account's 20 (`sending_count`, given back by the result
+save), 5 audio and **S21**'s 25 fast sends in flight per organization. The ticket `fast-<igm>-<tries>` is added by
+the message service after the waiting save's commit, at a `not_before` of 500–2,000 ms (plus the PRO extra delay on her
+event's first answer, cut at 25 s; at once after a follow check). Buttons carry `<aut>::<run>::<igm>`. "Seen" after a
+reply is not sent while `mark_seen` is go-live-gated (P36).
 
 Rules: no piece sends twice (the `sending` claim, `unknown` never sent again by itself, Instagram refuses a second
 private reply); intake and the repair never send; Redis is never called inside a transaction; Meta is never called inside

@@ -61,11 +61,14 @@ describe('worker-registration.registry', () => {
     // +1 for the Instagram webhook event processing (instagram family, throughput,
     // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
     // WH12–WH15); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
-    // `instagram-send-slow` and `instagram-send-fast` in family `instagram-send`, `instagram-tasks`
-    // in `instagram`; throughput, event-driven, their database through the shared limiter); +1 for
-    // the channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34);
-    // +1 for the database-heavy Instagram task queue (`instagram-database-tasks`, S19 — R46).
-    expect(definitions).toHaveLength(47);
+    // `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks`, all in family `instagram`
+    // (P140); throughput, event-driven, their database through the shared limiter); +1 for the
+    // channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34; the
+    // launch daily account check it replaced is gone, −1, R40 × R51 merge); +1 for the
+    // database-heavy Instagram task queue (`instagram-database-tasks`, S19 — R46); +2 for the
+    // plan-state check and the sending repair queue (R52, R48); the webhook event clean-up gave
+    // way to the shared partition upkeep (R49, ±0).
+    expect(definitions).toHaveLength(46);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -91,10 +94,10 @@ describe('worker-registration.registry', () => {
     // hourly seat reconcile on its queue); the webhook-delivery-reclaim sweep one Postgres-backed,
     // scheduled, maintenance worker; user-data-export also runs its lost-enqueue sweep; the
     // membership invitation expiry sweep (D84) one Postgres-backed, scheduled, maintenance worker;
-    // the Instagram reconnect notice one Postgres-backed throughput worker (event-driven) and the
-    // daily Instagram account check one Postgres-backed, scheduled, maintenance worker (IA8, IA9);
-    // the Instagram webhook event clean-up (WH19) one more Postgres-backed, scheduled, maintenance
-    // worker; the two run and automation clean-ups (the 7-day wait cancel, the deleted-automation purge)
+    // the Instagram reconnect notice one Postgres-backed throughput worker (event-driven) (IA9; the
+    // launch daily account check, IA8, is retired — the token check and the subscription check took
+    // its work, R40 × R51 merge); the shared partition upkeep (WC-55, R49 — it replaced the
+    // Instagram webhook event clean-up, WH19) one Postgres-backed, scheduled, maintenance worker; the two run and automation clean-ups (the 7-day wait cancel, the deleted-automation purge)
     // two more; the Instagram webhook event processing (WH5, WH15) one
     // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the Instagram
     // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers; the
@@ -103,14 +106,14 @@ describe('worker-registration.registry', () => {
     // R52 the plan-state check (WC-59) and the sending repair duties (WC-37, WC-38) two more
     // Postgres-backed, scheduled, maintenance workers, and the seat sync is no longer scheduled
     // (its hourly reconcile is off with the seat sync, BL9, WC-65).
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(44);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(37);
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(43);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(36);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(12);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
-    ).toHaveLength(33);
+    ).toHaveLength(32);
     expect(
       definitions.filter((definition) => definition.criticality === 'observability'),
     ).toHaveLength(2);

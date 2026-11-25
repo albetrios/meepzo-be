@@ -22,3 +22,13 @@ export const CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_PAGE_SIZE = 500;
  * connections past the cap are still due and a later hourly sweep lists them.
  */
 export const CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_MAX_PAGES = 200;
+
+/**
+ * Job name of the 10-minute webhook subscription sweep (feat-instagram-dm-sending WC-25, ROUTE row
+ * R40) — a second repeatable job on the token-check queue (`scheduler.ts`), run by the token-check
+ * worker through its services' `webhookSubscriptionSweep`: it hands each
+ * connected Instagram account one subscription check on `instagram-tasks`. It rode the launch daily
+ * check's queue until that check was retired at the R40 × R51 merge.
+ */
+export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME =
+  'sweep-instagram-webhook-subscriptions';

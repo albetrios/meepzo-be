@@ -88,6 +88,8 @@ function setup({
   const channelAccountService = {
     findLiveInstagramAccount: vi.fn(async () => account),
     countActiveAccounts: vi.fn(async () => 2),
+    // Route 64's "being set up" (plan §46, R40): the not-revoked accounts.
+    countLiveAccounts: vi.fn(async () => 2),
   };
   const laneService = {
     listLanes: vi.fn(async () => LANES),
@@ -248,6 +250,7 @@ describe('InstagramSendingService.getUsage (route 64)', () => {
       limit: 1000,
       accounts: { used: 2, maximum: 3 },
       planAccess,
+      hasLiveAccount: true,
       now: NOW,
     });
   });

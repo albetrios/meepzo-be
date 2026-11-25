@@ -153,7 +153,7 @@ stateDiagram-v2
     queued --> queued: not claimed 5 minutes after it arrived — the stuck-event pick-up adds the job again
     stored --> listed: route 62 — masked, newest first
     handled --> listed: route 62
-    listed --> [*]: its day part dropped after 8 days (R49; the launch's clean-up until then)
+    listed --> [*]: its day part dropped after 8 days (the partition upkeep, R49)
 ```
 
 ## Failure modes

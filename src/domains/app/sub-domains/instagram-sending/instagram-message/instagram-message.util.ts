@@ -116,3 +116,27 @@ export function instagramMessageStepOf(messageType: InstagramMessageType): Chann
 export function channelResultOf(status: InstagramMessageFinalStatus): ChannelMessageResult {
   return status === 'expired' ? 'skipped' : status;
 }
+
+/**
+ * The account's extra delay before her first answer (PRO, plan §30.12 rule 2): min + (max − min) ×
+ * (r1 + r2) ÷ 2 seconds in whole milliseconds — `0` when either bound is empty (off).
+ *
+ * @remarks
+ * Pure: the two random numbers (each 0–1) are the caller's.
+ */
+export function drawInstagramExtraDelayMilliseconds({
+  minimumSeconds,
+  maximumSeconds,
+  firstRandom,
+  secondRandom,
+}: {
+  minimumSeconds: number | null;
+  maximumSeconds: number | null;
+  firstRandom: number;
+  secondRandom: number;
+}): number {
+  if (minimumSeconds === null || maximumSeconds === null) return 0;
+  const seconds =
+    minimumSeconds + ((maximumSeconds - minimumSeconds) * (firstRandom + secondRandom)) / 2;
+  return Math.round(seconds * 1000);
+}

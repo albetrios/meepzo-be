@@ -1,5 +1,7 @@
 import { createHmac } from 'node:crypto';
 import {
+  INSTAGRAM_ACCESS_TOKEN_ERROR_CODE,
+  MetaGraphApiError,
   buildMetaGraphMalformedAnswerError,
   readMetaGraphErrorResponse,
   toMetaGraphApiError,
@@ -25,11 +27,17 @@ import { decryptFieldSecret } from '@/shared/utils/security/field-secret-encrypt
 export const META_GRAPH_VERSION = 'v27.0';
 /** The host of every Graph call: Unified Login's code exchange and every call with a stored token. */
 export const META_GRAPH_BASE_URL = 'https://graph.facebook.com';
-/** The webhook fields every connected account is subscribed to (IA12). */
+/**
+ * The six webhook fields every connected account is subscribed to (feat-instagram-dm-sending WC-30,
+ * plan §25.7): Meta lets them differ per app, never per account.
+ */
 export const INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS = [
   'comments',
+  'live_comments',
   'messages',
   'messaging_postbacks',
+  'messaging_referral',
+  'message_reactions',
 ] as const;
 
 /** An Instagram professional account's profile fields (the pick's read, the profile refresh). */
@@ -593,13 +601,13 @@ function assertInstagramSuccessAnswer({
 }
 
 /**
- * Subscribes the account to the webhook fields `comments`, `messages`, `messaging_postbacks`
- * (`POST /{instagram_user_id}/subscribed_apps`, IA12 step 5, IA8).
+ * Subscribes the account to the six webhook fields of {@link INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS}
+ * (`POST /{instagram_user_id}/subscribed_apps`, WC-30, IA8).
  *
  * @remarks
- * - **Algorithm:** `POST /v27.0/{id}/subscribed_apps?subscribed_fields=comments,messages,
- *   messaging_postbacks` with the token in the `Authorization` header; Instagram answers
- *   `{ success: true }`.
+ * - **Algorithm:** `POST /v27.0/{id}/subscribed_apps?subscribed_fields=comments,live_comments,
+ *   messages,messaging_postbacks,messaging_referral,message_reactions` with the token in the
+ *   `Authorization` header; Instagram answers `{ success: true }`.
  * - **Failure modes:** `MetaGraphApiError`; any answer but `success: true` → `outage`.
  * - **Side effects:** one Instagram call — Meta starts sending this account's events.
  * - **Notes:** safe to repeat. The connect logs a failure and never fails on it.
@@ -648,6 +656,186 @@ export async function unsubscribeInstagramWebhookFields({
   assertInstagramSuccessAnswer({ answer, operation: 'the webhook unsubscription' });
 }
 
+/**
+ * The webhook fields the account is subscribed to for our app (`GET /{instagram_user_id}/subscribed_apps`)
+ * — the 10-minute subscription check (WC-25).
+ *
+ * @remarks
+ * - **Algorithm:** `GET /v27.0/{id}/subscribed_apps` with the token in the `Authorization` header;
+ *   Meta answers `{ data: [{ id, name, subscribed_fields: [...] }] }`, one entry per app. The entry
+ *   whose `id` is `appId` gives the fields; no such entry → an empty list (nothing subscribed).
+ * - **Failure modes:** `MetaGraphApiError`; no `data` list → `outage`.
+ * - **Side effects:** one Instagram call; nothing is stored.
+ */
+export async function readInstagramWebhookSubscribedFields({
+  encryptedAccessToken,
+  instagramUserId,
+  appId,
+  requestId,
+  recordUsage,
+}: InstagramWebhookSubscriptionOptions & { appId: string }): Promise<string[]> {
+  const answer = await callMetaGraphWithToken<{ data?: unknown }>({
+    encryptedAccessToken,
+    path: `${encodeURIComponent(instagramUserId)}/subscribed_apps`,
+    requestId,
+    recordUsage,
+  });
+  if (!Array.isArray(answer.data)) {
+    throw buildMetaGraphMalformedAnswerError({
+      operation: 'the webhook subscription read',
+      missing: 'data',
+    });
+  }
+  const ours = answer.data
+    .map((entry) => readAnswerObject(entry))
+    .find((entry) => readAnswerId(entry.id) === appId);
+  if (ours === undefined || !Array.isArray(ours.subscribed_fields)) return [];
+  return ours.subscribed_fields.filter((field): field is string => typeof field === 'string');
+}
+
+/** One starter question (an Instagram ice breaker): its text and the payload a tap sends back. */
+export interface InstagramIceBreaker {
+  question: string;
+  payload: string;
+}
+
+/** Fails unless Meta answered `{ result: 'success' }` (the Messenger profile calls). */
+function assertMessengerProfileSuccess({
+  answer,
+  operation,
+}: {
+  answer: { result?: unknown };
+  operation: string;
+}): void {
+  if (answer.result !== 'success') {
+    throw buildMetaGraphMalformedAnswerError({ operation, missing: "result: 'success'" });
+  }
+}
+
+/**
+ * Writes the account's whole starter-question list (Instagram's ice breakers,
+ * `POST /{instagram_user_id}/messenger_profile`) — the starter-question sync (WC-31) and the set-up
+ * (WC-30).
+ *
+ * @remarks
+ * - **Algorithm:** `POST /v27.0/{id}/messenger_profile` with the JSON body `{ platform: 'instagram',
+ *   ice_breakers: [{ locale: 'default', call_to_actions: [{ question, payload }] }] }`; Meta answers
+ *   `{ result: 'success' }`. The list replaces the one Meta holds.
+ * - **Failure modes:** `MetaGraphApiError`; any other answer → `outage`.
+ * - **Side effects:** one Instagram call — the chat's starter questions change at once.
+ * - **Notes:** safe to repeat; an empty list is {@link deleteInstagramIceBreakers}'s.
+ */
+export async function setInstagramIceBreakers({
+  encryptedAccessToken,
+  instagramUserId,
+  iceBreakers,
+  requestId,
+  recordUsage,
+}: InstagramWebhookSubscriptionOptions & {
+  iceBreakers: readonly InstagramIceBreaker[];
+}): Promise<void> {
+  const answer = await callMetaGraphWithToken<{ result?: unknown }>({
+    encryptedAccessToken,
+    path: `${encodeURIComponent(instagramUserId)}/messenger_profile`,
+    method: 'POST',
+    jsonBody: {
+      platform: 'instagram',
+      ice_breakers: [
+        {
+          locale: 'default',
+          call_to_actions: iceBreakers.map(({ question, payload }) => ({ question, payload })),
+        },
+      ],
+    },
+    requestId,
+    recordUsage,
+  });
+  assertMessengerProfileSuccess({ answer, operation: 'the starter-question write' });
+}
+
+/**
+ * Removes the account's starter questions (`DELETE /{instagram_user_id}/messenger_profile`,
+ * `fields: ['ice_breakers']`) — the sync of an account with none live (WC-31) and route 8's
+ * disconnect (CA8).
+ *
+ * @remarks
+ * - **Algorithm:** `DELETE /v27.0/{id}/messenger_profile?platform=instagram` with the JSON body
+ *   `{ fields: ['ice_breakers'] }`; Meta answers `{ result: 'success' }`.
+ * - **Failure modes:** `MetaGraphApiError`; any other answer → `outage`.
+ * - **Side effects:** one Instagram call.
+ * - **Notes:** safe to repeat.
+ */
+export async function deleteInstagramIceBreakers({
+  encryptedAccessToken,
+  instagramUserId,
+  requestId,
+  recordUsage,
+}: InstagramWebhookSubscriptionOptions): Promise<void> {
+  const answer = await callMetaGraphWithToken<{ result?: unknown }>({
+    encryptedAccessToken,
+    path: `${encodeURIComponent(instagramUserId)}/messenger_profile`,
+    query: { platform: 'instagram' },
+    method: 'DELETE',
+    jsonBody: { fields: ['ice_breakers'] },
+    requestId,
+    recordUsage,
+  });
+  assertMessengerProfileSuccess({ answer, operation: 'the starter-question removal' });
+}
+
+/** Graph's "(#200) … disabled access to Instagram Direct" — message access is off (plan §25.14). */
+const INSTAGRAM_MESSAGE_ACCESS_OFF_ERROR_CODE = 200;
+/** Graph's permission code whose subcode below means message access is off. */
+const INSTAGRAM_MESSAGE_ACCESS_OFF_PERMISSION_CODE = 10;
+/** Code 10's subcode for message access off (plan §25.14 `CODES_ACCESS_OFF`, test needed). */
+const INSTAGRAM_MESSAGE_ACCESS_OFF_PERMISSION_SUBCODE = 2534077;
+
+/** What the read-only message-access probe found (plan §25.14). */
+export type InstagramMessageAccess = 'on' | 'off' | 'unknown';
+
+/**
+ * Probes once, read-only, whether "Allow access to messages" is on for the account
+ * (`GET /{instagram_user_id}/conversations?platform=instagram&limit=1`) — the set-up's last step
+ * (WC-30, plan §25.14).
+ *
+ * @remarks
+ * - **Algorithm:** the read; an answer → `on`. Meta's code 200 (any subcode) or code 10 with subcode
+ *   2534077 → `off`. Any other refusal or outage → `unknown` (the probe never fails the set-up).
+ * - **Failure modes:** a refused token (code 190) is rethrown — the caller breaks the account.
+ * - **Side effects:** one Instagram call; nothing is stored or sent.
+ * - **Notes:** which call shows it under Unified Login is a Meta test still to run (plan §43); the
+ *   codes live here, beside the client's other code tables.
+ */
+export async function probeInstagramMessageAccess({
+  encryptedAccessToken,
+  instagramUserId,
+  requestId,
+  recordUsage,
+}: InstagramWebhookSubscriptionOptions): Promise<InstagramMessageAccess> {
+  try {
+    await callMetaGraphWithToken<unknown>({
+      encryptedAccessToken,
+      path: `${encodeURIComponent(instagramUserId)}/conversations`,
+      query: { platform: 'instagram', limit: '1', fields: 'id' },
+      requestId,
+      recordUsage,
+    });
+    return 'on';
+  } catch (error) {
+    if (!(error instanceof MetaGraphApiError)) return 'unknown';
+    const code = error.instagramErrorCode;
+    if (code === INSTAGRAM_ACCESS_TOKEN_ERROR_CODE) throw error;
+    if (
+      code === INSTAGRAM_MESSAGE_ACCESS_OFF_ERROR_CODE ||
+      (code === INSTAGRAM_MESSAGE_ACCESS_OFF_PERMISSION_CODE &&
+        error.instagramErrorSubcode === INSTAGRAM_MESSAGE_ACCESS_OFF_PERMISSION_SUBCODE)
+    ) {
+      return 'off';
+    }
+    return 'unknown';
+  }
+}
+
 /** Who a message goes to: a person (`id`, their Instagram-scoped id) or a comment (a private reply). */
 export type InstagramMessageRecipient = { id: string } | { comment_id: string };
 
@@ -658,11 +846,18 @@ export interface InstagramQuickReply {
   payload?: string;
 }
 
-/** The `message` object of a send, in Instagram's wire shape (text, quick replies, a template). */
+/**
+ * The `message` object of a send, in Instagram's wire shape: text, quick replies, a template, a file
+ * by its uploaded `attachment_id` (`image`, `audio`, `file`) or one of the account's posts
+ * (`MEDIA_SHARE`).
+ */
 export interface InstagramOutgoingMessage {
   text?: string;
   quick_replies?: readonly InstagramQuickReply[];
-  attachment?: { type: 'template'; payload: Readonly<Record<string, unknown>> };
+  attachment?: {
+    type: 'template' | 'image' | 'audio' | 'file' | 'MEDIA_SHARE';
+    payload: Readonly<Record<string, unknown>>;
+  };
 }
 
 /** What Instagram answers for a sent message. */
@@ -748,6 +943,77 @@ export async function replyToInstagramComment({
     recordUsage,
   });
   return { instagramCommentReplyId: readAnswerId(answer.id) };
+}
+
+/**
+ * Hides a comment under the account's post (`POST /{comment_id}?hide=true`) — sub-domain 6's hide
+ * (plan §29.4 rule 5, `instagram_manage_comments`).
+ *
+ * @remarks
+ * - **Algorithm:** `POST /v27.0/{comment_id}?hide=true` with the token in the `Authorization`
+ *   header; Instagram answers `{ success: true }`.
+ * - **Failure modes:** `MetaGraphApiError` as {@link sendInstagramMessage}; any answer but
+ *   `success: true` → `outage` (malformed answer).
+ * - **Side effects:** one Instagram call — the comment is hidden from everyone but its writer.
+ * - **Notes:** safe to repeat; the reply lane's claim keeps it single.
+ */
+export async function hideInstagramComment({
+  encryptedAccessToken,
+  instagramCommentId,
+  requestId,
+  recordUsage,
+}: {
+  encryptedAccessToken: string;
+  instagramCommentId: string;
+} & MetaGraphCallTracing): Promise<void> {
+  const answer = await callMetaGraphWithToken<{ success?: unknown }>({
+    encryptedAccessToken,
+    path: encodeURIComponent(instagramCommentId),
+    query: { hide: 'true' },
+    method: 'POST',
+    requestId,
+    recordUsage,
+  });
+  assertInstagramSuccessAnswer({ answer, operation: 'the comment hide' });
+}
+
+/** What a comment read answers: whether it is still there to answer, and whether it is hidden. */
+export interface InstagramCommentState {
+  isHidden: boolean;
+}
+
+/**
+ * Reads one comment (`GET /{comment_id}?fields=id,hidden`) — the send's check before a
+ * `deleted_comment` (plan §33.7 rule 1): a comment Meta no longer shows answers its error.
+ *
+ * @remarks
+ * - **Algorithm:** `GET /v27.0/{comment_id}?fields=id,hidden` with the token in the
+ *   `Authorization` header.
+ * - **Failure modes:** `MetaGraphApiError` (code 100 when the comment is gone); an answer without
+ *   `id` → `outage` (malformed answer).
+ * - **Side effects:** one Instagram call, read only.
+ * - **Notes:** the caller reads a gone comment as `comment_gone` and one still there as bad text.
+ */
+export async function readInstagramComment({
+  encryptedAccessToken,
+  instagramCommentId,
+  requestId,
+  recordUsage,
+}: {
+  encryptedAccessToken: string;
+  instagramCommentId: string;
+} & MetaGraphCallTracing): Promise<InstagramCommentState> {
+  const answer = await callMetaGraphWithToken<{ id?: unknown; hidden?: unknown }>({
+    encryptedAccessToken,
+    path: encodeURIComponent(instagramCommentId),
+    query: { fields: 'id,hidden' },
+    requestId,
+    recordUsage,
+  });
+  if (readAnswerId(answer.id) === null) {
+    throw buildMetaGraphMalformedAnswerError({ operation: 'the comment read', missing: 'id' });
+  }
+  return { isHidden: answer.hidden === true };
 }
 
 /** The kinds of file Instagram takes as a message attachment (image, voice note, PDF). */

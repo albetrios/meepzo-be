@@ -19,9 +19,11 @@ holds the tables' SQL (WH1).
 Both tables are **split by day** while they are empty (P96): the events by the UTC day of
 `created_at` (the received time), the keys by the UTC day of Meta's own time for the item. They are
 kept 8 days (`INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS`); the day parts are made and dropped by the shared
-partition upkeep (WC-55, ROUTE R49) through `app.fn_create_daily_partitions` — the migration makes
-the first parts (8 days back to 14 ahead) and one DEFAULT part each. Until R49 retires it, the
-launch's daily 30-day batch clean-up still runs.
+partition upkeep (`src/domains/app/workers/app-partition-upkeep.*`, WC-55, ROUTE R49) through
+`app.fn_manage_time_partitions` over `app.fn_create_daily_partitions` — the migration makes the
+first parts (8 days back to 14 ahead) and one DEFAULT part each; the upkeep keeps 14 days ahead and
+drops a day part 8 days after its day, every hour (WC-48). No batch delete remains: the launch's
+daily 30-day clean-up is retired (WHC15).
 
 ## Layout
 
@@ -45,7 +47,6 @@ launch's daily 30-day batch clean-up still runs.
   event object (`channel_account_id`, `next_attempt_at`), its payload masked or `null`
 - `instagram-webhook-event.controller.ts` / `.routes.ts` — route 62's handler and its registration
   (the parent's `instagram-webhook.routes.ts` mounts it)
-- `workers/instagram-webhook-event-retention.*` — the launch's daily clean-up (retired at R49)
 - `seed/` — bulk: every kind, status and skip reason for each seeded Instagram channel account, keys
   first
 - `__tests__/` — unit (masking, validator, serializer, controller, service with the store function),
@@ -109,11 +110,9 @@ The hourly retry of a `failed` event through `next_attempt_at` (WH21) is intake'
 - **The store fails** → the unit rolls back whole (keys and events), the receiver answers `500` / `503`
   and Meta delivers again.
 - **A day with no part** (the upkeep fell behind) → the row lands in the DEFAULT part instead of failing;
-  the upkeep's alert (R49) reports it.
+  the upkeep alerts while it holds rows and, when the day's part is made, moves them into it (R49).
 
 ## Policy constants
 
 - `INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS = 8` (`src/shared/constants/instagram.constants.ts`) — the keep
   time of events, keys and parts, and the replay guard.
-- `INSTAGRAM_WEBHOOK_EVENT_RETENTION_DAYS = 30` (D8) — the launch clean-up's cutoff, until R49 retires
-  it.

@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -147,6 +147,28 @@ export class InstagramMediaRepository {
       .where(storedMediaWhere({ organizationId, channelAccountId, instagramMediaId }))
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /**
+   * The account's newest stored post's Instagram media id, or `null` — a `post` message of
+   * `newest` sends it (plan §18.5 "the newest post at send time", sub-domain 6's lanes).
+   */
+  async findNewestInstagramMediaId({
+    organizationId,
+    channelAccountId,
+  }: ChannelAccountKey): Promise<string | null> {
+    const rows = await this.db()
+      .select({ instagramMediaId: instagram_media.instagram_media_id })
+      .from(instagram_media)
+      .where(
+        and(
+          eq(instagram_media.organization_id, organizationId),
+          eq(instagram_media.channel_account_id, channelAccountId),
+        ),
+      )
+      .orderBy(desc(instagram_media.published_at))
+      .limit(1);
+    return rows[0]?.instagramMediaId ?? null;
   }
 
   /**

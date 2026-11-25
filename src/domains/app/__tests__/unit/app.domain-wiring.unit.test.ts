@@ -69,6 +69,7 @@ describe('app domain wiring', () => {
       'instagramAccountErasureService',
       'instagramAccountService',
       'instagramAccountSettingsService',
+      'instagramAccountTaskSlots',
       'instagramAttachmentService',
       'instagramMediaService',
       'instagramMessageService',

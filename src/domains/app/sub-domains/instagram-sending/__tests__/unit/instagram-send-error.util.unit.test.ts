@@ -117,6 +117,8 @@ describe('instagram send error groups (SNC4)', () => {
   it('keeps a stop a stop, but a hide or a follow check refusal is its own group', () => {
     expect(groupOf(metaError({ code: 368 }), 'comment_hide')).toBe('blocked');
     expect(groupOf(metaError({ code: 100, subcode: 9 }), 'comment_hide')).toBe('hide_failed');
+    // A hide of a comment that is gone is skipped, not failed (plan §33.7 rule 4, R43).
+    expect(groupOf(metaError({ code: 100, subcode: 33 }), 'comment_hide')).toBe('comment_gone');
     expect(groupOf(metaError({ code: 100, subcode: 9 }), null)).toBe('check_not_possible');
   });
 
@@ -150,6 +152,42 @@ describe('instagram send error groups (SNC4)', () => {
     expect(reply.stop).toMatchObject({ lanes: ['reply'] });
   });
 
+  it("holds the broadcast lane with a slow or fast too fast, and doubles Meta's time on a broadcast (plan §30.14 rule 3, R45)", () => {
+    const tooFast = ({
+      lane,
+      retryAfterMilliseconds,
+    }: {
+      lane: 'slow' | 'fast' | 'reply' | 'broadcast';
+      retryAfterMilliseconds: number;
+    }) =>
+      decideInstagramSendOutcome({
+        reading: { ...reading('too_fast'), retryAfterMilliseconds },
+        lane,
+        messageType: lane === 'broadcast' ? 'broadcast' : 'message',
+        channel: 'direct',
+        tries: 0,
+      }).stop;
+    expect(tooFast({ lane: 'slow', retryAfterMilliseconds: 0 })).toMatchObject({
+      lanes: ['slow', 'broadcast'],
+    });
+    expect(tooFast({ lane: 'fast', retryAfterMilliseconds: 0 })).toMatchObject({
+      lanes: ['fast', 'broadcast'],
+    });
+    expect(tooFast({ lane: 'reply', retryAfterMilliseconds: 0 })).toMatchObject({
+      lanes: ['reply'],
+    });
+    const broadcast = tooFast({ lane: 'broadcast', retryAfterMilliseconds: 0 });
+    expect(broadcast).toMatchObject({ lanes: ['broadcast'] });
+    // Meta's time beyond the ladder: as it is on the slow lane, twice on the broadcast lane.
+    const slowStop = tooFast({ lane: 'slow', retryAfterMilliseconds: 40 * 60_000 });
+    const broadcastStop = tooFast({ lane: 'broadcast', retryAfterMilliseconds: 40 * 60_000 });
+    if (slowStop?.kind !== 'lanes' || broadcastStop?.kind !== 'lanes') {
+      throw new Error('expected lane stops');
+    }
+    expect(slowStop.durationMilliseconds?.(0)).toBe(40 * 60_000);
+    expect(broadcastStop.durationMilliseconds?.(0)).toBe(80 * 60_000);
+  });
+
   it('never sends an unclear result again: no answer is unknown (D17), a sure "not sent" waits again', () => {
     expect(
       decideInstagramSendOutcome({
@@ -174,6 +212,34 @@ describe('instagram send error groups (SNC4)', () => {
       isGivenBack: true,
       notBeforeDelayMilliseconds: 5000,
     });
+  });
+
+  it('tries a follow check twice — a time-out too — the second try after 2–5 s, then "following" (AC-17.14, plan §30.9)', () => {
+    const timeout = toMetaGraphApiError(
+      new ExternalServiceError({ integration: 'meta-graph', category: 'timeout' }),
+    );
+    // A follow check sends her nothing: a time-out is a failed try, never `unknown` (rule 6).
+    expect(groupOf(timeout, null)).toBe('check_not_possible');
+    expect(groupOf(metaError({ code: 368 }), null)).toBe('blocked');
+    const first = decideInstagramSendOutcome({
+      reading: reading('check_not_possible'),
+      lane: 'fast',
+      messageType: 'follow_check',
+      channel: null,
+      tries: 0,
+    });
+    expect(first).toMatchObject({ status: 'waiting', isTryUsed: true, isGivenBack: true });
+    expect(first.notBeforeDelayMilliseconds).toBeGreaterThanOrEqual(2_000);
+    expect(first.notBeforeDelayMilliseconds).toBeLessThanOrEqual(5_000);
+    expect(
+      decideInstagramSendOutcome({
+        reading: reading('check_not_possible'),
+        lane: 'fast',
+        messageType: 'follow_check',
+        channel: null,
+        tries: 1,
+      }),
+    ).toMatchObject({ status: 'sent', reason: 'assumed_following' });
   });
 
   it('tries an opening private reply later 3 times, then fails it; other DMs are unknown', () => {

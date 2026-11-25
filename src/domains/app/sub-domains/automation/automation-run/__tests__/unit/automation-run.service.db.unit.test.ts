@@ -296,6 +296,9 @@ describe('AutomationRunService (database, recording sending port)', () => {
       answersEventId: commentId,
       content: { stepPath: 'steps.hello.versions.0', uploadPublicIds: [] },
       triggerOccurredAt: expect.any(Date),
+      // A comment's opening DM is timed by the box, never her answer's delay (§30.12 rule 3, R44).
+      organizationPublicId: organization.public_id,
+      answerDelay: 'next',
     });
     expect(await readOpenRunKeys(organization.id)).toEqual([
       `${automation.id}:${contact.id}:${run!.id}`,
@@ -321,6 +324,8 @@ describe('AutomationRunService (database, recording sending port)', () => {
     // Her tap: the follow check (a read), not following → the ask; her "I'm following" tap → read.
     await tap(run!.public_id, automation.public_id);
     expect(port.steps().at(-1)).toBe('follow_check');
+    // The first answer to her tap waits its delay (with the PRO extra delay), R44.
+    expect(port.last('follow_check')).toMatchObject({ answerDelay: 'answer' });
     await report('follow_check', 'sent', 'not_following');
     expect(port.steps().at(-1)).toBe('follow');
     await report('follow', 'sent');
@@ -328,8 +333,9 @@ describe('AutomationRunService (database, recording sending port)', () => {
     await tap(run!.public_id, automation.public_id);
     await report('follow_check', 'sent', 'following');
 
-    // Email: a wrong answer asks again with the other wording; a right one moves on.
-    expect(port.last('email')).toMatchObject({ wordingNumber: 1 });
+    // Email: a wrong answer asks again with the other wording; a right one moves on. After the
+    // check the next step goes at once — the check sent her nothing (§30.2 step 13, R44).
+    expect(port.last('email')).toMatchObject({ wordingNumber: 1, answerDelay: 'none' });
     await report('email', 'sent');
     expect((await directMessage('not an email')).outcome).toBe('answer_invalid');
     expect(port.last('email')).toMatchObject({ wordingNumber: 2 });

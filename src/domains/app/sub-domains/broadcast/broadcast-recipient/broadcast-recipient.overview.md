@@ -24,6 +24,9 @@ routes: it is read only through the broadcast's numbers (`matched`, `sent`, `ski
 - `broadcast-recipient.service.ts` — `BroadcastRecipientService`: the audience piece, the "when her
   chat opens" row, `recordMessageResult`, the skips (her erasure or pause, a cancel's piece) and her
   first reply
+- `broadcast-recipient-button-payload.util.ts` — `<brc_…>::<igm_…>`, the payload of a broadcast
+  message's buttons (§ 7.A.10): built by the channel's broadcast lane at send (R45), read by intake's
+  tap (`taps` + 1, the "start automation X" run — R38).
 - `broadcast-recipient.types.ts`, `broadcast-recipient.constants.ts`
 - `queues/broadcast-audience.job.schema.ts`, `workers/broadcast-audience.processor.ts` — the
   `broadcast-audience` task (WC-40, R46): one piece per job (`bcaud-<brc_…>-<piece>`), chained from the

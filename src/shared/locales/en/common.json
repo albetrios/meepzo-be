@@ -6,6 +6,8 @@
     "invitationDeclinedMessage": "{{inviteeName}} declined your invitation to join {{organizationName}}.",
     "instagramReconnectRequiredTitle": "Reconnect Instagram",
     "instagramReconnectRequiredMessage": "Instagram stopped accepting the connection to @{{username}}. Connect the account again so your automations keep running.",
+    "instagramAccountSetupFailedTitle": "Finish setting up Instagram",
+    "instagramAccountSetupFailedMessage": "Instagram did not accept the set-up of @{{username}}, so its messages and comments may not reach your automations. Open the account and connect it again if this keeps happening.",
     "automationStoppedTitle": "Automation stopped",
     "automationStoppedMessage": "{{automationName}} on @{{username}} stopped after repeated errors. Open it to see what happened and turn it back on.",
     "contactDetailsLeftTitle": "New contact details",

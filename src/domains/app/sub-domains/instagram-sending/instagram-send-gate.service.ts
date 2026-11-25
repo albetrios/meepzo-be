@@ -13,6 +13,7 @@ import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import {
   CHANNEL_ACCOUNT_CHANNELS,
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
@@ -30,13 +31,18 @@ import type {
   InstagramMessageChannel,
   InstagramSendAttemptCountGroup,
 } from './instagram-message/instagram-message.constants.js';
-import { InstagramSendLaneRepository } from './instagram-send-lane.repository.js';
+import {
+  InstagramSendLaneRepository,
+  type InstagramSendLaneRow,
+} from './instagram-send-lane.repository.js';
 import { InstagramSendMinuteCountRepository } from './instagram-send-minute-count.repository.js';
 import { MessageMonthCountRepository } from './message-month-count.repository.js';
 import { invalidateCachedMessageMonthCount } from './message-month-count.cache.js';
 import type { InstagramSendLaneService } from './instagram-send-lane.service.js';
 import {
+  FAST_LANE_SETTINGS,
   INSTAGRAM_SEND_CORE_SETTINGS,
+  INSTAGRAM_SEND_FAST_SENDING_MAX,
   type InstagramSendLane,
 } from './instagram-sending.constants.js';
 
@@ -90,7 +96,10 @@ export type InstagramSendClaim =
       /** The month reached the limit with this message (its plan stop started, SN8). */
       isMonthLimitReached: boolean;
     }
-  | { kind: 'refused'; reason: 'gone' | 'hour_limit' | 'person_limit' | 'month_limit' };
+  | {
+      kind: 'refused';
+      reason: 'gone' | 'hour_limit' | 'person_limit' | 'month_limit' | 'person_busy' | 'fast_busy';
+    };
 
 /**
  * The two gates and the month count of a send (feat-instagram-dm-sending routes-final § 6 SN3, SN8,
@@ -101,11 +110,14 @@ export type InstagramSendClaim =
  * @remarks
  * - **Algorithm:** gate 1 — a sorted set per account and count group of the last hour's claims
  *   (100 ms timeout; after 3 timeouts in a row skipped for 30 s; never inside a transaction). The
- *   claim — one unit with `lock_timeout` 1 s and `statement_timeout` 5 s: the lane row locked (two
+ *   claim — one unit with `lock_timeout` 1 s and `statement_timeout` 5 s: a fast or broadcast
+ *   message first takes her contact (`NO KEY UPDATE SKIP LOCKED`, plan §30.14 step 6) and a fast one
+ *   finds none of hers `sending` (else `person_busy`, plan §30.2 steps 2, 5); the lane row locked (two
  *   claims of one account and group never check and add at once), the message still `waiting` in
- *   this lane and channel, gate 2 (the 61 minute rows of the group against the hour limit), her
+ *   this lane and channel, the fast places — the account's 20 `sending`, 5 audio, the organization's
+ *   25 (S21; else `fast_busy`) — gate 2 (the 61 minute rows of the group against the hour limit), her
  *   sent messages of the last hour, the month's 16 slots against the plan's limit (a DM only), the
- *   adds, `sending`, the attempt. A DM that fills the month starts the organization's `plan_limit`
+ *   adds, `sending` (a fast one + 1 on `sending_count`), the attempt. A DM that fills the month starts the organization's `plan_limit`
  *   in the same commit (SN8: slow, fast and broadcast lanes stop; the reply lane goes on).
  * - **Failure modes:** gate 1 fails open (Postgres decides, P32); database errors roll the claim back
  *   (nothing was sent, the ticket goes back).
@@ -307,10 +319,28 @@ export class InstagramSendGateService {
       organizationId: found.organization_id,
       channelAccountId: found.channel_account_id,
     };
-    await new InstagramSendLaneRepository(databaseHandle).lockLane({
-      ...account,
-      lane: input.lane,
-    });
+    const lanes = new InstagramSendLaneRepository(databaseHandle);
+    if (input.lane === 'fast' || input.lane === 'broadcast') {
+      // Her contact, skip locked (plan §30.2 step 7, §30.14 step 6): another claim of hers now →
+      // the next pick.
+      const isHers = await new ContactRepository(databaseHandle).lockForFastSend({
+        organizationId: found.organization_id,
+        contactId: found.contact_id,
+      });
+      if (!isHers) return { kind: 'refused', reason: 'person_busy' };
+    }
+    if (input.lane === 'fast') {
+      const hersSending = await messages.countFastSending({
+        organizationId: found.organization_id,
+        contactId: found.contact_id,
+      });
+      if (hersSending > 0) return { kind: 'refused', reason: 'person_busy' };
+    }
+    const laneRow = await lanes.lockLane({ ...account, lane: input.lane });
+    if (input.lane === 'fast' && laneRow !== null) {
+      const isBusy = await this.isFastLaneBusy({ found, laneRow, lanes, messages });
+      if (isBusy) return { kind: 'refused', reason: 'fast_busy' };
+    }
     const minutes = new InstagramSendMinuteCountRepository(databaseHandle);
     const hourRefusal = await this.hourLimitRefusal({ input, found, messages, minutes });
     if (hourRefusal !== null) return { kind: 'refused', reason: hourRefusal };
@@ -340,6 +370,7 @@ export class InstagramSendGateService {
       channel: input.channel,
     });
     if (message === null) return { kind: 'refused', reason: 'gone' };
+    if (input.lane === 'fast') await lanes.addToSendingCount({ ...account, delta: 1 });
     const attempt = await new InstagramSendAttemptRepository(databaseHandle).start({
       ...account,
       messageId: message.id,
@@ -352,6 +383,34 @@ export class InstagramSendGateService {
       await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
     }
     return { kind: 'claimed', message, attempt, isMonthLimitReached };
+  }
+
+  /**
+   * {@link claimInUnit}'s fast places (plan §30.2 step 8, S21): the account's 20 `sending`, its 5
+   * audio messages, and the organization's cap across its accounts.
+   */
+  private async isFastLaneBusy({
+    found,
+    laneRow,
+    lanes,
+    messages,
+  }: {
+    found: InstagramMessageRow;
+    laneRow: InstagramSendLaneRow;
+    lanes: InstagramSendLaneRepository;
+    messages: InstagramMessageRepository;
+  }): Promise<boolean> {
+    if (laneRow.sending_count >= INSTAGRAM_SEND_FAST_SENDING_MAX) return true;
+    if (found.message_kind === 'audio') {
+      const audioSending = await messages.countFastSending({
+        organizationId: found.organization_id,
+        channelAccountId: found.channel_account_id,
+        messageKind: 'audio',
+      });
+      if (audioSending >= FAST_LANE_SETTINGS.audioSendingMax) return true;
+    }
+    const organizationSending = await lanes.sumOrganizationSendingCount(found.organization_id);
+    return organizationSending >= FAST_LANE_SETTINGS.organizationSendingMax;
   }
 
   /**

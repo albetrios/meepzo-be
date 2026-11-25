@@ -34,7 +34,7 @@ import {
  *   once; a ticket that goes back spends no try. A plain worker — never paused by the Instagram
  *   circuit (SN2: the lanes' stops decide), no BullMQ rate limiter.
  * - **Side effects:** see {@link processInstagramSendSlowTicket}; holds a Redis connection until the handle closes.
- * - **Notes:** registered in `worker-registration.registry.ts` (family `instagram-send`, throughput,
+ * - **Notes:** registered in `worker-registration.registry.ts` (family `instagram`, throughput,
  *   `isEnabled: env.SENDING_ENABLED`); the services come from the worker composition root
  *   (`appDomain`). Log lines carry ids only, never message text.
  */

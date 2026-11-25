@@ -242,14 +242,13 @@ export interface ChannelConnectionAccountPort {
     options: ChannelConnectionAccountScope & { channelConnectionId: number },
   ): Promise<number>;
   /**
-   * After commit, outside any unit of work: subscribes each account to the webhook fields and stamps
-   * it (best effort, logged — AC-1.7). The account-set-up job (WC-30) replaces it at ROUTE row R40.
+   * After commit: starts each account's set-up at Meta — the six webhook fields, its starter
+   * questions, the message-access probe — as one `instagram-account-setup` task per account
+   * (WC-30, AC-1.7). Never throws: a failed add is logged and the account shows as not subscribed.
    */
-  subscribeAccountsBestEffort(options: {
+  startAccountSetups(options: {
     scope: OrganizationPrincipalDatabaseScope;
     accounts: readonly ChannelConnectionAccount[];
-    encryptedAccessToken: string;
-    requestId: string;
   }): Promise<void>;
   /** Before "Disconnect business", outside any unit of work: unsubscribes each account (best effort). */
   unsubscribeAccountsBestEffort(options: {

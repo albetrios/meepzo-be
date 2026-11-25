@@ -102,6 +102,18 @@ export interface InstagramSendResultInput {
 }
 
 /**
+ * The contact's broadcast bookkeeping (3.A.10 `ContactService.recordContactBroadcastSent`) the
+ * result save calls in its commit for a broadcast message `sent` or `unknown` (plan §30.14 step 10,
+ * ROUTE row R45): her `last_broadcast_at`, the 24-hour broadcast gap's clock.
+ */
+export type InstagramMessageBroadcastSentPort = (input: {
+  databaseHandle: WorkerDatabaseHandle;
+  organizationId: number;
+  contactId: number;
+  sentAt: Date;
+}) => Promise<unknown>;
+
+/**
  * The contact's opening-DM bookkeeping (3.A.10 `ContactService.recordContactOpeningMessage`) the
  * result save calls in its commit for an opening DM `sent` or `unknown` (SN4).
  */

@@ -18,6 +18,7 @@ describe('serializeAppUsage', () => {
       month: { ...MONTH, used },
       limit: 1000,
       accounts: { used: 1, maximum: 1 },
+      hasLiveAccount: true,
       planAccess: ACTIVE,
       now: NOW,
     });
@@ -34,6 +35,7 @@ describe('serializeAppUsage', () => {
       month: MONTH,
       limit: 1000,
       accounts: { used: 1, maximum: 3 },
+      hasLiveAccount: true,
       planAccess: {
         state: 'grace',
         graceEndsAt: new Date('2026-11-30T00:00:00Z'),
@@ -46,6 +48,7 @@ describe('serializeAppUsage', () => {
       month: MONTH,
       limit: 1000,
       accounts: { used: 1, maximum: 3 },
+      hasLiveAccount: true,
       planAccess: { state: 'read_only', graceEndsAt: null, trialEndsAt: null },
       now: NOW,
     });
@@ -54,6 +57,7 @@ describe('serializeAppUsage', () => {
       month: MONTH,
       limit: 1000,
       accounts: { used: 1, maximum: 3 },
+      hasLiveAccount: true,
       planAccess: { ...ACTIVE, trialEndsAt: new Date('2026-11-26T10:00:00Z') },
       now: NOW,
     });
@@ -62,6 +66,7 @@ describe('serializeAppUsage', () => {
       month: MONTH,
       limit: 1000,
       accounts: { used: 1, maximum: 3 },
+      hasLiveAccount: true,
       planAccess: { ...ACTIVE, trialEndsAt: new Date('2026-12-10T10:00:00Z') },
       now: NOW,
     });
@@ -73,10 +78,23 @@ describe('serializeAppUsage', () => {
       month: { ...MONTH, used: 5000 },
       limit: null,
       accounts: { used: 1, maximum: 1 },
+      hasLiveAccount: true,
       planAccess: ACTIVE,
       now: NOW,
     });
     expect(usage.direct_messages.state).toBe('ok');
     expect(usage.direct_messages.limit).toBeNull();
+  });
+
+  it('shows being_set_up while the organization has no not-revoked account (R40, plan §46)', () => {
+    const usage = serializeAppUsage({
+      month: MONTH,
+      limit: 1000,
+      accounts: { used: 0, maximum: 1 },
+      hasLiveAccount: false,
+      planAccess: ACTIVE,
+      now: NOW,
+    });
+    expect(usage.notices).toEqual([{ kind: 'being_set_up', ends_on: null }]);
   });
 });

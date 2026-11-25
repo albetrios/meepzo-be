@@ -438,7 +438,7 @@ export const META_GRAPH_ERROR_DESCRIPTION_MAX_LENGTH = 500;
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
  * - **Notes:** the client builds its errors without the request URL or the token, so nothing here
- *   can carry one. Used by the daily account check and the connection's break (MC11).
+ *   can carry one. Used by the Instagram account jobs and the connection's break (MC11).
  */
 export function describeMetaGraphError(error: unknown): string {
   if (!(error instanceof MetaGraphApiError)) {

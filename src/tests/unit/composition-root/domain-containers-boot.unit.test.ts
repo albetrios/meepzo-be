@@ -31,7 +31,7 @@ describe('domain containers — boot composition root', () => {
     expect(containers.notifyDomain.notificationService).toBeDefined();
     expect(containers.notifyDomain.webhookService).toBeDefined();
     expect(containers.uploadDomain.uploadService).toBeDefined();
-    // Launch IA8: the worker's daily Instagram account check uses the app domain's account service.
+    // The worker's Instagram account jobs (R40) and webhook processing use the app domain's account service.
     expect(containers.appDomain.instagramAccountService).toBeDefined();
   });
 

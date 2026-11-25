@@ -21,7 +21,14 @@ export type BroadcastRecipientRow = typeof broadcast_recipients.$inferSelect;
 /** What the recipients read of their broadcast: its account, channel, status, audience copy and messages. */
 export type BroadcastRecipientParentRow = Pick<
   typeof broadcasts.$inferSelect,
-  'id' | 'organization_id' | 'channel_account_id' | 'channel' | 'status' | 'conditions' | 'messages'
+  | 'id'
+  | 'public_id'
+  | 'organization_id'
+  | 'channel_account_id'
+  | 'channel'
+  | 'status'
+  | 'conditions'
+  | 'messages'
 >;
 
 /** The broadcast's numbers a recipient move adds to (BC8 — moved in the result's commit). */
@@ -36,6 +43,7 @@ export interface BroadcastNumbersChange {
 /** The columns {@link BroadcastRecipientParentRow} reads. */
 const PARENT_COLUMNS = {
   id: broadcasts.id,
+  public_id: broadcasts.public_id,
   organization_id: broadcasts.organization_id,
   channel_account_id: broadcasts.channel_account_id,
   channel: broadcasts.channel,

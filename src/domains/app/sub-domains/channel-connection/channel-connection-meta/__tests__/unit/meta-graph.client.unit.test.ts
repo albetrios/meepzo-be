@@ -35,6 +35,10 @@ import {
   readInstagramUserProfile,
   replyToInstagramComment,
   sendInstagramMessage,
+  deleteInstagramIceBreakers,
+  probeInstagramMessageAccess,
+  readInstagramWebhookSubscribedFields,
+  setInstagramIceBreakers,
   subscribeInstagramWebhookFields,
   unsubscribeInstagramWebhookFields,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
@@ -373,10 +377,15 @@ describe('Graph reads (token in the Authorization header, never the URL)', () =>
 });
 
 describe('webhook subscription', () => {
-  it('subscribes the three fields and unsubscribes', async () => {
+  it('subscribes the six fields (WC-30) and unsubscribes', async () => {
     graphWithAccountToken()
       .post(`${VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
-      .query(withProof({ subscribed_fields: 'comments,messages,messaging_postbacks' }))
+      .query(
+        withProof({
+          subscribed_fields:
+            'comments,live_comments,messages,messaging_postbacks,messaging_referral,message_reactions',
+        }),
+      )
       .reply(200, { success: true });
     graphWithAccountToken()
       .delete(`${VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
@@ -403,6 +412,91 @@ describe('webhook subscription', () => {
         instagramUserId: APP_USER_ID,
       }),
     ).rejects.toMatchObject({ errorClass: 'outage' });
+  });
+});
+
+describe('the account set-up calls (WC-25, WC-30, WC-31)', () => {
+  const options = () => ({
+    encryptedAccessToken: encryptedAccountToken,
+    instagramUserId: APP_USER_ID,
+  });
+
+  it("reads our app's subscribed fields and ignores another app's", async () => {
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
+      .query(withProof())
+      .reply(200, {
+        data: [
+          { id: '111', name: 'Other', subscribed_fields: ['feed'] },
+          { id: '222', name: 'Ours', subscribed_fields: ['comments', 'messages', 7] },
+        ],
+      });
+    graphWithAccountToken()
+      .get(`${VERSION_PATH}/${APP_USER_ID}/subscribed_apps`)
+      .query(withProof())
+      .reply(200, { data: [{ id: '111', subscribed_fields: ['comments'] }] });
+
+    await expect(
+      readInstagramWebhookSubscribedFields({ ...options(), appId: '222' }),
+    ).resolves.toEqual(['comments', 'messages']);
+    await expect(
+      readInstagramWebhookSubscribedFields({ ...options(), appId: '222' }),
+    ).resolves.toEqual([]);
+  });
+
+  it('writes the whole ice-breaker list and removes it', async () => {
+    graphWithAccountToken()
+      .post(`${VERSION_PATH}/${APP_USER_ID}/messenger_profile`, {
+        platform: 'instagram',
+        ice_breakers: [
+          {
+            locale: 'default',
+            call_to_actions: [{ question: 'Price?', payload: 'starter:aut_1' }],
+          },
+        ],
+      })
+      .query(withProof())
+      .reply(200, { result: 'success' });
+    graphWithAccountToken()
+      .delete(`${VERSION_PATH}/${APP_USER_ID}/messenger_profile`, { fields: ['ice_breakers'] })
+      .query(withProof({ platform: 'instagram' }))
+      .reply(200, { result: 'success' });
+
+    await expect(
+      setInstagramIceBreakers({
+        ...options(),
+        iceBreakers: [{ question: 'Price?', payload: 'starter:aut_1' }],
+      }),
+    ).resolves.toBeUndefined();
+    await expect(deleteInstagramIceBreakers(options())).resolves.toBeUndefined();
+  });
+
+  it('a Messenger profile answer other than success is an outage', async () => {
+    graphWithAccountToken()
+      .post(`${VERSION_PATH}/${APP_USER_ID}/messenger_profile`)
+      .query(true)
+      .reply(200, { result: 'nope' });
+
+    await expect(setInstagramIceBreakers({ ...options(), iceBreakers: [] })).rejects.toMatchObject({
+      errorClass: 'outage',
+    });
+  });
+
+  it('probes message access: on, off (200 / 10·2534077), unknown, and a refused token thrown', async () => {
+    const probe = async (status: number, body: unknown) => {
+      await metaGraphCircuit.reset();
+      graphWithAccountToken()
+        .get(`${VERSION_PATH}/${APP_USER_ID}/conversations`)
+        .query(withProof({ platform: 'instagram', limit: '1', fields: 'id' }))
+        .reply(status, body as nock.Body);
+      return probeInstagramMessageAccess(options());
+    };
+
+    await expect(probe(200, { data: [] })).resolves.toBe('on');
+    await expect(probe(403, graphError(200, 2534041))).resolves.toBe('off');
+    await expect(probe(400, graphError(10, 2534077))).resolves.toBe('off');
+    await expect(probe(400, graphError(100))).resolves.toBe('unknown');
+    await expect(probe(401, graphError(190))).rejects.toBeInstanceOf(MetaGraphApiError);
   });
 });
 

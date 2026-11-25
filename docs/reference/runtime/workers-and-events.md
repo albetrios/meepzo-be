@@ -92,7 +92,7 @@ Producers fail fast while Redis is unreachable or full (`noeviction` rejects wri
 | Notification | row written, then deleted when its dispatch fails | not recovered — dropped by design |
 | Data export | `auth.user_data_exports` row, left `pending` | `reclaim-pending-user-data-exports` — a repeatable job on the export queue itself, every 5 min, re-enqueues exports still `pending` after 5 min; the job id is the export's public id |
 | Instagram reconnect notice | none — the break is on `app.channel_accounts` (`connection_status` `error`, keyed by its `updated_at` at the break), but no row records the notice | not recovered — logged (`app.instagram_account.reconnect_notice_enqueue_failed`); the Instagram page still shows the reconnect card |
-| Instagram daily account check | none — the sweep lists the `connected` accounts | the next day's sweep lists the accounts again (a token is renewed 7 days ahead) |
+| Channel connection token check; Instagram webhook subscription check | none — the sweeps list the due connections / the `connected` accounts | the next hourly sweep lists a due connection again; the next 10-minute window checks each account again (the launch daily account check is retired — R40 × R51 merge) |
 | Instagram webhook event processing | `app.instagram_webhook_events` rows, left `received` / `queued` | `reclaim-instagram-webhook-events` — a repeatable job on the processing queue itself, every minute, re-adds the job of every account with an event still waiting 5 min after it arrived and not claimed in 5 min (up to 100 accounts a run); the per-account deduplication makes the add a no-op while the account's job is live |
 
 An enqueue failure never marks an outbox row failed: it leaves the row for its sweep.
@@ -130,7 +130,7 @@ options, caps `removeOnComplete` / `removeOnFail`, and adds retry jitter
 | Queue | Attempts | Backoff |
 | ----- | -------- | ------- |
 | `notification`, `user-data-export`, `instagram-reconnect-notice` | 3 | exponential from 5 s |
-| `instagram-account-daily-check` | 3 | exponential from 1 min |
+| `channel-connection-token-check` | 3 | exponential from 1 min |
 | `subscription-seat-sync`, `instagram-webhook` | 5 | exponential from 5 s |
 | `stripe-webhook` | 5 | custom, doubling from 10 s (`stripe-webhook-backoff.util.ts`) |
 | `mail` | 8 | custom, doubling from 5 s (`mail-backoff.util.ts`) |
@@ -151,7 +151,7 @@ minutes until the provider is back; then everything that waited is processed.
 | `mail` | `resend` |
 | `stripe-webhook`, `subscription-seat-sync` | `stripe` |
 | `user-data-export` | `s3` |
-| `instagram-account-daily-check`, `instagram-webhook` | `instagram` |
+| `instagram-webhook` | `instagram` |
 
 - **What counts as an outage** (`toProviderOutageError`): the provider's circuit is open (the call
   never left), or a failure leaves the circuit not CLOSED — it tripped it, or it was a half-open probe
@@ -228,6 +228,7 @@ HTTP requests set `app.current_organization_public_id` per unit of work: the aut
 | `withAppDatabaseContext` (user job scope) / `runUserScopedWorkerJob`  | `app.current_user_public_id` — GDPR export                                      |
 | `MAINTENANCE_SCOPE.SESSION_RETENTION_CLEANUP`                               | `app.session_retention_cleanup` — session cleanup worker                 |
 | `withMaintenanceDatabaseContext(MAINTENANCE_SCOPE.SYSTEM_TABLE_WORKER)`     | No tenant RLS — `auth.mail_outbox`, `billing.stripe_webhook_events` only |
+| `withMaintenanceDatabaseContext(MAINTENANCE_SCOPE.APP_PARTITION_UPKEEP)`    | EXECUTE on `app.fn_manage_time_partitions` only — the partition upkeep's processor (`src/domains/app/workers/app-partition-upkeep.*`, P410) |
 
 `src/worker.ts` sets `MEEPZO_BE_RUNTIME=worker`. Calling `getRequestDatabase()` without a pinned ALS session throws `WorkerDatabaseContextError`. Pass `databaseHandle` into `createWorker*Repository(databaseHandle)` for tenant-scoped work.
 
@@ -252,7 +253,7 @@ Every BullMQ worker is registered exactly once in [`worker-registration.registry
 | `isEnabled()`                     | Optional skip (e.g. mail/Stripe disabled by env)                                                                                                                                                                                                                                        |
 | `create()`                        | Factory invoked by bootstrap                                                                                                                                                                                                                                                            |
 
-Currently **45 workers** are registered (**42** use Postgres, **3** are Redis-only — `idempotency-cardinality`, `dlq-depth`, `commit-dispatch-recovery`; **36** run a cron — four of them, `subscription-seat-sync`, `user-data-export`, `instagram-account-daily-check` and `instagram-webhook`, also take jobs added by others, their sweep riding the same queue — and **9** are event-driven only, among them the Instagram send and task queues `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks` (family `instagram`, run in the existing `worker` service — P140), which register only while `SENDING_ENABLED` is on, and the database-heavy `instagram-database-tasks` (bulk contact changes, segment counts, broadcast audiences, the failed-message retry — split from the Meta-calling `instagram-tasks` with a per-organization cap, scale review S19, P217), which runs with sending off too). Add a new worker by appending one entry — bootstrap, scheduler filtering, connection budgeting, and the scheduler-registry audit pick it up automatically — and add its queue constant to `WORKER_QUEUE_NAMES` in [`queue-catalog.ts`](../../../src/infrastructure/queue/queue-catalog.ts) (plus `WORKER_THROUGHPUT_QUEUE_NAMES` for a throughput worker), which gives it a depth gauge, a sampled and trimmed DLQ, a heartbeat read-out and a Bull Board entry. `queue-catalog.coverage.unit.test.ts` fails until you do.
+Currently **46 workers** are registered (**43** use Postgres, **3** are Redis-only — `idempotency-cardinality`, `dlq-depth`, `commit-dispatch-recovery`; **36** run a cron — among them `user-data-export`, `channel-connection-token-check` (its hourly sweep and the 10-minute webhook subscription sweep) and `instagram-webhook` also take jobs added by others, their sweep riding the same queue — and **10** are event-driven only, among them the Instagram send and task queues `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks` (family `instagram`, run in the existing `worker` service — P140), which register only while `SENDING_ENABLED` is on, and the database-heavy `instagram-database-tasks` (bulk contact changes, segment counts, broadcast audiences, the failed-message retry — split from the Meta-calling `instagram-tasks` with a per-organization cap, scale review S19, P217), which runs with sending off too). Add a new worker by appending one entry — bootstrap, scheduler filtering, connection budgeting, and the scheduler-registry audit pick it up automatically — and add its queue constant to `WORKER_QUEUE_NAMES` in [`queue-catalog.ts`](../../../src/infrastructure/queue/queue-catalog.ts) (plus `WORKER_THROUGHPUT_QUEUE_NAMES` for a throughput worker), which gives it a depth gauge, a sampled and trimmed DLQ, a heartbeat read-out and a Bull Board entry. `queue-catalog.coverage.unit.test.ts` fails until you do.
 
 Every worker the bootstrap starts carries three hooks: the dead-letter + Sentry `failed` listener, the job-duration histogram, and the queue heartbeat (`worker:queue:<name>:last_job_at`, written at most every 5 s per queue). `/readyz` answers `stalled` when every recorded throughput heartbeat is older than `WORKER_HEALTH_STALL_TIMEOUT_MS` while jobs wait in a throughput queue that is not paused for its provider.
 
@@ -289,7 +290,8 @@ Operational sizing per family is documented in [resource-limits.md → Worker Po
 | --------------------- | ----------------- | ---------------------------------- | ---------------------------------------------------------------- |
 | `daily-audit-export`  | `audit-export`    | `15 2 * * *` (`AUDIT_EXPORT_CRON`) | [audit-export.md](../security/audit-export.md)                   |
 | `daily-audit-cleanup` | `audit-retention` | `0 3 * * *`                        | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
-| `daily-instagram-webhook-event-cleanup` | `instagram-webhook-event-retention` | `0 3 * * *` (fixed, no setting) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `daily-app-partition-make` | `app-partition-upkeep` (job `make-app-partitions`) | `23 2 * * *` (fixed, no setting — WC-55: parts 14 days ahead; also once at worker start) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
+| `hourly-app-partition-drop` | `app-partition-upkeep` (job `drop-expired-app-partitions`) | `37 * * * *` (fixed, no setting — WC-48–WC-52: expired parts of the seven time-split app tables dropped) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `automation-run-wait-expiry-hourly` | `automation-run-wait-expiry` | `0 * * * *` (fixed, no setting — launch D8: runs waiting more than 7 days cancelled) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `daily-automation-tombstone-cleanup` | `automation-tombstone-retention` | `40 3 * * *` (fixed, no setting — launch AQ7) | [data-lifecycle-deletion.md](../data/data-lifecycle-deletion.md) |
 | `instagram-webhook-reclaim` | `instagram-webhook` (job `reclaim-instagram-webhook-events`) | `* * * * *` (fixed, no setting — launch WH15) | [FLOWS.md › instagram-webhook-processing-flow](../../../src/FLOWS.md#instagram-webhook-processing-flow) |

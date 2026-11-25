@@ -17,7 +17,10 @@ import {
   type ChannelConnectionTokenCheckJobData,
 } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { channelConnectionTokenCheckJobDataSchema } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.job.schema.js';
-import { CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME } from './channel-connection-token-check.constants.js';
+import {
+  CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME,
+  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME,
+} from './channel-connection-token-check.constants.js';
 import {
   type ChannelConnectionTokenCheckServices,
   processChannelConnectionTokenCheckJob,
@@ -31,7 +34,9 @@ import {
  * @remarks
  * - **Algorithm:** routes on `job.name` — the sweep job
  *   ({@link CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME}, no payload) runs
- *   {@link runChannelConnectionTokenCheckSweep}; every other job validates its payload at the
+ *   {@link runChannelConnectionTokenCheckSweep}; the 10-minute webhook subscription sweep
+ *   ({@link INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME}, WC-25) runs the services'
+ *   `webhookSubscriptionSweep`; every other job validates its payload at the
  *   boundary (`parseJobDataOrDeadLetter`), carries the organization's public id into the job scope,
  *   and runs {@link processChannelConnectionTokenCheckJob} under the propagated trace context.
  *   Concurrency `RETENTION_WORKER_CONCURRENCY`, the retention lock.
@@ -51,6 +56,16 @@ export function createChannelConnectionTokenCheckWorker(
     async (job) => {
       if (job.name === CHANNEL_CONNECTION_TOKEN_CHECK_SWEEP_JOB_NAME) {
         return runChannelConnectionTokenCheckSweep();
+      }
+      if (job.name === INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_JOB_NAME) {
+        if (services.webhookSubscriptionSweep === undefined) {
+          logger.warn(
+            { jobId: job.id },
+            'app.channel_connection.webhook_subscription_sweep.unwired',
+          );
+          return { outcome: 'skipped', reason: 'unwired' };
+        }
+        return services.webhookSubscriptionSweep();
       }
       const jobData = await parseJobDataOrDeadLetter({
         schema: channelConnectionTokenCheckJobDataSchema,

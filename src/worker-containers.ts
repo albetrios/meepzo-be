@@ -34,8 +34,8 @@ export type DomainContainers = {
   notifyDomain: NotifyContainer;
   uploadDomain: UploadContainer;
   /**
-   * The Instagram automation (launch): its workers — the daily account check, the 7-day wait
-   * check — use its services.
+   * The Instagram automation (launch): its workers — the connection's token check, the 7-day wait
+   * check, the Instagram account and send jobs — use its services.
    */
   appDomain: AppContainer;
 };
@@ -84,6 +84,13 @@ export function createDomainContainers(
   });
   // Billing's accounts port (feat-instagram-dm-sending § 8.10) is the app's — late-wired, as the API.
   billingDomain.subscriptionService.wireChannelAccounts(appDomain.channelAccountService);
+  // The account set-up's failure email (WC-30, R40) reads tenancy's and notify's services — only the
+  // worker process runs the account tasks.
+  appDomain.instagramAccountTaskSlots.noticeServices = {
+    membershipService: tenancyDomain.membershipService,
+    organizationSettingsService: tenancyDomain.organizationSettingsService,
+    notificationService: notifyDomain.notificationService,
+  };
 
   const userDataExportRepository = new UserDataExportRepository();
   const userDataExportService = new UserDataExportService(

@@ -741,6 +741,28 @@ describe('Meta callbacks (deauthorize, data deletion)', () => {
       expect(await countAuditRows(DATA_DELETION_ACTION)).toBe(1);
     });
 
+    it('is harmless to repeat at the same time: both answer the same code, the data is erased once, one audit entry (AC-1.12)', async () => {
+      const profile = buildInstagramProfile();
+      await connectAccount({ profile });
+      await storePost({ fixture: team, instagramMediaId: '18030000000000007' });
+      const body = signedBody({ userId: profile.id });
+
+      const [first, repeat] = await Promise.all([
+        postCallback({ url: META_DATA_DELETION_PATH, body }),
+        postCallback({ url: META_DATA_DELETION_PATH, body }),
+      ]);
+
+      expect(first.statusCode).toBe(200);
+      expect(repeat.statusCode).toBe(200);
+      expect(repeat.json()).toEqual(first.json());
+      const [row] = await readAccountProfiles(team.organization.id);
+      expect(row).toMatchObject({ connection_status: 'revoked', username: null });
+      expect(row?.profile_erased_at).not.toBeNull();
+      expect(await readInstagramTokenCiphertexts(team.organization.id)).toHaveLength(0);
+      expect(await countStoredPosts(team.organization.id)).toBe(0);
+      expect(await countAuditRows(DATA_DELETION_ACTION)).toBe(1);
+    });
+
     it('leaves a connection made after Meta signed the request alone: a retried request gets the same code and erases nothing (D53)', async () => {
       const profile = buildInstagramProfile();
       await connectAccount({ profile });

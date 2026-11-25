@@ -36,6 +36,7 @@ import { createTestOrganization } from '@/tests/factories/organization.factory.j
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
+import { operatorQuery } from '@/tests/helpers/operator-database.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -211,6 +212,138 @@ describe('InstagramMessageService (database)', () => {
       });
       expect(result).toEqual({ messagePublicId: null, status: 'skipped', reason: 'window_closed' });
       expect(await readInstagramMessages(organization.id)).toEqual([]);
+    });
+  });
+
+  describe("a fast message's wait and its ticket after commit (plan §30.2 step 13, §30.12; ROUTE row R44)", () => {
+    type Ticket = {
+      instagramMessagePublicId: string;
+      tries: number;
+      delayMilliseconds?: number | undefined;
+    };
+
+    async function saveFast({
+      tickets,
+      answerDelay,
+      isExtraDelayAllowed,
+      isWithoutScope = false,
+      isRolledBack = false,
+    }: {
+      tickets: Ticket[];
+      answerDelay?: 'answer' | 'next' | 'none';
+      isExtraDelayAllowed?: boolean;
+      isWithoutScope?: boolean;
+      isRolledBack?: boolean;
+    }) {
+      const fastMessages = new InstagramMessageService({
+        recordRunMessageResult: async () => undefined,
+        recordBroadcastMessageResult: async () => undefined,
+        enqueueFastMessage: async (ticket) => {
+          tickets.push(ticket);
+        },
+      });
+      const chatting = await insertContact({
+        organizationId: organization.id,
+        instagramAccountId: account.id,
+        username: `chat.${String(tickets.length)}.${String(Date.now())}`,
+        last_direct_message_received_at: new Date(),
+      });
+      const automation = await liveCommentAutomation();
+      const run = await insertAutomationRun({
+        organizationId: organization.id,
+        automationId: automation.id,
+        contactId: chatting.id,
+      });
+      const savedAt = Date.now();
+      const ticketsBefore = tickets.length;
+      const save = withAppDatabaseContext({
+        scope: scope(),
+        callback: async (databaseHandle) => {
+          const result = await fastMessages.saveWaitingMessage({
+            databaseHandle,
+            organizationId: organization.id,
+            channelAccountId: account.channel_account_id,
+            contactId: chatting.id,
+            source: {
+              automationId: automation.id,
+              automationRunId: run.id,
+              automationRunStartedAt: run.started_at,
+            },
+            step: 'messages',
+            messageNumber: 1,
+            versionNumber: null,
+            wordingNumber: null,
+            messageKind: 'text',
+            content: { stepPath: 'steps.messages.0', uploadPublicIds: [] },
+            notBefore: null,
+            triggerOccurredAt: run.trigger_occurred_at,
+            answersEventId: null,
+            ...(isWithoutScope ? {} : { organizationPublicId: organization.public_id }),
+            answerDelay,
+            isExtraDelayAllowed,
+          });
+          // No ticket inside the unit: the row is not committed yet.
+          expect(tickets).toHaveLength(ticketsBefore);
+          if (isRolledBack) throw new Error('rolled back');
+          return result;
+        },
+      });
+      if (isRolledBack) {
+        await expect(save).rejects.toThrow('rolled back');
+        return null;
+      }
+      const result = await save;
+      const row = (await readInstagramMessages(organization.id)).find(
+        (candidate) => candidate.public_id === result.messagePublicId,
+      )!;
+      return { row, delay: row.not_before!.getTime() - savedAt };
+    }
+
+    it('waits a random 500–2,000 ms and adds its ticket `fast-<igm_…>-0` after the commit (AC-17.5)', async () => {
+      const tickets: Ticket[] = [];
+      const saved = await saveFast({ tickets });
+      expect(saved!.delay).toBeGreaterThanOrEqual(480);
+      expect(saved!.delay).toBeLessThanOrEqual(2_100);
+      expect(tickets).toEqual([
+        expect.objectContaining({ instagramMessagePublicId: saved!.row.public_id, tries: 0 }),
+      ]);
+      expect(tickets[0]!.delayMilliseconds).toBeLessThanOrEqual(2_000);
+    });
+
+    it('goes at once after a follow check (`none`), and adds no ticket without the job scope or after a rollback', async () => {
+      const tickets: Ticket[] = [];
+      const saved = await saveFast({ tickets, answerDelay: 'none' });
+      expect(saved!.delay).toBeLessThanOrEqual(50);
+      expect(tickets).toHaveLength(1);
+      await saveFast({ tickets, isWithoutScope: true });
+      await saveFast({ tickets, isRolledBack: true });
+      expect(tickets).toHaveLength(1);
+    });
+
+    it("adds the account's extra delay to her first answer only on a plan with it, cut at 25 s (PRO, plan §30.12)", async () => {
+      const setDelay = (min: number, max: number) => operatorQuery`
+        INSERT INTO app.instagram_account_settings
+          (organization_id, channel_account_id, extra_delay_seconds_min, extra_delay_seconds_max)
+        VALUES (${organization.id}, ${account.channel_account_id}, ${min}, ${max})
+        ON CONFLICT (organization_id, channel_account_id) DO UPDATE
+          SET extra_delay_seconds_min = ${min}, extra_delay_seconds_max = ${max}`;
+      await setDelay(3, 8);
+      const tickets: Ticket[] = [];
+      const answer = await saveFast({ tickets, answerDelay: 'answer', isExtraDelayAllowed: true });
+      expect(answer!.delay).toBeGreaterThanOrEqual(3_480);
+      expect(answer!.delay).toBeLessThanOrEqual(10_100);
+      const withoutPlan = await saveFast({
+        tickets,
+        answerDelay: 'answer',
+        isExtraDelayAllowed: false,
+      });
+      expect(withoutPlan!.delay).toBeLessThanOrEqual(2_100);
+      const later = await saveFast({ tickets, answerDelay: 'next', isExtraDelayAllowed: true });
+      expect(later!.delay).toBeLessThanOrEqual(2_100);
+      await setDelay(20, 20);
+      const capped = await saveFast({ tickets, answerDelay: 'answer', isExtraDelayAllowed: true });
+      expect(capped!.delay).toBeGreaterThanOrEqual(20_480);
+      expect(capped!.delay).toBeLessThanOrEqual(25_100);
     });
   });
 

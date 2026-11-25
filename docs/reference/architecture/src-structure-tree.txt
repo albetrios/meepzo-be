@@ -24,6 +24,11 @@ src/
     │   │   ├── integration/
     │   │   │   └── app-route-smoke.integration.test.ts
     │   │   └── unit/
+    │   │   │   ├── events/
+    │   │   │       └── worker/
+    │   │   │       │   └── app-partition-upkeep.worker.unit.test.ts
+    │   │   │   ├── app-partition-upkeep.db.unit.test.ts
+    │   │   │   ├── app-partition-upkeep.processor.unit.test.ts
     │   │   │   ├── app-updated-at.db.unit.test.ts
     │   │   │   └── app.domain-wiring.unit.test.ts
     │   ├── seed/
@@ -80,6 +85,7 @@ src/
     │   │   │   │   │   │   ├── events/
     │   │   │   │   │   │       └── worker/
     │   │   │   │   │   │       │   └── automation-run-wait-expiry.worker.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-button-payload.util.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-matching.util.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-seed.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-step.util.unit.test.ts
@@ -157,6 +163,7 @@ src/
     │   │   │   │   │   └── broadcast-audience.job.schema.ts
     │   │   │   │   ├── workers/
     │   │   │   │   │   └── broadcast-audience.processor.ts
+    │   │   │   │   ├── broadcast-recipient-button-payload.util.ts
     │   │   │   │   ├── broadcast-recipient.constants.ts
     │   │   │   │   ├── broadcast-recipient.overview.md
     │   │   │   │   ├── broadcast-recipient.repository.ts
@@ -371,15 +378,14 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── instagram-account.factory.ts
     │   │   │   │   ├── integration/
-    │   │   │   │   │   ├── instagram-account-daily-check.integration.test.ts
     │   │   │   │   │   ├── instagram-account-organization-delete.integration.test.ts
     │   │   │   │   │   ├── instagram-account.integration.test.ts
     │   │   │   │   │   └── instagram-reconnect-notice.integration.test.ts
     │   │   │   │   └── unit/
-    │   │   │   │   │   ├── instagram-account-daily-check.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-account-erasure.service.unit.test.ts
     │   │   │   │   │   ├── instagram-account-queues.unit.test.ts
     │   │   │   │   │   ├── instagram-account-seed.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-account-tasks.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-account-webhook-processing.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account.repository.db.unit.test.ts
     │   │   │   │   │   ├── instagram-account.serializer.unit.test.ts
@@ -439,8 +445,7 @@ src/
     │   │   │   │   ├── instagram-media.types.ts
     │   │   │   │   └── instagram-media.validator.ts
     │   │   │   ├── queues/
-    │   │   │   │   ├── instagram-account-daily-check.job.schema.ts
-    │   │   │   │   ├── instagram-account-daily-check.queue.ts
+    │   │   │   │   ├── instagram-account-tasks.queue.ts
     │   │   │   │   ├── instagram-reconnect-notice.job.schema.ts
     │   │   │   │   └── instagram-reconnect-notice.queue.ts
     │   │   │   ├── seed/
@@ -448,9 +453,7 @@ src/
     │   │   │   │   ├── instagram-account.bulk.seed.ts
     │   │   │   │   └── instagram-account.faker.ts
     │   │   │   ├── workers/
-    │   │   │   │   ├── instagram-account-daily-check.constants.ts
-    │   │   │   │   ├── instagram-account-daily-check.processor.ts
-    │   │   │   │   ├── instagram-account-daily-check.worker.ts
+    │   │   │   │   ├── instagram-account-tasks.processor.ts
     │   │   │   │   ├── instagram-reconnect-notice.processor.ts
     │   │   │   │   └── instagram-reconnect-notice.worker.ts
     │   │   │   ├── instagram-account-erasure.service.ts
@@ -466,14 +469,21 @@ src/
     │   │   ├── instagram-sending/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
+    │   │   │   │   │   ├── instagram-lane-harness.factory.ts
     │   │   │   │   │   └── instagram-sending.factory.ts
     │   │   │   │   ├── integration/
     │   │   │   │   │   ├── instagram-plan-change.integration.test.ts
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
+    │   │   │   │   │       ├── worker/
+    │   │   │   │   │       │   ├── instagram-database-tasks.worker.unit.test.ts
+    │   │   │   │   │       │   └── instagram-sending-repair.worker.unit.test.ts
     │   │   │   │   │       └── instagram-plan-change.event-handlers.unit.test.ts
     │   │   │   │   │   ├── instagram-attachment-upload.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-broadcast-lane.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-fast-lane.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-reply-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
@@ -481,11 +491,13 @@ src/
     │   │   │   │   │   ├── instagram-send-fast.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-pace.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-slow.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-sending-watch.processor.db.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
+    │   │   │   │   │   ├── instagram-slow-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
     │   │   │   │   │   ├── sending-state.clock.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
@@ -510,11 +522,13 @@ src/
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── instagram-message.integration.test.ts
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-message-compose.util.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.port-contract.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.repository.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.unit.test.ts
     │   │   │   │   │   │   └── instagram-message.util.unit.test.ts
+    │   │   │   │   ├── instagram-message-compose.util.ts
     │   │   │   │   ├── instagram-message.constants.ts
     │   │   │   │   ├── instagram-message.overview.md
     │   │   │   │   ├── instagram-message.repository.ts
@@ -556,7 +570,11 @@ src/
     │   │   │   │   ├── instagram-sending-watch.processor.ts
     │   │   │   │   ├── instagram-tasks.processor.ts
     │   │   │   │   └── instagram-tasks.worker.ts
+    │   │   │   ├── instagram-broadcast-lane.service.ts
+    │   │   │   ├── instagram-fast-lane.service.ts
+    │   │   │   ├── instagram-reply-lane.service.ts
     │   │   │   ├── instagram-send-access.service.ts
+    │   │   │   ├── instagram-send-compose.service.ts
     │   │   │   ├── instagram-send-core.service.ts
     │   │   │   ├── instagram-send-day-count.repository.ts
     │   │   │   ├── instagram-send-day-count.schema.ts
@@ -569,6 +587,7 @@ src/
     │   │   │   ├── instagram-send-lane.util.ts
     │   │   │   ├── instagram-send-minute-count.repository.ts
     │   │   │   ├── instagram-send-minute-count.schema.ts
+    │   │   │   ├── instagram-send-pace.util.ts
     │   │   │   ├── instagram-send-stop.repository.ts
     │   │   │   ├── instagram-send-stop.schema.ts
     │   │   │   ├── instagram-sending-watch.repository.ts
@@ -581,6 +600,7 @@ src/
     │   │   │   ├── instagram-sending.serializer.ts
     │   │   │   ├── instagram-sending.service.ts
     │   │   │   ├── instagram-sending.types.ts
+    │   │   │   ├── instagram-slow-lane.service.ts
     │   │   │   ├── message-month-count.cache.ts
     │   │   │   ├── message-month-count.repository.ts
     │   │   │   ├── message-month-count.schema.ts
@@ -612,12 +632,7 @@ src/
     │   │   │       │   ├── factories/
     │   │   │       │   │   └── instagram-webhook-event.factory.ts
     │   │   │       │   └── unit/
-    │   │   │       │   │   ├── events/
-    │   │   │       │   │       └── worker/
-    │   │   │       │   │       │   └── instagram-webhook-event-retention.worker.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-payload-masking.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event-retention.processor.db.unit.test.ts
-    │   │   │       │   │   ├── instagram-webhook-event-retention.processor.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-seed.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event-store.db.unit.test.ts
     │   │   │       │   │   ├── instagram-webhook-event.controller.unit.test.ts
@@ -629,10 +644,6 @@ src/
     │   │   │       │   ├── index.ts
     │   │   │       │   ├── instagram-webhook-event.bulk.seed.ts
     │   │   │       │   └── instagram-webhook-event.faker.ts
-    │   │   │       ├── workers/
-    │   │   │       │   ├── instagram-webhook-event-retention.constants.ts
-    │   │   │       │   ├── instagram-webhook-event-retention.processor.ts
-    │   │   │       │   └── instagram-webhook-event-retention.worker.ts
     │   │   │       ├── instagram-webhook-event-key.repository.ts
     │   │   │       ├── instagram-webhook-event-key.schema.ts
     │   │   │       ├── instagram-webhook-event-payload-masking.util.ts
@@ -666,6 +677,11 @@ src/
     │   │   │   ├── instagram-webhook.routes.ts
     │   │   │   ├── instagram-webhook.service.ts
     │   │   │   └── instagram-webhook.types.ts
+    │   ├── workers/
+    │   │   ├── app-partition-upkeep.constants.ts
+    │   │   ├── app-partition-upkeep.processor.ts
+    │   │   ├── app-partition-upkeep.repository.ts
+    │   │   └── app-partition-upkeep.worker.ts
     │   ├── app-plan-access.ts
     │   ├── app.channel-ports.ts
     │   ├── app.container.ts

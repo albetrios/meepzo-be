@@ -28,9 +28,9 @@ import { describe, expect, it } from 'vitest';
  *
  * The allowlists are exact paths, each with its reason. The worker paths in
  * {@link TOKEN_REPOSITORY_IMPORTERS} are MC9's "the token service, the sender and the token check":
- * the connection's token check (MC10, ROUTE row R51) and, until it is deleted, the launch daily
- * account check's subscription retry (the sender lands at ROUTE row R42); any other addition is
- * deliberate, never casual.
+ * the connection's token check (MC10, ROUTE row R51) and the Instagram account jobs (R40 — the
+ * launch daily account check went at the R40 × R51 merge; the sender lands at ROUTE row R42); any
+ * other addition is deliberate, never casual.
  * The secrets-key rotation script (D37) is in {@link TOKEN_SCHEMA_IMPORTERS} and
  * {@link TOKEN_DECRYPTERS}: it re-encrypts the column onto the current key version through the
  * shared field-secret util's `reencryptFieldSecretToCurrentVersion`, as the token check does for a
@@ -70,14 +70,14 @@ const TOKEN_REPOSITORY_IMPORTERS: ReadonlyArray<{ file: string; reason: string }
     reason: 'the composition root builds the repository for the token service, and nothing else',
   },
   {
-    file: `${INSTAGRAM_ACCOUNT_FOLDER}/workers/instagram-account-daily-check.processor.ts`,
-    reason:
-      "the daily account check (IA8): reads the account's connection ciphertext for its subscription retry and hands it to the client; it never decrypts or writes it (no renewal since WC-35); deleted when R40's subscription check takes the retry over",
-  },
-  {
     file: `${CHANNEL_CONNECTION_FOLDER}/workers/channel-connection-token-check.processor.ts`,
     reason:
       "the connection's daily token check (MC10, WC-34): reads the ciphertext for its Meta calls and hands it to the client; rewrites it only when reencryptFieldSecretToCurrentVersion moves it off an old key version (S26) — it never sees the plain token",
+  },
+  {
+    file: `${INSTAGRAM_ACCOUNT_FOLDER}/workers/instagram-account-tasks.processor.ts`,
+    reason:
+      "the account jobs (IA6, R40 — set-up, subscription check, starter-question sync): read the account's connection ciphertext in the job's scope and hand it to the client; they never decrypt or write it",
   },
 ];
 

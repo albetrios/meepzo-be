@@ -4,7 +4,7 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import {
-  subscribeInstagramWebhookFields,
+  deleteInstagramIceBreakers,
   unsubscribeInstagramWebhookFields,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
@@ -535,7 +535,7 @@ export class InstagramAccountService {
 
   /**
    * The one guarded way an account leaves `connected` (CA4, IA9): its channel account `connected` →
-   * `error` — for the pickers, the daily check and sub-domains 3–4 on an Instagram token error. The
+   * `error` — for the pickers, the account jobs and sub-domains 3–4 on an Instagram token error. The
    * call that wins enqueues the break's reconnect notice after the commit.
    *
    * @remarks
@@ -667,6 +667,40 @@ export class InstagramAccountService {
   }
 
   /**
+   * Removes the account's starter questions at Instagram (`DELETE messenger_profile` ice breakers,
+   * WC-31) outside any database context, before route 8's commit (CA8, AC-2.4). Never throws: a
+   * failure is logged and the disconnect goes on.
+   */
+  async removeStarterQuestionsBestEffort({
+    scope,
+    access,
+    requestId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    access: InstagramAccountAccess;
+    requestId: string | undefined;
+  }): Promise<void> {
+    if (access.encryptedAccessToken === null) return;
+    try {
+      await deleteInstagramIceBreakers({
+        encryptedAccessToken: access.encryptedAccessToken,
+        instagramUserId: access.account.instagram_user_id,
+        requestId,
+      });
+    } catch (error) {
+      logger.warn(
+        {
+          requestId,
+          organizationPublicId: scope.organizationPublicId,
+          instagramAccountPublicId: access.account.public_id,
+          ...describeInstagramFailure(error),
+        },
+        'app.instagram_account.starter_question_removal_failed',
+      );
+    }
+  }
+
+  /**
    * The account's encrypted token — its channel connection's (P111, MC9) — inside the caller's unit
    * of work; `null` when the connection has none (revoked).
    */
@@ -705,50 +739,5 @@ export class InstagramAccountService {
     const liveCount = await this.channelAccountRepository.countLiveByConnection(channelConnection);
     if (liveCount > 0) return false;
     return this.connectionTokenService.revokeConnection({ scope, channelConnection });
-  }
-
-  /**
-   * `subscribed_apps` after a pick's or a reconnect's commit when the account is not subscribed yet
-   * (MC7, AC-1.7); returns the account as it now stands. Never throws: a failure is logged and the
-   * account stays connected (the daily check retries).
-   */
-  async subscribeWebhookFieldsBestEffort({
-    scope,
-    account,
-    encryptedAccessToken,
-    requestId,
-  }: {
-    scope: OrganizationPrincipalDatabaseScope;
-    account: InstagramAccountRow;
-    encryptedAccessToken: string;
-    requestId: string | undefined;
-  }): Promise<InstagramAccountRow> {
-    if (account.webhook_subscribed_at !== null) return account;
-    try {
-      await subscribeInstagramWebhookFields({
-        encryptedAccessToken,
-        instagramUserId: account.instagram_user_id,
-        requestId,
-      });
-      const stamped = await this.extensionService.recordWebhookSubscribed({
-        scope,
-        instagramAccount: {
-          organizationId: account.organization_id,
-          instagramAccountId: account.id,
-        },
-      });
-      return stamped ?? account;
-    } catch (error) {
-      logger.warn(
-        {
-          requestId,
-          organizationPublicId: scope.organizationPublicId,
-          instagramAccountPublicId: account.public_id,
-          ...describeInstagramFailure(error),
-        },
-        'app.instagram_account.webhook_subscription_failed',
-      );
-      return account;
-    }
   }
 }

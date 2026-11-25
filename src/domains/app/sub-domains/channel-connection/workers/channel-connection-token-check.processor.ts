@@ -62,8 +62,9 @@ export type ChannelConnectionTokenCheckFailureAction = 'break' | 'defer' | 'refu
  *   Meta's answer → `defer`.
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
- * - **Notes:** exported for the unit test. The launch daily check keeps its own classifier for its
- *   subscription retry until it is deleted (AS-BUILT R51).
+ * - **Notes:** exported for the unit test and for the Instagram account jobs (set-up, subscription
+ *   check, starter-question sync — ROUTE row R40), whose token refusal breaks the account the same
+ *   way; the launch daily check's own classifier went with it at the R40 × R51 merge.
  */
 export function classifyChannelConnectionTokenCheckFailure(
   error: unknown,
@@ -93,6 +94,13 @@ export interface ChannelConnectionTokenCheckServices {
     'listAccountsOfConnections' | 'markAccountBroken' | 'refreshAccountProfile'
   >;
   usageService?: Pick<ChannelConnectionUsageService, 'buildUsageRecorder'> | undefined;
+  /**
+   * The 10-minute webhook subscription sweep (WC-25, ROUTE row R40) that rides this queue — the
+   * Instagram account jobs' `runInstagramWebhookSubscriptionCheckSweep`, wired by the worker
+   * registry so this sub-domain never imports the account jobs. Absent → the sweep job is logged
+   * and skipped.
+   */
+  webhookSubscriptionSweep?: (() => Promise<unknown>) | undefined;
 }
 
 /**

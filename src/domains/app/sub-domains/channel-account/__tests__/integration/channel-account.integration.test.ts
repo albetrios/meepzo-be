@@ -4,6 +4,10 @@ import nock from 'nock';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { metaGraphCircuit } from '@/infrastructure/resilience/circuit-breaker.js';
 import {
+  META_GRAPH_BASE_URL,
+  META_GRAPH_VERSION,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import {
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
@@ -282,8 +286,10 @@ describe('Channel account routes', () => {
     it('shows the Instagram extension of 2.A.6 and flags a private account (AC-2.1, AC-2.12)', async () => {
       const account = nextAccount();
       const { ids } = await connect([account]);
+      // The set-up task (WC-30, R40) stamps the subscription in the worker; stamped here.
       await operatorQuery`
-        UPDATE app.instagram_accounts SET is_private = true, account_type = 'creator'
+        UPDATE app.instagram_accounts SET is_private = true, account_type = 'creator',
+          webhook_subscribed_at = now()
         WHERE instagram_user_id = ${account.id}`;
 
       const data = dataOf<ChannelAccountAnswer>(await read(ids[0] ?? '', team.viewerToken));
@@ -333,15 +339,31 @@ describe('Channel account routes', () => {
       const second = nextAccount();
       const { ids } = await connect([first, second]);
 
+      // The starter questions removed before the commit (WC-31, AC-2.4, R40).
+      const firstStarterRemoval = nock(META_GRAPH_BASE_URL)
+        .delete(`/${META_GRAPH_VERSION}/${first.id}/messenger_profile`, {
+          fields: ['ice_breakers'],
+        })
+        .query(true)
+        .reply(200, { result: 'success' });
       mockInstagramUnsubscribe({ instagramUserId: first.id });
       expect((await disconnect(ids[0] ?? '')).statusCode).toBe(204);
+      expect(firstStarterRemoval.isDone()).toBe(true);
       expect(
         await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
       ).toHaveLength(1);
       expect((await readChannelConnectionRows(team.organization.id))[0]?.status).toBe('connected');
 
+      // The starter questions removed before the commit (WC-31, AC-2.4, R40).
+      const secondStarterRemoval = nock(META_GRAPH_BASE_URL)
+        .delete(`/${META_GRAPH_VERSION}/${second.id}/messenger_profile`, {
+          fields: ['ice_breakers'],
+        })
+        .query(true)
+        .reply(200, { result: 'success' });
       mockInstagramUnsubscribe({ instagramUserId: second.id });
       expect((await disconnect(ids[1] ?? '')).statusCode).toBe(204);
+      expect(secondStarterRemoval.isDone()).toBe(true);
       expect(
         await readChannelConnectionTokenCiphertexts({ organizationId: team.organization.id }),
       ).toHaveLength(0);

@@ -464,7 +464,7 @@ sequenceDiagram
   Service->>DB: BEGIN — pg_advisory_xact_lock(organization); count the not-revoked accounts
   Service->>Accounts: over channel_accounts_max → 409; else each pick a connected account with default settings
   Service->>DB: COMMIT
-  Service->>Meta: subscribe each new account to the webhook fields (best effort)
+  Service->>Accounts: after the commit, one instagram-account-setup task per account (WC-30, R40)
   Service-->>Client: 200 { results (connected / already_connected / connected_elsewhere / not_assigned), plan_room }
 ```
 
@@ -489,59 +489,58 @@ No Meta call runs inside the database context: read, close the unit of work, cal
 - **Meta down or throttling on the code exchange** → `503 instagram_unavailable` with `Retry-After`; **once the one-time code is spent** → `409 instagram_connect_restart_required` (D56); **a `META_*` setting unset** → `503 instagram_not_configured`.
 - **The picks exceed the plan's `channel_accounts_max`** → `409 plan_account_limit`, nothing saved; two picks at once in one organization are serialized by the organization lock. **A pick live in another organization** → `connected_elsewhere` for that pick, the others connect; a race with another organization at the same moment → `409 instagram_account_connected_elsewhere`.
 - **The connection is `error` or `revoked`, or Meta refuses its token on the pick** → `409 channel_connection_not_connected`: reconnect first.
-- **The webhook subscription fails after the pick's commit** → logged (`app.instagram_account.webhook_subscription_failed`), never fails the pick; the daily check retries it.
+- **The set-up fails after the pick's commit** → never fails the pick: the `instagram-account-setup` task (six webhook fields, starter questions, message-access probe) tries again after 1, 5, 15, 60 minutes, then hourly, and emails the owners once after the 60-minute try; the account shows `is_webhook_subscribed: false` meanwhile, and the daily check also subscribes it (feat-instagram-dm-sending R40, P409).
 - **No `channel-account:manage`** → `403 missing_permission`; **a personal organization** → `422`; **a missing or reused `X-Idempotency-Key`** on the callback or the pick → `422`.
 
 ## instagram-account-health-flow
 
 ### Trigger
 
-Two background paths keep a connected Instagram account usable and tell the team when it is not. **The daily account check** (IA8, D9): the `instagram-account-daily-check` sweep at 04:00 UTC (`scheduler.ts`) — the subscription retry only: feat-instagram-dm-sending R3 took the token renewal out (WC-35; the connection's token never ends) and R51 moved the profile refresh to the channel connection's hourly-swept daily token check (`channel-connection-token-check`, MC10: the assigned-account list, the profiles and display names, a refused token breaking the connection and every account — MC11 — and an old-key token re-encrypted, S26). **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the daily check, and the senders and follow check of the automations and the Instagram webhook on a token error. Built by ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA8, IA9). Since feat-instagram-dm-sending R8 the post and story pickers (routes 13–14) answer Meta's 190 by breaking the account's connection (MC11) — every `connected` account of it, each with its notice.
+Two background checks keep a connected Instagram account usable, and one notice tells the team when it is not. **The channel connection's daily token check** (feat-instagram-dm-sending MC10, WC-34, ROUTE row R51): the `channel-connection-token-check` sweep every hour (`scheduler.ts`) adds one check per connection last checked over 24 hours ago — the assigned-account list, the profiles and display names (P17), a refused token breaking the connection and every account (MC11), an old-key token re-encrypted (S26). **The webhook subscription check** (WC-25, ROUTE row R40): a 10-minute sweep on the same queue hands each connected account one check on `instagram-tasks` — all six fields on stamps an unstamped account; a field off on a stamped account empties the stamp, alerts the team, starts the set-up again (WC-30) and asks for the missed-comment look (WC-26). The launch's `instagram-account-daily-check` (IA8, D9) is retired: R3 took its token renewal (WC-35), R51 its profile refresh and the R40 × R51 merge its subscription retry. **The reconnect notice** (IA9, D10): any caller of the account service's guarded change `markConnectionBroken` that wins — the token check, the account jobs, and the senders and follow check of the automations and the Instagram webhook on a token error. Built by the launch's ROUTE row R7 (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` IA9) and feat-instagram-dm-sending R40 / R51. Since feat-instagram-dm-sending R8 the post and story pickers (routes 13–14) answer Meta's 190 by breaking the account's connection (MC11) — every `connected` account of it, each with its notice.
 
 ### Sequence
 
 ```mermaid
 sequenceDiagram
-  participant Scheduler as scheduler (04:00 UTC)
-  participant Check as instagram-account-daily-check worker
+  participant Scheduler as scheduler (hourly / every 10 minutes)
+  participant Check as channel-connection-token-check worker
+  participant Tasks as instagram-tasks worker
   participant DB as Postgres (retention sweep arm / organization job scope)
   participant Instagram as meta-graph.client (Meta Graph API)
-  participant Account as InstagramAccountService
+  participant Account as InstagramAccountService / ChannelConnectionService
   participant Notice as instagram-reconnect-notice worker
-  participant Tenancy as MembershipService / OrganizationSettingsService
   participant Notify as NotificationService → notification worker → mail outbox
 
-  Scheduler->>Check: sweep job (sweep-connected-instagram-accounts)
-  Check->>DB: page the connected accounts of live organizations (sweep arm, USING only)
-  Check->>Check: add one check per account (job id = account + UTC day)
-  Check->>DB: organization scope — the account and its connection's encrypted token
-  Check->>Instagram: GET /{instagram_user_id} (outside any database context)
-  Check->>DB: profile, profile_synced_at
-  Check->>Instagram: subscribed_apps (only while webhook_subscribed_at is empty)
-  Check->>DB: stamp webhook_subscribed_at
-  Account->>DB: channel account connected → error (WHERE connected); COMMIT
+  Scheduler->>Check: sweep-due-channel-connections (hourly)
+  Check->>DB: page the due connections (sweep arm, USING only); one check per connection
+  Check->>DB: organization scope — the connection and its encrypted token
+  Check->>Instagram: the assigned accounts and their profiles (outside any database context)
+  Check->>DB: profiles, last check; a token on an old key re-encrypted
+  Scheduler->>Check: sweep-instagram-webhook-subscriptions (every 10 minutes)
+  Check->>DB: page the connected accounts (sweep arm); one task per account on instagram-tasks
+  Tasks->>Instagram: GET subscribed_apps (after the sending gate)
+  Tasks->>DB: stamp webhook_subscribed_at, or empty it and start the set-up again
+  Account->>DB: connected → error (WHERE connected); COMMIT
   Account->>Notice: after commit — one job per account and break (job id = account + break time)
-  Notice->>DB: organization scope — is the account still at that break?
-  Notice->>Tenancy: active holders of instagram-account:manage; the organization's language
   Notice->>Notify: one notification each (type instagram.reconnect_required, in-app + email), once per break; COMMIT
-  Notify->>Notify: after commit — a notification job each; the email through the mail outbox
 ```
 
 No Instagram call runs inside a database context: every step reads, closes its unit of work, calls Instagram, then writes in a new one.
 
 ### Side effects
 
+- `app.channel_connections` — the last check, its error, a re-encrypted token; on a break `error`.
 - `app.instagram_accounts` — the profile and `profile_synced_at`, `webhook_subscribed_at`.
 - `app.channel_accounts` — on a break `connection_status` `error` (Meta's subcode 463 too, CA4); the notice's once key is the account and the row's `updated_at` at the break.
 - `notify.notifications` — one `instagram.reconnect_required` notification per active `instagram-account:manage` holder, in the organization's language, linking to the frontend's Instagram page (`FRONTEND_URL` + `/instagram`), each also emailed through the mail outbox by the notification worker.
 
 ### Failure modes
 
-- **Instagram down or busy** → the daily-check queue pauses on every replica while the `instagram` circuit is open (a throttle: for Instagram's wait), the parked check spends no attempt; the account stays `connected`; the next day tries again.
-- **Instagram refuses the token** → `error` (`expired` for subcode 463) at once, and the notice. A code-10 "outside the messaging window" answer is a refusal of that one request, never a break (D32).
+- **Meta down or busy** → the token check returns `deferred` without spending an attempt (never paused, F3) and the next hourly sweep adds it again; a subscription check that cannot read is `unavailable` and the next window checks again.
+- **Meta refuses the token** → `error` (`expired` for subcode 463) at once, and the notice. A code-10 "outside the messaging window" answer is a refusal of that one request, never a break (D32).
 - **Two callers break the account at once** → the guarded update lets one win; only the winner enqueues a notice. A break inside a unit of work that rolls back enqueues nothing.
 - **The notice job runs twice** (a stalled job) → the notifications carry the break's key, so nothing is sent twice; a break that is over by the time the job runs (reconnected, disconnected) is skipped.
-- **Redis refuses the notice's enqueue** → logged (`app.instagram_account.reconnect_notice_enqueue_failed`); no row holds the notice, so it is not re-sent — the Instagram page still shows the reconnect card. A refused daily-check add is listed again by the next day's sweep.
+- **Redis refuses an enqueue** → logged (`app.instagram_account.reconnect_notice_enqueue_failed`, `…webhook_subscription_check.enqueue_failed`); a lost check is added again by the next sweep, a lost notice is not re-sent — the Instagram page still shows the reconnect card.
 
 ## instagram-meta-callback-flow
 
@@ -627,9 +626,9 @@ sequenceDiagram
   loop each organization, its own PRINCIPAL_SCOPE.JOB
     Worker->>Engine: cancelExpiredWaitingRuns — re-check, cancelled · wait_expired, its open key deleted, one status_changed event, log cancelled, its waiting messages cancelled through the channel's port (WC-45)
   end
-  Scheduler->>Worker: 03:00 — instagram-webhook-event-retention
-  Worker->>DB: events received more than 30 days ago, any status
-  Note over Scheduler,DB: runs, run events and comment logs expire by month-part drops (the shared upkeep, R49) — no batch delete since feat-instagram-dm-sending R14
+  Scheduler->>Worker: every hour at :37 — app-partition-upkeep (drop-expired-app-partitions)
+  Worker->>DB: app.fn_manage_time_partitions per table, maintenance role only — parts made 14 days ahead; expired parts detached and dropped (events and keys 8 days, attempts 8, messages 30 after their week, comment logs 90 and run events then runs 98 after their month; a runs part with an open run kept)
+  Note over Scheduler,DB: no batch delete remains on the seven time-split tables (feat-instagram-dm-sending R14, R49); the daily 02:23 make pass and one at worker start keep the parts coming
   Scheduler->>Worker: 03:40 — automation-tombstone-retention
   Worker->>DB: automations deleted more than 180 days ago that nothing points at (the others wait for a later day)
 

@@ -30,8 +30,9 @@ import type {
  *
  * Notes:
  * - The connection's token check refreshes the profile through {@link recordProfileRefresh} (P17,
- *   ROUTE row R51); the launch daily check's webhook stamp still writes through the worker
- *   repository the same column this service owns, on the job's handle.
+ *   ROUTE row R51). The account jobs (set-up, subscription check, starter-question sync, ROUTE row
+ *   R40) write the webhook stamp and the starter-question stamp through this service in their job
+ *   scope (the launch daily check that also stamped is retired).
  */
 export class InstagramAccountExtensionService {
   constructor(private readonly accountRepository: InstagramAccountRepository) {}
@@ -175,6 +176,51 @@ export class InstagramAccountExtensionService {
         const recorded = await this.accountRepository.recordWebhookSubscribed(instagramAccount);
         return recorded ? this.accountRepository.findById(instagramAccount) : null;
       },
+    });
+  }
+
+  /**
+   * The webhook subscription check found a field off (WC-25): the stamp emptied, so the account shows
+   * as not subscribed until the set-up succeeds again. Returns whether a stamp was cleared.
+   *
+   * @remarks
+   * Algorithm: one guarded update (only a stamped row). Failure modes: none. Side effects: at most
+   * one row written.
+   */
+  async recordWebhookSubscriptionLost({
+    scope,
+    instagramAccount,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    instagramAccount: InstagramAccountKey;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.accountRepository.clearWebhookSubscription(instagramAccount),
+    });
+  }
+
+  /**
+   * The starter-question sync's stamp (WC-31, IA8): `starter_questions_set_at` now after Meta took a
+   * non-empty list, empty after the list was removed. Returns whether a row was written (`false`
+   * when the channel account was revoked in between).
+   *
+   * @remarks
+   * Algorithm: one guarded update. Failure modes: none. Side effects: at most one row written.
+   */
+  async recordStarterQuestionsSet({
+    scope,
+    instagramAccount,
+    isSet,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    instagramAccount: InstagramAccountKey;
+    isSet: boolean;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.accountRepository.recordStarterQuestionsSet({ ...instagramAccount, isSet }),
     });
   }
 }

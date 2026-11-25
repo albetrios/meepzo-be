@@ -51,7 +51,6 @@ import { closeMailQueue } from '@/infrastructure/mail/queues/mail.queue.js';
 import { closeNotificationQueue } from '@/domains/notify/sub-domains/notification/queues/notification.queue.js';
 import { closeWebhookDeliveryQueue } from '@/domains/notify/sub-domains/webhook/webhook-delivery/queues/webhook-delivery.queue.js';
 import { closeUserDataExportQueue } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
-import { closeInstagramAccountDailyCheckQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { closeChannelConnectionTokenCheckQueue } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
 import { closeSubscriptionPlanStateCheckQueue } from '@/domains/billing/sub-domains/subscription/queues/subscription-plan-state-check.queue.js';
 import { closeInstagramReconnectNoticeQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
@@ -148,8 +147,7 @@ async function main() {
         closeNotificationQueue(),
         closeWebhookDeliveryQueue(),
         closeUserDataExportQueue(), // sec-r4-R1: was missing from shutdown sequence
-        // Launch IA8 / IA9: the daily check's sweep adds its checks; a break enqueues its notice.
-        closeInstagramAccountDailyCheckQueue(),
+        // Launch IA9: a break enqueues its reconnect notice.
         closeInstagramReconnectNoticeQueue(),
         // feat-instagram-dm-sending MC10: the token check's hourly sweep adds its checks.
         closeChannelConnectionTokenCheckQueue(),

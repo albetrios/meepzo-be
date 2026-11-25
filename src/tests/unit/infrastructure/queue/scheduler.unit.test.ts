@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(35);
+    expect(scheduledJobs).toHaveLength(36);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -68,6 +68,9 @@ describe('infrastructure queue scheduler', () => {
       'audit-export',
       // Launch IA8: the daily Instagram account check's sweep rides its queue
       // (job `sweep-connected-instagram-accounts`).
+      'instagram-account-daily-check',
+      // feat-instagram-dm-sending WC-25 (R40): the 10-minute webhook subscription sweep rides it too
+      // (job `sweep-instagram-webhook-subscriptions`).
       'instagram-account-daily-check',
       // launch-2026-11-20-ujai D8 (AU25, AQ7): the hourly 7-day wait cancel, then the daily
       // deleted-automation (03:40) clean-up; runs and comment logs go by month-part drops since
@@ -226,15 +229,16 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(35);
-    // Each scheduled job opens one Queue for upsert (35) + the reconcile pass opens one Queue per
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(36);
+    // Each scheduled job opens one Queue for upsert (36) + the reconcile pass opens one Queue per
     // unique queue name (35 — the seat reconcile, the export reclaim, the Instagram daily-check
-    // sweep and the Instagram stuck-event pick-up ride queues no other cron uses), each closed in
+    // sweep and the Instagram stuck-event pick-up ride queues no other cron uses; the 10-minute
+    // webhook subscription sweep shares the daily-check queue, R40), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(70);
+    expect(queueCloseMock).toHaveBeenCalledTimes(71);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(70);
+    expect(queueCloseMock).toHaveBeenCalledTimes(71);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

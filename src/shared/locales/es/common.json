@@ -6,6 +6,8 @@
     "invitationDeclinedMessage": "{{inviteeName}} rechazó tu invitación para unirse a {{organizationName}}.",
     "instagramReconnectRequiredTitle": "Vuelve a conectar Instagram",
     "instagramReconnectRequiredMessage": "Instagram dejó de aceptar la conexión con @{{username}}. Vuelve a conectar la cuenta para que tus automatizaciones sigan funcionando.",
+    "instagramAccountSetupFailedTitle": "Termina de configurar Instagram",
+    "instagramAccountSetupFailedMessage": "Instagram no aceptó la configuración de @{{username}}, así que sus mensajes y comentarios pueden no llegar a tus automatizaciones. Abre la cuenta y vuelve a conectarla si sigue pasando.",
     "automationStoppedTitle": "Automatización detenida",
     "automationStoppedMessage": "{{automationName}} en @{{username}} se detuvo tras errores repetidos. Ábrela para ver qué pasó y vuelve a activarla.",
     "contactDetailsLeftTitle": "Nuevos datos de contacto",

@@ -1106,6 +1106,35 @@ export class AutomationService {
     });
   }
 
+  /**
+   * The account's live starter-question automations and their questions, oldest first — what the
+   * starter-question sync and the account set-up write to Instagram (WC-30, WC-31, IA6).
+   *
+   * @remarks
+   * Algorithm: one read in the caller's scope (a job scope in the task worker). Failure modes: none.
+   * Side effects: none. Notes: go-live keeps the account at four questions (AU13 check 8).
+   */
+  async listLiveStarterQuestions({
+    scope,
+    organizationId,
+    channelAccountId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    /** `app.channel_accounts.id`. */
+    channelAccountId: number;
+  }): Promise<Array<{ automationPublicId: string; questions: string[] }>> {
+    const rows = await withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.automationRepository.listLiveStarterQuestionAutomations({
+          organizationId,
+          channelAccountId,
+        }),
+    });
+    return rows.map((row) => ({ automationPublicId: row.publicId, questions: row.questions }));
+  }
+
   /** Go-live's every check (AU13), answered as a list. */
   private async listGoLiveProblems({
     scope,

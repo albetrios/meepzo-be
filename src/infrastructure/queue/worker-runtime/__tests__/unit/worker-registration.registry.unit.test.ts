@@ -61,8 +61,8 @@ describe('worker-registration.registry', () => {
     // +1 for the Instagram webhook event processing (instagram family, throughput,
     // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
     // WH12–WH15); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
-    // `instagram-send-slow` and `instagram-send-fast` in family `instagram-send`, `instagram-tasks`
-    // in `instagram`; throughput, event-driven, their database through the shared limiter).
+    // `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks`, all in family `instagram`
+    // (P140); throughput, event-driven, their database through the shared limiter).
     expect(definitions).toHaveLength(43);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();

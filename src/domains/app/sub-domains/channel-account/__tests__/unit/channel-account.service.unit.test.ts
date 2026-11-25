@@ -165,6 +165,10 @@ function setup({
     clearOnRevoke: vi.fn(async () => undefined),
   };
   const instagramAccountService = {
+    // WC-31, AC-2.4 (R40): the starter questions go first, outside every unit of work too.
+    removeStarterQuestionsBestEffort: vi.fn(async () => {
+      unitOfWork.openCountAtOutsideCalls.push(unitOfWork.openCount);
+    }),
     unsubscribeWebhookFieldsBestEffort: vi.fn(async () => {
       unitOfWork.openCountAtOutsideCalls.push(unitOfWork.openCount);
     }),
@@ -280,8 +284,9 @@ describe('ChannelAccountService.disconnectAccount (route 8)', () => {
 
     const change = await service.disconnectAccount(caller);
 
+    expect(instagramAccountService.removeStarterQuestionsBestEffort).toHaveBeenCalledTimes(1);
     expect(instagramAccountService.unsubscribeWebhookFieldsBestEffort).toHaveBeenCalledTimes(1);
-    expect(unitOfWork.openCountAtOutsideCalls).toEqual([0]);
+    expect(unitOfWork.openCountAtOutsideCalls).toEqual([0, 0]);
     expect(accountRepository.revoke).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       channelAccountId: 5,
@@ -323,6 +328,7 @@ describe('ChannelAccountService.disconnectAccount (route 8)', () => {
 
     await service.disconnectAccount(caller);
 
+    expect(instagramAccountService.removeStarterQuestionsBestEffort).not.toHaveBeenCalled();
     expect(instagramAccountService.unsubscribeWebhookFieldsBestEffort).not.toHaveBeenCalled();
   });
 

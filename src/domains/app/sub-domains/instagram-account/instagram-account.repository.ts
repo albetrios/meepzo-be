@@ -464,6 +464,35 @@ export class InstagramAccountRepository {
   }
 
   /**
+   * The starter-question sync's stamp (WC-31): `starter_questions_set_at` set to now after Meta took
+   * a non-empty list (`isSet`), emptied after an empty one — only while the channel account is not
+   * revoked. Returns whether a row was written.
+   */
+  async recordStarterQuestionsSet({
+    organizationId,
+    instagramAccountId,
+    isSet,
+  }: InstagramAccountKey & { isSet: boolean }): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_accounts)
+      .set({
+        starter_questions_set_at: isSet ? databaseNowTimestamp : null,
+        updated_at: accountUpdatedAtTimestamp,
+      })
+      .from(channel_accounts)
+      .where(
+        and(
+          channelAccountJoin,
+          eq(instagram_accounts.organization_id, organizationId),
+          eq(instagram_accounts.id, instagramAccountId),
+          isChannelAccountLive,
+        ),
+      )
+      .returning({ id: instagram_accounts.id });
+    return rows.length > 0;
+  }
+
+  /**
    * One account by its public id (the channel account's, `cha_…`), any status, only when it belongs
    * to the organization with this public id — the daily check's and the reconnect notice's read
    * (their jobs carry public ids only); `null` otherwise.

@@ -66,8 +66,10 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
 - `instagram-attachment/` — the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md).
 - `queues/` — `instagram-send-slow` (one ticket per lane turn of `slow`, `reply`, `broadcast`; job id
   `<lane>-<cha_…>-<turn>`, a broadcast turn at priority 10) and `instagram-send-fast` (one ticket per fast message,
-  `fast-<igm_…>-<tries>`), and `instagram-tasks` (the jobs around sending, each owner's job name), all family `instagram` — run in the
-  existing `worker` service, no service of their own (P140). Ids only, one attempt per ticket, no rate limiter, never paused by the
+  `fast-<igm_…>-<tries>`), and `instagram-tasks` (the jobs around sending, each owner's job name — the account's set-up,
+  subscription check and starter-question sync since R40, `../instagram-account/`; `enqueueInstagramTask` takes an
+  optional delay for a retry or a spread), all family `instagram` — run in the existing `worker` service, no service of
+  their own (P140). Ids only, one attempt per ticket, no rate limiter, never paused by the
   Instagram circuit.
 - `workers/` — one plain worker per queue (`isEnabled: env.SENDING_ENABLED`) and `instagram-send-ticket.processor.ts`:
   every ticket asks `mayTakeTickets` first (a task only when it calls Meta) and goes back a minute later, no try used,

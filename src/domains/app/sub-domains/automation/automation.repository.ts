@@ -324,6 +324,24 @@ export class AutomationRepository {
   }
 
   /**
+   * How many of the organization's automations (not deleted, any status) have their email or phone
+   * question step on — the "steps off on your plan" count of a move down (WC-38, AC-23.8).
+   */
+  async countWithQuestionStepsOn(organizationId: number): Promise<number> {
+    const [row] = await this.db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(automations)
+      .where(
+        and(
+          eq(automations.organization_id, organizationId),
+          LIVE_AUTOMATION,
+          sql`(${automations.steps} #>> '{email,on}' = 'true' OR ${automations.steps} #>> '{phone,on}' = 'true')`,
+        ),
+      );
+    return row?.count ?? 0;
+  }
+
+  /**
    * The organization's live automation with this public id and its account's public id (route 29);
    * `null` when absent, deleted or another organization's.
    */

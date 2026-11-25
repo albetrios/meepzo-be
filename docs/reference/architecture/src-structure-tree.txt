@@ -485,6 +485,7 @@ src/
     │   │   ├── instagram-sending/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── e2e/
+    │   │   │   │   │   ├── instagram-month-limit.e2e.test.ts
     │   │   │   │   │   └── instagram-reconnect-flow.e2e.test.ts
     │   │   │   │   ├── factories/
     │   │   │   │   │   ├── instagram-lane-harness.factory.ts
@@ -2715,8 +2716,10 @@ src/
     │   ├── billing-onboarding.e2e.test.ts
     │   ├── data-export-deletion.e2e.test.ts
     │   ├── e2e.overview.md
+    │   ├── plan-move-down.e2e.test.ts
     │   ├── signup-flow.e2e.test.ts
-    │   └── tenancy-billing-organization.e2e.test.ts
+    │   ├── tenancy-billing-organization.e2e.test.ts
+    │   └── trial.e2e.test.ts
     ├── factories/
     │   ├── mfa-method.factory.ts
     │   ├── notification.factory.ts
@@ -2817,6 +2820,7 @@ src/
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
     │   ├── session-place-mmdb.helper.ts
+    │   ├── stripe-subscription-event.helper.ts
     │   ├── test-api-prefix.helper.ts
     │   ├── test-app.ts
     │   ├── test-auth.ts

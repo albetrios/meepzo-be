@@ -67,3 +67,15 @@ lane B P223 / P224), so most conflicts are two resolutions of the same rows ([P1
 | `AS-BUILT.md` › Standing deviations | ours: "Password routes"; theirs: the R49 × main, acceptance-two and post-merge gates rows | union | none |
 | `plans/decisions.md` | ours: P251, P252; theirs: P141–P145, P414 | union (theirs first) | none |
 | `instagram-reconnect-flow.e2e.test.ts` (no conflict; typecheck) | P145 made `jobScopeFor` a required repair dependency | the test passes `PRINCIPAL_SCOPE.JOB` as the repair worker does | none |
+
+## Lane B ← lane E e3cc504 (R57, R58 P501, R59, the Free-row fix P502)
+
+"ours" is `lane-b/tenancy-auth` (9f54163), "theirs" `lane-e/flows` at e3cc504 (base b87c4c9).
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `plans/acceptance.md` (AC-22.1–AC-25.7) | ours: AC-25.* filled (R60); theirs: AC-22–AC-24 filled (R57–R59) | per row the filled side; no row filled on both | none |
+| `KICKOFF.md` | Status cells R57–R60 | most-advanced (`kickoffmerge.py`) | none |
+| `AS-BUILT.md` | rows on both sides; theirs' fix lines on R52, R53 (R57–R59) beside ours' main-merged rows | union (`resolve.py ours`); the six rows both edited (R46–R48, R51–R53) merged per row 3-way from b87c4c9 — theirs' fix lines applied on ours' text | low |
+| `plans/decisions.md` | ours: P141–P145, P414, P251, P252; theirs: P501, P502 | union | none |
+| `src-structure-tree.txt` | generated | regenerated | none |

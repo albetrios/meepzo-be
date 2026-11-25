@@ -36,7 +36,6 @@ import {
 } from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
 import { InstagramMessageService } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
 import { InstagramSendCoreService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-core.service.js';
-import { InstagramSendLaneRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.repository.js';
 import type { InstagramSendLane } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { planStopHoldsLane } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.util.js';
 import type {
@@ -210,17 +209,15 @@ describe('Flow: the month limit — 80 %, 100 %, the new month (R57)', () => {
   }
 
   async function turn(lane: 'slow' | 'reply', target: TestAccount) {
-    const rows = await new InstagramSendLaneRepository().listByAccount({
-      organizationId: team.organization.id,
-      channelAccountId: target.channel_account_id,
-    });
+    // The operator read: outside a database context the application role sees no lane row.
+    const rows = await readLaneRows(target.channel_account_id);
     const row = rows.find((candidate) => candidate.lane === lane);
     await core.workLaneTurn({
       ticket: {
         organizationPublicId: team.organization.public_id,
         channelAccountPublicId: target.public_id,
         lane,
-        turnNumber: row?.turn_number ?? 0,
+        turnNumber: Number(row?.turn_number ?? 0),
       },
       scope: scope(),
       context,

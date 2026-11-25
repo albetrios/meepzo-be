@@ -204,7 +204,8 @@ async function takeInTagEvent({
  * the account's tag automations — never sends.
  *
  * @remarks
- * - **Algorithm:** the organization's internal id (a gone organization → nothing); then, in pieces of
+ * - **Algorithm:** the organization's internal id, read in the job's scope (a gone organization →
+ *   nothing); then, in pieces of
  *   {@link INSTAGRAM_WEBHOOK_EVENTS_PER_JOB}, the contacts' undone events oldest first (a tag event
  *   has no public id — the job names the contacts). Each event: **one transaction** whose first
  *   statement sets `done_at` only while empty, then her live contact, then `startTagRun` (only while
@@ -237,14 +238,19 @@ export async function processInstagramTagEventIntakeJob({
     failedCount: 0,
   };
   const logFields = { jobId, organizationPublicId, contactCount: contactPublicIds.length };
+  const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId });
+  // Read in the job's scope: `tenancy.organizations` is FORCE RLS, so outside a context the
+  // application role sees no organization.
   const organization = await runInDatabaseSlot(() =>
-    services.organizationService.findOrganizationByPublicId(organizationPublicId),
+    withAppDatabaseContext({
+      scope,
+      callback: () => services.organizationService.findOrganizationByPublicId(organizationPublicId),
+    }),
   );
   if (organization === null) {
     logger.warn(logFields, 'app.instagram_webhook.tag_intake_organization_not_found');
     return result;
   }
-  const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId });
   const failedIds = new Set<number>();
   for (;;) {
     const rows = await runInDatabaseSlot(() =>

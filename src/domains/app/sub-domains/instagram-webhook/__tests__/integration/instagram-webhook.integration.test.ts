@@ -428,7 +428,7 @@ describe('Instagram webhook — routes 16–17', () => {
   });
 
   describe('POST /app/social/channel-connections/meta/webhooks/instagram — stored once, then OK (WH9, WH10)', () => {
-    it("stores one row per event, adds the account's processing job, turns the rows queued and answers OK", async () => {
+    it('stores one row per event, adds one intake job per kind group, leaves the rows received (S25) and answers OK', async () => {
       const rawBody = deliveryBody({
         messaging: [
           {
@@ -457,28 +457,41 @@ describe('Instagram webhook — routes 16–17', () => {
         {
           event_kind: 'comment',
           event_key: 'comment:18000000000000001',
-          status: 'queued',
+          status: 'received',
           skip_reason: null,
         },
         {
           event_kind: 'message',
           event_key: 'message:m_dm_1',
-          status: 'queued',
+          status: 'received',
           skip_reason: null,
         },
       ]);
-      // WH5, WH10: after the commit, one processing job for the account, with its organization.
+      // WH5: after the commit, one intake job per kind group that got events, with its organization.
       const processingJobs = await processingQueue.getJobs(['waiting', 'delayed', 'prioritized']);
+      const intakeJobs = processingJobs.filter(
+        (job) => job.data.organizationPublicId === team.organization.public_id,
+      );
       expect(
-        processingJobs
-          .map((job) => job.data)
-          .filter((data) => data.organizationPublicId === team.organization.public_id),
+        intakeJobs
+          .map((job) => ({ name: job.name, priority: job.opts.priority, data: job.data }))
+          .sort((left, right) => left.name.localeCompare(right.name)),
       ).toEqual([
-        expect.objectContaining({
-          organizationPublicId: team.organization.public_id,
-          channelAccountPublicId: account.channelAccountPublicId,
-          requestId: expect.any(String),
-        }),
+        {
+          name: 'intake-comments',
+          priority: 5,
+          data: expect.objectContaining({
+            organizationPublicId: team.organization.public_id,
+            channelAccountPublicId: account.channelAccountPublicId,
+            intakeKind: 'comments',
+            requestId: expect.any(String),
+          }),
+        },
+        {
+          name: 'intake-messages',
+          priority: 1,
+          data: expect.objectContaining({ intakeKind: 'messages' }),
+        },
       ]);
       for (const event of events) {
         expect(event.instagram_user_id).toBe(account.instagramUserId);
@@ -563,8 +576,8 @@ describe('Instagram webhook — routes 16–17', () => {
         { event_kind: 'comment', skip_reason: 'own_comment', status: 'skipped' },
         { event_kind: 'unknown', skip_reason: 'unsupported', status: 'skipped' },
         // Not one of our sent messages (the own-message lookup, R19) — the owner's quiet time.
-        { event_kind: 'echo', skip_reason: null, status: 'queued' },
-        { event_kind: 'reaction', skip_reason: null, status: 'queued' },
+        { event_kind: 'echo', skip_reason: null, status: 'received' },
+        { event_kind: 'reaction', skip_reason: null, status: 'received' },
         { event_kind: 'edit', skip_reason: 'edit', status: 'skipped' },
       ]);
       expect(events.some((event) => event.event_key.startsWith('read:'))).toBe(false);
@@ -651,11 +664,11 @@ describe('Instagram webhook — routes 16–17', () => {
           status,
         ]),
       ).toEqual([
-        ['live_comment', 'queued'],
-        ['story_mention', 'queued'],
-        ['shared_post', 'queued'],
-        ['ice_breaker', 'queued'],
-        ['referral', 'queued'],
+        ['live_comment', 'received'],
+        ['story_mention', 'received'],
+        ['shared_post', 'received'],
+        ['ice_breaker', 'received'],
+        ['referral', 'received'],
       ]);
     });
 
@@ -715,7 +728,7 @@ describe('Instagram webhook — routes 16–17', () => {
       await deliver({ rawBody: deliveryBody() });
 
       expect(await storedEvents(team.organization.id)).toMatchObject([
-        { event_kind: 'comment', status: 'queued', skip_reason: null },
+        { event_kind: 'comment', status: 'received', skip_reason: null },
       ]);
     });
 

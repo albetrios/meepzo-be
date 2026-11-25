@@ -52,6 +52,12 @@ export const RESOURCE_QUOTA_LOCK_NAMESPACE = {
    * the plan's `channel_accounts_max` (plan:L3553); route 11 takes it too (CA9, ROUTE row R5).
    */
   CHANNEL_ACCOUNT_LIMIT: 0x43_48_41_50,
+  /**
+   * Per-channel-account past-comments read, keyed by `<organization id>:<channel account id>`.
+   * ASCII `ABFR`. Not a quota: the read job's start takes it, so one read at a time runs per account
+   * (feat-instagram-dm-sending routes-final § 4.C AU32, ROUTE row R41).
+   */
+  AUTOMATION_BACKFILL_READ: 0x41_42_46_52,
 } as const;
 
 /**

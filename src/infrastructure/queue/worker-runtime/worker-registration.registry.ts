@@ -72,6 +72,8 @@ import {
 } from '@/domains/billing/sub-domains/subscription/workers/subscription-seat-sync.worker.js';
 import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
 import { createInstagramWebhookWorker } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js';
+import { enqueueInstagramContactProfileRead } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
+import { createInstagramLateCommentTimeReader } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { createInstagramWebhookEventRetentionWorker } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.worker.js';
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
@@ -104,7 +106,6 @@ import { RETENTION_WORKER_CONCURRENCY } from '@/infrastructure/queue/worker-runt
 import type { WorkerQueueFamily } from '@/infrastructure/queue/worker-runtime/worker-queue-family.constants.js';
 import { env } from '@/shared/config/env.config.js';
 import {
-  getWorkerConcurrencyInstagram,
   getWorkerInstagramDatabaseSlots,
   getWorkerConcurrencyMail,
   getWorkerConcurrencyNotify,
@@ -385,29 +386,51 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: () => createStripeWebhookEventCatchupWorker(),
   }),
   {
-    // launch-2026-11-20-ujai WH5, WH12–WH15: Instagram webhook event processing — one job per
-    // account works through its waiting events in order (deduplicated per account), plus the
-    // every-minute stuck-event pick-up on the same queue. Provider-pausable on the `instagram`
-    // circuit; every Instagram call runs between short organization contexts, never inside one.
-    // Off until the Instagram app is configured (no account can be connected before).
+    // feat-instagram-dm-sending § 5 WH5, WH11–WH16, WH25 (ROUTE row R38): Instagram intake — the
+    // three kind groups' jobs of each account (messages and Live first, comments behind them), the
+    // tag-intake jobs and the every-minute stuck-event pick-up, on one queue. A plain worker, never
+    // paused by an Instagram outage (P47 F3); every unit of work takes a slot of the process's
+    // Instagram database limiter, which the budget counts once (SN24, P408). Off until the Meta app
+    // is configured (no account can be connected before).
     queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
     family: 'instagram',
-    logLabel: 'Instagram webhook event processing worker',
+    logLabel: 'Instagram intake worker',
     usesPostgres: true,
     scheduled: true,
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
-    resolvePostgresConcurrency: () => getWorkerConcurrencyInstagram(),
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
     isEnabled: () => isMetaConfigured(),
-    create: (workerContainers) =>
-      createInstagramWebhookWorker({
-        instagramAccountService: workerContainers.appDomain.instagramAccountService,
-        instagramWebhookEventService: workerContainers.appDomain.instagramWebhookEventService,
-        contactService: workerContainers.appDomain.contactService,
-        instagramMediaService: workerContainers.appDomain.instagramMediaService,
-        automationService: workerContainers.appDomain.automationService,
-        automationRunService: workerContainers.appDomain.automationRunService,
-      }),
+    create: (workerContainers) => {
+      const { appDomain, tenancyDomain } = workerContainers;
+      return createInstagramWebhookWorker({
+        services: {
+          intake: {
+            instagramAccountService: appDomain.instagramAccountService,
+            channelAccountService: appDomain.channelAccountService,
+            broadcastRecipientService: appDomain.broadcastRecipientService,
+            instagramAccountSettingsService: appDomain.instagramAccountSettingsService,
+            instagramWebhookEventService: appDomain.instagramWebhookEventService,
+            contactService: appDomain.contactService,
+            instagramMediaService: appDomain.instagramMediaService,
+            automationService: appDomain.automationService,
+            automationRunService: appDomain.automationRunService,
+            instagramMessageService: appDomain.instagramMessageService,
+          },
+          tagIntake: {
+            organizationService: tenancyDomain.organizationService,
+            contactTagEventService: appDomain.contactTagEventService,
+            contactService: appDomain.contactService,
+            automationRunService: appDomain.automationRunService,
+          },
+          enqueueProfileRead: enqueueInstagramContactProfileRead,
+          readLateCommentTime: createInstagramLateCommentTimeReader({
+            instagramSendAccessService: appDomain.instagramSendAccessService,
+          }),
+        },
+      });
+    },
   },
   // launch-2026-11-20-ujai WH19: the daily 30-day clean-up of the Instagram webhook events. Family
   // `instagram` (beside event processing and its stuck-event pick-up, WH5); no `isEnabled` — the

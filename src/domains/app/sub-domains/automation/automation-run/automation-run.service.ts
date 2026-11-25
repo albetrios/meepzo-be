@@ -113,7 +113,6 @@ import type {
   AutomationTapKind,
   AutomationCommentRunInput,
   AutomationDirectMessageInput,
-  AutomationFailedEventInput,
   AutomationRunEvent,
   AutomationRunHandlingOutcome,
   AutomationRunHandlingResult,
@@ -720,19 +719,6 @@ export class AutomationRunService {
     });
   }
 
-  /**
-   * The runs a webhook event that ended `failed` left `running` — kept for the intake's contract.
-   * Since R14 an event's work is one commit (no call to the channel inside it), so a failed event
-   * wrote nothing and leaves no run behind: always `[]`.
-   *
-   * @remarks
-   * Algorithm: none. Failure modes: none. Side effects: none. ROUTE row R38 (intake per kind) drops
-   * the call.
-   */
-  async failRunsOfFailedEvent(_input: AutomationFailedEventInput): Promise<string[]> {
-    return [];
-  }
-
   // ── Units ────────────────────────────────────────────────────────────────────────────────
 
   /** The repositories of a job's unit. */
@@ -784,9 +770,10 @@ export class AutomationRunService {
       scope: input.scope,
       channelAccountPublicId: input.channelAccountPublicId,
     });
+    // An `error` (or stopped) account still decides: its messages wait in its stopped lanes (WH3).
     if (
       account === null ||
-      account.connection_status !== 'connected' ||
+      account.connection_status === 'revoked' ||
       input.contact.channel_account_id !== account.id
     ) {
       logger.info(

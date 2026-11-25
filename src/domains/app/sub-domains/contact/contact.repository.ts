@@ -590,6 +590,36 @@ export class ContactRepository {
   }
 
   /**
+   * Locks the account's live contact with this provider person id `FOR UPDATE` (intake's first
+   * lock, WH26) and answers its id, or `null` when she has none (new, or erased meanwhile — the lock
+   * waits for an erase that holds her, then finds nothing).
+   */
+  async lockLiveIdByInstagramUserId({
+    organizationId,
+    channelAccountId,
+    instagramUserId,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    instagramUserId: string;
+  }): Promise<number | null> {
+    const locked = await this.db()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.organization_id, organizationId),
+          eq(contacts.channel_account_id, channelAccountId),
+          eq(contacts.instagram_user_id, instagramUserId),
+          LIVE_CONTACT,
+        ),
+      )
+      .limit(1)
+      .for('update');
+    return locked[0]?.id ?? null;
+  }
+
+  /**
    * Erases the contact in place (route 23, CT11): `deleted_at` set and every personal column cleared
    * — the provider id, username, full name, picture, followers, the follow status, email and phone
    * with their times, tags, the note, the opt-out, the pause and the came-in ref — and her activity

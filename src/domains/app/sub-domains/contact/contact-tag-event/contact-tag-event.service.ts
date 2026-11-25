@@ -8,6 +8,7 @@ import type {
 } from '@/domains/app/sub-domains/contact/contact.types.js';
 import { CONTACT_TAG_EVENT_INTAKE_CONTACTS_PER_JOB } from './contact-tag-event.constants.js';
 import {
+  type ContactTagEventIntakeRow,
   type ContactTagEventRepository,
   createWorkerContactTagEventRepository,
 } from './contact-tag-event.repository.js';
@@ -35,9 +36,10 @@ function inPieces<T>({ values, size }: { values: readonly T[]; size: number }): 
  * Algorithm: see {@link ContactTagEventService.recordContactTagEvents}. Failure modes: an insert
  * error throws into the caller's unit, so the tag change rolls back with it (a tag start is never
  * lost, nor started from a change that did not happen). Side effects: `app.contact_tag_events`
- * rows; after commit, the intake jobs. Notes: intake (WC-4) is ROUTE row R38 and the pick-up
- * (WC-27) R47 — until R38 passes {@link ContactTagEventServicePorts.intakeQueue}, the events are
- * written with `queued_at` null and nothing is handed over.
+ * rows; after commit, the intake jobs. Notes: intake (WC-4) is Instagram's `intake-tag-events` job
+ * (ROUTE row R38) and the pick-up (WC-27) R47 — without
+ * {@link ContactTagEventServicePorts.intakeQueue} (a unit test), the events are written with
+ * `queued_at` null and nothing is handed over.
  */
 export class ContactTagEventService implements ContactTagEventRecorder {
   constructor(
@@ -87,6 +89,55 @@ export class ContactTagEventService implements ContactTagEventRecorder {
       if (target === null) continue;
       await runEnqueueAfterCommit(() => this.handOver({ intakeQueue, target }));
     }
+  }
+
+  /**
+   * Tag intake's read (WH15, WC-4): the undone tag events of the named contacts of one organization,
+   * oldest first, at most `limit`, on the intake job's handle.
+   *
+   * @remarks
+   * Algorithm: one read joined to the live contacts and their accounts (their public ids). Failure
+   * modes: none of its own. Side effects: none.
+   */
+  async listUndoneContactTagEvents({
+    databaseHandle,
+    organizationId,
+    contactPublicIds,
+    limit,
+  }: {
+    databaseHandle: WorkerDatabaseHandle;
+    organizationId: number;
+    contactPublicIds: readonly string[];
+    limit: number;
+  }): Promise<ContactTagEventIntakeRow[]> {
+    return createWorkerContactTagEventRepository(databaseHandle).listUndoneForContacts({
+      organizationId,
+      contactPublicIds,
+      limit,
+    });
+  }
+
+  /**
+   * Tag intake's first statement for one event (WH15): `done_at` set only while empty, so a repeat
+   * starts nothing. Answers whether this call set it.
+   *
+   * @remarks
+   * Algorithm: one guarded update on the intake's transaction. Failure modes: none of its own. Side
+   * effects: the row's `done_at`.
+   */
+  async markContactTagEventDone({
+    databaseHandle,
+    organizationId,
+    tagEventId,
+  }: {
+    databaseHandle: WorkerDatabaseHandle;
+    organizationId: number;
+    tagEventId: number;
+  }): Promise<boolean> {
+    return createWorkerContactTagEventRepository(databaseHandle).markDone({
+      organizationId,
+      tagEventId,
+    });
   }
 
   /**

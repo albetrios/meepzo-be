@@ -90,7 +90,10 @@ Producers fail fast while Redis is unreachable or full (`noeviction` rejects wri
 | Data export | `auth.user_data_exports` row, left `pending` | `reclaim-pending-user-data-exports` — a repeatable job on the export queue itself, every 5 min, re-enqueues exports still `pending` after 5 min; the job id is the export's public id |
 | Instagram reconnect notice | none — the break is on `app.channel_accounts` (`connection_status` `error`, keyed by its `updated_at` at the break), but no row records the notice | not recovered — logged (`app.instagram_account.reconnect_notice_enqueue_failed`); the Instagram page still shows the reconnect card |
 | Channel connection token check | none — the sweep lists the connections due (`last_checked_at` 24 h old or more) | the next hourly sweep lists the connection again (it is still due); the 10-minute webhook subscription sweep on the same queue adds its checks again the next window |
-| Instagram webhook event processing | `app.instagram_webhook_events` rows, left `received` / `queued` | `reclaim-instagram-webhook-events` — a repeatable job on the processing queue itself, every minute, re-adds the job of every account with an event still waiting 5 min after it arrived and not claimed in 5 min (up to 100 accounts a run); the per-account deduplication makes the add a no-op while the account's job is live |
+| Instagram intake per kind (feat-instagram-dm-sending WH5, R38) | `app.instagram_webhook_events` rows, left `received` | `reclaim-instagram-webhook-events` — a repeatable job on the intake queue itself, every minute, re-adds the intake job of every (account, kind group) with an event still waiting 1 min after it arrived and not claimed in 5 min (up to 100 a run), and sends each `failed` event whose `next_attempt_at` is due back to `received` while its trigger is under 7 days old (R39, WH17/WH21); the per-kind deduplication makes the add a no-op while that job is live |
+| Instagram missed comments (feat-instagram-dm-sending WH17, WC-26, R39) | comments Meta never delivered (webhook off, an outage) | `sweep-instagram-missed-comments` — a repeatable job on the intake queue, every 30 min, adds one `missed-comment-check` task per connected account with a due watched post (spread over the round; the full pass at the lowest priority, spread over 10 min, when its posts were last read over 60 min ago); the look saves new comments through the webhook's store function, so a comment also delivered is saved once |
+| Past-comments read (feat-instagram-dm-sending AU32, WC-41, R41) | `app.automation_backfills` rows, `queued` or `reading` (the page mark is `updated_at`) | `watch-automation-backfill-reads` — a repeatable job on the intake queue, every 10 min, wakes the `automation-backfill-read` task of every account with a `reading` read and no new page for 30 min (started again from zero) or a `queued` read waiting over 10 min |
+| "My next post" linking (feat-instagram-dm-sending AU6, WC-43, R41) | none — the waiting automations are the state (`next_post_status` `waiting`) | `sweep-next-post-linking` — a repeatable job on the intake queue, every 15 min, adds one `next-post-linking` task per connected account with a live waiting "my next post" automation; a lost task is the next round's |
 
 An enqueue failure never marks an outbox row failed: it leaves the row for its sweep.
 
@@ -148,7 +151,8 @@ minutes until the provider is back; then everything that waited is processed.
 | `mail` | `resend` |
 | `stripe-webhook`, `subscription-seat-sync` | `stripe` |
 | `user-data-export` | `s3` |
-| `instagram-webhook` | `instagram` |
+
+Instagram intake (`instagram-webhook`) is **not** provider-pausable (feat-instagram-dm-sending WH25, P47 F3): it makes no Meta call but fail-open reads, so an Instagram outage never pauses it (`worker-registration.registry.unit.test.ts` pins it on the database limiter).
 
 - **What counts as an outage** (`toProviderOutageError`): the provider's circuit is open (the call
   never left), or a failure leaves the circuit not CLOSED — it tripped it, or it was a half-open probe

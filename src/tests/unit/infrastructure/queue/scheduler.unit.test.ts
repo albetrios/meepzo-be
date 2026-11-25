@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(36);
+    expect(scheduledJobs).toHaveLength(39);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -99,6 +99,36 @@ describe('infrastructure queue scheduler', () => {
       // launch-2026-11-20-ujai WH15: the stuck-event pick-up rides the Instagram processing queue
       // (job `reclaim-instagram-webhook-events`), every minute.
       'instagram-webhook',
+      // feat-instagram-dm-sending WH17: the missed-comment sweep rides the same queue
+      // (job `sweep-instagram-missed-comments`), every 30 minutes.
+      'instagram-webhook',
+      // feat-instagram-dm-sending R41: the past-comments watch (WC-41, every 10 minutes) and the
+      // "next post" linking sweep (WC-43, every 15 minutes) ride the same queue.
+      'instagram-webhook',
+      'instagram-webhook',
+    ]);
+  });
+
+  it('runs the past-comments watch every 10 minutes and the "next post" linking every 15 (WC-41, WC-43, R41)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const jobs = getScheduledJobs().filter(
+      (scheduledJob) =>
+        scheduledJob.jobName === 'watch-automation-backfill-reads' ||
+        scheduledJob.jobName === 'sweep-next-post-linking',
+    );
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        queueName: 'instagram-webhook',
+        schedulerId: 'automation-backfill-watch',
+        jobName: 'watch-automation-backfill-reads',
+        cronPattern: '*/10 * * * *',
+      }),
+      expect.objectContaining({
+        queueName: 'instagram-webhook',
+        schedulerId: 'automation-next-post-linking',
+        jobName: 'sweep-next-post-linking',
+        cronPattern: '*/15 * * * *',
+      }),
     ]);
   });
 
@@ -139,6 +169,18 @@ describe('infrastructure queue scheduler', () => {
       schedulerId: 'instagram-webhook-reclaim',
       jobName: 'reclaim-instagram-webhook-events',
       cronPattern: '* * * * *',
+    });
+  });
+
+  it('sweeps for missed Instagram comments every 30 minutes on the intake queue (WH17, WC-26)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const job = getScheduledJobs().find(
+      (scheduledJob) => scheduledJob.schedulerId === 'instagram-missed-comment-sweep',
+    );
+    expect(job).toMatchObject({
+      queueName: 'instagram-webhook',
+      jobName: 'sweep-instagram-missed-comments',
+      cronPattern: '*/30 * * * *',
     });
   });
 
@@ -229,16 +271,18 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(36);
-    // Each scheduled job opens one Queue for upsert (36) + the reconcile pass opens one Queue per
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(39);
+    // Each scheduled job opens one Queue for upsert (39) + the reconcile pass opens one Queue per
     // unique queue name (35 — the seat reconcile, the export reclaim, the channel connection
     // token-check sweep and the Instagram stuck-event pick-up ride queues no other cron uses; the
-    // 10-minute webhook subscription sweep shares the token-check queue, R40), each closed in
+    // 10-minute webhook subscription sweep shares the token-check queue, R40, and the missed-comment
+    // sweep, the past-comments watch and the "next post" linking sweep ride the pick-up's queue,
+    // R39, R41), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(71);
+    expect(queueCloseMock).toHaveBeenCalledTimes(74);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(71);
+    expect(queueCloseMock).toHaveBeenCalledTimes(74);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

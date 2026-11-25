@@ -36,8 +36,9 @@ export type InstagramWebhookEventIntakeGroup =
 
 /**
  * Every value of `app.instagram_webhook_events.status`, in the order an event moves (WH12): born
- * `received` (or already `skipped`), `queued` once its account's processing job is added, then one
- * of the three final statuses. Mirrors `chk_instagram_webhook_events_status`.
+ * `received` (or already `skipped`), then one of the three final statuses. `queued` is no longer
+ * written (S25, P97 — ROUTE row R38) and stays for rows saved before. Mirrors
+ * `chk_instagram_webhook_events_status`.
  */
 export const INSTAGRAM_WEBHOOK_EVENT_STATUSES = [
   'received',

@@ -16,8 +16,9 @@ automations, saves drafts, reads, saves content, deletes, goes live, pauses, dup
 keyword (routes 27–35, `/api/v1/app/automations`; its failed messages' summary and retry, routes
 36–37 `…/{automation_id}/failed-messages/summary` · `/retry`, over the channel's sending port — R19). All-time counts live in 16 slot rows
 (`app.automation_counts`) and the reply pacing in `app.automation_reply_states`. Event processing
-(sub-domain 5) links waiting "next post" automations to a new post through this service (no end
-date — P12); a worker removes for good the automations deleted long ago that nothing points at. The
+(sub-domain 5) links waiting "next post" automations to a new post through this service, and every
+15 minutes the linking sweep (WC-43, R41) reads each such account's posts since go-live and links
+the first (no end date — P12); a worker removes for good the automations deleted long ago that nothing points at. The
 runs, their history, the per-comment logs and the run engine are the nested
 [`automation-run/`](automation-run/automation-run.overview.md) (§ 4.B — rebuilt at ROUTE row R14). Its
 past-comments reads (routes 38–39, `app.automation_backfills`) are the nested
@@ -45,7 +46,10 @@ the read job at R41); the automation object shows the open one as `open_backfill
   `AutomationMonthLimitPort`, `AutomationMessageFilePort`) and `AutomationOpenRunCancelStep`
 - `automation.dto.ts`, `automation.serializer.ts`, `automation.controller.ts`,
   `automation.routes.ts`, `automation.constants.ts`
-- `workers/` — the deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC)
+- `workers/` — the deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC);
+  the "next post" linking sweep (`automation-next-post-linking.*`, job `sweep-next-post-linking` on
+  the intake queue every 15 minutes, R41 — scan across organizations, then one channel task per
+  account through the channel's enqueue: Instagram's `next-post-linking`)
 - `automation-run/` — the nested run sub-domain: runs, run events and comment logs split by month,
   the open-run keys and the run engine over `steps` (R14), which saves its steps through
   `ChannelSendingPort` and reads automations through this folder's repository

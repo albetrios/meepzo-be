@@ -328,7 +328,7 @@ describe('Instagram "next post" linking flow (e2e)', () => {
       expect(postReads(postId)).toBe(1);
     });
 
-    it('a retried comment links nothing again, reads nothing again and is answered once (AC-10.1, AC-10.9)', async () => {
+    it('a retried comment links once and is answered once — its failed try wrote nothing (AC-10.1, AC-10.9; WH12)', async () => {
       const nextPost = await flow.createNextPostAutomation({ name: 'Launch day' });
       const postId = flow.publishPost(flow.hoursFromNow(-1));
       instagram.failNext({ kind: 'direct_message', failure: instagramFailure.throttled() });
@@ -339,23 +339,20 @@ describe('Instagram "next post" linking flow (e2e)', () => {
       });
 
       await expect(comments.processEvents()).rejects.toThrow();
-      const linked = await flow.rowOf(nextPost);
-      expect(linked).toMatchObject({
-        next_post_status: 'linked',
-        target_instagram_media_id: postId,
-      });
+      // Intake per kind (R38): one event, one transaction — the failed try kept no post and no link.
+      expect(await flow.rowOf(nextPost)).not.toMatchObject({ next_post_status: 'linked' });
+      expect(await storedPostIds()).toEqual([]);
       expect(await comments.processEvents()).toMatchObject({ processedEventCount: 1 });
 
       expect(await flow.rowOf(nextPost)).toMatchObject({
         next_post_status: 'linked',
         target_instagram_media_id: postId,
-        next_post_linked_at: linked.next_post_linked_at,
-        updated_at: linked.updated_at,
       });
       expect(await answersOf(commentId)).toEqual([answeredBy(nextPost)]);
       expect(instagram.directMessages).toHaveLength(1);
       expect(await storedPostIds()).toEqual([postId]);
-      expect(postReads(postId)).toBe(1);
+      // The post is read again on the retry: the first try's store rolled back with it.
+      expect(postReads(postId)).toBe(2);
     });
   });
 

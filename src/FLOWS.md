@@ -669,7 +669,7 @@ A contact erase and a running automation meet on the contact's row: both lock it
 
 ### Trigger
 
-Meta calls the Instagram webhook's two public routes at the Instagram object's own callback path (`iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/routes-final.md` § 5.A, routes 60–61, built by ROUTE row R17 on the launch's R13; P53): **the subscription check** — `GET /api/v1/app/social/channel-connections/meta/webhooks/instagram` when the Instagram object's webhook is saved in the Meta App Dashboard — and **every delivery** — `POST` on the same path with the six subscribed fields (comments, Live comments, messages, postbacks, referrals, reactions) of a connected account. The receiver **saves only**; processing the saved events (dispatch per kind, order per account, retries, the stuck-event pick-up) is the [instagram-webhook-processing-flow](#instagram-webhook-processing-flow) below (launch ROUTE row R14; intake per kind at R38).
+Meta calls the Instagram webhook's two public routes at the Instagram object's own callback path (`iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/routes-final.md` § 5.A, routes 60–61, built by ROUTE row R17 on the launch's R13; P53): **the subscription check** — `GET /api/v1/app/social/channel-connections/meta/webhooks/instagram` when the Instagram object's webhook is saved in the Meta App Dashboard — and **every delivery** — `POST` on the same path with the six subscribed fields (comments, Live comments, messages, postbacks, referrals, reactions) of a connected account. The receiver **saves only**; taking the saved events in (one job per kind group, the one lock order, retries, the stuck-event pick-up) is the [instagram-webhook-processing-flow](#instagram-webhook-processing-flow) below (intake per kind, ROUTE row R38).
 
 ### Sequence
 
@@ -700,7 +700,7 @@ sequenceDiagram
       Receiver->>Account: account state in its VERIFIED scope (status, automation switch, both ids, cha_ id)
       Receiver->>Receiver: classify every item — read receipts dropped; our own echoes dropped (own-message lookup, R19)
       Receiver->>Events: recordReceivedEvents — 8-day replay guard, keys ON CONFLICT DO NOTHING, then only the new keys' events; COMMIT
-      Receiver->>Receiver: after commit — add the channel account's processing job, then the received rows turn queued
+      Receiver->>Receiver: after commit — one intake job per kind group that got events (the rows stay received, S25)
     end
   end
   Receiver-->>Meta: 200 text/plain OK — only once every entry is saved (over 3 s or Postgres down: 503; other failure: 500 — after the others)
@@ -708,7 +708,7 @@ sequenceDiagram
 
 ### Side effects
 
-- `app.instagram_webhook_event_keys` — one row per channel account, event key and Meta day; `app.instagram_webhook_events` — one row per new key, born `received` (then `queued` once the channel account's processing job is added; a failed add is logged and left to the stuck-event pick-up), or `skipped` and final with its reason: the kind's own (`own_comment` — the account's own comment or Live comment, `edit`, `unsupported`) or `automation_disabled` when the switch is off. An `error` account's events are saved `received`. Read receipts, our own echoes and events over 8 days old are never saved; nothing is kept in Redis (P32).
+- `app.instagram_webhook_event_keys` — one row per channel account, event key and Meta day; `app.instagram_webhook_events` — one row per new key, born `received` (and left `received` — S25, P97: no `queued` update; a failed intake add is logged and left to the stuck-event pick-up), or `skipped` and final with its reason: the kind's own (`own_comment` — the account's own comment or Live comment, `edit`, `unsupported`) or `automation_disabled` when the switch is off. An `error` account's events are saved `received`. Read receipts, our own echoes and events over 8 days old are never saved; nothing is kept in Redis (P32).
 - Log lines (`instagram.webhook.*`) with the request id, Instagram and public ids and counts — never the payload, message or comment text; the `instagram_webhook_unknown_account_entries_total` metric. No audit entry, no `*_by_user_id` (WH6).
 
 ### Failure modes
@@ -723,57 +723,59 @@ sequenceDiagram
 
 ### Trigger
 
-The account's processing job on the `instagram-webhook` queue (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 4.A WH12–WH15, built by ROUTE row R14): added by the receiver after each stored entry ([instagram-webhook-intake-flow](#instagram-webhook-intake-flow)), by the every-minute stuck-event pick-up for an account whose event still waits 5 minutes after it arrived, and by a job that yielded after its 25 events. One job per account at a time on any replica (BullMQ deduplication with `keepLastIfActive`); different accounts side by side up to `WORKER_CONCURRENCY_INSTAGRAM`.
+Intake per kind on the `instagram-webhook` queue (`iterations/feat-instagram-dm-sending-2026-11-23-oxak/plans/routes-final.md` § 5 WH5, WH11–WH17, WH25–WH27, built by ROUTE row R38): three jobs per account — `intake-messages` (taps, typed answers, DMs, story replies and mentions, shared posts, starter questions, links, ad messages, reactions, echoes — priority 1), `intake-live` (Live comments — 1) and `intake-comments` (comments and ad comments — 5; 10 while more than 500 wait) — added by the receiver after each stored entry for each kind group that got events ([instagram-webhook-intake-flow](#instagram-webhook-intake-flow)), by the every-minute stuck-event pick-up, and by a job that yielded after its 25 events; plus `intake-tag-events` (one contact at 5, a bulk piece of up to 500 at 10) added after a tag change's commit. Messages and Live run one job per account (deduplicated `intake-<kind>-<cha_…>`, strict order); comments up to four (`SKIP LOCKED`, S11). A **plain** worker — never paused by an Instagram outage (WH25); every unit of work takes a slot of the process's Instagram database limiter (SN24).
 
 ### Sequence
 
 ```mermaid
 sequenceDiagram
   participant Queue as instagram-webhook queue
-  participant Worker as instagram-webhook worker (provider-pausable, instagram)
+  participant Worker as intake worker (plain, database limiter)
   participant Events as InstagramWebhookEventService
   participant Account as InstagramAccountService
-  participant Contact as ContactService
-  participant Instagram as meta-graph.client
-  participant Engine as AutomationRunService (+ linkNextPostAutomations)
+  participant Contact as ContactService (recordInboundContactEvent)
+  participant Engine as AutomationRunService
+  participant Messages as InstagramMessageService (6)
+  participant Tasks as instagram-tasks
 
-  Queue->>Worker: process-instagram-webhook-events {organizationPublicId, channelAccountPublicId}
-  Worker->>Account: the account's key (job scope, PRINCIPAL_SCOPE.JOB)
-  loop up to 25 events, oldest stored first
-    Worker->>Events: claim the head — one more attempt, a 5-minute lease (a head at 5 attempts → failed, the runs it left running failed in the same unit)
-    Worker->>Account: read again — switch off → skipped automation_disabled; not connected → skipped account_disconnected
-    Worker->>Contact: recordContactInteraction (the contact first)
-    opt a contact this event created
-      Worker->>Instagram: read the profile (outside any unit; fails open)
-      Worker->>Contact: recordContactProfile
+  Queue->>Worker: intake-<kind> {organizationPublicId, channelAccountPublicId, intakeKind}
+  loop up to 25 events of the group, oldest first
+    Worker->>Events: claim — the group's head (comments: the oldest free row, SKIP LOCKED); one more try, 5-minute lease; a row at 5 tries → failed, next_attempt_at +1 h
+    Worker->>Account: read again — gone or revoked → skipped account_disconnected; switch off → skipped automation_disabled (an error account is taken in)
+    Worker->>Events: no lock held — the flood count (> 20 of her message events a minute → skipped flood), the owner's echoes of 6 h (quiet time), the stop words
+    Note over Worker,Engine: ONE transaction
+    Worker->>Contact: lockInboundContact — her live contact FOR UPDATE (an erase holding her goes first)
+    Worker->>Events: mark processed / skipped while it still waits (0 rows → done already, stop)
+    alt an echo of the owner
+      Worker->>Messages: matchEchoedMessage — our unconfirmed message → sent; else the quiet time starts
+    else every other kind
+      Worker->>Contact: recordInboundContactEvent (the first lock: her contact)
+      Worker->>Contact: a stop word → recordContactOptOut (waiting skipped, runs cancelled)
+      Worker->>Engine: startCommentRun / handleDirectMessage / handleButtonClick (automation → runs; waiting messages through the sending port)
     end
-    opt a comment
-      Worker->>Instagram: read the post the first time (outside any unit)
-      Worker->>Engine: store the post, then linkNextPostAutomations in a savepoint
-    end
-    Worker->>Engine: startCommentRun / handleDirectMessage (message, story_reply) / handleButtonClick (job scope) — one commit, no channel call
-    Worker->>Events: mark processed (only while the claim holds) — or failed, and then in the same unit
-    opt marked failed
-      Worker->>Engine: failRunsOfFailedEvent — the runs this event left running are failed with its code
-    end
+    Note over Worker,Engine: COMMIT
+    Worker->>Tasks: a new contact → contact-profile task (lowest priority, S11)
   end
-  Worker->>Queue: after 25 events — one follow-up job for the account
+  Worker->>Queue: after 25 events — follow-up job(s) of the group
 ```
 
 ### Side effects
 
-- `app.instagram_webhook_events` — the claim (`attempt_count`, `last_attempted_at`) and the final status: `processed` once the handling finished (a run that could not send shows it on the run and its comment log), `skipped` with `automation_disabled` / `account_disconnected`, or `failed` with a code (`instagram_api:<code>/<subcode>`, `event_payload_invalid:<reason>`, `processing_attempts_exhausted`, `processing_error:<name>`) — never payload text.
-- Through sub-domains 1–4: the contact (and a new contact's profile), the stored post, "next post" links, runs, run events, comment logs and waiting messages through the channel's sending port (the engine sends nothing, R14); a token refused on processing's own reads marks the account broken (the reconnect notice follows). Whenever an event is marked `failed` — or `skipped` on a retry, after the account was switched off or disconnected between two tries (D51) — the runs it left `running` are failed in the same unit of work (D47).
+- `app.instagram_webhook_events` — the claim (`attempt_count`, `last_attempted_at`) and the final status: `processed`, `skipped` (`automation_disabled`, `account_disconnected`, `flood`), or `failed` with a code (`event_payload_invalid:<reason>`, `processing_attempts_exhausted`, `processing_error:<name>[:<SQLSTATE>]`) and `next_attempt_at` an hour later (none for a refusal) — never payload text; the body cleared when done.
+- In the event's one commit: the contact (her window, comment count, story activity, first message; an opt-out), runs, run events, comment logs, counts and waiting messages (through the engine and `ChannelSendingPort` — intake sends nothing), the stored post and "next post" links; after it, a `contact-profile` task for a new contact.
+- `intake-tag-events`: per undone tag event, one commit — `done_at`, then `startTagRun` (window open, chain under 3, `run_in_progress` while her run is open).
 - Log lines `app.instagram_webhook.*` with ids, kinds, keys, statuses and counts — never the payload, a message or comment text, emails or phone numbers (WH6).
 
 ### Failure modes
 
-- **A temporary failure** (a lost connection, a database blip, an Instagram 5xx other than 502 and 504, which the engine rethrows) → the lease ends, the attempt is kept, the job retries with backoff (5 attempts, from 5 s) while the account's later events wait; the event's 5th failed attempt marks it `failed` and the next event runs.
-- **A permanent failure** (an unreadable payload, a refused token — the account then `expired` / `error`) → `failed` at once.
-- **An event that ends `failed` any way** (the 5th attempt, attempts that ran out after crashes, a permanent failure) → since feat-instagram-dm-sending R14 the engine's work on an event is one commit with no channel call, so a failed event left no run behind (`failRunsOfFailedEvent` answers none; intake per kind, R38, drops the call).
-- **An Instagram outage** (the `instagram` circuit open) → the claim is given back with its attempt and the queue pauses on every replica, probing every five minutes.
-- **A lost job** (a Redis refusal at the receiver, a crash mid-event) → the stuck-event pick-up re-adds the account's job every minute once the event is 5 minutes old and its lease is over.
-- A skipped event is never processed later, even when the switch is turned back on. Nobody is told about a failed event; it shows in route 18.
+- **A deadlock or lock timeout** → the transaction runs again, 3 times at most; **every path takes its locks in one order** — her contact, then the automation, then the runs (WH26, raced in `instagram-webhook-intake.processor.db.unit.test.ts`).
+- **Postgres unreachable** → the claim is given back without using a try and the job retries with backoff.
+- **Any other failure** → the try is kept, the lease ends and the group's job retries with backoff (only that group of that account waits); the 5th failed try marks the event `failed` with `next_attempt_at`; **a refusal** (an unreadable payload) fails it at once.
+- **An Instagram outage** → intake goes on (WH25): its only Meta calls are fail-open reads (a commented post not stored yet, a late comment's time — `createInstagramLateCommentTimeReader`, 3 s, R39).
+- **A lost job** (a Redis refusal at the receiver, a crash mid-event) → the stuck-event pick-up re-adds the account's job of that kind group every minute once the event waited 1 minute and no lease holds it (R39).
+- **A `failed` event** → the same pick-up sends it back to `received` (its 5 tries again) when `next_attempt_at` is due — an hour after each 5th failure — while its comment or message is under 7 days old; then it stays `failed` (R39, WH21).
+- **A comment Meta never delivered** (webhook off, an outage) → the 30-minute missed-comment sweep hands each account with a due watched post a look on `instagram-tasks` — the full pass at the lowest priority when two rounds were missed — which reads the post's comments back (25 posts, 7 days, stopping at 80 % / 60 % Meta usage) and saves the new ones through the receiver's store function, so a comment also delivered is saved once (R39, WH17, P93).
+- A skipped event is never taken in later, even when the switch is turned back on. Nobody is told about a failed event; it shows in route 62.
 
 ## instagram-comment-automation-flow
 

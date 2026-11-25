@@ -3,6 +3,10 @@ import type {
   AutomationBackfillFailReason,
   AutomationBackfillStatus,
 } from './automation-backfill.constants.js';
+import type {
+  AutomationBackfillKey,
+  AutomationBackfillReadTarget,
+} from './automation-backfill.repository.js';
 
 /**
  * The Automation backfill object of routes 38–39 and the automation's `open_backfill`
@@ -48,15 +52,17 @@ export interface AutomationBackfillGetInput {
 }
 
 /**
- * The past-comments read job (WC-41, AU32 — the `instagram-tasks` worker of ROUTE row R41): route 38
- * enqueues the account's next read after its commit. Optional until R41 wires it; without it the
- * row stays `queued` and nothing is enqueued.
+ * The past-comments read job (WC-41, AU32 — Instagram's `automation-backfill-read` task on
+ * `instagram-tasks`, ROUTE row R41): route 38 wakes the account's reads after its commit, the watch
+ * wakes a stuck one, an ended read wakes the account's next. Wired by the app container; without
+ * it (a unit test) the row stays `queued` and nothing is enqueued.
  */
 export interface AutomationBackfillReadQueue {
   enqueueAutomationBackfillRead(input: {
     organizationPublicId: string;
     channelAccountPublicId: string;
-    automationBackfillPublicId: string;
+    /** `abf_…` — the read that asked (route 38); absent for the watch's wake-up of the account. */
+    automationBackfillPublicId?: string | undefined;
   }): Promise<void>;
 }
 
@@ -72,3 +78,29 @@ export interface AutomationOpenBackfillReader {
     automationPublicId: string;
   }): Promise<AutomationBackfillOutput | null>;
 }
+
+/**
+ * A started past-comments read as the read job works it (WC-41, AU32): its keys, the start it
+ * carries (every write is guarded by it, so a read started again by the watch stops the old job),
+ * the days back and the automation's fields (`null` when the automation is deleted).
+ */
+export interface AutomationBackfillRead {
+  key: AutomationBackfillKey;
+  /** `abf_…`. */
+  automationBackfillPublicId: string;
+  startedAt: Date;
+  days: number;
+  target: AutomationBackfillReadTarget | null;
+}
+
+/**
+ * What `beginAutomationBackfillRead` found (AU32): a read to work (`reading`), another read of the
+ * account still running (`busy`), nothing queued (`none`), the resumed read ended or started again
+ * (`ended`), or the feature check refused it — the read ended `failed` (`refused`).
+ */
+export type AutomationBackfillReadBegin =
+  | { kind: 'reading'; read: AutomationBackfillRead }
+  | { kind: 'busy' }
+  | { kind: 'none' }
+  | { kind: 'ended' }
+  | { kind: 'refused'; failReason: AutomationBackfillFailReason };

@@ -45,6 +45,7 @@ import { channel_accounts } from '@/domains/app/sub-domains/channel-account/chan
 import { instagram_webhook_events } from './instagram-webhook-event.schema.js';
 import {
   INSTAGRAM_WEBHOOK_EVENT_WAITING_STATUSES,
+  type InstagramWebhookEventIntakeGroup,
   type InstagramWebhookEventKind,
   type InstagramWebhookEventSkipReason,
 } from './instagram-webhook-event.constants.js';
@@ -119,6 +120,28 @@ export interface InstagramWebhookStuckAccount {
   organizationPublicId: string;
   /** `cha_…` — the job's `channelAccountPublicId`. */
   channelAccountPublicId: string;
+  /** The kind group whose events wait — the intake job to add (WH5). */
+  intakeGroup: InstagramWebhookEventIntakeGroup;
+}
+
+/**
+ * One `failed` event the hourly retry found due (WH17, WH21): its organization and account (public
+ * ids, for the jobs) and its row keys (for the write in its own organization's scope).
+ */
+export interface InstagramWebhookDueFailedEvent {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  /** `app.instagram_webhook_events.id`. */
+  eventId: number;
+  /** The row's `created_at` — its day part's key. */
+  createdAt: Date;
+}
+
+/** An event the hourly retry sent back to `received`: its id and kind group (the job to add). */
+export interface InstagramWebhookRetriedEvent {
+  /** `app.instagram_webhook_events.id`. */
+  eventId: number;
+  intakeGroup: InstagramWebhookEventIntakeGroup;
 }
 
 /** The `error_message` of an event whose attempts ran out (WH12, WH14). */
@@ -221,19 +244,21 @@ function claimCondition(claim: InstagramWebhookEventClaimKey): SQL | undefined {
 
 /**
  * Drizzle access to `app.instagram_webhook_events` (feat-instagram-dm-sending routes-final § 5.B.3,
- * 5.B.10, WHC11): the insert of a delivery's new events, the `queued` mark, the claim of an account's
- * oldest waiting event (a `MATERIALIZED` CTE), the guarded final marks (which clear the body, WH22)
- * and the claim release, route 62's keyset list, the stuck-event pick-up's read and the launch's
- * clean-up (retired by the part drops at ROUTE R49).
+ * 5.B.10, WHC11): the insert of a delivery's new events, the claim of a kind group's oldest waiting
+ * event (a `MATERIALIZED` CTE), the guarded final marks (which clear the body, WH22) and the claim
+ * release, intake's reads (the flood count, the owner's echoes, the waiting count), route 62's
+ * keyset list, the stuck-event pick-up's read and the launch's clean-up (retired by the part drops
+ * at ROUTE R49).
  *
  * @remarks
  * - **Algorithm:** every row statement names `organization_id` (and the channel account and the row
  *   id where it has them), so tenant isolation does not rest on RLS alone. The table is split by day
  *   (WH19): the repeat guard is `app.instagram_webhook_event_keys` — the store function inserts only
- *   the events whose key it just claimed there (WH9 step 6). The claim reads the account's head (oldest `received` / `queued`, by `created_at`,
- *   `id`) in a `MATERIALIZED` CTE and updates it only while no other run holds its lease — never
- *   skipping ahead, so one account's events run strictly in order (WQ3). The attempt count the
- *   claim sets is its token: every later mark of that claim requires it.
+ *   the events whose key it just claimed there (WH9 step 6). The claim reads one kind group's head
+ *   (oldest `received` / `queued`, by `created_at`, `id`) in a `MATERIALIZED` CTE and updates it
+ *   only while no other run holds its lease — never skipping ahead for messages and Live, the
+ *   oldest free row `SKIP LOCKED` for comments (WH11, S11). The try count the claim sets is its
+ *   token: every later mark of that claim requires it.
  * - **Failure modes:** a cursor not minted here, or minted under other filters, is a `400` on
  *   `after`; guarded writes return `false` / `null` when the row is not in the state they require.
  * - **Side effects:** writes `app.instagram_webhook_events` only. Rows are created only by the
@@ -308,66 +333,66 @@ export class InstagramWebhookEventRepository {
   }
 
   /**
-   * Turns the account's just-stored `received` rows `queued` once their processing job was added
-   * (WH10). Rows a claim or a mark moved on in between stay as they are. Returns how many turned.
-   */
-  async markQueued({
-    organizationId,
-    channelAccountId,
-    eventIds,
-  }: InstagramWebhookEventAccountKey & { eventIds: readonly number[] }): Promise<number> {
-    if (eventIds.length === 0) return 0;
-    const rows = await this.db()
-      .update(instagram_webhook_events)
-      .set({ status: 'queued', updated_at: eventUpdatedAtTimestamp })
-      .where(
-        and(
-          eq(instagram_webhook_events.organization_id, organizationId),
-          eq(instagram_webhook_events.channel_account_id, channelAccountId),
-          inArray(instagram_webhook_events.id, [...eventIds]),
-          eq(instagram_webhook_events.status, 'received'),
-        ),
-      )
-      .returning({ id: instagram_webhook_events.id });
-    return rows.length;
-  }
-
-  /**
-   * Claims the account's oldest waiting event (WH12 step 1): when no other run holds its lease (no
-   * claim in the last `claimLeaseMinutes`), adds one to its attempt count and starts the lease — or,
-   * when it already used `maxProcessingAttempts`, marks it `failed` (`processing_attempts_exhausted`)
-   * instead. Returns `null` when the account has no waiting event, or its head is leased by another
-   * run (the head is never skipped — strict order, WQ3).
+   * Claims the oldest waiting event of one kind group of the account (WH11, WH12 step 1): when no
+   * other run holds its lease (no claim in the last `claimLeaseMinutes`), adds one to its try count
+   * and starts the lease — or, when it already used `maxProcessingAttempts`, marks it `failed`
+   * (`processing_attempts_exhausted`, `next_attempt_at` = `retryAfterMinutes` later) instead.
+   * Returns `null` when nothing of the group waits, or (strict order) its head is leased.
    *
    * @remarks
-   * - **Algorithm:** a `MATERIALIZED` CTE reads the head once (`created_at`, `id`; served by
-   *   `idx_instagram_webhook_events_pending`); the `UPDATE … FROM` re-checks status and lease on
-   *   the row it locks, so two runs racing for one head claim it once. The claimed row is read back
+   * - **Algorithm:** a `MATERIALIZED` CTE reads the row once (`created_at`, `id`; served by
+   *   `idx_instagram_webhook_events_pending`, which leads with `(channel_account_id, intake_group)`);
+   *   the `UPDATE … FROM` re-checks status and lease on the row it locks, so two runs racing for one
+   *   row claim it once. **Strict order** (`messages`, `live` — WH11): the group's head only, never
+   *   skipping ahead. **`skipLocked`** (`comments`, scale review S11): the oldest row whose lease is
+   *   free, `FOR UPDATE SKIP LOCKED`, so several comment-intake jobs of one account work side by
+   *   side (her contact's lock keeps one person's events in order). The claimed row is read back
    *   through Drizzle (typed columns).
-   * - **Notes:** the caller passes the processing constants (WHC10) — this method owns no policy
-   *   number.
+   * - **Notes:** the caller passes the intake constants — this method owns no policy number.
    */
   async claimOldestWaitingEvent({
     organizationId,
     channelAccountId,
+    intakeGroup,
+    isSkipLocked,
     maxProcessingAttempts,
     claimLeaseMinutes,
+    retryAfterMinutes,
   }: InstagramWebhookEventAccountKey & {
-    /** A head that already used this many attempts is failed instead of claimed. */
+    /** The kind group the job claims (WH11). */
+    intakeGroup: InstagramWebhookEventIntakeGroup;
+    /** `true` for the comment group (S11): the oldest free row, `SKIP LOCKED`; else the head. */
+    isSkipLocked: boolean;
+    /** A row that already used this many tries is failed instead of claimed. */
     maxProcessingAttempts: number;
-    /** How long a claim holds the event (the "stuck" lease, WH15). */
+    /** How long a claim holds the event (the "stuck" lease). */
     claimLeaseMinutes: number;
+    /** An exhausted row's `next_attempt_at` is this many minutes later (WH12). */
+    retryAfterMinutes: number;
   }): Promise<InstagramWebhookEventClaimResult | null> {
-    const result = await this.db().execute(sql`
-      WITH head AS MATERIALIZED (
-        SELECT id, created_at
+    const leaseFree = sql`(last_attempted_at IS NULL
+              OR last_attempted_at <= now() - make_interval(mins => ${claimLeaseMinutes}))`;
+    const pick = isSkipLocked
+      ? sql`SELECT id, created_at
           FROM app.instagram_webhook_events
          WHERE organization_id = ${organizationId}
            AND channel_account_id = ${channelAccountId}
+           AND intake_group = ${intakeGroup}
            AND status IN ('received', 'queued')
+           AND ${leaseFree}
          ORDER BY created_at ASC, id ASC
          LIMIT 1
-      )
+         FOR UPDATE SKIP LOCKED`
+      : sql`SELECT id, created_at
+          FROM app.instagram_webhook_events
+         WHERE organization_id = ${organizationId}
+           AND channel_account_id = ${channelAccountId}
+           AND intake_group = ${intakeGroup}
+           AND status IN ('received', 'queued')
+         ORDER BY created_at ASC, id ASC
+         LIMIT 1`;
+    const result = await this.db().execute(sql`
+      WITH head AS MATERIALIZED (${pick})
       UPDATE app.instagram_webhook_events AS head_event
          SET attempt_count = CASE WHEN head_event.attempt_count >= ${maxProcessingAttempts}
                                   THEN head_event.attempt_count ELSE head_event.attempt_count + 1 END,
@@ -378,6 +403,9 @@ export class InstagramWebhookEventRepository {
              error_message = CASE WHEN head_event.attempt_count >= ${maxProcessingAttempts}
                                   THEN ${INSTAGRAM_WEBHOOK_EVENT_ATTEMPTS_EXHAUSTED_ERROR}
                                   ELSE head_event.error_message END,
+             next_attempt_at = CASE WHEN head_event.attempt_count >= ${maxProcessingAttempts}
+                                    THEN now() + make_interval(mins => ${retryAfterMinutes})
+                                    ELSE head_event.next_attempt_at END,
              processed_at = CASE WHEN head_event.attempt_count >= ${maxProcessingAttempts}
                                  THEN now() ELSE head_event.processed_at END,
              updated_at = greatest(head_event.created_at, now())
@@ -409,6 +437,96 @@ export class InstagramWebhookEventRepository {
     return claimed.status === 'failed'
       ? { outcome: 'exhausted', event }
       : { outcome: 'claimed', event };
+  }
+
+  /**
+   * How many of her message-group events (echoes aside) the account saved since `since` — the
+   * inbound flood count (WH16, P63), served by `idx_instagram_webhook_events_flood`.
+   */
+  async countContactMessageEventsSince({
+    organizationId,
+    channelAccountId,
+    contactInstagramUserId,
+    since,
+  }: InstagramWebhookEventAccountKey & {
+    contactInstagramUserId: string;
+    since: Date;
+  }): Promise<number> {
+    const [row] = await this.db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(instagram_webhook_events)
+      .where(
+        and(
+          eq(instagram_webhook_events.organization_id, organizationId),
+          eq(instagram_webhook_events.channel_account_id, channelAccountId),
+          eq(instagram_webhook_events.contact_instagram_user_id, contactInstagramUserId),
+          eq(instagram_webhook_events.intake_group, 'messages'),
+          gte(instagram_webhook_events.created_at, since),
+          sql`${instagram_webhook_events.event_kind} <> 'echo'`,
+        ),
+      );
+    return Number(row?.count ?? 0);
+  }
+
+  /**
+   * The Meta message ids (`mid`) of the echoes to her the account took in since `since` — the
+   * owner's hand-typed messages the quiet time reads (WH10), from the rows' `echo:<mid>` keys (the
+   * body is cleared once done, the key stays).
+   */
+  async listEchoMessageIdsSince({
+    organizationId,
+    channelAccountId,
+    contactInstagramUserId,
+    since,
+  }: InstagramWebhookEventAccountKey & {
+    contactInstagramUserId: string;
+    since: Date;
+  }): Promise<string[]> {
+    const rows = await this.db()
+      .select({ event_key: instagram_webhook_events.event_key })
+      .from(instagram_webhook_events)
+      .where(
+        and(
+          eq(instagram_webhook_events.organization_id, organizationId),
+          eq(instagram_webhook_events.channel_account_id, channelAccountId),
+          eq(instagram_webhook_events.contact_instagram_user_id, contactInstagramUserId),
+          eq(instagram_webhook_events.intake_group, 'messages'),
+          eq(instagram_webhook_events.event_kind, 'echo'),
+          eq(instagram_webhook_events.status, 'processed'),
+          gte(instagram_webhook_events.created_at, since),
+        ),
+      );
+    return rows.flatMap((row) =>
+      row.event_key.startsWith('echo:') ? [row.event_key.slice('echo:'.length)] : [],
+    );
+  }
+
+  /**
+   * How many events of one kind group of the account still wait, counted up to `cap` (WH11: over
+   * `INSTAGRAM_INTAKE_ACCOUNT_SOFT_LIMIT` waiting comments, the comment intake runs at the lowest
+   * priority).
+   */
+  async countWaitingEvents({
+    organizationId,
+    channelAccountId,
+    intakeGroup,
+    cap,
+  }: InstagramWebhookEventAccountKey & {
+    intakeGroup: InstagramWebhookEventIntakeGroup;
+    cap: number;
+  }): Promise<number> {
+    const result = await this.db().execute(sql`
+      SELECT count(*)::int AS count FROM (
+        SELECT 1 FROM app.instagram_webhook_events
+         WHERE organization_id = ${organizationId}
+           AND channel_account_id = ${channelAccountId}
+           AND intake_group = ${intakeGroup}
+           AND status IN ('received', 'queued')
+         LIMIT ${cap}
+      ) AS waiting
+    `);
+    const [row] = rowsOf<{ count: number | string }>(result);
+    return Number(row?.count ?? 0);
   }
 
   /**
@@ -461,13 +579,22 @@ export class InstagramWebhookEventRepository {
    */
   async markFailed({
     errorMessage,
+    retryAfterMinutes,
     ...claim
-  }: InstagramWebhookEventClaimKey & { errorMessage: string }): Promise<boolean> {
+  }: InstagramWebhookEventClaimKey & {
+    errorMessage: string;
+    /** `next_attempt_at` this many minutes later (the hourly retry, WH12); `null` — never again. */
+    retryAfterMinutes: number | null;
+  }): Promise<boolean> {
     const rows = await this.db()
       .update(instagram_webhook_events)
       .set({
         status: 'failed',
         error_message: errorMessage.slice(0, ERROR_MESSAGE_MAX_LENGTH),
+        next_attempt_at:
+          retryAfterMinutes === null
+            ? null
+            : sql`now() + make_interval(mins => ${retryAfterMinutes})`,
         processed_at: databaseNowTimestamp,
         updated_at: eventUpdatedAtTimestamp,
       })
@@ -518,18 +645,23 @@ export class InstagramWebhookEventRepository {
    */
   async listAccountsWithStuckEvents({
     stuckAfterMinutes,
+    leaseMinutes = stuckAfterMinutes,
     limit,
   }: {
-    /** "Stuck": arrived, and last claimed, more than this many minutes ago. */
+    /** "Stuck": arrived more than this many minutes ago (WH17: 1). */
     stuckAfterMinutes: number;
+    /** …and not claimed in this many minutes (intake's lease, 5); defaults to `stuckAfterMinutes`. */
+    leaseMinutes?: number;
     /** Most accounts one run hands back. */
     limit: number;
   }): Promise<InstagramWebhookStuckAccount[]> {
     const stuckBefore = sql`now() - make_interval(mins => ${stuckAfterMinutes})`;
+    const leaseEndedBefore = sql`now() - make_interval(mins => ${leaseMinutes})`;
     return this.db()
       .select({
         organizationPublicId: organizations.public_id,
         channelAccountPublicId: channel_accounts.public_id,
+        intakeGroup: sql<InstagramWebhookEventIntakeGroup>`${instagram_webhook_events.intake_group}`,
       })
       .from(instagram_webhook_events)
       .innerJoin(
@@ -546,14 +678,121 @@ export class InstagramWebhookEventRepository {
           lte(instagram_webhook_events.created_at, stuckBefore),
           or(
             isNull(instagram_webhook_events.last_attempted_at),
-            lte(instagram_webhook_events.last_attempted_at, stuckBefore),
+            lte(instagram_webhook_events.last_attempted_at, leaseEndedBefore),
           ),
           isNull(organizations.deleted_at),
         ),
       )
-      .groupBy(organizations.public_id, channel_accounts.public_id)
+      .groupBy(
+        organizations.public_id,
+        channel_accounts.public_id,
+        instagram_webhook_events.intake_group,
+      )
       .orderBy(sql`min(${instagram_webhook_events.created_at})`)
       .limit(limit);
+  }
+
+  /**
+   * The hourly retry's read across organizations (WH17, WH21, WC-12): `failed` events whose
+   * `next_attempt_at` is due, oldest due first, at most `limit` — each with its keys, its kind group
+   * and its trigger's own time. Runs only on a retention handle (the sweep arm is in `USING` only: it
+   * reads and changes nothing); each organization's rows are then changed in its own scope
+   * ({@link InstagramWebhookEventRepository.retryDueFailedEvents}).
+   *
+   * @remarks
+   * Served by `idx_instagram_webhook_events_next_attempt_at` (only `failed` rows with a retry time).
+   */
+  async listDueFailedEvents({
+    limit,
+  }: {
+    limit: number;
+  }): Promise<InstagramWebhookDueFailedEvent[]> {
+    const rows = await this.db()
+      .select({
+        organizationPublicId: organizations.public_id,
+        channelAccountPublicId: channel_accounts.public_id,
+        eventId: instagram_webhook_events.id,
+        createdAt: instagram_webhook_events.created_at,
+      })
+      .from(instagram_webhook_events)
+      .innerJoin(
+        channel_accounts,
+        and(
+          eq(channel_accounts.organization_id, instagram_webhook_events.organization_id),
+          eq(channel_accounts.id, instagram_webhook_events.channel_account_id),
+        ),
+      )
+      .innerJoin(organizations, eq(organizations.id, instagram_webhook_events.organization_id))
+      .where(
+        and(
+          eq(instagram_webhook_events.status, 'failed'),
+          lte(instagram_webhook_events.next_attempt_at, sql`now()`),
+          isNull(organizations.deleted_at),
+        ),
+      )
+      .orderBy(instagram_webhook_events.next_attempt_at)
+      .limit(limit);
+    return rows;
+  }
+
+  /**
+   * The hourly retry's write in one organization (WH17, WH21): of the given `failed` events whose
+   * `next_attempt_at` is due, those whose trigger (Meta's own time, else the received time) is newer
+   * than `retryUntilAfter` go back to `received` with their tries from 0 (the 5 tries start again);
+   * the older ones keep `failed` and lose their retry time for good. Returns the ids and kind groups
+   * of the events sent back, for their intake jobs.
+   *
+   * @remarks
+   * Algorithm: two `UPDATE`s keyed by `(id, created_at)` and re-checking `status = 'failed'` and the
+   * due time, so a run racing another changes each row once. The body stays (a `failed` row keeps
+   * it, WH22). Failure modes: none of its own. Side effects: the rows' status, tries, error, lease
+   * and retry time.
+   */
+  async retryDueFailedEvents({
+    events,
+    retryUntilAfter,
+  }: {
+    events: readonly { eventId: number; createdAt: Date }[];
+    /** A trigger older than this is never tried again (7 days: a private reply's window). */
+    retryUntilAfter: Date;
+  }): Promise<{ retried: InstagramWebhookRetriedEvent[]; endedCount: number }> {
+    if (events.length === 0) return { retried: [], endedCount: 0 };
+    const keys = or(
+      ...events.map((event) =>
+        and(
+          eq(instagram_webhook_events.id, event.eventId),
+          eq(instagram_webhook_events.created_at, event.createdAt),
+        ),
+      ),
+    );
+    const due = and(
+      keys,
+      eq(instagram_webhook_events.status, 'failed'),
+      lte(instagram_webhook_events.next_attempt_at, sql`now()`),
+    );
+    const triggerTime = sql`coalesce(${instagram_webhook_events.occurred_at}, ${instagram_webhook_events.created_at})`;
+    const retried = await this.db()
+      .update(instagram_webhook_events)
+      .set({
+        status: 'received',
+        error_message: null,
+        processed_at: null,
+        attempt_count: 0,
+        last_attempted_at: null,
+        next_attempt_at: null,
+        updated_at: eventUpdatedAtTimestamp,
+      })
+      .where(and(due, sql`${triggerTime} > ${retryUntilAfter.toISOString()}::timestamptz`))
+      .returning({
+        eventId: instagram_webhook_events.id,
+        intakeGroup: sql<InstagramWebhookEventIntakeGroup>`${instagram_webhook_events.intake_group}`,
+      });
+    const ended = await this.db()
+      .update(instagram_webhook_events)
+      .set({ next_attempt_at: null, updated_at: eventUpdatedAtTimestamp })
+      .where(and(due, sql`${triggerTime} <= ${retryUntilAfter.toISOString()}::timestamptz`))
+      .returning({ id: instagram_webhook_events.id });
+    return { retried, endedCount: ended.length };
   }
 
   /**

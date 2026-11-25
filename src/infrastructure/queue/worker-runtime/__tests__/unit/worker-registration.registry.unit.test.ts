@@ -58,9 +58,9 @@ describe('worker-registration.registry', () => {
     // the run and automation clean-ups (retention family, crons, Postgres-backed — the hourly 7-day
     // wait cancel and the deleted-automation purge; run and comment-log retention retired at
     // feat-instagram-dm-sending R14, P133 — their month parts are dropped);
-    // +1 for the Instagram webhook event processing (instagram family, throughput,
-    // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
-    // WH12–WH15); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
+    // +1 for Instagram intake (instagram family, throughput, Postgres-backed through the shared
+    // limiter, its stuck-event pick-up riding the queue — feat-instagram-dm-sending WH5, R38); +3
+    // for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
     // `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks`, all in family `instagram`
     // (P140); throughput, event-driven, their database through the shared limiter); +1 for the
     // channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34),
@@ -121,11 +121,12 @@ describe('worker-registration.registry', () => {
     ).toEqual([]);
   });
 
-  it('puts the Instagram send and task queues on one database limiter in the instagram family, gated on sending (SN24, P140, S19)', () => {
+  it('puts Instagram intake and the send and task queues on one database limiter in the instagram family, intake, the send and the Meta-calling tasks gated (SN24, P140, R38, S19)', () => {
     const sendingQueues = getWorkerQueueRegistrationDefinitions().filter(
       (definition) => definition.databaseSlotLimiterName !== undefined,
     );
     expect(sendingQueues.map((definition) => [definition.queueName, definition.family])).toEqual([
+      ['instagram-webhook', 'instagram'],
       ['instagram-send-slow', 'instagram'],
       ['instagram-send-fast', 'instagram'],
       ['instagram-tasks', 'instagram'],
@@ -135,11 +136,13 @@ describe('worker-registration.registry', () => {
       expect(definition.databaseSlotLimiterName).toBe('instagram-database');
       expect(definition.resolvePostgresConcurrency?.(undefined)).toBe(16);
     }
-    // The send and Meta-calling task queues wait for sending; the database-heavy tasks (bulk
-    // changes, counts, audiences, retries) call no Meta and run with sending off too (R46).
+    // Intake waits for the Meta app settings (R38); the send and Meta-calling task queues wait for
+    // sending; the database-heavy tasks (bulk changes, counts, audiences, retries) call no Meta and
+    // run with sending off too (R46).
     expect(
       sendingQueues.map((definition) => [definition.queueName, definition.isEnabled !== undefined]),
     ).toEqual([
+      ['instagram-webhook', true],
       ['instagram-send-slow', true],
       ['instagram-send-fast', true],
       ['instagram-tasks', true],

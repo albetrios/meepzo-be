@@ -489,10 +489,14 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       return { opened, open };
     }
 
+    /** She writes once (a DM no automation answers), so her contact is committed. */
+    const sayHello = (team: ConnectedInstagramTeam) =>
+      say({ app, team, messaging: [directMessageItem({ person: JORDAN, text: 'hello' })] });
+
     /** Long enough for a statement to reach the lock it waits for. */
     const waitForTheLock = () => new Promise<void>((resolve) => setTimeout(resolve, 300));
 
-    it('the erase first: the event waits for it, then starts nothing', async () => {
+    it('the erase first: the event waits on her contact, then starts her afresh and never touches the erased one (CT9; R38)', async () => {
       const team = await connectInstagramTeam(app);
       await liveAutomation({ team, name: 'Every comment' });
       const isErasing = createGate();
@@ -507,17 +511,23 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         return eraseLogCopies.call(this, key);
       });
       let erase: Promise<InjectHttpResult> | undefined;
-      const { sends } = mockInstagramConversation({
+      let erasedContactId: number | undefined;
+      mockInstagramConversation({
         instagramAppUserId: team.profile.id,
         people: [JORDAN],
-        // While the comment's post is read: an erase holds the contact, not committed yet.
+        // While the comment's post is read (before intake's transaction): an erase holds the
+        // contact, not committed yet.
         onRead: async (read) => {
           if (read !== 'post') return;
           const contact = await contactOf({ team, person: JORDAN });
+          erasedContactId = contact.id;
           erase = deleteContactAsOwner({ app, team, contactPublicId: contact.public_id });
           await isErasing.opened;
         },
       });
+      // Since intake per kind (R38) an event's contact is written in its own transaction, whose
+      // first lock is her contact: she wrote before, so the erase has a committed contact to take.
+      await sayHello(team);
       await deliverInstagramEvents({
         app,
         team,
@@ -531,16 +541,25 @@ describe('Instagram retention and erasure flow (e2e)', () => {
 
       expect((await erase)?.statusCode).toBe(204);
       expect(await processed).toMatchObject({ processedEventCount: 1 });
-      expect(sends).toEqual([]);
-      expect(await readRunRows(team.organization.id)).toEqual([]);
-      expect(await readCommentLogRows(team.organization.id)).toEqual([]);
-      await expectNothingPersonalLeft(team);
+      // The event waited for the erase, then — like any event still waiting — started her afresh.
+      const fresh = await contactOf({ team, person: JORDAN });
+      expect(fresh.id).not.toBe(erasedContactId);
+      const runs = await readRunRows(team.organization.id);
+      expect(runs.every((run) => run.contact_id === fresh.id)).toBe(true);
+      const rows = await readRowsWithoutWebhookEvents(team.organization.id);
+      const erased = rows.contacts?.find((contact) => contact.id === erasedContactId);
+      expect(erased?.deleted_at).not.toBeNull();
+      for (const value of personalValuesOf(JORDAN)) {
+        expect(JSON.stringify(erased)).not.toContain(value);
+      }
     });
 
     it('the event first: the erase waits for it, then cancels the run and clears what was written', async () => {
       const team = await connectInstagramTeam(app);
       await liveAutomation({ team, name: 'Every comment' });
       mockInstagramConversation({ instagramAppUserId: team.profile.id, people: [JORDAN] });
+      // Her contact exists before the race (R38: an event's contact is written in its transaction).
+      await sayHello(team);
       const areWritten = createGate();
       const mayCommit = createGate();
       const insertLogs = AutomationCommentLogRepository.prototype.insertMany;
@@ -846,7 +865,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         const written = captured.lines.join('\n');
         for (const message of [
           'instagram.webhook.delivery_received',
-          'app.instagram_webhook.event_processed',
+          'app.instagram_webhook.event_taken_in',
           'app.instagram_webhook.event_retry_scheduled',
           'app.automation_run.comment_matched',
           'instagram-webhook-event-retention.completed',

@@ -77,13 +77,29 @@ import type {
   ContactTagEventRecorder,
   ContactUpdateInput,
   ContactWorkerKey,
+  ContactWorkerTarget,
+  InboundContactEventResult,
   RecordContactInteractionInput,
+  RecordInboundContactEventInput,
 } from './contact.types.js';
 import {
   mergeContactTags,
   normalizeContactEmail,
   normalizeContactPhone,
 } from './contact.validator.js';
+
+/**
+ * The normalized kinds that are a message in her chat — the first one sets `first_message_at`
+ * (3.A.10, WH27); comments, taps and reactions never do.
+ */
+const INBOUND_CHAT_MESSAGE_KINDS: ReadonlySet<RecordInboundContactEventInput['kind']> = new Set([
+  'message',
+  'story_reply',
+  'story_mention',
+  'shared_post',
+  'referral',
+  'starter_question',
+]);
 
 /**
  * The ports later ROUTE rows fill (KICKOFF build-order rule): the pause steps (4.B now; 6 at its
@@ -1160,6 +1176,80 @@ export class ContactService {
   }
 
   /**
+   * The inbound seam's front door for contacts (routes-final § 3.A.10, CT18, WH27): one saved event
+   * of a person, from any channel's intake — find or create her, her interaction and window, then
+   * the kind's own counter. Answers her contact, whether this event created her and whether it is
+   * her first message.
+   *
+   * @remarks
+   * Algorithm: on the intake's handle (the event's one transaction, WH12) — the interaction upsert
+   * ({@link recordContactInteraction}: a `comment` / `live_comment` moves only the last message
+   * time, every other kind also opens her window, a `reaction` only refreshes it); then a comment
+   * adds to her comment count, a story reply or mention moves `last_story_activity_at`, and a chat
+   * message kind (`message`, `story_reply`, `story_mention`, `shared_post`, `referral`,
+   * `starter_question`) sets `first_message_at` once. Failure modes: throws on a person id that is
+   * not digits (a caller bug). Side effects: the contact and its activity row. Contacts import no
+   * channel sub-domain (CTC12): the kind is the seam's, never the channel's own.
+   */
+  async recordInboundContactEvent(
+    input: RecordInboundContactEventInput,
+  ): Promise<InboundContactEventResult> {
+    const isComment = input.kind === 'comment' || input.kind === 'live_comment';
+    const recorded = await this.recordContactInteraction({
+      databaseHandle: input.databaseHandle,
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      instagramUserId: input.providerUserId,
+      username: input.username,
+      occurredAt: input.occurredAt,
+      interactionKind: isComment
+        ? CONTACT_INTERACTION_KIND.COMMENT
+        : CONTACT_INTERACTION_KIND.DIRECT_MESSAGE,
+    });
+    const key = {
+      databaseHandle: input.databaseHandle,
+      organizationId: input.organizationId,
+      contactId: recorded.contact.id,
+      occurredAt: input.occurredAt,
+    };
+    let contact: ContactRow | null = recorded.contact;
+    if (isComment) contact = await this.recordContactComment(key);
+    if (input.kind === 'story_reply' || input.kind === 'story_mention') {
+      contact = await this.recordContactStoryActivity(key);
+    }
+    const isFirstMessage =
+      INBOUND_CHAT_MESSAGE_KINDS.has(input.kind) && recorded.contact.first_message_at === null;
+    if (isFirstMessage) contact = await this.recordContactFirstMessage(key);
+    return { ...recorded, contact: contact ?? recorded.contact, isFirstMessage };
+  }
+
+  /**
+   * Intake's first lock of an event (WH26, the inbound seam): her live contact on this account,
+   * `FOR UPDATE`, before the event is marked — two intake jobs of one person queue on it, and an
+   * erase that holds her goes first (the event then starts her afresh, CT9). Answers whether she
+   * has a live contact.
+   *
+   * @remarks
+   * Algorithm: one locking read on the intake's handle. Failure modes: none of its own. Side
+   * effects: the row lock until the transaction ends.
+   */
+  async lockInboundContact({
+    databaseHandle,
+    organizationId,
+    channelAccountId,
+    providerUserId,
+  }: ContactWorkerTarget & { channelAccountId: number; providerUserId: string }): Promise<boolean> {
+    const contactId = await createWorkerContactRepository(
+      databaseHandle,
+    ).lockLiveIdByInstagramUserId({
+      organizationId,
+      channelAccountId,
+      instagramUserId: providerUserId,
+    });
+    return contactId !== null;
+  }
+
+  /**
    * Saves what one Instagram profile read or follow check found (2.10, CQ3) on a live contact: the
    * fields given — username, full name, picture, followers — and a follow answer with its check
    * time. Returns the contact, or `null` once erased.
@@ -1546,6 +1636,23 @@ export class ContactService {
       organizationId,
       contactId,
     });
+  }
+
+  /**
+   * The organization's live contact with this public id on a job's handle (the profile-read task,
+   * S11), or `null` when absent, another organization's or erased.
+   *
+   * @remarks
+   * Algorithm: the key read, then the row. Failure modes: none of its own. Side effects: none.
+   */
+  async findLiveContactByPublicId({
+    databaseHandle,
+    organizationId,
+    contactPublicId,
+  }: ContactWorkerTarget & { contactPublicId: string }): Promise<ContactRow | null> {
+    const repository = createWorkerContactRepository(databaseHandle);
+    const key = await repository.findLiveKeyByPublicId({ organizationId, contactPublicId });
+    return key === null ? null : repository.findLiveById({ organizationId, contactId: key.id });
   }
 
   /**

@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -10,6 +10,8 @@ import {
   databaseUpdatedAtTimestamp,
 } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
+import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import type { InstagramMediaProductType, InstagramMediaType } from './instagram-media.constants.js';
 import { instagram_media } from './instagram-media.schema.js';
 
@@ -53,6 +55,20 @@ export interface InstagramMediaCommentWatchValues {
   commentsNextCheckAt?: Date | null | undefined;
   /** The newest comment it saw; never moves the stored time back. */
   lastCommentAt?: Date | undefined;
+}
+
+/**
+ * One connected account that watches posts (WC-26): its public ids, its internal id (to spread the
+ * jobs over the round), when its watched posts were last read, and whether one is due now.
+ */
+export interface InstagramMediaWatchedAccount {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  channelAccountId: number;
+  /** The newest `comments_checked_at` of its watched posts; `null` when none was read yet. */
+  lastCheckedAt: Date | null;
+  /** A watched post's `comments_next_check_at` has passed. */
+  isDue: boolean;
 }
 
 /** The one stored post of an account, by its Instagram media id — every statement names the organization. */
@@ -150,6 +166,91 @@ export class InstagramMediaRepository {
   }
 
   /**
+   * The missed-comment sweep's read across organizations (WC-26, WH17): the **connected** Instagram
+   * channel accounts of live organizations that watch at least one post (`comments_next_check_at`
+   * set), each with when its watched posts were last read and whether one is due now. Runs only on
+   * a retention handle ({@link createRetentionInstagramMediaRepository}): the sweep arm is in the
+   * policies' `USING`, so it reads every organization's rows and can change none.
+   *
+   * @remarks
+   * Served by `idx_instagram_media_comments_next_check` (only watched posts are in it). Public ids
+   * for the jobs; the channel account's internal id only to spread the jobs over the round.
+   */
+  async listAccountsWithCommentWatches({
+    limit,
+  }: {
+    limit: number;
+  }): Promise<InstagramMediaWatchedAccount[]> {
+    const rows = await this.db()
+      .select({
+        organizationPublicId: organizations.public_id,
+        channelAccountPublicId: channel_accounts.public_id,
+        channelAccountId: channel_accounts.id,
+        lastCheckedAt: sql<string | null>`max(${instagram_media.comments_checked_at})`,
+        isDue: sql<boolean>`bool_or(${instagram_media.comments_next_check_at} <= now())`,
+      })
+      .from(instagram_media)
+      .innerJoin(
+        channel_accounts,
+        and(
+          eq(channel_accounts.organization_id, instagram_media.organization_id),
+          eq(channel_accounts.id, instagram_media.channel_account_id),
+        ),
+      )
+      .innerJoin(organizations, eq(organizations.id, instagram_media.organization_id))
+      .where(
+        and(
+          isNotNull(instagram_media.comments_next_check_at),
+          eq(channel_accounts.channel, 'instagram'),
+          eq(channel_accounts.connection_status, 'connected'),
+          isNull(organizations.deleted_at),
+        ),
+      )
+      .groupBy(organizations.public_id, channel_accounts.public_id, channel_accounts.id)
+      .orderBy(channel_accounts.id)
+      .limit(limit);
+    return rows.map((row) => ({
+      ...row,
+      lastCheckedAt: row.lastCheckedAt === null ? null : new Date(row.lastCheckedAt),
+      isDue: row.isDue === true,
+    }));
+  }
+
+  /**
+   * The account's watched posts the missed-comment look reads (WC-26, WH17): `comments_next_check_at`
+   * set (and passed, when `isDueOnly`), a Live left out (its comments are not read back), the ones
+   * read longest ago first (never read first), at most `limit` (25, P93).
+   */
+  async listWatchedPosts({
+    organizationId,
+    channelAccountId,
+    isDueOnly,
+    limit,
+  }: ChannelAccountKey & {
+    /** `true` for the normal round (only the due posts); `false` for the full pass after an outage. */
+    isDueOnly: boolean;
+    limit: number;
+  }): Promise<InstagramMediaRow[]> {
+    return this.db()
+      .select()
+      .from(instagram_media)
+      .where(
+        and(
+          eq(instagram_media.organization_id, organizationId),
+          eq(instagram_media.channel_account_id, channelAccountId),
+          isNotNull(instagram_media.comments_next_check_at),
+          isDueOnly ? lte(instagram_media.comments_next_check_at, sql`now()`) : undefined,
+          or(
+            isNull(instagram_media.media_product_type),
+            sql`${instagram_media.media_product_type} <> 'live'`,
+          ),
+        ),
+      )
+      .orderBy(sql`${instagram_media.comments_checked_at} ASC NULLS FIRST`, asc(instagram_media.id))
+      .limit(limit);
+  }
+
+  /**
    * The missed-comment watch's write (D40): any of `comments_checked_at`, `comments_next_check_at`
    * (`null` stops the watch) and `last_comment_at` on the account's stored post — a field left
    * `undefined` keeps its value; `last_comment_at` never moves back. Returns the row, or `null`
@@ -234,5 +335,17 @@ export function createWorkerInstagramMediaRepository(
   databaseHandle: WorkerDatabaseHandle,
 ): InstagramMediaRepository {
   assertWorkerDatabaseContext(['organization']);
+  return new InstagramMediaRepository(databaseHandle);
+}
+
+/**
+ * {@link InstagramMediaRepository} bound to a retention maintenance handle
+ * (`runGlobalRetentionWorkerJob`) — the missed-comment sweep's read across organizations through
+ * the sweep arm the policy carries in `USING` only (WC-26).
+ */
+export function createRetentionInstagramMediaRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): InstagramMediaRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
   return new InstagramMediaRepository(databaseHandle);
 }

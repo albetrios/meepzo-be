@@ -1,46 +1,64 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * The event-processing worker's wiring (routes-final § 4.A WH5, WHC10–WHC11): the `instagram-webhook`
- * queue, provider-pausable on the `instagram` circuit, the family's concurrency, the payload
- * validated (poison dead-lettered) before the processor sees it, the trace propagated, and the
- * stuck-event pick-up routed on `job.name`.
+ * The intake worker's wiring (feat-instagram-dm-sending § 5 WH5, WH25, WHC4, WHC16): the
+ * `instagram-webhook` queue on a **plain** BullMQ worker (never provider-pausable), the family's
+ * concurrency, each payload validated (poison dead-lettered) before its processor sees it, the trace
+ * propagated, the process's database limiter passed on, and the job names routed: the three kind
+ * groups, the tag intake, the stuck-event pick-up, the missed-comment sweep (WH17) and the
+ * automations' past-comments watch and "next post" linking sweep (WC-41, WC-43 — R41).
  */
 
 const workerState = vi.hoisted(() => ({
   queueName: undefined as string | undefined,
-  provider: undefined as string | undefined,
   processor: undefined as ((job: unknown) => Promise<unknown>) | undefined,
   options: undefined as Record<string, unknown> | undefined,
   listeners: new Map<string, (...arguments_: unknown[]) => void>(),
+  providerPausableCalls: 0,
 }));
 
-const { parseJobDataMock, processAccountJobMock, runReclaimJobMock, traceMock } = vi.hoisted(
-  () => ({
-    parseJobDataMock: vi.fn(),
-    processAccountJobMock: vi.fn(),
-    runReclaimJobMock: vi.fn(),
-    traceMock: vi.fn(),
-  }),
-);
+const {
+  parseJobDataMock,
+  intakeJobMock,
+  tagIntakeJobMock,
+  runReclaimJobMock,
+  runSweepJobMock,
+  runWatchJobMock,
+  runLinkingSweepMock,
+  traceMock,
+} = vi.hoisted(() => ({
+  runWatchJobMock: vi.fn(),
+  runLinkingSweepMock: vi.fn(),
+  parseJobDataMock: vi.fn(),
+  intakeJobMock: vi.fn(),
+  tagIntakeJobMock: vi.fn(),
+  runReclaimJobMock: vi.fn(),
+  runSweepJobMock: vi.fn(),
+  traceMock: vi.fn(),
+}));
+
+vi.mock('bullmq', () => ({
+  Worker: class {
+    constructor(
+      queueName: string,
+      processor: (job: unknown) => Promise<unknown>,
+      options: Record<string, unknown>,
+    ) {
+      workerState.queueName = queueName;
+      workerState.processor = processor;
+      workerState.options = options;
+    }
+    on(event: string, listener: (...arguments_: unknown[]) => void) {
+      workerState.listeners.set(event, listener);
+    }
+    close = vi.fn();
+  },
+}));
 
 vi.mock('@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js', () => ({
-  createProviderPausableWorker: (options: {
-    queueName: string;
-    provider: string;
-    processor: (job: unknown) => Promise<unknown>;
-    workerOptions: Record<string, unknown>;
-  }) => {
-    workerState.queueName = options.queueName;
-    workerState.provider = options.provider;
-    workerState.processor = options.processor;
-    workerState.options = options.workerOptions;
-    return {
-      on: (event: string, listener: (...arguments_: unknown[]) => void) => {
-        workerState.listeners.set(event, listener);
-      },
-      close: vi.fn(),
-    };
+  createProviderPausableWorker: () => {
+    workerState.providerPausableCalls += 1;
+    throw new Error('intake must never be provider-pausable (WH25)');
   },
 }));
 
@@ -68,10 +86,17 @@ vi.mock('@/infrastructure/observability/tracing/trace-context.util.js', () => ({
 }));
 
 vi.mock(
-  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js',
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-intake.processor.js',
   () => ({
-    processInstagramWebhookAccountJob: (...arguments_: unknown[]) =>
-      processAccountJobMock(...arguments_),
+    processInstagramWebhookIntakeJob: (...arguments_: unknown[]) => intakeJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-tag-event-intake.processor.js',
+  () => ({
+    processInstagramTagEventIntakeJob: (...arguments_: unknown[]) =>
+      tagIntakeJobMock(...arguments_),
   }),
 );
 
@@ -79,6 +104,40 @@ vi.mock(
   '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.processor.js',
   () => ({
     runInstagramWebhookReclaimJob: (...arguments_: unknown[]) => runReclaimJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-missed-comment-check.processor.js',
+  () => ({
+    runInstagramMissedCommentSweepJob: (...arguments_: unknown[]) => runSweepJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.processor.js',
+  () => ({
+    runAutomationBackfillWatchJob: (...arguments_: unknown[]) => runWatchJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-past-comment-read.processor.js',
+  () => ({
+    INSTAGRAM_PAST_COMMENT_READ_QUEUE: { enqueueAutomationBackfillRead: vi.fn() },
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-webhook/workers/instagram-next-post-linking.processor.js',
+  () => ({ createInstagramNextPostLinkingEnqueue: () => vi.fn() }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.processor.js',
+  () => ({
+    runAutomationNextPostLinkingSweepJob: (...arguments_: unknown[]) =>
+      runLinkingSweepMock(...arguments_),
   }),
 );
 
@@ -93,18 +152,32 @@ vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
 const JOB_DATA = {
   organizationPublicId: 'org_acmeshop0000000000001',
   channelAccountPublicId: 'cha_acmeshop0000000000001',
+  intakeKind: 'comments',
   requestId: 'delivery-1',
   traceparent: '00-trace-span-01',
 };
 
-const services = { automationRunService: {} } as never;
+const TAG_JOB_DATA = {
+  organizationPublicId: 'org_acmeshop0000000000001',
+  contactPublicIds: ['con_acmeshop0000000000001'],
+};
+
+const enqueueProfileRead = vi.fn();
+const services = {
+  intake: { automationRunService: {} },
+  tagIntake: { automationRunService: {} },
+  enqueueProfileRead,
+} as never;
+const limiter = { runInSlot: vi.fn() } as never;
 
 beforeEach(async () => {
   workerState.listeners.clear();
   parseJobDataMock.mockReset();
   parseJobDataMock.mockResolvedValue(JOB_DATA);
-  processAccountJobMock.mockReset();
-  processAccountJobMock.mockResolvedValue({ outcome: 'drained' });
+  intakeJobMock.mockReset();
+  intakeJobMock.mockResolvedValue({ outcome: 'drained' });
+  tagIntakeJobMock.mockReset();
+  tagIntakeJobMock.mockResolvedValue({ doneCount: 1 });
   runReclaimJobMock.mockReset();
   runReclaimJobMock.mockResolvedValue({ listedCount: 0, addedCount: 0, failedAddCount: 0 });
   traceMock.mockReset();
@@ -112,40 +185,61 @@ beforeEach(async () => {
   const { createInstagramWebhookWorker } = await import(
     '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.worker.js'
   );
-  createInstagramWebhookWorker(services);
+  createInstagramWebhookWorker({ services, limiter });
 });
 
 describe('instagram-webhook.worker', () => {
-  it('runs on the instagram-webhook queue, pausing for the instagram provider, at the family concurrency', () => {
+  it('runs a plain worker on the instagram-webhook queue at the family concurrency — never paused by an outage', () => {
     expect(workerState.queueName).toBe('instagram-webhook');
-    expect(workerState.provider).toBe('meta');
+    expect(workerState.providerPausableCalls).toBe(0);
     expect(workerState.options).toMatchObject({
       concurrency: 6,
       connection: { host: 'redis.test' },
+      prefix: 'test:bull',
     });
     expect(workerState.listeners.has('stalled')).toBe(true);
   });
 
-  it('validates the payload, then processes the account job under its trace', async () => {
-    const job = { id: 'job-7', name: 'process-instagram-webhook-events', data: JOB_DATA };
+  it.each(['intake-messages', 'intake-live', 'intake-comments'])(
+    'validates %s and runs the kind group’s intake under its trace, with the limiter',
+    async (name) => {
+      const job = { id: 'job-7', name, data: JOB_DATA };
 
-    await expect(workerState.processor?.(job)).resolves.toEqual({ outcome: 'drained' });
+      await expect(workerState.processor?.(job)).resolves.toEqual({ outcome: 'drained' });
 
-    expect(parseJobDataMock).toHaveBeenCalledWith(
-      expect.objectContaining({ job, queueName: 'instagram-webhook' }),
-    );
-    expect(traceMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        carrier: { traceparent: '00-trace-span-01', tracestate: undefined },
-        spanName: 'process-instagram-webhook-events',
-      }),
-    );
-    expect(processAccountJobMock).toHaveBeenCalledWith({
-      jobData: JOB_DATA,
-      services,
-      jobId: 'job-7',
+      expect(parseJobDataMock).toHaveBeenCalledWith(
+        expect.objectContaining({ job, queueName: 'instagram-webhook' }),
+      );
+      expect(traceMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          carrier: { traceparent: '00-trace-span-01', tracestate: undefined },
+          spanName: name,
+        }),
+      );
+      expect(intakeJobMock).toHaveBeenCalledWith({
+        jobData: JOB_DATA,
+        services: (services as { intake: unknown }).intake,
+        jobId: 'job-7',
+        enqueueProfileRead,
+        limiter,
+      });
+      expect(tagIntakeJobMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('routes intake-tag-events to the tag intake', async () => {
+    parseJobDataMock.mockResolvedValueOnce(TAG_JOB_DATA);
+    const job = { id: 'job-9', name: 'intake-tag-events', data: TAG_JOB_DATA };
+
+    await workerState.processor?.(job);
+
+    expect(tagIntakeJobMock).toHaveBeenCalledWith({
+      jobData: TAG_JOB_DATA,
+      services: (services as { tagIntake: unknown }).tagIntake,
+      jobId: 'job-9',
+      limiter,
     });
-    expect(runReclaimJobMock).not.toHaveBeenCalled();
+    expect(intakeJobMock).not.toHaveBeenCalled();
   });
 
   it('routes the stuck-event pick-up on its job name, without a payload', async () => {
@@ -155,14 +249,48 @@ describe('instagram-webhook.worker', () => {
 
     expect(runReclaimJobMock).toHaveBeenCalledWith({ requestId: 'repeat:1' });
     expect(parseJobDataMock).not.toHaveBeenCalled();
-    expect(processAccountJobMock).not.toHaveBeenCalled();
+    expect(intakeJobMock).not.toHaveBeenCalled();
+  });
+
+  it('routes the missed-comment sweep on its job name, without a payload (WH17, WC-26)', async () => {
+    const job = { id: 'repeat:2', name: 'sweep-instagram-missed-comments', data: {} };
+
+    await workerState.processor?.(job);
+
+    expect(runSweepJobMock).toHaveBeenCalledWith();
+    expect(runReclaimJobMock).not.toHaveBeenCalled();
+    expect(parseJobDataMock).not.toHaveBeenCalled();
+  });
+
+  it('routes the past-comments watch with the Instagram read queue, without a payload (WC-41, R41)', async () => {
+    const job = { id: 'repeat:3', name: 'watch-automation-backfill-reads', data: {} };
+
+    await workerState.processor?.(job);
+
+    expect(runWatchJobMock).toHaveBeenCalledWith({
+      readQueue: { enqueueAutomationBackfillRead: expect.any(Function) },
+    });
+    expect(parseJobDataMock).not.toHaveBeenCalled();
+    expect(intakeJobMock).not.toHaveBeenCalled();
+  });
+
+  it('routes the "next post" linking sweep with the Instagram enqueue only, without a payload (WC-43, R41)', async () => {
+    const job = { id: 'repeat:4', name: 'sweep-next-post-linking', data: {} };
+
+    await workerState.processor?.(job);
+
+    expect(runLinkingSweepMock).toHaveBeenCalledWith({
+      enqueueByChannel: { instagram: expect.any(Function) },
+    });
+    expect(parseJobDataMock).not.toHaveBeenCalled();
+    expect(intakeJobMock).not.toHaveBeenCalled();
   });
 
   it('never processes a poison payload — the dead-letter path throws first', async () => {
     parseJobDataMock.mockRejectedValueOnce(new Error('dead-lettered'));
-    const job = { id: 'job-8', name: 'process-instagram-webhook-events', data: { bad: true } };
+    const job = { id: 'job-8', name: 'intake-messages', data: { bad: true } };
 
     await expect(workerState.processor?.(job)).rejects.toThrow('dead-lettered');
-    expect(processAccountJobMock).not.toHaveBeenCalled();
+    expect(intakeJobMock).not.toHaveBeenCalled();
   });
 });

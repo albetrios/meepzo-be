@@ -6,7 +6,10 @@ import type { OrganizationService } from '@/domains/tenancy/sub-domains/organiza
 import { assertTeamOrganizationForRead } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
 import { INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS } from '@/shared/constants/instagram.constants.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
-import type { InstagramWebhookEventSkipReason } from './instagram-webhook-event.constants.js';
+import type {
+  InstagramWebhookEventIntakeGroup,
+  InstagramWebhookEventSkipReason,
+} from './instagram-webhook-event.constants.js';
 import { InstagramWebhookEventKeyRepository } from './instagram-webhook-event-key.repository.js';
 import type {
   InstagramWebhookEventAccountKey,
@@ -94,8 +97,8 @@ export interface InstagramWebhookEventClaimTarget {
 
 /**
  * The Instagram webhook events service (routes-final § 4.B): route 62's list, and the one write
- * path for `app.instagram_webhook_events` — the receiver (5.A, routes 60–61) stores events and
- * marks them `queued`, event processing claims and marks them; neither holds the table's SQL (WH1).
+ * path for `app.instagram_webhook_events` — the receiver (5.A, routes 60–61) stores events, intake
+ * per kind claims, reads and marks them; neither holds the table's SQL (WH1).
  *
  * @remarks
  * Algorithm:
@@ -241,49 +244,118 @@ export class InstagramWebhookEventService {
   }
 
   /**
-   * Turns the just-stored `received` rows `queued` after their account's processing job was added
-   * (WH10). Returns how many turned.
+   * Claims the oldest waiting event of one kind group of the account (WH11, WH12 step 1), or fails
+   * it when its tries ran out (`next_attempt_at` set); `null` when nothing of the group waits or
+   * (strict order) another run holds its head.
    *
    * @remarks
-   * Algorithm: one guarded update (`received` only). Failure modes: none of its own. Side effects:
-   * updates rows.
-   */
-  async markEventsQueued({
-    scope,
-    channelAccount,
-    eventIds,
-  }: InstagramWebhookEventAccountTarget & { eventIds: readonly number[] }): Promise<number> {
-    return withAppDatabaseContext({
-      scope,
-      callback: () => this.eventRepository.markQueued({ ...channelAccount, eventIds }),
-    });
-  }
-
-  /**
-   * Claims the account's oldest waiting event (WH12 step 1), or fails it when its attempts ran out;
-   * `null` when nothing waits or another run holds the head.
-   *
-   * @remarks
-   * Algorithm: the repository's `MATERIALIZED` CTE claim, in one short unit. Failure modes: none of
+   * Algorithm: the repository's `MATERIALIZED` CTE claim — the head for `messages` and `live`, the
+   * oldest free row `SKIP LOCKED` for `comments` (S11) — in one short unit. Failure modes: none of
    * its own. Side effects: updates at most one row.
    */
   async claimNextEvent({
     scope,
     channelAccount,
+    intakeGroup,
     maxProcessingAttempts,
     claimLeaseMinutes,
+    retryAfterMinutes,
   }: InstagramWebhookEventAccountTarget & {
+    intakeGroup: InstagramWebhookEventIntakeGroup;
     maxProcessingAttempts: number;
     claimLeaseMinutes: number;
+    retryAfterMinutes: number;
   }): Promise<InstagramWebhookEventClaimResult | null> {
     return withAppDatabaseContext({
       scope,
       callback: () =>
         this.eventRepository.claimOldestWaitingEvent({
           ...channelAccount,
+          intakeGroup,
+          isSkipLocked: intakeGroup === 'comments',
           maxProcessingAttempts,
           claimLeaseMinutes,
+          retryAfterMinutes,
         }),
+    });
+  }
+
+  /**
+   * How many of her message events (echoes aside) the account saved since `since` — the inbound
+   * flood count (WH16, P63).
+   *
+   * @remarks
+   * Algorithm: one indexed count in the caller's scope. Failure modes: none of its own. Side
+   * effects: none.
+   */
+  async countContactMessageEventsSince({
+    scope,
+    channelAccount,
+    contactInstagramUserId,
+    since,
+  }: InstagramWebhookEventAccountTarget & {
+    contactInstagramUserId: string;
+    since: Date;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.eventRepository.countContactMessageEventsSince({
+          ...channelAccount,
+          contactInstagramUserId,
+          since,
+        }),
+    });
+  }
+
+  /**
+   * The `mid`s of the echoes to her the account took in since `since` (WH10) — the owner's quiet
+   * time drops the ones that are our own messages and starts on any other.
+   *
+   * @remarks
+   * Algorithm: one indexed read in the caller's scope. Failure modes: none of its own. Side
+   * effects: none.
+   */
+  async listEchoMessageIdsSince({
+    scope,
+    channelAccount,
+    contactInstagramUserId,
+    since,
+  }: InstagramWebhookEventAccountTarget & {
+    contactInstagramUserId: string;
+    since: Date;
+  }): Promise<string[]> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.eventRepository.listEchoMessageIdsSince({
+          ...channelAccount,
+          contactInstagramUserId,
+          since,
+        }),
+    });
+  }
+
+  /**
+   * How many events of one kind group still wait, counted up to `cap` (WH11 — a flooded account's
+   * comment intake runs at the lowest priority).
+   *
+   * @remarks
+   * Algorithm: one capped count. Failure modes: none of its own. Side effects: none.
+   */
+  async countWaitingEvents({
+    scope,
+    channelAccount,
+    intakeGroup,
+    cap,
+  }: InstagramWebhookEventAccountTarget & {
+    intakeGroup: InstagramWebhookEventIntakeGroup;
+    cap: number;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () =>
+        this.eventRepository.countWaitingEvents({ ...channelAccount, intakeGroup, cap }),
     });
   }
 
@@ -331,10 +403,16 @@ export class InstagramWebhookEventService {
     scope,
     claim,
     errorMessage,
-  }: InstagramWebhookEventClaimTarget & { errorMessage: string }): Promise<boolean> {
+    retryAfterMinutes,
+  }: InstagramWebhookEventClaimTarget & {
+    errorMessage: string;
+    /** The hourly retry (WH12): `next_attempt_at` this many minutes later; `null` for a refusal. */
+    retryAfterMinutes: number | null;
+  }): Promise<boolean> {
     return withAppDatabaseContext({
       scope,
-      callback: () => this.eventRepository.markFailed({ ...claim, errorMessage }),
+      callback: () =>
+        this.eventRepository.markFailed({ ...claim, errorMessage, retryAfterMinutes }),
     });
   }
 

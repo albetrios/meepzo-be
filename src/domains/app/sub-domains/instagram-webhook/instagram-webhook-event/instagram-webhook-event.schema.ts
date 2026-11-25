@@ -21,8 +21,8 @@ import { channel_accounts } from '@/domains/app/sub-domains/channel-account/chan
  * `app.instagram_webhook_events` — one saved event of a Meta webhook delivery (a `changes[]` or
  * `messaging[]` item), of the missed-comment check or of a past-comments read, with what intake did
  * with it (feat-instagram-dm-sending routes-final § 5.B.3, WH18–WH22). Born `received` — or
- * already `skipped`, without a body — by the store function, then `queued` → `processed` ·
- * `skipped` · `failed` by intake (WH12). No soft delete, no `*_by_user_id` (WH6); `created_at` is
+ * already `skipped`, without a body — by the store function, then `processed` · `skipped` ·
+ * `failed` by intake (WH12; no `queued` step since R38, S25). No soft delete, no `*_by_user_id` (WH6); `created_at` is
  * the received time (the API's `received_at`).
  *
  * @remarks

@@ -236,3 +236,18 @@ export async function returnTicketWithoutTry({
   logger.info({ ...logFields, jobId: job.id, delayMilliseconds }, logMessage);
   throw new DelayedError();
 }
+
+/**
+ * A job's unit-of-work runner over an optional limiter: each callback in one of the limiter's
+ * slots, or run as it is when there is none (a test or a caller without the limiter).
+ *
+ * @remarks
+ * Algorithm: `limiter.runInSlot({ callback })`, else `callback()`. Failure modes: the limiter's
+ * (`WorkerDatabaseSlotUnavailableError` after its wait). Side effects: none of its own.
+ */
+export function toDatabaseSlotRunner(
+  limiter: WorkerDatabaseSlotLimiter | null | undefined,
+): <T>(callback: () => Promise<T>) => Promise<T> {
+  if (limiter === null || limiter === undefined) return (callback) => callback();
+  return (callback) => limiter.runInSlot({ callback });
+}

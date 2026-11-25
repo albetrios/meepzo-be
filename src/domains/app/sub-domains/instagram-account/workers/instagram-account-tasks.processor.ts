@@ -23,10 +23,7 @@ import {
   setInstagramIceBreakers,
   subscribeInstagramWebhookFields,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import {
-  MetaGraphApiError,
-  describeMetaGraphError,
-} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
+import { describeMetaGraphError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { createWorkerChannelConnectionTokenRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection-token.repository.js';
 import type {
   InstagramSendTicketContext,
@@ -57,11 +54,10 @@ import {
 import { buildInstagramReconnectNoticeActionUrl } from './instagram-reconnect-notice.processor.js';
 import type { InstagramReconnectNoticeServices } from './instagram-reconnect-notice.processor.js';
 import { classifyChannelConnectionTokenCheckFailure } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.processor.js';
-import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
+import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
 import {
   INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES,
   INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE,
-  type InstagramAccountBrokenConnectionStatus,
 } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 
 /** The notification type of the set-up failure email (the `automation_problem` kind, UN8). */
@@ -90,7 +86,8 @@ export interface InstagramStarterQuestionSource {
 
 /**
  * The missed-comment look of one account after its subscription lost a field (WC-26, sub-domain 5 —
- * ROUTE row R39 builds it and passes it in); `null` until then, and the check logs that it skipped it.
+ * ROUTE row R39's `lookForMissedComments`, the full pass); `null` only in a test that leaves it out,
+ * and the check then logs that it skipped it.
  *
  * @remarks
  * Notes: set on `appDomain.instagramAccountTaskSlots.missedCommentPort`.
@@ -111,7 +108,8 @@ export interface InstagramMissedCommentPort {
  * Notes: built by `createAppContainer` and handed to {@link buildInstagramAccountTaskHandlers}.
  */
 export interface InstagramAccountTaskServices {
-  accountService: Pick<InstagramAccountService, 'markConnectionBroken'>;
+  /** The account's guarded break, which also stops its lanes (CA4, SN5 — the same path as intake's). */
+  channelAccountService: Pick<ChannelAccountService, 'markAccountBroken'>;
   extensionService: Pick<
     InstagramAccountExtensionService,
     'recordWebhookSubscribed' | 'recordWebhookSubscriptionLost' | 'recordStarterQuestionsSet'
@@ -241,7 +239,10 @@ async function readAccountTaskTarget({
   };
 }
 
-/** Moves the account to `error` through the guarded change (its reconnect notice after commit). */
+/**
+ * Moves the account to `error` through the channel account's guarded break — its reconnect notice
+ * after commit and its lanes stopped (`login_expired`), the path intake takes too (R38).
+ */
 async function breakAccount({
   target,
   error,
@@ -253,13 +254,19 @@ async function breakAccount({
   services: InstagramAccountTaskServices;
   context: InstagramSendTicketContext;
 }): Promise<{ outcome: 'broken' }> {
-  const connectionStatus: InstagramAccountBrokenConnectionStatus =
-    error instanceof MetaGraphApiError ? (error.connectionStatus ?? 'error') : 'error';
+  logger.warn(
+    {
+      organizationPublicId: target.organizationPublicId,
+      channelAccountPublicId: target.account.public_id,
+      failure: describeMetaGraphError(error),
+    },
+    'app.instagram_account.task.token_refused',
+  );
   await context.runInDatabaseSlot(() =>
-    services.accountService.markConnectionBroken({
+    services.channelAccountService.markAccountBroken({
       scope: target.scope,
-      instagramAccount: target.key,
-      connectionStatus,
+      organizationId: target.account.organization_id,
+      channelAccountId: target.account.channel_account_id,
       requestId: target.requestId,
     }),
   );

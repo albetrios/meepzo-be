@@ -7,9 +7,26 @@ import {
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
+import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import type { ContactTagChangeEvent } from '@/domains/app/sub-domains/contact/contact.types.js';
 import { contact_tag_events } from './contact-tag-event.schema.js';
 import type { ContactTagEventHandOverTarget } from './contact-tag-event.types.js';
+
+/** One undone tag event as tag intake reads it (WH15): the row's fields and two public ids. */
+export interface ContactTagEventIntakeRow {
+  id: number;
+  contact_id: number;
+  /** `con_…` of her contact. */
+  contact_public_id: string;
+  channel_account_id: number;
+  /** `cha_…` — the run engine's account. */
+  channel_account_public_id: string;
+  tag: string;
+  kind: string;
+  source_automation_id: number | null;
+  chain_number: number;
+  created_at: Date;
+}
 
 /** One `app.contact_tag_events` row as Drizzle reads it. */
 export type ContactTagEventRow = typeof contact_tag_events.$inferSelect;
@@ -121,6 +138,85 @@ export class ContactTagEventRepository {
       )
       .returning({ id: contact_tag_events.id });
     return deleted.length;
+  }
+
+  /**
+   * The undone tag events of the named live contacts (`done_at` empty), oldest first, at most
+   * `limit` — tag intake's read (WH15, WC-4), with each row's contact and account public ids.
+   */
+  async listUndoneForContacts({
+    organizationId,
+    contactPublicIds,
+    limit,
+  }: {
+    organizationId: number;
+    contactPublicIds: readonly string[];
+    limit: number;
+  }): Promise<ContactTagEventIntakeRow[]> {
+    if (contactPublicIds.length === 0) return [];
+    return this.db()
+      .select({
+        id: contact_tag_events.id,
+        contact_id: contact_tag_events.contact_id,
+        contact_public_id: contacts.public_id,
+        channel_account_id: contact_tag_events.channel_account_id,
+        channel_account_public_id: channel_accounts.public_id,
+        tag: contact_tag_events.tag,
+        kind: contact_tag_events.kind,
+        source_automation_id: contact_tag_events.source_automation_id,
+        chain_number: contact_tag_events.chain_number,
+        created_at: contact_tag_events.created_at,
+      })
+      .from(contact_tag_events)
+      .innerJoin(
+        contacts,
+        and(
+          eq(contacts.organization_id, contact_tag_events.organization_id),
+          eq(contacts.id, contact_tag_events.contact_id),
+        ),
+      )
+      .innerJoin(
+        channel_accounts,
+        and(
+          eq(channel_accounts.organization_id, contact_tag_events.organization_id),
+          eq(channel_accounts.id, contact_tag_events.channel_account_id),
+        ),
+      )
+      .where(
+        and(
+          eq(contact_tag_events.organization_id, organizationId),
+          inArray(contacts.public_id, [...contactPublicIds]),
+          isNull(contacts.deleted_at),
+          isNull(contact_tag_events.done_at),
+        ),
+      )
+      .orderBy(asc(contact_tag_events.created_at), asc(contact_tag_events.id))
+      .limit(limit);
+  }
+
+  /**
+   * Marks one tag event done while it is not (WH15 — tag intake's first statement); `false` when
+   * another run did it already.
+   */
+  async markDone({
+    organizationId,
+    tagEventId,
+  }: {
+    organizationId: number;
+    tagEventId: number;
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(contact_tag_events)
+      .set({ done_at: sql`now()` })
+      .where(
+        and(
+          eq(contact_tag_events.organization_id, organizationId),
+          eq(contact_tag_events.id, tagEventId),
+          isNull(contact_tag_events.done_at),
+        ),
+      )
+      .returning({ id: contact_tag_events.id });
+    return rows.length > 0;
   }
 
   /** One contact's tag events, oldest first (tests and intake's pass). */

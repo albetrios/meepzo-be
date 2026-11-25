@@ -17,6 +17,7 @@ src/
     │   │   │   ├── instagram-acceptance-gaps.e2e.test.ts
     │   │   │   ├── instagram-acceptance-gaps.helper.ts
     │   │   │   ├── instagram-comment-flow.helper.ts
+    │   │   │   ├── instagram-intake-run.helper.ts
     │   │   │   ├── instagram-next-post-flow.e2e.test.ts
     │   │   │   ├── instagram-next-post-flow.helper.ts
     │   │   │   ├── instagram-retention-erasure.e2e.test.ts
@@ -52,12 +53,16 @@ src/
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── automation-backfill.integration.test.ts
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── automation-backfill-read.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-backfill.serializer.unit.test.ts
     │   │   │   │   │   │   ├── automation-backfill.service.unit.test.ts
     │   │   │   │   │   │   └── automation-backfill.validator.unit.test.ts
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── automation-backfill.bulk.seed.ts
     │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── workers/
+    │   │   │   │   │   ├── automation-backfill-watch.constants.ts
+    │   │   │   │   │   └── automation-backfill-watch.processor.ts
     │   │   │   │   ├── automation-backfill.constants.ts
     │   │   │   │   ├── automation-backfill.controller.ts
     │   │   │   │   ├── automation-backfill.dto.ts
@@ -115,6 +120,8 @@ src/
     │   │   │   │   ├── automation.faker.ts
     │   │   │   │   └── index.ts
     │   │   │   ├── workers/
+    │   │   │   │   ├── automation-next-post-linking.constants.ts
+    │   │   │   │   ├── automation-next-post-linking.processor.ts
     │   │   │   │   ├── automation-tombstone-retention.constants.ts
     │   │   │   │   ├── automation-tombstone-retention.processor.ts
     │   │   │   │   └── automation-tombstone-retention.worker.ts
@@ -573,14 +580,19 @@ src/
     │   │   │       │   ├── events/
     │   │   │       │       └── worker/
     │   │   │       │       │   └── instagram-webhook.worker.unit.test.ts
+    │   │   │       │   ├── instagram-missed-comment-check.processor.unit.test.ts
+    │   │   │       │   ├── instagram-next-post-linking.processor.unit.test.ts
+    │   │   │       │   ├── instagram-past-comment-read.processor.unit.test.ts
+    │   │   │       │   ├── instagram-tag-event-intake.processor.db.unit.test.ts
     │   │   │       │   ├── instagram-webhook-event-classifier.util.unit.test.ts
     │   │   │       │   ├── instagram-webhook-event-dispatch.util.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-inbound-seam.policy.unit.test.ts
     │   │   │       │   ├── instagram-webhook-ingress.plugin.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-intake.processor.db.unit.test.ts
+    │   │   │       │   ├── instagram-webhook-intake.processor.unit.test.ts
     │   │   │       │   ├── instagram-webhook-reclaim.processor.db.unit.test.ts
     │   │   │       │   ├── instagram-webhook-reclaim.processor.unit.test.ts
     │   │   │       │   ├── instagram-webhook.dto.unit.test.ts
-    │   │   │       │   ├── instagram-webhook.processor.db.unit.test.ts
-    │   │   │       │   ├── instagram-webhook.processor.unit.test.ts
     │   │   │       │   ├── instagram-webhook.queue.unit.test.ts
     │   │   │       │   └── instagram-webhook.service.unit.test.ts
     │   │   │   ├── instagram-webhook-event/
@@ -627,9 +639,15 @@ src/
     │   │   │       ├── instagram-webhook.job.schema.ts
     │   │   │       └── instagram-webhook.queue.ts
     │   │   │   ├── workers/
+    │   │   │       ├── instagram-contact-profile-read.processor.ts
+    │   │   │       ├── instagram-missed-comment-check.constants.ts
+    │   │   │       ├── instagram-missed-comment-check.processor.ts
+    │   │   │       ├── instagram-next-post-linking.processor.ts
+    │   │   │       ├── instagram-past-comment-read.processor.ts
+    │   │   │       ├── instagram-tag-event-intake.processor.ts
+    │   │   │       ├── instagram-webhook-intake.processor.ts
     │   │   │       ├── instagram-webhook-reclaim.constants.ts
     │   │   │       ├── instagram-webhook-reclaim.processor.ts
-    │   │   │       ├── instagram-webhook.processor.ts
     │   │   │       └── instagram-webhook.worker.ts
     │   │   │   ├── instagram-webhook-error.util.ts
     │   │   │   ├── instagram-webhook-event-classifier.util.ts

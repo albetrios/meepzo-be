@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
+import {
+  getBullMQConnectionOptions,
+  getBullMQKeyPrefix,
+} from '@/infrastructure/queue/connection.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
@@ -134,6 +139,36 @@ describe('Automation backfill routes 38–39 (past comments, § 4.C)', () => {
   }
 
   describe('route 38 — start a read (AU31, AC-8.1)', () => {
+    it('wakes the account read job on `instagram-tasks` after its commit, at the lowest priority (WC-41, R41)', async () => {
+      await usePlan(CREATOR_PLAN_FEATURES);
+      const tasks = new Queue('instagram-tasks', {
+        connection: getBullMQConnectionOptions(),
+        prefix: getBullMQKeyPrefix(),
+      });
+      try {
+        await tasks.obliterate({ force: true });
+        const automation = await liveAutomation();
+        const response = await start({ automationPublicId: automation.public_id });
+        expect(response.statusCode, response.body).toBe(200);
+        const jobs = await tasks.getJobs(['prioritized', 'waiting', 'delayed']);
+        expect(
+          jobs.map((job) => ({ name: job.name, data: job.data, priority: job.opts.priority })),
+        ).toEqual([
+          {
+            name: 'automation-backfill-read',
+            data: expect.objectContaining({
+              organizationPublicId: team.organization.public_id,
+              taskInput: { channelAccountPublicId: account.public_id },
+            }),
+            priority: 20,
+          },
+        ]);
+      } finally {
+        await tasks.obliterate({ force: true });
+        await tasks.close();
+      }
+    });
+
     it('answers the read queued for 1 to 7 days, shows it on the automation, and audits the start', async () => {
       await usePlan(CREATOR_PLAN_FEATURES);
       const automation = await liveAutomation();

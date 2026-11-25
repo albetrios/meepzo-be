@@ -1053,14 +1053,39 @@ export class AutomationService {
   }
 
   /**
+   * The account's live, not-stopped comment and ad-comment automations — what the missed-comment
+   * look (WC-26, sub-domain 5) asks whether a watched post is still watched.
+   *
+   * @remarks
+   * Algorithm: one read of the account's run candidates in the caller's organization scope, kept to
+   * `comment` and `ad_comment`. Failure modes: a database error propagates. Side effects: none.
+   */
+  async listLiveCommentAutomations({
+    scope,
+    channelAccount,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccount: { organizationId: number; channelAccountId: number };
+  }): Promise<AutomationRow[]> {
+    const candidates = await withAppDatabaseContext({
+      scope,
+      callback: () => this.automationRepository.listRunCandidates(channelAccount),
+    });
+    return candidates.filter(
+      (candidate) =>
+        candidate.trigger_type === 'comment' || candidate.trigger_type === 'ad_comment',
+    );
+  }
+
+  /**
    * Links a new post to the waiting "next post" automations of its account (AU20, P12) — every live
    * one that went live at or before the post's publish time; no end date. Returns their public ids.
    *
    * @remarks
    * Algorithm: in the caller's organization scope (a caller's open unit is joined): the
    * organization's `AUTOMATION_NEXT_POST` advisory lock, then one conditional `UPDATE`. Failure
-   * modes: a database error propagates. Side effects: the linked rows; safe to repeat. Notes: the
-   * 15-minute linking sweep (WC-43) is ROUTE row R41's.
+   * modes: a database error propagates. Side effects: the linked rows; safe to repeat. Notes: called
+   * by intake for a commented post and by the 15-minute linking sweep's task (WC-43, R41).
    */
   async linkNextPostAutomations({
     scope,

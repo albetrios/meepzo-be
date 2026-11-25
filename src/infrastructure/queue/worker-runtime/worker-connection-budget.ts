@@ -33,6 +33,11 @@ export type WorkerPostgresQueueDemandEntry = {
   readonly postgresConcurrency: number;
   readonly holdsConnectionDuringExternalIo: boolean;
   readonly enabled: boolean;
+  /**
+   * The in-process database limiter this queue shares (SN24, P91); `postgresConcurrency` is then the
+   * limiter's size, counted once per process across every queue that names it.
+   */
+  readonly databaseSlotLimiterName?: string;
 };
 
 /**
@@ -106,6 +111,33 @@ function resolvePostgresConcurrency({
 }
 
 /**
+ * Sums the Postgres demand of the given queues: a queue on its own counts its concurrency; the queues
+ * sharing one in-process database limiter (SN24, P91) count the limiter's size once — the slots, not
+ * their job places.
+ */
+function sumPostgresDemand({
+  queues,
+  filter,
+}: {
+  queues: readonly WorkerPostgresQueueDemandEntry[];
+  filter: (entry: WorkerPostgresQueueDemandEntry) => boolean;
+}): number {
+  const limiterSizes = new Map<string, number>();
+  let demand = 0;
+  for (const entry of queues) {
+    if (!filter(entry)) continue;
+    if (entry.databaseSlotLimiterName === undefined) {
+      demand += entry.postgresConcurrency;
+      continue;
+    }
+    const counted = limiterSizes.get(entry.databaseSlotLimiterName) ?? 0;
+    limiterSizes.set(entry.databaseSlotLimiterName, Math.max(counted, entry.postgresConcurrency));
+  }
+  for (const size of limiterSizes.values()) demand += size;
+  return demand;
+}
+
+/**
  * Computes peak simultaneous Postgres checkouts this worker process can demand from
  * enabled BullMQ workers in the selected queue families.
  */
@@ -136,17 +168,17 @@ export function computeWorkerPostgresPoolDemand(
       postgresConcurrency,
       holdsConnectionDuringExternalIo: definition.holdsConnectionDuringExternalIo === true,
       enabled,
+      ...(definition.databaseSlotLimiterName === undefined
+        ? {}
+        : { databaseSlotLimiterName: definition.databaseSlotLimiterName }),
     };
   });
 
-  const peakPostgresConcurrency = queues.reduce(
-    (peak, entry) => peak + entry.postgresConcurrency,
-    0,
-  );
-  const peakPostgresConcurrencyHoldingExternalIo = queues.reduce(
-    (peak, entry) => peak + (entry.holdsConnectionDuringExternalIo ? entry.postgresConcurrency : 0),
-    0,
-  );
+  const peakPostgresConcurrency = sumPostgresDemand({ queues, filter: () => true });
+  const peakPostgresConcurrencyHoldingExternalIo = sumPostgresDemand({
+    queues,
+    filter: (entry) => entry.holdsConnectionDuringExternalIo,
+  });
   const peakPostgresConcurrencyWithSafetyMargin = Math.ceil(
     peakPostgresConcurrency * WORKER_POSTGRES_POOL_SAFETY_MARGIN,
   );

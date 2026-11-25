@@ -64,6 +64,7 @@ import { MessageMonthCountService } from './sub-domains/instagram-sending/messag
 import { SendingStateService } from './sub-domains/instagram-sending/sending-state.service.js';
 import { InstagramSendingService } from './sub-domains/instagram-sending/instagram-sending.service.js';
 import { InstagramMessageService } from './sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import type { InstagramSendWork } from './sub-domains/instagram-sending/instagram-sending.types.js';
 import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 
 /**
@@ -133,6 +134,12 @@ export type AppContainer = {
    * webhook's own-echo lookup and route 63's waiting counts.
    */
   instagramMessageService: InstagramMessageService;
+  /**
+   * The work the Instagram send and task workers hand their tickets to (SN2, SN24, ROUTE row R37):
+   * none yet — the lane turn is ROUTE rows R42–R45's, the fast send R42 / R44's, the task handlers
+   * R40 / R41 / R46's; until then a ticket is logged and finished without touching a row.
+   */
+  instagramSendWork: InstagramSendWork;
 };
 
 /**
@@ -212,6 +219,13 @@ function createInstagramAccountServices({
   };
 }
 
+/** No ticket work is built yet (ROUTE row R37): every ticket is logged and finished. */
+const NO_INSTAGRAM_SEND_WORK: InstagramSendWork = {
+  laneTurn: null,
+  fastMessage: null,
+  taskHandlers: {},
+};
+
 /**
  * The sending sub-domain's root services (routes-final § 6.A, ROUTE row R18): the lanes and their
  * stops, the global sending row (registered as the readiness body's sending check, SNC9), the
@@ -254,6 +268,9 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
     sendingStateService,
     messageMonthCountService,
     channelConnectionUsageService,
+    // The tickets' work (SN2, SN24, R37): none until the lane turn (R42–R45), the fast send (R42,
+    // R44) and the task handlers (R40, R41, R46) are built.
+    instagramSendWork: NO_INSTAGRAM_SEND_WORK,
   };
 }
 
@@ -552,8 +569,7 @@ export function createAppContainer({
    */
   messageFilePort?: AutomationMessageFilePort | undefined;
 }): AppContainer {
-  // One port per channel (AU35): Instagram's is its message service (§ 6.B, R19), which reports a
-  // run message's result to the engine (built below, so a closure).
+  // One port per channel (AU35): Instagram's message service (R19); the engine is built below.
   const instagramMessageService = new InstagramMessageService({
     recordRunMessageResult: (input) => automationRunService.recordMessageResult(input),
   });
@@ -652,9 +668,9 @@ export function createAppContainer({
     instagramMessageService,
   });
   return {
+    ...sending,
     channelConnectionService,
     channelConnectionTokenService,
-    channelConnectionUsageService: sending.channelConnectionUsageService,
     channelAccountService,
     instagramAccountService,
     instagramAccountSettingsService,
@@ -670,9 +686,6 @@ export function createAppContainer({
     automationReplyStateService,
     automationRunService,
     channelSendingPorts,
-    instagramSendLaneService: sending.instagramSendLaneService,
-    messageMonthCountService: sending.messageMonthCountService,
-    sendingStateService: sending.sendingStateService,
     instagramSendingService,
     instagramMessageService,
   };

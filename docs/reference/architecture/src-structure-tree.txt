@@ -358,6 +358,7 @@ src/
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
@@ -379,9 +380,24 @@ src/
     │   │   │   │   ├── instagram-message.util.ts
     │   │   │   │   ├── instagram-send-attempt.repository.ts
     │   │   │   │   └── instagram-send-attempt.schema.ts
+    │   │   │   ├── queues/
+    │   │   │   │   ├── instagram-send-fast.job.schema.ts
+    │   │   │   │   ├── instagram-send-fast.queue.ts
+    │   │   │   │   ├── instagram-send-slow.job.schema.ts
+    │   │   │   │   ├── instagram-send-slow.queue.ts
+    │   │   │   │   ├── instagram-tasks.job.schema.ts
+    │   │   │   │   └── instagram-tasks.queue.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── instagram-sending.bulk.seed.ts
+    │   │   │   ├── workers/
+    │   │   │   │   ├── instagram-send-fast.processor.ts
+    │   │   │   │   ├── instagram-send-fast.worker.ts
+    │   │   │   │   ├── instagram-send-slow.processor.ts
+    │   │   │   │   ├── instagram-send-slow.worker.ts
+    │   │   │   │   ├── instagram-send-ticket.processor.ts
+    │   │   │   │   ├── instagram-tasks.processor.ts
+    │   │   │   │   └── instagram-tasks.worker.ts
     │   │   │   ├── instagram-send-day-count.repository.ts
     │   │   │   ├── instagram-send-day-count.schema.ts
     │   │   │   ├── instagram-send-lane.repository.ts
@@ -1968,6 +1984,7 @@ src/
     │   │   │   │   ├── registry-scheduler-consistency.unit.test.ts
     │   │   │   │   ├── scheduler-registry-audit.unit.test.ts
     │   │   │   │   ├── worker-connection-budget.unit.test.ts
+    │   │   │   │   ├── worker-database-slot-limiter.unit.test.ts
     │   │   │   │   ├── worker-failure-sanitizer.util.unit.test.ts
     │   │   │   │   ├── worker-organization-group.util.unit.test.ts
     │   │   │   │   ├── worker-queue-family.util.unit.test.ts
@@ -1978,6 +1995,7 @@ src/
     │   │   ├── shutdown-timing.util.ts
     │   │   ├── worker-close.util.ts
     │   │   ├── worker-connection-budget.ts
+    │   │   ├── worker-database-slot-limiter.ts
     │   │   ├── worker-failure-sanitizer.util.ts
     │   │   ├── worker-health.server.ts
     │   │   ├── worker-options.ts
@@ -2594,6 +2612,7 @@ src/
     │   │   ├── stripe-webhook-enqueue-dedupe.integration.test.ts
     │   │   ├── subscription-seat-sync-serialization.integration.test.ts
     │   │   ├── transactional-outbox.integration.test.ts
+    │   │   ├── worker-database-slot-limiter.integration.test.ts
     │   │   ├── worker-failure-redaction.integration.test.ts
     │   │   └── worker-shutdown.integration.test.ts
     │   ├── runtime/

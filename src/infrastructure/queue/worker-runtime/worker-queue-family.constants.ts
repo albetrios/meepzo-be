@@ -8,6 +8,8 @@ export const WORKER_QUEUE_FAMILY_NAMES = [
   'webhook',
   'stripe',
   'instagram',
+  // feat-instagram-dm-sending SN2, SN24 (P91): the two send queues, run by the send service.
+  'instagram-send',
   'retention',
   'observability',
 ] as const;

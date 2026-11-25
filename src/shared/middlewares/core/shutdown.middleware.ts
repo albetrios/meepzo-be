@@ -12,6 +12,9 @@ import { closeStripeWebhookQueue } from '@/domains/billing/sub-domains/stripe-we
 import { closeUserDataExportQueue } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
 import { closeInstagramReconnectNoticeQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { closeInstagramSendSlowQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
+import { closeInstagramSendFastQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
+import { closeInstagramTasksQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
 import { flushSentry } from '@/infrastructure/observability/sentry/sentry.js';
 import { shutdownPostHog } from '@/infrastructure/observability/posthog/posthog.js';
 import { closeBullMQMetricsQueues } from '@/infrastructure/observability/metrics/bullmq-metrics.js';
@@ -82,6 +85,11 @@ const shutdownMiddleware: FastifyPluginAsync = async (app) => {
       // Launch WH10: the Instagram webhook (route 17) adds each account's processing job after
       // its events are stored.
       closeInstagramWebhookQueue(),
+      // SN2 (R37): a lane wake after a route's commit adds a lane ticket (R42), a retry route a task
+      // (R46).
+      closeInstagramSendSlowQueue(),
+      closeInstagramSendFastQueue(),
+      closeInstagramTasksQueue(),
     ]);
     // The same pooled BullMQ clients the readiness probe uses — released before the shared
     // connections so the API does not leave Redis sockets open on the way out.

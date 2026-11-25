@@ -993,6 +993,24 @@ const envSchemaBase = z.object({
   WORKER_CONCURRENCY_STRIPE: z.coerce.number().int().min(1).max(20).optional(),
   /** Instagram event processing: accounts one worker process handles side by side (WH5). */
   WORKER_CONCURRENCY_INSTAGRAM: z.coerce.number().int().min(1).max(20).optional(),
+  /**
+   * Instagram sending (feat-instagram-dm-sending SN2, P91): job places of the slow-lane queue
+   * (`instagram-send-slow` — the slow, reply and broadcast lane turns) per process. Their own maximum
+   * (200), not the 20 of the other places: a place waits on Meta, not on Postgres — the database
+   * is reached only through `WORKER_INSTAGRAM_DATABASE_SLOTS`.
+   */
+  WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW: z.coerce.number().int().min(1).max(200).default(50),
+  /** Job places of the fast-message queue (`instagram-send-fast`) per process (SN2, P91). */
+  WORKER_CONCURRENCY_INSTAGRAM_SEND_FAST: z.coerce.number().int().min(1).max(200).default(100),
+  /** Job places of the Instagram task queue (`instagram-tasks`) per process (SN2, P91). */
+  WORKER_CONCURRENCY_INSTAGRAM_TASKS: z.coerce.number().int().min(1).max(200).default(20),
+  /**
+   * The in-process database limiter of the Instagram send, intake and task workers (SN24, P91): how
+   * many units of work of one process hold a Postgres connection at once. The worker connection
+   * budget counts these slots once per process, not the job places above. A unit of work that waits
+   * 2 s for a slot puts its ticket back with no try used.
+   */
+  WORKER_INSTAGRAM_DATABASE_SLOTS: z.coerce.number().int().min(1).max(64).default(16),
   /** HTTP port for worker GET /livez, /readyz, and optional /metrics (default 9090). */
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(9090),
   /** Max age of throughput queue heartbeats before /readyz returns 503 (default 5 min). */
@@ -1004,8 +1022,8 @@ const envSchemaBase = z.object({
     .default(300_000),
   /**
    * Comma-separated BullMQ queue families this worker process runs: `mail`, `notify`,
-   * `webhook`, `stripe`, `instagram`, `retention`, `observability`, or `all` (default monolithic
-   * worker).
+   * `webhook`, `stripe`, `instagram`, `instagram-send`, `retention`, `observability`, or `all`
+   * (default monolithic worker). The send service runs `instagram-send` alone (SN24, P91).
    * Use split services in production so each process pool budget matches its registered workers.
    */
   WORKER_QUEUE_FAMILIES: z.string().min(1).default('all'),
@@ -1015,7 +1033,8 @@ const envSchemaBase = z.object({
    * Each HTTP request runs in its own RLS transaction holding one pooled connection for its
    * duration, so the pool size is the per-process in-flight DB concurrency ceiling. The default
    * is the monolithic worker's demand with burst headroom: with every optional queue on, the
-   * Postgres-using queues peak at 64 connections at the default concurrency, 80 with the 25%
+   * Postgres-using queues peak at 64 connections at the template's concurrency (61, plus the
+   * template's 3 Instagram database slots — SN24), 80 with the 25%
    * burst margin (it was 70 until the Instagram automation workers; CI's API boots share a
    * 100-connection Postgres and accept no default above 80 — `ci-boot-connection-budget.policy`),
    * and `assertPostgresConnectionBudget` refuses to boot a worker whose pool is

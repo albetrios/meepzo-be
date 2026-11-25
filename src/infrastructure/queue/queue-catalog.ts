@@ -12,6 +12,9 @@ import { STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME } from '@/domains/billing/sub-d
 import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-catchup.constants.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.constants.js';
+import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
+import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
+import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
 import { AUDIT_RETENTION_QUEUE_NAME } from '@/domains/audit/workers/audit-retention.constants.js';
 import { AUDIT_OUTBOX_DRAIN_QUEUE_NAME } from '@/domains/audit/workers/audit-outbox-drain.constants.js';
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
@@ -44,8 +47,8 @@ import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-dom
  * and its mirror trim, the worker heartbeat read-out and Bull Board all use.
  *
  * @remarks
- * - **Algorithm:** grouped by worker family (mail, notify, webhook, stripe, instagram, retention,
- *   observability), mirroring `worker-registration.registry.ts`.
+ * - **Algorithm:** grouped by worker family (mail, notify, webhook, stripe, instagram,
+ *   instagram-send, retention, observability), mirroring `worker-registration.registry.ts`.
  * - **Failure modes:** none — a constant.
  * - **Side effects:** none.
  * - **Notes:** `queue-catalog.coverage.unit.test.ts` pins it to the registry: a worker registered
@@ -68,6 +71,9 @@ export const WORKER_QUEUE_NAMES = [
   STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
+  INSTAGRAM_TASKS_QUEUE_NAME,
+  INSTAGRAM_SEND_SLOW_QUEUE_NAME,
+  INSTAGRAM_SEND_FAST_QUEUE_NAME,
   AUDIT_RETENTION_QUEUE_NAME,
   AUDIT_OUTBOX_DRAIN_QUEUE_NAME,
   AUDIT_EXPORT_QUEUE_NAME,
@@ -114,4 +120,7 @@ export const WORKER_THROUGHPUT_QUEUE_NAMES = [
   STRIPE_WEBHOOK_QUEUE_NAME,
   SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
+  INSTAGRAM_TASKS_QUEUE_NAME,
+  INSTAGRAM_SEND_SLOW_QUEUE_NAME,
+  INSTAGRAM_SEND_FAST_QUEUE_NAME,
 ] as const;

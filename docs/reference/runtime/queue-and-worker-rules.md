@@ -169,7 +169,9 @@ what to do, why, and what enforces it. The mechanisms behind the rules are expla
 | Setting | Default | Rule |
 | --- | --- | --- |
 | `WORKER_CONCURRENCY` (+ `_MAIL`, `_NOTIFY`, `_WEBHOOK`, `_STRIPE`, `_INSTAGRAM`) | 4 | Per worker per process; replicas multiply it |
-| `WORKER_QUEUE_FAMILIES` | `all` | Split services by family; every family's sweeps run with it |
+| `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW` / `_SEND_FAST` / `_TASKS` | 50 / 100 / 20 | Job places of the Instagram send and task queues (max 200) — they wait on Meta and cost no connection |
+| `WORKER_INSTAGRAM_DATABASE_SLOTS` | 16 | The in-process database limiter those queues share (`databaseSlotLimiterName`): the budget counts it once per process; a unit of work waiting 2 s for a slot puts its ticket back, no try used |
+| `WORKER_QUEUE_FAMILIES` | `all` | Split services by family; every family's sweeps run with it (the send service: `instagram-send`) |
 | `SCHEDULER_ENABLED` | `true` | `true` on every worker service (§7) |
 | `RESEND_MAX_REQUESTS_PER_SECOND` | 10 | Your Resend plan's limit; shared by every replica |
 | `DATABASE_POOL_MAX` / `DATABASE_MAINTENANCE_POOL_MAX` | 80 / 10 | replicas × (pool + maintenance) must fit `max_connections`; the worker's peak demand must fit its pool, checked at boot **(test)** `worker-pool-budget.policy.unit.test.ts` |

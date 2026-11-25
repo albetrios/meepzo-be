@@ -51,6 +51,7 @@ type MockedDefinition = {
   criticality: 'throughput' | 'maintenance' | 'observability';
   holdsConnectionDuringExternalIo?: boolean;
   resolvePostgresConcurrency?: () => number;
+  databaseSlotLimiterName?: string;
   isEnabled?: () => boolean;
   create: () => { close: () => Promise<void> };
 };
@@ -168,6 +169,44 @@ describe('worker-connection-budget', () => {
     const observabilityEntry = report.queues.find((entry) => entry.queueName === 'dlq-depth');
     expect(observabilityEntry?.criticality).toBe('observability');
     expect(observabilityEntry?.holdsConnectionDuringExternalIo).toBe(false);
+  });
+
+  it('counts a shared database limiter once per process, at its size — not job places (SN24, P91)', () => {
+    const limiterQueue = (queueName: string, family: string): MockedDefinition => ({
+      queueName,
+      family,
+      logLabel: queueName,
+      usesPostgres: true,
+      scheduled: false,
+      criticality: 'throughput',
+      holdsConnectionDuringExternalIo: false,
+      databaseSlotLimiterName: 'instagram-database',
+      resolvePostgresConcurrency: () => 16,
+      create: () => ({ close: async () => {} }),
+    });
+    MOCK_DEFINITIONS.push(
+      limiterQueue('instagram-send-slow', 'instagram-send'),
+      limiterQueue('instagram-send-fast', 'instagram-send'),
+      limiterQueue('instagram-tasks', 'instagram'),
+    );
+    try {
+      // Monolithic: the 19 of the other queues + the limiter's 16 once (not 3 × 16).
+      expect(computeWorkerPostgresPoolDemand().peakPostgresConcurrency).toBe(35);
+      // The send service: its two queues share the one limiter of its process.
+      getEnvMock.mockReturnValue({
+        LOG_LEVEL: 'silent',
+        WORKER_QUEUE_FAMILIES: 'instagram-send',
+        WORKER_CONCURRENCY: 4,
+      });
+      const sendService = computeWorkerPostgresPoolDemand();
+      expect(sendService.peakPostgresConcurrency).toBe(16);
+      expect(sendService.queues.map((entry) => entry.databaseSlotLimiterName)).toEqual([
+        'instagram-database',
+        'instagram-database',
+      ]);
+    } finally {
+      MOCK_DEFINITIONS.splice(-3, 3);
+    }
   });
 
   it('resolveActiveWorkerQueueNames includes non-postgres observability queues', () => {

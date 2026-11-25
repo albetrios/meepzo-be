@@ -219,3 +219,27 @@ export const SENDING_ALL_STOP_REASONS = ['app_limit', 'instagram_down'] as const
 
 /** Route 64 lists `trial_ending` while the trial ends within this many days (SN15). */
 export const APP_USAGE_TRIAL_ENDING_NOTICE_DAYS = 3;
+
+/**
+ * The lanes whose turns ride the slow-lane queue `instagram-send-slow` (SN2): one ticket per lane
+ * turn; the fast lane has one ticket per message on `instagram-send-fast`.
+ */
+export const INSTAGRAM_SLOW_QUEUE_LANES = ['slow', 'reply', 'broadcast'] as const;
+
+/** A lane whose turns ride `instagram-send-slow` (SN2). */
+export type InstagramSlowQueueLane = (typeof INSTAGRAM_SLOW_QUEUE_LANES)[number];
+
+/** BullMQ priority of a broadcast lane turn on `instagram-send-slow` (SN2): behind the others. */
+export const INSTAGRAM_BROADCAST_TURN_PRIORITY = 10;
+
+/**
+ * Name of the in-process database limiter the Instagram send, intake and task workers share (SN24,
+ * P91) — one per process, sized by `WORKER_INSTAGRAM_DATABASE_SLOTS`.
+ */
+export const INSTAGRAM_DATABASE_SLOT_LIMITER_NAME = 'instagram-database';
+
+/**
+ * How far a ticket goes back when this server may not take tickets now (SN7, P95 — sending off,
+ * another environment, an older settings version): the minute `mayTakeTickets` keeps its answer.
+ */
+export const SENDING_REFUSED_TICKET_DELAY_MILLISECONDS = 60_000;

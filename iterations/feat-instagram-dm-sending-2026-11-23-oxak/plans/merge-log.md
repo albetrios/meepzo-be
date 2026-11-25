@@ -102,3 +102,10 @@ lane B P223 / P224), so most conflicts are two resolutions of the same rows ([P1
 | `app.container.ts`, `automation-run.service.ts`, the RLS-only allowlist, locales | auto-merged: ours' `runEndedHook` wiring and two allowlist entries beside theirs' R61 erasure changes | auto-merge checked by typecheck and the R61 erase flow | low |
 | `instagram-outage-recovery-flow.e2e.test.ts` | theirs made `jobScopeFor` a required `InstagramSendingRepairService` dependency | ours' test passes `PRINCIPAL_SCOPE.JOB` (as main's repair tests do) | none |
 | generated docs (`docs:all`) | regenerated | — | none |
+
+## Lane D (`lane-d/flows`) ← lane E `lane-e/flows` 85043f9 (route 103 fix, P503; its parent e3cc504 already in main) — 2026-11-25
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `plans/decisions.md` | ours P451, P452 after main's rows; theirs P503 | union | none |
+| `AS-BUILT.md`, `subscription.service.ts`, its unit test, `trial.e2e.test.ts`, `errors.json` (en, es) | auto-merged (lane E only) | — | none |

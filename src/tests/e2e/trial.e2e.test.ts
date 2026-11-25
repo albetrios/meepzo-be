@@ -426,6 +426,36 @@ describe('Flow: a trial from start to its end (R59)', () => {
     expect(await planStops()).toEqual([null, null]);
   });
 
+  it('route 103 on the local Free row never gives a paid plan without a Stripe subscription; route 102 does it', async () => {
+    expect((await startTrial(catalog.creator.public_id)).statusCode).toBe(200);
+    await endTrialUnpaid(await liveRow());
+    const [freeRow] = await operatorQuery<{ public_id: string }[]>`
+      SELECT public_id FROM billing.subscriptions
+      WHERE organization_id = ${team.organization.id} AND status = 'ACTIVE' AND provider_subscription_id IS NULL`;
+
+    const changed = await post(
+      testApiPath(`/billing/subscriptions/${freeRow!.public_id}/change-plan`),
+      { plan_id: catalog.creator.public_id },
+    );
+    expect(changed.statusCode, changed.body).toBe(422);
+    expect((changed.json() as { error: { reason?: string } }).error.reason).toBe(
+      'subscription_required',
+    );
+    // Nothing changed: still Free, still the one local row.
+    expect(await liveRows()).toEqual([
+      { status: 'ACTIVE', plan_id: String(catalog.free.id), provider_subscription_id: null },
+    ]);
+    expect((await planAccess()).plan?.id).toBe(catalog.free.public_id);
+
+    // Route 102 is the way up from the local Free row (P502).
+    const paid = await post(testApiPath('/billing/subscriptions'), {
+      plan_id: catalog.creator.public_id,
+      billing_cycle: 'monthly',
+    });
+    expect(paid.statusCode, paid.body).toBe(200);
+    expect((await planAccess()).plan?.id).toBe(catalog.creator.public_id);
+  });
+
   it('an organization on a local Free row that never had a trial starts its first trial', async () => {
     await createTestSubscription({
       organizationId: team.organization.id,

@@ -1517,7 +1517,8 @@ export class SubscriptionService {
    *   R26). **Release:** the schedule (or Free's period-end cancel) is taken back and the three columns
    *   cleared.
    * - **Failure modes:** `400 keep_channel_account_ids`, `404`, `409 subscription_change_in_progress`,
-   *   `422` (personal organization, terminal subscription, no price for the cycle), `503` (Stripe);
+   *   `422` (personal organization, terminal subscription, no price for the cycle, `subscription_required` — a paid
+   *   plan from the local Free row, P503), `503` (Stripe);
    *   a failed write after an immediate price swap swaps the price back (as built).
    * - **Side effects:** Stripe (price, schedule or period-end cancel); one row update; the resource and
    *   plan-state events. The member suspension on downgrade is gone (BL9 — plans carry no seats).
@@ -1609,6 +1610,8 @@ export class SubscriptionService {
     subscription_public_id: string;
     targetPlanPublicId: string;
   }) {
+    // Read before the unit: no provider call inside a database context (not even a local one).
+    const isProviderConfigured = this.paymentProvider.isConfigured();
     return withAppDatabaseContext({
       scope,
       callback: async () => {
@@ -1639,6 +1642,18 @@ export class SubscriptionService {
         const previousPlan = await this.planService.requirePlanRecordByInternalId(
           subscription.plan_id,
         );
+        // The local Free row has no Stripe subscription to bill: a paid plan from it is route
+        // 102's (which replaces the row, P502) — never a local plan swap nobody pays for (P503).
+        if (
+          subscription.provider_subscription_id === null &&
+          isProviderConfigured &&
+          !isPaidPlan({ plan: previousPlan }) &&
+          isPaidPlan({ plan })
+        ) {
+          throw new UnprocessableEntityError('errors:subscriptionRequiredForPaidPlan').withReason(
+            'subscription_required',
+          );
+        }
         return { organization, plan, subscription, previousPlan };
       },
     });

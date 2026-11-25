@@ -35,6 +35,10 @@ export interface ChannelConnectionTokenTarget {
 export interface ChannelConnectionAccess {
   /** `connected` · `error` · `revoked`. */
   connectionStatus: string;
+  /** `chc_…` — the key of the connection's usage (MC19, read before a sender's Meta call). */
+  channelConnectionPublicId: string;
+  /** The business portfolio's id — the asset Meta reports the business-wide usage under (SN23). */
+  clientBusinessId: string;
   /** The ciphertext; `null` when the connection has no token (revoked). */
   encryptedAccessToken: string | null;
 }
@@ -130,6 +134,8 @@ export class ChannelConnectionTokenService {
         const token = await this.tokenRepository.findByConnection(channelConnection);
         return {
           connectionStatus: connection.status,
+          channelConnectionPublicId: connection.public_id,
+          clientBusinessId: connection.client_business_id,
           encryptedAccessToken: token?.encryptedAccessToken ?? null,
         };
       },

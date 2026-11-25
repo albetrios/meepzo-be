@@ -642,7 +642,7 @@ interface CapturableLogger {
 /**
  * One row in each of the sending sub-domain's per-organization tables (feat-instagram-dm-sending
  * § 6.A, R18) for every channel account of the organization: a stop, a minute count, a day count,
- * and the organization's month count — so the organization delete is seen erasing them too.
+ * a message file's Meta id (§ 6.C, R20), and the organization's month count — so the organization delete is seen erasing them too.
  */
 export async function writeSendingHistory(organizationId: number): Promise<void> {
   await operatorQuery`
@@ -661,6 +661,12 @@ export async function writeSendingHistory(organizationId: number): Promise<void>
   await operatorQuery`
     INSERT INTO app.message_month_counts (organization_id, month_start, slot, count)
     VALUES (${organizationId}, date_trunc('month', now())::date, 0, 1)`;
+  // One message file uploaded to Meta per account (feat-instagram-dm-sending R20, § 6.C.3).
+  await operatorQuery`
+    INSERT INTO app.instagram_attachments
+      (organization_id, channel_account_id, upload_public_id, attachment_id)
+    SELECT organization_id, id, 'upl_' || substr(md5(public_id), 1, 21), '1857777774821032'
+    FROM app.channel_accounts WHERE organization_id = ${organizationId}`;
   // The automations' counts and reply pacing (feat-instagram-dm-sending R13, AU19).
   await operatorQuery`
     INSERT INTO app.automation_counts (organization_id, automation_id, slot, runs_started)

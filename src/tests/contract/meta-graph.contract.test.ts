@@ -18,6 +18,7 @@ import {
   sendInstagramMessage,
   subscribeInstagramWebhookFields,
   unsubscribeInstagramWebhookFields,
+  uploadInstagramMessageAttachment,
 } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { exchangeMetaLoginCode } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-login.js';
 import {
@@ -94,6 +95,9 @@ import mediaLastPageFixture from './fixtures/meta-graph/media.last-page.response
 import mediaItemSuccessFixture from './fixtures/meta-graph/media-item.success.response.json' with {
   type: 'json',
 };
+import messageAttachmentsSuccessFixture from './fixtures/meta-graph/message-attachments.success.response.json' with {
+  type: 'json',
+};
 import messagesSuccessFixture from './fixtures/meta-graph/messages.success.response.json' with {
   type: 'json',
 };
@@ -139,6 +143,7 @@ registerThirdPartyContractTestIsolationHooks();
  * | `media.first-page` / `.last-page`, `stories.success`, `media-item.success` | IG User `/media` and `/stories` edges and the IG Media node (ISO `+0000` timestamps, `children.data`) — docs/instagram-platform/instagram-graph-api/reference/ig-user/media, …/ig-user/stories; Graph's cursor paging (`paging.cursors`, `paging.next` carrying `access_token` as live answers do) — docs/graph-api/results |
  * | `subscribed-apps.success` | `POST` / `DELETE /{id}/subscribed_apps` → `{ success: true }` — docs/instagram-platform/webhooks |
  * | `messages.success` | Send Messages and Private Replies → `{ recipient_id, message_id }` — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api, docs/instagram-platform/private-replies |
+ * | `message-attachments.success` | the Attachment Upload API → `{ attachment_id }` for a reusable file (`platform: instagram`, `payload.url`, `is_reusable: true`) — docs/messenger-platform/reference/attachment-upload-api, docs/instagram-platform/instagram-api-with-facebook-login/messaging-api (send a media message by `attachment_id`) |
  * | `comment-replies.success` | IG Comment `/replies` → `{ id }` — docs/instagram-platform/instagram-graph-api/reference/ig-comment/replies |
  * | `user-profile.success` | Instagram User Profile API (Meta's own sample person) — docs/instagram-platform/instagram-api-with-instagram-login/messaging-api/user-profile |
  * | `graph-error.*` | Graph's error envelope and codes (190 with subcode 460 / 463, 4, 2 with `is_transient`) — docs/graph-api/guides/error-handling; `80002` (the Instagram business-use-case rate limit, subcode 2446079) — docs/graph-api/overview/rate-limiting; `100` / `2534014` — docs/messenger-platform/error-codes; `10` / `2534022` (a message outside the 24-hour messaging window; Messenger's `2018278` means the same) — docs/messenger-platform/error-codes, D32; `100` / `2534015` (the quick reply refused) — the intake's schema-routes § 6.5, no Meta page names it |
@@ -632,6 +637,47 @@ describe('Meta outbound contract (`meta-graph.client`)', () => {
       await expect(sendInstagramMessage({ ...sender, ...privateReply })).resolves.toEqual(
         expectedSentMessage,
       );
+    });
+
+    test("a message file is uploaded once to /message_attachments as a reusable URL attachment and Meta's attachment_id is read (SN20)", async () => {
+      z.object({ attachment_id: z.string().regex(/^\d+$/) }).parse(
+        messageAttachmentsSuccessFixture,
+      );
+      const fileUrl =
+        'https://files.example.test/message-media/org_x/voice.m4a?X-Amz-Signature=abc';
+      graphWithAccountToken()
+        .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/message_attachments`, {
+          platform: 'instagram',
+          message: { attachment: { type: 'audio', payload: { url: fileUrl, is_reusable: true } } },
+        })
+        .query(appSecretProofQuery())
+        .matchHeader('content-type', 'application/json')
+        .reply(200, messageAttachmentsSuccessFixture);
+
+      await expect(
+        uploadInstagramMessageAttachment({
+          encryptedAccessToken: encryptedAccountAccessToken,
+          instagramUserId: APP_USER_ID,
+          type: 'audio',
+          url: fileUrl,
+        }),
+      ).resolves.toEqual({ attachmentId: messageAttachmentsSuccessFixture.attachment_id });
+    });
+
+    test('an attachment upload answered without attachment_id is a malformed answer (outage), never a kept id', async () => {
+      graphWithAccountToken()
+        .post(`${GRAPH_VERSION_PATH}/${APP_USER_ID}/message_attachments`)
+        .query(appSecretProofQuery())
+        .reply(200, {});
+
+      const rejection = await uploadInstagramMessageAttachment({
+        encryptedAccessToken: encryptedAccountAccessToken,
+        instagramUserId: APP_USER_ID,
+        type: 'image',
+        url: 'https://files.example.test/message-media/org_x/photo.png',
+      }).catch((error: unknown) => error);
+      expect(rejection).toBeInstanceOf(MetaGraphApiError);
+      expect((rejection as MetaGraphApiError).errorClass).toBe('outage');
     });
 
     test('a public comment reply posts the message to /{comment_id}/replies and returns the reply id', async () => {

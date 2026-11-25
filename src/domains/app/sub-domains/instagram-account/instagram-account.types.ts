@@ -76,6 +76,13 @@ export interface InstagramAccountReadAccess {
   channelConnection: ChannelConnectionKey;
   /** The connection's status — `connected` · `error` · `revoked`. */
   connectionStatus: string;
+  /**
+   * `chc_…` — the connection's usage key (MC19); `null` when the connection is gone. Read by the
+   * sender's usage pace (SN23).
+   */
+  channelConnectionPublicId: string | null;
+  /** The connection's business portfolio id (the business-wide usage asset); `null` when gone. */
+  clientBusinessId: string | null;
   /** The connection's encrypted token; `null` when it has none. */
   encryptedAccessToken: string | null;
 }

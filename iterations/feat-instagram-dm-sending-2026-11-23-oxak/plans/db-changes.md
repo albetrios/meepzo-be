@@ -1775,6 +1775,12 @@ erDiagram
 - **Open:** none. D58 deviation ([P34](decisions.md)): this iteration checks a file's type and
   content (magic bytes) only; the malware scan, and with it "only files scanned clean", comes in a
   later iteration — recorded in AS-BUILT.
+- **Built R20** ([AS-BUILT](../AS-BUILT.md), [P137](decisions.md)): `app.instagram_attachments` in the new
+  migration `20261125121530_app_instagram_attachments.sql` — `id`, `organization_id`, `channel_account_id`
+  (composite key → `app.channel_accounts` CASCADE), **`upload_public_id` `varchar(28)`** (CHECK `^upl_[a-z0-9]{21}$`;
+  routes-final 6.C.3's name for db-changes' `upload_id`), `attachment_id` `varchar(128)` (CHECK non-empty),
+  `created_at`, `updated_at`; unique `idx_instagram_attachments_account_upload` (organization, account, upload);
+  FORCE RLS, organization arm + the retention sweep arm in USING only. No public id, no seed rows.
 
 ```mermaid
 erDiagram

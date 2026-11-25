@@ -88,6 +88,12 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
     'app.current_organization_public_id',
     'app.global_retention_cleanup',
   ],
+  // Instagram's message files (feat-instagram-dm-sending § 6.C.3, R20): organization-scoped, plus
+  // the deleted-automation purge's cross-organization read (USING only, WC-47).
+  'app.instagram_attachments': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
   // Instagram's messages and send attempts (feat-instagram-dm-sending § 6.B.3, R19): organization-
   // scoped, plus the repair duties' and the upkeep's cross-organization reads (USING only).
   'app.instagram_messages': ['app.current_organization_public_id', 'app.global_retention_cleanup'],

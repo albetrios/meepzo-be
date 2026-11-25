@@ -26,8 +26,12 @@ import type { ChannelConnectionUsageRepository } from '@/domains/app/sub-domains
  * leaves a sibling account's hot asset out of its pace.
  */
 export interface ReadConnectionUsageOptions extends ChannelConnectionUsageTarget {
-  /** Only the entries of this asset id (e.g. the Instagram account a lane sends from). */
-  assetId?: string | undefined;
+  /**
+   * Only the entries of these asset ids — e.g. the Instagram account a lane sends from and the
+   * connection's business (SN23: a business-wide reading holds every account of the connection, an
+   * account's own reading only that account).
+   */
+  assetIds?: readonly string[] | undefined;
   /** Only the entries of this use-case type (e.g. `instagram`). */
   type?: string | undefined;
   /** The clock; defaults to now. */
@@ -90,7 +94,7 @@ function stricterDecision({
  * @remarks
  * - **Algorithm:** `readConnectionUsage` reads the cache (keyed by the verified organization scope
  *   and the connection), else the store, populates the cache, keeps the entries matching
- *   `assetId` / `type`, and returns the strictest pace ({@link decideMetaUsagePace} per entry).
+ *   `assetIds` / `type`, and returns the strictest pace ({@link decideMetaUsagePace} per entry).
  *   `buildUsageRecorder` returns the function the Meta client calls after each answer: it writes
  *   the business entries through the store (its own unit, never a send's transaction; the store
  *   keeps the newer reading per asset and type), tombstones the cache after the write, and writes
@@ -100,8 +104,9 @@ function stricterDecision({
  *   (the Meta client never fails a call on it).
  * - **Side effects:** Redis reads/writes; the store's writes.
  * - **Notes:** the Postgres store is `app.channel_connection_usages` (one row per connection,
- *   asset and type); the app container wires this service; R18 adds the app-level store on `sending_states`; R20 and R42
- *   pass a recorder to every send and call `readConnectionUsage` at each lane turn (SN23).
+ *   asset and type); the app container wires this service; R18 adds the app-level store on `sending_states`; sub-domain 6
+ *   reads it through `InstagramSendAccessService` (R20 — the attachment upload; R42 — every lane
+ *   turn and the fast lane), which also passes the connection's recorder to each call (SN23).
  */
 export function createChannelConnectionUsageService({
   usageStore,
@@ -125,10 +130,10 @@ export function createChannelConnectionUsageService({
   }
 
   return {
-    async readConnectionUsage({ assetId, type, now = new Date(), ...target }) {
+    async readConnectionUsage({ assetIds, type, now = new Date(), ...target }) {
       const entries = (await readEntries(target)).filter(
         (entry) =>
-          (assetId === undefined || entry.assetId === assetId) &&
+          (assetIds === undefined || assetIds.includes(entry.assetId)) &&
           (type === undefined || entry.type === type),
       );
       const decision = entries.reduce<MetaUsageDecision>(

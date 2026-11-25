@@ -95,7 +95,7 @@ apart (MCC10). Team organizations only: a write on a personal one is `422`, a re
   and a connection read inside it, never from a request parameter.
 - **Nothing calls Meta inside a database context** — read, close the unit of work, call Meta, write in a new one.
 - **The pick passes the connection's usage recorder** to its Meta calls (MC19); the callback's reads run before the
-  connection exists and keep none. The lanes read `readConnectionUsage` from R20 / R42.
+  connection exists and keep none. Sub-domain 6 reads `readConnectionUsage` through `InstagramSendAccessService` (R20; the lanes from R42) — the account's and the business's entries (`assetIds`).
 - **The plan's limit under the organization lock** (MC7): the pick takes `pg_advisory_xact_lock` on the organization
   (`RESOURCE_QUOTA_LOCK_NAMESPACE.CHANNEL_ACCOUNT_LIMIT`), counts the not-revoked accounts and connects the picks in
   one commit — over `channel_accounts_max` is `409 plan_account_limit`, nothing saved.

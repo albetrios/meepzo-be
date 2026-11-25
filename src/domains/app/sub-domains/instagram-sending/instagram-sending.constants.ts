@@ -219,3 +219,26 @@ export const SENDING_ALL_STOP_REASONS = ['app_limit', 'instagram_down'] as const
 
 /** Route 64 lists `trial_ending` while the trial ends within this many days (SN15). */
 export const APP_USAGE_TRIAL_ENDING_NOTICE_DAYS = 3;
+
+/**
+ * Tries of a file's upload to Meta just before a send when the account has no attachment row yet
+ * (SN20): after this many the message ends `failed` · `attachment_failed`, not counted (the send
+ * core counts the tries on the message, ROUTE row R42).
+ */
+export const INSTAGRAM_ATTACHMENT_UPLOAD_MAX_TRIES = 3;
+
+/**
+ * The message-file content types Instagram takes and the attachment type each is sent as (SN20,
+ * SN21 — the upload domain's `message-media` purpose, RC-61): images, voice notes, PDFs.
+ */
+export const INSTAGRAM_ATTACHMENT_TYPE_OF_CONTENT_TYPE: Readonly<
+  Record<string, 'image' | 'audio' | 'file'>
+> = {
+  'image/png': 'image',
+  'image/jpeg': 'image',
+  'audio/aac': 'audio',
+  'audio/mp4': 'audio',
+  'audio/x-m4a': 'audio',
+  'audio/wav': 'audio',
+  'application/pdf': 'file',
+};

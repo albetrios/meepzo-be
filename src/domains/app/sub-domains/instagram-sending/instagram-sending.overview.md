@@ -13,8 +13,10 @@ groups and stops, and repair duties that never send. ROUTE row R18 built the **f
 minute, month and day count tables, the global sending row, routes 63–64, the sending switch and environment id, the
 month meter's Redis copy and the lane steps of the connection, the channel account and route 12. ROUTE row R19 built
 the nested [Instagram messages](instagram-message/instagram-message.overview.md) (6.B — the messages and attempts,
-Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). The
-attachments (6.C), the queues and workers (R37), the send core (R42), the repair duties (R47)
+Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
+R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
+upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
+connection's usage, SN23). The queues and workers (R37), the send core (R42), the lanes (R43), the repair duties (R47)
 and the watches (R48) come with their rows. No table here has a public id; route 63 takes the account's `cha_` id.
 
 ## Routes (under `/api/v1/app`)
@@ -55,6 +57,12 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   may send; `prepareDatabase` creates the row through `pnpm ops:sending-state`.
 - `instagram-sending.{service,controller,routes,serializer,types}.ts` — routes 63–64. Route 63's later parts (waiting
   counts, chat-closed lines, last broadcast / past comments / retry) come through `InstagramSendingStatusSources`.
+- `instagram-send-access.service.ts` — `InstagramSendAccessService` (SN22, SN23; R20): the account's send access (its
+  keys, Instagram user id, the connection's usage key and business id, the encrypted token, whether a call may go),
+  the pace before a Meta call from the connection's usage (`readConnectionUsage` over the account's and the
+  business's entries — a business-wide 95 % holds every account of the connection, S13) and the connection's usage
+  recorder for the call. The lanes keep no usage of their own.
+- `instagram-attachment/` — the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md).
 - `seed/` — four lanes per seeded account, an ended stop, this minute's and this month's counts.
 
 ## Rules
@@ -68,3 +76,5 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   settings version takes no tickets, an older but compatible one does (P95).
 - **A lane step joins its caller's unit of work** (the pick, the disconnect, the swap commit with it); a wake runs after
   commit.
+- **Meta's usage is the connection's** (P51, SN23): every Meta call of this sub-domain reads its pace through
+  `InstagramSendAccessService` first and passes the connection's recorder; `wait` means no call before `waitUntil`.

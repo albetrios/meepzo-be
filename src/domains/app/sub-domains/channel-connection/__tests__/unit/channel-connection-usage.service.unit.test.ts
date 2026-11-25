@@ -100,7 +100,7 @@ describe('readConnectionUsage — the pace before a Meta call', () => {
 
     const oneAsset = await service.readConnectionUsage({
       ...targetOf(ORGANIZATION),
-      assetId: '1784001',
+      assetIds: ['1784001'],
       now: NOW,
     });
     expect(oneAsset).toMatchObject({ pace: 'slow', waitUntil: null });

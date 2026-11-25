@@ -733,6 +733,64 @@ export async function replyToInstagramComment({
   return { instagramCommentReplyId: readAnswerId(answer.id) };
 }
 
+/** The kinds of file Instagram takes as a message attachment (image, voice note, PDF). */
+export type InstagramAttachmentType = 'image' | 'audio' | 'file';
+
+/** What Instagram answers for an uploaded attachment: its reusable id for this account. */
+export interface InstagramUploadedAttachment {
+  attachmentId: string;
+}
+
+/**
+ * Uploads a message file to Instagram once for the account and answers its reusable id
+ * (`POST /{instagram_user_id}/message_attachments`) — sub-domain 6.C (SN20, SNC15).
+ *
+ * @remarks
+ * - **Algorithm:** `POST /v27.0/{id}/message_attachments` with JSON `{ platform: 'instagram',
+ *   message: { attachment: { type, payload: { url, is_reusable: true } } } }` — Meta fetches the file
+ *   from the short-lived presigned `url` — and the token in the `Authorization` header with
+ *   `appsecret_proof`; returns Meta's `attachment_id`.
+ * - **Failure modes:** `MetaGraphApiError` as {@link sendInstagramMessage}; an answer without
+ *   `attachment_id` → `outage` (malformed answer).
+ * - **Side effects:** one Instagram call; its usage goes to `recordUsage`.
+ * - **Notes:** a later send names the file by `attachment_id` instead of a URL; the id lives in
+ *   `app.instagram_attachments` (one per account and upload).
+ */
+export async function uploadInstagramMessageAttachment({
+  encryptedAccessToken,
+  instagramUserId,
+  type,
+  url,
+  requestId,
+  recordUsage,
+}: {
+  encryptedAccessToken: string;
+  instagramUserId: string;
+  type: InstagramAttachmentType;
+  /** Where Meta fetches the file (a short-lived presigned GET). */
+  url: string;
+} & MetaGraphCallTracing): Promise<InstagramUploadedAttachment> {
+  const answer = await callMetaGraphWithToken<{ attachment_id?: unknown }>({
+    encryptedAccessToken,
+    path: `${encodeURIComponent(instagramUserId)}/message_attachments`,
+    method: 'POST',
+    jsonBody: {
+      platform: 'instagram',
+      message: { attachment: { type, payload: { url, is_reusable: true } } },
+    },
+    requestId,
+    recordUsage,
+  });
+  const attachmentId = readAnswerId(answer.attachment_id);
+  if (attachmentId === null) {
+    throw buildMetaGraphMalformedAnswerError({
+      operation: 'the attachment upload',
+      missing: 'attachment_id',
+    });
+  }
+  return { attachmentId };
+}
+
 /** A person's profile and whether they follow the account (contacts CQ3); absent fields are `null`. */
 export interface InstagramUserProfile {
   name: string | null;

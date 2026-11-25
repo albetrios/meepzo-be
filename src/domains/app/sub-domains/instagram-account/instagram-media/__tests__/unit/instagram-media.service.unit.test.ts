@@ -73,6 +73,8 @@ function accountAccess({
     channelAccount,
     channelConnection,
     connectionStatus,
+    channelConnectionPublicId: 'chc_aaaaaaaaaaaaaaaaaaaaa',
+    clientBusinessId: '1029384756',
     encryptedAccessToken,
   };
 }

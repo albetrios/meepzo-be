@@ -64,6 +64,9 @@ import { MessageMonthCountService } from './sub-domains/instagram-sending/messag
 import { SendingStateService } from './sub-domains/instagram-sending/sending-state.service.js';
 import { InstagramSendingService } from './sub-domains/instagram-sending/instagram-sending.service.js';
 import { InstagramMessageService } from './sub-domains/instagram-sending/instagram-message/instagram-message.service.js';
+import { InstagramSendAccessService } from './sub-domains/instagram-sending/instagram-send-access.service.js';
+import { InstagramAttachmentService } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.service.js';
+import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.types.js';
 import type { InstagramAccountSettingsLanePort } from './sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.types.js';
 
 /**
@@ -133,6 +136,17 @@ export type AppContainer = {
    * webhook's own-echo lookup and route 63's waiting counts.
    */
   instagramMessageService: InstagramMessageService;
+  /**
+   * The one read before every Instagram Meta call (§ 6, SN22, SN23; ROUTE row R20): the account's
+   * send access, the pace from the connection's Meta usage and the usage recorder — the attachment
+   * upload now, every lane and the fast lane from R42.
+   */
+  instagramSendAccessService: InstagramSendAccessService;
+  /**
+   * Instagram's message files (§ 6.C, ROUTE row R20): one Meta upload per account and file
+   * (AC-15.4); the `attachment-upload` task's body for R46.
+   */
+  instagramAttachmentService: InstagramAttachmentService;
 };
 
 /**
@@ -524,6 +538,31 @@ function createAutomationServices({
 }
 
 /**
+ * The sender's one read before a Meta call (§ 6, SN22, SN23) and Instagram's message files (§ 6.C,
+ * SN20) — ROUTE row R20. Without the upload domain's file read (a unit test) every file reads as not
+ * usable, so nothing is uploaded.
+ */
+function createSendAccessServices({
+  instagramAccountService,
+  sending,
+  messageFilePort,
+}: {
+  instagramAccountService: InstagramAccountService;
+  sending: ReturnType<typeof createInstagramSendingServices>;
+  messageFilePort: InstagramAttachmentFilePort | undefined;
+}) {
+  const instagramSendAccessService = new InstagramSendAccessService({
+    accountService: instagramAccountService,
+    usageService: sending.channelConnectionUsageService,
+  });
+  const instagramAttachmentService = new InstagramAttachmentService({
+    sendAccessService: instagramSendAccessService,
+    filePort: messageFilePort ?? { findUsableMessageFile: async () => null },
+  });
+  return { instagramSendAccessService, instagramAttachmentService };
+}
+
+/**
  * Builds the app domain container — the one place its sub-domains' repositories and services
  * are wired, with cross-domain services passed in as parameters (the organization service: the
  * team check, user id resolution; billing's plan read: the channel account limit; billing's trial
@@ -547,13 +586,12 @@ export function createAppContainer({
   /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
   trialPort: ChannelConnectionTrialPort;
   /**
-   * The upload domain's usable-file read (`UploadService.findUsableMessageFile`, R12) — the automation
-   * go-live's file check (AU13 check 15); absent in a unit test, which then checks no file.
+   * The upload domain's usable-file read (`UploadService.findUsableMessageFile`, R12) — go-live's
+   * file check (AU13 check 15) and the Instagram attachment (6.C, R20); absent in a unit test.
    */
-  messageFilePort?: AutomationMessageFilePort | undefined;
+  messageFilePort?: (AutomationMessageFilePort & InstagramAttachmentFilePort) | undefined;
 }): AppContainer {
-  // One port per channel (AU35): Instagram's is its message service (§ 6.B, R19), which reports a
-  // run message's result to the engine (built below, so a closure).
+  // One port per channel (AU35): Instagram's message service (R19) — the engine, built below.
   const instagramMessageService = new InstagramMessageService({
     recordRunMessageResult: (input) => automationRunService.recordMessageResult(input),
   });
@@ -654,7 +692,6 @@ export function createAppContainer({
   return {
     channelConnectionService,
     channelConnectionTokenService,
-    channelConnectionUsageService: sending.channelConnectionUsageService,
     channelAccountService,
     instagramAccountService,
     instagramAccountSettingsService,
@@ -670,11 +707,11 @@ export function createAppContainer({
     automationReplyStateService,
     automationRunService,
     channelSendingPorts,
-    instagramSendLaneService: sending.instagramSendLaneService,
-    messageMonthCountService: sending.messageMonthCountService,
-    sendingStateService: sending.sendingStateService,
+    // The lanes, the month count, the sending state and the connection's usage (§ 6.A, R18).
+    ...sending,
     instagramSendingService,
     instagramMessageService,
+    ...createSendAccessServices({ instagramAccountService, sending, messageFilePort }),
   };
 }
 

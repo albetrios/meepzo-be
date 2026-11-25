@@ -61,6 +61,8 @@ const ORG_SCOPED_TABLES = [
   // in USING only (the repair duties and the part upkeep read across organizations).
   { schemaName: 'app', tableName: 'instagram_messages' },
   { schemaName: 'app', tableName: 'instagram_send_attempts' },
+  // Instagram's message files (§ 6.C.3, R20): the sweep arm in USING only (the purge, WC-47).
+  { schemaName: 'app', tableName: 'instagram_attachments' },
 ] as const;
 
 async function resolveOrganizationInternalId(organizationPublicId: string): Promise<number> {

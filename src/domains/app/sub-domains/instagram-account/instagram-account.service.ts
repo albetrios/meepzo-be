@@ -202,6 +202,8 @@ export class InstagramAccountService {
           channelAccount: { organizationId: organization.id, channelAccountId: channelAccount.id },
           channelConnection,
           connectionStatus: connection?.connectionStatus ?? 'revoked',
+          channelConnectionPublicId: connection?.channelConnectionPublicId ?? null,
+          clientBusinessId: connection?.clientBusinessId ?? null,
           encryptedAccessToken: connection?.encryptedAccessToken ?? null,
         };
       },

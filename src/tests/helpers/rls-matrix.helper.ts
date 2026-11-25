@@ -49,6 +49,7 @@ import { instagram_send_attempts } from '@/domains/app/sub-domains/instagram-sen
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
 import { instagram_send_lanes } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.schema.js';
 import { instagram_send_stops } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.schema.js';
+import { instagram_attachments } from '@/domains/app/sub-domains/instagram-sending/instagram-attachment/instagram-attachment.schema.js';
 
 import {
   EXPECTED_FORCE_RLS_TABLES,
@@ -744,6 +745,28 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
   rowIdsByTable.set(
     tableKey({ schemaName: 'app', tableName: 'instagram_send_stops' }),
     sendStopIds,
+  );
+
+  // A message file's Meta id per organization's account (feat-instagram-dm-sending § 6.C.3, R20).
+  const attachmentIds = { organizationA: 0, organizationB: 0 };
+  for (const [side, organization] of [
+    ['organizationA', organizationA],
+    ['organizationB', organizationB],
+  ] as const) {
+    const [attachment] = await database
+      .insert(instagram_attachments)
+      .values({
+        organization_id: organization.id,
+        channel_account_id: channelAccountIds[side],
+        upload_public_id: generatePublicId('upload'),
+        attachment_id: `rls-matrix-attachment-${side}`,
+      })
+      .returning();
+    attachmentIds[side] = attachment!.id;
+  }
+  rowIdsByTable.set(
+    tableKey({ schemaName: 'app', tableName: 'instagram_attachments' }),
+    attachmentIds,
   );
 
   // The contact sub-domain (launch R8, R10): one live contact of each organization's account, with

@@ -226,9 +226,13 @@ function setup({
     findConnectionAccess: vi.fn(
       async (): Promise<{
         connectionStatus: string;
+        channelConnectionPublicId: string;
+        clientBusinessId: string;
         encryptedAccessToken: string | null;
       } | null> => ({
         connectionStatus: 'connected',
+        channelConnectionPublicId: 'chc_aaaaaaaaaaaaaaaaaaaaa',
+        clientBusinessId: '5550001',
         encryptedAccessToken: storedToken,
       }),
     ),
@@ -335,6 +339,8 @@ describe('InstagramAccountService lookups', () => {
         channelAccount,
         channelConnection,
         connectionStatus: 'connected',
+        channelConnectionPublicId: 'chc_aaaaaaaaaaaaaaaaaaaaa',
+        clientBusinessId: '5550001',
         encryptedAccessToken: STORED_CIPHERTEXT,
       });
       expect(channelAccountRepository.findByPublicId).toHaveBeenCalledWith({
@@ -348,6 +354,8 @@ describe('InstagramAccountService lookups', () => {
       const { service, tokenService } = setup({ storedToken: null });
       tokenService.findConnectionAccess.mockResolvedValueOnce({
         connectionStatus: 'error',
+        channelConnectionPublicId: 'chc_aaaaaaaaaaaaaaaaaaaaa',
+        clientBusinessId: '5550001',
         encryptedAccessToken: null,
       });
 

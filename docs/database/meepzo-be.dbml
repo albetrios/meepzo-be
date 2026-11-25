@@ -25,6 +25,7 @@ TableGroup app {
   app.contacts
   app.instagram_account_settings
   app.instagram_accounts
+  app.instagram_attachments
   app.instagram_media
   app.instagram_messages
   app.instagram_send_attempts
@@ -534,6 +535,20 @@ Table app.instagram_accounts {
 
 Note app.instagram_accounts {
   'RLS: enabled\nPolicies: instagram_accounts_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.instagram_attachments {
+  attachment_id varchar(128) [not null]
+  channel_account_id bigint [not null]
+  created_at timestamptz [not null]
+  id bigint [pk, increment]
+  organization_id bigint [not null]
+  updated_at timestamptz [not null]
+  upload_public_id varchar(28) [not null]
+}
+
+Note app.instagram_attachments {
+  'RLS: enabled\nPolicies: instagram_attachments_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.instagram_media {

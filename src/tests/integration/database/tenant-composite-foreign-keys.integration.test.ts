@@ -228,6 +228,15 @@ const CONVERSIONS: readonly Conversion[] = [
     'restrict',
     'automation_comment_logs_contact_fk',
   ),
+  // feat-instagram-dm-sending R20 (6.C.3, SN20): a message file's Meta id names its channel account
+  // through the composite key, CASCADE.
+  link(
+    'app.instagram_attachments',
+    'channel_account_id',
+    'app.channel_accounts',
+    'cascade',
+    'instagram_attachments_channel_account_fk',
+  ),
 ];
 
 /** `pg_constraint.confdeltype` → the `ON DELETE` clause the migration writes. */
@@ -312,6 +321,16 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
     `INSERT INTO app.instagram_webhook_event_keys (organization_id, channel_account_id, event_key, event_day)
      VALUES ($1, $2, 'comment:composite-key', (now() AT TIME ZONE 'UTC')::date)`,
     [organization.id, Number(channelAccount?.id)],
+  );
+  // One message file's Meta id of the channel account (feat-instagram-dm-sending R20, § 6.C.3).
+  await operatorQuery.unsafe(
+    `INSERT INTO app.instagram_attachments (organization_id, channel_account_id, upload_public_id, attachment_id)
+     VALUES ($1, $2, $3, '1857777774821032')`,
+    [
+      organization.id,
+      Number(channelAccount?.id),
+      `upl_${String(organization.id).padStart(21, '0')}`,
+    ],
   );
   // One draft automation of the channel account (R13), its count slot and its reply state.
   const [automation] = rowsOf<{ id: string }>(

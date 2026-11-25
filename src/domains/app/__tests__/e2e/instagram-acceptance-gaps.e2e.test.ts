@@ -446,7 +446,7 @@ describe('Instagram acceptance across features (e2e)', () => {
       expect(instagram.directMessages.at(-1)?.recipient).toEqual({ comment_id: commentId });
     });
 
-    it('2 hours after our last DM: the echo moves nothing; the hello is still saved for the slow lane, which owns the 24-hour person rule (R20)', async () => {
+    it('2 hours after our last DM: the echo moves nothing; the hello is still saved for the slow lane, which owns the 24-hour person rule (R43)', async () => {
       const contact = await ownDirectMessageSentHoursAgo(2);
       const guide = await flow.createAutomation({ name: 'Guide', keywords: ['guide'] });
 
@@ -455,7 +455,7 @@ describe('Instagram acceptance across features (e2e)', () => {
       expect(await flow.contactOf(jordan)).toEqual(contact);
       const commentId = await flow.commentAndProcess({ person: jordan, postId, text: 'guide' });
       // Since R14 the engine never sends and never skips a hello itself: "one opening DM per person
-      // per 24 hours" is the channel's slow lane (sub-domain 6, ROUTE row R20), re-proved there.
+      // per 24 hours" is the channel's slow lane (sub-domain 6, WC-5 — ROUTE row R43, AC-17.4), re-proved there.
       expect(instagram.waitingMessages.at(-1)).toMatchObject({
         step: 'hello',
         answersEventId: commentId,

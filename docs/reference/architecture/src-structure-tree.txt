@@ -356,11 +356,21 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
+    │   │   │   ├── instagram-attachment/
+    │   │   │   │   ├── __tests__/
+    │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   └── instagram-attachment.service.db.unit.test.ts
+    │   │   │   │   ├── instagram-attachment.overview.md
+    │   │   │   │   ├── instagram-attachment.repository.ts
+    │   │   │   │   ├── instagram-attachment.schema.ts
+    │   │   │   │   ├── instagram-attachment.service.ts
+    │   │   │   │   └── instagram-attachment.types.ts
     │   │   │   ├── instagram-message/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── factories/
@@ -368,6 +378,7 @@ src/
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── instagram-message.integration.test.ts
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-message.port-contract.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.db.unit.test.ts
     │   │   │   │   │   │   └── instagram-message.util.unit.test.ts
     │   │   │   │   ├── instagram-message.constants.ts
@@ -382,6 +393,7 @@ src/
     │   │   │   ├── seed/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── instagram-sending.bulk.seed.ts
+    │   │   │   ├── instagram-send-access.service.ts
     │   │   │   ├── instagram-send-day-count.repository.ts
     │   │   │   ├── instagram-send-day-count.schema.ts
     │   │   │   ├── instagram-send-lane.repository.ts
@@ -2362,6 +2374,7 @@ src/
     │   │   │   ├── media-item.success.response.json
     │   │   │   ├── media.first-page.response.json
     │   │   │   ├── media.last-page.response.json
+    │   │   │   ├── message-attachments.success.response.json
     │   │   │   ├── messages.success.response.json
     │   │   │   ├── oauth-access-token.error.response.json
     │   │   │   ├── permissions.success.response.json

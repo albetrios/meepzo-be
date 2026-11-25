@@ -1,6 +1,8 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { ChannelAccountPortScope } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
 import type { ChannelAccountPlanStopReason } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
+import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import type { ChannelConnectionKey } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 import type {
   InstagramSendLane,
   InstagramSendLaneState,
@@ -148,4 +150,28 @@ export interface InstagramSendingStatusSources {
 /** The reader of route 63's caller: the verified organization scope. */
 export interface InstagramSendingCaller {
   scope: OrganizationPrincipalDatabaseScope;
+}
+
+/**
+ * What a sender needs about an account before a Meta call (SN22, SN23): the keys, the account's
+ * Instagram user id, the connection's usage key and business id, and its encrypted token — read by
+ * `InstagramSendAccessService.readSendAccess` in one unit, used after it closes.
+ */
+export interface InstagramSendAccess {
+  /** The channel account's organization and internal id. */
+  channelAccount: ChannelAccountKey;
+  /** `cha_…`. */
+  channelAccountPublicId: string;
+  /** The connection's organization and internal id — the key of the break on 190 (MC11). */
+  channelConnection: ChannelConnectionKey;
+  /** `chc_…` — the usage key; `null` when the connection is gone. */
+  channelConnectionPublicId: string | null;
+  /** The connection's business id — the business-wide usage asset; `null` when gone. */
+  clientBusinessId: string | null;
+  /** The Instagram user id every Graph path of this account takes. */
+  instagramUserId: string;
+  /** The ciphertext — decrypted only by the Meta client; `null` when the connection has none. */
+  encryptedAccessToken: string | null;
+  /** The account and its connection are `connected` and a token is kept: a Meta call may go. */
+  isSendable: boolean;
 }

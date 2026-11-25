@@ -117,6 +117,8 @@ describe('instagram send error groups (SNC4)', () => {
   it('keeps a stop a stop, but a hide or a follow check refusal is its own group', () => {
     expect(groupOf(metaError({ code: 368 }), 'comment_hide')).toBe('blocked');
     expect(groupOf(metaError({ code: 100, subcode: 9 }), 'comment_hide')).toBe('hide_failed');
+    // A hide of a comment that is gone is skipped, not failed (plan §33.7 rule 4, R43).
+    expect(groupOf(metaError({ code: 100, subcode: 33 }), 'comment_hide')).toBe('comment_gone');
     expect(groupOf(metaError({ code: 100, subcode: 9 }), null)).toBe('check_not_possible');
   });
 

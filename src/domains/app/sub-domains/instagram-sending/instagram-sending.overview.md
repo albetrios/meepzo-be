@@ -16,7 +16,7 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). ROUTE row R42 built the **send core** (below); the lanes' own rules (R43–R45), the repair duties (R47) and the watches (R48) come with their rows. ROUTE
+connection's usage, SN23). ROUTE row R42 built the **send core** (below), R43 the slow and reply lanes' rules; the fast and broadcast lanes' (R44, R45), the repair duties (R47) and the watches (R48) come with their rows. ROUTE
 row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
 to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
@@ -85,7 +85,23 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   or lock timeout 3 times, a lost connection after 1, 2, 4, 8 s; then the message stays `sending` for the repair, D17),
   the stops (lanes by ladder, the connection's break on 190, the account's break, the app limit, "in a row" from the
   attempts), the test's end and half speed, the next tickets. Each lane's own rules plug in through
-  `InstagramSendLaneRules` (R43–R45); a lane without rules sends nothing.
+  `InstagramSendLaneRules` (R43–R45); a lane without rules sends nothing. A test that says nothing about the
+  account (that person, that text) tests again up to 3 turns (`testMaxTurns`), then the stop waits its time again.
+- `instagram-slow-lane.service.ts` — `InstagramSlowLaneRules` (R43, WC-5): opening DMs as private replies, one per
+  box (3600 ÷ the opening hour limit — 600, ≤ 700, 150 for a new account's 7 days; doubled at half speed or Meta's
+  80 %) at a random millisecond, at least 1.5 s apart (`box_start`, `last_sent_at`, `pick_count` written in the
+  release); the pick mixes new (under 60 min, newest first) and old (oldest first) comments 4 : 1 (3 : 2 under 12 h
+  left), checks each again (expired, erased, opted out, excluded → ended with the engine told; window open → moved to
+  the fast lane with its ticket; an opening to her in the last 24 h → `not_before` + 24 h, D8).
+- `instagram-reply-lane.service.ts` — `InstagramReplyLaneRules` (R43, WC-6): hides and "Reply like a person" OFF
+  replies at once (a hide only after its reply ended), ON replies at their automation's hashed box second (10–100 an
+  hour) and 20 s after the account's last ON reply; the line never the last one (only the first without PRO, D57),
+  `@username` first; the reply state's box, line and waiting count. The 500 trim is the repair's (R47).
+- `instagram-send-compose.service.ts` — a run DM's Meta call composed at the last moment
+  (`instagram-message/instagram-message-compose.util.ts`: the hello, follow ask, email / phone questions with their
+  plain-text fallback and default texts, each list kind, `{name}`); `callWithCommentCheck` reads a maybe-gone comment
+  once before `deleted_comment` (§33.7). The fast lane (R44) composes here too.
+- `instagram-send-pace.util.ts` — the boxes, the mix, the reply box second and the line pick (pure).
 - `instagram-send-gate.service.ts` — gate 1 (an advisory Redis sorted set per account and count group, 100 ms, skipped
   30 s after 3 timeouts) and the claim's **one commit**: the lane row locked, gate 2 over the 61 minute rows, her hour,
   the month's 16 slots against the plan's limit, the adds, `sending`, the attempt; the DM that fills the month starts

@@ -9,6 +9,8 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
+import { automation_reply_states } from '@/domains/app/sub-domains/automation/automation-reply-state.schema.js';
+import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
@@ -142,6 +144,33 @@ function personFinalErrorCondition(): SQL {
   );
   const separator = sql` OR `;
   return sql`(${sql.join(parts, separator)})`;
+}
+
+/** One candidate of a lane turn's pick (plan §28.2, §29.5): its key, automation and comment time. */
+export interface InstagramMessagePickCandidate {
+  publicId: string;
+  automationRunStartedAt: Date;
+  automationId: number;
+  triggerOccurredAt: Date | null;
+}
+
+/** An ON automation's best waiting public reply and its pacing (plan §29.3, §29.5 rule 2). */
+export interface InstagramReplyPacedCandidate extends InstagramMessagePickCandidate {
+  /** `app.automations.public_reply_hour_limit` (empty = the default 60). */
+  publicReplyHourLimit: number | null;
+  /** Its reply state's `box_start`, or `null` before its first box. */
+  boxStart: Date | null;
+}
+
+/** A pick candidate from a raw row. */
+function candidateOf(row: Record<string, unknown>): InstagramMessagePickCandidate {
+  return {
+    publicId: String(row.public_id),
+    automationRunStartedAt: new Date(String(row.automation_run_started_at)),
+    automationId: Number(row.automation_id),
+    triggerOccurredAt:
+      row.trigger_occurred_at === null ? null : new Date(String(row.trigger_occurred_at)),
+  };
 }
 
 /**
@@ -776,6 +805,250 @@ export class InstagramMessageRepository {
       count: rows.length,
       channelAccountIds: [...new Set(rows.map((row) => Number(row.channel_account_id)))],
     };
+  }
+
+  /**
+   * The slow lane's two pick candidates (plan §28.2, WC-5): of each live, unstopped automation of
+   * the account its newest waiting opening under `newSince` (a new comment) and its oldest one
+   * before it (an old comment), each only once its `not_before` is over and made after the
+   * automation's `cancelled_before_at`; then the newest of the new ones and the oldest of the old.
+   */
+  async listSlowPickCandidates({
+    organizationId,
+    channelAccountId,
+    now,
+    newSince,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    now: Date;
+    newSince: Date;
+  }): Promise<{
+    newest: InstagramMessagePickCandidate | null;
+    oldest: InstagramMessagePickCandidate | null;
+  }> {
+    const waitingOf = (isNew: boolean) => sql`
+      SELECT m.public_id, m.automation_run_started_at, m.automation_id, m.trigger_occurred_at
+      FROM ${instagram_messages} AS m
+      WHERE m.organization_id = ${organizationId}
+        AND m.channel_account_id = ${channelAccountId}
+        AND m.automation_id = live.id
+        AND m.lane = 'slow' AND m.status = 'waiting'
+        AND (m.not_before IS NULL OR m.not_before <= ${now.toISOString()}::timestamptz)
+        AND (live.cancelled_before_at IS NULL OR m.created_at > live.cancelled_before_at)
+        AND ${
+          isNew
+            ? sql`m.trigger_occurred_at >= ${newSince.toISOString()}::timestamptz`
+            : sql`m.trigger_occurred_at < ${newSince.toISOString()}::timestamptz`
+        }
+      ORDER BY m.trigger_occurred_at ${isNew ? sql`DESC` : sql`ASC`}, m.id
+      LIMIT 1`;
+    const result = await this.db().execute(sql`
+      WITH live AS (
+        SELECT a.id, a.cancelled_before_at FROM ${automations} AS a
+        WHERE a.organization_id = ${organizationId} AND a.channel_account_id = ${channelAccountId}
+          AND a.status = 'live' AND a.deleted_at IS NULL AND a.stopped_reason IS NULL
+      ), newest AS (
+        SELECT 'new' AS place, picked.* FROM live CROSS JOIN LATERAL (${waitingOf(true)}) AS picked
+        ORDER BY picked.trigger_occurred_at DESC LIMIT 1
+      ), oldest AS (
+        SELECT 'old' AS place, picked.* FROM live CROSS JOIN LATERAL (${waitingOf(false)}) AS picked
+        ORDER BY picked.trigger_occurred_at ASC LIMIT 1
+      )
+      SELECT * FROM newest UNION ALL SELECT * FROM oldest`);
+    const rows = result.rows as Record<string, unknown>[];
+    const newest = rows.find((row) => row.place === 'new');
+    const oldest = rows.find((row) => row.place === 'old');
+    return {
+      newest: newest === undefined ? null : candidateOf(newest),
+      oldest: oldest === undefined ? null : candidateOf(oldest),
+    };
+  }
+
+  /**
+   * The reply lane's message that goes right away (plan §29.5 rule 2, first part): of the account's
+   * live automations, the oldest waiting hide or unpaced public reply ("Reply like a person" OFF, or
+   * a plan without it — D57) whose `not_before` is over; a hide only once its run's public reply is
+   * no longer waiting or sending (§29.4 rule 2: reply first, then hide).
+   */
+  async findReplyDueCandidate({
+    organizationId,
+    channelAccountId,
+    now,
+    isReplyLikePersonOffered,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    now: Date;
+    /** The plan's `reply_like_person` switch (P83): off → every reply goes unpaced. */
+    isReplyLikePersonOffered: boolean;
+  }): Promise<InstagramMessagePickCandidate | null> {
+    const result = await this.db().execute(sql`
+      SELECT m.public_id, m.automation_run_started_at, m.automation_id, m.trigger_occurred_at
+      FROM ${instagram_messages} AS m
+      JOIN ${automations} AS a ON a.organization_id = m.organization_id AND a.id = m.automation_id
+      WHERE m.organization_id = ${organizationId}
+        AND m.channel_account_id = ${channelAccountId}
+        AND m.lane = 'reply' AND m.status = 'waiting'
+        AND (m.not_before IS NULL OR m.not_before <= ${now.toISOString()}::timestamptz)
+        AND a.status = 'live' AND a.deleted_at IS NULL
+        AND (a.cancelled_before_at IS NULL OR m.created_at > a.cancelled_before_at)
+        AND (
+          (m.message_type = 'public_reply'
+            AND (NOT a.is_reply_like_person_enabled OR NOT ${isReplyLikePersonOffered}))
+          OR (m.message_type = 'hide_comment' AND NOT EXISTS (
+            SELECT 1 FROM ${instagram_messages} AS r
+            WHERE r.organization_id = m.organization_id
+              AND r.automation_run_id = m.automation_run_id
+              AND r.automation_run_started_at = m.automation_run_started_at
+              AND r.message_type = 'public_reply'
+              AND r.status IN ('waiting', 'sending')))
+        )
+      ORDER BY m.not_before NULLS FIRST, m.id
+      LIMIT 1`);
+    const row = (result.rows as Record<string, unknown>[])[0];
+    return row === undefined ? null : candidateOf(row);
+  }
+
+  /**
+   * Each "Reply like a person" automation's newest waiting public reply (plan §29.5 rule 2, second
+   * part), with its hour limit and reply state's box: live automations of the account with the
+   * switch on — only called while the plan offers it.
+   */
+  async listReplyPacedCandidates({
+    organizationId,
+    channelAccountId,
+    now,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    now: Date;
+  }): Promise<InstagramReplyPacedCandidate[]> {
+    const result = await this.db().execute(sql`
+      SELECT picked.*, a.public_reply_hour_limit, s.box_start
+      FROM ${automations} AS a
+      LEFT JOIN ${automation_reply_states} AS s
+        ON s.organization_id = a.organization_id AND s.automation_id = a.id
+      CROSS JOIN LATERAL (
+        SELECT m.public_id, m.automation_run_started_at, m.automation_id, m.trigger_occurred_at
+        FROM ${instagram_messages} AS m
+        WHERE m.organization_id = ${organizationId}
+          AND m.channel_account_id = ${channelAccountId}
+          AND m.automation_id = a.id
+          AND m.lane = 'reply' AND m.status = 'waiting' AND m.message_type = 'public_reply'
+          AND (m.not_before IS NULL OR m.not_before <= ${now.toISOString()}::timestamptz)
+          AND (a.cancelled_before_at IS NULL OR m.created_at > a.cancelled_before_at)
+        ORDER BY m.trigger_occurred_at DESC, m.id DESC
+        LIMIT 1
+      ) AS picked
+      WHERE a.organization_id = ${organizationId} AND a.channel_account_id = ${channelAccountId}
+        AND a.status = 'live' AND a.deleted_at IS NULL AND a.is_reply_like_person_enabled`);
+    return (result.rows as Record<string, unknown>[]).map((row) => ({
+      ...candidateOf(row),
+      publicReplyHourLimit:
+        row.public_reply_hour_limit === null ? null : Number(row.public_reply_hour_limit),
+      boxStart: row.box_start === null ? null : new Date(String(row.box_start)),
+    }));
+  }
+
+  /**
+   * The earliest future `not_before` of the account's waiting rows of a lane (plan §28.5 rule 1:
+   * the lane sleeps until then), or `null` when nothing waits for a time.
+   */
+  async findEarliestWaitingNotBefore({
+    organizationId,
+    channelAccountId,
+    lane,
+    now,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    lane: InstagramSendLane;
+    now: Date;
+  }): Promise<Date | null> {
+    const [row] = await this.db()
+      .select({ at: sql<string | null>`min(${instagram_messages.not_before})` })
+      .from(instagram_messages)
+      .where(
+        and(
+          eq(instagram_messages.organization_id, organizationId),
+          eq(instagram_messages.channel_account_id, channelAccountId),
+          eq(instagram_messages.lane, lane),
+          eq(instagram_messages.status, 'waiting'),
+          sql`${instagram_messages.not_before} > ${now.toISOString()}::timestamptz`,
+        ),
+      );
+    return row?.at === null || row?.at === undefined ? null : new Date(row.at);
+  }
+
+  /** Puts a waiting row's `not_before` later (the 24-hour person rule, plan §28.2 rule 4). */
+  async delayWaiting({
+    key,
+    notBefore,
+  }: {
+    key: InstagramMessageKey;
+    notBefore: Date;
+  }): Promise<boolean> {
+    const moved = await this.db()
+      .update(instagram_messages)
+      .set({ not_before: notBefore, updated_at: sql`now()` })
+      .where(and(this.whereKey(key), eq(instagram_messages.status, 'waiting')))
+      .returning({ id: instagram_messages.id });
+    return moved.length > 0;
+  }
+
+  /**
+   * Ends one waiting row (a lane pick's check again, plan §28.1 step 7): `skipped` or `expired` with
+   * its reason, only while it waits. Answers the ended row, or `null`.
+   */
+  async endWaitingByKey({
+    key,
+    status,
+    reason,
+  }: {
+    key: InstagramMessageKey;
+    status: 'skipped' | 'expired';
+    reason: InstagramMessageReason;
+  }): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .update(instagram_messages)
+      .set({ status, reason, updated_at: sql`now()` })
+      .where(and(this.whereKey(key), eq(instagram_messages.status, 'waiting')))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Today's "chat closed" skips of the account per automation (route 63's per-automation lines,
+   * SN14): messages `skipped` · `window_closed` since the start of the organization's day, with the
+   * automation's public id, most first.
+   */
+  async countWindowClosedTodayByAutomation({
+    organizationId,
+    channelAccountId,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+  }): Promise<Array<{ automationPublicId: string; count: number }>> {
+    const result = await this.db().execute(sql`
+      WITH day_start AS (
+        SELECT (date_trunc('day', now() AT TIME ZONE o.timezone)) AT TIME ZONE o.timezone AS at
+        FROM ${organizations} AS o WHERE o.id = ${organizationId}
+      )
+      SELECT a.public_id AS automation_public_id, count(*)::int AS count
+      FROM ${instagram_messages} AS m
+      JOIN ${automations} AS a ON a.organization_id = m.organization_id AND a.id = m.automation_id
+      CROSS JOIN day_start
+      WHERE m.organization_id = ${organizationId}
+        AND m.channel_account_id = ${channelAccountId}
+        AND m.status = 'skipped' AND m.reason = 'window_closed'
+        AND m.updated_at >= day_start.at
+      GROUP BY a.public_id
+      ORDER BY count(*) DESC, a.public_id`);
+    return (result.rows as Record<string, unknown>[]).map((row) => ({
+      automationPublicId: String(row.automation_public_id),
+      count: Number(row.count),
+    }));
   }
 }
 

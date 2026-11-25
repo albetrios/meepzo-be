@@ -25,6 +25,7 @@ import {
   type InstagramSendWaitReason,
 } from './instagram-sending.constants.js';
 import type {
+  InstagramSendLanePaceUpdate,
   InstagramSendLaneStopInput,
   InstagramSendLaneTarget,
 } from './instagram-sending.types.js';
@@ -370,6 +371,7 @@ export class InstagramSendLaneService
     nextRunAt,
     isHeld,
     waitReason,
+    paceUpdate,
   }: InstagramSendLaneTarget & {
     lane: InstagramSendLane;
     workingTurn: number;
@@ -378,6 +380,8 @@ export class InstagramSendLaneService
     /** The account holds the lane (pause, suspend, plan stop): `stopped`. */
     isHeld?: boolean | undefined;
     waitReason?: InstagramSendWaitReason | null | undefined;
+    /** The lane's pace columns after a send (box, last send, mix place — R43). */
+    paceUpdate?: InstagramSendLanePaceUpdate | undefined;
   }): Promise<InstagramSendLaneRow | null> {
     return withAppDatabaseContext({
       scope,
@@ -390,6 +394,7 @@ export class InstagramSendLaneService
           nextRunAt,
           isHeld: isHeld ?? false,
           waitReason: waitReason ?? null,
+          paceUpdate,
         }),
     });
   }

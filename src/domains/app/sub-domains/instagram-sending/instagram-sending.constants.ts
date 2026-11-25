@@ -390,6 +390,11 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   halfSpeedAfterBlockHours: 24,
   /** One account test's lease (`TEST_LEASE_MINUTES`, plan §33.4). */
   testLeaseMinutes: 2,
+  /**
+   * Test turns whose answer was about that person or text before the stop waits its time again
+   * (`TEST_MAX_TURNS`, plan §33.4).
+   */
+  testMaxTurns: 3,
   /** A waiting opening DM's "try later" waits, then `failed` (`TRY_LATER_MINUTES`). */
   tryLaterMinutes: [1, 5, 15],
   /** A surely-not-sent call ("never connected") comes back after these seconds (plan §33.1). */
@@ -398,4 +403,51 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   followCheckTries: 1,
   /** A lane turn with nothing to send looks again after this many seconds. */
   idleTurnSeconds: 60,
+} as const;
+
+/**
+ * The slow lane's numbers (plan §28, WC-5, D5): the box, the gap, the pick's mix and how many picks
+ * one turn may look at.
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ */
+export const SLOW_LANE_SETTINGS = {
+  /** At least this long between two opening DMs of one account (`OPENING_MIN_GAP_MS`). */
+  minimumGapMilliseconds: 1500,
+  /** Half speed makes the box this many times longer (`HALF_SPEED_FACTOR`). */
+  halfSpeedFactor: 2,
+  /** A comment under this many minutes old is "new" (`PICK_NEW_MINUTES`). */
+  newCommentMinutes: 60,
+  /** The mix places of one round (`pick_count` 1–5). */
+  mixPlaces: 5,
+  /** Places 1–4 take a new comment (`PICK_MIX_NORMAL` 4 : 1). */
+  newPlacesNormal: 4,
+  /** Places 1–3 take a new comment while the oldest is urgent (`PICK_MIX_URGENT` 3 : 2). */
+  newPlacesUrgent: 3,
+  /** The oldest waiting comment with fewer hours left than this is urgent (`URGENT_HOURS_LEFT`). */
+  urgentHoursLeft: 12,
+  /** Messages one turn may look at before it gives up for a second (`PICK_TRIES_PER_TURN`). */
+  picksPerTurn: 5,
+  /** A turn whose picks were all passed over looks again this much later. */
+  pickAgainMilliseconds: 1000,
+  /** One opening private reply per person per this many hours (D8, the 24-hour person rule). */
+  personGapHours: 24,
+} as const;
+
+/**
+ * The reply lane's numbers (plan §29, WC-6, D32): "Reply like a person"'s gap and Meta's 80 %
+ * factor; the lane has no account hour limit, so gate 2 counts its replies against
+ * `hourLimitForCounting` only for the watch numbers (§29.5 rule 1).
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ */
+export const REPLY_LANE_SETTINGS = {
+  /** At least this long after the account's last ON reply (`PUBLIC_REPLY_GAP_MIN_SECONDS`). */
+  gapMilliseconds: 20_000,
+  /** ON boxes at Meta's 80 % or at half speed are this many times longer (`REPLY_USAGE_FACTOR`). */
+  usageSlowFactor: 2,
+  /** Gate 2's limit for the `reply` group: no real limit (§29.5 rule 1), counted for the watch. */
+  hourLimitForCounting: 1_000_000,
 } as const;

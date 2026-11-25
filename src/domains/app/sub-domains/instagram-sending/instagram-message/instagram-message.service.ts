@@ -629,7 +629,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     message,
     databaseHandle,
   }: {
-    input: InstagramSendResultInput;
+    input: Pick<InstagramSendResultInput, 'scope' | 'reason'>;
     status: Exclude<InstagramSendResultInput['status'], 'waiting'>;
     message: InstagramMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;
@@ -685,6 +685,71 @@ export class InstagramMessageService implements ChannelSendingPort {
         occurredAt,
       });
     }
+  }
+
+  /**
+   * Ends one waiting message a lane turn's check passed over for good (plan §28.1 step 7, §29.5
+   * rule 4): `expired`, or `skipped` (she opted out, the owner excluded her, she was erased) — with
+   * today's line and the engine told in the same commit, as the result save does. Answers whether
+   * it ended (a message no longer waiting is left alone).
+   *
+   * @remarks
+   * Algorithm: one unit — the guarded update, then the settled message's day line, opening
+   * bookkeeping and the engine's or recipients' result. Failure modes: database errors roll it back.
+   * Side effects: the row, the day line, the run's next step.
+   */
+  async endWaitingMessage({
+    scope,
+    key,
+    status,
+    reason,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    key: InstagramMessageKey;
+    status: 'skipped' | 'expired';
+    reason: InstagramMessageReason;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const message = await new InstagramMessageRepository(databaseHandle).endWaitingByKey({
+          key,
+          status,
+          reason,
+        });
+        if (message === null) return false;
+        await this.recordSettledMessage({
+          input: { scope, reason },
+          status,
+          message,
+          databaseHandle,
+        });
+        return true;
+      },
+    });
+  }
+
+  /**
+   * Today's "chat closed" skips of the account per automation (route 63's per-automation lines,
+   * SN14).
+   *
+   * @remarks
+   * Algorithm: one read in the scope's unit. Failure modes: none of its own. Side effects: none.
+   */
+  async listWindowClosedByAutomation({
+    scope,
+    organizationId,
+    channelAccountId,
+  }: InstagramSendLaneTarget): Promise<Array<{ automation_id: string; count: number }>> {
+    const rows = await withAppDatabaseContext({
+      scope,
+      callback: (databaseHandle) =>
+        new InstagramMessageRepository(databaseHandle).countWindowClosedTodayByAutomation({
+          organizationId,
+          channelAccountId,
+        }),
+    });
+    return rows.map((row) => ({ automation_id: row.automationPublicId, count: row.count }));
   }
 
   /**

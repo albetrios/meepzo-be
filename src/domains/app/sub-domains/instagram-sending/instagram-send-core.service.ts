@@ -68,11 +68,13 @@ import type {
   InstagramLaneTurnWork,
   InstagramSendAccess,
   InstagramSendFastMessageTicket,
+  InstagramSendLanePaceUpdate,
   InstagramSendLaneRules,
   InstagramSendLaneTarget,
   InstagramSendLaneTurnTicket,
   InstagramSendLimits,
   InstagramSendMessageKey,
+  InstagramSendPick,
   InstagramSendResult,
   InstagramSendTicketContext,
 } from './instagram-sending.types.js';
@@ -246,6 +248,8 @@ interface TurnEnd {
   nextRunAt: Date | null;
   isHeld: boolean;
   waitReason: InstagramSendWaitReason | null;
+  /** The lane's pace columns after a send (the lane's `nextTurnAt`). */
+  paceUpdate?: InstagramSendLanePaceUpdate | undefined;
 }
 
 /**
@@ -333,6 +337,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
             nextRunAt: end.nextRunAt,
             isHeld: end.isHeld,
             waitReason: end.waitReason,
+            paceUpdate: end.paceUpdate,
           }),
       });
       await this.scheduleLaneTickets({ target, access, context });
@@ -455,6 +460,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
           lane: turn.row,
           now,
           isTest: turn.isTest,
+          pace: pace.pace,
         })) ?? { key: null, nextRunAt: null, waitReason: null },
     );
     if (pick.key === null) {
@@ -478,19 +484,21 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       context,
     });
     if (turn.isTest) await this.finishTest({ target, row: turn.row, result, context });
-    return this.turnEndAfter({ rules, row: turn.row, result, pace: pace.pace, limits });
+    return this.turnEndAfter({ rules, row: turn.row, pick, result, pace: pace.pace, limits });
   }
 
   /** When the lane goes again after a send (the lane's rule, else one box). */
   private turnEndAfter({
     rules,
     row,
+    pick,
     result,
     pace,
     limits,
   }: {
     rules: InstagramSendLaneRules;
     row: InstagramSendLaneRow;
+    pick: Extract<InstagramSendPick, { key: InstagramSendMessageKey }>;
     result: InstagramSendResult;
     pace: MetaUsagePace;
     limits: InstagramSendLimits;
@@ -516,10 +524,16 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         waitReason: 'hour_limit',
       };
     }
-    const nextRunAt =
-      rules.nextTurnAt?.({ lane: row, result, pace, limits, now }) ??
-      defaultNextTurnAt({ lane: row, pace, limits, now });
-    return { nextRunAt, isHeld: false, waitReason: 'box' };
+    const next = rules.nextTurnAt?.({ lane: row, pick, result, pace, limits, now });
+    if (next === undefined) {
+      return {
+        nextRunAt: defaultNextTurnAt({ lane: row, pace, limits, now }),
+        isHeld: false,
+        waitReason: 'box',
+      };
+    }
+    const { nextRunAt, ...paceUpdate } = next;
+    return { nextRunAt, isHeld: false, waitReason: 'box', paceUpdate };
   }
 
   /**
@@ -1313,11 +1327,48 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
             },
           }),
       });
-    } else if (result.kind === 'refused' || UNCLEAR_GROUPS.includes(result.group)) {
+    } else if (
+      result.kind === 'refused' ||
+      UNCLEAR_GROUPS.includes(result.group) ||
+      (await this.isLastTestTurn({ target, row, context }))
+    ) {
       await this.extendTestedStop({ target, row, delayMilliseconds: null, context });
       return;
     }
     await this.endTest({ target, context });
+  }
+
+  /**
+   * Whether a test that said nothing about the account (that person, that text) was the stop's last
+   * test turn (`testMaxTurns`, plan §33.4): every finished attempt of the account since the stop's
+   * end is one of its test turns.
+   */
+  private async isLastTestTurn({
+    target,
+    row,
+    context,
+  }: {
+    target: InstagramSendLaneTarget;
+    row: InstagramSendLaneRow;
+    context: InstagramSendTicketContext;
+  }): Promise<boolean> {
+    const stopEnd = row.stop_until;
+    if (stopEnd === null) return false;
+    const turns = await this.untilSaved({
+      context,
+      what: 'test turns',
+      callback: () =>
+        withAppDatabaseContext({
+          scope: target.scope,
+          callback: () =>
+            new InstagramSendAttemptRepository().countFinishedSince({
+              organizationId: target.organizationId,
+              channelAccountId: target.channelAccountId,
+              since: stopEnd,
+            }),
+        }),
+    });
+    return (turns ?? 0) >= SETTINGS.testMaxTurns;
   }
 
   /** An unclear test (or none possible): the same stop again — no count added — and the test ends. */

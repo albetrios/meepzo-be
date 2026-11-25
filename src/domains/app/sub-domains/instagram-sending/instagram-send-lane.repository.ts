@@ -6,6 +6,7 @@ import {
 import { databaseUpdatedAtTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import { instagram_send_lanes } from './instagram-send-lane.schema.js';
+import type { InstagramSendLanePaceUpdate } from './instagram-sending.types.js';
 import {
   INSTAGRAM_SEND_LANE_STATE,
   INSTAGRAM_SEND_LANES,
@@ -20,6 +21,18 @@ export type InstagramSendLaneRow = typeof instagram_send_lanes.$inferSelect;
 
 /** `updated_at` for every change of a lane — never before the row's `created_at`. */
 const laneUpdatedAtTimestamp = databaseUpdatedAtTimestamp(instagram_send_lanes.created_at);
+
+/** The release's pace columns (box, last send, mix place) — only the ones a send moved. */
+function paceColumnsOf(
+  paceUpdate: InstagramSendLanePaceUpdate | undefined,
+): Partial<Pick<InstagramSendLaneRow, 'box_start' | 'last_sent_at' | 'pick_count'>> {
+  if (paceUpdate === undefined) return {};
+  return {
+    ...(paceUpdate.boxStart === undefined ? {} : { box_start: paceUpdate.boxStart }),
+    ...(paceUpdate.lastSentAt === undefined ? {} : { last_sent_at: paceUpdate.lastSentAt }),
+    ...(paceUpdate.pickCount === undefined ? {} : { pick_count: paceUpdate.pickCount }),
+  };
+}
 
 /** One stop group as a quoted Postgres text literal (the groups are fixed constants, never input). */
 function quotedStopReason(reason: InstagramSendStopReason): string {
@@ -286,6 +299,7 @@ export class InstagramSendLaneRepository {
     nextRunAt,
     isHeld = false,
     waitReason = null,
+    paceUpdate,
     ...key
   }: ChannelAccountKey & {
     lane: InstagramSendLane;
@@ -295,6 +309,8 @@ export class InstagramSendLaneRepository {
     /** The account holds this lane (pause, suspend, plan stop): `stopped` until its wake. */
     isHeld?: boolean;
     waitReason?: InstagramSendWaitReason | null;
+    /** The pace columns a send moved (plan §28.3 rule 6: in the release's commit); absent = kept. */
+    paceUpdate?: InstagramSendLanePaceUpdate | undefined;
   }): Promise<InstagramSendLaneRow | null> {
     const isStopped = isHeld ? sql`true` : sql`${instagram_send_lanes.stop_reason} IS NOT NULL`;
     const nextRun =
@@ -311,6 +327,7 @@ export class InstagramSendLaneRepository {
         turn_number: sql`${instagram_send_lanes.turn_number} + 1`,
         next_run_at: sql`CASE WHEN ${isStopped} THEN NULL::timestamptz ELSE ${nextRun} END`,
         wait_reason: sql`CASE WHEN ${isStopped} THEN 'stop' ELSE ${waitReason}::varchar END`,
+        ...paceColumnsOf(paceUpdate),
         updated_at: laneUpdatedAtTimestamp,
       })
       .where(

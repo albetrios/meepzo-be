@@ -81,6 +81,9 @@ import { InstagramSendAccessService } from './sub-domains/instagram-sending/inst
 import { InstagramAttachmentService } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.service.js';
 import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.types.js';
 import type { InstagramSendWork } from './sub-domains/instagram-sending/instagram-sending.types.js';
+import { InstagramSendComposeService } from './sub-domains/instagram-sending/instagram-send-compose.service.js';
+import { InstagramReplyLaneRules } from './sub-domains/instagram-sending/instagram-reply-lane.service.js';
+import { InstagramSlowLaneRules } from './sub-domains/instagram-sending/instagram-slow-lane.service.js';
 import { InstagramSendCoreService } from './sub-domains/instagram-sending/instagram-send-core.service.js';
 import { InstagramSendGateService } from './sub-domains/instagram-sending/instagram-send-gate.service.js';
 import {
@@ -405,6 +408,8 @@ function createInstagramSendingStatusService({
     dayCountRepository: new InstagramSendDayCountRepository(),
     sources: {
       countWaitingByLane: (target) => instagramMessageService.countWaitingByLane(target),
+      listWindowClosedByAutomation: (target) =>
+        instagramMessageService.listWindowClosedByAutomation(target),
       findLastRetry: (target) => instagramMessageService.findLastRetry(target),
     },
   });
@@ -721,6 +726,7 @@ function createInstagramSendWork(
   container: Omit<AppContainer, 'instagramSendWork'> & { instagramSendWork: InstagramSendWork },
 ): InstagramSendWork {
   const lanes = container.instagramSendLaneService;
+  const messageService = container.instagramMessageService;
   const sendCore = new InstagramSendCoreService({
     laneService: lanes,
     messageService: container.instagramMessageService,
@@ -734,8 +740,25 @@ function createInstagramSendWork(
         container.channelConnectionService.markConnectionBroken(input),
       markAccountBroken: (input) => container.channelAccountService.markAccountBroken(input),
     },
-    // The lanes' own rules plug in at R43–R45; until then a ticket is logged and finished.
-    laneRules: {},
+    // The slow and reply lanes' own rules (R43); the fast lane's at R44, the broadcast's at R45 —
+    // until then their tickets are logged and finished.
+    laneRules: {
+      slow: new InstagramSlowLaneRules({
+        messageService,
+        composeService: new InstagramSendComposeService(),
+      }),
+      reply: new InstagramReplyLaneRules({
+        messageService,
+        replyStateService: container.automationReplyStateService,
+        canUseReplyLikePerson: async (target) =>
+          (
+            await container.channelAccountService.canChannelAccountUseFeature({
+              ...target,
+              feature: 'reply_like_person',
+            })
+          ).isAllowed,
+      }),
+    },
   });
   return { ...container.instagramSendWork, laneTurn: sendCore, fastMessage: sendCore };
 }

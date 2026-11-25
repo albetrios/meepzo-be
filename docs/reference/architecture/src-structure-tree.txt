@@ -447,20 +447,24 @@ src/
     │   │   ├── instagram-sending/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
+    │   │   │   │   │   ├── instagram-lane-harness.factory.ts
     │   │   │   │   │   └── instagram-sending.factory.ts
     │   │   │   │   ├── integration/
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-reply-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-fast.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-pace.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-slow.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
+    │   │   │   │   │   ├── instagram-slow-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
@@ -482,11 +486,13 @@ src/
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── instagram-message.integration.test.ts
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-message-compose.util.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.port-contract.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.repository.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.unit.test.ts
     │   │   │   │   │   │   └── instagram-message.util.unit.test.ts
+    │   │   │   │   ├── instagram-message-compose.util.ts
     │   │   │   │   ├── instagram-message.constants.ts
     │   │   │   │   ├── instagram-message.overview.md
     │   │   │   │   ├── instagram-message.repository.ts
@@ -514,7 +520,9 @@ src/
     │   │   │   │   ├── instagram-send-ticket.processor.ts
     │   │   │   │   ├── instagram-tasks.processor.ts
     │   │   │   │   └── instagram-tasks.worker.ts
+    │   │   │   ├── instagram-reply-lane.service.ts
     │   │   │   ├── instagram-send-access.service.ts
+    │   │   │   ├── instagram-send-compose.service.ts
     │   │   │   ├── instagram-send-core.service.ts
     │   │   │   ├── instagram-send-day-count.repository.ts
     │   │   │   ├── instagram-send-day-count.schema.ts
@@ -526,6 +534,7 @@ src/
     │   │   │   ├── instagram-send-lane.util.ts
     │   │   │   ├── instagram-send-minute-count.repository.ts
     │   │   │   ├── instagram-send-minute-count.schema.ts
+    │   │   │   ├── instagram-send-pace.util.ts
     │   │   │   ├── instagram-send-stop.repository.ts
     │   │   │   ├── instagram-send-stop.schema.ts
     │   │   │   ├── instagram-sending.constants.ts
@@ -536,6 +545,7 @@ src/
     │   │   │   ├── instagram-sending.serializer.ts
     │   │   │   ├── instagram-sending.service.ts
     │   │   │   ├── instagram-sending.types.ts
+    │   │   │   ├── instagram-slow-lane.service.ts
     │   │   │   ├── message-month-count.cache.ts
     │   │   │   ├── message-month-count.repository.ts
     │   │   │   ├── message-month-count.schema.ts

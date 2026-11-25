@@ -2946,6 +2946,14 @@ fast message (plan §30): ticket fast-<igm>-<tries> at not_before ──► her 
 | WC-56 | 80 % / 100 % notices and emails, once per month; the accounts' `plan_limit` stop (1B) [25] | the claim's commit (after it), backup in `repair-month-notice` | at the crossing / every minute |
 | WC-57 | owner problem emails (one kind per account per 6 h; through `auth.mail_outbox` with a dedupe key) [14] | `repair-owner-emails` | every minute |
 
+**As built (ROUTE row R43, [P411](decisions.md)).** WC-5 is `InstagramSlowLaneRules` and WC-6 `InstagramReplyLaneRules`
+(`instagram-sending/instagram-slow-lane.service.ts`, `instagram-reply-lane.service.ts`), plugged into the send core's
+lane rules — not separate processors: both lanes' tickets reach the one slow-queue processor and the core (R37, R42).
+The lane's pace columns (`box_start`, `last_sent_at`, `pick_count`) are written in the turn's release; a pick's check
+again ends a message through `InstagramMessageService.endWaitingMessage`; the reply box second is a hash of the
+automation and its box start; the text is composed at the last moment by `InstagramSendComposeService` (the fast lane
+reuses it, R44).
+
 Rules: no piece sends twice (the `sending` claim, `unknown` never sent again by itself, Instagram refuses a second
 private reply); intake and the repair never send; Redis is never called inside a transaction; Meta is never called inside
 one; every database unit of a send, intake or task worker takes a slot of the in-process limiter first (SN24).

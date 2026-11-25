@@ -281,8 +281,30 @@ export interface InstagramSendMessageKey {
  * again (`null` = when new work wakes it) and why it waits.
  */
 export type InstagramSendPick =
-  | { key: InstagramSendMessageKey }
+  | {
+      key: InstagramSendMessageKey;
+      /**
+       * A paced send ("Reply like a person" ON, D32): its send moves the lane's `last_sent_at`, the
+       * 20 s gap's clock. Absent = the lane's own rule (the slow lane: every send).
+       */
+      isPaced?: boolean | undefined;
+    }
   | { key: null; nextRunAt: Date | null; waitReason: InstagramSendWaitReason | null };
+
+/**
+ * A lane's next turn after a send (plan §28.3, §29.3): when, and the pace columns the release
+ * writes in its commit — the box the next send falls in, the last send's time (the gap), the mix
+ * place (`pick_count`, slow only). An absent column is left as it is.
+ */
+export interface InstagramSendNextTurn {
+  nextRunAt: Date;
+  boxStart?: Date | null | undefined;
+  lastSentAt?: Date | null | undefined;
+  pickCount?: number | undefined;
+}
+
+/** The pace columns a lane turn's release writes (see {@link InstagramSendNextTurn}). */
+export type InstagramSendLanePaceUpdate = Omit<InstagramSendNextTurn, 'nextRunAt'>;
 
 /**
  * The Meta call of one claimed message, built by its lane at the last moment (plan §24.4): it gets
@@ -363,6 +385,8 @@ export interface InstagramSendLaneRules {
     lane: InstagramSendLaneRow;
     now: Date;
     isTest: boolean;
+    /** Meta's usage pace of the connection (`slow` at 80 %: the boxes double, SN23). */
+    pace: MetaUsagePace;
   }): Promise<InstagramSendPick>;
   /** The claimed message's Meta call, read from Postgres at the last moment (plan §24.4). */
   composeMessage(input: {
@@ -371,14 +395,16 @@ export interface InstagramSendLaneRules {
     access: InstagramSendAccess;
   }): Promise<InstagramSendComposition>;
   /**
-   * When the lane's next turn is due after this one; absent → one box (3600 ÷ hour limit seconds,
-   * doubled at Meta's 80 % or at half speed).
+   * When the lane's next turn is due after this one, with the pace columns its release writes;
+   * absent → one box (3600 ÷ hour limit seconds, doubled at Meta's 80 % or at half speed).
    */
   nextTurnAt?(input: {
     lane: InstagramSendLaneRow;
+    /** The pick this turn sent. */
+    pick: Extract<InstagramSendPick, { key: InstagramSendMessageKey }>;
     result: InstagramSendResult;
     pace: MetaUsagePace;
     limits: InstagramSendLimits;
     now: Date;
-  }): Date;
+  }): InstagramSendNextTurn;
 }

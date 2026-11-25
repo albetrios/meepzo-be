@@ -101,7 +101,7 @@ function groupOfCode({
  *   `never_connected` (surely not sent); a timeout, a cut connection or an unreadable answer →
  *   `no_answer` (D17: maybe sent). Anything that is not Meta's error (our own failure before the
  *   call left, such as a token that does not decrypt) → `never_connected`. A hide's error that is
- *   not a stop → `hide_failed`; a follow check's (no channel) → `check_not_possible`.
+ *   not a stop or a gone comment → `hide_failed`; a follow check's (no channel) → `check_not_possible`.
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
  * - **Notes:** the circuit (`metaGraphCircuit`) stays the backstop of every call class — an open
@@ -116,7 +116,12 @@ export function classifyInstagramSendError({
 }): InstagramSendErrorReading {
   const reading = readGroup(error);
   if (INSTAGRAM_SEND_STOP_GROUPS.includes(reading.group)) return reading;
-  if (channel === 'comment_hide' && reading.group !== 'no_answer') {
+  // A hide of a comment that is gone is `skipped` · `deleted_comment` (plan §33.7 rule 4).
+  if (
+    channel === 'comment_hide' &&
+    reading.group !== 'no_answer' &&
+    reading.group !== 'comment_gone'
+  ) {
     return { ...reading, group: 'hide_failed' };
   }
   if (channel === null && reading.group !== 'no_answer') {
@@ -338,8 +343,9 @@ function stopOf({
  * - **Failure modes:** none — pure.
  * - **Side effects:** none.
  * - **Notes:** the counts stay for a final status: Meta was tried (WC-20's daily check compares the
- *   month with the tried DMs). The comment's re-read before `deleted_comment` and the automation's
- *   `bad_text` stop after 5 in a row are the reply lane's and the flows' (R43, R54).
+ *   month with the tried DMs). The comment's re-read before `deleted_comment` is the lane's call
+ *   (`callWithCommentCheck`, R43); the automation's `bad_text` stop after 5 in a row is the flows'
+ *   (R54).
  */
 export function decideInstagramSendOutcome({
   reading,

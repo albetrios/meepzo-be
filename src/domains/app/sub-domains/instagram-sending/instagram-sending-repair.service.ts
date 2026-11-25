@@ -387,13 +387,16 @@ export class InstagramSendingRepairService {
       const scope = this.dependencies.jobScopeFor(message.organization_public_id);
       const isFollowCheck = message.message_type === 'follow_check';
       const isSent = message.instagram_message_id !== null;
+      let status: 'waiting' | 'sent' | 'unknown' = 'unknown';
+      if (isFollowCheck) status = 'waiting';
+      else if (isSent) status = 'sent';
       try {
         const saved = await this.dependencies.runInDatabaseSlot(() =>
           this.dependencies.messageService.saveSendResult({
             scope,
             key: messageKeyOf(message),
             attempt: null,
-            status: isFollowCheck ? 'waiting' : isSent ? 'sent' : 'unknown',
+            status,
             reason: isFollowCheck || isSent ? null : 'worker_lost',
             instagramMessageId: message.instagram_message_id,
             errorCode: null,

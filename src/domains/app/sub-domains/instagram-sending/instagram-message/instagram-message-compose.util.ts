@@ -60,8 +60,8 @@ export function fillInstagramName({ text, name }: { text: string; name: string |
   if (name !== null && name.length > 0) return text.replace(NAME_PLACEHOLDER, name);
   return text
     .replace(NAME_PLACEHOLDER, '')
-    .replace(/ +([,!?.])/g, '$1')
     .replace(/ {2,}/g, ' ')
+    .replace(/ ([,!?.])/g, '$1')
     .trim();
 }
 
@@ -165,19 +165,11 @@ export function composeInstagramMessage(input: InstagramComposeInput): Instagram
     }
     case 'email_question':
     case 'phone_question': {
-      const isEmail = message.message_type === 'email_question';
-      const wording = (isEmail ? steps.email : steps.phone)?.wordings[
-        indexOf(message.wording_number)
-      ];
-      const text =
-        wording !== undefined && wording.trim().length > 0
-          ? fill(wording)
-          : input.translate(
-              isEmail
-                ? AUTOMATION_MESSAGE_KEYS.emailQuestion
-                : AUTOMATION_MESSAGE_KEYS.phoneQuestion,
-            );
-      return question({ text, contentType: isEmail ? 'user_email' : 'user_phone_number' });
+      return composeQuestionMessage({
+        input,
+        isEmail: message.message_type === 'email_question',
+        fill,
+      });
     }
     case 'invalid_email':
       return question({
@@ -195,6 +187,28 @@ export function composeInstagramMessage(input: InstagramComposeInput): Instagram
     default:
       return { kind: 'skip', reason: 'cancelled_by_owner' };
   }
+}
+
+/** The email or phone question: its wording (filled), else the default text for that question. */
+function composeQuestionMessage({
+  input,
+  isEmail,
+  fill,
+}: {
+  input: InstagramComposeInput;
+  isEmail: boolean;
+  fill: (text: string) => string;
+}): InstagramComposedMessage {
+  const contentType = isEmail ? 'user_email' : 'user_phone_number';
+  const step = isEmail ? input.steps.email : input.steps.phone;
+  const wording = step?.wordings[indexOf(input.message.wording_number)];
+  if (wording !== undefined && wording.trim().length > 0) {
+    return question({ text: fill(wording), contentType });
+  }
+  const defaultKey = isEmail
+    ? AUTOMATION_MESSAGE_KEYS.emailQuestion
+    : AUTOMATION_MESSAGE_KEYS.phoneQuestion;
+  return question({ text: input.translate(defaultKey), contentType });
 }
 
 /** One message of the list by its row's kind (plan §18.5; a text's picture is its `image` row). */

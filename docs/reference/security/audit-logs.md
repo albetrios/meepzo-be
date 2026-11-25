@@ -34,6 +34,8 @@ through a resolver that sees deleted organizations.
 | `auth.organization.switch` | `session` | Active organization switched (`metadata.target`) |
 | `auth.session.revoke` | `session` | One session revoked |
 | `auth.session.revoke_all` | `session` | All sessions revoked |
+| `auth.password.change` | `user` | Password changed by the signed-in person (`POST /auth/password/change`; the routes are off unless `PASSWORD_ROUTES_ENABLED`) |
+| `auth.password.reset` | `user` | Password reset completed with a reset token (`WARNING`, attributed to the user; off unless `PASSWORD_ROUTES_ENABLED`) |
 | `auth.step_up` | `user` | Step-up re-authentication passed (`metadata.factor`) |
 | `auth.auth_method.create` | `auth_method` | Sign-in method linked |
 | `auth.auth_method.delete` | `auth_method` | Sign-in method removed |

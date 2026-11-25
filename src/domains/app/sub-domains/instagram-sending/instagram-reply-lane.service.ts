@@ -333,16 +333,15 @@ export class InstagramReplyLaneRules implements InstagramSendLaneRules {
               contactId: message.contact_id,
             }),
         });
-    const ending: {
+    let ending: {
       status: 'skipped' | 'expired';
       reason: 'reply_too_old' | 'contact_excluded' | 'contact_deleted';
-    } | null = isTooOld
-      ? { status: 'expired', reason: 'reply_too_old' }
-      : contact === null
-        ? { status: 'skipped', reason: 'contact_deleted' }
-        : contact.automations_off_at !== null
-          ? { status: 'skipped', reason: 'contact_excluded' }
-          : null;
+    } | null = null;
+    if (isTooOld) ending = { status: 'expired', reason: 'reply_too_old' };
+    else if (contact === null) ending = { status: 'skipped', reason: 'contact_deleted' };
+    else if (contact.automations_off_at !== null) {
+      ending = { status: 'skipped', reason: 'contact_excluded' };
+    }
     if (ending === null) return false;
     await withAppDatabaseContext({
       scope,

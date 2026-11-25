@@ -74,15 +74,7 @@ export async function runContactTagEventPickupDuty({
       for (const [organizationPublicId, group] of byOrganization) {
         try {
           await runInDatabaseSlot(() =>
-            runOrganizationScopedWorkerJob({
-              job: { organizationPublicId },
-              processor: (databaseHandle) =>
-                createWorkerContactTagEventRepository(databaseHandle).markPickedUp({
-                  organizationId: Number(group[0]?.organization_id),
-                  contactIds: group.map((contact) => Number(contact.contact_id)),
-                  now: context.now,
-                }),
-            }),
+            stampPickedUp({ organizationPublicId, group, now: context.now }),
           );
           await intakeQueue.enqueueContactTagEventIntake({
             organizationPublicId,
@@ -106,5 +98,27 @@ export async function runContactTagEventPickupDuty({
             : Number(last.contact_id),
       };
     },
+  });
+}
+
+/** Stamps `queued_at` on one organization's picked-up contacts' events, in its own job scope. */
+function stampPickedUp({
+  organizationPublicId,
+  group,
+  now,
+}: {
+  organizationPublicId: string;
+  group: ContactTagEventPickupRow[];
+  now: Date;
+}): Promise<unknown> {
+  const contactIds = group.map((contact) => Number(contact.contact_id));
+  return runOrganizationScopedWorkerJob({
+    job: { organizationPublicId },
+    processor: (databaseHandle) =>
+      createWorkerContactTagEventRepository(databaseHandle).markPickedUp({
+        organizationId: Number(group[0]?.organization_id),
+        contactIds,
+        now,
+      }),
   });
 }

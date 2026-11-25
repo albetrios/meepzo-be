@@ -31,8 +31,8 @@ import {
  * @remarks
  * - **Algorithm:** routes on `job.name` — the sweep job
  *   ({@link SUBSCRIPTION_PLAN_STATE_CHECK_SWEEP_JOB_NAME}, no payload) runs
- *   {@link runSubscriptionPlanStateCheckSweep}; every other job validates its payload at the
- *   boundary (`parseJobDataOrDeadLetter`) and runs {@link processSubscriptionPlanStateCheckJob}
+ *   {@link runSubscriptionPlanStateCheckSweep}; every other job validates its payload (`organizationPublicId`,
+ *   `subscriptionPublicId`) at the boundary (`parseJobDataOrDeadLetter`) and runs {@link processSubscriptionPlanStateCheckJob}
  *   under the propagated trace context. Concurrency `RETENTION_WORKER_CONCURRENCY`, the retention
  *   lock.
  * - **Failure modes:** our own failures take the queue's attempts; a malformed payload is

@@ -34,6 +34,10 @@ const TENANT_SCOPING_EXEMPT_QUEUE_NAME_PATTERNS = [
   // every organization's rows in the maintenance scope `APP_PARTITION_UPKEEP` — a cron over whole
   // tables, no per-job tenant payload.
   /app-partition-upkeep/i,
+  // feat-instagram-dm-sending SN6 (R47, R48, R52): the sending repair duties and watches are
+  // repeat jobs named by their duty, with no payload — each reads across organizations in the
+  // global-retention context, then works each organization in its own job scope.
+  /instagram-sending-repair/i,
 ] as const;
 
 function collectWorkerFiles(directory: string, collected: string[] = []): string[] {

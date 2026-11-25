@@ -110,7 +110,7 @@ const UNCLEAR_GROUPS: readonly InstagramSendResultGroup[] = [
 ];
 
 /** The all-accounts stop is over and its one test not yet taken (plan §33.6 rule 2, R62). */
-const ALL_TEST_DUE = 'all_test_due' as const;
+const ALL_TEST_DUE = 'all_test_due';
 
 /**
  * The all-accounts test's outcome from its send (plan §33.4's table, §33.6 rule 2): sent → good; a
@@ -468,6 +468,47 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     });
   }
 
+  /**
+   * A claimed turn's holds: the lane's own hold ends the turn (its test ended); an all-accounts
+   * stop whose test is due is taken by the first lane that wakes (plan §33.6 rule 2, R62), else the
+   * turn waits for it. Answers the turn's end, or no end and the all-accounts test it took.
+   */
+  private async takeTurnHold({
+    target,
+    lane,
+    turn,
+    now,
+    context,
+  }: {
+    target: InstagramSendLaneTarget;
+    lane: InstagramSendLane;
+    turn: { row: InstagramSendLaneRow; isTest: boolean };
+    now: Date;
+    context: InstagramSendTicketContext;
+  }): Promise<{ end: TurnEnd; allTest: null } | { end: null; allTest: { reason: string } | null }> {
+    const hold = await context.runInDatabaseSlot(() => this.readHold({ target, lane, now }));
+    if (hold === null) return { end: null, allTest: null };
+    if (hold !== ALL_TEST_DUE) {
+      if (turn.isTest) await this.endTest({ target, context });
+      return { end: hold, allTest: null };
+    }
+    const allTestReason = turn.isTest
+      ? null
+      : await context.runInDatabaseSlot(() =>
+          this.dependencies.sendingStateService.claimAllAccountsTest({ lane, now }),
+        );
+    if (allTestReason !== null) return { end: null, allTest: { reason: allTestReason } };
+    if (turn.isTest) await this.endTest({ target, context });
+    return {
+      end: {
+        nextRunAt: new Date(now.getTime() + SETTINGS.allTestWaitSeconds * MILLISECONDS_PER_SECOND),
+        isHeld: false,
+        waitReason: 'stop',
+      },
+      allTest: null,
+    };
+  }
+
   /** A claimed turn's work: holds, pace, pick, send, the test's end; answers how it is released. */
   private async workClaimedTurn({
     target,
@@ -484,27 +525,9 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
   }): Promise<TurnEnd> {
     const lane = turn.row.lane as InstagramSendLane;
     const now = new Date();
-    const hold = await context.runInDatabaseSlot(() => this.readHold({ target, lane, now }));
-    // Plan §33.6 rule 2 (R62): the first lane that wakes after an all-accounts stop takes its test.
-    const allTestReason =
-      hold === ALL_TEST_DUE && !turn.isTest
-        ? await context.runInDatabaseSlot(() =>
-            this.dependencies.sendingStateService.claimAllAccountsTest({ lane, now }),
-          )
-        : null;
-    if (hold === ALL_TEST_DUE && allTestReason === null) {
-      if (turn.isTest) await this.endTest({ target, context });
-      return {
-        nextRunAt: new Date(now.getTime() + SETTINGS.allTestWaitSeconds * MILLISECONDS_PER_SECOND),
-        isHeld: false,
-        waitReason: 'stop',
-      };
-    }
-    if (hold !== null && hold !== ALL_TEST_DUE) {
-      if (turn.isTest) await this.endTest({ target, context });
-      return hold;
-    }
-    const allTest = allTestReason === null ? null : { reason: allTestReason };
+    const held = await this.takeTurnHold({ target, lane, turn, now, context });
+    if (held.end !== null) return held.end;
+    const { allTest } = held;
     const pace = await context.runInDatabaseSlot(() =>
       this.dependencies.accessService.readSendPace({ scope: target.scope, access, now }),
     );
@@ -806,27 +829,17 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       return;
     }
     const testRow = ready.isTest ? ready.row : null;
-    if (
-      testRow !== null &&
-      (await this.isDownTestUnclear({ target, access, turn: { row: testRow, isTest: true } }))
-    ) {
-      // §33.5 rule 2 on the fast lane too (R62): the account's own profile first, no person used;
-      // the stop's end wakes the message again.
-      await this.extendTestedStop({ target, row: testRow, delayMilliseconds: null, context });
-      return;
-    }
-    const check =
-      rules.checkFastMessage === undefined
-        ? ({ kind: 'send' } as const)
-        : await context.runInDatabaseSlot(() =>
-            rules.checkFastMessage!({ scope, target, key, now }),
-          );
-    if (check.kind !== 'send') {
-      if (ready.isTest) await this.endTest({ target, context });
-      await this.finishAllTest({ allTest, outcome: 'none', context });
-      if (check.kind === 'later') await context.returnTicket(check.delayMilliseconds);
-      return;
-    }
+    if (await this.isFastDownTestUnclear({ target, access, testRow, context })) return;
+    const isSendable = await this.checkFastMessageSendable({
+      rules,
+      target,
+      key,
+      now,
+      isTest: ready.isTest,
+      allTest,
+      context,
+    });
+    if (!isSendable) return;
     const limits = await rules.readLimits({ scope, access, now });
     const result = await this.sendMessage({ target, access, rules, limits, key, context });
     if (ready.isTest && ready.row !== null) {
@@ -834,6 +847,67 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     }
     await this.finishAllTest({ allTest, outcome: allTestOutcomeOf(result), context });
     await this.afterFastResult({ ticket, result, context });
+  }
+
+  /**
+   * §33.5 rule 2 on the fast lane too (R62): with a test row and Instagram still giving no clear
+   * answer, the account's own profile is checked first, no person used, and the stop extended (its
+   * end wakes the message again). Answers whether the ticket stops here.
+   */
+  private async isFastDownTestUnclear({
+    target,
+    access,
+    testRow,
+    context,
+  }: {
+    target: InstagramSendLaneTarget;
+    access: InstagramSendAccess;
+    testRow: InstagramSendLaneRow | null;
+    context: InstagramSendTicketContext;
+  }): Promise<boolean> {
+    if (testRow === null) return false;
+    const isUnclear = await this.isDownTestUnclear({
+      target,
+      access,
+      turn: { row: testRow, isTest: true },
+    });
+    if (!isUnclear) return false;
+    await this.extendTestedStop({ target, row: testRow, delayMilliseconds: null, context });
+    return true;
+  }
+
+  /**
+   * The fast lane's own check of the message (`checkFastMessage`, R44): when it is not to be sent
+   * now the test and the all-accounts test end and a `later` puts the ticket back. Answers whether
+   * the message is sent.
+   */
+  private async checkFastMessageSendable({
+    rules,
+    target,
+    key,
+    now,
+    isTest,
+    allTest,
+    context,
+  }: {
+    rules: InstagramSendLaneRules;
+    target: InstagramSendLaneTarget;
+    key: InstagramSendMessageKey;
+    now: Date;
+    isTest: boolean;
+    allTest: { reason: string } | null;
+    context: InstagramSendTicketContext;
+  }): Promise<boolean> {
+    const checkFastMessage = rules.checkFastMessage;
+    if (checkFastMessage === undefined) return true;
+    const check = await context.runInDatabaseSlot(() =>
+      checkFastMessage({ scope: target.scope, target, key, now }),
+    );
+    if (check.kind === 'send') return true;
+    if (isTest) await this.endTest({ target, context });
+    await this.finishAllTest({ allTest, outcome: 'none', context });
+    if (check.kind === 'later') await context.returnTicket(check.delayMilliseconds);
+    return false;
   }
 
   /** A fast message's next ticket after its send. */

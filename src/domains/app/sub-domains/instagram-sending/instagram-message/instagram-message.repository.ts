@@ -184,7 +184,7 @@ function candidateOf(row: Record<string, unknown>): InstagramMessagePickCandidat
     automationRunStartedAt: new Date(String(row.automation_run_started_at)),
     automationId: Number(row.automation_id),
     triggerOccurredAt:
-      row.trigger_occurred_at === null ? null : new Date(String(row.trigger_occurred_at)),
+      row.trigger_occurred_at === null ? null : new Date(row.trigger_occurred_at as string),
   };
 }
 
@@ -485,27 +485,6 @@ export class InstagramMessageRepository {
           eq(instagram_messages.status, 'sending'),
         ),
       )
-      .returning();
-    return row ?? null;
-  }
-
-  /**
-   * A repair duty's end of one `waiting` row (WC-15, WC-17, WC-18): `expired` or `skipped` with the
-   * reason. Answers the row, or `null` when it is not `waiting` any more (a repeat does nothing).
-   */
-  async finishWaiting({
-    key,
-    status,
-    reason,
-  }: {
-    key: InstagramMessageKey;
-    status: 'expired' | 'skipped';
-    reason: InstagramMessageReason;
-  }): Promise<InstagramMessageRow | null> {
-    const [row] = await this.db()
-      .update(instagram_messages)
-      .set({ status, reason, updated_at: sql`now()` })
-      .where(and(this.whereKey(key), eq(instagram_messages.status, 'waiting')))
       .returning();
     return row ?? null;
   }
@@ -1072,15 +1051,16 @@ export class InstagramMessageRepository {
     onAirMediaIds: readonly string[] | null;
     oldestCommentAt: Date;
   }): Promise<{ rows: InstagramMessageRow[]; endedMediaIds: string[] }> {
-    const onAir =
-      onAirMediaIds === null
-        ? sql`TRUE`
-        : onAirMediaIds.length === 0
+    let onAir = sql`TRUE`;
+    if (onAirMediaIds !== null) {
+      onAir =
+        onAirMediaIds.length === 0
           ? sql`FALSE`
           : sql`r.trigger_instagram_media_id IN (${sql.join(
               onAirMediaIds.map((mediaId) => sql`${mediaId}`),
               sql`, `,
             )})`;
+    }
     const candidates = rowsOf<{
       id: number | string;
       automation_run_started_at: Date | string;
@@ -1247,7 +1227,7 @@ export class InstagramMessageRepository {
         ORDER BY picked.trigger_occurred_at ASC LIMIT 1
       )
       SELECT * FROM newest UNION ALL SELECT * FROM oldest`);
-    const rows = result.rows as Record<string, unknown>[];
+    const rows = result.rows;
     const newest = rows.find((row) => row.place === 'new');
     const oldest = rows.find((row) => row.place === 'old');
     return {
@@ -1297,7 +1277,7 @@ export class InstagramMessageRepository {
         )
       ORDER BY m.not_before NULLS FIRST, m.id
       LIMIT 1`);
-    const row = (result.rows as Record<string, unknown>[])[0];
+    const row = result.rows[0];
     return row === undefined ? null : candidateOf(row);
   }
 
@@ -1334,11 +1314,11 @@ export class InstagramMessageRepository {
       ) AS picked
       WHERE a.organization_id = ${organizationId} AND a.channel_account_id = ${channelAccountId}
         AND a.status = 'live' AND a.deleted_at IS NULL AND a.is_reply_like_person_enabled`);
-    return (result.rows as Record<string, unknown>[]).map((row) => ({
+    return result.rows.map((row) => ({
       ...candidateOf(row),
       publicReplyHourLimit:
         row.public_reply_hour_limit === null ? null : Number(row.public_reply_hour_limit),
-      boxStart: row.box_start === null ? null : new Date(String(row.box_start)),
+      boxStart: row.box_start === null ? null : new Date(row.box_start as string),
     }));
   }
 
@@ -1372,7 +1352,7 @@ export class InstagramMessageRepository {
         AND (m.not_before IS NULL OR m.not_before <= ${now.toISOString()}::timestamptz)
       ORDER BY ca.last_direct_message_received_at ASC NULLS FIRST, m.id
       LIMIT ${limit}`);
-    return (result.rows as Record<string, unknown>[]).map((row) => ({
+    return result.rows.map((row) => ({
       publicId: String(row.public_id),
       automationRunStartedAt: new Date(String(row.automation_run_started_at)),
       contactId: Number(row.contact_id),
@@ -1428,8 +1408,9 @@ export class InstagramMessageRepository {
   }
 
   /**
-   * Ends one waiting row (a lane pick's check again, plan §28.1 step 7): `skipped` or `expired` with
-   * its reason, only while it waits. Answers the ended row, or `null`.
+   * Ends one waiting row (a lane pick's check again, plan §28.1 step 7; a repair duty's end, WC-15,
+   * WC-17, WC-18): `skipped`, `expired` or `cancelled` with its reason, only while it waits. Answers
+   * the ended row, or `null` when it is not `waiting` any more (a repeat does nothing).
    */
   async endWaitingByKey({
     key,
@@ -1475,7 +1456,7 @@ export class InstagramMessageRepository {
         AND m.updated_at >= day_start.at
       GROUP BY a.public_id
       ORDER BY count(*) DESC, a.public_id`);
-    return (result.rows as Record<string, unknown>[]).map((row) => ({
+    return result.rows.map((row) => ({
       automationPublicId: String(row.automation_public_id),
       count: Number(row.count),
     }));

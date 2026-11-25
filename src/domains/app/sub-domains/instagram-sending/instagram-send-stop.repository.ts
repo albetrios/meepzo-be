@@ -228,7 +228,7 @@ export class InstagramSendStopRepository {
       displayName: String(row.display_name),
       reason: String(row.reason),
       startedAt: new Date(String(row.started_at)),
-      endedAt: row.ended_at === null ? null : new Date(String(row.ended_at)),
+      endedAt: row.ended_at === null ? null : new Date(row.ended_at as string),
     }));
   }
 

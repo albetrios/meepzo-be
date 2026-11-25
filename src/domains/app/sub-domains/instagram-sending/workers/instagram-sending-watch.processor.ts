@@ -101,37 +101,17 @@ export async function runInstagramSendingWatchDuty({
     throw new UnrecoverableError(`instagram watch duty ${duty} is not known`);
   }
   const startedAt = now();
-  let handledCount = 0;
+  let handledCount = 1;
   let isBudgetSpent = false;
   if (duty === INSTAGRAM_WATCH_OUTAGE_CHECK_JOB_NAME) {
     await runOutageCheck({ dependencies, now: new Date(startedAt) });
-    handledCount = 1;
   } else {
-    const isLiveCheck = duty === INSTAGRAM_WATCH_LIVE_CHECK_JOB_NAME;
-    let afterChannelAccountId = 0;
-    const pageSize = isLiveCheck ? SETTINGS.liveCheckPageSize : SETTINGS.estimatePageSize;
-    for (;;) {
-      const accounts = await dependencies.runInDatabaseSlot(() =>
-        runGlobalRetentionWorkerJob((databaseHandle) => {
-          const repository = createRetentionInstagramSendingWatchRepository(databaseHandle);
-          return isLiveCheck
-            ? repository.listAccountsWithWaitingLiveReplies({
-                afterChannelAccountId,
-                limit: pageSize,
-              })
-            : repository.listAccountsForWaitingEstimate({ afterChannelAccountId, limit: pageSize });
-        }),
-      );
-      for (const account of accounts) {
-        if (now() - startedAt >= INSTAGRAM_REPAIR_BUDGET_MILLISECONDS) {
-          isBudgetSpent = true;
-          break;
-        }
-        if (await runForAccount({ duty, isLiveCheck, account, dependencies })) handledCount += 1;
-      }
-      if (isBudgetSpent || accounts.length < pageSize) break;
-      afterChannelAccountId = accounts.at(-1)?.channelAccountId ?? afterChannelAccountId;
-    }
+    ({ handledCount, isBudgetSpent } = await runAccountPages({
+      duty,
+      dependencies,
+      now,
+      startedAt,
+    }));
   }
   const result = {
     duty,
@@ -141,6 +121,65 @@ export async function runInstagramSendingWatchDuty({
   };
   logger.info(result, 'app.instagram_watch.completed');
   return result;
+}
+
+/**
+ * The Live check's or the estimate's pages of accounts, each account in its own scope, until the
+ * pages end or the round's budget is spent.
+ */
+async function runAccountPages({
+  duty,
+  dependencies,
+  now,
+  startedAt,
+}: {
+  duty: string;
+  dependencies: InstagramSendingWatchDependencies;
+  now: () => number;
+  startedAt: number;
+}): Promise<{ handledCount: number; isBudgetSpent: boolean }> {
+  const isLiveCheck = duty === INSTAGRAM_WATCH_LIVE_CHECK_JOB_NAME;
+  const pageSize = isLiveCheck ? SETTINGS.liveCheckPageSize : SETTINGS.estimatePageSize;
+  let handledCount = 0;
+  let afterChannelAccountId = 0;
+  for (;;) {
+    const accounts = await readAccountPage({
+      isLiveCheck,
+      dependencies,
+      afterChannelAccountId,
+      limit: pageSize,
+    });
+    for (const account of accounts) {
+      if (now() - startedAt >= INSTAGRAM_REPAIR_BUDGET_MILLISECONDS) {
+        return { handledCount, isBudgetSpent: true };
+      }
+      if (await runForAccount({ duty, isLiveCheck, account, dependencies })) handledCount += 1;
+    }
+    if (accounts.length < pageSize) return { handledCount, isBudgetSpent: false };
+    afterChannelAccountId = accounts.at(-1)?.channelAccountId ?? afterChannelAccountId;
+  }
+}
+
+/** One page of the accounts to check, read across organizations (the retention arm). */
+function readAccountPage({
+  isLiveCheck,
+  dependencies,
+  afterChannelAccountId,
+  limit,
+}: {
+  isLiveCheck: boolean;
+  dependencies: InstagramSendingWatchDependencies;
+  afterChannelAccountId: number;
+  limit: number;
+}): Promise<InstagramSendingWatchAccount[]> {
+  return dependencies.runInDatabaseSlot(() =>
+    runGlobalRetentionWorkerJob((databaseHandle) => {
+      const repository = createRetentionInstagramSendingWatchRepository(databaseHandle);
+      return isLiveCheck
+        ? repository.listAccountsWithWaitingLiveReplies({ afterChannelAccountId, limit })
+        : repository.listAccountsForWaitingEstimate({ afterChannelAccountId, limit });
+    }),
+  );
 }
 
 /** The outage watch's one round (WC-22, SNC9's late lanes). */

@@ -375,5 +375,6 @@
   },
   "invalidEmailOrPassword": "Correo o contraseña no válidos",
   "passwordAuthNotEnabled": "Autenticación por contraseña no habilitada",
-  "currentPasswordIncorrect": "Contraseña actual incorrecta"
+  "currentPasswordIncorrect": "Contraseña actual incorrecta",
+  "invalidOrExpiredResetToken": "Token de restablecimiento no válido o caducado"
 }

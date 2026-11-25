@@ -360,7 +360,8 @@ export class ChannelAccountRepository {
       newContacts: Number(row.new_contacts),
       emailsCollected: Number(row.emails_collected),
       phonesCollected: Number(row.phones_collected),
-      topAutomationName: row.top_automation_name === null ? null : String(row.top_automation_name),
+      topAutomationName:
+        typeof row.top_automation_name === 'string' ? row.top_automation_name : null,
     }));
   }
 
@@ -615,6 +616,9 @@ export class ChannelAccountRepository {
   }): Promise<{ organizationId: number; organizationPublicId: string; month: string }[]> {
     const localMonth = (moment: SQL) =>
       sql`date_trunc('month', ${moment} AT TIME ZONE ${organizations.timezone})`;
+    const stoppedMonth = localMonth(sql`${channel_accounts.plan_stopped_at}`);
+    const currentMonth = localMonth(sql`now()`);
+    const monthTurnedCondition = isMonthTurned ? sql`AND ${stoppedMonth} < ${currentMonth}` : sql``;
     return this.db()
       .select({
         organizationId: organizations.id,
@@ -631,11 +635,7 @@ export class ChannelAccountRepository {
             WHERE ${channel_accounts.organization_id} = ${organizations.id}
               AND ${channel_accounts.plan_stop_reason} = ${reason}
               AND ${channel_accounts.connection_status} <> ${CHANNEL_ACCOUNT_STATUS.REVOKED}
-              ${
-                isMonthTurned
-                  ? sql`AND ${localMonth(sql`${channel_accounts.plan_stopped_at}`)} < ${localMonth(sql`now()`)}`
-                  : sql``
-              }
+              ${monthTurnedCondition}
           )`,
         ),
       )

@@ -403,7 +403,8 @@ export class ChannelConnectionMetaCallbackService {
  * and route 17's confirmation code, so the team handles the deletion by hand.
  *
  * @remarks
- * - **Algorithm:** notify's `sendTeamAlertEmail` (copy `common:teamAlerts.metaCallbackUnmatched*`),
+ * - **Algorithm:** notify's `sendTeamAlertEmail` (copy: the `metaCallbackUnmatched` subject and
+ *   message under `teamAlerts` in `common`),
  *   keyed `meta-callback-unmatched:<callback>:<provider>:<id>` — Meta repeating the callback sends
  *   no second email.
  * - **Failure modes:** propagates; the callback service logs it and still answers Meta `200`.

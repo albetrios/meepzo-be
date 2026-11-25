@@ -269,7 +269,7 @@ export class InstagramSendComposeService {
     });
     const { broadcast, contact } = read;
     if (broadcast === null) return skipOf('cancelled_by_owner');
-    if (contact === null || contact.instagram_user_id === null) return skipOf('contact_deleted');
+    if (!contact?.instagram_user_id) return skipOf('contact_deleted');
     const composed = composeInstagramMessage({
       message,
       steps: { messages: broadcast.messages },

@@ -1,6 +1,9 @@
 import { runGlobalRetentionWorkerJob } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import { AUTOMATION_TOMBSTONE_RETENTION_DAYS } from '@/shared/constants/instagram.constants.js';
+import {
+  AUTOMATION_TOMBSTONE_RETENTION_DAYS,
+  MESSAGE_MONTH_COUNT_KEEP_MONTHS,
+} from '@/shared/constants/instagram.constants.js';
 import { createRetentionInstagramAttachmentRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-attachment/instagram-attachment.repository.js';
 import {
   runTimeBudgetedCleanUp,
@@ -16,7 +19,6 @@ import { createRetentionBroadcastRecipientRepository } from '@/domains/app/sub-d
 import { CONTACT_TAG_EVENT_KEEP_DAYS } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.constants.js';
 import { createRetentionContactTagEventRepository } from '@/domains/app/sub-domains/contact/contact-tag-event/contact-tag-event.repository.js';
 import { INSTAGRAM_SEND_STOP_KEEP_DAYS } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
-import { MESSAGE_MONTH_COUNT_KEEP_MONTHS } from '@/shared/constants/instagram.constants.js';
 import { createRetentionInstagramSendStopRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-stop.repository.js';
 import { createRetentionMessageMonthCountRepository } from '@/domains/app/sub-domains/instagram-sending/message-month-count.repository.js';
 import {

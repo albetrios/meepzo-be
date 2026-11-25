@@ -160,9 +160,8 @@ export class NotificationRepository {
     type: string;
     dedupe_key: string;
   }): Promise<void> {
-    await this.db().execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`notification:${String(organization_id)}:${type}:${dedupe_key}`}, 0))`,
-    );
+    const lockKey = `notification:${String(organization_id)}:${type}:${dedupe_key}`;
+    await this.db().execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
   }
 
   async existsOrganizationNotificationWithDedupeKey({

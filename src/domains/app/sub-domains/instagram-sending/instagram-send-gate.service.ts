@@ -372,6 +372,44 @@ export class InstagramSendGateService {
     return { isMonthLimitReached: used + 1 >= input.monthLimit };
   }
 
+  /**
+   * {@link claimInUnit}'s locks in order: her contact (fast and broadcast lanes, skip locked — plan
+   * §30.2 step 7, §30.14 step 6), her other fast sends, then the lane row and its fast places.
+   * Answers the refusal, or `null` when the send may go on.
+   */
+  private async busyRefusal({
+    input,
+    found,
+    databaseHandle,
+    lanes,
+    messages,
+  }: {
+    input: InstagramSendClaimInput;
+    found: InstagramMessageRow;
+    databaseHandle: RequestScopedPostgresDatabase;
+    lanes: InstagramSendLaneRepository;
+    messages: InstagramMessageRepository;
+  }): Promise<'person_busy' | 'fast_busy' | null> {
+    const contact = { organizationId: found.organization_id, contactId: found.contact_id };
+    if (input.lane === 'fast' || input.lane === 'broadcast') {
+      const isHers = await new ContactRepository(databaseHandle).lockForFastSend(contact);
+      if (!isHers) return 'person_busy';
+    }
+    if (input.lane === 'fast' && (await messages.countFastSending(contact)) > 0) {
+      return 'person_busy';
+    }
+    const laneRow = await lanes.lockLane({
+      organizationId: found.organization_id,
+      channelAccountId: found.channel_account_id,
+      lane: input.lane,
+    });
+    if (input.lane === 'fast' && laneRow !== null) {
+      const isBusy = await this.isFastLaneBusy({ found, laneRow, lanes, messages });
+      if (isBusy) return 'fast_busy';
+    }
+    return null;
+  }
+
   /** {@link claimSend}'s unit. */
   private async claimInUnit({
     input,
@@ -390,27 +428,8 @@ export class InstagramSendGateService {
       channelAccountId: found.channel_account_id,
     };
     const lanes = new InstagramSendLaneRepository(databaseHandle);
-    if (input.lane === 'fast' || input.lane === 'broadcast') {
-      // Her contact, skip locked (plan §30.2 step 7, §30.14 step 6): another claim of hers now →
-      // the next pick.
-      const isHers = await new ContactRepository(databaseHandle).lockForFastSend({
-        organizationId: found.organization_id,
-        contactId: found.contact_id,
-      });
-      if (!isHers) return { kind: 'refused', reason: 'person_busy' };
-    }
-    if (input.lane === 'fast') {
-      const hersSending = await messages.countFastSending({
-        organizationId: found.organization_id,
-        contactId: found.contact_id,
-      });
-      if (hersSending > 0) return { kind: 'refused', reason: 'person_busy' };
-    }
-    const laneRow = await lanes.lockLane({ ...account, lane: input.lane });
-    if (input.lane === 'fast' && laneRow !== null) {
-      const isBusy = await this.isFastLaneBusy({ found, laneRow, lanes, messages });
-      if (isBusy) return { kind: 'refused', reason: 'fast_busy' };
-    }
+    const busyRefusal = await this.busyRefusal({ input, found, databaseHandle, lanes, messages });
+    if (busyRefusal !== null) return { kind: 'refused', reason: busyRefusal };
     const minutes = new InstagramSendMinuteCountRepository(databaseHandle);
     const hourRefusal = await this.hourLimitRefusal({ input, found, messages, minutes });
     if (hourRefusal !== null) return { kind: 'refused', reason: hourRefusal };

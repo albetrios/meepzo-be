@@ -84,7 +84,7 @@ Domain total: **31 routes** — and, against today, what was added or dropped an
 
 ### File header — code layout and tables without routes
 
-Every sub-domain is one folder, laid out like a domain; the domain's shared kernel stays at `src/domains/fleet/`.
+Every sub-domain is one folder, laid out like a domain; the domain's shared kernel stays at the domain root, `src/domains/<domain>/` (here `fleet`).
 A table with no routes of its own is a persistence part of its parent: schema and repository (and a
 service only when it holds logic) in the parent's folder, **no controller, no routes file**; the
 parent's service writes it.

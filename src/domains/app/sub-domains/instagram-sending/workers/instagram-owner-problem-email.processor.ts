@@ -60,6 +60,30 @@ function kindOfStop(reason: string): OwnerProblemKind | null {
   return OWNER_PROBLEM_KIND_BY_STOP_REASON[reason] ?? 'long_stop';
 }
 
+/** One stop's problem when it came due by `now` and was not over before then; else `null`. */
+function dueProblemOf({
+  stop,
+  now,
+}: {
+  stop: InstagramSendStopAcrossRow;
+  now: Date;
+}): OwnerProblemToTell | null {
+  const kind = kindOfStop(stop.reason);
+  if (kind === null) return null;
+  const delayMilliseconds =
+    kind === 'long_stop' ? OWNER_PROBLEM_LONG_STOP_MINUTES * MILLISECONDS_PER_MINUTE : 0;
+  const dueAt = new Date(stop.startedAt.getTime() + delayMilliseconds);
+  if (dueAt.getTime() > now.getTime()) return null;
+  if (stop.endedAt !== null && stop.endedAt.getTime() < dueAt.getTime()) return null;
+  return {
+    organizationPublicId: stop.organizationPublicId,
+    channelAccountPublicId: stop.channelAccountPublicId,
+    username: stop.displayName.replace(/^@/, ''),
+    kind,
+    dueAt,
+  };
+}
+
 /**
  * Which stops tell their owners now (feat-instagram-dm-sending WC-57, AC-10.6) — pure.
  *
@@ -83,24 +107,9 @@ export function decideOwnerProblems({
   now: Date;
 }): OwnerProblemToTell[] {
   const windowMilliseconds = OWNER_PROBLEM_EMAIL_EVERY_HOURS * MILLISECONDS_PER_HOUR;
-  const due: OwnerProblemToTell[] = [];
-  for (const stop of stops) {
-    const kind = kindOfStop(stop.reason);
-    if (kind === null) continue;
-    const dueAt = new Date(
-      stop.startedAt.getTime() +
-        (kind === 'long_stop' ? OWNER_PROBLEM_LONG_STOP_MINUTES * MILLISECONDS_PER_MINUTE : 0),
-    );
-    if (dueAt.getTime() > now.getTime()) continue;
-    if (stop.endedAt !== null && stop.endedAt.getTime() < dueAt.getTime()) continue;
-    due.push({
-      organizationPublicId: stop.organizationPublicId,
-      channelAccountPublicId: stop.channelAccountPublicId,
-      username: stop.displayName.replace(/^@/, ''),
-      kind,
-      dueAt,
-    });
-  }
+  const due = stops
+    .map((stop) => dueProblemOf({ stop, now }))
+    .filter((problem): problem is OwnerProblemToTell => problem !== null);
   due.sort((left, right) => left.dueAt.getTime() - right.dueAt.getTime());
   const lastToldAt = new Map<string, number>();
   const told: OwnerProblemToTell[] = [];
@@ -246,7 +255,12 @@ async function alertTeam({
     .map(([kind, count]) => `${kind}: ${String(count)}`)
     .join(', ');
   const setKey = createHash('sha256')
-    .update(recent.map(buildOwnerProblemDedupeKey).sort().join('|'))
+    .update(
+      recent
+        .map(buildOwnerProblemDedupeKey)
+        .sort((left, right) => left.localeCompare(right))
+        .join('|'),
+    )
     .digest('hex')
     .slice(0, 32);
   try {

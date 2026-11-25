@@ -375,5 +375,6 @@
   },
   "invalidEmailOrPassword": "Invalid email or password",
   "passwordAuthNotEnabled": "Password auth not enabled",
-  "currentPasswordIncorrect": "Current password is incorrect"
+  "currentPasswordIncorrect": "Current password is incorrect",
+  "invalidOrExpiredResetToken": "Invalid or expired reset token"
 }

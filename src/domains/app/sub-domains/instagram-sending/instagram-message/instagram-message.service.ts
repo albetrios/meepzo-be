@@ -196,30 +196,15 @@ export class InstagramMessageService implements ChannelSendingPort {
       input.notBefore ??
       (place.lane === 'fast' ? await this.fastNotBefore({ input, place, now }) : now);
     if ('automationRunId' in input.source) {
-      const existing = await repository.lockRunPlace({
-        organizationId: input.organizationId,
+      const reused = await this.reuseLockedRunPlace({
+        repository,
+        input,
+        place,
+        notBefore,
         automationRunId: input.source.automationRunId,
         automationRunStartedAt: input.source.automationRunStartedAt,
-        messageType: place.messageType,
-        messageNumber: input.messageNumber,
-        messageKind: input.messageKind,
       });
-      if (existing !== null) {
-        const reused = await this.reuseRunPlace({ repository, existing, place, input, notBefore });
-        if (reused.status === 'waiting' && existing.status !== 'waiting') {
-          await this.addFastTicketAfterCommit({
-            input,
-            place,
-            ticket: {
-              publicId: reused.messagePublicId,
-              automationRunStartedAt: existing.automation_run_started_at,
-              tries: 0,
-            },
-            notBefore,
-          });
-        }
-        return reused;
-      }
+      if (reused !== null) return reused;
     }
     const row = await repository.insertWaiting({
       organizationId: input.organizationId,
@@ -373,6 +358,50 @@ export class InstagramMessageService implements ChannelSendingPort {
   }
 
   /** A run place saved again (SN16, D17): reopen a `sent` question or an `unknown` step once more. */
+  /**
+   * Locks the run's place for this message and, when a row already holds it, reuses that row
+   * (adding a fast ticket when it goes back to waiting). Answers `null` when the place is free.
+   */
+  private async reuseLockedRunPlace({
+    repository,
+    input,
+    place,
+    notBefore,
+    automationRunId,
+    automationRunStartedAt,
+  }: {
+    repository: InstagramMessageRepository;
+    input: SaveWaitingMessageInput;
+    place: Extract<ReturnType<typeof chooseInstagramMessagePlace>, { kind: 'place' }>;
+    notBefore: Date;
+    automationRunId: number;
+    automationRunStartedAt: Date;
+  }): Promise<SaveWaitingMessageResult | null> {
+    const existing = await repository.lockRunPlace({
+      organizationId: input.organizationId,
+      automationRunId,
+      automationRunStartedAt,
+      messageType: place.messageType,
+      messageNumber: input.messageNumber,
+      messageKind: input.messageKind,
+    });
+    if (existing === null) return null;
+    const reused = await this.reuseRunPlace({ repository, existing, place, input, notBefore });
+    if (reused.status === 'waiting' && existing.status !== 'waiting') {
+      await this.addFastTicketAfterCommit({
+        input,
+        place,
+        ticket: {
+          publicId: reused.messagePublicId,
+          automationRunStartedAt: existing.automation_run_started_at,
+          tries: 0,
+        },
+        notBefore,
+      });
+    }
+    return reused;
+  }
+
   private async reuseRunPlace({
     repository,
     existing,
@@ -913,7 +942,7 @@ export class InstagramMessageService implements ChannelSendingPort {
         const repository = new InstagramMessageRepository(databaseHandle);
         let ended = 0;
         for (const key of keys) {
-          const message = await repository.finishWaiting({ key, status, reason });
+          const message = await repository.endWaitingByKey({ key, status, reason });
           if (message === null) continue;
           ended += 1;
           await this.recordSettledMessage({

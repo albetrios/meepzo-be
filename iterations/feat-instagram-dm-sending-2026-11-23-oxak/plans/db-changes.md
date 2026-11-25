@@ -465,7 +465,7 @@ erDiagram
   account reuses the row (its settings return); a reconnect from the portfolio an account moved to
   moves its row to that connection at the callback ([P54](decisions.md)), and a pick re-reads the
   assigned accounts from Meta ([P55](decisions.md)). Has a public id (prefix not named by the plan).
-- **Table:** `app.channel_accounts` ([P42](decisions.md))
+- **Table:** `app.channel_accounts` ([P42](decisions.md)) — **Built R5** (the table, `cha_`), R9 (the provider-account index and resolvers), R18 (the lane steps), R24 / R52 (the plan stop) — see the Overview row and [AS-BUILT](../AS-BUILT.md)
 - **Sources:** plan:L2922–L2944 (the account), plan:L3385–L3419 (pause, suspend, plan stop, then on the
   lanes), plan:L4590–L4604 (connect, plan limit), plan:L2599–L2600, L2631 (pause, resume, activate);
   routes-final § 1B, 1B.3.
@@ -1965,7 +1965,7 @@ erDiagram
   malware scan comes in a later iteration — a D58 deviation, recorded in AS-BUILT. The new "message
   file" purpose (images to 8 MB, voice notes and PDF to 25 MB) is a code value, not a field
   (plan:L8445). Context only: `instagram_attachment` names an upload by its public id (P25).
-- **Table:** `upload.uploads` (live, unchanged)
+- **Table:** `upload.uploads` (live, unchanged) — **Built R12**: no migration; the `message-media` purpose is the object key prefix ([P201](decisions.md))
 - **Sources:** plan:L8445–L8446, plan:L8457; D58; current schema
   `src/domains/upload/upload.schema.ts`.
 - **Added:** none (the plan's scan result is not added, P34).

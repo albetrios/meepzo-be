@@ -122,3 +122,14 @@ Main's R56–R62, the password routes (P251), P501–P503 and P144 / P145 onto l
 | `organization-filter-audit.allowlist.ts` | both added `0d64a385e504` (the usage lookup — ours R54, theirs R56 / P451); theirs also `d70319b2051c` | theirs (both entries, one copy of the shared fingerprint) | none |
 | `docs/reference/architecture/src-structure-tree.txt` | both added e2e files | regenerated (`pnpm tool:project-structure-tree`) | none |
 | `instagram-send-core.service.ts`, `app.container.ts`, `automation-run.service.ts` (runEndedHook), `automation.service.ts` / `.repository.ts`, `instagram-sending.constants.ts` / `.overview.md`, `FLOWS.md`, intake processor | auto-merged — R54's `bad_text` stop in `applyStops` and `automationStopPort` beside R60 / R62's send-core changes | kept both; typecheck + the R54–R62 flow suites pass | low |
+
+## Lane C · `lane-b/close` at 892d39a into `lane-c/flows` (the Close records)
+
+The Close records (acceptance results, frontend-route-map sections 1–4, the AS-BUILT summary, Standing deviations and
+Owner items 1–27) onto lane C's R54 / R55. "ours" is `lane-c/flows`, "theirs" `lane-b/close`.
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `plans/acceptance.md` | ours AC-19.\* / AC-20.\* results; theirs every other result | ours for AC-19 / AC-20 ids, theirs elsewhere; then BRIEF-3 (AC-20.\* `pass`, still `partial` for AC-16.11 / AC-16.12) and P35 (`pass`) rolled up | none |
+| `AS-BUILT.md` | ours R54 / R55 rows and fix lines; theirs the merge rows, summary, deviations, owner items | both kept; summary says R1–R62 built, R54's source fixes under "Built, not planned"; owner items 15, 18, 26 cite [P351](decisions.md) / [P352](decisions.md) as links; the automations theme row lists them | none |
+| `plans/frontend-route-map.md` | theirs sections 1–4 | section 3 regenerated — no change (`--check` passes, 203 routes) | none |

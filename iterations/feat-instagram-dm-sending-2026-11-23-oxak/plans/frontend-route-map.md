@@ -13,9 +13,9 @@ This iteration changes **105 routes — 49 new, 55 changed, 1 as built — and r
 go after `/api/v1`. The exact request and answer shapes are the OpenAPI document (`pnpm docs:all`); every `reason`
 below is listed with its status in [`docs/reference/api/response-codes.md`](../../../docs/reference/api/response-codes.md).
 
-**Draft.** Written early at Close from [AS-BUILT.md](../AS-BUILT.md) rows R1–R38, R40, R42 and R51. A change marked
-**pending — added at Close** belongs to a row not built yet (R39, R41, R43–R50, R52, R53); its route already answers
-as 1.13 says until then. meepzo-fe opens its own iteration on this contract ([P30](decisions.md)).
+**Final at Close** — from [AS-BUILT.md](../AS-BUILT.md) rows R1–R53 and R56–R62 (R54, R55 are flow proofs with no
+route change). 1.13 lists what the frontend sees from the background rows and the few design points not built.
+meepzo-fe opens its own iteration on this contract ([P30](decisions.md)).
 
 ### 1.1 Basics (what is new since the launch)
 
@@ -85,6 +85,10 @@ The Viewer reads (`organization:read`, `channel-account:read`, `instagram-accoun
   trialled elsewhere answers `409 trial_used_by_account` (#3).
 - **Move up / down** (#103): up at once; down at the period end, with `keep_channel_account_ids` (the accounts that
   stay; `400 keep_channel_account_ids` when wrong); the answer's subscription carries `scheduled_change` and `is_trial`.
+- **After Free** (an unpaid trial end or a move to Free leaves a local Free row with no card subscription):
+  **subscribe again with #102**, not #103 — #102 replaces that Free row with the paid plan or a first trial (a used
+  trial answers `409 trial_already_used`, [P502](decisions.md)); #103 to a paid plan from it answers
+  `422 subscription_required` — send the person to #102 ([P503](decisions.md)).
 - **Cards**: `DELETE /billing/payment-methods/:payment_method_id` (#105, `409 default_card_in_use` on the only card
   of a paid plan) and `POST …/:payment_method_id/default` (#106). `:payment_method_id` is Stripe's `pm_…` id.
 - **Read-only plan** changed ([P10](decisions.md)): the owner may still edit, pause, delete and disconnect; refused
@@ -115,16 +119,19 @@ The Viewer reads (`organization:read`, `channel-account:read`, `instagram-accoun
 
 ### 1.7 Sign-in and security
 
-- **Passwords are gone** (R30, [P84](decisions.md)): `POST /auth/login`, `/auth/password/forgot`, `/reset` and
-  `/change` answer `404`. Sign in with the email code, Google, Apple or a passkey. Remove every password field.
+- **Passwords are off** (R30, [P84](decisions.md); kept disabled, not removed — [P251](decisions.md)):
+  `POST /auth/login`, `/auth/password/forgot`, `/reset` and `/change` are registered only when the server's
+  `PASSWORD_ROUTES_ENABLED` is on (default off, and off in every deployed environment) and otherwise answer `404`.
+  Section 3 lists them because the catalog is built with the flag on. Sign in with the email code, Google, Apple or a
+  passkey; remove every password field. The password step-up stays removed (step-up by email code, #127).
 - **Email code** (#120, #121): digits only, 6 of them. Send-code answers `{ message, resend_after_seconds,
   expires_in_seconds }`; too soon → `429 code_resend_too_soon` + `retry_after_seconds`. Login refuses with
   `401 code_wrong` + `tries_left`, `401 code_used_up` (ask a new code), `401 code_expired`, `429 code_day_limit`,
   `403 login_method_turned_off`, `401 account_not_active`.
 - **Providers** (#122): `google` and `apple`; **GitHub is removed**. `GET /auth/oauth/:provider` (#123) takes
   `?intent=link` for a signed-in person after a recent step-up (`403 recent_step_up_required`) — the "connect Google /
-  Apple" button in Settings; the callback then answers `409 provider_account_in_use` or
-  `403 oauth_link_needs_verified_email`.
+  Apple" button in Settings; the callback (#143) then answers `409 provider_account_in_use` (that Google or Apple
+  account is someone else's — now in the OpenAPI document too) or `403 oauth_link_needs_verified_email`.
 - **2FA sign-in** (#126): body `trust_device: true` sets the 30-day `trusted_device` cookie (at most 10 devices);
   refusals `401 mfa_code_wrong` + `tries_left`, `429 mfa_locked` + `retry_after_seconds`, `401 mfa_session_invalid`.
   A trusted browser skips the 2FA step. Removing the last 2FA factor (#145) and "sign out everywhere else" (#144) end
@@ -203,7 +210,10 @@ The launch's `POST /app/social/instagram/connect` (Instagram Login) is removed. 
   → `permalink`; a Live is `live`.
 - **Sending status** (#63, new): what waits in each lane, every stop with its reason and end, the estimate — what the
   account's banners need. **Usage** (#64, `GET /app/usage`, new, `organization:read`): the DM meter ("820 of 1,000
-  this month"), accounts used and the notices; `being_set_up` while an account's set-up at Meta runs (R40).
+  this month"), accounts used and the notices; `being_set_up` while an account's set-up at Meta runs (R40). The 80 %
+  and 100 % month notices and emails (R53) carry their numbers formatted for the reader's language ("820 of 1,000",
+  R57); a move down that turns the email and phone asks off sends one billing notice "Moved to Free: email and
+  phone steps are off in N automations" with `data.automations_count` ([P501](decisions.md)).
 - **Webhook events** (#62): kept 8 days (was 30); `channel_account_id` filter and field; `payload` is `null` once
   done; new kinds and the `own_comment` / `flood` reasons; `next_attempt_at`.
 
@@ -237,7 +247,8 @@ The launch's `POST /app/social/instagram/connect` (Instagram Login) is removed. 
   `now`, `scheduled` with `scheduled_at` (≤ 30 days ahead), or `when_chat_opens` with `open_wait_days` (1–7); refusals `409 broadcast_not_draft`,
   `409 broadcast_active` (cancel first), `409 transition_not_allowed`, `409 message_month_limit_reached`,
   `422 broadcast_incomplete`; numbers sent, skipped, replies, taps. An unknown or revoked account answers
-  `404 instagram_not_connected` on the draft.
+  `404 instagram_not_connected` on the draft. The **"broadcast done" notice** (R53, R56) carries `sent`, `skipped`
+  and `replies` in its copy and `data` ([P451](decisions.md)).
 - **Segments** (#77–#82, PRO, new): conditions (≤ 2 levels, ≤ 20 conditions); the audience count (#82, saved or
   not) answers how many match and how many can get it now; listing, reading and deleting stay open on Free.
 
@@ -247,19 +258,24 @@ The launch's `POST /app/social/instagram/connect` (Instagram Login) is removed. 
 (the ceiling is 25 MB). Confirm (#150) checks every type by its content; a fake file is refused and marked failed.
 No malware scan (1.13, section 4).
 
-### 1.13 Not built yet — pending, added at Close
+### 1.13 Background rows, and what is not built
 
-| Row | What the frontend will see | Until then |
-| --- | --- | --- |
-| R39 | Missed comments found after an outage | **pending — added at Close**; no route changes |
-| R41 | A past-comments read (#38) that reads, counts and ends `done` / `failed`; "my next post" linking | **pending — added at Close**; a read stays `queued` |
-| R43–R45 | The slow, reply, fast and broadcast lanes send | **pending — added at Close**; messages wait (`waiting`), #63 shows them queued |
-| R46 | Bulk actions (#21), the background segment count (#82), the failed-message retry as a job, the attachment upload | **pending — added at Close**; #21 answers `503 contact_bulk_action_unavailable`, a slow #82 `503 segment_count_unavailable`, #26 / #37 retry in the request (`is_queued: false`) |
-| R47 | Repair duties: the 7-day expiry, closed windows, cancel-on-pause, broadcast start and end | **pending — added at Close**; a scheduled broadcast does not start by itself |
-| R48 | Watches: a Live still on, outage and app-limit stops, the waiting estimate | **pending — added at Close** |
-| R49, R50 | Partition upkeep and the hourly clean-ups (retention as 1.10 says) | **pending — added at Close**; no route changes |
-| R52 | Plan state: the grace end, trial notices, switched-off plans, the period-end plan change | **pending — added at Close**; #64's trial and plan notices |
-| R53 | The 80 % / 100 % month notices, owner problem emails, the weekly summary, the grouped "new contact details" note, the "past comments done" notice | **pending — added at Close** |
+Every background row is built (R39, R41, R43–R53); none adds a route. What the frontend sees from them:
+
+| Row | What the frontend sees |
+| --- | --- |
+| R39, R41 | Missed comments found after an outage are answered like any comment; a past-comments read (#38, #39) reads, counts (`found`, `matched`, `queued_count`) and ends `done` / `failed`; "my next post" links every 15 minutes |
+| R43–R45 | The slow, reply, fast and broadcast lanes send; #63 shows each lane's waiting count, stops and the estimate |
+| R46 | Bulk actions (#21), the background segment count (#82), the failed-message retry as a job (#26, #37 answer `is_queued: true`) and the attachment upload run as tasks |
+| R47 | The 7-day expiry, closed windows, cancel-on-pause, a scheduled broadcast's start and its end |
+| R48 | A Live still on, the outage and app-limit stops, the waiting estimate on #63 |
+| R49, R50 | Retention as 1.10 says (webhook events 8 days, messages 30, runs 90) |
+| R52, R53 | #64's grace, trial and plan notices; the month notices, owner problem emails, the weekly summary, "new contact details", "past comments done", "broadcast done" |
+
+**Not built (owner items, [AS-BUILT.md › Owner items](../AS-BUILT.md#owner-items))** — build no screen for them yet:
+the "Your DMs are safe" banner while Redis or the database has been down over a minute (AC-27.6: no #63 field), the
+message-access banner ("Turn on 'Allow access to messages'": no field), and a team-paused organization's `paused`
+notice (AC-12.10).
 
 ### 1.14 Removed routes
 
@@ -268,7 +284,7 @@ No malware scan (1.13, section 4).
 | `POST /app/social/instagram/connect` | #1 → #2 → #3 (1.9), and #40 to reconnect |
 | `GET` / `DELETE /app/social/instagram/account`, `PATCH …/account/settings`, `GET …/media`, `GET …/stories` | #7, #8, #12, #13, #14 by `:channel_account_id` |
 | `GET` / `POST /app/social/instagram/webhook`, `POST …/deauthorize`, `POST …/data-deletion` (Meta's, no screen) | #60, #61, #16, #17 under `/app/social/channel-connections/…` |
-| `POST /auth/login`, `POST /auth/password/forgot`, `/reset`, `/change` | the email code, Google, Apple, passkeys; step-up by email code (#127) |
+| `POST /auth/login`, `POST /auth/password/forgot`, `/reset`, `/change` — **disabled**, `404` unless `PASSWORD_ROUTES_ENABLED` ([P251](decisions.md)) | the email code, Google, Apple, passkeys; step-up by email code (#127) |
 | `GET /auth/oauth/github` (the provider) | Google or Apple |
 
 ## 2. Each design operation → its route
@@ -378,7 +394,7 @@ menu selected.
 | Design operation | Route(s) today | Notes |
 | --- | --- | --- |
 | DM meter, accounts used | `GET /app/usage` (#64) | `organization:read` |
-| Top-of-app notices | #64 notices, `GET /auth/me/context` (#108) `plan_access` | Dismissing is remembered by the browser ([P27](decisions.md)); month and trial notices at R52 / R53 |
+| Top-of-app notices | #64 notices, `GET /auth/me/context` (#108) `plan_access` | Dismissing is remembered by the browser ([P27](decisions.md)); month, trial, grace and plan notices (R52, R53) |
 | Emails about account problems | none (sent by the backend) | Preferences: #135, #136 |
 
 ### 2.11 Plans, billing and trial (F11)
@@ -386,8 +402,8 @@ menu selected.
 | Design operation | Route(s) today | Notes |
 | --- | --- | --- |
 | Compare plans | `GET /billing/plans` (#100), `GET /billing/plans/:plan_id` (#101) | Public |
-| Start the 7-day trial / subscribe | `POST /billing/subscriptions` (#102) | `is_trial` |
-| Move up / down, keep accounts | `POST /billing/subscriptions/:subscription_id/change-plan` (#103) | `keep_channel_account_ids` on a move down |
+| Start the 7-day trial / subscribe | `POST /billing/subscriptions` (#102) | `is_trial`; also the way back from a local Free row ([P502](decisions.md)) |
+| Move up / down, keep accounts | `POST /billing/subscriptions/:subscription_id/change-plan` (#103) | `keep_channel_account_ids` on a move down; `422 subscription_required` from a local Free row to a paid plan — use #102 ([P503](decisions.md)) |
 | Cards: list, remove, make default | `GET /billing/payment-methods` (#104), `DELETE …/:payment_method_id` (#105), `POST …/:payment_method_id/default` (#106) | |
 | Plan state everywhere | `GET /auth/me/context` (#108) | `plan_access` (1.4) |
 
@@ -437,15 +453,14 @@ menu selected.
 `POST /app/social/channel-connections/meta/deauthorize` (#16) and `…/data-deletion` (#17). Stripe calls
 `POST /billing/webhook` (#107).
 
-**Reading section 3.** The generator files the `/app/…` routes under "Platform administration and operations" and
-leaves their `#` blank — it matches the review's paths only with `/tenancy` stripped, and the review writes the app
-routes without `/app`. Use the numbers in this section for them.
+**Reading section 3.** `#` is `<section>.<route>` of the route review; blank where the review names no route (the
+launch's unchanged routes, and the four disabled password routes of 1.7).
 
 ## 3. Every available route
 
 <!-- GENERATED:START -->
 
-199 routes, from `docs/routes.txt`.
+203 routes, from `docs/routes.txt`.
 Paths drop `/api/v1`; the health and operations routes in the last module sit outside it.
 **Gate**: a permission code, `signed in`, `public`, `platform admin` or a token. **Idem** `req`:
 `X-Idempotency-Key` required. **Team** `team`: team organizations only (`422` on a personal one).
@@ -455,7 +470,7 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 | Module | Routes |
 | --- | --- |
 | [App (the product)](#app-the-product) | 60 |
-| [Session and account](#session-and-account) | 48 |
+| [Session and account](#session-and-account) | 52 |
 | [Organization and team](#organization-and-team) | 44 |
 | [Files](#files) | 4 |
 | [Notifications and webhooks](#notifications-and-webhooks) | 14 |
@@ -534,6 +549,7 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 | POST | `/auth/email/confirm` | public |  |  | 11.134 | Confirm the email with the emailed link |
 | POST | `/auth/email/login` | public |  |  | 10.121 | Log in with an email verification code |
 | POST | `/auth/email/send-code` | public |  |  | 10.120 | Send email sign-in code |
+| POST | `/auth/login` | public |  |  |  | Login with email and password |
 | POST | `/auth/logout` | token (access-token) |  |  |  | Logout current session |
 | GET | `/auth/me/auth-methods` | signed in |  |  |  | List my auth methods |
 | POST | `/auth/me/auth-methods` | signed in |  |  |  | Add auth method |
@@ -556,6 +572,9 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 | GET | `/auth/oauth/:provider/callback` | public |  |  | 10.143 | OAuth callback |
 | POST | `/auth/oauth/apple/callback` | public |  |  | 10.124 | Apple's sign-in form callback |
 | GET | `/auth/oauth/providers` | public |  |  | 10.122 | List available OAuth providers |
+| POST | `/auth/password/change` | signed in |  |  |  | Change current password |
+| POST | `/auth/password/forgot` | public |  |  |  | Request password reset |
+| POST | `/auth/password/reset` | public |  |  |  | Reset password with token |
 | POST | `/auth/refresh` | token (session-cookie) |  |  |  | Refresh access token |
 | POST | `/auth/step-up` | signed in |  |  | 10.127 | Step-up (re-authenticate) |
 | POST | `/auth/switch-to-organization` | signed in |  |  |  | Switch active organization |
@@ -715,12 +734,15 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 | 9 | Instagram account type and private flag | account card | Meta's profile read has neither (R6) | `account_type` is `null`, `is_private` `false` — hide them |
 | 10 | The day limit | settings | Off while `DAY_LIMIT_ENABLED` is off (R7) | Show it only when `is_day_limit_enabled` |
 | 11 | Meta-gated features (each until its §43 test passes) | automations, settings | `feature_not_offered` ([P36](decisions.md)) | Grey them out on that reason |
+| 12 | "Seen" after a reply | settings (`is_mark_seen_after_reply_enabled`) | Saved, but nothing is sent until its Meta test ([P36](decisions.md), [P412](decisions.md)) | Show the switch as "coming soon" |
+| 13 | "Your DMs are safe" banner (Redis or the database down over a minute) | sending status | Not built — owner item ([P452](decisions.md)) | No banner |
+| 14 | Message-access banner ("Turn on 'Allow access to messages'") | account page | Not built — no field (owner item, [P409](decisions.md)) | No banner |
 
 ### 4.2 Gone from the API — remove the existing screens
 
 | # | Feature in the current frontend | Decision | In the frontend |
 | --- | --- | --- | --- |
-| 1 | Password sign-in, forgot, reset and change password | Removed ([P84](decisions.md), R30) | Remove the forms; step-up by email code |
+| 1 | Password sign-in, forgot, reset and change password | Off: removed from the product ([P84](decisions.md), R30), the routes kept disabled behind `PASSWORD_ROUTES_ENABLED` ([P251](decisions.md)) | Remove the forms; step-up by email code |
 | 2 | GitHub sign-in | Removed (R31) | Remove the button |
 | 3 | Instagram Login connect and the one-account pages | Removed (RC-6, [P1](decisions.md)) | Use the Meta flow and the account menu (2.1, 2.2) |
 | 4 | Custom roles editor | Switched off (TN3, R28) | Hide create / edit / delete / restore role and the code editor; show the four roles |

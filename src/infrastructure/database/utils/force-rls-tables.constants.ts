@@ -13,7 +13,8 @@ export type ForceRlsTableRef = {
  *
  * @remarks
  * - Includes partitioned parents (`audit.logs`, `notify.notifications`, `app.instagram_webhook_events`,
- *   `app.instagram_webhook_event_keys`): PostgreSQL records
+ *   `app.instagram_webhook_event_keys`, `app.automation_runs`, `app.automation_run_events`,
+ *   `app.automation_comment_logs`): PostgreSQL records
  *   `relforcerowsecurity` on the parent (`relkind = 'p'`), and the policy cascades to partitions.
  * - Keep alphabetical within each schema for reviewability.
  */
@@ -22,6 +23,7 @@ export const EXPECTED_FORCE_RLS_TABLES: ForceRlsTableRef[] = [
   { schemaName: 'app', tableName: 'automation_counts' },
   { schemaName: 'app', tableName: 'automation_reply_states' },
   { schemaName: 'app', tableName: 'automation_run_events' },
+  { schemaName: 'app', tableName: 'automation_run_open_keys' },
   { schemaName: 'app', tableName: 'automation_runs' },
   { schemaName: 'app', tableName: 'automations' },
   { schemaName: 'app', tableName: 'channel_accounts' },

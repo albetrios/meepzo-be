@@ -16,12 +16,7 @@ src/
     │   │   ├── e2e/
     │   │   │   ├── instagram-acceptance-gaps.e2e.test.ts
     │   │   │   ├── instagram-acceptance-gaps.helper.ts
-    │   │   │   ├── instagram-comment-flow.e2e.test.ts
     │   │   │   ├── instagram-comment-flow.helper.ts
-    │   │   │   ├── instagram-engine-recovery.e2e.test.ts
-    │   │   │   ├── instagram-engine-recovery.helper.ts
-    │   │   │   ├── instagram-message-flow.e2e.test.ts
-    │   │   │   ├── instagram-message-flow.helper.ts
     │   │   │   ├── instagram-next-post-flow.e2e.test.ts
     │   │   │   ├── instagram-next-post-flow.helper.ts
     │   │   │   ├── instagram-retention-erasure.e2e.test.ts
@@ -52,60 +47,43 @@ src/
     │   │   │   ├── automation-run/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   ├── factories/
-    │   │   │   │   │   │   └── automation-run.factory.ts
+    │   │   │   │   │   │   ├── automation-run.factory.ts
+    │   │   │   │   │   │   └── recording-sending-port.factory.ts
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── automation-run.integration.test.ts
     │   │   │   │   │   └── unit/
     │   │   │   │   │   │   ├── events/
     │   │   │   │   │   │       └── worker/
-    │   │   │   │   │   │       │   ├── automation-comment-log-retention.worker.unit.test.ts
-    │   │   │   │   │   │       │   ├── automation-run-retention.worker.unit.test.ts
     │   │   │   │   │   │       │   └── automation-run-wait-expiry.worker.unit.test.ts
-    │   │   │   │   │   │   ├── automation-comment-log-retention.processor.db.unit.test.ts
-    │   │   │   │   │   │   ├── automation-public-reply-safety.service.unit.test.ts
-    │   │   │   │   │   │   ├── automation-run-lock-order.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-matching.util.unit.test.ts
-    │   │   │   │   │   │   ├── automation-run-message.service.unit.test.ts
-    │   │   │   │   │   │   ├── automation-run-message.util.unit.test.ts
-    │   │   │   │   │   │   ├── automation-run-retention.processor.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-seed.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-step.util.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-wait-expiry.processor.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-wait-expiry.processor.unit.test.ts
     │   │   │   │   │   │   ├── automation-run.repository.db.unit.test.ts
-    │   │   │   │   │   │   ├── automation-run.service.db.unit.test.ts
-    │   │   │   │   │   │   ├── automation-run.service.unit.test.ts
-    │   │   │   │   │   │   └── automation-run.validator.unit.test.ts
+    │   │   │   │   │   │   └── automation-run.service.db.unit.test.ts
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── automation-run.bulk.seed.ts
     │   │   │   │   │   └── index.ts
     │   │   │   │   ├── workers/
-    │   │   │   │   │   ├── automation-comment-log-retention.constants.ts
-    │   │   │   │   │   ├── automation-comment-log-retention.processor.ts
-    │   │   │   │   │   ├── automation-comment-log-retention.worker.ts
-    │   │   │   │   │   ├── automation-run-retention.constants.ts
-    │   │   │   │   │   ├── automation-run-retention.processor.ts
-    │   │   │   │   │   ├── automation-run-retention.worker.ts
     │   │   │   │   │   ├── automation-run-wait-expiry.constants.ts
     │   │   │   │   │   ├── automation-run-wait-expiry.processor.ts
     │   │   │   │   │   └── automation-run-wait-expiry.worker.ts
     │   │   │   │   ├── automation-comment-log.repository.ts
     │   │   │   │   ├── automation-comment-log.schema.ts
-    │   │   │   │   ├── automation-public-reply-safety.service.ts
-    │   │   │   │   ├── automation-run-automation.repository.ts
+    │   │   │   │   ├── automation-run-button-payload.util.ts
     │   │   │   │   ├── automation-run-event.repository.ts
     │   │   │   │   ├── automation-run-event.schema.ts
     │   │   │   │   ├── automation-run-matching.util.ts
-    │   │   │   │   ├── automation-run-message.service.ts
-    │   │   │   │   ├── automation-run-message.util.ts
+    │   │   │   │   ├── automation-run-open-key.repository.ts
+    │   │   │   │   ├── automation-run-open-key.schema.ts
     │   │   │   │   ├── automation-run-step.util.ts
     │   │   │   │   ├── automation-run.constants.ts
     │   │   │   │   ├── automation-run.overview.md
     │   │   │   │   ├── automation-run.repository.ts
     │   │   │   │   ├── automation-run.schema.ts
     │   │   │   │   ├── automation-run.service.ts
-    │   │   │   │   ├── automation-run.types.ts
-    │   │   │   │   └── automation-run.validator.ts
+    │   │   │   │   └── automation-run.types.ts
     │   │   │   ├── seed/
     │   │   │   │   ├── automation.bulk.seed.ts
     │   │   │   │   ├── automation.faker.ts

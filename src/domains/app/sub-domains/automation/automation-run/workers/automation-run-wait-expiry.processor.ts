@@ -42,8 +42,9 @@ export interface AutomationRunWaitExpiryResult {
 
 /**
  * Cancels every run that has waited more than {@link AUTOMATION_RUN_WAIT_MAX_DAYS} (7) days — for
- * a button, a follow, an email or a phone (routes-final § 3.B AU25, WC-13, D8): a scan across
- * organizations, then each organization's cancel in its own context.
+ * a tap, any message, a follow, an email or a phone (feat-instagram-dm-sending routes-final § 4.B
+ * AU30, WC-45 — CHANGED, P99, P100): a scan across organizations, then each organization's cancel in
+ * its own context.
  *
  * @remarks
  * - **Algorithm:** a cutoff `now - 7 days`; under the global-retention cleanup context (a
@@ -53,16 +54,17 @@ export interface AutomationRunWaitExpiryResult {
  *   deleted organization's runs left out (they go with its purge);
  *   then, per organization, `cancelExpiredWaitingRuns` in its own `PRINCIPAL_SCOPE.JOB` context
  *   (`runOrganizationScopedWorkerJob`) — the cancel of an automation delete or a contact erase,
- *   with `wait_expired`: the same condition checked again in the update, one `status_changed`
- *   event each, their comment logs `cancelled`, `queued_automations` emptied.
+ *   with `wait_expired`: the same condition checked again in the update, **its open-run key deleted in
+ *   the same commit** (AU37), one `status_changed` event each, their comment logs `cancelled`, their
+ *   waiting messages cancelled through the channel's sending port.
  * - **Failure modes:** an organization's failure is counted, warn-logged and reported to Sentry;
  *   its runs stay due for the next hour. A scan error propagates to BullMQ retry / DLQ.
  * - **Side effects:** the cancelled runs, their run events and comment logs; an `info` log with
  *   counts only — never a trigger or message text (K7).
  * - **Notes:** idempotent and safe to skip — the next hour catches up, and a repeat changes
  *   nothing. A run that got its answer just before is not cancelled: it no longer waits, or its new
- *   wait started after the cutoff. The contact can start that automation again (AU17 — a
- *   `cancelled` last run allows a new one). Nobody is told (WC-13). `now` is injectable for tests.
+ *   wait started after the cutoff. The contact can start that automation again (its key is
+ *   gone). Nobody is told (WC-45). `now` is injectable for tests.
  */
 export async function runAutomationRunWaitExpiryJob({
   runService,

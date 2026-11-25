@@ -12,7 +12,7 @@ import type { AutomationRunKey } from './automation-run.types.js';
 /** One `app.automation_run_events` row as Drizzle reads it. */
 export type AutomationRunEventRow = typeof automation_run_events.$inferSelect;
 
-/** One run event to append (AU23): a status change with its new status, or an email / phone received. */
+/** One run event to append (AU27): a status change with its new status, or an answer or a tap. */
 export type AutomationRunEventValues = AutomationRunKey &
   (
     | { eventType: Extract<AutomationRunEventType, 'status_changed'>; status: AutomationRunStatus }
@@ -20,9 +20,10 @@ export type AutomationRunEventValues = AutomationRunKey &
   );
 
 /**
- * Drizzle access to `app.automation_run_events` (routes-final § 3.B.3, AU23): append-only — the
- * run engine and the cancel steps insert one row per status change and per email or phone
- * collected, in the same unit of work as the run change.
+ * Drizzle access to `app.automation_run_events` (routes-final § 4.B.3, AU27): append-only — the
+ * run engine and the cancel steps insert one row per status change, email or phone collected and
+ * hello or follow tap, in the same unit of work as the run change; each row carries its run's start
+ * (the month split key, AU36).
  *
  * @remarks
  * - **Algorithm:** inserts only (no update, no delete — the run's cascade removes them); every row
@@ -47,6 +48,7 @@ export class AutomationRunEventRepository {
         events.map((event) => ({
           organization_id: event.organizationId,
           automation_run_id: event.runId,
+          automation_run_started_at: event.runStartedAt,
           event_type: event.eventType,
           status: event.status ?? null,
         })),
@@ -54,7 +56,11 @@ export class AutomationRunEventRepository {
   }
 
   /** A run's history, oldest first. */
-  async listForRun({ organizationId, runId }: AutomationRunKey): Promise<AutomationRunEventRow[]> {
+  async listForRun({
+    organizationId,
+    runId,
+    runStartedAt,
+  }: AutomationRunKey): Promise<AutomationRunEventRow[]> {
     return this.db()
       .select()
       .from(automation_run_events)
@@ -62,6 +68,7 @@ export class AutomationRunEventRepository {
         and(
           eq(automation_run_events.organization_id, organizationId),
           eq(automation_run_events.automation_run_id, runId),
+          eq(automation_run_events.automation_run_started_at, runStartedAt),
         ),
       )
       .orderBy(asc(automation_run_events.created_at), asc(automation_run_events.id));

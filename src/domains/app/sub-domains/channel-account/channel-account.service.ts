@@ -57,6 +57,7 @@ import {
 } from './channel-account.serializer.js';
 import type {
   AutomationChannelAccount,
+  AutomationRunChannelAccount,
   ChannelAutomationPartProblem,
   ChannelAccountChange,
   ChannelAccountLanePort,
@@ -792,6 +793,62 @@ export class ChannelAccountService
           channel_connection_status: connection?.status ?? null,
           username: extension?.username ?? null,
           is_private: extension?.is_private ?? false,
+        };
+      },
+    });
+  }
+
+  /**
+   * A channel account as the run engine reads it once per event (feat-instagram-dm-sending § 4.B,
+   * AU34): by public id in the scope's organization, with the organization's time zone and the
+   * account's automation rules (Instagram's settings row, D64, D65 — both on when it has none);
+   * `null` when the organization or the account is absent. The engine reaches no channel's own
+   * sub-domain (AUC13).
+   *
+   * @remarks
+   * Algorithm: one unit — the organization, the account, its settings. Failure modes: none of its
+   * own. Side effects: none.
+   */
+  async readAutomationRunAccount({
+    scope,
+    channelAccountPublicId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+  }): Promise<AutomationRunChannelAccount | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.findOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        if (organization === null) return null;
+        const row = await this.accountRepository.findByPublicId({
+          organizationId: organization.id,
+          channelAccountPublicId,
+        });
+        if (row === null) return null;
+        const settings =
+          row.channel === 'instagram'
+            ? await this.instagramSettingsService.findSettings({
+                scope,
+                channelAccount: { organizationId: organization.id, channelAccountId: row.id },
+              })
+            : null;
+        return {
+          organizationId: organization.id,
+          id: row.id,
+          public_id: row.public_id,
+          channel: row.channel as ChannelAccountChannel,
+          connection_status:
+            row.connection_status as AutomationRunChannelAccount['connection_status'],
+          is_automation_enabled: row.is_automation_enabled,
+          time_zone: await this.organizationService.requireOrganizationTimeZone(
+            scope.organizationPublicId,
+          ),
+          is_comment_reply_trigger_enabled: settings?.is_comment_reply_trigger_enabled ?? true,
+          is_once_per_person_per_post_enabled:
+            settings?.is_once_per_person_per_post_enabled ?? true,
         };
       },
     });

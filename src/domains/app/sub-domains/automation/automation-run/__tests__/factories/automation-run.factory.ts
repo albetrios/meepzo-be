@@ -3,6 +3,7 @@ import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
+import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 
 /** One `app.automation_runs` row as the fixtures write and read it. */
@@ -21,17 +22,21 @@ export function nextInstagramObjectId(): string {
 
 /**
  * Inserts one run through the operator; every column may be overridden. The default is a `waiting`
- * DM run waiting for an email — an open run the cancel and erase steps reach.
+ * keyword-DM run waiting for an email — an open run the cancel and erase steps reach. An open run
+ * gets its open key (AU37) unless `isOpenKeyLeftOut`.
  */
 export async function insertAutomationRun({
   organizationId,
   automationId,
   contactId,
+  isOpenKeyLeftOut = false,
   ...overrides
 }: {
   organizationId: number;
   automationId: number;
   contactId: number;
+  /** Write no open key for an open run (the repair duty's leftover-key cases). */
+  isOpenKeyLeftOut?: boolean;
 } & Partial<
   Omit<
     AutomationRunFixtureRow,
@@ -46,8 +51,9 @@ export async function insertAutomationRun({
       organization_id: organizationId,
       automation_id: automationId,
       contact_id: contactId,
-      trigger_type: 'dm',
-      trigger_text: 'catalog please',
+      trigger_type: 'dm_keyword',
+      trigger_occurred_at: now,
+      once_key: `dm:${now.toISOString().slice(0, 10)}`,
       status: 'waiting',
       current_step: 'email_collect',
       waiting_for: 'email',
@@ -57,22 +63,32 @@ export async function insertAutomationRun({
     })
     .returning();
   if (run === undefined) throw new Error('automation run fixture insert returned no row');
+  if (!isOpenKeyLeftOut && (run.status === 'running' || run.status === 'waiting')) {
+    await getOperatorDatabase().insert(automation_run_open_keys).values({
+      organization_id: organizationId,
+      automation_id: automationId,
+      contact_id: contactId,
+      automation_run_id: run.id,
+      automation_run_started_at: run.started_at,
+    });
+  }
   return run;
 }
 
-/** Appends one `status_changed` run event through the operator (the run's history, AU23). */
+/** Appends one `status_changed` run event through the operator (the run's history, AU27). */
 export async function insertAutomationRunEvent({
   organizationId,
-  runId,
+  run,
   status,
 }: {
   organizationId: number;
-  runId: number;
+  run: Pick<AutomationRunFixtureRow, 'id' | 'started_at'>;
   status: AutomationRunFixtureRow['status'];
 }): Promise<void> {
   await getOperatorDatabase().insert(automation_run_events).values({
     organization_id: organizationId,
-    automation_run_id: runId,
+    automation_run_id: run.id,
+    automation_run_started_at: run.started_at,
     event_type: 'status_changed',
     status,
   });
@@ -88,16 +104,18 @@ export async function readRunEventsOfOrganization(organizationId: number): Promi
   return rows.map((row) => `${row.automation_run_id}:${row.event_type}:${row.status ?? '-'}`);
 }
 
-/** Inserts one comment log through the operator; every column may be overridden. */
+/** Inserts one comment log through the operator (of `run` when given); every column may be overridden. */
 export async function insertAutomationCommentLog({
   organizationId,
   automationId,
   contactId,
+  run,
   ...overrides
 }: {
   organizationId: number;
   automationId: number;
   contactId: number;
+  run?: Pick<AutomationRunFixtureRow, 'id' | 'started_at'>;
 } & Partial<
   Omit<AutomationCommentLogFixtureRow, 'id' | 'organization_id' | 'automation_id' | 'contact_id'>
 >): Promise<AutomationCommentLogFixtureRow> {
@@ -114,6 +132,9 @@ export async function insertAutomationCommentLog({
       comment_text: 'link please',
       commenter_username: 'jordan.lee',
       commenter_instagram_user_id: '17841400000000001',
+      ...(run === undefined
+        ? {}
+        : { automation_run_id: run.id, automation_run_started_at: run.started_at }),
       ...overrides,
     })
     .returning();
@@ -159,4 +180,14 @@ export async function readCommentLogRows(
     .from(automation_comment_logs)
     .where(eq(automation_comment_logs.organization_id, organizationId))
     .orderBy(asc(automation_comment_logs.id));
+}
+
+/** Every open-run key of an organization as `<automation id>:<contact id>:<run id>`, read as the operator. */
+export async function readOpenRunKeys(organizationId: number): Promise<string[]> {
+  const rows = await getOperatorDatabase()
+    .select()
+    .from(automation_run_open_keys)
+    .where(eq(automation_run_open_keys.organization_id, organizationId))
+    .orderBy(asc(automation_run_open_keys.automation_id), asc(automation_run_open_keys.contact_id));
+  return rows.map((row) => `${row.automation_id}:${row.contact_id}:${row.automation_run_id}`);
 }

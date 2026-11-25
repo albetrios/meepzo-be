@@ -5,10 +5,17 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { expect } from 'vitest';
 import { ExternalServiceError } from '@/infrastructure/outbound/outbound-error.js';
+import type { InstagramMessageRecipient } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import type {
-  InstagramMessageRecipient,
-  InstagramOutgoingMessage,
-} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+  ChannelSendingPort,
+  ChannelWaitingMessageSelection,
+  SaveWaitingMessageInput,
+  SaveWaitingMessageResult,
+} from '@/domains/app/app.channel-ports.js';
+import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
+import { buildAutomationButtonPayload } from '@/domains/app/sub-domains/automation/automation-run/automation-run-button-payload.util.js';
+import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
+import { AUTOMATION_RUN_CHAT_WINDOW_MILLISECONDS } from '@/domains/app/sub-domains/automation/automation-run/automation-run.constants.js';
 import {
   readMetaGraphErrorResponse,
   toMetaGraphApiError,
@@ -20,11 +27,6 @@ import {
 } from '@/shared/constants/ttl.constants.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
-import { AutomationPublicReplySafetyService } from '@/domains/app/sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
-import {
-  type AutomationInstagramClient,
-  AutomationRunMessageService,
-} from '@/domains/app/sub-domains/automation/automation-run/automation-run-message.service.js';
 import { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
@@ -55,8 +57,7 @@ import {
   type AutomationFixtureRow,
   automationActionPath,
   automationPath,
-  insertLegacyAutomation,
-  legacyAutomationEditRequests,
+  insertAutomation,
   readAutomationRow,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
@@ -99,16 +100,24 @@ export interface TestConnectedAccount {
 /** The two kinds of send a test can make Instagram fail. */
 export type FakeInstagramSendKind = 'direct_message' | 'public_reply';
 
-/** One thing the flow asked Instagram for (or the pause before it), in the order it happened. */
+/**
+ * One thing sent to Instagram, in the order it happened. Since R14 the run engine never sends: it
+ * saves waiting messages through the channel's sending port (AU35); this fake port stands in for
+ * sub-domain 6 (R19–R20) and "sends" each one at once, reporting its result to the engine.
+ */
 export type FakeInstagramCall =
-  | { kind: 'pause'; milliseconds: number }
   | {
       kind: 'direct_message';
       recipient: InstagramMessageRecipient;
-      message: InstagramOutgoingMessage;
+      /** The run step the message is (`hello`, `follow`, `email`, `phone`, `messages`). */
+      step: SaveWaitingMessageInput['step'];
+      messageNumber: number | null;
+      /** The step path its text is read from at send (content by reference). */
+      stepPath: string;
       isDelivered: boolean;
     }
-  | { kind: 'public_reply'; instagramCommentId: string; text: string; isDelivered: boolean }
+  | { kind: 'public_reply'; instagramCommentId: string; isDelivered: boolean }
+  | { kind: 'hide_comment'; instagramCommentId: string }
   | { kind: 'follow_read'; instagramUserId: string }
   | { kind: 'profile_read'; instagramUserId: string }
   | { kind: 'post_read'; instagramMediaId: string };
@@ -217,48 +226,45 @@ export class FakeInstagram {
 
   /** The postback payload of the last button message Instagram took — what a click sends back. */
   lastPostbackPayload(): string {
-    for (const { message } of [...this.directMessages].reverse()) {
-      const buttons = message.attachment?.payload.buttons;
-      if (!Array.isArray(buttons)) continue;
-      const postback = (buttons as Array<{ type: string; payload?: string }>).find(
-        (button) => button.type === 'postback',
-      );
-      if (postback?.payload !== undefined) return postback.payload;
-    }
-    throw new Error('no button message was sent');
+    const payload = this.postbackPayloads.at(-1);
+    if (payload === undefined) throw new Error('no button message was sent');
+    return payload;
   }
 
-  /** The run engine's client: its sends and the follow read. */
-  readonly engineClient: AutomationInstagramClient = {
-    sendInstagramMessage: async ({ recipient, message }) => {
-      const failure = this.failures.direct_message.shift();
-      this.calls.push({
-        kind: 'direct_message',
-        recipient,
-        message,
-        isDelivered: failure === undefined,
-      });
-      if (failure !== undefined) throw failure;
-      return { messageId: `m_${randomUUID()}`, recipientId: null };
-    },
-    replyToInstagramComment: async ({ instagramCommentId, text }) => {
-      const failure = this.failures.public_reply.shift();
-      this.calls.push({
-        kind: 'public_reply',
-        instagramCommentId,
-        text,
-        isDelivered: failure === undefined,
-      });
-      if (failure !== undefined) throw failure;
-      return { instagramCommentReplyId: nextInstagramObjectId() };
-    },
-    readInstagramUserProfile: async ({ instagramScopedUserId }) => {
-      this.calls.push({ kind: 'follow_read', instagramUserId: instagramScopedUserId });
+  /** The `<aut_…>::<run_…>` payloads of the hello and follow messages sent, in order. */
+  readonly postbackPayloads: string[] = [];
+
+  /** The waiting messages the engine saved through the port, in order (nudges included). */
+  readonly waitingMessages: Array<Omit<SaveWaitingMessageInput, 'databaseHandle'>> = [];
+
+  /** How many of {@link waitingMessages} were already sent. */
+  sentCount = 0;
+
+  /** Takes a queued failure of `kind`, when one is queued. */
+  takeFailure(kind: FakeInstagramSendKind): unknown {
+    return this.failures[kind].shift();
+  }
+
+  /**
+   * The sending port (AU35): records each waiting message. A queued `direct_message` failure makes
+   * the save throw, so the engine's unit rolls back and the event is retried — a send that failed
+   * for now, as the launch suites knew it.
+   */
+  readonly sendingPort: ChannelSendingPort = {
+    saveWaitingMessage: async (input): Promise<SaveWaitingMessageResult> => {
+      if (input.step !== 'public_reply' && input.step !== 'hide_comment') {
+        const failure = this.failures.direct_message.shift();
+        if (failure !== undefined) throw failure;
+      }
+      const { databaseHandle: _databaseHandle, ...rest } = input;
+      this.waitingMessages.push(rest);
       return {
-        ...this.profileOf(instagramScopedUserId),
-        isUserFollowingBusiness: this.followAnswers.shift() ?? null,
+        messagePublicId: `igm_${randomUUID().replaceAll('-', '').slice(0, 21)}`,
+        status: 'waiting',
       };
     },
+    cancelWaitingMessages: async (_input: ChannelWaitingMessageSelection) => 0,
+    skipWaitingMessages: async (_input: ChannelWaitingMessageSelection) => 0,
   };
 
   /** Event processing's client: a new contact's profile and a post seen for the first time. */
@@ -303,9 +309,8 @@ type AutomationBody = Record<string, unknown>;
  */
 export class InstagramCommentFlow {
   readonly instagram = new FakeInstagram();
-  /** The next reply-safety draws; `0` once empty (a reply goes, the smallest gap, the first text). */
-  readonly safetyDraws: number[] = [];
   private readonly services: InstagramWebhookProcessingServices;
+  private readonly engine: AutomationRunService;
   private connectedAccount: TestConnectedAccount | null = null;
 
   private constructor(
@@ -313,20 +318,17 @@ export class InstagramCommentFlow {
     readonly team: InstagramTeamFixture,
   ) {
     const { appDomain } = app;
-    this.services = {
-      ...appDomain,
-      automationRunService: new AutomationRunService(
-        appDomain.instagramAccountService,
-        appDomain.contactService,
-        // The pause is recorded, not waited for; its length is the service's own random draw.
-        new AutomationRunMessageService(this.instagram.engineClient, async (milliseconds) => {
-          this.instagram.calls.push({ kind: 'pause', milliseconds });
-        }),
-        new AutomationPublicReplySafetyService((maxExclusive) =>
-          Math.min(this.safetyDraws.shift() ?? 0, maxExclusive - 1),
-        ),
-      ),
-    };
+    // The real engine of the app's own services, its channel's sending port faked (AU35, R14).
+    this.engine = new AutomationRunService({
+      channelAccountService: appDomain.channelAccountService,
+      contactService: appDomain.contactService,
+      planAccessService: app.billingDomain.subscriptionService,
+      countService: appDomain.automationCountService,
+      replyStateService: appDomain.automationReplyStateService,
+      sendingPorts: { instagram: this.instagram.sendingPort },
+      drawInteger: () => 0,
+    });
+    this.services = { ...appDomain, automationRunService: this.engine };
   }
 
   /** A fresh team with its Instagram account connected. Needs the permission catalog seeded. */
@@ -389,15 +391,33 @@ export class InstagramCommentFlow {
   }
 
   /**
-   * A live comment automation on the connected account (launch-shaped fields, written directly —
-   * the shared routes' own checks are their suite's, ROUTE row R13); any field may be overridden.
+   * A live comment automation on the connected account, written directly (the shared routes' own
+   * checks are their suite's, ROUTE row R13): the fixture's shared shape — a hello with a "sends
+   * your next step" button and one text message — with any column overridden; `status` defaults to
+   * `live` (`inactive` is `paused`), a `next` automation waits from now.
    */
   async createAutomation(body: AutomationBody): Promise<AutomationFixtureRow> {
-    return insertLegacyAutomation({
+    const { status, next_post_starts_at: startsAt, ...rest } = body;
+    // A launch-style window start (an ISO string) is the go-live time of a `next` automation (P12).
+    const columns: AutomationBody =
+      startsAt === undefined || startsAt === null
+        ? rest
+        : { ...rest, next_post_starts_at: new Date(startsAt as string) };
+    const isNext = columns.target_scope === 'next';
+    return insertAutomation({
+      name: 'Comment for the link',
+      ...(isNext
+        ? {
+            ...(columns.next_post_starts_at === undefined && columns.target_starts_at === undefined
+              ? { target_starts_at: new Date() }
+              : {}),
+            next_post_status: 'waiting',
+          }
+        : {}),
+      ...(columns as Omit<Parameters<typeof insertAutomation>[0], 'organizationId'>),
       organizationId: this.team.organization.id,
       channelAccountId: this.account.channelAccountId,
-      channelAccountPublicId: this.account.publicId,
-      legacyBody: body,
+      status: status === undefined || status === 'live' ? 'live' : 'paused',
     });
   }
 
@@ -410,7 +430,7 @@ export class InstagramCommentFlow {
     });
   }
 
-  /** Changes an automation: a launch `status` through go-live or pause, the rest through route 30. */
+  /** Changes an automation: `status` through go-live (`live`) or pause, the rest through route 30. */
   async editAutomation({
     automation,
     body,
@@ -418,10 +438,9 @@ export class InstagramCommentFlow {
     automation: AutomationFixtureRow;
     body: AutomationBody;
   }): Promise<void> {
-    const { patch, action } = await legacyAutomationEditRequests({
-      automationPublicId: automation.public_id,
-      changes: body,
-    });
+    const { status, ...fields } = body;
+    const patch = Object.keys(fields).length === 0 ? null : fields;
+    const action = status === undefined ? null : status === 'live' ? 'go-live' : 'pause';
     if (patch !== null) {
       const response = await this.request({
         method: 'PATCH',
@@ -593,9 +612,12 @@ export class InstagramCommentFlow {
     await this.processEvents();
   }
 
-  /** Runs the account's processing job once (R14's processor), with the fake Instagram. */
+  /**
+   * Runs the account's processing job once, with the fake Instagram, then "sends" every waiting
+   * message the engine saved, as sub-domain 6 would (R19–R20), until none is left.
+   */
   async processEvents(): Promise<InstagramWebhookAccountJobResult> {
-    return processInstagramWebhookAccountJob({
+    const result = await processInstagramWebhookAccountJob({
       jobData: {
         organizationPublicId: this.team.organization.public_id,
         channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(this.account.id),
@@ -605,6 +627,120 @@ export class InstagramCommentFlow {
       instagramClient: this.instagram.processingClient,
       enqueueFollowUp: async () => undefined,
     });
+    await this.sendWaitingMessages();
+    return result;
+  }
+
+  /**
+   * Sub-domain 6, faked (AU35): each waiting message is sent at once and its result reported to the
+   * engine — a follow check answers the next queued follow answer (unknown = "following", D12); a
+   * nudge waits its hour and is never sent here. A message saved by a result is sent in turn.
+   */
+  async sendWaitingMessages(): Promise<void> {
+    const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId: this.team.organization.public_id });
+    while (this.instagram.sentCount < this.instagram.waitingMessages.length) {
+      const message = this.instagram.waitingMessages[this.instagram.sentCount] as Omit<
+        SaveWaitingMessageInput,
+        'databaseHandle'
+      >;
+      this.instagram.sentCount += 1;
+      if (message.step === 'nudge' || !('automationRunId' in message.source)) continue;
+      const contact = await this.contactById(message.contactId);
+      let result: 'sent' | 'failed' = 'sent';
+      let reason: string | null = null;
+      if (message.step === 'follow_check') {
+        this.instagram.calls.push({
+          kind: 'follow_read',
+          instagramUserId: contact.instagramUserId,
+        });
+        reason = this.instagram.followAnswers.shift() === false ? 'not_following' : 'following';
+      } else if (message.step === 'public_reply' || message.step === 'hide_comment') {
+        const commentId = message.answersEventId ?? '';
+        if (message.step === 'public_reply') {
+          const failure = this.instagram.takeFailure('public_reply');
+          result = failure === undefined ? 'sent' : 'failed';
+          this.instagram.calls.push({
+            kind: 'public_reply',
+            instagramCommentId: commentId,
+            isDelivered: failure === undefined,
+          });
+        } else {
+          this.instagram.calls.push({ kind: 'hide_comment', instagramCommentId: commentId });
+        }
+      } else {
+        const isWindowOpen =
+          contact.lastDirectMessageReceivedAt !== null &&
+          Date.now() - contact.lastDirectMessageReceivedAt.getTime() <
+            AUTOMATION_RUN_CHAT_WINDOW_MILLISECONDS;
+        this.instagram.calls.push({
+          kind: 'direct_message',
+          recipient:
+            message.answersEventId !== null && !isWindowOpen
+              ? { comment_id: message.answersEventId }
+              : { id: contact.instagramUserId },
+          step: message.step,
+          messageNumber: message.messageNumber,
+          stepPath: message.content.stepPath,
+          isDelivered: true,
+        });
+        if (message.step === 'hello' || message.step === 'follow') {
+          this.instagram.postbackPayloads.push(
+            await this.postbackPayloadOf(message.source.automationRunId),
+          );
+        }
+      }
+      await this.engine.recordMessageResult({
+        scope,
+        databaseHandle: undefined as never,
+        organizationId: this.team.organization.id,
+        channelAccountId: message.channelAccountId,
+        automationRunId: message.source.automationRunId,
+        automationRunStartedAt: message.source.automationRunStartedAt,
+        messagePublicId: `igm_${message.step}`,
+        step: message.step,
+        messageNumber: message.messageNumber,
+        result,
+        reason,
+        occurredAt: new Date(),
+      });
+    }
+  }
+
+  /** A contact's Instagram id and last DM time, read as the operator. */
+  private async contactById(
+    contactId: number,
+  ): Promise<{ instagramUserId: string; lastDirectMessageReceivedAt: Date | null }> {
+    const [row] = await getOperatorDatabase()
+      .select({ instagramUserId: contacts.instagram_user_id })
+      .from(contacts)
+      .where(eq(contacts.id, contactId));
+    const contact = (
+      await readAccountContactRows({
+        organizationId: this.team.organization.id,
+        instagramAccountId: this.account.id,
+      })
+    ).find((candidate) => candidate.id === contactId);
+    return {
+      instagramUserId: row?.instagramUserId ?? '',
+      lastDirectMessageReceivedAt: contact?.last_direct_message_received_at ?? null,
+    };
+  }
+
+  /** The `<aut_…>::<run_…>` payload a run's button carries back. */
+  private async postbackPayloadOf(runId: number): Promise<string> {
+    const [row] = await getOperatorDatabase()
+      .select({ runPublicId: automation_runs.public_id, automationPublicId: automations.public_id })
+      .from(automation_runs)
+      .innerJoin(
+        automations,
+        and(
+          eq(automations.organization_id, automation_runs.organization_id),
+          eq(automations.id, automation_runs.automation_id),
+        ),
+      )
+      .where(eq(automation_runs.id, runId));
+    if (row === undefined) throw new Error('no such run');
+    return buildAutomationButtonPayload(row);
   }
 
   /** The stored webhook event with this key, or `undefined`. */

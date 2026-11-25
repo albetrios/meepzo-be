@@ -880,7 +880,8 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
         trigger_type: 'comment',
         trigger_instagram_media_id: mediaId,
         trigger_instagram_comment_id: commentId,
-        trigger_text: 'Price?',
+        trigger_occurred_at: new Date(),
+        once_key: mediaId,
         status: 'waiting',
         current_step: 'comment_reply',
         waiting_for: 'opening_message_button',
@@ -893,6 +894,7 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
       .values({
         organization_id: organization.id,
         automation_run_id: run!.id,
+        automation_run_started_at: run!.started_at,
         event_type: 'status_changed',
         status: 'waiting',
       })
@@ -905,6 +907,7 @@ export async function seedRlsMatrixFixtures(): Promise<RlsTenantFixture> {
         automation_id: automationIds[side],
         automation_name: `RLS matrix automation ${side}`,
         automation_run_id: run!.id,
+        automation_run_started_at: run!.started_at,
         contact_id: contactIds[side],
         instagram_media_id: mediaId,
         instagram_comment_id: commentId,

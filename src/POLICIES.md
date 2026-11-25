@@ -324,15 +324,15 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → the public route echoes longer caller-chosen text.
 - **Last reviewed**: 2026-11-22
 
-## AUTOMATION_RUN_RETENTION_DAYS / AUTOMATION_COMMENT_LOG_RETENTION_DAYS / AUTOMATION_TOMBSTONE_RETENTION_DAYS
+## AUTOMATION_RUN_KEEP_DAYS / AUTOMATION_RUN_PART_DROP_AFTER_DAYS / AUTOMATION_TOMBSTONE_RETENTION_DAYS
 
-- **Value**: 180 days each — an automation run counted from its end (`ended_at`, its run events with it), a comment log from the day it was written (`created_at`), a deleted automation from its delete (`deleted_at`, once no run or comment log points at it)
-- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
-- **Rationale**: How long the Instagram automation's history is kept (launch-2026-11-20-ujai D8, AQ7): half a year of runs and comment logs for the team to read, after which they carry personal data for no reason. Product rules, not settings — the deleted automation waits as long as the rows that point at it, so it does not use the platform's `TOMBSTONE_RETENTION_DAYS`. Three constants and not one, because each row's clock is its own decision.
+- **Value**: runs, their run events and comment logs are kept **90 days** (`AUTOMATION_RUN_KEEP_DAYS`, feat-instagram-dm-sending D16 — was 180); since the tables are split by month (P96, AU36) a runs part (with its run-events part) is dropped once its month ended more than **98 days** ago (`AUTOMATION_RUN_PART_DROP_AFTER_DAYS` = 90 + the 7-day wait + 1), a comment-log part 90 days after its month; a deleted automation stays **180 days** (`AUTOMATION_TOMBSTONE_RETENTION_DAYS`) once no run or comment log points at it
+- **Source**: [src/domains/app/sub-domains/automation/automation-run/automation-run.constants.ts](src/domains/app/sub-domains/automation/automation-run/automation-run.constants.ts), [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: How long the automation history is kept (D16): about three months of runs and comment logs for the team to read, after which they carry personal data for no reason. Expiry drops whole month parts (the shared upkeep, ROUTE row R49) instead of deleting rows in batches — no batch delete remains on these tables (P92, P96). A run goes 90 days or a little more after it ends, never sooner. Product rules, not settings.
 - **Consequences of change**:
-  - Decreasing → history the team still reads disappears sooner; the next daily clean-up removes everything older at once.
-  - Increasing → personal data (trigger texts, comment texts) is kept longer; check the privacy text first.
-- **Last reviewed**: 2026-11-22
+  - Decreasing → history the team still reads disappears sooner; the once rule (D13) frees a person sooner.
+  - Increasing → personal data (comment texts) is kept longer and more parts are kept; check the privacy text first.
+- **Last reviewed**: 2026-11-24
 
 ## PAGINATION
 

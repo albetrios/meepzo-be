@@ -46,24 +46,6 @@ export const INSTAGRAM_WEBHOOK_EVENTS_PER_JOB = 25;
 export const INSTAGRAM_WEBHOOK_CHALLENGE_MAX_LENGTH = 256;
 
 /**
- * Days an automation run is kept after it ended (`ended_at`), its run events with it (D8, AU25,
- * WC-12); open runs are never removed. A product rule, not a setting.
- *
- * @remarks
- * Rationale: `src/POLICIES.md`.
- */
-export const AUTOMATION_RUN_RETENTION_DAYS = 180;
-
-/**
- * Days an automation comment log is kept after it was written (`created_at`) (D8, AU25, WC-9). A
- * product rule, not a setting.
- *
- * @remarks
- * Rationale: `src/POLICIES.md`.
- */
-export const AUTOMATION_COMMENT_LOG_RETENTION_DAYS = 180;
-
-/**
  * Days a deleted automation is kept before the daily purge removes it for good, once no run or
  * comment log points at it (AQ7, AU25, WC-15). A product rule, not a setting — unlike the other
  * tombstones' `TOMBSTONE_RETENTION_DAYS`.

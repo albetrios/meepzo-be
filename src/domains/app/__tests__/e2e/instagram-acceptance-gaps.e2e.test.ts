@@ -33,6 +33,7 @@ import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permis
 import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
+import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import {
   AUTOMATIONS_PATH,
   type AutomationFixtureRow,
@@ -112,6 +113,8 @@ describe('Instagram acceptance across features (e2e)', () => {
     await cleanupDatabase();
     await seedAllPermissions();
     flow = await InstagramCommentFlow.open(app);
+    // The email ask is PRO (D35): the run engine reads the plan's switch at run time (AU26, R14).
+    await useCreatorPlan(flow.team.organization.id);
     instagram = flow.instagram;
     jordan = instagram.person('jordan.lee');
     casey = instagram.person('casey.doe');
@@ -150,17 +153,26 @@ describe('Instagram acceptance across features (e2e)', () => {
     return automation;
   }
 
-  /** Both waiting runs go on to their final message: a click and an answer, then an answer. */
-  async function finishBothRuns(automation: AutomationFixtureRow): Promise<void> {
+  /**
+   * Both waiting runs go on to their final message: a click and an answer, then an answer. Once the
+   * plan lost its PRO switches (`isEmailAskOff`, D57, AU26) the email ask is skipped: the click goes
+   * straight on, and a run waiting for her email moves on at her next message.
+   */
+  async function finishBothRuns(
+    automation: AutomationFixtureRow,
+    { isEmailAskOff = false }: { isEmailAskOff?: boolean } = {},
+  ): Promise<void> {
     const waiting = await runOfPerson({ flow, automation, person: jordan });
     await deliverButtonClick({ flow, automation, run: waiting, person: jordan });
     await flow.processEvents();
-    expect(await runOfPerson({ flow, automation, person: jordan })).toMatchObject({
-      id: waiting.id,
-      status: 'waiting',
-      waiting_for: 'email',
-    });
-    await flow.answer({ person: jordan, text: 'jordan@example.com' });
+    if (!isEmailAskOff) {
+      expect(await runOfPerson({ flow, automation, person: jordan })).toMatchObject({
+        id: waiting.id,
+        status: 'waiting',
+        waiting_for: 'email',
+      });
+      await flow.answer({ person: jordan, text: 'jordan@example.com' });
+    }
     await flow.answer({ person: casey, text: 'casey@example.com' });
 
     for (const person of [jordan, casey]) {
@@ -254,6 +266,11 @@ describe('Instagram acceptance across features (e2e)', () => {
 
     it('refuses go-live while live automations run on: waiting runs finish and a new comment starts one', async () => {
       const automation = await leaveTwoRunsWaiting();
+      // The team's Creator plan ends unpaid too (the suite gives every team Creator — R14).
+      await operatorQuery`
+        UPDATE billing.subscriptions SET status = 'CANCELED',
+          current_period_start = now() - interval '31 days', current_period_end = now() - interval '1 day'
+        WHERE organization_id = ${flow.team.organization.id}`;
       await endPaidPlanWithoutPaying(flow.team.organization.id);
       env.BILLING_READ_ONLY_ENFORCED = true;
 
@@ -283,7 +300,8 @@ describe('Instagram acceptance across features (e2e)', () => {
       });
       expect(read.statusCode).toBe(200);
 
-      await finishBothRuns(automation);
+      // The plan ended: its PRO email ask is skipped at run time (D57, AU26).
+      await finishBothRuns(automation, { isEmailAskOff: true });
 
       const morgan = instagram.person('morgan.kim');
       const commentId = await flow.commentAndProcess({
@@ -297,7 +315,7 @@ describe('Instagram acceptance across features (e2e)', () => {
         error_message: null,
       });
       expect(await flow.logsOf(commentId)).toEqual([
-        expect.objectContaining({ automation_id: automation.id, opening_dm_status: 'waiting' }),
+        expect.objectContaining({ automation_id: automation.id, opening_dm_status: 'sent' }),
       ]);
       expect(await runOfPerson({ flow, automation, person: morgan })).toMatchObject({
         status: 'waiting',
@@ -357,9 +375,8 @@ describe('Instagram acceptance across features (e2e)', () => {
       await finishBothRuns(automation);
       expect((await flow.readAutomation(automation.public_id)).status).toBe('paused');
 
-      // Live again (its email ask is PRO — a Creator plan, P83), the very comment that started nothing
-      // starts a run.
-      await useCreatorPlan(flow.team.organization.id);
+      // Live again (its email ask is PRO — the team's Creator plan, P83), the very comment that
+      // started nothing starts a run.
       await flow.editAutomation({ automation, body: { status: 'live' } });
       await flow.commentAndProcess({ person: morgan, postId, text: 'guide' });
       expect(await runOfPerson({ flow, automation, person: morgan })).toMatchObject({
@@ -419,7 +436,7 @@ describe('Instagram acceptance across features (e2e)', () => {
 
       const commentId = await flow.commentAndProcess({ person: jordan, postId, text: 'guide' });
       expect(await flow.logsOf(commentId)).toEqual([
-        expect.objectContaining({ automation_id: guide.id, opening_dm_status: 'waiting' }),
+        expect.objectContaining({ automation_id: guide.id, opening_dm_status: 'sent' }),
       ]);
       expect(await runOfPerson({ flow, automation: guide, person: jordan })).toMatchObject({
         status: 'waiting',
@@ -429,7 +446,7 @@ describe('Instagram acceptance across features (e2e)', () => {
       expect(instagram.directMessages.at(-1)?.recipient).toEqual({ comment_id: commentId });
     });
 
-    it('2 hours after our last DM: the opening message is skipped because of our own DM, echo or not', async () => {
+    it('2 hours after our last DM: the echo moves nothing; the hello is still saved for the slow lane, which owns the 24-hour person rule (R20)', async () => {
       const contact = await ownDirectMessageSentHoursAgo(2);
       const guide = await flow.createAutomation({ name: 'Guide', keywords: ['guide'] });
 
@@ -437,15 +454,15 @@ describe('Instagram acceptance across features (e2e)', () => {
 
       expect(await flow.contactOf(jordan)).toEqual(contact);
       const commentId = await flow.commentAndProcess({ person: jordan, postId, text: 'guide' });
-      expect(await flow.logsOf(commentId)).toEqual([
-        expect.objectContaining({
-          automation_id: guide.id,
-          opening_dm_status: 'skipped',
-          final_dm_status: 'sent',
-        }),
-      ]);
+      // Since R14 the engine never sends and never skips a hello itself: "one opening DM per person
+      // per 24 hours" is the channel's slow lane (sub-domain 6, ROUTE row R20), re-proved there.
+      expect(instagram.waitingMessages.at(-1)).toMatchObject({
+        step: 'hello',
+        answersEventId: commentId,
+      });
       expect(await runOfPerson({ flow, automation: guide, person: jordan })).toMatchObject({
-        status: 'completed',
+        status: 'waiting',
+        waiting_for: 'opening_message_button',
       });
     });
 

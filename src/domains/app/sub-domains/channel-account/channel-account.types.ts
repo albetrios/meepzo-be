@@ -163,6 +163,26 @@ export interface AutomationChannelAccount {
   is_private: boolean;
 }
 
+/**
+ * A channel account as the run engine reads it once per event (feat-instagram-dm-sending § 4.B,
+ * AU34 — channel-neutral): its organization and time zone (the once key's day), its status and
+ * automation switch, and the account's automation rules — on Instagram the settings row's "replies
+ * under comments" (D64) and "once per person per post" (D65) switches; `true` when no row exists.
+ */
+export interface AutomationRunChannelAccount {
+  organizationId: number;
+  id: number;
+  /** `cha_…`. */
+  public_id: string;
+  channel: ChannelAccountChannel;
+  connection_status: ChannelAccountStatus;
+  is_automation_enabled: boolean;
+  /** The organization's IANA time zone. */
+  time_zone: string;
+  is_comment_reply_trigger_enabled: boolean;
+  is_once_per_person_per_post_enabled: boolean;
+}
+
 /** One part an automation uses that the account's feature check refuses (AU34, CA11). */
 export interface ChannelAutomationPartProblem {
   /** `trigger_type`, `step`, `message_kind` or `feature`. */

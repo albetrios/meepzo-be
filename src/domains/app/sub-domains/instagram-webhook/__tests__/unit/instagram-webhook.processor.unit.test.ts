@@ -275,7 +275,6 @@ function setup({
       callOrder.push('handleDirectMessage');
       return engineResult();
     }),
-    startStoryReplyRun: vi.fn(async () => engineResult()),
     handleButtonClick: vi.fn(async () => engineResult({ outcome: 'run_continued' })),
     failRunsOfFailedEvent: vi.fn(async (_input: unknown): Promise<string[]> => []),
   };
@@ -392,16 +391,18 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     });
     expect(engine.startCommentRun).toHaveBeenCalledWith({
       scope: { organizationPublicId: ORGANIZATION_PUBLIC_ID, source: 'job' },
-      instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
+      channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
       contact: { id: 501, public_id: 'con_contact0000000000001' },
       event: {
         eventKey: event.event_key,
+        eventId: event.event_key.slice(event.event_key.indexOf(':') + 1),
         occurredAt: event.occurred_at,
         isLastAttempt: false,
         requestId: 'job-1',
       },
-      instagramCommentId: '18000000000000001',
-      instagramMediaId: POST,
+      kind: 'comment',
+      commentId: '18000000000000001',
+      mediaId: POST,
       text: COMMENT_TEXT,
       commenterUsername: 'acme_customer',
     });
@@ -476,7 +477,8 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(engine.handleDirectMessage).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        instagramAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
+        channelAccountPublicId: CHANNEL_ACCOUNT_PUBLIC_ID,
+        kind: 'message',
         text: DM_TEXT,
         quickReplyPayload: null,
         attachmentEmail: null,
@@ -489,7 +491,7 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(engine.startCommentRun).not.toHaveBeenCalled();
   });
 
-  it('a story reply: startStoryReplyRun with the story id', async () => {
+  it('a story reply: handleDirectMessage (`story_reply`) with the story id', async () => {
     const { run, engine, contactService } = setup({
       events: [
         storedEvent({
@@ -511,8 +513,12 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
     expect(contactService.recordContactInteraction).toHaveBeenCalledWith(
       expect.objectContaining({ interactionKind: 'story_reply', username: null }),
     );
-    expect(engine.startStoryReplyRun).toHaveBeenCalledWith(
-      expect.objectContaining({ instagramStoryId: '17950000000000001', text: 'love it' }),
+    expect(engine.handleDirectMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'story_reply',
+        storyId: '17950000000000001',
+        text: 'love it',
+      }),
     );
   });
 
@@ -552,7 +558,7 @@ describe('processInstagramWebhookAccountJob — dispatch per kind (WH13)', () =>
 
     expect(engine.handleButtonClick).toHaveBeenCalledTimes(1);
     expect(engine.handleButtonClick).toHaveBeenCalledWith(
-      expect.objectContaining({ automationPublicId, runPublicId }),
+      expect.objectContaining({ kind: 'postback', automationPublicId, runPublicId }),
     );
     // Both clicks still record the contact first (WH13), and both are handled.
     expect(contactService.recordContactInteraction).toHaveBeenCalledTimes(2);
@@ -755,24 +761,10 @@ describe('attempts and retries (WH14)', () => {
     });
   });
 
-  it('fails the event at once when the engine reports a dead token (failedErrorType token)', async () => {
+  it('marks the event processed whatever the engine moved — the engine calls no channel (R14)', async () => {
     const event = directMessageEvent();
     const { run, engine } = setup({ events: [event] });
-    engine.handleDirectMessage.mockResolvedValueOnce(
-      engineResult({ outcome: 'run_started', failedErrorType: 'token' }) as never,
-    );
-
-    await run();
-
-    expect(event).toMatchObject({ status: 'failed', error_message: 'instagram_api:token' });
-  });
-
-  it('marks the event processed when a run failed for any other reason — the run shows it', async () => {
-    const event = directMessageEvent();
-    const { run, engine } = setup({ events: [event] });
-    engine.handleDirectMessage.mockResolvedValueOnce(
-      engineResult({ failedErrorType: 'instagram_api' }) as never,
-    );
+    engine.handleDirectMessage.mockResolvedValueOnce(engineResult({ outcome: 'ignored' }) as never);
 
     await run();
 
@@ -817,15 +809,6 @@ describe('an event marked failed fails the runs it left running (WH14 rev 4, AU1
       errorCode: 'instagram_api:10/2534022',
     },
     {
-      ending: 'a dead token a run met',
-      event: () => directMessageEvent(),
-      arrange: ({ engine }) =>
-        engine.handleDirectMessage.mockResolvedValueOnce(
-          engineResult({ failedErrorType: 'token' }) as never,
-        ),
-      errorCode: 'instagram_api:token',
-    },
-    {
       ending: 'a token refused on a read',
       event: () => directMessageEvent({ attempt_count: 1 }),
       isNewContact: true,
@@ -868,13 +851,6 @@ describe('an event marked failed fails the runs it left running (WH14 rev 4, AU1
 
   it.each<{ ending: string; arrange: (fakes: ProcessorSetup) => void }>([
     { ending: 'processed', arrange: () => undefined },
-    {
-      ending: 'processed although a run of it failed',
-      arrange: ({ engine }) =>
-        engine.handleDirectMessage.mockResolvedValueOnce(
-          engineResult({ failedErrorType: 'instagram_api' }) as never,
-        ),
-    },
     {
       ending: 'to be retried',
       arrange: ({ engine }) => engine.handleDirectMessage.mockRejectedValueOnce(new Error('blip')),

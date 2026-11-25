@@ -19,18 +19,13 @@ import { SENSITIVE_REDACTION_PLACEHOLDER } from '@/shared/utils/security/sensiti
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { runOrganizationTombstoneRetentionJob } from '@/domains/tenancy/sub-domains/organization/workers/organization-tombstone-retention.processor.js';
 import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
-import { AutomationRunRepository } from '@/domains/app/sub-domains/automation/automation-run/automation-run.repository.js';
 import { AutomationCommentLogRepository } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.repository.js';
-import { runAutomationCommentLogRetentionJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.processor.js';
-import { runAutomationRunRetentionJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.processor.js';
+import { RecordingSendingPort } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/recording-sending-port.factory.js';
 import { runAutomationRunWaitExpiryJob } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.processor.js';
 import { runAutomationTombstoneRetentionJob } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.processor.js';
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { runInstagramWebhookEventRetentionJob } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/workers/instagram-webhook-event-retention.processor.js';
-import {
-  insertAutomation,
-  readAutomationRow,
-} from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
+import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import {
   insertAutomationRun,
   readCommentLogRows,
@@ -91,7 +86,6 @@ import {
   readRowsOfContact,
   runOf,
   say,
-  seedAgedOrganization,
   writeHistory,
   writeSendingHistory,
 } from './instagram-retention-erasure.helper.js';
@@ -120,6 +114,9 @@ describe('Instagram retention and erasure flow (e2e)', () => {
 
   beforeAll(async () => {
     ({ app } = await createTestApp());
+    // The run engine saves waiting messages through the channel's sending port (AU35); Instagram's
+    // lands at R19–R20, so the suite records them.
+    app.appDomain.channelSendingPorts.instagram = new RecordingSendingPort();
     processingQueue = new Queue(INSTAGRAM_WEBHOOK_QUEUE_NAME, {
       connection: getBullMQConnectionOptions(),
       prefix: getBullMQKeyPrefix(),
@@ -179,11 +176,9 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         changes: [commentChange({ person: JORDAN, text: 'giveaway please' })],
       });
       const waiting = await runOf({ automation: price });
-      expect(waiting).toMatchObject({
-        status: 'waiting',
-        waiting_for: 'email',
-        queued_automations: [expect.objectContaining({ automation_id: giveaway.public_id })],
-      });
+      // Since R14 nothing is queued behind her email: the giveaway comment is logged
+      // `waiting_for_other_email` (P132).
+      expect(waiting).toMatchObject({ status: 'waiting', waiting_for: 'email' });
       await ageWait({ runId: waiting.id, days: 8 });
 
       expect(await runWaitCheck()).toEqual({
@@ -196,7 +191,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
         status: 'cancelled',
         cancel_reason: 'wait_expired',
         waiting_for: null,
-        queued_automations: [],
       });
       expect(await readRunEventTrail(waiting.id)).toEqual([
         'status_changed:running',
@@ -264,8 +258,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(await readRunEventTrail(answering?.id ?? 0)).toEqual([
         'status_changed:running',
         'status_changed:waiting',
-        'status_changed:running',
         'email_received:-',
+        'status_changed:running',
         'status_changed:completed',
       ]);
       const before = await readAppRowsOfOrganization(team.organization.id);
@@ -301,109 +295,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
     });
   });
 
-  describe('the daily clean-ups, night after night (AC-12.3–AC-12.7)', () => {
-    /** What no timer ever removes: contacts, stored posts and the account (D8). */
-    async function readKeptRows(organizationId: number) {
-      const rows = await readAppRowsOfOrganization(organizationId);
-      expect(rows.contacts).toHaveLength(2);
-      expect(rows.instagram_media).toHaveLength(1);
-      return {
-        contacts: rows.contacts,
-        instagram_media: rows.instagram_media,
-        instagram_accounts: rows.instagram_accounts,
-      };
-    }
-
-    async function runIdsOf(organizationId: number): Promise<number[]> {
-      return (await readRunRows(organizationId)).map((run) => run.id).sort((a, b) => a - b);
-    }
-
-    it('removes exactly what each rule names in every organization, keeps the rest, and a repeat removes nothing', async () => {
-      const now = new Date();
-      const organizations = [await seedAgedOrganization(now), await seedAgedOrganization(now)];
-      const readAll = <Rows>(read: (organizationId: number) => Promise<Rows>) =>
-        Promise.all(organizations.map(({ organizationId }) => read(organizationId)));
-      const kept = await readAll(readKeptRows);
-
-      // 03:00 — webhook events of 30 days, any status.
-      expect(await runInstagramWebhookEventRetentionJob(now)).toMatchObject({ deletedCount: 10 });
-      // Hourly — nobody waited 7 days.
-      expect(await runWaitCheck(now)).toMatchObject({ scanned: 0 });
-      // 03:20 — the ended runs with their history, never an open one; a log stays without its run.
-      expect(await runAutomationRunRetentionJob({ now })).toMatchObject({ deletedCount: 6 });
-      for (const organization of organizations) {
-        expect(await runIdsOf(organization.organizationId)).toEqual(
-          [...organization.youngRunIds, ...organization.openRunIds].sort((a, b) => a - b),
-        );
-        for (const runId of organization.oldRunIds) {
-          expect(await readRunEventTrail(runId)).toEqual([]);
-        }
-        const logs = await readCommentLogRows(organization.organizationId);
-        expect(logs).toHaveLength(3);
-        expect(logs.find((log) => log.id === organization.logIds.ofOldRun)).toMatchObject({
-          automation_run_id: null,
-        });
-      }
-      // 03:30 — the comment logs of 180 days, whatever their run.
-      expect(await runAutomationCommentLogRetentionJob({ now })).toMatchObject({ deletedCount: 4 });
-      // 03:40 — the deleted automations nothing points at.
-      expect(await runAutomationTombstoneRetentionJob({ now })).toMatchObject({
-        deletedCount: 2,
-        blockedCount: 2,
-      });
-      // A "next post" never expires (feat-instagram-dm-sending P12): no 15-minute check any more.
-
-      for (const organization of organizations) {
-        const rows = await readAppRowsOfOrganization(organization.organizationId);
-        expect(rows.instagram_webhook_events?.map((row) => row.id)).toEqual([
-          organization.youngEventId,
-        ]);
-        expect(rows.automation_comment_logs?.map((row) => row.id)).toEqual([
-          organization.logIds.young,
-        ]);
-        const { unreferencedAutomation, referencedAutomation, windowAutomation } = organization;
-        expect(await readAutomationRow(unreferencedAutomation.public_id)).toBeUndefined();
-        expect(await readAutomationRow(referencedAutomation.public_id)).toBeDefined();
-        expect(await readAutomationRow(windowAutomation.public_id)).toMatchObject({
-          next_post_status: 'waiting',
-        });
-      }
-
-      // Two nights later the younger rows cross their limits, and the automation they held goes.
-      const later = new Date(now.getTime() + 2 * MILLISECONDS_PER_DAY);
-      const runNight = async () => ({
-        events: (await runInstagramWebhookEventRetentionJob(later)).deletedCount,
-        runs: (await runAutomationRunRetentionJob({ now: later })).deletedCount,
-        logs: (await runAutomationCommentLogRetentionJob({ now: later })).deletedCount,
-        automations: await runAutomationTombstoneRetentionJob({ now: later }),
-        waits: (await runWaitCheck(later)).cancelled,
-      });
-      expect(await runNight()).toEqual({
-        events: 2,
-        runs: 4,
-        logs: 2,
-        automations: { deletedCount: 2, blockedCount: 0, hasMore: false },
-        waits: 0,
-      });
-      for (const { organizationId, openRunIds, referencedAutomation } of organizations) {
-        expect(await runIdsOf(organizationId)).toEqual(openRunIds);
-        expect(await readAutomationRow(referencedAutomation.public_id)).toBeUndefined();
-      }
-      expect(await readAll(readKeptRows)).toEqual(kept);
-
-      // Skipping a night or repeating one is safe: nothing is left to remove.
-      const before = await readAll(readAppRowsOfOrganization);
-      expect(await runNight()).toEqual({
-        events: 0,
-        runs: 0,
-        logs: 0,
-        automations: { deletedCount: 0, blockedCount: 0, hasMore: false },
-        waits: 0,
-      });
-      expect(await readAll(readAppRowsOfOrganization)).toEqual(before);
-    });
-  });
-
   function listWebhookEvents(team: ConnectedInstagramTeam): Promise<InjectHttpResult> {
     return injectAuthenticated(app, {
       url: `${INSTAGRAM_WEBHOOK_EVENTS_PATH}?limit=100`,
@@ -422,12 +313,7 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       const automations = await historyAutomations({ team });
       const jordan = await writeHistory({ app, team, person: JORDAN, automations });
       const morgan = await writeHistory({ app, team, person: MORGAN, automations });
-      expect(jordan.waitingRun).toMatchObject({
-        status: 'waiting',
-        queued_automations: [
-          expect.objectContaining({ automation_id: automations.giveaway.public_id }),
-        ],
-      });
+      expect(jordan.waitingRun).toMatchObject({ status: 'waiting' });
       const copies = JSON.stringify(await readRowsOfContact({ team, contact: jordan.contact }));
       for (const value of personalValuesOf(JORDAN)) expect(copies).toContain(value);
       const logsBefore = await readCommentLogRows(team.organization.id);
@@ -446,7 +332,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
           status: 'cancelled',
           cancel_reason: 'contact_deleted',
           waiting_for: null,
-          queued_automations: [],
           trigger_instagram_media_id: run.trigger_instagram_media_id,
           trigger_instagram_comment_id: run.trigger_instagram_comment_id,
         });
@@ -456,7 +341,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       for (const run of jordan.endedRuns) {
         expect(await readRunRow(run.id)).toMatchObject({
           status: run.status,
-          trigger_text: null,
           trigger_instagram_story_id: run.trigger_instagram_story_id,
         });
       }
@@ -487,70 +371,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(audit).toHaveLength(1);
       expect(audit[0]?.metadata).toMatchObject({ contact_public_id: jordan.contact.public_id });
       expect(JSON.stringify(audit)).not.toContain(JORDAN.username);
-    });
-
-    it('finds nothing of the person in a refused send: Instagram’s text about them is never stored (AC-12.8, D53)', async () => {
-      const team = await connectInstagramTeam(app);
-      // Meta's error text can name the person it is about.
-      const refusalText = `(#100) ${JORDAN.fullName} (@${JORDAN.username}, ${JORDAN.email}) cannot get this message`;
-      mockInstagramConversation({
-        instagramAppUserId: team.profile.id,
-        people: [JORDAN],
-        onSend: async () => [
-          400,
-          {
-            error: {
-              message: refusalText,
-              error_user_msg: refusalText,
-              type: 'OAuthException',
-              code: 100,
-              error_subcode: 2534014,
-              fbtrace_id: 'AretentionTraceOfTheRefusal',
-            },
-          },
-        ],
-      });
-      const automation = await liveAutomation({ team, name: 'Price list', keywords: ['price'] });
-
-      await say({ app, team, changes: [commentChange({ person: JORDAN, text: 'price please' })] });
-
-      const contact = await contactOf({ team, person: JORDAN });
-      expect(await runOf({ automation, contact })).toMatchObject({ status: 'failed' });
-      const [log] = (await readRowsOfContact({ team, contact })).commentLogs;
-      expect(log).toMatchObject({
-        overall_status: 'failed',
-        error_type: 'instagram_api',
-        http_status: 400,
-        error_code: 100,
-        error_subcode: 2534014,
-        error_message: 'instagram_api:100/2534014',
-        fbtrace_id: 'AretentionTraceOfTheRefusal',
-        error_response: {
-          error_class: 'refused',
-          http_status: 400,
-          code: 100,
-          error_subcode: 2534014,
-          type: 'OAuthException',
-          fbtrace_id: 'AretentionTraceOfTheRefusal',
-        },
-      });
-      expect(JSON.stringify(await readAppRowsOfOrganization(team.organization.id))).not.toContain(
-        'cannot get this message',
-      );
-
-      const response = await deleteContactAsOwner({
-        app,
-        team,
-        contactPublicId: contact.public_id,
-      });
-
-      expect(response.statusCode).toBe(204);
-      const left = JSON.stringify(await readRowsWithoutWebhookEvents(team.organization.id));
-      for (const value of [...personalValuesOf(JORDAN), JORDAN.instagramUserId, 'price please']) {
-        expect(left).not.toContain(value);
-      }
-      // The failure itself stays for the team: its codes and Meta's trace id.
-      expect(left).toContain('AretentionTraceOfTheRefusal');
     });
 
     it('leaves the person’s webhook events, masked in the list, until the 30-day clean-up (AC-12.10)', async () => {
@@ -602,10 +422,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
     });
 
     it.each([
-      {
-        part: 'the run copies',
-        failingStep: () => vi.spyOn(AutomationRunRepository.prototype, 'eraseContactCopies'),
-      },
       {
         part: 'the comment-log copies',
         failingStep: () => vi.spyOn(AutomationCommentLogRepository.prototype, 'eraseContactCopies'),
@@ -661,158 +477,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
     expect(rows.contacts?.filter((contact) => contact.deleted_at === null)).toEqual([]);
   }
 
-  describe('a run whose contact is deleted while it runs (AC-12.11)', () => {
-    const COMMENT = { changes: [commentChange({ person: JORDAN, text: 'my-private-trigger' })] };
-    const MESSAGE = {
-      messaging: [directMessageItem({ person: JORDAN, text: 'my-private-trigger catalog' })],
-    };
-    const STORY_REPLY = {
-      messaging: [
-        directMessageItem({
-          person: JORDAN,
-          text: 'my-private-trigger',
-          storyId: '17910000000000001',
-        }),
-      ],
-    };
-    const DIRECT_MESSAGE_TRIGGER = { trigger_type: 'dm', keywords: ['catalog'] };
-
-    /** Deletes Jordan's contact over route 10 the first time it is called. */
-    function deleteOnce(team: ConnectedInstagramTeam): () => Promise<void> {
-      let isDeleted = false;
-      return async () => {
-        if (isDeleted) return;
-        isDeleted = true;
-        const contact = await contactOf({ team, person: JORDAN });
-        const response = await deleteContactAsOwner({
-          app,
-          team,
-          contactPublicId: contact.public_id,
-        });
-        expect(response.statusCode).toBe(204);
-      };
-    }
-
-    it.each([
-      {
-        moment: 'its public reply is being sent',
-        automation: { is_public_reply_enabled: true, public_reply_texts: ['Sent you a message!'] },
-        items: COMMENT,
-        sentKinds: ['public_reply'],
-      },
-      {
-        moment: 'its first DM is being sent',
-        automation: {
-          ...DIRECT_MESSAGE_TRIGGER,
-          is_opening_message_enabled: true,
-          opening_message: { text: 'Hello', button_title: null },
-        },
-        items: MESSAGE,
-        sentKinds: ['message'],
-      },
-      {
-        moment: 'its email question is being sent',
-        automation: { ...DIRECT_MESSAGE_TRIGGER, is_email_collection_enabled: true },
-        items: MESSAGE,
-        sentKinds: ['message'],
-      },
-    ])(
-      'sends no further message when the contact is deleted while $moment',
-      async ({ automation, items, sentKinds }) => {
-        const team = await connectInstagramTeam(app);
-        const { id: automationId } = await liveAutomation({ team, ...automation });
-        const deleteContact = deleteOnce(team);
-        const { sends } = mockInstagramConversation({
-          instagramAppUserId: team.profile.id,
-          people: [JORDAN],
-          onSend: async () => {
-            await deleteContact();
-            return undefined;
-          },
-        });
-
-        await say({ app, team, ...items });
-
-        expect(sends.map((send) => send.kind)).toEqual(sentKinds);
-        const runs = await readRunRows(team.organization.id);
-        expect(runs.map((run) => [run.automation_id, run.status, run.cancel_reason])).toEqual([
-          [automationId, 'cancelled', 'contact_deleted'],
-        ]);
-        await expectNothingPersonalLeft(team);
-      },
-    );
-
-    it('sends nothing when the contact is deleted while the follow check reads', async () => {
-      const team = await connectInstagramTeam(app);
-      await liveAutomation({
-        team,
-        ...DIRECT_MESSAGE_TRIGGER,
-        is_follow_required: true,
-        follow_request_message: {
-          text: 'Follow us first',
-          following_button_title: "I'm following",
-          profile_button_title: 'Profile',
-        },
-      });
-      // A known contact, so the one profile read is the follow check's.
-      await insertContact({
-        organizationId: team.organization.id,
-        instagramAccountId: team.account.id,
-        instagram_user_id: JORDAN.instagramUserId,
-        username: JORDAN.username,
-      });
-      const { sends } = mockInstagramConversation({
-        instagramAppUserId: team.profile.id,
-        people: [JORDAN],
-        onRead: deleteOnce(team),
-      });
-
-      await say({ app, team, ...MESSAGE });
-
-      expect(sends).toEqual([]);
-      const runs = await readRunRows(team.organization.id);
-      expect(runs.map((run) => [run.status, run.cancel_reason])).toEqual([
-        ['cancelled', 'contact_deleted'],
-      ]);
-      await expectNothingPersonalLeft(team);
-    });
-
-    it.each([
-      { trigger: 'comment', automation: {}, items: COMMENT, read: 'profile' },
-      { trigger: 'comment', automation: {}, items: COMMENT, read: 'post' },
-      { trigger: 'DM', automation: DIRECT_MESSAGE_TRIGGER, items: MESSAGE, read: 'profile' },
-      {
-        trigger: 'story reply',
-        automation: { trigger_type: 'story_reply' },
-        items: STORY_REPLY,
-        read: 'profile',
-      },
-    ])(
-      'starts no run and writes no copy when the contact is deleted while a $trigger reads the $read from Instagram',
-      async ({ automation, items, read }) => {
-        const team = await connectInstagramTeam(app);
-        await liveAutomation({ team, ...automation });
-        const deleteContact = deleteOnce(team);
-        const { sends } = mockInstagramConversation({
-          instagramAppUserId: team.profile.id,
-          people: [JORDAN],
-          onRead: async (inFlight) => {
-            if (inFlight === read) await deleteContact();
-          },
-        });
-
-        await say({ app, team, ...items });
-
-        expect(sends).toEqual([]);
-        const rows = await readAppRowsOfOrganization(team.organization.id);
-        expect(rows.automation_runs).toEqual([]);
-        expect(rows.automation_comment_logs).toEqual([]);
-        expect(rows.instagram_webhook_events?.map((event) => event.status)).toEqual(['processed']);
-        await expectNothingPersonalLeft(team);
-      },
-    );
-  });
-
   describe('an erase and an event meeting on the contact (AC-12.8, AC-12.11)', () => {
     /** A point a test opens once something else has happened. */
     function createGate(): { opened: Promise<void>; open: () => void } {
@@ -831,14 +495,15 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       await liveAutomation({ team, name: 'Every comment' });
       const isErasing = createGate();
       const mayCommit = createGate();
-      const eraseRunCopies = AutomationRunRepository.prototype.eraseContactCopies;
-      vi.spyOn(AutomationRunRepository.prototype, 'eraseContactCopies').mockImplementationOnce(
-        async function holdErase(this: AutomationRunRepository, key) {
-          isErasing.open();
-          await mayCommit.opened;
-          return eraseRunCopies.call(this, key);
-        },
-      );
+      const eraseLogCopies = AutomationCommentLogRepository.prototype.eraseContactCopies;
+      vi.spyOn(
+        AutomationCommentLogRepository.prototype,
+        'eraseContactCopies',
+      ).mockImplementationOnce(async function holdErase(this: AutomationCommentLogRepository, key) {
+        isErasing.open();
+        await mayCommit.opened;
+        return eraseLogCopies.call(this, key);
+      });
       let erase: Promise<InjectHttpResult> | undefined;
       const { sends } = mockInstagramConversation({
         instagramAppUserId: team.profile.id,
@@ -901,8 +566,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
 
       expect((await erase).statusCode).toBe(204);
       const runs = await readRunRows(team.organization.id);
-      expect(runs.map((run) => [run.status, run.cancel_reason, run.trigger_text])).toEqual([
-        ['cancelled', 'contact_deleted', null],
+      expect(runs.map((run) => [run.status, run.cancel_reason])).toEqual([
+        ['cancelled', 'contact_deleted'],
       ]);
       expect(await readCommentLogRows(team.organization.id)).toHaveLength(1);
       await expectNothingPersonalLeft(team);
@@ -1116,8 +781,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
     async function runEveryTimer(now: Date): Promise<void> {
       await runWaitCheck(now);
       await runInstagramWebhookEventRetentionJob(now);
-      await runAutomationRunRetentionJob({ now });
-      await runAutomationCommentLogRetentionJob({ now });
       await runAutomationTombstoneRetentionJob({ now });
     }
 
@@ -1172,9 +835,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
           'app.instagram_webhook.event_processed',
           'app.instagram_webhook.event_retry_scheduled',
           'app.automation_run.comment_matched',
-          'app.automation_run.failed',
-          'automation-run-retention.completed',
-          'automation-comment-log-retention.completed',
           'instagram-webhook-event-retention.completed',
           'automation-tombstone-retention.completed',
           'request.complete',
@@ -1202,7 +862,6 @@ describe('Instagram retention and erasure flow (e2e)', () => {
           'username',
           'full_name',
           'profile_picture_url',
-          'trigger_text',
           'comment_text',
           'commenter_username',
         ]) {

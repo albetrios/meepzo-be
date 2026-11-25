@@ -1,7 +1,7 @@
 import {
   type AutomationButtonPayload,
   parseAutomationButtonPayload,
-} from '@/domains/app/sub-domains/automation/automation-run/automation-run-message.util.js';
+} from '@/domains/app/sub-domains/automation/automation-run/automation-run-button-payload.util.js';
 import {
   CONTACT_INTERACTION_KIND,
   type ContactInteractionKind,
@@ -22,7 +22,7 @@ type MetaObject = Record<string, unknown>;
  * - `direct_message` — a DM or a `messages` change (D18), `handleDirectMessage`: the typed text,
  *   the quick reply's payload (the email or phone Instagram's own quick reply sends) and an
  *   attachment's email;
- * - `story_reply` — `startStoryReplyRun` with the story's id;
+ * - `story_reply` — `handleDirectMessage` (`story_reply`) with the story's id;
  * - `button_click` — `handleButtonClick` with the payload's two public ids, or `button: null` for a
  *   payload this engine never sent (nothing runs; the click is handled).
  *

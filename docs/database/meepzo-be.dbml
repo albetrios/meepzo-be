@@ -12,6 +12,7 @@ TableGroup app {
   app.automation_counts
   app.automation_reply_states
   app.automation_run_events
+  app.automation_run_open_keys
   app.automation_runs
   app.automations
   app.channel_accounts
@@ -93,7 +94,9 @@ Table app.automation_comment_logs {
   automation_id bigint [not null]
   automation_name varchar(255) [not null]
   automation_run_id bigint
+  automation_run_started_at timestamptz
   button_clicked_at timestamptz
+  comment_occurred_at timestamptz
   comment_text text
   commenter_instagram_user_id varchar(64)
   commenter_username varchar(64)
@@ -113,16 +116,18 @@ Table app.automation_comment_logs {
   error_type varchar(15)
   failed_step varchar(15)
   fbtrace_id varchar(100)
-  final_dm_at timestamptz
-  final_dm_status varchar(10) [not null]
   follow_at timestamptz
   follow_confirmed_at timestamptz
   follow_status varchar(10) [not null]
+  hidden_at timestamptz
+  hide_status varchar(10) [not null]
   http_status int
-  id bigint [pk, increment]
+  id bigint [increment, not null]
   ignored_reason varchar(30)
   instagram_comment_id varchar(64) [not null]
   instagram_media_id ~
+  messages_at timestamptz
+  messages_status varchar(10) [not null]
   opening_dm_at timestamptz
   opening_dm_status varchar(10) [not null]
   organization_id bigint [not null]
@@ -137,10 +142,13 @@ Table app.automation_comment_logs {
   public_reply_text text
   updated_at timestamptz [not null]
   waiting_for varchar(25)
+  indexes {
+    (id, created_at) [pk]
+  }
 }
 
 Note app.automation_comment_logs {
-  'RLS: enabled\nPolicies: automation_comment_logs_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+  'Partitioned BY RANGE (created_at)\nRLS: enabled\nPolicies: automation_comment_logs_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.automation_counts {
@@ -179,15 +187,35 @@ Note app.automation_reply_states {
 Table app.automation_run_events {
   AND  [not null]
   automation_run_id bigint [not null]
+  automation_run_started_at timestamptz [not null]
   created_at timestamptz [not null]
   event_type varchar(20) [not null]
-  id bigint [pk, increment]
+  id bigint [increment, not null]
   organization_id bigint [not null]
   status in
+  indexes {
+    (id, automation_run_started_at) [pk]
+  }
 }
 
 Note app.automation_run_events {
-  'RLS: enabled\nPolicies: automation_run_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+  'Partitioned BY RANGE (automation_run_started_at)\nRLS: enabled\nPolicies: automation_run_events_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+}
+
+Table app.automation_run_open_keys {
+  automation_id bigint [not null]
+  automation_run_id bigint [not null]
+  automation_run_started_at timestamptz [not null]
+  contact_id bigint [not null]
+  created_at timestamptz [not null]
+  organization_id bigint [not null]
+  indexes {
+    (organization_id, automation_id, contact_id) [pk]
+  }
+}
+
+Note app.automation_run_open_keys {
+  'RLS: enabled\nPolicies: automation_run_open_keys_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.automation_runs {
@@ -199,31 +227,35 @@ Table app.automation_runs {
   contact_id bigint [not null]
   created_at timestamptz [not null]
   current_step varchar(20) [not null]
+  direct_message_sent_at timestamptz
   ended_at timestamptz
   error_message text
   failed_at timestamptz
-  id bigint [pk, increment]
+  id bigint [increment, not null]
   last_instagram_event_key varchar(512) [not null]
+  last_message_number smallint
   last_step_at timestamptz [not null]
+  once_key varchar(255) [not null]
   organization_id bigint [not null]
   public_id varchar(28) [not null]
-  queued_automations jsonb [not null]
-  sending_message_kind varchar(20)
-  sending_started_at timestamptz
   started_at timestamptz [not null]
   status varchar(10) [not null]
   trigger_instagram_comment_id varchar(64)
   trigger_instagram_media_id ~
   trigger_instagram_story_id varchar(64)
-  trigger_text text
-  trigger_type varchar(15) [not null]
+  trigger_occurred_at timestamptz [not null]
+  trigger_type varchar(20) [not null]
   updated_at timestamptz [not null]
+  version_numbers jsonb [not null]
   waiting_for varchar(25)
   waiting_since_at timestamptz
+  indexes {
+    (id, started_at) [pk]
+  }
 }
 
 Note app.automation_runs {
-  'RLS: enabled\nPolicies: automation_runs_tenant_isolation\nFORCE ROW LEVEL SECURITY'
+  'Partitioned BY RANGE (started_at)\nRLS: enabled\nPolicies: automation_runs_tenant_isolation\nFORCE ROW LEVEL SECURITY'
 }
 
 Table app.automations {

@@ -237,7 +237,10 @@ export const AUTOMATION_RUN_CHAT_WINDOW_MILLISECONDS = (24 * 60 - 15) * MILLISEC
 /** When the nudge goes after a hello that got no tap (`NUDGE_AFTER_MINUTES`, D30). */
 export const AUTOMATION_RUN_NUDGE_AFTER_MILLISECONDS = 60 * MILLISECONDS_PER_MINUTE;
 
-/** How many times an email or phone question is asked in all (`ASK_AGAIN_MAX`, plan §14). */
+/**
+ * How many times a wrong email or phone answer is asked again (`ASK_AGAIN_MAX`, plan §14, §16 example
+ * 7): the first question plus at most 3 asks again — 4 asks in all; then the run still waits.
+ */
 export const AUTOMATION_RUN_ASK_MAX_COUNT = 3;
 
 /** "Reply like a person": the chance in percent a comment gets a public reply (`PUBLIC_REPLY_CHANCE_PERCENT`). */

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -144,6 +144,36 @@ export class InstagramSendAttemptRepository {
       countGroup: row.countGroup,
     }));
   }
+  /**
+   * The result groups of one automation's last finished sends of a text, newest first — the "5 in a
+   * row" of a refused text (plan §33.1, §33.2 rule 6; `idx_instagram_send_attempts_automation`):
+   * follow checks and hides (count group `none`) carry no text and are left out.
+   */
+  async listLastAutomationResultGroups({
+    organizationId,
+    automationId,
+    limit,
+  }: {
+    organizationId: number;
+    automationId: number;
+    limit: number;
+  }): Promise<string[]> {
+    const rows = await this.db()
+      .select({ resultGroup: instagram_send_attempts.result_group })
+      .from(instagram_send_attempts)
+      .where(
+        and(
+          eq(instagram_send_attempts.organization_id, organizationId),
+          eq(instagram_send_attempts.automation_id, automationId),
+          isNotNull(instagram_send_attempts.result_group),
+          ne(instagram_send_attempts.count_group, 'none'),
+        ),
+      )
+      .orderBy(desc(instagram_send_attempts.started_at), desc(instagram_send_attempts.id))
+      .limit(limit);
+    return rows.map((row) => row.resultGroup ?? '');
+  }
+
   /**
    * The account's finished attempts since a time (the account test's turns, plan §33.4: every
    * attempt after a stop's end is one of its tests while the stop holds).

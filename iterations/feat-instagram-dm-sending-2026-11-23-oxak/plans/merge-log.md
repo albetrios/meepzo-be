@@ -109,3 +109,37 @@ lane B P223 / P224), so most conflicts are two resolutions of the same rows ([P1
 | --- | --- | --- | --- |
 | `plans/decisions.md` | ours P451, P452 after main's rows; theirs P503 | union | none |
 | `AS-BUILT.md`, `subscription.service.ts`, its unit test, `trial.e2e.test.ts`, `errors.json` (en, es) | auto-merged (lane E only) | — | none |
+
+## Lane C · `feat/instagram-automation` at 2c1a20f into `lane-c/flows` (round 2, R56–R62)
+
+Main's R56–R62, the password routes (P251), P501–P503 and P144 / P145 onto lane C's R54 / R55 (P351, P352).
+"ours" is `lane-c/flows`, "theirs" main.
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `KICKOFF.md` | ours R54, R55 `done`; theirs R56–R62 `done` | `kickoffmerge.py` — the further status per row | none |
+| `AS-BUILT.md`, `plans/acceptance.md`, `plans/decisions.md` | ours R54 / R55 rows, AC-19 / AC-20 ticks, P351 / P352; theirs R56–R62 rows, AC-21–AC-27, P251 / P451+ / P501–P503 | `rowmerge.py` row union, 3-way per row (0 overlaps) | none |
+| `organization-filter-audit.allowlist.ts` | both added `0d64a385e504` (the usage lookup — ours R54, theirs R56 / P451); theirs also `d70319b2051c` | theirs (both entries, one copy of the shared fingerprint) | none |
+| `docs/reference/architecture/src-structure-tree.txt` | both added e2e files | regenerated (`pnpm tool:project-structure-tree`) | none |
+| `instagram-send-core.service.ts`, `app.container.ts`, `automation-run.service.ts` (runEndedHook), `automation.service.ts` / `.repository.ts`, `instagram-sending.constants.ts` / `.overview.md`, `FLOWS.md`, intake processor | auto-merged — R54's `bad_text` stop in `applyStops` and `automationStopPort` beside R60 / R62's send-core changes | kept both; typecheck + the R54–R62 flow suites pass | low |
+
+## Lane C · `lane-b/close` at 892d39a into `lane-c/flows` (the Close records)
+
+The Close records (acceptance results, frontend-route-map sections 1–4, the AS-BUILT summary, Standing deviations and
+Owner items 1–27) onto lane C's R54 / R55. "ours" is `lane-c/flows`, "theirs" `lane-b/close`.
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `plans/acceptance.md` | ours AC-19.\* / AC-20.\* results; theirs every other result | ours for AC-19 / AC-20 ids, theirs elsewhere; then BRIEF-3 (AC-20.\* `pass`, still `partial` for AC-16.11 / AC-16.12) and P35 (`pass`) rolled up | none |
+| `AS-BUILT.md` | ours R54 / R55 rows and fix lines; theirs the merge rows, summary, deviations, owner items | both kept; summary says R1–R62 built, R54's source fixes under "Built, not planned"; owner items 15, 18, 26 cite [P351](decisions.md) / [P352](decisions.md) as links; the automations theme row lists them | none |
+| `plans/frontend-route-map.md` | theirs sections 1–4 | section 3 regenerated — no change (`--check` passes, 203 routes) | none |
+
+## Main · `lane-c/flows` at 67c7969 into `feat/instagram-automation` (R54 / R55 and the Close records, onto the Close fixes)
+
+`lane-c/flows` already holds main's 2c1a20f, so only the Close fix commit 9b2981e can conflict. "ours" is
+`feat/instagram-automation`, "theirs" `lane-c/flows`.
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `AS-BUILT.md` (R42 row) | ours the Close fix line (send-core / gate helpers); theirs R54's fix line on the same row | theirs' row plus ours' fix line appended | none |
+| `instagram-send-core.service.ts` | ours the Sonar helper split (`takeTurnHold`, `isFastDownTestUnclear`, `checkFastMessageSendable`); theirs R54's `bad_text` stop in `applyStops` | auto-merged, kept both; typecheck + lint pass; the full Close verification ran on this merged tree | low |

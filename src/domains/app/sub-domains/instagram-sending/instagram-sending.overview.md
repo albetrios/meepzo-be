@@ -113,7 +113,8 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   claim, the file, the Meta call outside any unit, the group, the one result save retried inside the send (a deadlock
   or lock timeout 3 times, a lost connection after 1, 2, 4, 8 s; then the message stays `sending` for the repair, D17),
   the stops (lanes by ladder, the connection's break on 190, the account's break, the app limit, "in a row" from the
-  attempts), the test's end and half speed, the next tickets. Each lane's own rules plug in through
+  attempts — and an automation's 5 refused texts in a row, `bad_text`, stop it through `automationStopPort` and tell
+  its owners, R54), the test's end and half speed, the next tickets. Each lane's own rules plug in through
   `InstagramSendLaneRules` (R43–R45; the fast lane's `checkFastMessage` before its claim, R44); a lane without rules
   sends nothing. A test that says nothing about the
   account (that person, that text) tests again up to 3 turns (`testMaxTurns`), then the stop waits its time again.

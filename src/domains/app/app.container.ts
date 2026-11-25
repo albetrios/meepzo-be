@@ -922,6 +922,10 @@ function createInstagramSendWork(
           ).isAllowed,
       }),
     },
+    // R54 (plan §33.1): 5 refused texts in a row on one automation stop it and tell its owners.
+    automationStopPort: {
+      stopForRefusedText: (input) => container.automationService.stopForRefusedText(input),
+    },
     // R48 (plan §33.5 rule 2): a down stop is tested by reading the account's own profile first.
     probeAccount: (input) =>
       probeInstagramAccountReadOnly({

@@ -560,6 +560,70 @@ describe('receiveDelivery — the store (WH3, WH9, WH10)', () => {
     );
   });
 
+  it('stores up to 8 accounts at once, one account’s entries in delivery order; one failure still stores the others and fails the delivery with the first failed entry (WH2, D53)', async () => {
+    const { service, accountService, eventService } = setup();
+    accountService.resolveOrganizationPublicIdForInstagramUser.mockImplementation(
+      async () => ORGANIZATION_PUBLIC_ID,
+    );
+    let running = 0;
+    let mostRunning = 0;
+    const order: string[] = [];
+    eventService.recordReceivedEvents.mockImplementation(
+      async ({ events }: { events: readonly NewInstagramWebhookEvent[] }) => {
+        running += 1;
+        mostRunning = Math.max(mostRunning, running);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running -= 1;
+        const key = events[0]?.eventKey ?? '';
+        order.push(key);
+        if (key === 'comment:5' || key === 'comment:3') throw new Error(`store failed ${key}`);
+        return events.map((event, index) => ({
+          id: index,
+          status: 'received',
+          event_key: event.eventKey,
+          intake_group: 'comments',
+        }));
+      },
+    );
+    // Twelve accounts, the first one twice (its two entries must keep their order).
+    const accountIdOf = (index: number) => `1784140000000${String(index).padStart(4, '0')}`;
+    const entries = [
+      { id: accountIdOf(0), changes: [comment('0')] },
+      ...Array.from({ length: 11 }, (_, index) => ({
+        id: accountIdOf(index + 1),
+        changes: [comment(String(index + 1))],
+      })),
+      { id: accountIdOf(0), changes: [comment('12')] },
+    ];
+
+    await expect(
+      service.receiveDelivery({ body: delivery(entries), requestId: REQUEST_ID }),
+    ).rejects.toThrow('store failed comment:3');
+
+    expect(mostRunning).toBe(8);
+    expect(order).toHaveLength(13);
+    expect(order.indexOf('comment:0')).toBeLessThan(order.indexOf('comment:12'));
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ entryCount: 13, failedEntryCount: 2, storedEventCount: 11 }),
+      'instagram.webhook.delivery_received',
+    );
+  });
+
+  it('an entry with only `changed_fields` (the app’s "Include values" off) stores nothing and warns', async () => {
+    const { service, eventService } = setup();
+
+    await service.receiveDelivery({
+      body: delivery([{ id: INSTAGRAM_USER_ID, time: 1, changed_fields: ['comments'] }]),
+      requestId: REQUEST_ID,
+    });
+
+    expect(eventService.recordReceivedEvents).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      { requestId: REQUEST_ID, instagramUserId: INSTAGRAM_USER_ID },
+      'instagram.webhook.entry_without_values',
+    );
+  });
+
   it('a failing organization lookup is an entry failure too — the next entry is stored', async () => {
     const { service, accountService, eventService } = setup();
     accountService.resolveOrganizationPublicIdForInstagramUser.mockRejectedValueOnce(

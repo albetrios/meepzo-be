@@ -121,6 +121,16 @@ export interface AutomationButtonClickInput extends AutomationRunTriggerInput {
   refCode?: string | null;
   /** The ad's id (`ad_message`). */
   adId?: string | null;
+  /**
+   * The message an ig.me link or an ad's referral rode on (`ref_link`, `ad_message`) — her first
+   * DM's text, quick reply and email, with the two message flags; when no automation takes the
+   * referral it goes on as a message (`handleDirectMessage`'s match). `null` / absent — the
+   * referral carried no message.
+   */
+  carriedMessage?: Pick<
+    AutomationDirectMessageInput,
+    'text' | 'quickReplyPayload' | 'attachmentEmail' | 'isFirstMessage' | 'isOwnerChatting'
+  > | null;
 }
 
 /** Input of `startTagRun` — a tag added to or removed from her (3.B's tag event). */

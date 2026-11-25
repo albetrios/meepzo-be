@@ -409,7 +409,8 @@ export class AutomationRunService {
    * A tap (plan §4.3 levels 1–2): our button's postback `<aut_…>::<run_…>` moves that run (the hello's
    * tap, the "I'm following" tap, or a step that waits for `any`); a starter question, an ig.me link
    * or an ad's "Send message" starts the automation it names (a paused starter question falls through
-   * to a message with its text, rule 5).
+   * to a message with its text, rule 5; a link's or an ad's referral that rode on her message and
+   * starts nothing falls through to that message).
    *
    * @remarks
    * Algorithm: one unit. A postback on a run that is not waiting, of another contact, of a deleted
@@ -1092,13 +1093,24 @@ export class AutomationRunService {
       return this.startFromBroadcastTap({ unit, input });
     }
     const value = exactSourceValueOf({ kind, input });
-    if (value == null || value.trim() === '') return handlingResult({ outcome: 'ignored' });
+    // The message a link's or an ad's referral rode on goes on as a message when the referral
+    // starts nothing (a click-to-DM ad's first DM keeps its text).
+    const carriedMessage =
+      kind === 'ref_link' || kind === 'ad_message' ? (input.carriedMessage ?? null) : null;
+    const asCarriedMessage = (message: NonNullable<typeof carriedMessage>) =>
+      this.handleMessage({ unit, input: { ...input, ...message, kind: 'message' } });
+    if (value == null || value.trim() === '') {
+      return carriedMessage === null
+        ? handlingResult({ outcome: 'ignored' })
+        : asCarriedMessage(carriedMessage);
+    }
     const candidates = await unit.automations.listRunCandidates({
       organizationId: unit.organizationId,
       channelAccountId: unit.channelAccountId,
     });
     const match = chooseExactSourceAutomation({ candidates, kind, value });
     if (match === null) {
+      if (carriedMessage !== null) return asCarriedMessage(carriedMessage);
       if (kind !== 'starter_question') return handlingResult({ outcome: 'nothing_matched' });
       // A paused automation's question goes on as a message with its text (plan §4.3 rule 5).
       return this.handleMessage({

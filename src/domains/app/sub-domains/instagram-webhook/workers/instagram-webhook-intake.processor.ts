@@ -415,13 +415,14 @@ async function prepareEvent({
   let stopWord = false;
   let isOwnerChatting = false;
   let decision: IntakeDecision = { status: 'processed' };
-  if (dispatch.inboundKind === 'message') {
+  const typedText = typedTextOf(dispatch);
+  if (dispatch.inboundKind === 'message' || typedText !== null) {
     const settings = await services.instagramAccountSettingsService.findSettings({
       scope,
       channelAccount,
     });
     stopWord = isStopWord({
-      text: dispatch.text,
+      text: typedText,
       extraStopWords: settings?.extra_stop_words ?? [],
     });
   }
@@ -445,7 +446,8 @@ async function prepareEvent({
     (dispatch.inboundKind === 'message' ||
       dispatch.inboundKind === 'story_reply' ||
       dispatch.inboundKind === 'story_mention' ||
-      dispatch.inboundKind === 'shared_post')
+      dispatch.inboundKind === 'shared_post' ||
+      (dispatch.inboundKind === 'referral' && dispatch.carriedMessage !== null))
   ) {
     isOwnerChatting = await readIsOwnerChatting({
       context,
@@ -749,15 +751,35 @@ async function callRunEngine({
         starterQuestion: dispatch.starterQuestion,
       });
     case 'referral':
+      // Her message the referral rode on goes on as a message when no automation takes the
+      // referral (the engine's fall-back, like a paused starter question's).
       return automationRunService.handleButtonClick({
         ...trigger,
         kind: dispatch.adId === null ? 'ref_link' : 'ad_message',
         refCode: dispatch.refCode,
         adId: dispatch.adId,
+        carriedMessage:
+          dispatch.carriedMessage === null
+            ? null
+            : {
+                ...dispatch.carriedMessage,
+                isFirstMessage,
+                isOwnerChatting: prepared.isOwnerChatting,
+              },
       });
     default:
       return null;
   }
+}
+
+/**
+ * Her typed text the stop word reads: a message's, or the message a referral rode on (a
+ * click-to-DM ad's first DM); `null` for every other kind.
+ */
+function typedTextOf(dispatch: InstagramWebhookEventDispatch): string | null {
+  if (dispatch.inboundKind === 'message') return dispatch.text;
+  if (dispatch.inboundKind === 'referral') return dispatch.carriedMessage?.text ?? null;
+  return null;
 }
 
 /** The guarded first statement (WH12 step 3): the event final while it still waits. */

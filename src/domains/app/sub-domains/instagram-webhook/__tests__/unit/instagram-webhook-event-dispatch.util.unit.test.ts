@@ -254,6 +254,7 @@ describe('readInstagramWebhookEventDispatch', () => {
       contactInstagramUserId: SENDER,
       refCode: 'SPRING',
       adId: null,
+      carriedMessage: null,
     });
     expect(
       readInstagramWebhookEventDispatch({
@@ -264,6 +265,86 @@ describe('readInstagramWebhookEventDispatch', () => {
         }),
       }),
     ).toMatchObject({ refCode: null, adId: '23850000000000002' });
+  });
+
+  it('a click-to-DM ad referral keeps the message it rode on — its text and quick reply (Meta docs example)', () => {
+    // Meta's `message` example: an ad's `referral` with `ads_context_data`, and her text.
+    const payload = messaging({
+      recipient: { id: '17841400000000001' },
+      message: {
+        mid: 'm_ad_1',
+        text: 'Is this still in stock?',
+        quick_reply: { payload: 'STOCK' },
+        referral: {
+          ref: 'spring-sale',
+          ad_id: '23850000000000002',
+          source: 'ADS',
+          type: 'OPEN_THREAD',
+          ads_context_data: {
+            ad_title: 'Spring sale',
+            photo_url: 'https://cdn.example/ad.jpg',
+          },
+        },
+      },
+    });
+
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'referral',
+        contactInstagramUserId: SENDER,
+        payload,
+      }),
+    ).toEqual({
+      inboundKind: 'referral',
+      contactInstagramUserId: SENDER,
+      refCode: null,
+      adId: '23850000000000002',
+      carriedMessage: {
+        text: 'Is this still in stock?',
+        quickReplyPayload: 'STOCK',
+        attachmentEmail: null,
+      },
+    });
+  });
+
+  it('a Unified Login comment keyed `comment_id` (Meta docs example) reads as a comment', () => {
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'comment',
+        contactInstagramUserId: SENDER,
+        payload: commentPayload({
+          from: { id: SENDER, username: 'acme_customer' },
+          comment_id: '18000000000000042',
+          parent_id: '18000000000000041',
+          text: 'price?',
+          media: { id: '17900000000000001', ad_id: '23850000000000009' },
+        }),
+      }),
+    ).toMatchObject({
+      inboundKind: 'comment',
+      instagramCommentId: '18000000000000042',
+      parentCommentId: '18000000000000041',
+      instagramMediaId: '17900000000000001',
+      adId: '23850000000000009',
+      text: 'price?',
+    });
+  });
+
+  it('a shared reel (`ig_reel`) names its reel', () => {
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'shared_post',
+        contactInstagramUserId: SENDER,
+        payload: messaging({
+          message: {
+            mid: 'm_reel',
+            attachments: [
+              { type: 'ig_reel', payload: { reel_video_id: '18100000000000001', url: 'x' } },
+            ],
+          },
+        }),
+      }),
+    ).toMatchObject({ inboundKind: 'shared_post', sharedMediaId: '18100000000000001' });
   });
 
   it('a reaction names only her; an echo the owner typed carries its mid', () => {

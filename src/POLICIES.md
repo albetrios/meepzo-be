@@ -333,6 +333,26 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → past ~4 s Meta's own timeout fires first and its retry races the still-running unit (the key table keeps it a no-op, but the answer is lost).
 - **Last reviewed**: 2026-11-24
 
+## INSTAGRAM_WEBHOOK_ENTRY_STORE_CONCURRENCY
+
+- **Value**: 8 accounts
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: How many accounts' entries of one Meta delivery the receiver (route 61) stores at once (feat-instagram-dm-sending WH9, WH2; P253). Meta batches up to 1,000 updates across accounts; stored one after another, a few slow units (each capped at `INSTAGRAM_WEBHOOK_STORE_TIMEOUT_MS`) would pass Meta's answer budget and the whole batch would come again. One account's entries still go in delivery order.
+- **Consequences of change**:
+  - Decreasing → a large multi-account batch takes longer to answer; at 1 the old serial store.
+  - Increasing → one delivery holds more connections of the HTTP pool (`DATABASE_POOL_MAX`) at once, less headroom for the UI and other deliveries.
+- **Last reviewed**: 2026-11-25
+
+## INSTAGRAM_WEBHOOK_EVENT_KEY_NEARBY_DAYS
+
+- **Value**: 2 days
+- **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
+- **Rationale**: The store function looks for an event's key on the UTC days this far either side of its own before saving it (WH20; P254). A comment change carries no time of its own, so its day is the entry's `time` — Meta's send time, which each retry moves for up to 36 hours (two UTC days at most); the missed-comment check files the same comment under the comment's own time.
+- **Consequences of change**:
+  - Decreasing → a retry or a missed-comment read whose day moved further saves the comment twice (and its automation answers twice up to the engine's once key).
+  - Increasing → a wider read per store unit, for no repeat Meta can send.
+- **Last reviewed**: 2026-11-25
+
 ## OVERLOAD_SHED_LAST_FACTOR
 
 - **Value**: 2 (times each overload threshold)

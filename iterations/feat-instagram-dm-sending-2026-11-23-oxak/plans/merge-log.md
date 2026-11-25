@@ -164,3 +164,16 @@ tests). The merged `trial.e2e.test.ts` is re-run before the Close.
 | --- | --- | --- | --- |
 | `plans/decisions.md` (tail) | ours P147–P149 (renumbered owner rename and UTC rows); theirs P353–P357 plus the pre-renumber copies P144–P146 | ours, then P353–P357; the stale P144–P146 copies dropped (they duplicate P147–P149) | none: no duplicate row numbers left |
 Tests after the merge on main: channel-connection (unit + integration), instagram-account unit, meta-graph contract — 31 files, 463 passed.
+
+## Main ← lane B c20f0f4 (webhook gap fixes, P253–P261) — 2026-11-25
+
+| File | Sides | Resolution | Risk |
+| --- | --- | --- | --- |
+| `AS-BUILT.md` (R40 fix rows) | ours `R40 × Unified Login fix`; theirs `R40 × webhook-gaps fix` | both rows kept | none |
+| `AS-BUILT.md` (Owner items) | ours added items 20–21 (Unified Login) and renumbered deploy items to 22–29; theirs added item 20 (webhook) and renumbered them to 21–28 | ours 20–21, theirs' webhook item as 22, a new item 23 (found at the Close), deploy items 24–31 | none: one numbering, no item lost |
+| `instagram-account-tasks.processor.ts`, `routes-final.md` | both sides edited | auto-merged | re-run below |
+- Tests after the merge on main: instagram-webhook, instagram-account, instagram-message, automation-run and
+  `src/tests/global` — 90 files, 945 passed, 1 failed. The failure was order-dependent under load: the "an
+  entry the database refuses" integration test refused the FIRST `recordReceivedEvents` call, but since
+  P253 the accounts' entries store at once, so either account could be first. Fixed: the test refuses the
+  first account's entry by its comment id. Re-run 3 times: 46/46 each.

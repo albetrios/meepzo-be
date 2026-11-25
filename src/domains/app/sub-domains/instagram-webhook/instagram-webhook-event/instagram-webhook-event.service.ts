@@ -4,7 +4,10 @@ import {
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { assertTeamOrganizationForRead } from '@/domains/tenancy/sub-domains/organization/organization-capability.js';
-import { INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS } from '@/shared/constants/instagram.constants.js';
+import {
+  INSTAGRAM_WEBHOOK_EVENT_KEEP_DAYS,
+  INSTAGRAM_WEBHOOK_EVENT_KEY_NEARBY_DAYS,
+} from '@/shared/constants/instagram.constants.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import type {
   InstagramWebhookEventIntakeGroup,
@@ -168,13 +171,15 @@ export class InstagramWebhookEventService {
   /**
    * The store function (WH9 steps 5–6, WH20): saves one account's events — born `received`, or
    * `skipped` with their reason and no body — and returns the rows this call inserted. A repeat (a
-   * key already seen on its Meta day) and a replay (Meta's time over 8 days old) save nothing. The
+   * key already seen on its Meta day or a nearby one) and a replay (Meta's time over 8 days old) save nothing. The
    * one write path of the webhook, the missed-comment check and a past-comments read.
    *
    * @remarks
    * Algorithm: in one unit of the caller's organization scope — drop the replays
    * ({@link isInstagramWebhookEventReplay}); file each key under its Meta day
-   * ({@link instagramWebhookEventDay}, computed here once for every path); insert the keys into
+   * ({@link instagramWebhookEventDay}, computed here once for every path); drop the keys already
+   * saved on a nearby day (± {@link INSTAGRAM_WEBHOOK_EVENT_KEY_NEARBY_DAYS} — a comment's day is
+   * Meta's send time, which a retry moves); insert the keys into
    * `app.instagram_webhook_event_keys` `ON CONFLICT DO NOTHING`; insert, in one statement, the events
    * of only the keys that statement returned. Failure modes: a database error propagates and the
    * unit rolls back whole — the receiver then answers `500` / `503` so Meta delivers again (WH2).
@@ -196,21 +201,19 @@ export class InstagramWebhookEventService {
       (event) => !isInstagramWebhookEventReplay({ occurredAt: event.occurredAt, now }),
     );
     if (fresh.length === 0) return [];
+    const dayOf = (event: NewInstagramWebhookEvent) =>
+      instagramWebhookEventDay({ occurredAt: event.occurredAt, receivedAt: now });
     return withAppDatabaseContext({
       scope,
       callback: async () => {
+        const unseen = await this.dropKeysSeenNearby({ channelAccount, events: fresh, dayOf });
         const newKeys = await this.eventKeyRepository.insertNewKeys({
           ...channelAccount,
-          keys: fresh.map((event) => ({
-            eventKey: event.eventKey,
-            eventDay: instagramWebhookEventDay({ occurredAt: event.occurredAt, receivedAt: now }),
-          })),
+          keys: unseen.map((event) => ({ eventKey: event.eventKey, eventDay: dayOf(event) })),
         });
         const newKeySet = new Set(newKeys.map((key) => `${key.eventDay}|${key.eventKey}`));
-        const newEvents = fresh.filter((event) =>
-          newKeySet.has(
-            `${instagramWebhookEventDay({ occurredAt: event.occurredAt, receivedAt: now })}|${event.eventKey}`,
-          ),
+        const newEvents = unseen.filter((event) =>
+          newKeySet.has(`${dayOf(event)}|${event.eventKey}`),
         );
         return this.eventRepository.insertEvents({
           ...channelAccount,
@@ -218,6 +221,40 @@ export class InstagramWebhookEventService {
           events: newEvents,
         });
       },
+    });
+  }
+
+  /**
+   * The events whose key was not saved on a nearby day (±
+   * {@link INSTAGRAM_WEBHOOK_EVENT_KEY_NEARBY_DAYS}) — a repeat whose day moved (a comment's day is
+   * the entry's send time, which moves with each retry) is dropped here, as is one on its own day.
+   */
+  private async dropKeysSeenNearby({
+    channelAccount,
+    events,
+    dayOf,
+  }: {
+    channelAccount: InstagramWebhookEventAccountKey;
+    events: readonly NewInstagramWebhookEvent[];
+    dayOf: (event: NewInstagramWebhookEvent) => string;
+  }): Promise<NewInstagramWebhookEvent[]> {
+    const days = events.map((event) => Date.parse(dayOf(event)));
+    const nearby = INSTAGRAM_WEBHOOK_EVENT_KEY_NEARBY_DAYS * MILLISECONDS_PER_DAY;
+    const toDay = (time: number) => new Date(time).toISOString().slice(0, 10);
+    const seen = await this.eventKeyRepository.findKeysBetweenDays({
+      ...channelAccount,
+      eventKeys: [...new Set(events.map((event) => event.eventKey))],
+      fromDay: toDay(Math.min(...days) - nearby),
+      toDay: toDay(Math.max(...days) + nearby),
+    });
+    if (seen.length === 0) return [...events];
+    return events.filter((event) => {
+      const eventDay = Date.parse(dayOf(event));
+      return !seen.some(
+        (key) =>
+          key.eventKey === event.eventKey &&
+          Math.abs(Date.parse(key.eventDay) - eventDay) <= nearby,
+      );
     });
   }
 

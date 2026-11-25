@@ -3,6 +3,11 @@ import type {
   AutomationSteps,
 } from '@/domains/app/sub-domains/automation/automation-steps.dto.js';
 import { AUTOMATION_MESSAGE_KEYS } from '@/domains/app/sub-domains/automation/automation-run/automation-run.constants.js';
+import {
+  AUTOMATION_BUTTON_TEXT_MAX_LENGTH,
+  AUTOMATION_CARD_TEXT_MAX_LENGTH,
+  AUTOMATION_MESSAGE_TEXT_MAX_BYTES,
+} from '@/domains/app/sub-domains/automation/automation.constants.js';
 import type {
   InstagramOutgoingMessage,
   InstagramQuickReply,
@@ -50,14 +55,83 @@ export type InstagramComposedMessage =
     };
 
 /**
+ * The most a filled text may hold where Meta refuses more: UTF-8 bytes (a plain text, 1,000) and
+ * UTF-16 characters (a button template's text, 640; a card's title or line, 80).
+ */
+export interface InstagramTextLimit {
+  maxBytes?: number;
+  maxLength?: number;
+}
+
+/** Fills `{name}` in one text, cut to `limit` (a plain text's by default). */
+type FillText = (input: { text: string; limit?: InstagramTextLimit }) => string;
+
+/** A plain text's limit (`AUTOMATION_MESSAGE_TEXT_MAX_BYTES`). */
+const PLAIN_TEXT_LIMIT: InstagramTextLimit = { maxBytes: AUTOMATION_MESSAGE_TEXT_MAX_BYTES };
+
+/** A button template's text limit — both, as a hello without buttons is checked by length too. */
+const BUTTON_TEXT_LIMIT: InstagramTextLimit = {
+  maxBytes: AUTOMATION_MESSAGE_TEXT_MAX_BYTES,
+  maxLength: AUTOMATION_BUTTON_TEXT_MAX_LENGTH,
+};
+
+/** A card's title or line limit. */
+const CARD_TEXT_LIMIT: InstagramTextLimit = { maxLength: AUTOMATION_CARD_TEXT_MAX_LENGTH };
+
+/** User-perceived characters, so a cut never splits an emoji or a letter and its marks. */
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** The longest start of `name` — whole graphemes — of at most `maxBytes` and `maxLength`. */
+function cutName({
+  name,
+  maxBytes,
+  maxLength,
+}: {
+  name: string;
+  maxBytes: number;
+  maxLength: number;
+}): string {
+  let cut = '';
+  for (const { segment } of GRAPHEME_SEGMENTER.segment(name)) {
+    const next = cut + segment;
+    if (Buffer.byteLength(next, 'utf8') > maxBytes || next.length > maxLength) break;
+    cut = next;
+  }
+  return cut.trimEnd();
+}
+
+/**
  * Fills `{name}` (plan §5.6 table: her name, else her username; neither — the word is left out,
- * with the space or punctuation around it tidied).
+ * with the space or punctuation around it tidied), cut to fit `limit`.
  *
  * @remarks
- * Pure.
+ * Pure. The go-live check counts `{name}` as its 6 written characters, so a saved text at the limit
+ * plus a long name would be refused by Meta (`bad_text` — 5 in a row stop the automation): with a
+ * `limit`, each `{name}` gets an equal share of the room left and her name is cut to it at a
+ * grapheme boundary; a name with no whole grapheme in the room is left out as for no name.
  */
-export function fillInstagramName({ text, name }: { text: string; name: string | null }): string {
-  if (name !== null && name.length > 0) return text.replace(NAME_PLACEHOLDER, name);
+export function fillInstagramName({
+  text,
+  name,
+  limit = {},
+}: {
+  text: string;
+  name: string | null;
+  limit?: InstagramTextLimit;
+}): string {
+  const placeholderCount = text.match(NAME_PLACEHOLDER)?.length ?? 0;
+  let filledName = name ?? '';
+  if (placeholderCount > 0 && filledName.length > 0) {
+    const withoutName = text.replace(NAME_PLACEHOLDER, '');
+    const share = ({ max, used }: { max: number | undefined; used: number }) =>
+      max === undefined ? Number.POSITIVE_INFINITY : Math.floor((max - used) / placeholderCount);
+    filledName = cutName({
+      name: filledName,
+      maxBytes: share({ max: limit.maxBytes, used: Buffer.byteLength(withoutName, 'utf8') }),
+      maxLength: share({ max: limit.maxLength, used: withoutName.length }),
+    });
+  }
+  if (filledName.length > 0) return text.replace(NAME_PLACEHOLDER, filledName);
   return text
     .replace(NAME_PLACEHOLDER, '')
     .replace(/ {2,}/g, ' ')
@@ -114,8 +188,9 @@ function indexOf(number: number | null): number {
  * 10): the hello (and its nudge) as text with up to 3 buttons, the follow ask, the email and phone
  * questions with Instagram's button (and the plain-text fallback), and each message-list kind — a
  * text with link buttons, quick replies, cards, a file by its upload (image, voice note, PDF; a
- * text's picture is its own `image` row), or a post (`MEDIA_SHARE`). `{name}` is filled in; an
- * empty question wording takes the default text.
+ * text's picture is its own `image` row), or a post (`MEDIA_SHARE`). `{name}` is filled in, her
+ * name cut to keep each text within Meta's limit for it; an empty question wording takes the
+ * default text.
  *
  * @remarks
  * Pure. A step or message no longer in the automation → `skip` · `cancelled_by_owner` (a live edit
@@ -124,7 +199,8 @@ function indexOf(number: number | null): number {
  */
 export function composeInstagramMessage(input: InstagramComposeInput): InstagramComposedMessage {
   const { message, steps } = input;
-  const fill = (text: string) => fillInstagramName({ text, name: input.contactName });
+  const fill: FillText = ({ text, limit = PLAIN_TEXT_LIMIT }) =>
+    fillInstagramName({ text, name: input.contactName, limit });
   const nextButton = (title: string) => ({
     type: 'postback',
     title,
@@ -137,7 +213,7 @@ export function composeInstagramMessage(input: InstagramComposeInput): Instagram
       if (version === undefined) return { kind: 'skip', reason: 'cancelled_by_owner' };
       return fixed(
         textWithButtons({
-          text: fill(version.text),
+          text: fill({ text: version.text, limit: BUTTON_TEXT_LIMIT }),
           buttons: version.buttons.map((button) =>
             button.action === 'link'
               ? { type: 'web_url', title: button.title, url: button.url ?? '' }
@@ -151,7 +227,7 @@ export function composeInstagramMessage(input: InstagramComposeInput): Instagram
       if (version === undefined) return { kind: 'skip', reason: 'cancelled_by_owner' };
       return fixed(
         textWithButtons({
-          text: fill(version.text),
+          text: fill({ text: version.text, limit: BUTTON_TEXT_LIMIT }),
           buttons: [
             {
               type: 'web_url',
@@ -197,13 +273,13 @@ function composeQuestionMessage({
 }: {
   input: InstagramComposeInput;
   isEmail: boolean;
-  fill: (text: string) => string;
+  fill: FillText;
 }): InstagramComposedMessage {
   const contentType = isEmail ? 'user_email' : 'user_phone_number';
   const step = isEmail ? input.steps.email : input.steps.phone;
   const wording = step?.wordings[indexOf(input.message.wording_number)];
   if (wording !== undefined && wording.trim().length > 0) {
-    return question({ text: fill(wording), contentType });
+    return question({ text: fill({ text: wording }), contentType });
   }
   const defaultKey = isEmail
     ? AUTOMATION_MESSAGE_KEYS.emailQuestion
@@ -219,7 +295,7 @@ function composeListMessage({
 }: {
   input: InstagramComposeInput;
   listMessage: AutomationMessage;
-  fill: (text: string) => string;
+  fill: FillText;
 }): InstagramComposedMessage {
   const kind = input.message.message_kind;
   const file = ({
@@ -245,7 +321,10 @@ function composeListMessage({
         return file({ type: 'image', uploadPublicId: listMessage.image_upload_id });
       return fixed(
         textWithButtons({
-          text: fill(listMessage.text),
+          text: fill({
+            text: listMessage.text,
+            limit: (listMessage.buttons ?? []).length > 0 ? BUTTON_TEXT_LIMIT : PLAIN_TEXT_LIMIT,
+          }),
           buttons: (listMessage.buttons ?? []).map((button) => ({
             type: 'web_url',
             title:
@@ -258,7 +337,7 @@ function composeListMessage({
       );
     case 'quick_replies':
       return fixed({
-        text: fill(listMessage.text),
+        text: fill({ text: listMessage.text }),
         quick_replies: listMessage.replies.map((title) => ({
           content_type: 'text',
           title,
@@ -272,8 +351,10 @@ function composeListMessage({
           payload: {
             template_type: 'generic',
             elements: listMessage.cards.map((card) => ({
-              title: fill(card.title),
-              ...(card.subtitle === undefined ? {} : { subtitle: fill(card.subtitle) }),
+              title: fill({ text: card.title, limit: CARD_TEXT_LIMIT }),
+              ...(card.subtitle === undefined
+                ? {}
+                : { subtitle: fill({ text: card.subtitle, limit: CARD_TEXT_LIMIT }) }),
               ...(card.url === undefined
                 ? {}
                 : {

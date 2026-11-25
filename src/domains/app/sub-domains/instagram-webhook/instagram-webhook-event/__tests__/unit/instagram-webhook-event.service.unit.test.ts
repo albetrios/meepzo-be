@@ -80,7 +80,12 @@ describe('InstagramWebhookEventService', () => {
     markFailed: vi.fn(),
     releaseClaim: vi.fn(),
   };
-  const keyRepository = { insertNewKeys: vi.fn() };
+  const keyRepository = {
+    insertNewKeys: vi.fn(),
+    findKeysBetweenDays: vi.fn(
+      async (): Promise<Array<{ eventKey: string; eventDay: string }>> => [],
+    ),
+  };
   const organizationService = { requireOrganizationByPublicId: vi.fn() };
   const service = new InstagramWebhookEventService(
     repository as unknown as InstagramWebhookEventRepository,
@@ -181,6 +186,42 @@ describe('InstagramWebhookEventService', () => {
         ...channelAccount,
         requestId: 'req-1',
         events: [fresh, timeless],
+      });
+    });
+
+    it('looks for the keys on the days ±2 around them first, and drops a key saved on a nearby day (WH20, P254)', async () => {
+      repository.insertEvents.mockResolvedValue([]);
+      const retried = newEvent('comment:1', new Date('2026-11-24T00:01:00.000Z'));
+      const other = newEvent('comment:9', new Date('2026-11-24T00:02:00.000Z'));
+      keyRepository.findKeysBetweenDays.mockResolvedValueOnce([
+        { eventKey: 'comment:1', eventDay: '2026-11-23' },
+      ]);
+      keyRepository.insertNewKeys.mockResolvedValue([
+        { eventKey: 'comment:9', eventDay: '2026-11-24' },
+      ]);
+
+      await service.recordReceivedEvents({
+        scope,
+        channelAccount,
+        requestId: 'req-1',
+        events: [retried, other],
+        now,
+      });
+
+      expect(keyRepository.findKeysBetweenDays).toHaveBeenCalledWith({
+        ...channelAccount,
+        eventKeys: ['comment:1', 'comment:9'],
+        fromDay: '2026-11-22',
+        toDay: '2026-11-26',
+      });
+      expect(keyRepository.insertNewKeys).toHaveBeenCalledWith({
+        ...channelAccount,
+        keys: [{ eventKey: 'comment:9', eventDay: '2026-11-24' }],
+      });
+      expect(repository.insertEvents).toHaveBeenCalledWith({
+        ...channelAccount,
+        requestId: 'req-1',
+        events: [other],
       });
     });
 

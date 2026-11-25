@@ -670,6 +670,10 @@ export async function processInstagramStarterQuestionSyncTask({
  * One account's webhook subscription check (WC-25, AC-16.22): are all six fields on for our app?
  *
  * @remarks
+ * - **The app dashboard:** Meta lets fields differ per app, never per account — every account gets
+ *   the fields selected under the app's "Configure webhooks" (Unified Login tab). Select exactly the
+ *   six of `INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS`, with "Include values" on; a field selected there
+ *   but not in the six is logged here (`…webhook_subscription_check.extra_fields`, a warning).
  * - **Algorithm:** the account and token; `GET subscribed_apps`. All on → `subscribed` (an account
  *   not stamped yet is stamped — the set-up's chain lost). A field off
  *   on a **stamped** account → the stamp emptied (shown not subscribed), the team told (the
@@ -720,6 +724,17 @@ export async function processInstagramWebhookSubscriptionCheckTask({
   const missingFields = INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS.filter(
     (field) => !subscribedFields.includes(field),
   );
+  const extraFields = subscribedFields.filter(
+    (field) => !(INSTAGRAM_WEBHOOK_SUBSCRIBED_FIELDS as readonly string[]).includes(field),
+  );
+  if (extraFields.length > 0) {
+    // More fields on than the six: selected in the app dashboard (Meta subscribes every account
+    // to the app's fields) — harmless to intake, but each one is traffic and a permission to keep.
+    logger.warn(
+      { organizationPublicId, channelAccountPublicId, extraFields },
+      'app.instagram_account.webhook_subscription_check.extra_fields',
+    );
+  }
   const isStamped = target.account.webhook_subscribed_at !== null;
   if (missingFields.length === 0) {
     if (!isStamped) {

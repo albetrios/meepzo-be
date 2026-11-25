@@ -173,6 +173,28 @@ describe('classifyInstagramWebhookItem — changes[] (5.A.10)', () => {
     });
   });
 
+  it('a Unified Login comment keyed `comment_id` (Meta docs example) is `comment:<comment_id>`, received', () => {
+    for (const field of ['comments', 'live_comments']) {
+      const kind = field === 'comments' ? 'comment' : 'live_comment';
+      expect(
+        classifyChange({
+          field,
+          value: {
+            from: { id: CONTACT_ID, username: 'acme_customer' },
+            comment_id: '18000000000000042',
+            text: 'price?',
+            media: { id: '17900000000000001' },
+          },
+        }),
+      ).toMatchObject({
+        eventKind: kind,
+        eventKey: `${kind}:18000000000000042`,
+        kindSkipReason: null,
+        contactInstagramUserId: CONTACT_ID,
+      });
+    }
+  });
+
   it('a comment change without a comment id falls to `unsupported`', () => {
     const event = classifyChange({ field: 'comments', value: { from: { id: CONTACT_ID } } });
 
@@ -414,6 +436,62 @@ describe('classifyInstagramWebhookItem — messaging[] (5.A.10)', () => {
     );
   });
 
+  it('a click-to-DM ad message (Meta docs example, with `ads_context_data`) stays a `referral` and keeps her text in its payload', () => {
+    const item = fromContact({
+      message: {
+        mid: 'm_ad_2',
+        text: 'Is this still in stock?',
+        referral: {
+          ref: 'spring-sale',
+          ad_id: '23850000000000002',
+          source: 'ADS',
+          type: 'OPEN_THREAD',
+          ads_context_data: { ad_title: 'Spring sale', video_url: 'https://cdn.example/v.mp4' },
+        },
+      },
+    });
+
+    const event = classifyMessaging(item);
+    expect(event).toMatchObject({ eventKind: 'referral', kindSkipReason: null, payload: item });
+  });
+
+  it('a message with unsupported media (`is_unsupported`) is `unsupported:<mid>`, skipped — never a message an automation answers', () => {
+    expect(
+      classifyMessaging(fromContact({ message: { mid: 'm_odd', is_unsupported: true } })),
+    ).toMatchObject({
+      eventKind: 'unknown',
+      eventKey: 'unsupported:m_odd',
+      kindSkipReason: 'unsupported',
+    });
+  });
+
+  it('a Meta Business Agent handoff notice (`admin_text`, `handoff_reason`) is `handoff:<mid>`, skipped — neither her message nor an owner echo', () => {
+    for (const message of [
+      {
+        mid: 'm_handoff',
+        admin_text: 'Conversation handed off',
+        handoff_reason: 'human_requested',
+      },
+      { mid: 'm_handoff', is_echo: true, admin_text: 'Conversation handed off' },
+    ]) {
+      expect(classifyMessaging(fromContact({ message }))).toMatchObject({
+        eventKind: 'unknown',
+        eventKey: 'handoff:m_handoff',
+        kindSkipReason: 'unsupported',
+      });
+    }
+  });
+
+  it('a shared reel (`ig_reel`, `reel`) is a `shared_post`, keyed `message:<mid>`', () => {
+    for (const type of ['ig_reel', 'reel']) {
+      expect(
+        classifyMessaging(
+          fromContact({ message: { mid: `m_${type}`, attachments: [{ type, payload: {} }] } }),
+        ),
+      ).toMatchObject({ eventKind: 'shared_post', eventKey: `message:m_${type}` });
+    }
+  });
+
   it('two clicks without `mid` on different buttons get different keys', () => {
     const first = classifyMessaging(fromContact({ postback: { payload: 'aut_x::run_a' } }));
     const second = classifyMessaging(fromContact({ postback: { payload: 'aut_x::run_b' } }));
@@ -457,6 +535,12 @@ describe('classifyInstagramWebhookItem — messaging[] (5.A.10)', () => {
     );
 
     expect(react.eventKey).not.toBe(unreact.eventKey);
+  });
+
+  it('an unreact is skipped `unsupported` — taking a reaction back never refreshes her window', () => {
+    expect(
+      classifyMessaging(fromContact({ reaction: { mid: 'm_text', action: 'unreact' } })),
+    ).toMatchObject({ eventKind: 'reaction', kindSkipReason: 'unsupported' });
   });
 
   it('an edit is `edit:<mid>:<num_edit>`, skipped `edit`', () => {

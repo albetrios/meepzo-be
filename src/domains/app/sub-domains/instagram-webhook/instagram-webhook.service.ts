@@ -315,7 +315,8 @@ export class InstagramWebhookService {
     };
     await storeEntriesByAccount({ entries: delivery.data.entry, storeOne });
     logger.info({ requestId, ...result }, 'instagram.webhook.delivery_received');
-    const firstFailure = failures.sort((left, right) => left.entryIndex - right.entryIndex)[0];
+    failures.sort((left, right) => left.entryIndex - right.entryIndex);
+    const firstFailure = failures[0];
     if (firstFailure !== undefined) throw firstFailure.failure;
     return result;
   }

@@ -1069,6 +1069,35 @@ export class AutomationRunService {
     });
   }
 
+  /**
+   * A tap value no automation takes and no message rode on ({@link handleTap}): a starter question
+   * goes on as a message with its text (plan §4.3 rule 5 — a paused automation's question); any
+   * other kind matched nothing.
+   */
+  private async handleUnmatchedTapValue({
+    unit,
+    input,
+    kind,
+    value,
+  }: {
+    unit: AutomationRunEventUnit;
+    input: AutomationButtonClickInput;
+    kind: NonNullable<AutomationButtonClickInput['kind']>;
+    value: string;
+  }): Promise<AutomationRunHandlingResult> {
+    if (kind !== 'starter_question') return handlingResult({ outcome: 'nothing_matched' });
+    return this.handleMessage({
+      unit,
+      input: {
+        ...input,
+        kind: 'message',
+        text: value,
+        quickReplyPayload: null,
+        attachmentEmail: null,
+      },
+    });
+  }
+
   /** A tap's own handling ({@link handleButtonClick}). */
   private async handleTap({
     unit,
@@ -1111,18 +1140,7 @@ export class AutomationRunService {
     const match = chooseExactSourceAutomation({ candidates, kind, value });
     if (match === null) {
       if (carriedMessage !== null) return asCarriedMessage(carriedMessage);
-      if (kind !== 'starter_question') return handlingResult({ outcome: 'nothing_matched' });
-      // A paused automation's question goes on as a message with its text (plan §4.3 rule 5).
-      return this.handleMessage({
-        unit,
-        input: {
-          ...input,
-          kind: 'message',
-          text: value,
-          quickReplyPayload: null,
-          attachmentEmail: null,
-        },
-      });
+      return this.handleUnmatchedTapValue({ unit, input, kind, value });
     }
     return this.startFromMatch({
       unit,

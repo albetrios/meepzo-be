@@ -1,4 +1,7 @@
-import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
+import {
+  PRINCIPAL_SCOPE,
+  withAppDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
 import { encryptFieldSecret } from '@/shared/utils/security/field-secret-encryption.util.js';
 import type { ChannelMessageResultInput } from '@/domains/app/app.channel-ports.js';
 import type { MetaUsageDecision } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-usage.util.js';
@@ -167,9 +170,15 @@ export function buildLaneHarness({
       });
     },
     turn: async (lane) => {
-      const rows = await new InstagramSendLaneRepository().listByAccount({
-        organizationId: organization.id,
-        channelAccountId: account.channel_account_id,
+      // Read in the job's scope: under the RLS-subject app role (test:rls-role) a read outside a
+      // database context sees no rows.
+      const rows = await withAppDatabaseContext({
+        scope,
+        callback: () =>
+          new InstagramSendLaneRepository().listByAccount({
+            organizationId: organization.id,
+            channelAccountId: account.channel_account_id,
+          }),
       });
       const row = rows.find((candidate) => candidate.lane === lane)!;
       await core.workLaneTurn({

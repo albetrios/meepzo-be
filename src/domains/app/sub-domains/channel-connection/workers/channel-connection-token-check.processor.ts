@@ -1,4 +1,7 @@
-import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
+import {
+  type OrganizationPrincipalDatabaseScope,
+  PRINCIPAL_SCOPE,
+} from '@/infrastructure/database/contexts/database-context.js';
 import {
   runGlobalRetentionWorkerJob,
   runOrganizationScopedWorkerJob,
@@ -384,6 +387,59 @@ interface AssignedList {
 }
 
 /**
+ * The profile read's refusal for one account ({@link checkOneAccount}): a token refusal breaks the
+ * connection, a transient one defers, a permission refusal breaks the account alone (P354), any
+ * other refusal is logged and leaves the account as it is.
+ */
+async function handleProfileFailure({
+  target,
+  account,
+  scope,
+  profile,
+}: {
+  target: TokenCheckTarget;
+  account: TokenCheckTarget['accounts'][number];
+  scope: OrganizationPrincipalDatabaseScope;
+  profile: Extract<Awaited<ReturnType<typeof readProfile>>, { failure: unknown }>;
+}): Promise<AccountCheckOutcome> {
+  if (profile.failure === 'break') {
+    return breakConnection({ target, error: profile.error, step: 'profile' });
+  }
+  if (profile.failure === 'defer') {
+    return { outcome: 'deferred', step: 'profile', reencrypted: target.reencrypted };
+  }
+  if (profile.failure === 'permission') {
+    // P354: Meta refused this account alone (code 10 — not Business or Creator any more, or a
+    // permission not granted): it breaks alone, its reconnect notice and its lanes stopped.
+    logger.warn(
+      {
+        organizationPublicId: target.organizationPublicId,
+        channelAccountPublicId: account.publicId,
+        failure: describeMetaGraphError(profile.error),
+      },
+      'app.channel_connection.token_check.profile_permission_refused',
+    );
+    const isBroken = await target.services.accountPort.markAccountBroken({
+      scope,
+      organizationId: target.connection.organizationId,
+      channelAccountId: account.internalId,
+      requestId: target.requestId,
+      stopReason: 'wrong_permission',
+    });
+    return isBroken ? 'permission_refused' : 'unchanged';
+  }
+  logger.warn(
+    {
+      organizationPublicId: target.organizationPublicId,
+      channelAccountPublicId: account.publicId,
+      failure: describeMetaGraphError(profile.error),
+    },
+    'app.channel_connection.token_check.profile_refused',
+  );
+  return 'unchanged';
+}
+
+/**
  * MC10 for one connected Instagram account: missing from a list read in full → it breaks alone
  * (`account_not_shared`); present → its profile, a permission refusal of which breaks it alone
  * (`wrong_permission`, P354); missing from a capped list → left alone (P353).
@@ -411,43 +467,7 @@ async function checkOneAccount({
     return isBroken ? 'missing' : 'unchanged';
   }
   const profile = await readProfile({ target, account });
-  if ('failure' in profile) {
-    if (profile.failure === 'break') {
-      return breakConnection({ target, error: profile.error, step: 'profile' });
-    }
-    if (profile.failure === 'defer') {
-      return { outcome: 'deferred', step: 'profile', reencrypted: target.reencrypted };
-    }
-    if (profile.failure === 'permission') {
-      // P354: Meta refused this account alone (code 10 — not Business or Creator any more, or a
-      // permission not granted): it breaks alone, its reconnect notice and its lanes stopped.
-      logger.warn(
-        {
-          organizationPublicId: target.organizationPublicId,
-          channelAccountPublicId: account.publicId,
-          failure: describeMetaGraphError(profile.error),
-        },
-        'app.channel_connection.token_check.profile_permission_refused',
-      );
-      const isBroken = await target.services.accountPort.markAccountBroken({
-        scope,
-        organizationId: target.connection.organizationId,
-        channelAccountId: account.internalId,
-        requestId: target.requestId,
-        stopReason: 'wrong_permission',
-      });
-      return isBroken ? 'permission_refused' : 'unchanged';
-    }
-    logger.warn(
-      {
-        organizationPublicId: target.organizationPublicId,
-        channelAccountPublicId: account.publicId,
-        failure: describeMetaGraphError(profile.error),
-      },
-      'app.channel_connection.token_check.profile_refused',
-    );
-    return 'unchanged';
-  }
+  if ('failure' in profile) return handleProfileFailure({ target, account, scope, profile });
   const isRefreshed = await target.services.accountPort.refreshAccountProfile({
     scope,
     organizationId: target.connection.organizationId,

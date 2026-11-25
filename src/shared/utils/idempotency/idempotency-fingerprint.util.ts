@@ -12,6 +12,8 @@ import { isSecretKey } from '@/shared/utils/security/sensitive-redaction.util.js
  * comes from the token claim — there is no `/organizations/{organization_id}` segment).
  */
 const IDEMPOTENCY_EXCLUDED_ROUTE_PATTERNS: RegExp[] = [
+  // PASSWORD-ROUTES-DISABLED: the password login (registered only when PASSWORD_ROUTES_ENABLED=true).
+  /\/auth\/login$/,
   /\/auth\/email\/login$/,
   /\/auth\/mfa\/login$/,
   /\/auth\/oauth\/[^/]+\/callback$/,

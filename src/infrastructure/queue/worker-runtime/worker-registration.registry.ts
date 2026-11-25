@@ -612,10 +612,10 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     create: () => createUserDataExportRetentionWorker(),
   }),
   // feat-instagram-dm-sending MC10 (WC-34): the channel connection's daily token check — the hourly
-  // sweep, the 10-minute webhook subscription sweep (WC-25, R40; the launch daily check is retired)
-  // and one check per due connection ride one queue. Never paused (F3): a check that meets Meta
-  // down returns `deferred` and the next sweep adds it again. Every Meta call runs between two short
-  // organization contexts, never inside one. Off until the Meta app is configured.
+  // sweep and one check per due connection ride one queue (it replaced the launch's daily
+  // Instagram account check, IA8), with the 10-minute webhook subscription sweep (WC-25, R40). Never paused (F3): a check that meets
+  // Meta down returns `deferred` and the next sweep adds it again. Every Meta call runs between two
+  // short organization contexts, never inside one. Off until the Meta app is configured.
   retentionDefinition({
     queueName: CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
     family: 'retention',

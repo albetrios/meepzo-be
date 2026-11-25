@@ -54,6 +54,11 @@ vi.mock('@/domains/app/workers/app-partition-upkeep.processor.js', () => ({
   runAppPartitionUpkeepJob: (...args: unknown[]) => runUpkeepJobMock(...args),
 }));
 
+const runCleanUpJobMock = vi.fn();
+vi.mock('@/domains/app/workers/app-table-clean-up.processor.js', () => ({
+  runAppTableCleanUpJob: (...args: unknown[]) => runCleanUpJobMock(...args),
+}));
+
 vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -68,6 +73,8 @@ describe('app-partition-upkeep.worker', () => {
     workerState.onHandlers = {};
     runUpkeepJobMock.mockReset();
     runUpkeepJobMock.mockResolvedValue([]);
+    runCleanUpJobMock.mockReset();
+    runCleanUpJobMock.mockResolvedValue([]);
   });
 
   it('creates the Worker on the app-partition-upkeep queue with concurrency 1', async () => {
@@ -111,6 +118,18 @@ describe('app-partition-upkeep.worker', () => {
     await workerState.processor?.({ name: 'make-app-partitions' });
 
     expect(runUpkeepJobMock.mock.calls).toEqual([[{ mode: 'drop' }], [{ mode: 'make' }]]);
+    expect(runCleanUpJobMock).not.toHaveBeenCalled();
+  });
+
+  it('runs the hourly plain-table clean-up for its job name, not the part upkeep (WC-53, WC-54, WC-62)', async () => {
+    const { createAppPartitionUpkeepWorker } = await import(WORKER_MODULE);
+    createAppPartitionUpkeepWorker();
+    runUpkeepJobMock.mockClear();
+
+    await workerState.processor?.({ name: 'clean-up-app-tables' });
+
+    expect(runCleanUpJobMock).toHaveBeenCalledOnce();
+    expect(runUpkeepJobMock).not.toHaveBeenCalled();
   });
 
   it('logs a stalled warning with the queue name and job id', async () => {

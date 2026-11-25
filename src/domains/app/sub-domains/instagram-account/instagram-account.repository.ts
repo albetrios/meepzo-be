@@ -96,8 +96,8 @@ export interface InstagramAccountPickValues {
 }
 
 /**
- * One `connected` account as the webhook subscription sweep lists it (WC-25): the keyset cursor and the two public
- * handles its per-organization job carries — never a bigserial in the job.
+ * One `connected` account as the webhook subscription sweep lists it (WC-25): the keyset cursor and
+ * the two public handles its per-organization job carries — never a bigserial in the job.
  */
 export interface InstagramAccountSweepCandidate {
   /** `app.instagram_accounts.id` — the sweep's keyset cursor only. */

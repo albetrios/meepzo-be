@@ -84,6 +84,24 @@ export const MAX_ACTIVE_SESSIONS_PER_USER = 30;
 export const MAX_MFA_VERIFICATION_ATTEMPTS = 10;
 
 /**
+ * Failed password logins before the account is temporarily locked (PASSWORD-ROUTES-DISABLED: read
+ * only by `POST /auth/login` and its lockout, registered when `PASSWORD_ROUTES_ENABLED` is true).
+ */
+export const MAX_FAILED_LOGIN_ATTEMPTS = 10;
+
+/** Account lockout after {@link MAX_FAILED_LOGIN_ATTEMPTS} failed password logins, in minutes (PASSWORD-ROUTES-DISABLED). */
+export const ACCOUNT_LOCKOUT_MINUTES = 30;
+
+/**
+ * Failed password logins from one IP after which every password login from it gets 429 for the
+ * rest of the window (PASSWORD-ROUTES-DISABLED: `POST /auth/login` only).
+ */
+export const IP_FAILED_LOGIN_THRESHOLD = 50;
+
+/** Window of the per-IP failed password-login counter (seconds), fixed from the IP's first failure (PASSWORD-ROUTES-DISABLED). */
+export const IP_FAILED_LOGIN_WINDOW_SECONDS = 15 * 60;
+
+/**
  * How many leading bits of an IPv6 address one rate-limit bucket covers: a /64, the smallest
  * allocation an ISP hands a single customer site (D-3 — see `rateLimitIpKey`).
  */

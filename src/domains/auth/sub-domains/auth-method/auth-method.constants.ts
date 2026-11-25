@@ -40,12 +40,14 @@ export const AUTH_METHOD_TYPES = Object.values(AUTH_METHOD_TYPE) as AuthMethodTy
  *
  * @remarks
  * - **Notes:** the column is a `varchar(30)` without a CHECK; this constant is the allowed list,
- *   and `VerificationTokenType` is derived from it. `PASSWORD_RESET` left with the password routes
- *   (P84).
+ *   and `VerificationTokenType` is derived from it. PASSWORD-ROUTES-DISABLED: `PASSWORD_RESET` is
+ *   minted and consumed only by `POST /auth/password/forgot` and `/reset`, registered when
+ *   `PASSWORD_ROUTES_ENABLED` is true (owner 2026-11-25, P251 — supersedes P84's removal).
  */
 export const VERIFICATION_TOKEN_TYPE = {
   EMAIL_CODE: 'EMAIL_CODE',
   EMAIL_CONFIRM: 'EMAIL_CONFIRM',
+  PASSWORD_RESET: 'PASSWORD_RESET',
 } as const;
 
 /** Hours a confirm-email link stays usable (feat-instagram-dm-sending UN6). */

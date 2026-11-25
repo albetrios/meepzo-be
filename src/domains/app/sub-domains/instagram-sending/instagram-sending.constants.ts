@@ -196,6 +196,9 @@ export type InstagramSendCountGroup = (typeof INSTAGRAM_SEND_COUNT_GROUPS)[numbe
 /** The slots one organization's month count is split into, by account (D34). */
 export const MESSAGE_MONTH_COUNT_SLOTS = 16;
 
+/** Days an ended stop stays in the stop history before the hourly clean-up deletes it (WC-53, P33). */
+export const INSTAGRAM_SEND_STOP_KEEP_DAYS = 90;
+
 /** The month meter's `nearly` share (SN15, D34): 80 % of the limit. */
 export const MESSAGE_MONTH_NEARLY_SHARE = 0.8;
 

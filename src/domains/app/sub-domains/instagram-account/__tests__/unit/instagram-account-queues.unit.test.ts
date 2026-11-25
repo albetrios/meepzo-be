@@ -36,9 +36,8 @@ import {
 
 /**
  * The reconnect notice queue of launch R7: one notice per account and break (IA9) — public ids only
- * in the payload, the job id that makes it safe to repeat. (Launch R7's daily check queue was
- * retired at feat-instagram-dm-sending's R40 × R51 merge; the token check and the webhook
- * subscription check took its work.)
+ * in the payload, the job id that makes it safe to repeat. (The launch's daily check queue went
+ * when the channel connection's token check replaced it, feat-instagram-dm-sending R51.)
  */
 
 const ORGANIZATION_PUBLIC_ID = 'org_acmeshop00000000000001';

@@ -65,6 +65,7 @@ describe('InstagramAccountErasureService (no database)', () => {
   const disconnectForOrganizationOffboarding = vi.fn();
   const unsubscribeForOrganizationOffboarding = vi.fn();
   const deleteForAccount = vi.fn();
+  const stopLanes = vi.fn();
   const service = new InstagramAccountErasureService(
     {
       disconnectForMeta,
@@ -72,6 +73,7 @@ describe('InstagramAccountErasureService (no database)', () => {
       unsubscribeForOrganizationOffboarding,
     } as unknown as InstagramAccountService,
     { deleteForAccount } as unknown as InstagramMediaService,
+    { stopLanes },
   );
 
   beforeEach(() => {
@@ -101,10 +103,16 @@ describe('InstagramAccountErasureService (no database)', () => {
         openCounts.posts = contextSpy.openCount;
         return 2;
       });
+      stopLanes.mockImplementation(async () => {
+        openCounts.lanes = contextSpy.openCount;
+      });
 
       const erasure = await service.eraseForOrganizationOffboarding(scope);
 
-      expect(openCounts).toEqual({ unsubscribe: 0, disconnect: 1, posts: 1 });
+      expect(openCounts).toEqual({ unsubscribe: 0, disconnect: 1, posts: 1, lanes: 1 });
+      // Only the account revoked now has its lanes stopped, in the same transaction (CA8, R61).
+      expect(stopLanes).toHaveBeenCalledTimes(1);
+      expect(stopLanes).toHaveBeenCalledWith({ scope, organizationId: 1, channelAccountId: 20 });
       expect(contextSpy.scopes).toEqual([scope]);
       expect(unsubscribeForOrganizationOffboarding).toHaveBeenCalledWith({ scope });
       expect(disconnectForOrganizationOffboarding).toHaveBeenCalledWith({ scope });
@@ -112,7 +120,7 @@ describe('InstagramAccountErasureService (no database)', () => {
       expect(erasure).toEqual({
         instagramAccountPublicIds: ['cha_aaaaaaaaaaaaaaaaaaaaa', 'iga_bbbbbbbbbbbbbbbbbbbbb'],
         erasedPostCount: 4,
-        // Only the first was revoked now: the channel account whose lanes a Meta callback stops.
+        // Only the first was revoked now: the channel account whose lanes the erase stops.
         revokedChannelAccounts: [{ organizationId: 1, channelAccountId: 20 }],
       });
     });

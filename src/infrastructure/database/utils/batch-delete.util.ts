@@ -1,10 +1,9 @@
-import { and, asc, eq, gt, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn, AnyPgTable } from 'drizzle-orm/pg-core';
 import type { PostgresDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
 import { isPostgresDeleteBlockedByReferences } from '@/shared/utils/infrastructure/postgres-error.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-
-const DEFAULT_BATCH_SIZE = 5_000;
+import { DEFAULT_BATCH_DELETE_ROW_COUNT } from '@/shared/constants/limits.constants.js';
 
 /**
  * Most batches one run deletes — 250 000 rows at the default batch size. Every caller runs inside
@@ -88,7 +87,7 @@ export async function deleteInBatchesByCondition(options: {
     table,
     idColumn,
     whereCondition,
-    batchSize = DEFAULT_BATCH_SIZE,
+    batchSize = DEFAULT_BATCH_DELETE_ROW_COUNT,
     maxBatches = BATCH_DELETE_MAX_BATCHES_PER_RUN,
     logContext,
     tableLabel,
@@ -153,4 +152,38 @@ export async function deleteInBatchesByCondition(options: {
   }
 
   return { deletedCount, blockedCount, hasMore: false };
+}
+
+/**
+ * Seconds the oldest row a clean-up should already have deleted is past its keep time — the
+ * "oldest row past its keep time" gauge (feat-instagram-dm-sending P92). `0` when no row is due.
+ *
+ * @remarks
+ * - **Algorithm:** one `SELECT MIN(column)` over the rows `whereCondition` matches (the clean-up's
+ *   own delete condition, so the same index serves it), then `cutoff - MIN(column)` in Postgres,
+ *   both read as `timestamptz` (a `date` column too). A row becomes due when its `column` passes
+ *   `cutoff`, so the answer is how long the oldest due row has waited.
+ * - **Failure modes:** any database error propagates.
+ * - **Side effects:** none — a read.
+ * - **Notes:** callers pass an explicit `databaseHandle` (a maintenance or retention context), as
+ *   for {@link deleteInBatchesByCondition}; never below 0.
+ */
+export async function readOldestOverdueSeconds(options: {
+  databaseHandle: PostgresDatabaseHandle;
+  table: AnyPgTable;
+  column: AnyPgColumn;
+  cutoff: Date;
+  whereCondition: SQL;
+}): Promise<number> {
+  const { databaseHandle, table, column, cutoff, whereCondition } = options;
+  const [row] = await databaseHandle
+    .select({
+      overdueSeconds: sql<
+        number | null
+      >`EXTRACT(EPOCH FROM (${cutoff.toISOString()}::timestamptz - MIN(${column})::timestamptz))::float8`,
+    })
+    .from(table)
+    .where(whereCondition);
+  const overdueSeconds = Number(row?.overdueSeconds ?? 0);
+  return Number.isFinite(overdueSeconds) && overdueSeconds > 0 ? Math.floor(overdueSeconds) : 0;
 }

@@ -69,9 +69,13 @@ export interface ConnectedInstagramTeam extends InstagramTeamFixture {
 /**
  * Provisions a team the real way and connects an Instagram account through route 1 (Instagram
  * mocked) — so the account, its encrypted token and its default settings are the real rows the
- * processing job and the run engine read.
+ * processing job and the run engine read. `profile` connects an Instagram account another team
+ * already held (a new one by default).
  */
-export async function connectInstagramTeam(app: FastifyInstance): Promise<ConnectedInstagramTeam> {
+export async function connectInstagramTeam(
+  app: FastifyInstance,
+  profile: TestInstagramProfile = buildInstagramProfile(),
+): Promise<ConnectedInstagramTeam> {
   const team = await createInstagramTeam();
   // Creator's features: the email and phone asks are PRO, read by the run engine at run time (AU26).
   const plan = await createTestPlan({
@@ -84,7 +88,6 @@ export async function connectInstagramTeam(app: FastifyInstance): Promise<Connec
     planId: plan.id,
     status: 'ACTIVE',
   });
-  const profile = buildInstagramProfile();
   await connectInstagramAccount({ app, token: team.ownerToken, profile });
   const [account] = await readInstagramAccountRows(team.organization.id);
   if (account === undefined) throw new Error('connect fixture stored no account');

@@ -4,7 +4,10 @@ import {
   type RequestScopedPostgresDatabase,
   assertWorkerDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
-import type { InstagramSendLane } from './instagram-sending.constants.js';
+import {
+  INSTAGRAM_SENDING_REPAIR_SETTINGS,
+  type InstagramSendLane,
+} from './instagram-sending.constants.js';
 import type { InstagramMessageType } from './instagram-message/instagram-message.constants.js';
 
 /** The rows of a raw `execute` — postgres-js answers an array, node-postgres `{ rows }`. */
@@ -168,7 +171,8 @@ export class InstagramSendingRepairRepository {
   /**
    * Waiting fast messages over a minute late (WC-13), of a free account whose fast lane holds no
    * running stop and whose plan stop does not hold it; `stop_until` is the fast lane's ended stop
-   * (the spread over 5 minutes).
+   * (the spread over 5 minutes) — a timed stop past its end, or a stop a reconnect or a passed test
+   * cleared within the last 5 minutes (`stop_cleared_at`, AC-25.5: the waiting DMs go spread).
    */
   async listLateFastMessages({
     lateBefore,
@@ -182,7 +186,13 @@ export class InstagramSendingRepairRepository {
     limit: number;
   }): Promise<InstagramRepairMessageRow[]> {
     return this.rows<InstagramRepairMessageRow>(sql`
-      SELECT ${MESSAGE_COLUMNS}, NULL::varchar AS plan_stop_reason, l.stop_until
+      SELECT ${MESSAGE_COLUMNS}, NULL::varchar AS plan_stop_reason,
+        CASE
+          WHEN l.stop_reason IS NOT NULL THEN l.stop_until
+          WHEN l.stop_cleared_at > ${now.toISOString()}::timestamptz
+            - make_interval(secs => ${INSTAGRAM_SENDING_REPAIR_SETTINGS.fastSpreadAfterStopMilliseconds / 1000})
+            THEN l.stop_cleared_at
+        END AS stop_until
       FROM app.instagram_messages m
       JOIN app.instagram_send_lanes l
         ON l.organization_id = m.organization_id AND l.channel_account_id = m.channel_account_id

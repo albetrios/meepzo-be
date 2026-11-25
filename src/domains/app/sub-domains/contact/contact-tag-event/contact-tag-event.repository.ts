@@ -5,6 +5,11 @@ import {
   assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import {
+  type BatchDeleteResult,
+  deleteInBatchesByCondition,
+  readOldestOverdueSeconds,
+} from '@/infrastructure/database/utils/batch-delete.util.js';
 import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
@@ -320,11 +325,47 @@ export class ContactTagEventRepository {
       )
       .orderBy(asc(contact_tag_events.created_at), asc(contact_tag_events.id));
   }
+
+  /**
+   * The tag events' clean-up (WC-54): deletes events made before `cutoff`, done or not (a pick-up
+   * looks back 24 hours only), at most `maxBatches` batches in this unit of work
+   * (`idx_contact_tag_events_created`). Needs the retention context
+   * ({@link createRetentionContactTagEventRepository}).
+   */
+  async deleteCreatedBefore({
+    cutoff,
+    maxBatches,
+  }: {
+    cutoff: Date;
+    maxBatches: number;
+  }): Promise<BatchDeleteResult> {
+    return deleteInBatchesByCondition({
+      databaseHandle: this.db(),
+      table: contact_tag_events,
+      idColumn: contact_tag_events.id,
+      whereCondition: sql`${contact_tag_events.created_at} < ${cutoff.toISOString()}::timestamptz`,
+      maxBatches,
+      logContext: 'contact-tag-event-retention',
+      tableLabel: 'app.contact_tag_events',
+    });
+  }
+
+  /** Seconds the oldest event made before `cutoff` is past it — the clean-up's gauge (P92). */
+  async readCreatedOverdueSeconds(cutoff: Date): Promise<number> {
+    return readOldestOverdueSeconds({
+      databaseHandle: this.db(),
+      table: contact_tag_events,
+      column: contact_tag_events.created_at,
+      cutoff,
+      whereCondition: sql`${contact_tag_events.created_at} < ${cutoff.toISOString()}::timestamptz`,
+    });
+  }
 }
 
 /**
- * {@link ContactTagEventRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) —
- * the pick-up's read across organizations (WC-27).
+ * {@link ContactTagEventRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) — the
+ * pick-up's read across organizations (WC-27) and the tag events' 8-day clean-up (WC-54); the
+ * policy's sweep arm is in `USING`, so it reads and deletes but never writes a row.
  */
 export function createRetentionContactTagEventRepository(
   databaseHandle: WorkerDatabaseHandle,

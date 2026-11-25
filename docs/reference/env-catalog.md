@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**24 / 260** variables migrated to an explicit `{ allowed, description }` entry.
+**25 / 261** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -149,6 +149,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `OVERLOAD_DB_ACQUIRE_WAIT_SHED_MS` | integer 0–60000 (ms; 0 disables) | `2000` | ✓ | Overload-guard shed threshold: how long the oldest unit of work may wait for a pooled connection before new requests get a 503. |
 | `OVERLOAD_DB_POOL_SHED_RATIO` | number 0–10 | `10` | ✓ | Multiple of DATABASE_POOL_MAX in-flight units of work (running plus waiting for a connection) at which the overload guard sheds requests; above 1 lets a bounded queue form. |
 | `OVERLOAD_MAX_EVENT_LOOP_DELAY_MS` | integer 1–60000 | `250` | ✓ | Overload-guard shed threshold: p99 event-loop delay (ms) above which requests get a 503. |
+| `PASSWORD_ROUTES_ENABLED` | true \| false (or 1 \| 0) | `false` | ✓ | Registers the four password routes (POST /auth/login, /auth/password/forgot, /auth/password/reset, /auth/password/change). Off (the default), they are not registered and answer 404; sign-in is the email code, Google, Apple or a passkey. |
 | `PERSONAL_ORGANIZATION_ENABLED` | — | `true` |  | — |
 | `PORT` | integer 1–65535 | `3000` | ✓ | HTTP port the API server binds to. |
 | `POSTGRES_MAX_CONNECTIONS` | — | — *(optional)* |  | — |

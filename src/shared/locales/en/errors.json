@@ -121,7 +121,8 @@
     "broadcastStartAutomationUnknown": "This automation is not a live automation of this account",
     "broadcastScheduledAtForMode": "scheduled_at goes with mode scheduled, and only with it",
     "broadcastOpenWaitDaysForMode": "open_wait_days goes with mode when_chat_opens, and only with it",
-    "broadcastScheduledAtRange": "The time must be in the future and at most 30 days ahead"
+    "broadcastScheduledAtRange": "The time must be in the future and at most 30 days ahead",
+    "passwordComplexity": "Password must include at least 3 of: lowercase, uppercase, number, symbol"
   },
   "missingSessionCookie": "Missing session cookie",
   "disposableEmail": "This email domain is not allowed.",
@@ -370,5 +371,8 @@
     "messages_missing": "Add at least one message.",
     "audience_missing": "Choose who gets it: a segment or conditions.",
     "file_not_usable": "This file is not uploaded or cannot be sent."
-  }
+  },
+  "invalidEmailOrPassword": "Invalid email or password",
+  "passwordAuthNotEnabled": "Password auth not enabled",
+  "currentPasswordIncorrect": "Current password is incorrect"
 }

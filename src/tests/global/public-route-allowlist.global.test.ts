@@ -29,7 +29,11 @@ const EXPECTED_PUBLIC_ROUTES: readonly string[] = [
   'POST /api/v1/auth/email/confirm',
   'POST /api/v1/auth/email/login',
   'POST /api/v1/auth/email/send-code',
+  // PASSWORD-ROUTES-DISABLED: registered only when PASSWORD_ROUTES_ENABLED=true (on in the harness).
+  'POST /api/v1/auth/login',
   'POST /api/v1/auth/mfa/login',
+  'POST /api/v1/auth/password/forgot',
+  'POST /api/v1/auth/password/reset',
   // Apple's form callback (feat-instagram-dm-sending route 124, AT10): Apple posts it; it never signs
   // anyone in — it only checks the state is live (without using it) and answers 303 to the app page.
   'POST /api/v1/auth/oauth/apple/callback',

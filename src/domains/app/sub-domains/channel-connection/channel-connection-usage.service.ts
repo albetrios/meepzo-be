@@ -208,13 +208,18 @@ export function createChannelConnectionUsagePostgresStore(
     readConnectionUsageEntries: (target) =>
       withAppDatabaseContext({
         scope: target.scope,
-        callback: () => repository.listEntries(target.channelConnectionPublicId),
+        callback: () =>
+          repository.listEntries({
+            organizationPublicId: target.scope.organizationPublicId,
+            channelConnectionPublicId: target.channelConnectionPublicId,
+          }),
       }),
     writeConnectionUsageEntries: async ({ entries, ...target }) => {
       await withAppDatabaseContext({
         scope: target.scope,
         callback: () =>
           repository.upsertEntries({
+            organizationPublicId: target.scope.organizationPublicId,
             channelConnectionPublicId: target.channelConnectionPublicId,
             entries,
           }),

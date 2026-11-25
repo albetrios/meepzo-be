@@ -34,6 +34,8 @@ describe('auth routes rate-limit policy (sec-r5-followup-tc-3)', () => {
   }
 
   const STRICT_AUTHED_ROUTES: Array<{ method: string; url: string; description: string }> = [
+    // PASSWORD-ROUTES-DISABLED: inside the PASSWORD_ROUTES_ENABLED block of auth.routes.ts.
+    { method: 'post', url: '/password/change', description: 'authenticated password change' },
     { method: 'post', url: '/step-up', description: 'recent-step-up re-auth' },
     { method: 'post', url: '/me/mfa/enroll', description: 'MFA enrollment phase 1' },
     {
@@ -104,8 +106,11 @@ describe('auth public-route rate-limit + captcha policy (public go-live surface)
   // IP-keyed strict public cap — must be present on every unauthenticated credential / token /
   // outbound-email / OAuth route so brute-force and enumeration cannot run unbounded.
   const STRICT_PUBLIC_ROUTES: Array<{ method: string; url: string }> = [
+    { method: 'post', url: '/login' },
     { method: 'post', url: '/email/send-code' },
     { method: 'post', url: '/email/login' },
+    { method: 'post', url: '/password/forgot' },
+    { method: 'post', url: '/password/reset' },
     { method: 'post', url: '/mfa/login' },
     { method: 'post', url: '/webauthn/authenticate/options' },
     { method: 'post', url: '/webauthn/authenticate/verify' },
@@ -123,8 +128,11 @@ describe('auth public-route rate-limit + captcha policy (public go-live surface)
 
   // CAPTCHA (Turnstile) on the public credential / outbound-email forms.
   const CAPTCHA_PROTECTED_ROUTES: Array<{ method: string; url: string }> = [
+    { method: 'post', url: '/login' },
     { method: 'post', url: '/email/send-code' },
     { method: 'post', url: '/email/login' },
+    { method: 'post', url: '/password/forgot' },
+    { method: 'post', url: '/password/reset' },
     { method: 'post', url: '/mfa/login' },
     { method: 'post', url: '/webauthn/authenticate/options' },
   ];
@@ -144,7 +152,9 @@ describe('auth public-route rate-limit + captcha policy (public go-live surface)
   // Per-identity (per-email) throttle layered on the IP cap so spoofed-IP rotation cannot bypass
   // the public limit on the highest-value credential / email-sending endpoints.
   const PER_EMAIL_THROTTLED_ROUTES: Array<{ method: string; url: string }> = [
+    { method: 'post', url: '/login' },
     { method: 'post', url: '/email/send-code' },
+    { method: 'post', url: '/password/forgot' },
     { method: 'post', url: '/webauthn/authenticate/options' },
   ];
   for (const route of PER_EMAIL_THROTTLED_ROUTES) {

@@ -2,7 +2,10 @@ import {
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
-import type { WorkerDatabaseSlotLimiter } from '@/infrastructure/queue/worker-runtime/worker-database-slot-limiter.js';
+import {
+  type WorkerDatabaseSlotLimiter,
+  toDatabaseSlotRunner,
+} from '@/infrastructure/queue/worker-runtime/worker-database-slot-limiter.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import { INSTAGRAM_WEBHOOK_EVENTS_PER_JOB } from '@/shared/constants/instagram.constants.js';
 import {
@@ -64,9 +67,6 @@ function isRetriedLockError(error: unknown): boolean {
   const code = getPostgresErrorCode(error);
   return (code !== undefined && RETRIED_LOCK_ERROR_CODES.has(code)) || isPostgresLockTimeout(error);
 }
-
-/** Runs a callback as-is — the database slot of a caller with no limiter (tests). */
-const RUN_WITHOUT_SLOT = <T>(callback: () => Promise<T>): Promise<T> => callback();
 
 /**
  * One tag event's one transaction (WH15, WH26): `done_at` first (0 rows → done already), then her
@@ -141,6 +141,64 @@ async function startTagEventWithLockRetries({
 }
 
 /**
+ * One tag event of the job: started (or found done) and counted; a failure that is not Postgres
+ * being down is logged, counted and left for the pick-up.
+ */
+async function takeInTagEvent({
+  row,
+  runInDatabaseSlot,
+  services,
+  organizationPublicId,
+  organizationId,
+  jobId,
+  logFields,
+  result,
+  failedIds,
+}: {
+  row: Parameters<typeof startTagEventWithLockRetries>[0]['row'];
+  runInDatabaseSlot: Parameters<typeof startTagEventWithLockRetries>[0]['runInDatabaseSlot'];
+  services: InstagramTagEventIntakeServices;
+  organizationPublicId: string;
+  organizationId: number;
+  jobId: string;
+  logFields: Record<string, unknown>;
+  result: InstagramTagEventIntakeJobResult;
+  failedIds: Set<number>;
+}): Promise<void> {
+  const eventLogFields = {
+    ...logFields,
+    contactPublicId: row.contact_public_id,
+    channelAccountPublicId: row.channel_account_public_id,
+    chainNumber: row.chain_number,
+  };
+  try {
+    const outcome = await startTagEventWithLockRetries({
+      runInDatabaseSlot,
+      services,
+      organizationPublicId,
+      organizationId,
+      row,
+      requestId: jobId,
+    });
+    if (outcome === 'already_done') result.alreadyDoneCount += 1;
+    else result.doneCount += 1;
+    logger.info({ ...eventLogFields, outcome }, 'app.instagram_webhook.tag_event_taken_in');
+  } catch (error) {
+    if (isDatabaseUnavailableError(error)) throw error;
+    failedIds.add(row.id);
+    result.failedCount += 1;
+    logger.warn(
+      {
+        ...eventLogFields,
+        errorName: error instanceof Error ? error.name : typeof error,
+        code: getPostgresErrorCode(error),
+      },
+      'app.instagram_webhook.tag_event_failed',
+    );
+  }
+}
+
+/**
  * One tag-intake job (feat-instagram-dm-sending § 5 WH15, worker-changes WC-4, scale review S20):
  * the undone tag events of up to 500 contacts of one organization, oldest first, each started into
  * the account's tag automations — never sends.
@@ -172,10 +230,7 @@ export async function processInstagramTagEventIntakeJob({
   limiter?: WorkerDatabaseSlotLimiter | null | undefined;
 }): Promise<InstagramTagEventIntakeJobResult> {
   const { organizationPublicId, contactPublicIds } = jobData;
-  const runInDatabaseSlot =
-    limiter === null || limiter === undefined
-      ? RUN_WITHOUT_SLOT
-      : <T>(callback: () => Promise<T>) => limiter.runInSlot({ callback });
+  const runInDatabaseSlot = toDatabaseSlotRunner(limiter);
   const result: InstagramTagEventIntakeJobResult = {
     doneCount: 0,
     alreadyDoneCount: 0,
@@ -207,37 +262,17 @@ export async function processInstagramTagEventIntakeJob({
     const pending = rows.filter((row) => !failedIds.has(row.id));
     if (pending.length === 0) break;
     for (const row of pending) {
-      const eventLogFields = {
-        ...logFields,
-        contactPublicId: row.contact_public_id,
-        channelAccountPublicId: row.channel_account_public_id,
-        chainNumber: row.chain_number,
-      };
-      try {
-        const outcome = await startTagEventWithLockRetries({
-          runInDatabaseSlot,
-          services,
-          organizationPublicId,
-          organizationId: organization.id,
-          row,
-          requestId: jobId,
-        });
-        if (outcome === 'already_done') result.alreadyDoneCount += 1;
-        else result.doneCount += 1;
-        logger.info({ ...eventLogFields, outcome }, 'app.instagram_webhook.tag_event_taken_in');
-      } catch (error) {
-        if (isDatabaseUnavailableError(error)) throw error;
-        failedIds.add(row.id);
-        result.failedCount += 1;
-        logger.warn(
-          {
-            ...eventLogFields,
-            errorName: error instanceof Error ? error.name : typeof error,
-            code: getPostgresErrorCode(error),
-          },
-          'app.instagram_webhook.tag_event_failed',
-        );
-      }
+      await takeInTagEvent({
+        row,
+        runInDatabaseSlot,
+        services,
+        organizationPublicId,
+        organizationId: organization.id,
+        jobId,
+        logFields,
+        result,
+        failedIds,
+      });
     }
   }
   logger.info({ ...logFields, ...result }, 'app.instagram_webhook.tag_intake_job_completed');

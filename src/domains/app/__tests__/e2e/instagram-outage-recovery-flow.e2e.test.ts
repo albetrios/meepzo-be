@@ -117,6 +117,7 @@ describe('Flow — recovery after an outage (R62)', () => {
       addLaneTurns: addMissingInstagramSendLaneTurns,
       addFastMessages: addMissingInstagramSendFastMessages,
       runInDatabaseSlot: (callback) => callback(),
+      jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
     });
 
   /** People write "catalog" to the account: Meta delivers it, intake runs (a fast answer waits). */

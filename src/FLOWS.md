@@ -76,8 +76,8 @@ sequenceDiagram
 
 ## login-flow
 
-Passwords are off everywhere (feat-instagram-dm-sending P84): there is no `POST /auth/login`,
-forgot, reset or change. A returning person signs in exactly as in the `signup-flow` above — the
+Passwords are off everywhere (feat-instagram-dm-sending P84; since P251 the four password routes are kept disabled behind `PASSWORD_ROUTES_ENABLED`, default off → 404): with the flag off there is no `POST /auth/login`,
+forgot, reset or change (on, login is one more first factor into `completeFirstFactorAuth`). A returning person signs in exactly as in the `signup-flow` above — the
 email code (`POST /auth/email/send-code` then `POST /auth/email/login`) — or with Google/Apple OAuth
 or a passkey. Every first factor ends in `completeFirstFactorAuth`: a session, or an
 `mfa_required` challenge completed with `POST /auth/mfa/login`.
@@ -489,7 +489,7 @@ No Meta call runs inside the database context: read, close the unit of work, cal
 - **Meta down or throttling on the code exchange** → `503 instagram_unavailable` with `Retry-After`; **once the one-time code is spent** → `409 instagram_connect_restart_required` (D56); **a `META_*` setting unset** → `503 instagram_not_configured`.
 - **The picks exceed the plan's `channel_accounts_max`** → `409 plan_account_limit`, nothing saved; two picks at once in one organization are serialized by the organization lock. **A pick live in another organization** → `connected_elsewhere` for that pick, the others connect; a race with another organization at the same moment → `409 instagram_account_connected_elsewhere`.
 - **The connection is `error` or `revoked`, or Meta refuses its token on the pick** → `409 channel_connection_not_connected`: reconnect first.
-- **The set-up fails after the pick's commit** → never fails the pick: the `instagram-account-setup` task (six webhook fields, starter questions, message-access probe) tries again after 1, 5, 15, 60 minutes, then hourly, and emails the owners once after the 60-minute try; the account shows `is_webhook_subscribed: false` meanwhile, and the daily check also subscribes it (feat-instagram-dm-sending R40, P409).
+- **The set-up fails after the pick's commit** → never fails the pick: the `instagram-account-setup` task (six webhook fields, starter questions, message-access probe) tries again after 1, 5, 15, 60 minutes, then hourly, and emails the owners once after the 60-minute try; the account shows `is_webhook_subscribed: false` meanwhile, and the 10-minute subscription check starts the set-up again (feat-instagram-dm-sending R40, P409).
 - **No `channel-account:manage`** → `403 missing_permission`; **a personal organization** → `422`; **a missing or reused `X-Idempotency-Key`** on the callback or the pick → `422`.
 
 ## instagram-account-health-flow
@@ -629,8 +629,10 @@ sequenceDiagram
   Scheduler->>Worker: every hour at :37 — app-partition-upkeep (drop-expired-app-partitions)
   Worker->>DB: app.fn_manage_time_partitions per table, maintenance role only — parts made 14 days ahead; expired parts detached and dropped (events and keys 8 days, attempts 8, messages 30 after their week, comment logs 90 and run events then runs 98 after their month; a runs part with an open run kept)
   Note over Scheduler,DB: no batch delete remains on the seven time-split tables (feat-instagram-dm-sending R14, R49); the daily 02:23 make pass and one at worker start keep the parts coming
-  Scheduler->>Worker: 03:40 — automation-tombstone-retention
-  Worker->>DB: automations deleted more than 180 days ago that nothing points at (the others wait for a later day)
+  Scheduler->>Worker: every hour at :07 — app-partition-upkeep (clean-up-app-tables)
+  Worker->>DB: within a 10-minute budget, per table its cap: unused file links of automations deleted over 179 days ago, broadcasts and segments deleted over 90 days ago, recipients and ended stops over 90 days, tag events over 8 days, month counts over 13 months; the oldest-row gauge per table (P92)
+  Scheduler->>Worker: every hour at :47 — automation-tombstone-retention
+  Worker->>DB: automations deleted more than 180 days ago that nothing points at (the others wait for a later hour), within the budget
 
   Team->>Contact: DELETE /app/contacts/{contact_id}
   Contact->>DB: lock the live contact (FOR UPDATE) — else 404 contact_not_found
@@ -641,7 +643,7 @@ sequenceDiagram
   Team->>Organization: DELETE /tenancy/organization (the owner, with a recent step-up)
   Organization->>Erasure: eraseForOrganizationOffboarding — after the subscription cancel, in the organization's own scope
   Erasure->>Instagram: unsubscribe the live account (best effort, outside any transaction)
-  Erasure->>DB: every account revoked, its token deleted, its profile erased, its stored posts deleted, COMMIT
+  Erasure->>DB: every account revoked, its token deleted, its profile erased, its stored posts deleted, the revoked accounts' sending lanes stopped (CA8), COMMIT
   Organization->>DB: the soft delete — the organization's rows are hidden from here on
   Purge->>DB: the organization tombstoned long enough — hard delete, every app row cascades
 ```

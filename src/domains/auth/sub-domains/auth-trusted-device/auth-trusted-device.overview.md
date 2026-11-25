@@ -48,11 +48,12 @@ stateDiagram-v2
 - A missing, unknown, expired, revoked or another person's cookie is simply not accepted: the 2FA
   screen shows as without it. No error is ever raised for a cookie.
 
-## Later rows
+## Clean-up
 
-- The hourly clean-up of rows expired or revoked over `TRUSTED_DEVICE_ENDED_KEEP_DAYS` (30) days is
-  ROUTE R50 (WC-64): it calls `TrustedDeviceRepository.deleteEndedBefore` inside the session-retention
-  maintenance context. Nothing calls it before R50.
+- The hourly session clean-up (`auth-session/workers/session-cleanup.processor.ts`, ROUTE R50, WC-64,
+  P92) deletes rows expired or revoked over `TRUSTED_DEVICE_ENDED_KEEP_DAYS` (30) days ago through
+  `TrustedDeviceRepository.deleteEndedBefore` inside the session-retention maintenance context, within
+  its time budget and cap; `readEndedOverdueSeconds` feeds its "oldest row past its keep time" gauge.
 
 ## Policy constants
 

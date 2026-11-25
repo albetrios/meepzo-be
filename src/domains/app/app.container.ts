@@ -525,6 +525,8 @@ function createInstagramMediaAndErasureServices(options: {
   const instagramAccountErasureService = new InstagramAccountErasureService(
     options.instagramAccountService,
     instagramMediaService,
+    // An organization delete stops the revoked accounts' lanes (CA8, R61).
+    options.lanePort,
   );
   const channelConnectionMetaCallbackService = new ChannelConnectionMetaCallbackService(
     options.channelConnectionRepository,
@@ -1015,6 +1017,23 @@ function withSendWorkAndWatches(
   };
 }
 
+/**
+ * Route 12's channel account port (P42, CA11). The channel account service depends on the settings
+ * service, so route 12 reaches it through this port; each call reads the service at request time,
+ * after both are built.
+ */
+function createSettingsChannelAccountPort(
+  readChannelAccountService: () => ChannelAccountService,
+): InstagramAccountSettingsChannelAccountPort {
+  return {
+    requireLiveInstagramAccount: (input) =>
+      readChannelAccountService().requireLiveInstagramAccount(input),
+    setAutomationEnabled: (input) => readChannelAccountService().setAutomationEnabled(input),
+    canChannelAccountUseFeature: (input) =>
+      readChannelAccountService().canChannelAccountUseFeature(input),
+  };
+}
+
 /** The connection's repository and its one token path (MC9) — shared by the account and connection services. */
 function createConnectionToken() {
   const channelConnectionRepository = new ChannelConnectionRepository();
@@ -1034,11 +1053,11 @@ function createConnectionToken() {
  */
 function createInstagramAccountTaskWork({
   sending,
-  instagramAccountService,
+  channelAccountService,
   automationService,
 }: {
   sending: { instagramSendWork: InstagramSendWork };
-  instagramAccountService: InstagramAccountService;
+  channelAccountService: ChannelAccountService;
   automationService: AutomationService;
 }): { instagramSendWork: InstagramSendWork; instagramAccountTaskSlots: InstagramAccountTaskSlots } {
   const baseWork = sending.instagramSendWork;
@@ -1052,7 +1071,8 @@ function createInstagramAccountTaskWork({
     taskHandlers: {
       ...baseWork.taskHandlers,
       ...buildInstagramAccountTaskHandlers({
-        accountService: instagramAccountService,
+        // The guarded break that also stops the account's lanes (CA4, SN5 — intake's path, P142).
+        channelAccountService,
         // The extension's one writer (2.A.10) — stateless, so the jobs hold their own instance.
         extensionService: new InstagramAccountExtensionService(new InstagramAccountRepository()),
         starterQuestionSource: automationService,
@@ -1062,6 +1082,20 @@ function createInstagramAccountTaskWork({
     },
   };
   return { instagramSendWork, instagramAccountTaskSlots };
+}
+
+/** The cross-domain services {@link createAppContainer} is given (its parameters). */
+export interface AppContainerDependencies {
+  organizationService: OrganizationService;
+  /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
+  planAccessService: ChannelConnectionPlanAccessService;
+  /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
+  trialPort: ChannelConnectionTrialPort;
+  /**
+   * The upload domain's usable-file read (`UploadService.findUsableMessageFile`, R12) — go-live's
+   * file check (AU13 check 15) and the Instagram attachment (6.C, R20); absent in a unit test.
+   */
+  messageFilePort?: (AutomationMessageFilePort & InstagramAttachmentFilePort) | undefined;
 }
 
 /**
@@ -1081,18 +1115,7 @@ export function createAppContainer({
   planAccessService,
   trialPort,
   messageFilePort,
-}: {
-  organizationService: OrganizationService;
-  /** Billing's plan read — the channel account limit (feat-instagram-dm-sending MC7). */
-  planAccessService: ChannelConnectionPlanAccessService;
-  /** Billing's trial port — a pick during a trial (MC7, BL7, ROUTE row R24). */
-  trialPort: ChannelConnectionTrialPort;
-  /**
-   * The upload domain's usable-file read (`UploadService.findUsableMessageFile`, R12) — go-live's
-   * file check (AU13 check 15) and the Instagram attachment (6.C, R20); absent in a unit test.
-   */
-  messageFilePort?: (AutomationMessageFilePort & InstagramAttachmentFilePort) | undefined;
-}): AppContainer {
+}: AppContainerDependencies): AppContainer {
   const { instagramMessageService, channelSendingPorts, broadcastRecipientService } =
     createChannelSendingServices({ automation: () => automation });
   const { channelConnectionRepository, channelConnectionTokenService } = createConnectionToken();
@@ -1108,13 +1131,7 @@ export function createAppContainer({
     channelConnectionTokenService,
     // The channel account service depends on the settings service, so route 12 reaches it through
     // this port; each call runs at request time, after both are built.
-    settingsChannelAccountPort: {
-      requireLiveInstagramAccount: (input) =>
-        channelAccountService.requireLiveInstagramAccount(input),
-      setAutomationEnabled: (input) => channelAccountService.setAutomationEnabled(input),
-      canChannelAccountUseFeature: (input) =>
-        channelAccountService.canChannelAccountUseFeature(input),
-    },
+    settingsChannelAccountPort: createSettingsChannelAccountPort(() => channelAccountService),
     settingsLanePort: sending.instagramSendLaneService,
   });
   // The channel account (1B, R5): routes 6–11, the feature check, the connection's account port —
@@ -1183,7 +1200,7 @@ export function createAppContainer({
     ...sending,
     ...createInstagramAccountTaskWork({
       sending,
-      instagramAccountService,
+      channelAccountService,
       automationService: automation.automationService,
     }),
     channelConnectionService,

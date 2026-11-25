@@ -495,6 +495,29 @@ describe('AutomationRunService (database, recording sending port)', () => {
     expect(port.steps()).toEqual(['messages#1']);
   });
 
+  it('a run waiting for her email when the move down takes effect moves on to its next step at her next message (AC-23.4)', async () => {
+    await liveAutomation({
+      trigger_type: 'dm_keyword',
+      keywords: ['price'],
+      steps: stepsWith({
+        hello: { on: false, versions: [] },
+        email: { on: true, wordings: ['Email?'] },
+      }),
+    });
+    await directMessage('price');
+    expect(port.steps()).toEqual(['email']);
+    // The ask is sent: the run now waits for her email.
+    await report('email', 'sent');
+    const [waiting] = await readRunRows(organization.id);
+    expect(waiting).toMatchObject({ waiting_for: 'email' });
+
+    // The move down takes effect: the plan's email ask is off; her next message moves the run on.
+    planSwitches = {};
+    const answered = await directMessage('hi again');
+    expect(answered.outcome).toBe('run_continued');
+    expect(port.steps()).toEqual(['email', 'messages#1']);
+  });
+
   it('a list message whose window closed cancels the run window_closed; a failed one fails it (D29)', async () => {
     const automation = await liveAutomation({
       trigger_type: 'dm_keyword',

@@ -69,6 +69,8 @@ describe('principal-scope minting confinement', () => {
       'stripe-webhook/stripe-webhook-organization.util.ts', // worker-side organization resolution for Stripe events
       // The e2e flows' fake channel sending sub-domain (a worker's result save, AU35 — R14).
       'domains/app/__tests__/e2e/instagram-comment-flow.helper.ts',
+      // The lane tests' harness: the send core's ticket turn as the send workers run it (R43–R45).
+      'domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-lane-harness.factory.ts',
     ];
     const offenders = grepFiles('PRINCIPAL_SCOPE.JOB').filter(
       (filePath) => !allowedFragments.some((fragment) => filePath.includes(fragment)),

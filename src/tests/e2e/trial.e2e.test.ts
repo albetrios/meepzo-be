@@ -25,6 +25,7 @@ import {
 import { insertLanes } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import type { InstagramPlanChangeTaskInput } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-plan-change.job.schema.js';
 import { runInstagramPlanChangeTask } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-plan-change.processor.js';
+import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
 import { deliverStripeSubscriptionEvent } from '@/tests/helpers/stripe-subscription-event.helper.js';
@@ -331,10 +332,13 @@ describe('Flow: a trial from start to its end (R59)', () => {
       SELECT status, deleted_at FROM app.automations WHERE organization_id = ${team.organization.id}`;
     expect(automations).toEqual([{ status: 'live', deleted_at: null }]);
 
-    // A second trial in the same organization is refused (AC-24.5): the organization is on its
-    // local Free row, and no second trial row or account record is made.
+    // A second trial in the same organization is refused (AC-24.5): the local Free row does not
+    // hide the one-trial rule, and no second trial row or account record is made.
     const again = await startTrial(catalog.studio.public_id);
     expect(again.statusCode, again.body).toBe(409);
+    expect((again.json() as { error: { reason?: string } }).error.reason, again.body).toBe(
+      'trial_already_used',
+    );
     const trialling = await operatorQuery<{ count: number }[]>`
       SELECT count(*)::int AS count FROM billing.subscriptions
       WHERE organization_id = ${team.organization.id} AND status = 'TRIALING'`;
@@ -343,6 +347,102 @@ describe('Flow: a trial from start to its end (R59)', () => {
       SELECT count(*)::int AS count FROM billing.trial_accounts
       WHERE organization_id = ${team.organization.id}`;
     expect(recorded[0]?.count).toBe(2);
+  });
+
+  /** The trial ends unpaid at Stripe: the organization is left on its local Free row. */
+  async function endTrialUnpaid(row: SubscriptionRow) {
+    const endedAt = new Date(Date.now() - 60_000);
+    await operatorQuery`
+      UPDATE billing.subscriptions SET current_period_start = ${new Date(endedAt.getTime() - 7 * DAY)},
+        current_period_end = ${endedAt}, trial_end = ${endedAt}
+      WHERE public_id = ${row.public_id}`;
+    await deliverStripeSubscriptionEvent({
+      app,
+      organizationPublicId: team.organization.public_id,
+      providerSubscriptionId: row.provider_subscription_id,
+      providerCustomerId: row.provider_customer_id,
+      type: 'customer.subscription.deleted',
+      status: 'canceled',
+      priceId: 'price_creator_monthly',
+      periodStart: new Date(endedAt.getTime() - 7 * DAY),
+      periodEnd: endedAt,
+      trialEnd: endedAt,
+    });
+  }
+
+  async function liveRows() {
+    return operatorQuery<
+      { status: string; plan_id: string; provider_subscription_id: string | null }[]
+    >`
+      SELECT status, plan_id::text, provider_subscription_id FROM billing.subscriptions
+      WHERE organization_id = ${team.organization.id} AND status NOT IN ('CANCELED', 'INCOMPLETE_EXPIRED')`;
+  }
+
+  it('a brand-new organization on Free subscribes to a paid plan, and another starts its first trial (route 102)', async () => {
+    const paid = await post(testApiPath('/billing/subscriptions'), {
+      plan_id: catalog.creator.public_id,
+      billing_cycle: 'monthly',
+    });
+    expect(paid.statusCode, paid.body).toBe(200);
+    expect(await liveRows()).toEqual([
+      expect.objectContaining({ plan_id: String(catalog.creator.id) }),
+    ]);
+
+    team = await createInstagramTeam();
+    const trial = await startTrial(catalog.creator.public_id);
+    expect(trial.statusCode, trial.body).toBe(200);
+    expect(await liveRows()).toEqual([
+      expect.objectContaining({ status: 'TRIALING', plan_id: String(catalog.creator.id) }),
+    ]);
+  });
+
+  it('after an unpaid trial end the organization on its local Free row subscribes to a paid plan; a second trial answers trial_already_used', async () => {
+    expect((await startTrial(catalog.creator.public_id)).statusCode).toBe(200);
+    await endTrialUnpaid(await liveRow());
+    expect(await liveRows()).toEqual([
+      { status: 'ACTIVE', plan_id: String(catalog.free.id), provider_subscription_id: null },
+    ]);
+
+    const again = await startTrial(catalog.studio.public_id);
+    expect(again.statusCode, again.body).toBe(409);
+    expect((again.json() as { error: { reason?: string } }).error.reason, again.body).toBe(
+      'trial_already_used',
+    );
+
+    handedTasks.length = 0;
+    const paid = await post(testApiPath('/billing/subscriptions'), {
+      plan_id: catalog.creator.public_id,
+      billing_cycle: 'monthly',
+    });
+    expect(paid.statusCode, paid.body).toBe(200);
+    // The local Free row ends in the same commit: one live row, the paid one.
+    const live = await liveRows();
+    expect(live).toHaveLength(1);
+    expect(live[0]).toMatchObject({ plan_id: String(catalog.creator.id) });
+    expect(live[0]?.provider_subscription_id).not.toBeNull();
+    expect((await planAccess()).plan?.id).toBe(catalog.creator.public_id);
+    // The accounts the trial end stopped come back on the paid plan.
+    await runHandedPlanChanges();
+    expect(await planStops()).toEqual([null, null]);
+  });
+
+  it('an organization on a local Free row that never had a trial starts its first trial', async () => {
+    await createTestSubscription({
+      organizationId: team.organization.id,
+      planId: catalog.free.id,
+      status: 'ACTIVE',
+    });
+    const trial = await startTrial(catalog.creator.public_id);
+    expect(trial.statusCode, trial.body).toBe(200);
+    expect(await liveRows()).toEqual([
+      expect.objectContaining({ status: 'TRIALING', plan_id: String(catalog.creator.id) }),
+    ]);
+    // Free again on Free's own row is still the one live row's job (409).
+    const free = await post(testApiPath('/billing/subscriptions'), {
+      plan_id: catalog.free.public_id,
+      billing_cycle: 'monthly',
+    });
+    expect(free.statusCode, free.body).toBe(409);
   });
 
   it('with no pick the oldest-connected account stays on Free (AC-24.3)', async () => {

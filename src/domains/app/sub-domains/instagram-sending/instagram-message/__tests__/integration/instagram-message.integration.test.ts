@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
+import { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
+import {
+  getBullMQConnectionOptions,
+  getBullMQKeyPrefix,
+} from '@/infrastructure/queue/connection.js';
+import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
+import { INSTAGRAM_RETRY_FAILED_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-retry-failed.job.schema.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import {
@@ -46,6 +53,42 @@ const HOUR = 60 * 60 * 1000;
  */
 describe('Failed messages and contact activity routes (24–26, 36–37)', () => {
   let app: FastifyInstance;
+
+  /**
+   * Runs the `retry-failed` jobs routes 26 / 37 queued (WC-42, R46) with the worker's handler, as
+   * the database-heavy task worker does; answers how many jobs ran.
+   */
+  async function runQueuedRetries(): Promise<number> {
+    const tasks = new Queue(INSTAGRAM_DATABASE_TASKS_QUEUE_NAME, {
+      connection: getBullMQConnectionOptions(),
+      prefix: getBullMQKeyPrefix(),
+    });
+    try {
+      const jobs = (await tasks.getJobs(['waiting', 'prioritized'])).filter(
+        (job) =>
+          job.name === INSTAGRAM_RETRY_FAILED_JOB_NAME &&
+          job.data.organizationPublicId === team.organization.public_id,
+      );
+      const handler = app.appDomain.instagramSendWork.taskHandlers[INSTAGRAM_RETRY_FAILED_JOB_NAME];
+      for (const job of jobs) {
+        await handler?.run({
+          organizationPublicId: job.data.organizationPublicId,
+          taskInput: handler.inputSchema.parse(job.data.taskInput),
+          context: {
+            jobId: String(job.id),
+            runInDatabaseSlot: (callback) => callback(),
+            returnTicket: async () => {
+              throw new Error('not returned');
+            },
+          },
+        });
+        await job.remove();
+      }
+      return jobs.length;
+    } finally {
+      await tasks.close();
+    }
+  }
   let team: InstagramTeamFixture;
   let account: { id: number; public_id: string; channel_account_id: number };
   let automation: { id: number; public_id: string };
@@ -267,8 +310,15 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
       expect(response.statusCode).toBe(200);
       expect((response.json() as { data: unknown }).data).toEqual({
         expected_retry_count: 2,
-        is_queued: false,
+        is_queued: true,
       });
+      // The press answers at once; the `retry-failed` job puts them back (WC-42, R46).
+      expect((await readInstagramMessages(team.organization.id)).map((row) => row.status)).toEqual([
+        'failed',
+        'failed',
+        'failed',
+      ]);
+      expect(await runQueuedRetries()).toBe(1);
       const rows = await readInstagramMessages(team.organization.id);
       expect(rows.map((row) => row.status)).toEqual(['waiting', 'waiting', 'failed']);
       // The same key again starts nothing twice; a new press finds nothing left to retry.
@@ -317,8 +367,14 @@ describe('Failed messages and contact activity routes (24–26, 36–37)', () =>
       const response = await retry({ url: `${contactFailed()}/retry`, token: team.editorToken });
       expect((response.json() as { data: unknown }).data).toEqual({
         expected_retry_count: 2,
-        is_queued: false,
+        is_queued: true,
       });
+      expect(await runQueuedRetries()).toBe(1);
+      expect(
+        (await readInstagramMessages(team.organization.id)).filter(
+          (row) => row.status === 'waiting',
+        ),
+      ).toHaveLength(2);
 
       const optedOut = await insertContact({
         organizationId: team.organization.id,

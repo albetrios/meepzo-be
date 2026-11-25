@@ -186,20 +186,35 @@ export class BroadcastRecipientService {
    *
    * @remarks
    * Algorithm: the broadcast locked by public id; not `sending` (cancelled, done, deleted) → an empty
-   * last piece; its copy of the conditions resolved against the account's automations; the piece
-   * read, inserted on conflict, the messages saved, the numbers moved. Failure modes: no sending port
-   * for its channel throws. Side effects: recipients, messages, `matched` and `skipped`.
+   * last piece; the cursor's contact resolved (its public id → id; gone → from the start); its copy
+   * of the conditions resolved against the account's automations; the piece read, inserted on
+   * conflict, the messages saved, the numbers moved; a short piece is the last — the "audience
+   * built" mark (7.A.10) set in the same commit (R46). Failure modes: no sending port for its channel
+   * throws. Side effects: recipients, messages, `matched`, `skipped`, `audience_built_at`.
    */
   async buildAudiencePiece({
     databaseHandle,
     broadcastPublicId,
-    afterContactId,
+    afterContactPublicId,
   }: BroadcastAudiencePieceInput): Promise<BroadcastAudiencePieceResult> {
     const repository = new BroadcastRecipientRepository(databaseHandle);
     const broadcast = await repository.lockLiveBroadcastByPublicId(broadcastPublicId);
     if (broadcast === null || broadcast.status !== 'sending' || broadcast.conditions === null) {
-      return { createdCount: 0, skippedCount: 0, lastContactId: afterContactId, isLastPiece: true };
+      return {
+        createdCount: 0,
+        skippedCount: 0,
+        lastContactPublicId: afterContactPublicId,
+        isLastPiece: true,
+        channelAccount: null,
+      };
     }
+    const afterContactId =
+      afterContactPublicId === null
+        ? 0
+        : ((await repository.findContactIdByPublicId({
+            organizationId: broadcast.organization_id,
+            contactPublicId: afterContactPublicId,
+          })) ?? 0);
     const automationIds = await new BroadcastSegmentRepository(
       databaseHandle,
     ).findAccountAutomationIds({
@@ -207,7 +222,7 @@ export class BroadcastRecipientService {
       channelAccountId: broadcast.channel_account_id,
       automationPublicIds: segmentAutomationPublicIds(broadcast.conditions),
     });
-    const contactIds = await repository.listAudiencePiece({
+    const contacts = await repository.listAudiencePiece({
       organizationId: broadcast.organization_id,
       channelAccountId: broadcast.channel_account_id,
       conditions: broadcast.conditions,
@@ -219,7 +234,7 @@ export class BroadcastRecipientService {
       organizationId: broadcast.organization_id,
       channelAccountId: broadcast.channel_account_id,
       broadcastId: broadcast.id,
-      contactIds,
+      contactIds: contacts.map((contact) => contact.id),
     });
     const skippedCount = await this.saveFirstMessages({ databaseHandle, broadcast, recipients });
     await repository.addToBroadcastNumbers({
@@ -227,11 +242,22 @@ export class BroadcastRecipientService {
       broadcastId: broadcast.id,
       change: { matched: recipients.length, skipped: skippedCount },
     });
+    const isLastPiece = contacts.length < BROADCAST_AUDIENCE_PIECE_SIZE;
+    if (isLastPiece) {
+      await repository.markAudienceBuilt({
+        organizationId: broadcast.organization_id,
+        broadcastId: broadcast.id,
+      });
+    }
     return {
       createdCount: recipients.length,
       skippedCount,
-      lastContactId: contactIds.at(-1) ?? afterContactId,
-      isLastPiece: contactIds.length < BROADCAST_AUDIENCE_PIECE_SIZE,
+      lastContactPublicId: contacts.at(-1)?.public_id ?? afterContactPublicId,
+      isLastPiece,
+      channelAccount: {
+        organizationId: broadcast.organization_id,
+        channelAccountId: broadcast.channel_account_id,
+      },
     };
   }
 

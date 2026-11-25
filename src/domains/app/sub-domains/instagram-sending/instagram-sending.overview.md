@@ -76,6 +76,16 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   back, no try used (AC-17.20). The work is `appDomain.instagramSendWork` (`InstagramLaneTurnWork`,
   `InstagramFastMessageWork`, `InstagramTaskHandler`s): the send core for the two send queues (R42), the task
   handlers from R40, R41, R46 — a ticket for missing work is logged and finished, no row touched.
+- **The task split (S19, R46):** the Meta-calling tasks ride `instagram-tasks` (behind the sending gate,
+  `WORKER_CONCURRENCY_INSTAGRAM_TASKS`, at most `INSTAGRAM_TASKS_PER_ORGANIZATION_MAX` of one organization per
+  process); the database-heavy ones — `contact-bulk-action`, `segment-count`, `broadcast-audience`,
+  `retry-failed` — ride `instagram-database-tasks` (`queues/instagram-database-tasks.queue.ts`, its job input may
+  carry a list of ids or a filter; `WORKER_CONCURRENCY_INSTAGRAM_DATABASE_TASKS`, at most
+  `INSTAGRAM_DATABASE_TASKS_PER_ORGANIZATION_MAX` per organization, on with sending off). A handler on the queue of
+  the other kind is dead-lettered; an organization at its cap gets its ticket back 2 s later, no try used. The
+  handlers are wired in `app.tasks.ts` (contacts and broadcasts are channel-neutral, so their processors live in
+  their own `workers/` and are wrapped there); this folder's own are `workers/instagram-retry-failed.processor.ts`
+  and `workers/instagram-attachment-upload.processor.ts`.
 - `instagram-send-core.service.ts` — `InstagramSendCoreService` (R42, SNC3, SNC4, SNC7): the work behind the
   lane-turn and fast tickets — the turn's claim (or, with its stop over, a test turn under the account's one test
   claim), the account's holds and the all-accounts stop, the pace (95 % → no call, 80 % → boxes doubled), gate 1, the

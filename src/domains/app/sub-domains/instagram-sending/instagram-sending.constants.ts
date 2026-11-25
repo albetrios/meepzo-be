@@ -245,6 +245,23 @@ export const INSTAGRAM_DATABASE_SLOT_LIMITER_NAME = 'instagram-database';
 export const SENDING_REFUSED_TICKET_DELAY_MILLISECONDS = 60_000;
 
 /**
+ * How many tasks of one organization one process works at once on the Meta-calling task queue
+ * (`instagram-tasks`, scale review S19, P97 — a quarter of its default 20 places), so one
+ * organization's uploads or set-ups never hold every place.
+ */
+export const INSTAGRAM_TASKS_PER_ORGANIZATION_MAX = 5;
+
+/**
+ * How many tasks of one organization one process works at once on the database-heavy task queue
+ * (`instagram-database-tasks`, S19, P97 — half its default 4 places): one organization's 100,000
+ * contact bulk change or segment count leaves room for every other organization's.
+ */
+export const INSTAGRAM_DATABASE_TASKS_PER_ORGANIZATION_MAX = 2;
+
+/** How far a task goes back, no try used, when its organization is at its cap (S19). */
+export const INSTAGRAM_TASK_ORGANIZATION_CAP_DELAY_MILLISECONDS = 2000;
+
+/**
  * Tries of a file's upload to Meta just before a send when the account has no attachment row yet
  * (SN20): after this many the message ends `failed` · `attachment_failed`, not counted (the send
  * core counts the tries on the message, ROUTE row R42).

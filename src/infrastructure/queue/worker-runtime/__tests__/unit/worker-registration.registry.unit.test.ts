@@ -63,8 +63,9 @@ describe('worker-registration.registry', () => {
     // WH12–WH15); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
     // `instagram-send-slow` and `instagram-send-fast` in family `instagram-send`, `instagram-tasks`
     // in `instagram`; throughput, event-driven, their database through the shared limiter); +1 for
-    // the channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34).
-    expect(definitions).toHaveLength(44);
+    // the channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34);
+    // +1 for the database-heavy Instagram task queue (`instagram-database-tasks`, S19 — R46).
+    expect(definitions).toHaveLength(45);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -97,12 +98,13 @@ describe('worker-registration.registry', () => {
     // two more; the Instagram webhook event processing (WH5, WH15) one
     // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the Instagram
     // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers; the
-    // channel connection's token check (MC10) one more Postgres-backed, scheduled, maintenance worker.
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(41);
+    // channel connection's token check (MC10) one more Postgres-backed, scheduled, maintenance worker;
+    // the database-heavy task queue (S19, R46) one more Postgres-backed, event-driven throughput one.
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(42);
     expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(36);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
-    ).toHaveLength(11);
+    ).toHaveLength(12);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
     ).toHaveLength(31);
@@ -118,7 +120,7 @@ describe('worker-registration.registry', () => {
     ).toEqual([]);
   });
 
-  it('puts the Instagram send and task queues on one database limiter in the instagram family, gated on sending (SN24, P140)', () => {
+  it('puts the Instagram send and task queues on one database limiter in the instagram family, gated on sending (SN24, P140, S19)', () => {
     const sendingQueues = getWorkerQueueRegistrationDefinitions().filter(
       (definition) => definition.databaseSlotLimiterName !== undefined,
     );
@@ -126,12 +128,22 @@ describe('worker-registration.registry', () => {
       ['instagram-send-slow', 'instagram'],
       ['instagram-send-fast', 'instagram'],
       ['instagram-tasks', 'instagram'],
+      ['instagram-database-tasks', 'instagram'],
     ]);
     for (const definition of sendingQueues) {
       expect(definition.databaseSlotLimiterName).toBe('instagram-database');
       expect(definition.resolvePostgresConcurrency?.(undefined)).toBe(16);
-      expect(definition.isEnabled).toEqual(expect.any(Function));
     }
+    // The send and Meta-calling task queues wait for sending; the database-heavy tasks (bulk
+    // changes, counts, audiences, retries) call no Meta and run with sending off too (R46).
+    expect(
+      sendingQueues.map((definition) => [definition.queueName, definition.isEnabled !== undefined]),
+    ).toEqual([
+      ['instagram-send-slow', true],
+      ['instagram-send-fast', true],
+      ['instagram-tasks', true],
+      ['instagram-database-tasks', false],
+    ]);
   });
 
   it('has no maintenance workers left unscheduled (every retention worker has a cron)', () => {

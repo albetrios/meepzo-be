@@ -6,6 +6,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  gt,
   gte,
   inArray,
   isNotNull,
@@ -414,6 +415,75 @@ export class ContactRepository {
       ...(filter === null ? [] : this.filterConditions(filter)),
     );
     return countWithCap({ database: this.db(), table: contacts, where, cap });
+  }
+
+  /**
+   * One piece of a bulk action (WC-36, CT7): up to `limit` live contacts of the account after the
+   * cursor's id, in id order, selected by the named ids or the filter as {@link countBulkSelection}
+   * counts them, locked `FOR NO KEY UPDATE` for the piece's commit (the contact lock first — the
+   * lock order).
+   */
+  async lockBulkPiece({
+    organizationId,
+    channelAccountId,
+    contactPublicIds,
+    filter,
+    afterContactId,
+    limit,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    contactPublicIds: readonly string[] | null;
+    filter:
+      | (ContactBulkActionFilter & {
+          automationId: number | null | undefined;
+          firstAutomationId: number | null | undefined;
+        })
+      | null;
+    afterContactId: number;
+    limit: number;
+  }): Promise<Array<Pick<ContactRow, 'id' | 'public_id' | 'tags' | 'automations_off_at'>>> {
+    return this.db()
+      .select({
+        id: contacts.id,
+        public_id: contacts.public_id,
+        tags: contacts.tags,
+        automations_off_at: contacts.automations_off_at,
+      })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.organization_id, organizationId),
+          eq(contacts.channel_account_id, channelAccountId),
+          LIVE_CONTACT,
+          gt(contacts.id, afterContactId),
+          contactPublicIds === null
+            ? undefined
+            : inArray(contacts.public_id, [...contactPublicIds]),
+          ...(filter === null ? [] : this.filterConditions(filter)),
+        ),
+      )
+      .orderBy(asc(contacts.id))
+      .limit(limit)
+      .for('no key update');
+  }
+
+  /** The internal id of the organization's contact by public id (a bulk job's cursor), or `null`. */
+  async findIdByPublicId({
+    organizationId,
+    contactPublicId,
+  }: {
+    organizationId: number;
+    contactPublicId: string;
+  }): Promise<number | null> {
+    const [row] = await this.db()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(eq(contacts.organization_id, organizationId), eq(contacts.public_id, contactPublicId)),
+      )
+      .limit(1);
+    return row?.id ?? null;
   }
 
   /**

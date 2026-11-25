@@ -1038,6 +1038,13 @@ const envSchemaBase = z.object({
   /** Job places of the Instagram task queue (`instagram-tasks`) per process (SN2, P91). */
   WORKER_CONCURRENCY_INSTAGRAM_TASKS: z.coerce.number().int().min(1).max(200).default(20),
   /**
+   * Job places of the database-heavy Instagram task queue (`instagram-database-tasks` — bulk contact
+   * changes, segment counts, broadcast audiences, the failed-message retry) per process (scale
+   * review S19, P97). Small on purpose: each place works a unit of work in a slot of
+   * `WORKER_INSTAGRAM_DATABASE_SLOTS`, and one organization holds at most 2 of them.
+   */
+  WORKER_CONCURRENCY_INSTAGRAM_DATABASE_TASKS: z.coerce.number().int().min(1).max(50).default(4),
+  /**
    * The in-process database limiter of the Instagram send, intake and task workers (SN24, P91): how
    * many units of work of one process hold a Postgres connection at once. The worker connection
    * budget counts these slots once per process, not the job places above. A unit of work that waits

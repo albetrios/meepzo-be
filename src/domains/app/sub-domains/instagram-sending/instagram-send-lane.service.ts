@@ -1,4 +1,6 @@
 import { withAppDatabaseContext } from '@/infrastructure/database/contexts/database-context.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { enqueueInstagramSendLaneTurn } from './queues/instagram-send-slow.queue.js';
 import type { ChannelAccountPlanStopReason } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import type {
   ChannelAccountActiveStopOutput,
@@ -17,6 +19,8 @@ import type {
 import { pickActiveStop } from './instagram-send-lane.util.js';
 import {
   INSTAGRAM_SEND_LANES,
+  INSTAGRAM_SLOW_QUEUE_LANES,
+  type InstagramSlowQueueLane,
   INSTAGRAM_SEND_RECONNECT_STOP_REASONS,
   INSTAGRAM_SEND_STOP_ENDED_BY,
   type InstagramSendLane,
@@ -177,6 +181,53 @@ export class InstagramSendLaneService
         await this.laneRepository.wake(key);
       },
     });
+  }
+
+  /**
+   * New work for an account's lanes (a broadcast's audience piece, the owner's retry — ROUTE row
+   * R46): {@link wakeLanes}, then the next ticket of each slow-queue lane that is due (`ready` or
+   * `sleeping` with its next run), so the work starts without waiting for the repair.
+   *
+   * @remarks
+   * Algorithm: the wake's unit, then one read of the lanes; per due slow-queue lane, one
+   * `instagram-send-slow` ticket for its turn at its `next_run_at` (job ids dedupe a queued turn).
+   * Without the account's public id (a caller that holds internal ids only) the lanes are marked due
+   * and the repair adds their tickets (WC-13, R47). Failure modes: a failed add is logged — the
+   * repair puts the ticket back. Side effects: the lane rows; the tickets.
+   */
+  async wakeLaneTurns({
+    scope,
+    organizationId,
+    channelAccountId,
+    channelAccountPublicId,
+    enqueueLaneTurn = enqueueInstagramSendLaneTurn,
+  }: InstagramSendLaneTarget & {
+    channelAccountPublicId: string | null;
+    enqueueLaneTurn?: typeof enqueueInstagramSendLaneTurn;
+  }): Promise<void> {
+    await this.wakeLanes({ scope, organizationId, channelAccountId });
+    if (channelAccountPublicId === null) return;
+    const lanes = await this.listLanes({ scope, organizationId, channelAccountId });
+    const now = Date.now();
+    for (const row of lanes) {
+      const lane = INSTAGRAM_SLOW_QUEUE_LANES.find((name) => name === row.lane);
+      if (lane === undefined || (row.state !== 'ready' && row.state !== 'sleeping')) continue;
+      if (row.next_run_at === null) continue;
+      try {
+        await enqueueLaneTurn({
+          organizationPublicId: scope.organizationPublicId,
+          channelAccountPublicId,
+          lane: lane as InstagramSlowQueueLane,
+          turnNumber: row.turn_number,
+          delayMilliseconds: Math.max(row.next_run_at.getTime() - now, 0),
+        });
+      } catch (error) {
+        logger.warn(
+          { error_name: (error as Error | null)?.name, channelAccountPublicId, lane },
+          'app.instagram_send.enqueue_failed',
+        );
+      }
+    }
   }
 
   /**

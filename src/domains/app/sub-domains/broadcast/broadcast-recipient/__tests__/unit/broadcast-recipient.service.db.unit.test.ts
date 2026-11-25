@@ -162,15 +162,21 @@ describe('BroadcastRecipientService (database)', () => {
         service.buildAudiencePiece({
           databaseHandle,
           broadcastPublicId: broadcast.public_id,
-          afterContactId: 0,
+          afterContactPublicId: null,
         }),
       );
       expect(first).toEqual({
         createdCount: 1,
         skippedCount: 0,
-        lastContactId: open.id,
+        lastContactPublicId: open.public_id,
         isLastPiece: true,
+        channelAccount: {
+          organizationId: organization.id,
+          channelAccountId: account.channel_account_id,
+        },
       });
+      // The last piece sets the "audience built" mark the end duty reads (7.A.10, R46).
+      expect((await readBroadcast(broadcast.id)).audience_built_at).toBeInstanceOf(Date);
       const [recipient] = await readRecipients(broadcast.id);
       expect(recipient).toMatchObject({
         contact_id: open.id,
@@ -199,7 +205,7 @@ describe('BroadcastRecipientService (database)', () => {
         service.buildAudiencePiece({
           databaseHandle,
           broadcastPublicId: broadcast.public_id,
-          afterContactId: 0,
+          afterContactPublicId: null,
         }),
       );
       expect(again.createdCount).toBe(0);
@@ -218,7 +224,7 @@ describe('BroadcastRecipientService (database)', () => {
         service.buildAudiencePiece({
           databaseHandle,
           broadcastPublicId: broadcast.public_id,
-          afterContactId: 0,
+          afterContactPublicId: null,
         }),
       );
       expect(piece).toMatchObject({ createdCount: 1, skippedCount: 1 });
@@ -234,7 +240,7 @@ describe('BroadcastRecipientService (database)', () => {
           service.buildAudiencePiece({
             databaseHandle,
             broadcastPublicId: cancelled.public_id,
-            afterContactId: 0,
+            afterContactPublicId: null,
           }),
         ),
       ).toMatchObject({ createdCount: 0, isLastPiece: true });
@@ -252,7 +258,7 @@ describe('BroadcastRecipientService (database)', () => {
         service.buildAudiencePiece({
           databaseHandle,
           broadcastPublicId: broadcast.public_id,
-          afterContactId: 0,
+          afterContactPublicId: null,
         }),
       );
       expect(saved).toHaveLength(2);
@@ -322,7 +328,7 @@ describe('BroadcastRecipientService (database)', () => {
         recipients!.buildAudiencePiece({
           databaseHandle,
           broadcastPublicId: broadcast.public_id,
-          afterContactId: 0,
+          afterContactPublicId: null,
         }),
       );
       const [message] = await readInstagramMessages(organization.id);
@@ -426,7 +432,7 @@ describe('BroadcastRecipientService (database)', () => {
         service.buildAudiencePiece({
           databaseHandle,
           broadcastPublicId: broadcast.public_id,
-          afterContactId: 0,
+          afterContactPublicId: null,
         }),
       );
 

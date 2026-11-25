@@ -43,6 +43,11 @@ export function getWorkerConcurrencyInstagramTasks(): number {
   return env.WORKER_CONCURRENCY_INSTAGRAM_TASKS;
 }
 
+/** Job places of the database-heavy Instagram task queue per process (S19, P97). */
+export function getWorkerConcurrencyInstagramDatabaseTasks(): number {
+  return env.WORKER_CONCURRENCY_INSTAGRAM_DATABASE_TASKS;
+}
+
 /**
  * Size of the in-process database limiter the Instagram send, intake and task workers share
  * (SN24, P91) — what the worker connection budget counts for them, once per process.

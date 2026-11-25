@@ -24,6 +24,10 @@ import {
   type ValidationErrorItem,
 } from '@/shared/errors/index.js';
 import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { getPostgresErrorCode } from '@/shared/utils/infrastructure/postgres-error.util.js';
+import { isPostgresStatementTimeoutError } from '@/shared/utils/infrastructure/timeout-error.util.js';
+import { SEGMENT_BACKGROUND_COUNT_STATEMENT_TIMEOUT_MS } from '@/domains/app/sub-domains/broadcast/broadcast-segment/broadcast-segment.constants.js';
 import { assertRecordNotChangedSince } from '@/shared/utils/validation/record-fields.util.js';
 import { BROADCAST_STATUS_BY_MODE } from './broadcast.constants.js';
 import type { BroadcastMessages } from './broadcast.dto.js';
@@ -470,6 +474,78 @@ export class BroadcastService {
       await this.ports.sendQueue?.enqueueBroadcastMatchedCount(key);
     }
     return sent;
+  }
+
+  /**
+   * The `segment-count` task's broadcast form (BC10, WC-39 — ROUTE row R46): `matched` of a "when
+   * her chat opens" broadcast, counted from its copy of the conditions.
+   *
+   * @remarks
+   * Algorithm: a unit in the job's scope reads the broadcast (gone, or no longer
+   * `waiting_for_chats` → nothing) and its tree's automations (one no longer the account's →
+   * nothing); a second unit counts under the background count's 30 s statement timeout and sets
+   * `matched` only while the broadcast still waits for chats. Answers the number set, or `null`.
+   * Failure modes: a count past 30 s is logged and answers `null` (`matched` stays 0); other database
+   * errors propagate. Side effects: `matched`.
+   */
+  async countWaitingBroadcastMatched({
+    scope,
+    broadcastPublicId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    broadcastPublicId: string;
+  }): Promise<number | null> {
+    try {
+      return await withAppDatabaseContext({
+        scope,
+        callback: async () => {
+          const organization = await this.organizationService.requireOrganizationByPublicId(
+            scope.organizationPublicId,
+          );
+          const broadcast = await this.broadcastRepository.findLiveByPublicId({
+            organizationId: organization.id,
+            broadcastPublicId,
+          });
+          if (
+            broadcast === null ||
+            broadcast.status !== 'waiting_for_chats' ||
+            broadcast.conditions === null
+          ) {
+            return null;
+          }
+          const conditions = broadcast.conditions as SegmentConditions;
+          const publicIds = segmentAutomationPublicIds(conditions);
+          const automationIds = await this.segmentRepository.findAccountAutomationIds({
+            organizationId: organization.id,
+            channelAccountId: broadcast.channel_account_id,
+            automationPublicIds: publicIds,
+          });
+          if (publicIds.some((publicId) => !automationIds.has(publicId))) return null;
+          const count = await this.segmentRepository.countAudience({
+            organizationId: organization.id,
+            channelAccountId: broadcast.channel_account_id,
+            conditions,
+            automationIds,
+            statementTimeoutMilliseconds: SEGMENT_BACKGROUND_COUNT_STATEMENT_TIMEOUT_MS,
+          });
+          const isSet = await this.broadcastRepository.setWaitingMatched({
+            organizationId: organization.id,
+            broadcastId: broadcast.id,
+            matched: count.matched,
+          });
+          return isSet ? count.matched : null;
+        },
+      });
+    } catch (error) {
+      if (!isPostgresStatementTimeoutError(error) && getPostgresErrorCode(error) !== '57014') {
+        throw error;
+      }
+      logger.warn(
+        { organizationPublicId: scope.organizationPublicId, broadcastPublicId },
+        'broadcast matched count timed out',
+      );
+      return null;
+    }
   }
 
   /**

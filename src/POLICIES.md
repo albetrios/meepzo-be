@@ -174,6 +174,16 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Increasing → a meter a little further behind on a quiet organization; not allowed past 60 s (be-read-cache-guard).
 - **Last reviewed**: 2026-11-24
 
+## SEGMENT_COUNT_CACHE_TTL_SECONDS
+
+- **Value**: 60 seconds
+- **Source**: [src/shared/constants/ttl.constants.ts](src/shared/constants/ttl.constants.ts)
+- **Rationale**: The Redis copy of a segment audience count the background `segment-count` task wrote (`app:segment_count:<organization>:<account>:<conditions hash>`, routes-final § 7.B BC14, WC-39, P5), read by route 82 before its inline count. Derived from Postgres; every contact write moves the count, so nothing tombstones it — the TTL is how old a preview number may get. Its own literal, not an alias of another cache's TTL.
+- **Consequences of change**:
+  - Decreasing → heavy counts run again sooner (each a 30 s database task).
+  - Increasing → not allowed past 60 s (be-read-cache-guard).
+- **Last reviewed**: 2026-11-25
+
 ## API_KEY_LAST_USED_THROTTLE_TTL_SECONDS
 
 - **Value**: 60 seconds

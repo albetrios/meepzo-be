@@ -314,6 +314,30 @@ export interface ContactBulkActionJobInput {
   actorUserPublicId: string;
 }
 
+/**
+ * One piece of a bulk action as the `contact-bulk-action` job hands it to the contact service
+ * (WC-36, R46): the action and selection of route 21, and the cursor.
+ */
+export interface ContactBulkActionPieceInput {
+  channelAccountPublicId: string;
+  action: ContactBulkAction;
+  tag: string | null;
+  contactPublicIds: readonly string[] | null;
+  filter: ContactBulkActionFilter | null;
+  /** The acting user's public id — the pause's `automations_off_by_user_id`. */
+  actorUserPublicId: string;
+  /** The contact the previous piece ended on (`con_…`); `null` for the first piece. */
+  afterContactPublicId: string | null;
+}
+
+/** What one bulk piece did (WC-36): how many contacts changed, the cursor, whether it was the last. */
+export interface ContactBulkActionPieceResult {
+  changedCount: number;
+  /** The last contact the piece read (`con_…`) — the next piece's cursor. */
+  lastContactPublicId: string | null;
+  isLastPiece: boolean;
+}
+
 /** The list filters a bulk action may select by (route 21's `filter`, CT7). */
 export type ContactBulkActionFilter = Omit<
   ContactListQuery,
@@ -321,10 +345,10 @@ export type ContactBulkActionFilter = Omit<
 >;
 
 /**
- * The bulk-action queue port (CT7, WC-36): enqueues one `contact-bulk-action` job on
- * `instagram-tasks`, after route 21's commit, which works the selection in pieces of 500. ROUTE row
- * R46 builds the job and the app container passes this port then; until then route 21 validates and
- * counts, and answers `503 contact_bulk_action_unavailable` instead of queueing.
+ * The bulk-action queue port (CT7, WC-36): enqueues the first `contact-bulk-action` job on the
+ * database-heavy task queue (`instagram-database-tasks`, S19 — ROUTE row R46), after route 21's
+ * count, which works the selection in pieces of 500, each piece chaining the next. The app container
+ * passes it; without it (a unit test) route 21 answers `503 contact_bulk_action_unavailable`.
  */
 export interface ContactBulkActionQueue {
   enqueueContactBulkAction(input: ContactBulkActionJobInput): Promise<void>;

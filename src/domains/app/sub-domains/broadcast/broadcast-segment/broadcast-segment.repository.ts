@@ -648,14 +648,17 @@ export class BroadcastSegmentRepository {
     channelAccountId,
     conditions,
     automationIds,
+    statementTimeoutMilliseconds = SEGMENT_AUDIENCE_COUNT_STATEMENT_TIMEOUT_MS,
   }: {
     organizationId: number;
     channelAccountId: number;
     conditions: SegmentConditions;
     automationIds: SegmentAutomationIds;
+    /** The inline count's 2 s (BC14), or the background count's 30 s (WC-39). */
+    statementTimeoutMilliseconds?: number;
   }): Promise<SegmentAudienceCount> {
     await this.db().execute(
-      sql`SET LOCAL statement_timeout = ${sql.raw(String(SEGMENT_AUDIENCE_COUNT_STATEMENT_TIMEOUT_MS))}`,
+      sql`SET LOCAL statement_timeout = ${sql.raw(String(Math.trunc(statementTimeoutMilliseconds)))}`,
     );
     const chatOpenSince = sql`now() - make_interval(secs => ${CONTACT_CHAT_WINDOW_MS / 1000}::double precision)`;
     const rows = await this.db()

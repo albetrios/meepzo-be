@@ -15,6 +15,7 @@ import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-
 import { closeInstagramSendSlowQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
 import { closeInstagramSendFastQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { closeInstagramTasksQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { closeInstagramDatabaseTasksQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
 import { flushSentry } from '@/infrastructure/observability/sentry/sentry.js';
 import { shutdownPostHog } from '@/infrastructure/observability/posthog/posthog.js';
 import { closeBullMQMetricsQueues } from '@/infrastructure/observability/metrics/bullmq-metrics.js';
@@ -90,6 +91,7 @@ const shutdownMiddleware: FastifyPluginAsync = async (app) => {
       closeInstagramSendSlowQueue(),
       closeInstagramSendFastQueue(),
       closeInstagramTasksQueue(),
+      closeInstagramDatabaseTasksQueue(),
     ]);
     // The same pooled BullMQ clients the readiness probe uses — released before the shared
     // connections so the API does not leave Redis sockets open on the way out.

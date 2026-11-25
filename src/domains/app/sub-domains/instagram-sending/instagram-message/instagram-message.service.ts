@@ -1,6 +1,7 @@
 import { withAppDatabaseContext } from '@/infrastructure/database/contexts/database-context.js';
 import type { RequestScopedPostgresDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import { brandWorkerContextDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
 import { InstagramSendDayCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import type { InstagramSendDayCounts } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
@@ -48,7 +49,9 @@ import type {
   InstagramMessageBroadcastResultPort,
   InstagramMessageClaimInput,
   InstagramMessageOpeningPort,
+  InstagramMessageRetryOptions,
   InstagramMessageRetryQueue,
+  InstagramMessageRunReopenPort,
   InstagramMessageRunResultPort,
   InstagramSendResultInput,
 } from './instagram-message.types.js';
@@ -116,7 +119,8 @@ function dayCountsOf({
  * - **Side effects:** writes `app.instagram_messages` and `app.instagram_send_attempts`; the engine's
  *   writes on a result. Nothing sends here: the lane turns, the fast tickets, the gates and the lane
  *   wake after commit are the lanes' (ROUTE rows R37, R42), which pick waiting rows up.
- * - **Notes:** the retry runs in the request until the `retry-failed` job is wired (R46, P136).
+ * - **Notes:** the retry is the `retry-failed` job (R46) when its queue is passed; without it (a unit
+ *   test) it runs in the request (P136).
  */
 export class InstagramMessageService implements ChannelSendingPort {
   constructor(
@@ -127,6 +131,8 @@ export class InstagramMessageService implements ChannelSendingPort {
       recordBroadcastMessageResult: InstagramMessageBroadcastResultPort;
       /** WC-42's queue (R46); absent → the retry runs in the request. */
       retryQueue?: InstagramMessageRetryQueue | undefined;
+      /** The engine's reopen of a retried message's `failed` run (plan §33.10 rule 4, R46). */
+      reopenRetriedRuns?: InstagramMessageRunReopenPort | undefined;
       /** The contact's opening-DM bookkeeping (3.A.10), called in the result's commit (R42). */
       recordContactOpeningMessage?: InstagramMessageOpeningPort | undefined;
     },
@@ -378,11 +384,11 @@ export class InstagramMessageService implements ChannelSendingPort {
       await this.options.retryQueue.enqueueRetryFailed({
         organizationPublicId: target.scope.organizationPublicId,
         by: target.by,
-        id: target.id,
+        ownerPublicId: target.ownerPublicId,
       });
       return { summary, expectedRetryCount: summary.retryableCount, isQueued: true };
     }
-    await this.retryAllowedFailedMessages(target);
+    await this.retryAllowedFailedMessages({ target });
     return { summary, expectedRetryCount: summary.retryableCount, isQueued: false };
   }
 
@@ -392,27 +398,79 @@ export class InstagramMessageService implements ChannelSendingPort {
    * (`owner_retry_at`), re-checked under their contacts' locks. Answers how many.
    *
    * @remarks
-   * Algorithm: pieces until one comes back short; every piece of one press shares its time. Failure
-   * modes: a database error stops it (committed pieces stay; a repeat retries only the rest). Side
-   * effects: the rows. Notes: the lanes pick them up (R37); reopening a failed run is R46's (plan
-   * §33.10 rule 4).
+   * Algorithm: pieces until one comes back short; every piece of one press shares its time. In each
+   * piece's commit a retried message's run that ended `failed` is reopened, its open key back
+   * (`reopenRetriedRuns`, plan §33.10 rule 4 — R46); a message whose automation and person hold
+   * another open run stays `failed`. After each commit, `options.afterPiece` (the job wakes the
+   * accounts' lanes). Each piece runs in `options.runInDatabaseSlot` when given (the job's slot).
+   * Failure modes: a database error stops it (committed pieces stay; a repeat retries only the rest).
+   * Side effects: the rows, the runs, their keys and events. Notes: the lanes pick them up (R37).
    */
-  async retryAllowedFailedMessages(target: ChannelFailedMessagesTarget): Promise<number> {
+  async retryAllowedFailedMessages({
+    target,
+    ...options
+  }: InstagramMessageRetryOptions & { target: ChannelFailedMessagesTarget }): Promise<number> {
     const retriedAt = new Date();
+    const runInSlot = options.runInDatabaseSlot ?? (<T>(callback: () => Promise<T>) => callback());
     let total = 0;
     for (;;) {
-      const piece = await withAppDatabaseContext({
-        scope: target.scope,
-        callback: (databaseHandle) =>
-          new InstagramMessageRepository(databaseHandle).retryFailedPiece({
-            owner: { organizationId: target.organizationId, by: target.by, id: target.id },
-            limit: INSTAGRAM_MESSAGE_RETRY_PIECE_SIZE,
-            retriedAt,
-          }),
-      });
+      const piece = await runInSlot(() =>
+        withAppDatabaseContext({
+          scope: target.scope,
+          callback: async (databaseHandle) => {
+            const retried = await new InstagramMessageRepository(databaseHandle).retryFailedPiece({
+              owner: { organizationId: target.organizationId, by: target.by, id: target.id },
+              limit: INSTAGRAM_MESSAGE_RETRY_PIECE_SIZE,
+              retriedAt,
+            });
+            if (retried.runs.length > 0 && this.options.reopenRetriedRuns !== undefined) {
+              await this.options.reopenRetriedRuns({
+                databaseHandle: brandWorkerContextDatabaseHandle(databaseHandle),
+                organizationId: target.organizationId,
+                runs: retried.runs,
+              });
+            }
+            return retried;
+          },
+        }),
+      );
       total += piece.count;
+      if (piece.count > 0 && options.afterPiece !== undefined) {
+        await options.afterPiece({ channelAccountIds: piece.channelAccountIds });
+      }
       if (piece.count < INSTAGRAM_MESSAGE_RETRY_PIECE_SIZE) return total;
     }
+  }
+
+  /**
+   * The retry job's owner (WC-42 — R46): the automation or contact its public id names, as the
+   * retry's target in the job's scope; `null` when gone (the job then does nothing).
+   *
+   * @remarks
+   * Algorithm: one read in the scope's unit (RLS keeps it inside the organization). Failure modes:
+   * none of its own. Side effects: none.
+   */
+  async resolveFailedMessagesTarget({
+    scope,
+    by,
+    ownerPublicId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    by: 'automation' | 'contact';
+    ownerPublicId: string;
+  }): Promise<ChannelFailedMessagesTarget | null> {
+    const owner = await withAppDatabaseContext({
+      scope,
+      callback: (databaseHandle) =>
+        new InstagramMessageRepository(databaseHandle).findFailedMessagesOwner({
+          organizationPublicId: scope.organizationPublicId,
+          by,
+          ownerPublicId,
+        }),
+    });
+    return owner === null
+      ? null
+      : { scope, organizationId: owner.organizationId, by, id: owner.id, ownerPublicId };
   }
 
   /**

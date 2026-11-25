@@ -25,6 +25,11 @@ routes: it is read only through the broadcast's numbers (`matched`, `sent`, `ski
   chat opens" row, `recordMessageResult`, the skips (her erasure or pause, a cancel's piece) and her
   first reply
 - `broadcast-recipient.types.ts`, `broadcast-recipient.constants.ts`
+- `queues/broadcast-audience.job.schema.ts`, `workers/broadcast-audience.processor.ts` — the
+  `broadcast-audience` task (WC-40, R46): one piece per job (`bcaud-<brc_…>-<piece>`), chained from the
+  piece's last contact (by public id), the account's lane woken after a piece that made recipients;
+  the last piece sets the broadcast's `audience_built_at` (the end duty's mark, 7.A.10). Wrapped as an
+  Instagram database-heavy task by the app container (S19), so `broadcast/` imports no channel.
 
 ## Key invariants
 

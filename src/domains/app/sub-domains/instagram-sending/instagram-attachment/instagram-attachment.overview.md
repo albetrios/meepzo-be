@@ -23,7 +23,9 @@ precedent): the send core (ROUTE row R42) asks it for a file's id just before a 
 - `instagram-attachment.service.ts` — `InstagramAttachmentService`: `findOrUploadAttachment` (kept →
   no call; else the upload service's usable-file read, the account's send access and the connection's
   usage pace, the Meta upload outside any unit of work, the row), `forgetAttachment`,
-  `uploadAttachments` (WC-32's body) and `requestAttachmentUploads` (the task queue, once R46 wires it).
+  `uploadAttachments` (WC-32's body) and `requestAttachmentUploads` (the `attachment-upload` task on
+  `instagram-tasks`, one job per account and file — wired at R46; the automation's go-live and a
+  live file change ask for it after commit).
 - `instagram-attachment.types.ts` — the file port (`UploadService.findUsableMessageFile`), the uploader,
   the `attachment-upload` queue port (R46) and the outcomes.
 

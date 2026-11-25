@@ -39,6 +39,13 @@ export const SEGMENT_BROADCAST_COOLDOWN_HOURS = 24;
 /** The inline audience count's statement timeout (BC14): past it, the count goes to the background. */
 export const SEGMENT_AUDIENCE_COUNT_STATEMENT_TIMEOUT_MS = 2000;
 
+/**
+ * The background count's statement timeout (WC-39 — the `segment-count` task, scale review S19's
+ * fix): 30 s, so one organization's million-contact count cannot hold a database place for the
+ * worker's 300 s default.
+ */
+export const SEGMENT_BACKGROUND_COUNT_STATEMENT_TIMEOUT_MS = 30_000;
+
 /** The group operators of the condition tree (BC12). */
 export const SEGMENT_GROUP_OPERATORS = ['and', 'or'] as const;
 

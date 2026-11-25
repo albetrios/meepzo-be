@@ -5,7 +5,7 @@
 
 Allowed values + description come from the explicit registry; the **default** and **required/optional**
 status are read from each Zod field, so this can never disagree with what boots. Registry coverage:
-**24 / 259** variables migrated to an explicit `{ allowed, description }` entry.
+**24 / 260** variables migrated to an explicit `{ allowed, description }` entry.
 
 | Variable | Allowed values | Default | In registry | Description |
 | --- | --- | --- | :---: | --- |
@@ -257,6 +257,7 @@ status are read from each Zod field, so this can never disagree with what boots.
 | `WEBHOOK_URL_ALLOWLIST` | — | — *(optional)* |  | — |
 | `WORKER_CONCURRENCY` | — | `4` |  | — |
 | `WORKER_CONCURRENCY_INSTAGRAM` | — | — *(optional)* |  | — |
+| `WORKER_CONCURRENCY_INSTAGRAM_DATABASE_TASKS` | — | `4` |  | — |
 | `WORKER_CONCURRENCY_INSTAGRAM_SEND_FAST` | — | `100` |  | — |
 | `WORKER_CONCURRENCY_INSTAGRAM_SEND_SLOW` | — | `50` |  | — |
 | `WORKER_CONCURRENCY_INSTAGRAM_TASKS` | — | `20` |  | — |

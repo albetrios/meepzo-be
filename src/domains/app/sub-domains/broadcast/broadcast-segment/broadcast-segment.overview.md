@@ -64,7 +64,12 @@ and `app.segment.delete`.
   `X-Idempotency-Key` (78, 82).
 - The count past its 2 s statement timeout (57014) goes to the background count
   (`SegmentBackgroundCountPort`, the `segment-count` task and its 60 s Redis copy — ROUTE row R46)
-  and answers `is_counting: true`; until R46 wires it, `503 segment_count_unavailable`.
+  and answers `is_counting: true`; route 82 reads the copy first. The task
+  (`workers/broadcast-segment-count.processor.ts`, `queues/broadcast-segment-count.job.schema.ts`)
+  counts under 30 s (S19) and writes `broadcast-segment-count.cache.ts`
+  (`app:segment_count:<organization>:<account>:<hash>`, 60 s, never tombstoned — every contact write
+  moves the count); its broadcast form fills a "when her chat opens" broadcast's `matched`. Without
+  the port (a unit test), `503 segment_count_unavailable`.
 
 ## Policy constants
 

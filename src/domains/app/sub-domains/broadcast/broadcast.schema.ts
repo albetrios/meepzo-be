@@ -65,6 +65,8 @@ const broadcastColumns = {
   scheduled_at: timestamp('scheduled_at', { withTimezone: true }),
   ends_at: timestamp('ends_at', { withTimezone: true }),
   started_at: timestamp('started_at', { withTimezone: true }),
+  /** When the audience task's last piece committed (WC-40, 7.A.10 — the end duty reads it, R46). */
+  audience_built_at: timestamp('audience_built_at', { withTimezone: true }),
   finished_at: timestamp('finished_at', { withTimezone: true }),
   cancelled_at: timestamp('cancelled_at', { withTimezone: true }),
   cancel_reason: varchar('cancel_reason', { length: 16 }),
@@ -139,6 +141,10 @@ function broadcastChecks(table: BroadcastTableColumns) {
     check(
       'chk_broadcasts_deleted',
       sql`${table.deleted_at} IS NULL OR ${table.status} IN ('draft', 'done', 'cancelled')`,
+    ),
+    check(
+      'chk_broadcasts_audience_built',
+      sql`${table.audience_built_at} IS NULL OR ${table.started_at} IS NOT NULL`,
     ),
     check('chk_broadcasts_updated', sql`${table.updated_at} >= ${table.created_at}`),
   ];

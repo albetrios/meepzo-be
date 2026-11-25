@@ -426,6 +426,60 @@ export class AutomationRunService {
   }
 
   /**
+   * The owner's retry's run step (plan §33.10 rule 4, WC-42 — ROUTE row R46): each run that ended
+   * `failed` and has a message going back to `waiting` "waits for this step again" — `running`, its
+   * failure cleared, a `status_changed` event — and its open-run key is added again (P100), in the
+   * retry piece's commit. A run that is no longer `failed`, or whose automation and person hold
+   * another open run's key, is left as it is.
+   *
+   * @remarks
+   * Algorithm: per run, the run locked (still `failed`?), then its key `INSERT … ON CONFLICT DO
+   * NOTHING` — a conflict (another run of the automation and person is open) leaves the run
+   * `failed`, so the one-open-run rule holds — then the run `running` and its event. The caller holds
+   * her contact's lock (the lock order). Answers how many runs were reopened. Failure
+   * modes: database errors roll the piece back. Side effects: the runs, their events and keys.
+   */
+  async reopenRetriedRuns({
+    databaseHandle,
+    organizationId,
+    runs,
+  }: {
+    databaseHandle: WorkerDatabaseHandle;
+    organizationId: number;
+    runs: ReadonlyArray<{ runId: number; runStartedAt: Date }>;
+  }): Promise<number> {
+    const repositories = this.bindRepositories(databaseHandle);
+    let reopenedCount = 0;
+    for (const { runId, runStartedAt } of runs) {
+      const key = { organizationId, runId, runStartedAt };
+      const failed = await repositories.runs.lockByKey(key);
+      if (failed === null || failed.status !== 'failed') continue;
+      const isKeyAdded = await repositories.openKeys.insert({
+        organizationId,
+        automationId: failed.automation_id,
+        contactId: failed.contact_id,
+        runId,
+        runStartedAt,
+      });
+      if (!isKeyAdded) continue;
+      await repositories.runs.update({
+        ...key,
+        changes: {
+          status: 'running',
+          failed_at: null,
+          error_message: null,
+          last_step_at: new Date(),
+        },
+      });
+      await repositories.runEvents.insertMany([
+        { ...key, eventType: 'status_changed', status: 'running' },
+      ]);
+      reopenedCount += 1;
+    }
+    return reopenedCount;
+  }
+
+  /**
    * The outbound seam's way back (AU35): a waiting message's final result — `sent`, `failed`,
    * `skipped` or `unknown` — reported by the channel's sending sub-domain **in the commit of the
    * message's final status**. The engine moves the run on: the next step, the public reply and hide

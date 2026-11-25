@@ -89,6 +89,8 @@ import { createInstagramSendFastWorker } from '@/domains/app/sub-domains/instagr
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { createInstagramTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-tasks.worker.js';
 import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { createInstagramDatabaseTasksWorker } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-database-tasks.worker.js';
+import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
 import { INSTAGRAM_DATABASE_SLOT_LIMITER_NAME } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { isMetaConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';
@@ -472,6 +474,24 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     isEnabled: () => env.SENDING_ENABLED,
     create: (workerContainers) =>
       createInstagramTasksWorker({
+        sendingGate: workerContainers.appDomain.sendingStateService,
+        taskHandlers: workerContainers.appDomain.instagramSendWork.taskHandlers,
+      }),
+  },
+  {
+    queueName: INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
+    family: 'instagram',
+    logLabel: 'Instagram database task worker',
+    usesPostgres: true,
+    scheduled: false,
+    criticality: 'throughput',
+    holdsConnectionDuringExternalIo: false,
+    databaseSlotLimiterName: INSTAGRAM_DATABASE_SLOT_LIMITER_NAME,
+    resolvePostgresConcurrency: () => getWorkerInstagramDatabaseSlots(),
+    // No `isEnabled`: the bulk changes, counts, audiences and retries call no Meta, so they run
+    // with sending off too (S19, P217) — a bulk tag change or a segment count is not sending.
+    create: (workerContainers) =>
+      createInstagramDatabaseTasksWorker({
         sendingGate: workerContainers.appDomain.sendingStateService,
         taskHandlers: workerContainers.appDomain.instagramSendWork.taskHandlers,
       }),

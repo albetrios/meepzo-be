@@ -20,6 +20,7 @@ import { isPostgresStatementTimeoutError } from '@/shared/utils/infrastructure/t
 import { assertRecordNotChangedSince } from '@/shared/utils/validation/record-fields.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type { SegmentConditions } from './broadcast-segment.dto.js';
+import { SEGMENT_BACKGROUND_COUNT_STATEMENT_TIMEOUT_MS } from './broadcast-segment.constants.js';
 import {
   type BroadcastSegmentRepository,
   type SegmentChannelAccount,
@@ -105,8 +106,17 @@ function emptySegmentPage(limit: number): SegmentPageOutput {
   return { items: [], limit, has_more: false, next_cursor: null, total: 0 };
 }
 
-/** A stable hash of a condition tree — the background count's dedupe key with the account. */
-function hashConditions(conditions: SegmentConditions): string {
+/**
+ * A stable hash of a condition tree — the background count's dedupe key with the account.
+ *
+ * @remarks
+ * - **Algorithm:** SHA-256 (hex) of the tree's JSON — the validated tree keeps its key order, so the
+ *   same conditions give the same hash.
+ * - **Failure modes:** none.
+ * - **Side effects:** none.
+ * - **Notes:** keys the Redis copy and the `segment-count` job id (R46).
+ */
+export function hashConditions(conditions: SegmentConditions): string {
   return createHash('sha256').update(JSON.stringify(conditions)).digest('hex');
 }
 
@@ -505,6 +515,87 @@ export class BroadcastSegmentService {
       return serializeSegmentAudienceCount(null);
     }
     return serializeSegmentAudienceCount(count);
+  }
+
+  /**
+   * The `segment-count` task's body (BC14, WC-39 — ROUTE row R46): counts one account's conditions
+   * in the background, under a 30 s statement timeout, and hands the numbers to `store` (the 60 s
+   * Redis copy route 82 reads).
+   *
+   * @remarks
+   * Algorithm: one unit in the job's scope — the account read back (gone → nothing), the `segments`
+   * switch asked again (a plan moved down since the ask → nothing, P76), the tree's automations
+   * resolved (one no longer the account's → nothing), the count under
+   * {@link SEGMENT_BACKGROUND_COUNT_STATEMENT_TIMEOUT_MS}; then `store`. Answers the count, or `null`
+   * when nothing was counted. Failure modes: a count past 30 s is logged and answers `null` — the
+   * client's next ask counts again (scale review S19: the heavy count never holds a place longer);
+   * other database errors propagate. Side effects: none besides `store`.
+   */
+  async countAudienceInBackground({
+    scope,
+    channelAccountPublicId,
+    conditions,
+    store,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+    conditions: SegmentConditions;
+    store: (count: SegmentAudienceCount) => Promise<void>;
+  }): Promise<SegmentAudienceCount | null> {
+    const found = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.requireOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        const account = await this.segmentRepository.findChannelAccount({
+          organizationId: organization.id,
+          channelAccountPublicId,
+        });
+        return account === null ? null : { organizationId: organization.id, account };
+      },
+    });
+    if (found === null) return null;
+    const { organizationId, account } = found;
+    const feature = await this.featureCheck({
+      scope,
+      organizationId,
+      channelAccountId: account.id,
+      feature: 'segments',
+    });
+    if (!feature.isAllowed) return null;
+    let count: SegmentAudienceCount | null;
+    try {
+      count = await withAppDatabaseContext({
+        scope,
+        callback: async () => {
+          const automationIds = await this.segmentRepository.findAccountAutomationIds({
+            organizationId,
+            channelAccountId: account.id,
+            automationPublicIds: segmentAutomationPublicIds(conditions),
+          });
+          if (segmentAutomationPublicIds(conditions).some((id) => !automationIds.has(id))) {
+            return null;
+          }
+          return this.segmentRepository.countAudience({
+            organizationId,
+            channelAccountId: account.id,
+            conditions,
+            automationIds,
+            statementTimeoutMilliseconds: SEGMENT_BACKGROUND_COUNT_STATEMENT_TIMEOUT_MS,
+          });
+        },
+      });
+    } catch (error) {
+      if (!isCountTimeout(error)) throw error;
+      logger.warn(
+        { organizationPublicId: scope.organizationPublicId, channelAccountPublicId },
+        'segment background count timed out',
+      );
+      return null;
+    }
+    if (count !== null) await store(count);
+    return count;
   }
 
   /** The team check (`422`) and the organization's account (`404`), in one unit. */

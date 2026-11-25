@@ -1396,6 +1396,9 @@ erDiagram
   `matched`, `sent`, `skipped`, `failed`, `replies`, `taps`, `created_by_user_id`, `updated_by_user_id`,
   `deleted_at`, `created_at`, `updated_at`; migration `20261125120000_app_broadcasts.sql`, which also adds
   `app.instagram_messages` `instagram_messages_broadcast_fk (organization_id, broadcast_id)` CASCADE.
+- **Built R46 ([AS-BUILT](../AS-BUILT.md), [P217](decisions.md)):** + `audience_built_at` (timestamptz, the
+  audience task's last piece — the end duty's mark, 7.A.10) with `chk_broadcasts_audience_built`
+  (`audience_built_at IS NULL OR started_at IS NOT NULL`); migration `20261125203117_app_broadcast_audience_built.sql`.
 
 ```mermaid
 erDiagram

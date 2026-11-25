@@ -54,6 +54,7 @@ import { AutomationCountService } from './sub-domains/automation/automation-coun
 import { AutomationReplyStateRepository } from './sub-domains/automation/automation-reply-state.repository.js';
 import { AutomationReplyStateService } from './sub-domains/automation/automation-reply-state.service.js';
 import type {
+  AutomationAttachmentUploadPort,
   AutomationMessageFilePort,
   AutomationOpenRunCancelStep,
 } from './sub-domains/automation/automation.types.js';
@@ -83,6 +84,14 @@ import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sendin
 import type { InstagramSendWork } from './sub-domains/instagram-sending/instagram-sending.types.js';
 import { InstagramSendCoreService } from './sub-domains/instagram-sending/instagram-send-core.service.js';
 import { InstagramSendGateService } from './sub-domains/instagram-sending/instagram-send-gate.service.js';
+import {
+  broadcastSendQueue,
+  contactBulkActionQueue,
+  createAppTaskHandlers,
+  instagramAttachmentUploadQueue,
+  instagramMessageRetryQueue,
+  segmentBackgroundCountPort,
+} from './app.tasks.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
@@ -272,8 +281,8 @@ const NO_INSTAGRAM_SEND_WORK: InstagramSendWork = {
  * and the usable-file read). The segment delete runs the broadcasts' draft step (BC17).
  *
  * @remarks
- * Notes: the segments' background count and the broadcasts' send queue join at ROUTE row R46;
- * wiring only, no side effects.
+ * Notes: the segments' background count and the broadcasts' send queue are ROUTE row R46's
+ * (`app.tasks.ts`); wiring only, no side effects.
  */
 function createBroadcastServices({
   organizationService,
@@ -295,13 +304,18 @@ function createBroadcastServices({
     organizationService,
     (input) => channelAccountService.readAutomationAccount(input),
     featureCheck,
-    { monthLimit: messageMonthCountService, messageFilePort },
+    // Route 75's background work — the audience build and the matched count (R46).
+    { monthLimit: messageMonthCountService, messageFilePort, sendQueue: broadcastSendQueue },
   );
   const broadcastSegmentService = new BroadcastSegmentService(
     segmentRepository,
     organizationService,
     featureCheck,
-    { deleteSteps: [(input) => broadcastService.clearDraftSegment(input)] },
+    {
+      deleteSteps: [(input) => broadcastService.clearDraftSegment(input)],
+      // Route 82's background count and its 60 s copy (BC14, WC-39 — R46).
+      backgroundCount: segmentBackgroundCountPort,
+    },
   );
   return { broadcastSegmentService, broadcastService };
 }
@@ -548,6 +562,8 @@ function createContactServices({
           broadcastRecipientService.skipContactWaitingRecipients(input).then(() => undefined),
       ],
       tagEventRecorder: contactTagEventService,
+      // Route 21's job (WC-36, S19 — R46).
+      bulkActionQueue: contactBulkActionQueue,
       sendingPorts: channelSendingPorts,
       runEventReader,
     },
@@ -575,12 +591,15 @@ function createAutomationServices({
   messageFilePort,
   channelSendingPorts,
   broadcastRecipientService,
+  attachmentUploads,
 }: {
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
   planAccessService: ChannelConnectionPlanAccessService;
   messageMonthCountService: MessageMonthCountService;
   messageFilePort: AutomationMessageFilePort | undefined;
+  /** The message files' upload ahead of their sends (WC-32, R46). */
+  attachmentUploads: AutomationAttachmentUploadPort;
   /** The channels' sending ports (AU35) — one record shared by the automations and the run engine. */
   channelSendingPorts: ChannelSendingPorts;
   /** Broadcast recipients (7.C, R23) — the contact erase and pause steps. */
@@ -616,6 +635,8 @@ function createAutomationServices({
       messageFiles: messageFilePort,
       openBackfills: automationBackfillService,
       sendingPorts: channelSendingPorts,
+      // WC-32's upload ahead of the sends (R46) — the channel's attachment service.
+      attachmentUploads,
     },
   );
   const { contactService, contactTagEventService, contactErasureSteps } = createContactServices({
@@ -673,6 +694,8 @@ function createSendAccessServices({
   const instagramAttachmentService = new InstagramAttachmentService({
     sendAccessService: instagramSendAccessService,
     filePort: messageFilePort ?? { findUsableMessageFile: async () => null },
+    // WC-32's `attachment-upload` task (R46): go-live and a live file change upload ahead.
+    uploadQueue: instagramAttachmentUploadQueue,
   });
   return { instagramSendAccessService, instagramAttachmentService };
 }
@@ -680,7 +703,7 @@ function createSendAccessServices({
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
  * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45), and no task handlers (R40, R41, R46).
+ * rules yet (R43–R45); the task handlers of R46 (`createAppTaskHandlers`), R40's and R41's at theirs.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -705,7 +728,24 @@ function createInstagramSendWork(
     // The lanes' own rules plug in at R43–R45; until then a ticket is logged and finished.
     laneRules: {},
   });
-  return { ...NO_INSTAGRAM_SEND_WORK, laneTurn: sendCore, fastMessage: sendCore };
+  return {
+    ...NO_INSTAGRAM_SEND_WORK,
+    laneTurn: sendCore,
+    fastMessage: sendCore,
+    // ROUTE row R46's tasks (S19): the upload on `instagram-tasks`, the database-heavy four on
+    // `instagram-database-tasks`.
+    taskHandlers: { ...NO_INSTAGRAM_SEND_WORK.taskHandlers, ...createAppTaskHandlers(container) },
+  };
+}
+
+/** The connection's repository and its one token path (MC9) — shared by the account and connection services. */
+function createConnectionToken() {
+  const channelConnectionRepository = new ChannelConnectionRepository();
+  const channelConnectionTokenService = new ChannelConnectionTokenService(
+    new ChannelConnectionTokenRepository(),
+    channelConnectionRepository,
+  );
+  return { channelConnectionRepository, channelConnectionTokenService };
 }
 
 /**
@@ -737,23 +777,21 @@ export function createAppContainer({
    */
   messageFilePort?: (AutomationMessageFilePort & InstagramAttachmentFilePort) | undefined;
 }): AppContainer {
-  // One port per channel (AU35): Instagram's message service (R19) — the engine, built below.
+  // One port per channel (AU35): Instagram's message service (R19, the retry job R46).
   const instagramMessageService = new InstagramMessageService({
     recordRunMessageResult: (input) => automation.automationRunService.recordMessageResult(input),
     recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
     recordContactOpeningMessage: (input) =>
       automation.contactService.recordContactOpeningMessage(input),
+    retryQueue: instagramMessageRetryQueue,
+    reopenRetriedRuns: (input) => automation.automationRunService.reopenRetriedRuns(input),
   });
   const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
   // Broadcast recipients (§ 7.C, R23): every broadcast message through the account's channel's port.
   const broadcastRecipientService = new BroadcastRecipientService({
     sendingPorts: channelSendingPorts,
   });
-  const channelConnectionRepository = new ChannelConnectionRepository();
-  const channelConnectionTokenService = new ChannelConnectionTokenService(
-    new ChannelConnectionTokenRepository(),
-    channelConnectionRepository,
-  );
+  const { channelConnectionRepository, channelConnectionTokenService } = createConnectionToken();
   // The sending sub-domain's root (§ 6.A, ROUTE row R18).
   const sending = createInstagramSendingServices(planAccessService);
   const {
@@ -790,8 +828,7 @@ export function createAppContainer({
     sending.instagramSendLaneService,
     new ChannelAccountPlanStopService(planAccessService, sending.messageMonthCountService),
   );
-  // The connection reaches accounts through the channel account (R5), lanes through 6 (R18) and a
-  // trial pick through billing's trial port (R24).
+  // The connection: accounts via 1B (R5), lanes via 6 (R18), a trial pick via billing (R24).
   const channelConnectionService = createChannelConnectionService({
     channelConnectionRepository,
     channelConnectionTokenService,
@@ -802,8 +839,7 @@ export function createAppContainer({
     lanePort: sending.instagramSendLaneService,
     trialPort,
   });
-  // Routes 63–64 (§ 6.A); route 63's later parts join through its sources argument — the waiting
-  // counts and the last retry from the messages (R19).
+  // Routes 63–64 (§ 6.A); route 63's waiting counts and last retry from the messages (R19).
   const instagramSendingService = createInstagramSendingStatusService({
     organizationService,
     channelAccountService,
@@ -819,8 +855,14 @@ export function createAppContainer({
     channelAccountService,
     lanePort: sending.instagramSendLaneService,
   });
+  const sendAccess = createSendAccessServices({
+    instagramAccountService,
+    sending,
+    messageFilePort,
+  });
   // The automations, their runs and the contacts (§ 3, § 5).
   const automation = createAutomationServices({
+    attachmentUploads: sendAccess.instagramAttachmentService,
     organizationService,
     channelAccountService,
     planAccessService,
@@ -855,7 +897,7 @@ export function createAppContainer({
     }),
     broadcastRecipientService,
     instagramMessageService,
-    ...createSendAccessServices({ instagramAccountService, sending, messageFilePort }),
+    ...sendAccess,
   };
   return { ...container, instagramSendWork: createInstagramSendWork(container) };
 }

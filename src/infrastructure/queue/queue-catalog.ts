@@ -15,6 +15,7 @@ import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-
 import { INSTAGRAM_SEND_SLOW_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
 import { INSTAGRAM_SEND_FAST_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { INSTAGRAM_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { INSTAGRAM_DATABASE_TASKS_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
 import { AUDIT_RETENTION_QUEUE_NAME } from '@/domains/audit/workers/audit-retention.constants.js';
 import { AUDIT_OUTBOX_DRAIN_QUEUE_NAME } from '@/domains/audit/workers/audit-outbox-drain.constants.js';
 import { AUDIT_EXPORT_QUEUE_NAME } from '@/domains/audit/workers/audit-export.constants.js';
@@ -73,6 +74,7 @@ export const WORKER_QUEUE_NAMES = [
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME,
   INSTAGRAM_TASKS_QUEUE_NAME,
+  INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
   INSTAGRAM_SEND_SLOW_QUEUE_NAME,
   INSTAGRAM_SEND_FAST_QUEUE_NAME,
   AUDIT_RETENTION_QUEUE_NAME,
@@ -123,6 +125,7 @@ export const WORKER_THROUGHPUT_QUEUE_NAMES = [
   SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME,
   INSTAGRAM_WEBHOOK_QUEUE_NAME,
   INSTAGRAM_TASKS_QUEUE_NAME,
+  INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
   INSTAGRAM_SEND_SLOW_QUEUE_NAME,
   INSTAGRAM_SEND_FAST_QUEUE_NAME,
 ] as const;

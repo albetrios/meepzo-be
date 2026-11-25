@@ -58,6 +58,7 @@ import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-
 import { closeInstagramSendSlowQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
 import { closeInstagramSendFastQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { closeInstagramTasksQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-tasks.queue.js';
+import { closeInstagramDatabaseTasksQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-database-tasks.queue.js';
 
 // Initialize Sentry before anything else
 initSentry();
@@ -158,6 +159,7 @@ async function main() {
         closeInstagramSendSlowQueue(),
         closeInstagramSendFastQueue(),
         closeInstagramTasksQueue(),
+        closeInstagramDatabaseTasksQueue(),
       ]);
       // Pooled BullMQ clients (queue gauges, readiness depth probes, the Redis-saturation
       // sampler) hold Redis sockets for the process lifetime — release them before the

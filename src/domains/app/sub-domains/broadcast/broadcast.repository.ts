@@ -407,6 +407,34 @@ export class BroadcastRepository {
   }
 
   /**
+   * Sets `matched` of a live "when her chat opens" broadcast to the background count (BC10, WC-39 —
+   * ROUTE row R46), only while it still waits for chats. Answers whether it changed.
+   */
+  async setWaitingMatched({
+    organizationId,
+    broadcastId,
+    matched,
+  }: {
+    organizationId: number;
+    broadcastId: number;
+    matched: number;
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(broadcasts)
+      .set({ matched })
+      .where(
+        and(
+          eq(broadcasts.organization_id, organizationId),
+          eq(broadcasts.id, broadcastId),
+          eq(broadcasts.status, 'waiting_for_chats'),
+          LIVE_BROADCAST,
+        ),
+      )
+      .returning({ id: broadcasts.id });
+    return rows.length > 0;
+  }
+
+  /**
    * Empties `segment_id` on the organization's live drafts that use this segment (BC17) — the
    * segment delete's step (route 81), in its transaction. Sent broadcasts keep theirs: their copy
    * of the conditions is what they send.

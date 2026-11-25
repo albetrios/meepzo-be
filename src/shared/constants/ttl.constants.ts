@@ -172,6 +172,17 @@ export const CHANNEL_CONNECTION_USAGE_CACHE_TTL_SECONDS = 60;
 export const MESSAGE_MONTH_COUNT_CACHE_TTL_SECONDS = 10;
 
 /**
+ * Redis copy of a segment audience count the background count wrote (feat-instagram-dm-sending
+ * routes-final § 7.B BC14, WC-39, P5): `app:segment_count:<organization>:<account>:<conditions hash>`.
+ *
+ * @remarks
+ * The count is derived from Postgres and every contact write moves it, so nothing tombstones it:
+ * the TTL is the bound on how old a preview number may be. The 60 s of BC14, at the ceiling of
+ * be-read-cache-guard; its own literal.
+ */
+export const SEGMENT_COUNT_CACHE_TTL_SECONDS = 60;
+
+/**
  * How long a FRESHNESS invalidation tombstone blocks repopulation, in seconds.
  *
  * @remarks

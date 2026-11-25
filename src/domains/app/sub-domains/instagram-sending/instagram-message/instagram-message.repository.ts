@@ -6,8 +6,10 @@ import {
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
+import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
+import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
@@ -731,9 +733,38 @@ export class InstagramMessageRepository {
   }
 
   /**
+   * The owner of a retry job by public id (`aut_…` / `con_…`, WC-42): its organization and internal
+   * id, or `null` when gone — named inside the job's organization (by its public id), not by RLS
+   * alone.
+   */
+  async findFailedMessagesOwner({
+    organizationPublicId,
+    by,
+    ownerPublicId,
+  }: {
+    organizationPublicId: string;
+    by: 'automation' | 'contact';
+    ownerPublicId: string;
+  }): Promise<{ organizationId: number; id: number } | null> {
+    const table = by === 'automation' ? automations : contacts;
+    const [row] = await this.db()
+      .select({ organizationId: table.organization_id, id: table.id })
+      .from(table)
+      .innerJoin(organizations, eq(organizations.id, table.organization_id))
+      .where(
+        and(eq(organizations.public_id, organizationPublicId), eq(table.public_id, ownerPublicId)),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
    * One piece of the owner's retry (SN18, plan §33.10 rule 4): up to `limit` retryable failed rows,
    * in contact order, their contacts locked first (`FOR UPDATE` — the lock order), back to `waiting`
-   * now with `owner_retry_at` = `retriedAt` and no try used. Answers the accounts touched and how many.
+   * now with `owner_retry_at` = `retriedAt` and no try used. A message whose automation and person
+   * hold another run's open key (rule 2's last line) is left `failed` and unmarked — a later press,
+   * once that run ended, retries it. Answers how many, the accounts touched and the runs of the
+   * retried messages (the caller reopens the ones that ended `failed`).
    */
   async retryFailedPiece({
     owner,
@@ -743,12 +774,24 @@ export class InstagramMessageRepository {
     owner: InstagramFailedMessagesOwner;
     limit: number;
     retriedAt: Date;
-  }): Promise<{ count: number; channelAccountIds: number[] }> {
+  }): Promise<{
+    count: number;
+    channelAccountIds: number[];
+    runs: Array<{ runId: number; runStartedAt: Date }>;
+  }> {
     const result = await this.db().execute(sql`
       WITH picked AS (
         SELECT m.id, m.automation_run_started_at, m.contact_id
         ${this.failedMessagesSource(owner)}
           AND ${this.verdictExpression()} = 'retryable'
+          AND NOT EXISTS (
+            SELECT 1 FROM ${automation_run_open_keys} AS k
+            WHERE k.organization_id = m.organization_id
+              AND k.automation_id = m.automation_id
+              AND k.contact_id = m.contact_id
+              AND (k.automation_run_id <> m.automation_run_id
+                OR k.automation_run_started_at <> m.automation_run_started_at)
+          )
         ORDER BY m.contact_id, m.id
         LIMIT ${limit}
       ), locked AS (
@@ -769,12 +812,26 @@ export class InstagramMessageRepository {
         AND m.owner_retry_at IS NULL
         -- The contacts' locks are taken before any row changes (the scalar read runs the CTE once).
         AND (SELECT count(*) FROM locked) >= 0
-      RETURNING m.channel_account_id
+      RETURNING m.channel_account_id, m.automation_run_id, m.automation_run_started_at
     `);
-    const rows = rowsOf<{ channel_account_id: number }>(result);
+    const rows = rowsOf<{
+      channel_account_id: number;
+      automation_run_id: number | null;
+      automation_run_started_at: Date | string;
+    }>(result);
+    const runs = new Map<string, { runId: number; runStartedAt: Date }>();
+    for (const row of rows) {
+      if (row.automation_run_id === null) continue;
+      const runStartedAt = new Date(row.automation_run_started_at);
+      runs.set(`${String(row.automation_run_id)}:${runStartedAt.toISOString()}`, {
+        runId: Number(row.automation_run_id),
+        runStartedAt,
+      });
+    }
     return {
       count: rows.length,
       channelAccountIds: [...new Set(rows.map((row) => Number(row.channel_account_id)))],
+      runs: [...runs.values()],
     };
   }
 }

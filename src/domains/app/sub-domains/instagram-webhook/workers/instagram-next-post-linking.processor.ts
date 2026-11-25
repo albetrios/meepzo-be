@@ -218,44 +218,61 @@ function createCallPace(wait: (milliseconds: number) => Promise<unknown>): () =>
   };
 }
 
+/** One media page's step: stop with what was read, or go on after Meta's cursor. */
+type MediaPageStep = { kind: 'stop'; posts: ReadPost[] | null } | { kind: 'next'; after: string };
+
+/** One media page of {@link readPostsSince}: the usage check, the call, the posts since. */
+async function readMediaPage({
+  context,
+  after,
+  pace,
+  posts,
+}: {
+  context: LinkingContext;
+  after: string | undefined;
+  pace: () => Promise<void>;
+  posts: ReadPost[];
+}): Promise<MediaPageStep> {
+  const { scope, access, services } = context;
+  const usagePercent = await context.runInDatabaseSlot(() =>
+    services.instagramSendAccessService.readUsagePercent({ scope, access }),
+  );
+  if (usagePercent >= INSTAGRAM_MISSED_COMMENT_ROUND_USAGE_STOP_PERCENT) {
+    logger.info({ ...context.logFields, usagePercent }, 'app.automation.next_post_linking_paused');
+    return { kind: 'stop', posts: posts.length === 0 ? null : posts };
+  }
+  await pace();
+  const answer = await context.listMedia({
+    encryptedAccessToken: access.encryptedAccessToken,
+    instagramUserId: access.instagramUserId,
+    limit: MEDIA_PAGE_SIZE,
+    after,
+    requestId: context.requestId,
+    recordUsage: services.instagramSendAccessService.buildUsageRecorder({ scope, access }),
+  });
+  for (const item of answer.items) {
+    const publishedAt = publishedAtOf(item);
+    if (publishedAt === null) continue;
+    if (publishedAt < context.postsSince) return { kind: 'stop', posts };
+    posts.push({ item, publishedAt });
+  }
+  if (answer.nextCursor === null) return { kind: 'stop', posts };
+  return { kind: 'next', after: answer.nextCursor };
+}
+
 /**
  * The account's posts since `postsSince`, newest first — `null` when nothing could be read (Meta's
  * usage at 80 %, or Meta failed before any post).
  */
 async function readPostsSince(context: LinkingContext): Promise<ReadPost[] | null> {
-  const { scope, access, services } = context;
   const posts: ReadPost[] = [];
   let after: string | undefined;
   const pace = createCallPace(context.wait);
   try {
     for (let page = 0; page < MEDIA_PAGES_MAX; page += 1) {
-      const usagePercent = await context.runInDatabaseSlot(() =>
-        services.instagramSendAccessService.readUsagePercent({ scope, access }),
-      );
-      if (usagePercent >= INSTAGRAM_MISSED_COMMENT_ROUND_USAGE_STOP_PERCENT) {
-        logger.info(
-          { ...context.logFields, usagePercent },
-          'app.automation.next_post_linking_paused',
-        );
-        return posts.length === 0 ? null : posts;
-      }
-      await pace();
-      const answer = await context.listMedia({
-        encryptedAccessToken: access.encryptedAccessToken,
-        instagramUserId: access.instagramUserId,
-        limit: MEDIA_PAGE_SIZE,
-        after,
-        requestId: context.requestId,
-        recordUsage: services.instagramSendAccessService.buildUsageRecorder({ scope, access }),
-      });
-      for (const item of answer.items) {
-        const publishedAt = publishedAtOf(item);
-        if (publishedAt === null) continue;
-        if (publishedAt < context.postsSince) return posts;
-        posts.push({ item, publishedAt });
-      }
-      if (answer.nextCursor === null) return posts;
-      after = answer.nextCursor;
+      const step = await readMediaPage({ context, after, pace, posts });
+      if (step.kind === 'stop') return step.posts;
+      after = step.after;
     }
     return posts;
   } catch (error) {
@@ -386,7 +403,9 @@ export async function linkAccountNextPosts({
     linkedAutomationCount: 0,
   };
   // Oldest first: each automation takes the first post published after it went live.
-  for (const post of posts.reverse()) {
+  const oldestFirst = [...posts];
+  oldestFirst.reverse();
+  for (const post of oldestFirst) {
     const linked = await runInDatabaseSlot(() =>
       withAppDatabaseContext({ scope, callback: () => storeAndLink({ context, post }) }),
     );

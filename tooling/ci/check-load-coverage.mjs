@@ -53,6 +53,8 @@ const PUBLIC_INFRASTRUCTURE_PATHS = [
   '/auth/email/login',
   '/auth/email/confirm',
   '/auth/mfa/login',
+  '/auth/password/forgot',
+  '/auth/password/reset',
   '/auth/webauthn',
   '/auth/refresh',
   '/billing/webhook',

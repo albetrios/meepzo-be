@@ -333,12 +333,11 @@ export class AutomationBackfillService implements AutomationOpenBackfillReader {
       feature: 'past_comments',
     });
     if (check.isAllowed && read.target !== null) return { kind: 'reading', read };
-    const failure: { reason: AutomationBackfillFailReason; lastError: string | null } =
-      check.isAllowed
-        ? { reason: 'meta_error', lastError: 'automation_gone' }
-        : check.reason === 'plan_lacks_feature'
-          ? { reason: 'plan_feature_off', lastError: null }
-          : { reason: 'meta_error', lastError: `feature:${check.reason}` };
+    let failure: { reason: AutomationBackfillFailReason; lastError: string | null };
+    if (check.isAllowed) failure = { reason: 'meta_error', lastError: 'automation_gone' };
+    else if (check.reason === 'plan_lacks_feature') {
+      failure = { reason: 'plan_feature_off', lastError: null };
+    } else failure = { reason: 'meta_error', lastError: `feature:${check.reason}` };
     await this.finishAutomationBackfillRead({ scope, read, failure });
     return { kind: 'refused', failReason: failure.reason };
   }
@@ -561,7 +560,7 @@ function toRead({
     automationBackfillPublicId: row.public_id,
     startedAt: row.started_at ?? row.updated_at,
     days: row.days,
-    target: target === null || target.status === null ? null : target,
+    target: target?.status ? target : null,
   };
 }
 

@@ -16,6 +16,13 @@ function versionNumber(value: unknown) {
   return sql`(${value})::numeric`;
 }
 
+/** No all-accounts test and no release: what a new stop, or the 24-hour reset, starts from (R62). */
+const NO_ALL_STOP_TEST = {
+  testing_lane: null,
+  testing_until: null,
+  all_release_started_at: null,
+} as const;
+
 /**
  * Drizzle access to `app.sending_states` (feat-instagram-dm-sending routes-final § 6.A.3, SN7, P16):
  * the one tenantless row. Run only under `MAINTENANCE_SCOPE.SENDING_STATE` on the maintenance login —
@@ -161,6 +168,7 @@ export class SendingStateRepository {
         all_stop_reason: 'app_limit',
         all_stop_until: stopUntil,
         all_stop_count: sql`${sending_states.all_stop_count} + 1`,
+        ...NO_ALL_STOP_TEST,
         app_limit_channel_account_id: null,
         app_limit_seen_at: null,
         updated_at: sql`now()`,
@@ -176,7 +184,7 @@ export class SendingStateRepository {
     reason,
     stopUntil,
   }: {
-    reason: 'instagram_down';
+    reason: 'app_limit' | 'instagram_down';
     stopUntil: Date;
   }): Promise<void> {
     await this.db()
@@ -185,6 +193,7 @@ export class SendingStateRepository {
         all_stop_reason: reason,
         all_stop_until: stopUntil,
         all_stop_count: sql`${sending_states.all_stop_count} + 1`,
+        ...NO_ALL_STOP_TEST,
         updated_at: sql`now()`,
       })
       .where(eq(sending_states.id, SENDING_STATE_ROW_ID));
@@ -201,6 +210,7 @@ export class SendingStateRepository {
         all_stop_reason: null,
         all_stop_until: null,
         all_stop_count: 0,
+        ...NO_ALL_STOP_TEST,
         updated_at: sql`now()`,
       })
       .where(
@@ -212,5 +222,34 @@ export class SendingStateRepository {
       )
       .returning({ id: sending_states.id });
     return rows.length > 0;
+  }
+
+  /**
+   * Writes the all-accounts test's columns (plan §33.6 rules 2–3, ROUTE row R62): its claim
+   * (`testing_lane`, `testing_until`), its end, the release start, or a stop started again —
+   * whatever `changes` names, on the one row.
+   */
+  async writeAllStopTest(changes: {
+    testingLane?: string | null;
+    testingUntil?: Date | null;
+    releaseStartedAt?: Date | null;
+    stopUntil?: Date;
+    isCountedAgain?: boolean;
+  }): Promise<void> {
+    await this.db()
+      .update(sending_states)
+      .set({
+        ...(changes.testingLane === undefined ? {} : { testing_lane: changes.testingLane }),
+        ...(changes.testingUntil === undefined ? {} : { testing_until: changes.testingUntil }),
+        ...(changes.releaseStartedAt === undefined
+          ? {}
+          : { all_release_started_at: changes.releaseStartedAt }),
+        ...(changes.stopUntil === undefined ? {} : { all_stop_until: changes.stopUntil }),
+        ...(changes.isCountedAgain === true
+          ? { all_stop_count: sql`${sending_states.all_stop_count} + 1` }
+          : {}),
+        updated_at: sql`now()`,
+      })
+      .where(eq(sending_states.id, SENDING_STATE_ROW_ID));
   }
 }

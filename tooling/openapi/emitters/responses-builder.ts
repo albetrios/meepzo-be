@@ -164,6 +164,19 @@ function permissionDeniedExample(): Record<string, unknown> {
 }
 
 /**
+ * The GET routes that answer 409 (response-codes.md: 409 is for mutating routes) — a GET only by
+ * the provider's redirect, writing state all the same.
+ *
+ * @remarks
+ * `GET /auth/oauth/{provider}/callback` signs up, links and signs in; in link mode an account
+ * already linked to someone else is `409 provider_account_in_use` (feat-instagram-dm-sending
+ * § 10.B.9, AT12). Keyed by `"<METHOD> <openapi-path>"`.
+ */
+const GET_ROUTE_KEYS_ANSWERING_CONFLICT = new Set<string>([
+  'GET /api/v1/auth/oauth/{provider}/callback',
+]);
+
+/**
  * Derives this route's own per-field 400 `errors` array — body fields first
  * (from the request schema map), then path params (with their exact id
  * pattern), then query fields — so every fallback 400 example names fields the
@@ -349,7 +362,7 @@ export function buildResponses(
     };
   }
   const isMutating = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
-  if (isMutating) {
+  if (isMutating || GET_ROUTE_KEYS_ANSWERING_CONFLICT.has(routeKey)) {
     // 409 covers resource/state conflicts AND the idempotency middleware's
     // in-flight duplicate (same X-Idempotency-Key while the first request runs).
     responses['409'] = {
@@ -365,6 +378,8 @@ export function buildResponses(
         }),
       },
     };
+  }
+  if (isMutating) {
     // 422 covers business-rule rejections (UnprocessableEntityError) and the
     // idempotency middleware's key-reuse-with-different-payload fingerprint check,
     // which guards every mutating route accepting X-Idempotency-Key.

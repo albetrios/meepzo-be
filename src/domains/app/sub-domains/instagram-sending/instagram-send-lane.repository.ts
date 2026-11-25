@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -499,6 +499,31 @@ export class InstagramSendLaneRepository {
       .update(instagram_send_lanes)
       .set({ half_speed_until: until, updated_at: laneUpdatedAtTimestamp })
       .where(and(this.keyOf(key), inArray(instagram_send_lanes.lane, [...lanes])));
+  }
+
+  /**
+   * Half speed on these lanes until at least `until` — a later end already set is kept (plan §33.6
+   * rule 3: the lanes released after an all-accounts test, ROUTE row R62).
+   */
+  async raiseHalfSpeed({
+    lanes,
+    until,
+    ...key
+  }: ChannelAccountKey & { lanes: readonly InstagramSendLane[]; until: Date }): Promise<void> {
+    if (lanes.length === 0) return;
+    await this.db()
+      .update(instagram_send_lanes)
+      .set({ half_speed_until: until, updated_at: laneUpdatedAtTimestamp })
+      .where(
+        and(
+          this.keyOf(key),
+          inArray(instagram_send_lanes.lane, [...lanes]),
+          or(
+            isNull(instagram_send_lanes.half_speed_until),
+            lt(instagram_send_lanes.half_speed_until, until),
+          ),
+        ),
+      );
   }
 
   /**

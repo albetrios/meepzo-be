@@ -68,8 +68,9 @@ stays here (`InstagramAccountErasureService`).
   its encrypted token and settings row, read in the job's scope — sub-domain 3.B)
 - `instagram-account-erasure.service.ts` — the one erase of an account's data in an organization:
   Meta's callbacks (`eraseForMeta`) and the organization's delete (`eraseForOrganizationOffboarding`,
-  called by tenancy through its offboarding port, D54) — the account service's disconnect and the
-  media service's stored posts, in one transaction
+  called by tenancy through its offboarding port, D54) — the account service's disconnect, the
+  media service's stored posts and, on the organization's delete, the revoked accounts' sending lanes
+  stopped through the lane port (sub-domain 6, CA8 — ROUTE R61), in one transaction
 - `instagram-account-settings/` — nested: the account's limits, stop words and behaviour switches,
   and route 12 that changes them (the automation switch with them, on the channel account — R7) ([overview](instagram-account-settings/instagram-account-settings.overview.md))
 - `instagram-media/` — nested: the post and story pickers of one named account (routes 13–14, read

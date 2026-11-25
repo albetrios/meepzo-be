@@ -1,6 +1,7 @@
 import type Stripe from 'stripe';
 import type { WorkerContextDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
 import {
+  type OrganizationPrincipalDatabaseScope,
   PRINCIPAL_SCOPE,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
@@ -127,6 +128,21 @@ export async function resolveOrganizationPublicIdForStripeEvent({
   // for a first-contact subscription with no local row, guarded by the
   // subscriptions WITH CHECK (audit #41) against a non-existent organization.
   return fromDatabase ?? fromMetadata;
+}
+
+/**
+ * The job scope of the organization a Stripe event resolved to — for the webhook worker's after-commit
+ * work outside {@link runWithOrganizationPublicIdForStripeWebhook}, such as the "payment failed"
+ * notice (feat-instagram-dm-sending WC-57).
+ *
+ * @remarks
+ * Notes: Stripe events are processed by the webhook worker only, so this is a worker-side mint
+ * (`principal-scope-minting.policy`); HTTP code reads `request.principalScope`.
+ */
+export function stripeWebhookOrganizationScope(
+  organizationPublicId: string,
+): OrganizationPrincipalDatabaseScope {
+  return PRINCIPAL_SCOPE.JOB({ organizationPublicId });
 }
 
 /**

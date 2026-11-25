@@ -809,6 +809,27 @@ export class AutomationService {
   }
 
   /**
+   * How many of the organization's automations have their email or phone question step on (the
+   * move down's notice, WC-38, AC-23.8) — the steps stay saved and are skipped per job (AUC10).
+   *
+   * @remarks
+   * Algorithm: one count in the caller's organization scope. Failure modes: a database error
+   * propagates. Side effects: none.
+   */
+  async countAutomationsWithQuestionStepsOn({
+    scope,
+    organizationId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+  }): Promise<number> {
+    return withAppDatabaseContext({
+      scope,
+      callback: () => this.automationRepository.countWithQuestionStepsOn(organizationId),
+    });
+  }
+
+  /**
    * Its failed messages of about the last 30 days, counted (route 36, AU18, D72) — never `unknown`,
    * `skipped`, `expired` or `cancelled`; changes nothing.
    *

@@ -314,15 +314,17 @@ export class BroadcastRecipientService {
   }
 
   /**
-   * Intake's "when her chat opens" hook (BC17, AC-9.6 — called in her message's commit, after the
-   * run engine): for each of the account's `waiting_for_chats` broadcasts still inside its days whose
-   * copy of the audience she matches, her recipient row through {@link addChatOpenedRecipient} —
-   * only when no run of hers is open and the owner has not typed to her in the last 6 hours. Answers
-   * how many rows were made or put back.
+   * The "when her chat opens" hook (BC17, AC-9.6, AC-21.4, AC-21.5 — intake calls it in her
+   * message's commit after the run engine, the run engine in the commit that ends her run): of the
+   * account's `waiting_for_chats` broadcasts still inside their days whose copy of the audience she
+   * matches, the oldest gets her recipient row through {@link addChatOpenedRecipient} — only when
+   * no run of hers is open, no broadcast of hers is waiting and the owner has not typed to her in
+   * the last 6 hours. Answers 1 when a row was made or put back, else 0.
    *
    * @remarks
-   * Algorithm: the two holds first (the owner's chat, an open-run key), then the account's waiting
-   * broadcasts, each matched by the audience read over her one contact. Failure modes: no sending
+   * Algorithm: the three holds first (the owner's chat, an open-run key, a waiting recipient of
+   * hers), then the waiting broadcasts oldest first, each matched by the audience read over her one
+   * contact, until one takes her (the 24-hour gap holds the others for now). Failure modes: no sending
    * port throws (the event's unit rolls back and intake retries). Side effects: recipients, their
    * message 1, the broadcasts' `skipped`.
    */
@@ -342,11 +344,12 @@ export class BroadcastRecipientService {
     if (isOwnerChatting) return 0;
     const repository = new BroadcastRecipientRepository(databaseHandle);
     if (await repository.hasOpenRun({ organizationId, contactId })) return 0;
+    // One broadcast at a time (plan §27.15 rule 5): a waiting one of hers goes first.
+    if (await repository.hasWaitingRecipient({ organizationId, contactId })) return 0;
     const waiting = await new BroadcastRepository(databaseHandle).listWaitingForChats({
       organizationId,
       channelAccountId,
     });
-    let added = 0;
     for (const broadcast of waiting) {
       if (broadcast.conditions === null) continue;
       const automationIds = await new BroadcastSegmentRepository(
@@ -371,9 +374,10 @@ export class BroadcastRecipientService {
         broadcastId: broadcast.id,
         contactId,
       });
-      if (outcome !== 'unchanged') added += 1;
+      // The oldest matching broadcast only; the 24-hour gap holds the others for now.
+      if (outcome !== 'unchanged') return 1;
     }
-    return added;
+    return 0;
   }
 
   /**

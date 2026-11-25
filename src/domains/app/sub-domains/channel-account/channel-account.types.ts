@@ -233,6 +233,8 @@ export interface ChannelAccountPlanStopsResult {
   organizationId: number;
   /** The plan's typed features read for the change (`null` when the catalog has no plan to read). */
   features: PlanFeatures | null;
+  /** The name of the plan whose features apply (`null` with no plan in the catalog) — the move down's notice. */
+  planName: string | null;
   /** The accounts whose plan stop moved. */
   moves: ChannelAccountPlanStopMove[];
 }

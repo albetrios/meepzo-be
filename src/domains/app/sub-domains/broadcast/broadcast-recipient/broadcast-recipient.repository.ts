@@ -1,8 +1,15 @@
 import { and, asc, eq, gt, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
+  assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import {
+  type BatchDeleteResult,
+  deleteInBatchesByCondition,
+  readOldestOverdueSeconds,
+} from '@/infrastructure/database/utils/batch-delete.util.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
@@ -187,6 +194,31 @@ export class BroadcastRecipientRepository {
         and(
           eq(automation_run_open_keys.organization_id, organizationId),
           eq(automation_run_open_keys.contact_id, contactId),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /**
+   * Whether she holds a `waiting` recipient row of any broadcast (plan §27.15 rule 5 — ROUTE row
+   * R56): one broadcast at a time, so several "when her chat opens" ones send her only the oldest.
+   */
+  async hasWaitingRecipient({
+    organizationId,
+    contactId,
+  }: {
+    organizationId: number;
+    contactId: number;
+  }): Promise<boolean> {
+    const [row] = await this.db()
+      .select({ id: broadcast_recipients.id })
+      .from(broadcast_recipients)
+      .where(
+        and(
+          eq(broadcast_recipients.organization_id, organizationId),
+          eq(broadcast_recipients.contact_id, contactId),
+          eq(broadcast_recipients.status, 'waiting'),
         ),
       )
       .limit(1);
@@ -515,4 +547,49 @@ export class BroadcastRecipientRepository {
       .set(values)
       .where(and(eq(broadcasts.organization_id, organizationId), eq(broadcasts.id, broadcastId)));
   }
+
+  /**
+   * The recipients' clean-up (WC-53, BCC9): deletes recipients made before `cutoff`, at most
+   * `maxBatches` batches in this unit of work (`idx_broadcast_recipients_created_at`). Needs the
+   * retention context ({@link createRetentionBroadcastRecipientRepository}).
+   */
+  async deleteCreatedBefore({
+    cutoff,
+    maxBatches,
+  }: {
+    cutoff: Date;
+    maxBatches: number;
+  }): Promise<BatchDeleteResult> {
+    return deleteInBatchesByCondition({
+      databaseHandle: this.db(),
+      table: broadcast_recipients,
+      idColumn: broadcast_recipients.id,
+      whereCondition: sql`${broadcast_recipients.created_at} < ${cutoff.toISOString()}::timestamptz`,
+      maxBatches,
+      logContext: 'broadcast-recipient-retention',
+      tableLabel: 'app.broadcast_recipients',
+    });
+  }
+
+  /** Seconds the oldest recipient made before `cutoff` is past it — the clean-up's gauge (P92). */
+  async readCreatedOverdueSeconds(cutoff: Date): Promise<number> {
+    return readOldestOverdueSeconds({
+      databaseHandle: this.db(),
+      table: broadcast_recipients,
+      column: broadcast_recipients.created_at,
+      cutoff,
+      whereCondition: sql`${broadcast_recipients.created_at} < ${cutoff.toISOString()}::timestamptz`,
+    });
+  }
+}
+
+/**
+ * {@link BroadcastRecipientRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) — the recipients' 90-day clean-up (WC-53), which only
+ * deletes (the policy's sweep arm is in `USING`).
+ */
+export function createRetentionBroadcastRecipientRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): BroadcastRecipientRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new BroadcastRecipientRepository(databaseHandle);
 }

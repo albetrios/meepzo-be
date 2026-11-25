@@ -33,9 +33,12 @@ function isIdempotencyRequired(routeKey: string): boolean {
 }
 
 const CAPTCHA_ROUTE_KEYS = new Set([
+  'POST /api/v1/auth/login',
   'POST /api/v1/auth/mfa/login',
   'POST /api/v1/auth/email/send-code',
   'POST /api/v1/auth/email/login',
+  'POST /api/v1/auth/password/forgot',
+  'POST /api/v1/auth/password/reset',
   'POST /api/v1/auth/webauthn/authenticate/options',
   'GET /api/v1/auth/oauth/{provider}',
 ]);

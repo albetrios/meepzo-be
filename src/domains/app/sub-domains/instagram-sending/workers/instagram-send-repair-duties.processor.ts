@@ -1,3 +1,4 @@
+import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import { UnrecoverableError } from 'bullmq';
 import {
   type RepairDutyContext,
@@ -238,6 +239,7 @@ export function createInstagramSendRepairDutyServices({
       addLaneTurns: addMissingInstagramSendLaneTurns,
       addFastMessages: addMissingInstagramSendFastMessages,
       runInDatabaseSlot,
+      jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
     }),
     broadcastSendQueue,
     broadcastEnd: { recipientService, sendingPorts, runInDatabaseSlot },

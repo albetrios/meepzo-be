@@ -279,6 +279,62 @@ async function readProfile({
   }
 }
 
+/** One account of {@link checkAccounts}: what its step did, or the check's end (a break, a defer). */
+type AccountCheckOutcome =
+  | 'missing'
+  | 'refreshed'
+  | 'unchanged'
+  | ChannelConnectionTokenCheckResult;
+
+/** MC10 for one connected Instagram account: missing → it breaks alone; present → its profile. */
+async function checkOneAccount({
+  target,
+  account,
+  assignedIds,
+}: {
+  target: TokenCheckTarget;
+  account: TokenCheckTarget['accounts'][number];
+  assignedIds: ReadonlySet<string>;
+}): Promise<AccountCheckOutcome> {
+  const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId: target.organizationPublicId });
+  if (!assignedIds.has(account.providerAccountId)) {
+    // §25.9: the business no longer shares this account — it breaks alone (CA4).
+    const isBroken = await target.services.accountPort.markAccountBroken({
+      scope,
+      organizationId: target.connection.organizationId,
+      channelAccountId: account.internalId,
+      requestId: target.requestId,
+      stopReason: 'account_not_shared',
+    });
+    return isBroken ? 'missing' : 'unchanged';
+  }
+  const profile = await readProfile({ target, account });
+  if ('failure' in profile) {
+    if (profile.failure === 'break') {
+      return breakConnection({ target, error: profile.error, step: 'profile' });
+    }
+    if (profile.failure === 'defer') {
+      return { outcome: 'deferred', step: 'profile', reencrypted: target.reencrypted };
+    }
+    logger.warn(
+      {
+        organizationPublicId: target.organizationPublicId,
+        channelAccountPublicId: account.publicId,
+        failure: describeMetaGraphError(profile.error),
+      },
+      'app.channel_connection.token_check.profile_refused',
+    );
+    return 'unchanged';
+  }
+  const isRefreshed = await target.services.accountPort.refreshAccountProfile({
+    scope,
+    organizationId: target.connection.organizationId,
+    channelAccountId: account.internalId,
+    profile,
+  });
+  return isRefreshed ? 'refreshed' : 'unchanged';
+}
+
 /** MC10 for the accounts: a missing one breaks alone; a present one gets its profile refreshed. */
 async function checkAccounts({
   target,
@@ -287,48 +343,14 @@ async function checkAccounts({
   target: TokenCheckTarget;
   assignedIds: ReadonlySet<string>;
 }): Promise<ChannelConnectionTokenCheckResult | { refreshedCount: number; missingCount: number }> {
-  const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId: target.organizationPublicId });
   let refreshedCount = 0;
   let missingCount = 0;
   for (const account of target.accounts) {
     if (account.connectionStatus !== 'connected' || account.channel !== 'instagram') continue;
-    if (!assignedIds.has(account.providerAccountId)) {
-      // §25.9: the business no longer shares this account — it breaks alone (CA4).
-      const isBroken = await target.services.accountPort.markAccountBroken({
-        scope,
-        organizationId: target.connection.organizationId,
-        channelAccountId: account.internalId,
-        requestId: target.requestId,
-        stopReason: 'account_not_shared',
-      });
-      if (isBroken) missingCount += 1;
-      continue;
-    }
-    const profile = await readProfile({ target, account });
-    if ('failure' in profile) {
-      if (profile.failure === 'break') {
-        return breakConnection({ target, error: profile.error, step: 'profile' });
-      }
-      if (profile.failure === 'defer') {
-        return { outcome: 'deferred', step: 'profile', reencrypted: target.reencrypted };
-      }
-      logger.warn(
-        {
-          organizationPublicId: target.organizationPublicId,
-          channelAccountPublicId: account.publicId,
-          failure: describeMetaGraphError(profile.error),
-        },
-        'app.channel_connection.token_check.profile_refused',
-      );
-      continue;
-    }
-    const isRefreshed = await target.services.accountPort.refreshAccountProfile({
-      scope,
-      organizationId: target.connection.organizationId,
-      channelAccountId: account.internalId,
-      profile,
-    });
-    if (isRefreshed) refreshedCount += 1;
+    const outcome = await checkOneAccount({ target, account, assignedIds });
+    if (outcome === 'missing') missingCount += 1;
+    else if (outcome === 'refreshed') refreshedCount += 1;
+    else if (outcome !== 'unchanged') return outcome;
   }
   return { refreshedCount, missingCount };
 }

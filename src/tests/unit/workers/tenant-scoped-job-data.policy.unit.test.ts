@@ -30,6 +30,10 @@ const TENANT_SCOPING_EXEMPT_QUEUE_NAME_PATTERNS = [
   // waiting runs in the global-retention context, then cancels each organization's in its own job
   // scope — a cron with no per-job tenant payload.
   /automation-run-wait-expiry/i,
+  // feat-instagram-dm-sending WC-55 (R49): the partition upkeep makes and drops the time parts of
+  // every organization's rows in the maintenance scope `APP_PARTITION_UPKEEP` — a cron over whole
+  // tables, no per-job tenant payload.
+  /app-partition-upkeep/i,
 ] as const;
 
 function collectWorkerFiles(directory: string, collected: string[] = []): string[] {

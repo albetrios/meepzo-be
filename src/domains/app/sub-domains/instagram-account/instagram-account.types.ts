@@ -154,7 +154,7 @@ export interface InstagramAccountErasure {
   erasedPostCount: number;
   /**
    * The channel accounts this erase moved to `revoked` — the ones whose sending lanes Meta's
-   * callbacks stop in the same unit of work, as route 8 does (CA8).
+   * callbacks and an organization delete stop in the same unit of work, as route 8 does (CA8).
    */
   revokedChannelAccounts: ChannelAccountKey[];
 }

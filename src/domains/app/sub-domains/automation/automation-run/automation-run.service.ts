@@ -145,7 +145,36 @@ export interface AutomationRunServiceDependencies {
   sendingPorts: ChannelSendingPorts;
   /** The draw of versions, wordings and the public reply chance; `crypto.randomInt` by default. */
   drawInteger?: AutomationRandomSource;
+  /**
+   * "When her chat opens" at her run's end (plan §27.15 rule 1, BC17 — ROUTE row R56): called in
+   * the commit that ends her run `completed` (or cancelled by its wait, its expiry or the
+   * automation's delete), after its open key is gone — the broadcasts' hook makes her waiting
+   * recipient row when no other run of hers is open. Absent → nothing (unit tests).
+   */
+  runEndedHook?: AutomationRunEndedHook;
 }
+
+/**
+ * The hook {@link AutomationRunServiceDependencies.runEndedHook} names: her contact on the account
+ * whose run just ended, in that run's unit of work; answers how many rows it made.
+ *
+ * @remarks
+ * Notes: the app container passes the broadcasts' `handleChatOpened` (ROUTE row R56); it runs in
+ * the run's commit, after the open key is deleted, so its own open-run hold sees the run gone.
+ */
+export type AutomationRunEndedHook = (input: {
+  databaseHandle: WorkerDatabaseHandle;
+  organizationId: number;
+  channelAccountId: number;
+  contactId: number;
+}) => Promise<number>;
+
+/** The cancel reasons after which her chat may still take a "when her chat opens" broadcast. */
+const RUN_END_HOOK_CANCEL_REASONS: ReadonlySet<AutomationRunCancelReason> = new Set([
+  'wait_expired',
+  'expired',
+  'automation_deleted',
+]);
 
 /** The repositories of one unit of work, bound to its handle. */
 interface AutomationRunRepositories {
@@ -2466,6 +2495,17 @@ export class AutomationRunService {
       organizationId: unit.organizationId,
       runs: [{ id: run.id, started_at: run.started_at }],
     });
+    const isChatStillHers =
+      end.status === 'completed' ||
+      (end.status === 'cancelled' && RUN_END_HOOK_CANCEL_REASONS.has(end.reason));
+    if (isChatStillHers) {
+      await this.dependencies.runEndedHook?.({
+        databaseHandle: unit.databaseHandle,
+        organizationId: unit.organizationId,
+        channelAccountId: unit.channelAccountId,
+        contactId: run.contact_id,
+      });
+    }
     await this.updateCommentLog({
       unit,
       run,

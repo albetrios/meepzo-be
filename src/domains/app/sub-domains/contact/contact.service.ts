@@ -257,6 +257,11 @@ function toContactProfileValues({
   return values;
 }
 
+/** The contact columns one bulk piece's changes read (WC-36). */
+type BulkActionPiece = ReadonlyArray<
+  Pick<ContactRow, 'id' | 'public_id' | 'tags' | 'automations_off_at'>
+>;
+
 /**
  * The contact service (routes-final § 3, 3.A): the routes 18–23 for the team, and the operations
  * event processing, the run engine, sending and broadcasts write contacts through (3.A.10, CT1).
@@ -842,47 +847,75 @@ export class ContactService {
     organizationId: number;
     channelAccountId: number;
     input: ContactBulkActionPieceInput;
-    piece: ReadonlyArray<Pick<ContactRow, 'id' | 'public_id' | 'tags' | 'automations_off_at'>>;
+    piece: BulkActionPiece;
   }): Promise<number> {
     const { action, tag } = input;
     if (action === 'add_tag' || action === 'remove_tag') {
       if (tag === null) return 0;
-      const changed = piece.filter((contact) =>
-        action === 'add_tag'
-          ? !contact.tags.includes(tag) && contact.tags.length < CONTACT_TAGS_MAX_COUNT
-          : contact.tags.includes(tag),
-      );
-      for (const contact of changed) {
-        await this.contactRepository.replaceTags({
-          organizationId,
-          contactId: contact.id,
-          tags:
-            action === 'add_tag'
-              ? [...contact.tags, tag]
-              : contact.tags.filter((held) => held !== tag),
-        });
-      }
-      if (changed.length === 0) return 0;
-      await this.contactRepository.applyTagCountDeltas({
+      return this.applyBulkTagChanges({ organizationId, channelAccountId, action, tag, piece });
+    }
+    return this.applyBulkPauseChanges({ organizationId, input, piece });
+  }
+
+  /** A bulk piece's tag add or removal (WC-36): the tags, their counts and the tag events. */
+  private async applyBulkTagChanges({
+    organizationId,
+    channelAccountId,
+    action,
+    tag,
+    piece,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    action: 'add_tag' | 'remove_tag';
+    tag: string;
+    piece: BulkActionPiece;
+  }): Promise<number> {
+    const isAdd = action === 'add_tag';
+    const changed = piece.filter((contact) =>
+      isAdd
+        ? !contact.tags.includes(tag) && contact.tags.length < CONTACT_TAGS_MAX_COUNT
+        : contact.tags.includes(tag),
+    );
+    for (const contact of changed) {
+      await this.contactRepository.replaceTags({
+        organizationId,
+        contactId: contact.id,
+        tags: isAdd ? [...contact.tags, tag] : contact.tags.filter((held) => held !== tag),
+      });
+    }
+    if (changed.length === 0) return 0;
+    await this.contactRepository.applyTagCountDeltas({
+      organizationId,
+      channelAccountId,
+      deltas: [{ tag, delta: isAdd ? changed.length : -changed.length }],
+    });
+    await this.ports.tagEventRecorder?.recordContactTagEvents({
+      events: changed.map((contact) => ({
         organizationId,
         channelAccountId,
-        deltas: [{ tag, delta: action === 'add_tag' ? changed.length : -changed.length }],
-      });
-      await this.ports.tagEventRecorder?.recordContactTagEvents({
-        events: changed.map((contact) => ({
-          organizationId,
-          channelAccountId,
-          contactId: contact.id,
-          tag,
-          kind: action === 'add_tag' ? 'added' : 'removed',
-          source: 'owner',
-          sourceAutomationId: null,
-          chainNumber: 0,
-        })),
-      });
-      return changed.length;
-    }
-    const isPause = action === 'pause_automations';
+        contactId: contact.id,
+        tag,
+        kind: isAdd ? 'added' : 'removed',
+        source: 'owner',
+        sourceAutomationId: null,
+        chainNumber: 0,
+      })),
+    });
+    return changed.length;
+  }
+
+  /** A bulk piece's automation pause or resume (WC-36): the owner fields and the pause steps. */
+  private async applyBulkPauseChanges({
+    organizationId,
+    input,
+    piece,
+  }: {
+    organizationId: number;
+    input: ContactBulkActionPieceInput;
+    piece: BulkActionPiece;
+  }): Promise<number> {
+    const isPause = input.action === 'pause_automations';
     const changed = piece.filter((contact) => (contact.automations_off_at === null) === isPause);
     const actorUserId = isPause
       ? await this.organizationService.resolveUserInternalIdByPublicId(input.actorUserPublicId)

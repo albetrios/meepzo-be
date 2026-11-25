@@ -75,3 +75,10 @@ export type BroadcastSortField = (typeof BROADCAST_SORT_FIELDS)[number];
 
 /** The audit resource of every broadcast route (BC6). */
 export const BROADCAST_AUDIT_RESOURCE_TYPE = 'broadcast';
+
+/**
+ * Days a deleted broadcast or segment is kept before the hourly purge removes it for good (WC-62,
+ * BC4, BCC3, P75, P9): a broadcast with its recipients and messages; a segment once no live
+ * broadcast points at it.
+ */
+export const BROADCAST_TOMBSTONE_RETENTION_DAYS = 90;

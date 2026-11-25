@@ -71,6 +71,7 @@ function buildService() {
     cancelSubscriptionImmediately: vi.fn(),
     resumeSubscription: vi.fn(),
     getProviderPriceId: vi.fn(),
+    isConfigured: vi.fn(() => true),
   } as unknown as PaymentProvider;
   const repository = {
     findActiveByOrganization: vi.fn(),

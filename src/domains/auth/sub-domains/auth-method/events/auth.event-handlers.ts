@@ -18,6 +18,7 @@ import {
   type AccountSecurityNoticePayload,
   type EmailConfirmLinkPayload,
   type EmailVerificationCodePayload,
+  type PasswordResetEmailPayload,
 } from './auth.events.js';
 
 async function recordAndScheduleOutboxEmail({
@@ -117,6 +118,53 @@ async function onEmailConfirmLinkEvent(event: DomainEvent): Promise<void> {
   }
 }
 
+/**
+ * PASSWORD-ROUTES-DISABLED: records the password reset email (the frontend's reset page with the
+ * raw token). Throws when mail is not configured, so the forgot-password transaction rolls the new
+ * token back. Reached only through `POST /auth/password/forgot` (`PASSWORD_ROUTES_ENABLED`).
+ */
+async function handlePasswordResetEmail({
+  payload,
+  requestId,
+}: {
+  payload: PasswordResetEmailPayload;
+  requestId?: string | undefined;
+}): Promise<void> {
+  if (!isMailConfigured()) {
+    throw new ServiceUnavailableError('errors:mailNotConfigured');
+  }
+
+  const frontendUrl = env.FRONTEND_URL ?? DEFAULT_FRONTEND_URL;
+  const resetUrl = `${frontendUrl}/auth/password/reset?token=${payload.reset_token}`;
+
+  await recordAndScheduleOutboxEmail({
+    data: {
+      to: payload.email,
+      subject: i18next.t('mail:passwordResetSubject', { lng: payload.locale }),
+      html: i18next.t('mail:passwordResetHtml', {
+        lng: payload.locale,
+        resetUrl,
+        expiresInMinutes: payload.expires_in_minutes,
+      }),
+      tags: [{ name: 'category', value: 'password-reset' }],
+    },
+    options: requestId !== undefined ? { requestId } : undefined,
+  });
+}
+
+async function onPasswordResetEmailEvent(event: DomainEvent): Promise<void> {
+  const payload = event.payload as PasswordResetEmailPayload;
+  try {
+    await handlePasswordResetEmail({ payload, requestId: event.requestId });
+  } catch (error) {
+    logger.warn(
+      { error, eventType: event.type, email: payload.email },
+      'auth.password_reset.email.enqueue.failed',
+    );
+    throw error;
+  }
+}
+
 /** The `mail:` keys of each account security notice's subject and opening paragraph. */
 const ACCOUNT_SECURITY_NOTICE_MAIL_KEYS: Record<
   AccountSecurityNotice,
@@ -129,6 +177,11 @@ const ACCOUNT_SECURITY_NOTICE_MAIL_KEYS: Record<
   [ACCOUNT_SECURITY_NOTICE.SESSIONS_REVOKED]: {
     subject: 'mail:securityNoticeSessionsRevokedSubject',
     html: 'mail:securityNoticeSessionsRevokedHtml',
+  },
+  // PASSWORD-ROUTES-DISABLED: sent only by the password change and reset routes.
+  [ACCOUNT_SECURITY_NOTICE.PASSWORD_CHANGED]: {
+    subject: 'mail:securityNoticePasswordChangedSubject',
+    html: 'mail:securityNoticePasswordChangedHtml',
   },
 };
 
@@ -205,9 +258,13 @@ function registerAuthMethodEmailEventHandlers(): void {
     eventType: AUTH_EVENT.EMAIL_CONFIRM_LINK_REQUESTED,
     handler: onEmailConfirmLinkEvent,
   });
+  eventBus.on({
+    eventType: AUTH_EVENT.PASSWORD_RESET_REQUESTED,
+    handler: onPasswordResetEmailEvent,
+  });
 }
 
-/** Subscribes the auth-method side-effect handlers to the in-process event bus (email verification code, confirm-email link and account security notice emails). Idempotent: subsequent calls are no-ops. */
+/** Subscribes the auth-method side-effect handlers to the in-process event bus (email verification code, confirm-email link, account security notice and — PASSWORD-ROUTES-DISABLED — password reset emails). Idempotent: subsequent calls are no-ops. */
 export function registerAuthMethodEventHandlers(): void {
   if (authEventHandlersRegistered) return;
   authEventHandlersRegistered = true;

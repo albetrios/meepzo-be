@@ -40,6 +40,11 @@ export const sending_states = appSchema
       /** The one test for all accounts after an all-accounts stop. */
       testing_lane: varchar('testing_lane', { length: 9 }),
       testing_until: timestamp('testing_until', { withTimezone: true }),
+      /**
+       * When the all-accounts test passed and the lanes were released, spread over 5 minutes at half
+       * speed (plan §33.6 rule 3, ROUTE row R62); empty while the stop or its test holds them.
+       */
+      all_release_started_at: timestamp('all_release_started_at', { withTimezone: true }),
       /** Meta's app-level usage (`X-App-Usage`, S13): the newer reading wins. */
       app_usage_percent: smallint('app_usage_percent'),
       app_usage_read_at: timestamp('app_usage_read_at', { withTimezone: true }),

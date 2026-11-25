@@ -909,6 +909,7 @@ Note app.segments {
 }
 
 Table app.sending_states {
+  all_release_started_at timestamptz
   all_stop_count smallint [not null]
   all_stop_reason varchar(14)
   all_stop_until timestamptz

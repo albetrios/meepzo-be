@@ -41,6 +41,14 @@ export function getRemainingShutdownBudgetMs(): number {
   return Math.max(0, shutdownDeadlineAt - Date.now());
 }
 
+/**
+ * Whether shutdown has begun ({@link startShutdownBudget}) — a long time-budgeted job checks it
+ * between its units of work and stops early, so a closing worker is not held up.
+ */
+export function hasShutdownStarted(): boolean {
+  return shutdownDeadlineAt !== undefined;
+}
+
 /** Test-only: forget the shutdown deadline. */
 export function resetShutdownBudgetForTests(): void {
   shutdownDeadlineAt = undefined;

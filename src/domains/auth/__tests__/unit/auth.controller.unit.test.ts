@@ -10,6 +10,7 @@ import { createAuthAuthMethodHandlers } from '@/domains/auth/handlers/auth-auth-
 import { createAuthMfaHandlers } from '@/domains/auth/handlers/auth-mfa.handlers.js';
 import { createAuthWebauthnHandlers } from '@/domains/auth/handlers/auth-webauthn.handlers.js';
 import { createAuthMeContextHandlers } from '@/domains/auth/handlers/auth-me-context.handlers.js';
+import { createAuthPasswordHandlers } from '@/domains/auth/handlers/auth-password.handlers.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { attachPrincipalScope } from '@/tests/helpers/principal-scope.helper.js';
 
@@ -91,6 +92,25 @@ describe('createAuthController', () => {
       .mockResolvedValue({ access_token: 'new-token', refresh_secret: 'new-refresh-secret' }),
   };
 
+  // PASSWORD-ROUTES-DISABLED: the password handlers' service (restored, owner 2026-11-25, P251).
+  const passwordAuthService = {
+    login: vi.fn().mockResolvedValue({
+      access_token: 'token',
+      session_public_id: 'session',
+      session_refresh_secret: 'refresh-secret',
+    }),
+    forgotPassword: vi.fn().mockResolvedValue({ messageKey: 'success:passwordResetEmailSent' }),
+    resetPassword: vi.fn().mockResolvedValue({
+      userPublicId: 'usr_resetresetresetreset1',
+      loginResult: {
+        access_token: 'token',
+        session_public_id: 'session',
+        session_refresh_secret: 'refresh-secret',
+      },
+    }),
+    changePassword: vi.fn().mockResolvedValue(undefined),
+  };
+
   const authMethodService = {
     list: vi.fn().mockResolvedValue([]),
     create: vi.fn().mockResolvedValue({ id: 1 }),
@@ -161,6 +181,7 @@ describe('createAuthController', () => {
     authService: authService as never,
     authMethodService: authMethodService as never,
     emailLoginService: emailLoginService as never,
+    passwordAuthService: passwordAuthService as never,
     emailConfirmationService: { requestLink: vi.fn(), confirm: vi.fn() } as never,
     oauthService: oauthService as never,
     mfaService: mfaService as never,
@@ -177,6 +198,59 @@ describe('createAuthController', () => {
     );
     expect(authService.logout).toHaveBeenCalledWith('access-token');
     expect(reply.clearCookie).toHaveBeenCalled();
+  });
+
+  it('login sets session cookie and returns token (PASSWORD-ROUTES-DISABLED)', async () => {
+    const reply = mockReply();
+    const response = await controller.login(
+      mockRequest({ body: { email: 'a@b.com', password: 'pass' } }),
+      reply,
+    );
+    expect(passwordAuthService.login).toHaveBeenCalledWith({
+      body: { email: 'a@b.com', password: 'pass' },
+      ipAddress: '127.0.0.1',
+      userAgent: 'vitest',
+    });
+    expect(response).toMatchObject({
+      data: { access_token: 'token' },
+      meta: { request_id: 'request-id' },
+    });
+    expect(reply.setCookie).toHaveBeenCalledWith(
+      'session_id',
+      'session.refresh-secret',
+      expect.objectContaining({ httpOnly: true }),
+    );
+  });
+
+  it('password handlers delegate to the password service and send the security notice (PASSWORD-ROUTES-DISABLED)', async () => {
+    const forgot = await controller.forgotPassword(
+      mockRequest({ body: { email: 'a@b.com' }, t: undefined }),
+      mockReply(),
+    );
+    expect(forgot.data).toHaveProperty('message');
+    const resetReply = mockReply();
+    await controller.resetPassword(
+      mockRequest({ body: { token: 't', password: 'p' } }),
+      resetReply,
+    );
+    expect(passwordAuthService.resetPassword).toHaveBeenCalled();
+    // Reset auto-logs-in: it sets the session cookie.
+    expect(resetReply.setCookie).toHaveBeenCalled();
+    const changeReply = mockReply();
+    await controller.changePassword(
+      mockRequest({
+        body: { current_password: 'a', new_password: 'b' },
+        headers: { authorization: 'Bearer current-token', 'user-agent': 'vitest' },
+      }),
+      changeReply,
+    );
+    expect(passwordAuthService.changePassword).toHaveBeenCalledWith(
+      expect.objectContaining({ currentAccessToken: 'current-token' }),
+    );
+    expect(changeReply.code).toHaveBeenCalledWith(204);
+    expect(authMethodService.sendAccountSecurityNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ notice: 'password_changed' }),
+    );
   });
 
   it('logout rejects missing authorization header', async () => {
@@ -519,8 +593,8 @@ describe('createAuthController', () => {
   });
 
   /**
-   * The eight `handlers/*.ts` factories are exercised transitively by the cases above, but nothing
-   * asserted the composition itself. `createAuthController` is a flat spread of eight factory
+   * The nine `handlers/*.ts` factories are exercised transitively by the cases above, but nothing
+   * asserted the composition itself. `createAuthController` is a flat spread of nine factory
    * results — dropping one line silently removes a whole flow's handlers, and the failure only
    * surfaces at route-registration time as an `undefined` handler.
    */
@@ -529,6 +603,7 @@ describe('createAuthController', () => {
       authService: authService as never,
       authMethodService: authMethodService as never,
       emailLoginService: emailLoginService as never,
+      passwordAuthService: passwordAuthService as never,
       emailConfirmationService: { requestLink: vi.fn(), confirm: vi.fn() } as never,
       oauthService: oauthService as never,
       mfaService: mfaService as never,
@@ -546,9 +621,10 @@ describe('createAuthController', () => {
       createAuthMfaHandlers,
       createAuthWebauthnHandlers,
       createAuthMeContextHandlers,
+      createAuthPasswordHandlers,
     ];
 
-    it('exposes every handler contributed by all eight factories', () => {
+    it('exposes every handler contributed by all nine factories', () => {
       const composed = createAuthController(container);
       for (const factory of handlerFactories) {
         const contributed = Object.keys(factory(container));

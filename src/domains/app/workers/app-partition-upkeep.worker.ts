@@ -15,16 +15,21 @@ import {
   APP_PARTITION_UPKEEP_QUEUE_NAME,
 } from './app-partition-upkeep.constants.js';
 import { runAppPartitionUpkeepJob } from './app-partition-upkeep.processor.js';
+import { APP_TABLE_CLEAN_UP_JOB_NAME } from './app-table-clean-up.constants.js';
+import { runAppTableCleanUpJob } from './app-table-clean-up.processor.js';
 
 /**
- * The shared partition upkeep of the seven time-split `app` tables (feat-instagram-dm-sending WC-55,
- * WHC13) — family `retention`, registered with `retentionDefinition`; its two repeatable schedules
- * (the daily make at a quiet hour, the hourly make-and-drop) live in
- * `src/infrastructure/queue/scheduler.ts`.
+ * The shared upkeep of the `app` tables (feat-instagram-dm-sending WC-55, WHC13): the seven
+ * time-split tables' parts, and the hourly batch clean-up of the plain ones (WC-53, WC-54, WC-62 —
+ * ROUTE row R50, on this queue so no pool place is added) — family `retention`, registered with
+ * `retentionDefinition`; its three repeatable schedules (the daily make at a quiet hour, the hourly
+ * make-and-drop, the hourly clean-up) live in `src/infrastructure/queue/scheduler.ts`.
  *
  * @remarks
- * - **Algorithm:** a job named `drop-expired-app-partitions` runs {@link runAppPartitionUpkeepJob}
- *   in `drop` mode; every other job name (the daily `make-app-partitions`) in `make` mode. When the
+ * - **Algorithm:** a job named `clean-up-app-tables` runs {@link runAppTableCleanUpJob}; one named
+ *   `drop-expired-app-partitions` runs {@link runAppPartitionUpkeepJob} in `drop` mode; every
+ *   other job name (the daily `make-app-partitions`) in `make` mode. One job at a time, so the
+ *   clean-up (up to its 10-minute budget) and the drop never overlap. When the
  *   worker starts it also runs one `make` pass at once, outside BullMQ, so a server that was down
  *   past the made days gets its parts before the next schedule (WC-55: "and when a server starts").
  * - **Failure modes:** stalled jobs are logged through the `stalled` listener; processor errors go
@@ -39,10 +44,12 @@ import { runAppPartitionUpkeepJob } from './app-partition-upkeep.processor.js';
 export function createAppPartitionUpkeepWorker(): WorkerHandle {
   const worker = new Worker(
     APP_PARTITION_UPKEEP_QUEUE_NAME,
-    async (job) =>
-      runAppPartitionUpkeepJob({
+    async (job) => {
+      if (job.name === APP_TABLE_CLEAN_UP_JOB_NAME) return runAppTableCleanUpJob();
+      return runAppPartitionUpkeepJob({
         mode: job.name === APP_PARTITION_UPKEEP_DROP_JOB_NAME ? 'drop' : 'make',
-      }),
+      });
+    },
     {
       connection: getBullMQConnectionOptions(),
       prefix: getBullMQKeyPrefix(),

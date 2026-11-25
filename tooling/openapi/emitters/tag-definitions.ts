@@ -8,6 +8,8 @@ export function buildTagDefinitions(
     Auth: 'Authentication — logout, refresh, active organization (no passwords)',
     'Email Login': 'Passwordless sign-in with an emailed verification code',
     OAuth: 'OAuth 2.0 social login flows',
+    Password:
+      'Password sign-in and management (login, forgot, reset, change) — PASSWORD-ROUTES-DISABLED: registered only when PASSWORD_ROUTES_ENABLED=true',
     'Email Verification': 'Email address verification',
     MFA: 'Multi-factor authentication enrollment and verification',
     Token: 'Token refresh and management',
@@ -63,6 +65,7 @@ export function buildTagDefinitions(
     'Auth',
     'Email Login',
     'OAuth',
+    'Password',
     'Email Verification',
     'MFA',
     'Token',

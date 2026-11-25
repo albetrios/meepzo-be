@@ -7,8 +7,9 @@ import { createAuthAuthMethodHandlers } from './handlers/auth-auth-method.handle
 import { createAuthMfaHandlers } from './handlers/auth-mfa.handlers.js';
 import { createAuthWebauthnHandlers } from './handlers/auth-webauthn.handlers.js';
 import { createAuthMeContextHandlers } from './handlers/auth-me-context.handlers.js';
+import { createAuthPasswordHandlers } from './handlers/auth-password.handlers.js';
 
-/** Composes the auth domain's Fastify route handler map from per-flow handler factories (session, email verification-code, confirm-email, OAuth, auth-method, MFA, WebAuthn). */
+/** Composes the auth domain's Fastify route handler map from per-flow handler factories (session, email verification-code, confirm-email, OAuth, auth-method, MFA, WebAuthn, and the PASSWORD-ROUTES-DISABLED password handlers, routed only when `PASSWORD_ROUTES_ENABLED`). */
 export function createAuthController(container: AuthContainer) {
   return {
     ...createAuthSessionHandlers(container),
@@ -19,5 +20,6 @@ export function createAuthController(container: AuthContainer) {
     ...createAuthMfaHandlers(container),
     ...createAuthWebauthnHandlers(container),
     ...createAuthMeContextHandlers(container),
+    ...createAuthPasswordHandlers(container),
   };
 }

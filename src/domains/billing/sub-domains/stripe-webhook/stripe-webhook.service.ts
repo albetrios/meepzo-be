@@ -19,7 +19,10 @@ import type {
   StripeWebhookEventRepository,
 } from './stripe-webhook-event.repository.js';
 import { enqueueStripeWebhook } from './queues/stripe-webhook.queue.js';
-import { runStripeWebhookHandlerWithOrganizationContext } from './stripe-webhook-organization.util.js';
+import {
+  runStripeWebhookHandlerWithOrganizationContext,
+  stripeWebhookOrganizationScope,
+} from './stripe-webhook-organization.util.js';
 import {
   PLAN_STATE_CHANGE,
   SUBSCRIPTION_EVENT,
@@ -49,7 +52,6 @@ import {
 import { STRIPE_WEBHOOK_MAX_PROCESSING_ATTEMPTS } from '@/shared/constants/billing.constants.js';
 import {
   MAINTENANCE_SCOPE,
-  PRINCIPAL_SCOPE,
   withMaintenanceDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 
@@ -1119,7 +1121,7 @@ export class StripeWebhookService {
       .toISOString()
       .slice(0, 10);
     await notifyOrganizationKind({
-      scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
+      scope: stripeWebhookOrganizationScope(organizationPublicId),
       type: 'billing.payment_failed',
       copy: { key: 'billingPaymentFailed', values: { graceEndsOn } },
       dedupeKey: `payment-failed:${row.public_id}:${String(row.current_period_end.getTime())}`,

@@ -660,7 +660,12 @@ export class ChannelAccountService
             to,
           });
         }
-        return { organizationId, features: planAccess.features, moves };
+        return {
+          organizationId,
+          features: planAccess.features,
+          planName: planAccess.plan?.name ?? null,
+          moves,
+        };
       },
     });
   }

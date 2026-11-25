@@ -4,7 +4,10 @@ import {
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { withSavepoint } from '@/infrastructure/database/transaction.js';
-import type { WorkerDatabaseSlotLimiter } from '@/infrastructure/queue/worker-runtime/worker-database-slot-limiter.js';
+import {
+  type WorkerDatabaseSlotLimiter,
+  toDatabaseSlotRunner,
+} from '@/infrastructure/queue/worker-runtime/worker-database-slot-limiter.js';
 import {
   INSTAGRAM_WEBHOOK_EVENTS_PER_JOB,
   INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS,
@@ -648,6 +651,15 @@ async function startCommentWatch({
   }
 }
 
+/** The comment run's kind (WH27): a Live comment, else an ad's comment when it carries an ad id. */
+function commentRunKindOf(dispatch: {
+  inboundKind: 'comment' | 'live_comment';
+  adId: string | null;
+}): 'live_comment' | 'comment' | 'ad_comment' {
+  if (dispatch.inboundKind === 'live_comment') return 'live_comment';
+  return dispatch.adId === null ? 'comment' : 'ad_comment';
+}
+
 /** The run engine's entry point for the dispatched kind (WH13, WH27; 4.B.10). */
 async function callRunEngine({
   context,
@@ -678,12 +690,7 @@ async function callRunEngine({
       const mediaPublishedAt = storedPost?.published_at ?? null;
       const handled = await automationRunService.startCommentRun({
         ...trigger,
-        kind:
-          dispatch.inboundKind === 'live_comment'
-            ? 'live_comment'
-            : dispatch.adId === null
-              ? 'comment'
-              : 'ad_comment',
+        kind: commentRunKindOf(dispatch),
         commentId: dispatch.instagramCommentId,
         mediaId: dispatch.instagramMediaId,
         adId: dispatch.adId,
@@ -1163,8 +1170,37 @@ async function enqueueFollowUps({
   }
 }
 
-/** Runs a callback as-is — the database slot of a caller that has no limiter (tests, scripts). */
-const RUN_WITHOUT_SLOT = <T>(callback: () => Promise<T>): Promise<T> => callback();
+/** An event whose tries are spent (WH21): logged with its kind and tries, never its content. */
+function logExhaustedEvent({
+  logFields,
+  event,
+}: {
+  logFields: Record<string, unknown>;
+  event: { public_id: string; event_kind: string; attempt_count: number };
+}): void {
+  logger.warn(
+    {
+      ...logFields,
+      instagramWebhookEventPublicId: event.public_id,
+      eventKind: event.event_kind,
+      attemptCount: event.attempt_count,
+    },
+    'app.instagram_webhook.event_attempts_exhausted',
+  );
+}
+
+/** One claimed event's outcome added to the job's counts. */
+function countEventOutcome({
+  result,
+  outcome,
+}: {
+  result: InstagramWebhookIntakeJobResult;
+  outcome: Awaited<ReturnType<typeof takeInClaimedEvent>>;
+}): void {
+  if (outcome === 'processed') result.processedEventCount += 1;
+  else if (outcome === 'skipped') result.skippedEventCount += 1;
+  else if (outcome === 'failed') result.failedEventCount += 1;
+}
 
 /**
  * One intake job of a kind group of one Instagram account (feat-instagram-dm-sending § 5 WH5,
@@ -1227,10 +1263,7 @@ export async function processInstagramWebhookIntakeJob({
 }): Promise<InstagramWebhookIntakeJobResult> {
   const { organizationPublicId, channelAccountPublicId, intakeKind } = jobData;
   const scope = PRINCIPAL_SCOPE.JOB({ organizationPublicId });
-  const runInDatabaseSlot =
-    limiter === null || limiter === undefined
-      ? RUN_WITHOUT_SLOT
-      : <T>(callback: () => Promise<T>) => limiter.runInSlot({ callback });
+  const runInDatabaseSlot = toDatabaseSlotRunner(limiter);
   const result: InstagramWebhookIntakeJobResult = {
     outcome: 'drained',
     processedEventCount: 0,
@@ -1271,15 +1304,7 @@ export async function processInstagramWebhookIntakeJob({
     }
     if (claimed.outcome === 'exhausted') {
       result.failedEventCount += 1;
-      logger.warn(
-        {
-          ...logFields,
-          instagramWebhookEventPublicId: claimed.event.public_id,
-          eventKind: claimed.event.event_kind,
-          attemptCount: claimed.event.attempt_count,
-        },
-        'app.instagram_webhook.event_attempts_exhausted',
-      );
+      logExhaustedEvent({ logFields, event: claimed.event });
       continue;
     }
     const { event } = claimed;
@@ -1299,9 +1324,7 @@ export async function processInstagramWebhookIntakeJob({
       },
       enqueueProfileRead,
     });
-    if (outcome === 'processed') result.processedEventCount += 1;
-    else if (outcome === 'skipped') result.skippedEventCount += 1;
-    else if (outcome === 'failed') result.failedEventCount += 1;
+    countEventOutcome({ result, outcome });
   }
 
   // WH12: the batch is done — yield the slot, and let a follow-up job go on with the group.

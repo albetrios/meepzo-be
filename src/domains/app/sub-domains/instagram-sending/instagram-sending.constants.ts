@@ -196,6 +196,9 @@ export type InstagramSendCountGroup = (typeof INSTAGRAM_SEND_COUNT_GROUPS)[numbe
 /** The slots one organization's month count is split into, by account (D34). */
 export const MESSAGE_MONTH_COUNT_SLOTS = 16;
 
+/** Days an ended stop stays in the stop history before the hourly clean-up deletes it (WC-53, P33). */
+export const INSTAGRAM_SEND_STOP_KEEP_DAYS = 90;
+
 /** The month meter's `nearly` share (SN15, D34): 80 % of the limit. */
 export const MESSAGE_MONTH_NEARLY_SHARE = 0.8;
 
@@ -393,6 +396,13 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   accessTestMinutes: 60,
   /** The all-accounts `app_limit` stop, by its count (`APP_STOP_MINUTES`, plan §33.6). */
   appStopMinutes: [15, 30, 60],
+  /**
+   * After an all-accounts stop's good test the lanes are released over this many minutes
+   * (`RELEASE_SPREAD_MINUTES`, plan §33.6 rule 3), each at half speed for `halfSpeedHours`.
+   */
+  allReleaseSpreadMinutes: 5,
+  /** A lane that wakes while another takes the all-accounts test looks again this much later. */
+  allTestWaitSeconds: 30,
   /** `app_limit` from two accounts within this many minutes stops every account (`APP_LIMIT_WINDOW_MINUTES`). */
   appLimitWindowMinutes: 5,
   /** "No answer" or "try later" results in a row that stop an account (`DOWN_IN_A_ROW`). */

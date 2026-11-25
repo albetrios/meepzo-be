@@ -155,9 +155,13 @@ process.env.DATABASE_SSL_ENABLED = 'false';
  * several of these to `'false'` for local dev ergonomics, but the test harness needs the
  * corresponding routes/handlers wired so each suite can assert its real-world behavior.
  * Individual tests that exercise the disabled path flip the flag back inside `beforeAll`
- * (e.g. `mcp-disabled.security.test.ts`, `queue-dashboard-readonly.security.test.ts`).
+ * (e.g. `mcp-disabled.security.test.ts`, `queue-dashboard-readonly.security.test.ts`,
+ * `password-routes.integration.test.ts`).
  */
 process.env.ENABLE_MCP_SERVER = 'true';
+// PASSWORD-ROUTES-DISABLED: the four password routes stay catalogued in docs/routes.txt, so the
+// catalog-driven suites need them registered; `password-routes.integration.test.ts` flips it off.
+process.env.PASSWORD_ROUTES_ENABLED = 'true';
 process.env.ENABLE_QUEUE_DASHBOARD = 'true';
 process.env.ENABLE_QUEUE_DASHBOARD_MUTATIONS = 'true';
 /**

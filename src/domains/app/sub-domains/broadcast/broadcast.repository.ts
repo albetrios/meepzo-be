@@ -1,8 +1,25 @@
-import { and, eq, getTableColumns, inArray, isNull, notInArray, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  notInArray,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
+  assertWorkerDatabaseContext,
   resolveRepositoryDatabaseHandle,
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
+import {
+  type BatchDeleteResult,
+  deleteInBatchesByCondition,
+  readOldestOverdueSeconds,
+} from '@/infrastructure/database/utils/batch-delete.util.js';
 import { countWithCap } from '@/infrastructure/database/utils/capped-count.util.js';
 import { databaseUpdatedAtTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
@@ -586,7 +603,7 @@ export class BroadcastRepository {
     broadcastId,
   }: BroadcastKey): Promise<Pick<
     BroadcastRow,
-    'public_id' | 'name' | 'sent' | 'created_by_user_id'
+    'public_id' | 'name' | 'sent' | 'skipped' | 'replies' | 'created_by_user_id'
   > | null> {
     const [row] = await this.db()
       .update(broadcasts)
@@ -606,6 +623,8 @@ export class BroadcastRepository {
         public_id: broadcasts.public_id,
         name: broadcasts.name,
         sent: broadcasts.sent,
+        skipped: broadcasts.skipped,
+        replies: broadcasts.replies,
         created_by_user_id: broadcasts.created_by_user_id,
       });
     return row ?? null;
@@ -613,7 +632,7 @@ export class BroadcastRepository {
 
   /**
    * The account's live "when her chat opens" broadcasts still inside their days (BC17 — intake's
-   * hook, `idx_broadcasts_account_waiting_for_chats`), with the copy of their audience.
+   * hook, `idx_broadcasts_account_waiting_for_chats`), with the copy of their audience, oldest first.
    */
   async listWaitingForChats({
     organizationId,
@@ -622,18 +641,22 @@ export class BroadcastRepository {
     organizationId: number;
     channelAccountId: number;
   }): Promise<Pick<BroadcastRow, 'id' | 'conditions'>[]> {
-    return this.db()
-      .select({ id: broadcasts.id, conditions: broadcasts.conditions })
-      .from(broadcasts)
-      .where(
-        and(
-          eq(broadcasts.organization_id, organizationId),
-          eq(broadcasts.channel_account_id, channelAccountId),
-          eq(broadcasts.status, 'waiting_for_chats'),
-          isNull(broadcasts.deleted_at),
-          sql`${broadcasts.ends_at} > now()`,
-        ),
-      );
+    return (
+      this.db()
+        .select({ id: broadcasts.id, conditions: broadcasts.conditions })
+        .from(broadcasts)
+        .where(
+          and(
+            eq(broadcasts.organization_id, organizationId),
+            eq(broadcasts.channel_account_id, channelAccountId),
+            eq(broadcasts.status, 'waiting_for_chats'),
+            isNull(broadcasts.deleted_at),
+            sql`${broadcasts.ends_at} > now()`,
+          ),
+        )
+        // The oldest first (plan §27.15 rule 5): the one she gets when several match.
+        .orderBy(asc(broadcasts.created_at), asc(broadcasts.id))
+    );
   }
 
   /**
@@ -662,4 +685,54 @@ export class BroadcastRepository {
       .returning({ id: broadcasts.id });
     return rows.length;
   }
+
+  /**
+   * The deleted broadcasts' purge (WC-62, BC4, P75): deletes the broadcasts deleted before
+   * `cutoff`, at most `maxBatches` batches in this unit of work (`idx_broadcasts_tombstoned`);
+   * their recipients and messages go by cascade. Needs the retention context
+   * ({@link createRetentionBroadcastRepository}).
+   */
+  async deleteTombstonedBefore({
+    cutoff,
+    maxBatches,
+  }: {
+    cutoff: Date;
+    maxBatches: number;
+  }): Promise<BatchDeleteResult> {
+    return deleteInBatchesByCondition({
+      databaseHandle: this.db(),
+      table: broadcasts,
+      idColumn: broadcasts.id,
+      whereCondition: this.tombstonedBefore(cutoff),
+      maxBatches,
+      logContext: 'broadcast-tombstone-retention',
+      tableLabel: 'app.broadcasts',
+    });
+  }
+
+  /** Seconds the oldest broadcast deleted before `cutoff` is past it — the purge's gauge (P92). */
+  async readTombstonedOverdueSeconds(cutoff: Date): Promise<number> {
+    return readOldestOverdueSeconds({
+      databaseHandle: this.db(),
+      table: broadcasts,
+      column: broadcasts.deleted_at,
+      cutoff,
+      whereCondition: this.tombstonedBefore(cutoff),
+    });
+  }
+
+  private tombstonedBefore(cutoff: Date): SQL {
+    return sql`${broadcasts.deleted_at} IS NOT NULL AND ${broadcasts.deleted_at} < ${cutoff.toISOString()}::timestamptz`;
+  }
+}
+
+/**
+ * {@link BroadcastRepository} bound to a retention handle (`runGlobalRetentionWorkerJob`) — the deleted broadcasts' 90-day purge (WC-62), which only
+ * deletes (the policy's sweep arm is in `USING`).
+ */
+export function createRetentionBroadcastRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): BroadcastRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
+  return new BroadcastRepository(databaseHandle);
 }

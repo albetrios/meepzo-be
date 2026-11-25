@@ -1105,7 +1105,8 @@ export class SubscriptionService {
    * @remarks
    * - **Algorithm:** under the per-organization Redis lock: (1) outside any unit, the entitlement
    *   before (for `PLAN_STATE_CHANGED`) and — for a trial — the organization's not-revoked accounts
-   *   through the accounts port; (2) one organization unit: the team check, no live subscription, the
+   *   through the accounts port; (2) one organization unit: the team check, no live subscription (a
+   *   local Free row is replaced by a paid plan or a first trial in the create commit, P502), the
    *   plan and its cycle, and for a trial a paid plan (`422 plan_has_no_trial`) and the one-trial rules
    *   (`409 trial_already_used`); (3) Stripe, outside any unit (the trial settings with
    *   `PAID_TRIAL_DAYS`); (4) one unit: the row (`TRIALING`, `trial_end` = now + 7 days for a trial)
@@ -1140,13 +1141,14 @@ export class SubscriptionService {
         organizationPublicId: organization_public_id,
         isTrial,
       });
-      const { organization, plan, createdByUserInternalId } = await this.readCreateSubject({
-        scope,
-        parsed,
-        isTrial,
-        trialInstagramUserIds,
-        created_by_user_public_id,
-      });
+      const { organization, plan, createdByUserInternalId, replacedLocalFreeRowPublicId } =
+        await this.readCreateSubject({
+          scope,
+          parsed,
+          isTrial,
+          trialInstagramUserIds,
+          created_by_user_public_id,
+        });
       // The entitlement before, for `PLAN_STATE_CHANGED` after the commit (BL8).
       const previousAccess = await this.getPlanAccess({
         organizationPublicId: organization_public_id,
@@ -1196,6 +1198,7 @@ export class SubscriptionService {
         scope,
         organizationId: organization.id,
         planId: plan.id,
+        replacedLocalFreeRowPublicId,
         paymentResult,
         trialInstagramUserIds: isTrial ? trialInstagramUserIds : null,
         values: omitUndefined({
@@ -1279,10 +1282,13 @@ export class SubscriptionService {
     paymentResult,
     trialInstagramUserIds,
     values,
+    replacedLocalFreeRowPublicId,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     organizationId: number;
     planId: number;
+    /** The local Free row the new row replaces, ended in the same commit (P502); `null` — none. */
+    replacedLocalFreeRowPublicId: string | null;
     paymentResult: { providerSubscriptionId?: string | undefined };
     /** The trial's Instagram user ids; `null` when this is not a trial. */
     trialInstagramUserIds: readonly string[] | null;
@@ -1304,6 +1310,13 @@ export class SubscriptionService {
       const row = await withAppDatabaseContext({
         scope,
         callback: async () => {
+          if (replacedLocalFreeRowPublicId !== null) {
+            // The one-live-row index: the local Free row ends before the paid row is written.
+            await this.repository.update(replacedLocalFreeRowPublicId, organizationId, {
+              status: 'CANCELED',
+              canceled_at: new Date(),
+            });
+          }
           const created = await this.repository.create(values);
           // BL14: the trial's accounts in the same commit — a race lost to another organization is
           // a 409 that rolls the row back (and the catch below cancels the Stripe subscription).
@@ -1377,15 +1390,22 @@ export class SubscriptionService {
         // Personal organizations cannot manage billing (assertTeamOrganization → 422).
         // Reject before the Stripe call so a personal organization gets 422, not a churned provider call.
         assertTeamOrganization({ organization, capability: 'BILLING' });
-        // Reject before the Stripe call when a non-terminal subscription already
-        // exists, so a duplicate request never churns the payment provider.
-        const existingActive = await this.repository.findActiveByOrganization(organization.id);
-        if (existingActive) {
-          throw new ConflictError('errors:subscriptionAlreadyExists');
-        }
         const plan = await this.planService.requireActivePlanByPublicId(parsed.plan_id);
         if (!supportsPlanBillingCycle({ plan, billingCycle: parsed.billing_cycle })) {
           throw new UnprocessableEntityError('errors:planNotAvailableForBillingCycle');
+        }
+        // Reject before the Stripe call when a non-terminal subscription already
+        // exists, so a duplicate request never churns the payment provider — except the local
+        // Free row (no Stripe subscription, a free plan: an unpaid trial end, a move to Free),
+        // which a paid plan or a first trial replaces in its create commit (P502).
+        const existingActive = await this.repository.findActiveByOrganization(organization.id);
+        const replacedLocalFreeRow =
+          existingActive !== null &&
+          (await this.isReplaceableLocalFreeRow({ row: existingActive, target: plan }))
+            ? existingActive
+            : null;
+        if (existingActive !== null && replacedLocalFreeRow === null) {
+          throw new ConflictError('errors:subscriptionAlreadyExists');
         }
         if (isTrial) {
           if (!isPaidPlan({ plan })) {
@@ -1400,9 +1420,31 @@ export class SubscriptionService {
         }
         const createdByUserInternalId =
           await this.organizationService.resolveUserInternalIdByPublicId(created_by_user_public_id);
-        return { organization, plan, createdByUserInternalId };
+        return {
+          organization,
+          plan,
+          createdByUserInternalId,
+          replacedLocalFreeRowPublicId: replacedLocalFreeRow?.public_id ?? null,
+        };
       },
     });
+  }
+
+  /**
+   * Whether route 102 may replace the organization's live row: the local Free row only — no Stripe
+   * subscription and a free plan — and only by a paid plan (P502). A Free target, a Stripe-backed
+   * row or a paid row kept locally (no provider configured) is still `409`.
+   */
+  private async isReplaceableLocalFreeRow({
+    row,
+    target,
+  }: {
+    row: { plan_id: number; provider_subscription_id: string | null };
+    target: { price_monthly: string; price_yearly: string };
+  }): Promise<boolean> {
+    if (row.provider_subscription_id !== null || !isPaidPlan({ plan: target })) return false;
+    const current = await this.planService.requirePlanRecordByInternalId(row.plan_id);
+    return !isPaidPlan({ plan: current });
   }
 
   /**
@@ -1475,7 +1517,8 @@ export class SubscriptionService {
    *   R26). **Release:** the schedule (or Free's period-end cancel) is taken back and the three columns
    *   cleared.
    * - **Failure modes:** `400 keep_channel_account_ids`, `404`, `409 subscription_change_in_progress`,
-   *   `422` (personal organization, terminal subscription, no price for the cycle), `503` (Stripe);
+   *   `422` (personal organization, terminal subscription, no price for the cycle, `subscription_required` — a paid
+   *   plan from the local Free row, P503), `503` (Stripe);
    *   a failed write after an immediate price swap swaps the price back (as built).
    * - **Side effects:** Stripe (price, schedule or period-end cancel); one row update; the resource and
    *   plan-state events. The member suspension on downgrade is gone (BL9 — plans carry no seats).
@@ -1567,6 +1610,8 @@ export class SubscriptionService {
     subscription_public_id: string;
     targetPlanPublicId: string;
   }) {
+    // Read before the unit: no provider call inside a database context (not even a local one).
+    const isProviderConfigured = this.paymentProvider.isConfigured();
     return withAppDatabaseContext({
       scope,
       callback: async () => {
@@ -1597,6 +1642,18 @@ export class SubscriptionService {
         const previousPlan = await this.planService.requirePlanRecordByInternalId(
           subscription.plan_id,
         );
+        // The local Free row has no Stripe subscription to bill: a paid plan from it is route
+        // 102's (which replaces the row, P502) — never a local plan swap nobody pays for (P503).
+        if (
+          subscription.provider_subscription_id === null &&
+          isProviderConfigured &&
+          !isPaidPlan({ plan: previousPlan }) &&
+          isPaidPlan({ plan })
+        ) {
+          throw new UnprocessableEntityError('errors:subscriptionRequiredForPaidPlan').withReason(
+            'subscription_required',
+          );
+        }
         return { organization, plan, subscription, previousPlan };
       },
     });

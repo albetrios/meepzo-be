@@ -12,14 +12,15 @@ import { createInstagramTaskQueueWorker } from './instagram-tasks.worker.js';
  * changes, segment counts, broadcast audiences, the failed-message retry.
  *
  * @remarks
- * - **Algorithm:** the shared task-queue worker for `instagram-database-tasks`; concurrency
+ * - **Algorithm:** the shared task-queue worker for `instagram-database-tasks` (each job carries
+ *   `organizationPublicId` for its job scope, K8); concurrency
  *   `WORKER_CONCURRENCY_INSTAGRAM_DATABASE_TASKS`; at most
  *   `INSTAGRAM_DATABASE_TASKS_PER_ORGANIZATION_MAX` tasks of one organization at once per process;
  *   no sending gate (these tasks call no Meta).
  * - **Failure modes:** as the shared builder; a Meta-calling handler here is dead-lettered.
  * - **Side effects:** the handlers' rows and follow-up jobs.
  * - **Notes:** registered in `worker-registration.registry.ts` (family `instagram`, throughput,
- *   `isEnabled: env.SENDING_ENABLED`) beside `instagram-tasks`, sharing its handlers and the
+ *   no `isEnabled` — it runs with sending off too, R46) beside `instagram-tasks`, sharing its handlers and the
  *   process's `instagram-database` limiter.
  */
 export function createInstagramDatabaseTasksWorker(services: InstagramTasksServices): WorkerHandle {

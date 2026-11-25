@@ -127,7 +127,7 @@ const context = {
   },
 };
 
-const markConnectionBroken = vi.fn();
+const markAccountBroken = vi.fn();
 const extensionService = {
   recordWebhookSubscribed: vi.fn(),
   recordWebhookSubscriptionLost: vi.fn(),
@@ -139,7 +139,7 @@ const createOrganizationNotifications = vi.fn();
 let isNoticeWired = true;
 
 const services: InstagramAccountTaskServices = {
-  accountService: { markConnectionBroken },
+  channelAccountService: { markAccountBroken },
   extensionService,
   starterQuestionSource: { listLiveStarterQuestions },
   readMissedCommentPort: () => ({ lookForMissedComments }),
@@ -280,7 +280,7 @@ describe('the account set-up (WC-30, AC-1.7)', () => {
     });
     // The account stays connected and shown as not subscribed: nothing stamps or breaks it.
     expect(extensionService.recordWebhookSubscribed).not.toHaveBeenCalled();
-    expect(markConnectionBroken).not.toHaveBeenCalled();
+    expect(markAccountBroken).not.toHaveBeenCalled();
   });
 
   it('emails the owners once, when the 60-minute try failed too — never before or after', async () => {
@@ -317,9 +317,7 @@ describe('the account set-up (WC-30, AC-1.7)', () => {
   it('breaks the account at once when Meta refuses the token, without a retry', async () => {
     instagramClient.subscribeInstagramWebhookFields.mockRejectedValue(tokenRefusedError());
     await expect(setup()).resolves.toEqual({ outcome: 'broken' });
-    expect(markConnectionBroken).toHaveBeenCalledWith(
-      expect.objectContaining({ connectionStatus: 'error', requestId: 'job-1' }),
-    );
+    expect(markAccountBroken).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'job-1' }));
     expect(taskQueue.enqueueInstagramTask).not.toHaveBeenCalled();
   });
 
@@ -467,7 +465,7 @@ describe('the webhook subscription check (WC-25, AC-16.22)', () => {
     await expect(check()).resolves.toEqual({ outcome: 'unavailable' });
     instagramClient.readInstagramWebhookSubscribedFields.mockRejectedValueOnce(tokenRefusedError());
     await expect(check()).resolves.toEqual({ outcome: 'broken' });
-    expect(markConnectionBroken).toHaveBeenCalledTimes(1);
+    expect(markAccountBroken).toHaveBeenCalledTimes(1);
   });
 });
 

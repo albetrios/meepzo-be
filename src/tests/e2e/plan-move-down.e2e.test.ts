@@ -14,7 +14,6 @@ import {
   FREE_PLAN_FEATURES,
   STUDIO_PLAN_FEATURES,
 } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
-import { processStripeWebhookJob } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook.processor.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
 import { insertAutomationBackfill } from '@/domains/app/sub-domains/automation/automation-backfill/__tests__/factories/automation-backfill.factory.js';
@@ -36,13 +35,13 @@ import {
 } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-sending.factory.js';
 import type { InstagramPlanChangeTaskInput } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-plan-change.job.schema.js';
 import { runInstagramPlanChangeTask } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-plan-change.processor.js';
-import { buildStripeWebhookTestSignatureHeader } from '@/tests/contract/helpers/stripe-signature.js';
 import { createTestPlan } from '@/tests/factories/plan.factory.js';
 import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
+import { deliverStripeSubscriptionEvent } from '@/tests/helpers/stripe-subscription-event.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { injectAuthenticated, injectRoute } from '@/tests/helpers/test-http-inject.helper.js';
+import { injectAuthenticated } from '@/tests/helpers/test-http-inject.helper.js';
 
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -67,7 +66,6 @@ vi.mock(
 );
 
 const DAY = 24 * 60 * 60 * 1000;
-const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 
 type TestAccount = Awaited<ReturnType<typeof insertInstagramAccount>>;
 type Catalog = Record<'free' | 'creator' | 'studio', { id: number; public_id: string }>;
@@ -200,52 +198,16 @@ describe('Flow: a move down at the period end (R58)', () => {
         scheduled_change_at = CASE WHEN scheduled_change_at IS NULL THEN NULL ELSE now() - interval '1 minute' END
       WHERE organization_id = ${team.organization.id} AND provider_subscription_id = ${row!.provider_subscription_id}`;
     const now = new Date();
-    const event = {
-      id: `evt_r58_${randomUUID().replaceAll('-', '')}`,
-      object: 'event',
+    await deliverStripeSubscriptionEvent({
+      app,
+      organizationPublicId: team.organization.public_id,
+      providerSubscriptionId: row!.provider_subscription_id,
+      providerCustomerId: row!.provider_customer_id,
       type,
-      // A second after the row's own last write, so no same-second ordering read is needed.
-      created: seconds(now) + 1,
-      data: {
-        object: {
-          id: row!.provider_subscription_id,
-          object: 'subscription',
-          customer: row!.provider_customer_id,
-          status,
-          cancel_at_period_end: false,
-          canceled_at: status === 'canceled' ? seconds(now) : null,
-          metadata: { organization_id: team.organization.public_id },
-          items: {
-            data: [
-              {
-                quantity: 1,
-                current_period_start: seconds(now),
-                current_period_end: seconds(new Date(now.getTime() + 30 * DAY)),
-                price: { id: priceId },
-              },
-            ],
-          },
-        },
-      },
-    };
-    const rawPayload = JSON.stringify(event);
-    const delivered = await injectRoute(app, {
-      method: 'POST',
-      url: testApiPath('/billing/webhook'),
-      headers: {
-        'stripe-signature': buildStripeWebhookTestSignatureHeader({
-          rawPayload,
-          webhookSigningSecret: env.STRIPE_WEBHOOK_SECRET ?? '',
-        }),
-        'content-type': 'application/json',
-      },
-      payload: Buffer.from(rawPayload),
-    });
-    expect(delivered.statusCode, delivered.body).toBe(200);
-    nock('https://api.stripe.com').get(`/v1/events/${event.id}`).reply(200, event);
-    await processStripeWebhookJob({
-      jobData: { stripeEventId: event.id, requestId: 'r58-flow' },
-      stripeWebhookService: app.billingDomain.stripeWebhookService,
+      status,
+      priceId,
+      periodStart: now,
+      periodEnd: new Date(now.getTime() + 30 * DAY),
     });
   }
 

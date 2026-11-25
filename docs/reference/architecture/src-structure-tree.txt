@@ -2705,7 +2705,8 @@ src/
     │   ├── e2e.overview.md
     │   ├── plan-move-down.e2e.test.ts
     │   ├── signup-flow.e2e.test.ts
-    │   └── tenancy-billing-organization.e2e.test.ts
+    │   ├── tenancy-billing-organization.e2e.test.ts
+    │   └── trial.e2e.test.ts
     ├── factories/
     │   ├── mfa-method.factory.ts
     │   ├── notification.factory.ts
@@ -2806,6 +2807,7 @@ src/
     │   ├── route-status-observer.ts
     │   ├── route-success-status.helper.ts
     │   ├── session-place-mmdb.helper.ts
+    │   ├── stripe-subscription-event.helper.ts
     │   ├── test-api-prefix.helper.ts
     │   ├── test-app.ts
     │   ├── test-auth.ts

@@ -34,7 +34,10 @@ import type {
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
 import { InstagramMediaRepository } from './sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramMediaService } from './sub-domains/instagram-account/instagram-media/instagram-media.service.js';
-import { ChannelConnectionMetaCallbackService } from './sub-domains/channel-connection/channel-connection-meta-callback.service.js';
+import {
+  ChannelConnectionMetaCallbackService,
+  channelConnectionMetaCallbackTeamAlert,
+} from './sub-domains/channel-connection/channel-connection-meta-callback.service.js';
 import { InstagramWebhookEventRepository } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
 import { InstagramWebhookEventService } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import { InstagramWebhookService } from './sub-domains/instagram-webhook/instagram-webhook.service.js';
@@ -91,6 +94,7 @@ import { InstagramSendLaneService } from './sub-domains/instagram-sending/instag
 import { InstagramSendStopRepository } from './sub-domains/instagram-sending/instagram-send-stop.repository.js';
 import { InstagramSendDayCountRepository } from './sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import { MessageMonthCountRepository } from './sub-domains/instagram-sending/message-month-count.repository.js';
+import { MessageMonthNoticeService } from './sub-domains/instagram-sending/message-month-notice.service.js';
 import { MessageMonthCountService } from './sub-domains/instagram-sending/message-month-count.service.js';
 import { SendingStateService } from './sub-domains/instagram-sending/sending-state.service.js';
 import { InstagramSendingService } from './sub-domains/instagram-sending/instagram-sending.service.js';
@@ -172,6 +176,8 @@ export type AppContainer = {
   channelSendingPorts: ChannelSendingPorts;
   instagramSendLaneService: InstagramSendLaneService;
   messageMonthCountService: MessageMonthCountService;
+  /** The month at 80 % and 100 % (WC-56, ROUTE row R53): the claim's after-commit notice and the backup check. */
+  messageMonthNoticeService: MessageMonthNoticeService;
   sendingStateService: SendingStateService;
   instagramSendingService: InstagramSendingService;
   /**
@@ -334,7 +340,13 @@ function createBroadcastServices({
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only, plus the health
  * probe's registration.
  */
-function createInstagramSendingServices(planAccessService: ChannelConnectionPlanAccessService) {
+function createInstagramSendingServices({
+  planAccessService,
+  organizationService,
+}: {
+  planAccessService: ChannelConnectionPlanAccessService;
+  organizationService: OrganizationService;
+}) {
   const instagramSendLaneService = new InstagramSendLaneService(
     new InstagramSendLaneRepository(),
     new InstagramSendStopRepository(),
@@ -355,6 +367,12 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
     new MessageMonthCountRepository(),
     planAccessService,
   );
+  // The month at 80 % and 100 % (WC-56, R53): told after the claim that crossed a line.
+  const messageMonthNoticeService = new MessageMonthNoticeService(
+    new MessageMonthCountRepository(),
+    messageMonthCountService,
+    organizationService,
+  );
   // Meta's usage per connection (MC19, S13): the Postgres store; the app-level usage once, on the
   // global sending row (P107).
   const channelConnectionUsageService = createChannelConnectionUsageService({
@@ -365,6 +383,7 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
     instagramSendLaneService,
     sendingStateService,
     messageMonthCountService,
+    messageMonthNoticeService,
     channelConnectionUsageService,
     // The tickets' work (SN2, SN24, R37): replaced by the send core in `createAppContainer` (R42);
     // the task handlers come with R40, R41, R46.
@@ -415,7 +434,7 @@ function createInstagramSendingStatusService({
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only. Meta's 190 on a media
  * read breaks the account's connection through the connection (MC11, R4's `markConnectionBroken`).
  * The callback service's lane port is 6's lane service (R18), so Meta's callbacks stop the reached
- * accounts' lanes as route 8 does; R53 adds the callbacks' team-alert port as its sixth argument.
+ * accounts' lanes as route 8 does; the sixth is the callbacks' team-alert path (R53).
  */
 function createInstagramMediaAndErasureServices(options: {
   instagramAccountService: InstagramAccountService;
@@ -440,6 +459,8 @@ function createInstagramMediaAndErasureServices(options: {
     options.channelAccountService,
     instagramAccountErasureService,
     options.lanePort,
+    // The unmatched id's team email (MC16, R53).
+    channelConnectionMetaCallbackTeamAlert,
   );
   return {
     instagramMediaService,
@@ -716,7 +737,10 @@ function createInstagramSendWork(
   const sendCore = new InstagramSendCoreService({
     laneService: lanes,
     messageService: container.instagramMessageService,
-    gateService: new InstagramSendGateService({ laneService: lanes }),
+    gateService: new InstagramSendGateService({
+      laneService: lanes,
+      monthNotice: container.messageMonthNoticeService,
+    }),
     accessService: container.instagramSendAccessService,
     attachmentService: container.instagramAttachmentService,
     sendingStateService: container.sendingStateService,
@@ -820,7 +844,7 @@ export function createAppContainer({
     channelConnectionRepository,
   );
   // The sending sub-domain's root (§ 6.A, ROUTE row R18).
-  const sending = createInstagramSendingServices(planAccessService);
+  const sending = createInstagramSendingServices({ planAccessService, organizationService });
   const {
     channelAccountRepository,
     instagramAccountExtensionService,

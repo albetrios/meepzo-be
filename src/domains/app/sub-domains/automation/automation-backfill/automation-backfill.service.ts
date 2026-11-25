@@ -19,6 +19,7 @@ import type { AutomationRepository } from '@/domains/app/sub-domains/automation/
 import type { AutomationTriggerType } from '@/domains/app/sub-domains/automation/automation.constants.js';
 import { MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { notifyOrganizationKind } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
 import {
   AUTOMATION_BACKFILL_STUCK_READ_MINUTES,
   AUTOMATION_BACKFILL_TRIGGER_TYPES,
@@ -61,7 +62,7 @@ export type AutomationBackfillFeaturePort = Pick<
  */
 export type AutomationBackfillAutomationReader = Pick<
   AutomationRepository,
-  'findLiveByPublicId' | 'lockLiveByPublicId'
+  'findLiveByPublicId' | 'lockLiveByPublicId' | 'findByIdIncludingDeleted'
 >;
 
 /** `404 automation_not_found` — absent, deleted or another organization's (4.C.9). */
@@ -386,8 +387,8 @@ export class AutomationBackfillService implements AutomationOpenBackfillReader {
    * @remarks
    * Algorithm: one guarded update in the read's organization scope (a read already ended or started
    * again is left alone → `false`). Failure modes: database errors propagate. Side effects: the
-   * read's row; the log line `app.automation_backfill.read_finished` — the owner's in-app
-   * `automation.backfill_done` notice is ROUTE row R53's (WC-63, AC-8.8).
+   * read's row; the log line `app.automation_backfill.read_finished`; a read ended `done` tells its
+   * starter and the Owner and Admin in the same unit (`automation.backfill_done`, AC-8.8, R53).
    */
   async finishAutomationBackfillRead({
     scope,
@@ -400,12 +401,17 @@ export class AutomationBackfillService implements AutomationOpenBackfillReader {
   }): Promise<boolean> {
     const row = await withAppDatabaseContext({
       scope,
-      callback: () =>
-        this.backfillRepository.finishReading({
+      callback: async () => {
+        const finished = await this.backfillRepository.finishReading({
           ...read.key,
           startedAt: read.startedAt,
           failure,
-        }),
+        });
+        if (finished !== null && finished.status === 'done') {
+          await this.tellAutomationBackfillDone({ scope, finished });
+        }
+        return finished;
+      },
     });
     if (row !== null) {
       logger.info(
@@ -423,6 +429,58 @@ export class AutomationBackfillService implements AutomationOpenBackfillReader {
       );
     }
     return row !== null;
+  }
+
+  /**
+   * The "past comments done" notice (feat-instagram-dm-sending UN8, UN9, AC-8.8): one
+   * `automation.backfill_done` notice with the read's numbers to who started it and the Owner and
+   * Admin (`broadcast_or_past_comments_done` — in-app on, email off by default), once per read.
+   *
+   * @remarks
+   * Algorithm: the automation's name (a deleted one keeps its name), then notify's
+   * `notifyOrganizationKind` keyed `backfill-done:<abf_…>`, in the finishing unit. Failure modes:
+   * propagates (the finish rolls back with it — the read's job retries). Side effects: inbox rows.
+   */
+  private async tellAutomationBackfillDone({
+    scope,
+    finished,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    finished: {
+      public_id: string;
+      organization_id: number;
+      automation_id: number;
+      requested_by_user_id: number | null;
+      found: number;
+      matched: number;
+      queued_count: number;
+    };
+  }): Promise<void> {
+    const automation = await this.automationReader.findByIdIncludingDeleted({
+      organizationId: finished.organization_id,
+      automationId: finished.automation_id,
+    });
+    await notifyOrganizationKind({
+      scope,
+      type: 'automation.backfill_done',
+      copy: {
+        key: 'automationBackfillDone',
+        values: {
+          automationName: automation?.name ?? '',
+          found: finished.found,
+          matched: finished.matched,
+          queuedCount: finished.queued_count,
+        },
+      },
+      dedupeKey: `backfill-done:${finished.public_id}`,
+      actionPath: automation === null ? '/automations' : `/automations/${automation.public_id}`,
+      subjectUserId: finished.requested_by_user_id,
+      data: {
+        found: finished.found,
+        matched: finished.matched,
+        queued_count: finished.queued_count,
+      },
+    });
   }
 
   /**

@@ -10,6 +10,10 @@ import {
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import {
+  type MessageMonthNoticeService,
+  decideMessageMonthLine,
+} from './message-month-notice.service.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
@@ -111,7 +115,9 @@ export type InstagramSendClaim =
  *   (nothing was sent, the ticket goes back).
  * - **Side effects:** the claim's rows; after commit the month's Redis copy is tombstoned and gate 1
  *   records the claim.
- * - **Notes:** the month at 80 % and 100 % notices and emails are WC-56's (ROUTE row R53).
+ * - **Notes:** a counted DM that moves the month over its 80 % or 100 % line tells the organization
+ *   after the commit (`monthNotice`, WC-56, ROUTE row R53); the every-minute backup check covers a
+ *   lost call.
  */
 export class InstagramSendGateService {
   private gateOneTimeoutsInARow = 0;
@@ -120,6 +126,8 @@ export class InstagramSendGateService {
   constructor(
     private readonly options: {
       laneService: Pick<InstagramSendLaneService, 'recordPlanStop'>;
+      /** The month's 80 % / 100 % notice (WC-56), told after the claim that crossed a line. */
+      monthNotice?: Pick<MessageMonthNoticeService, 'tellMonthLineAfterCommit'> | undefined;
       /** Gate 1's Redis (the cache connection); `null` skips gate 1 (Postgres decides). */
       redis?: Redis | null | undefined;
     },
@@ -281,6 +289,14 @@ export class InstagramSendGateService {
         return { kind: 'refused', reason: 'month_limit' };
       }
       isMonthLimitReached = used + 1 >= input.monthLimit;
+      const lineBefore = decideMessageMonthLine({ used, limit: input.monthLimit });
+      const lineAfter = decideMessageMonthLine({ used: used + 1, limit: input.monthLimit });
+      const monthNotice = this.options.monthNotice;
+      if (lineAfter !== lineBefore && monthNotice !== undefined) {
+        await runEnqueueAfterCommit(() =>
+          monthNotice.tellMonthLineAfterCommit({ scope: input.scope }),
+        );
+      }
     }
     if (input.countGroup !== 'none') {
       await minutes.addToMinute({ ...account, countGroup: input.countGroup, count: 1 });

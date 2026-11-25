@@ -78,6 +78,7 @@ function setup({
 } = {}) {
   const repository = {
     findOrganizationIdByPublicId: vi.fn(async () => organizationId),
+    lockOrganizationNotificationKey: vi.fn(async () => undefined),
     existsOrganizationNotificationWithDedupeKey: vi.fn(async () => alreadySent),
     resolveUserPublicIdsByInternalIds: vi.fn(async (userIds: readonly number[]) =>
       userIds.map((userId) => `usr_recipient_${userId}`),

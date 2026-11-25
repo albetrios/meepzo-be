@@ -241,11 +241,17 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
     family: 'notify',
     logLabel: 'notification worker',
     usesPostgres: true,
-    scheduled: false,
+    // Also runs the weekly summary's hourly sweep and its jobs, and the grouped contact-details
+    // notes (feat-instagram-dm-sending UN12, UN13, R53) — the app's reads through its ports (UN1).
+    scheduled: true,
     criticality: 'throughput',
     holdsConnectionDuringExternalIo: false,
     resolvePostgresConcurrency: () => getWorkerConcurrencyNotify(),
-    create: () => createNotificationWorker(),
+    create: (workerContainers) =>
+      createNotificationWorker({
+        weeklySummary: workerContainers.appDomain.channelAccountService,
+        contactDetails: workerContainers.appDomain.contactService,
+      }),
   },
   {
     // Launch IA9: tells the organization's `instagram-account:manage` holders, in the app and by
@@ -426,6 +432,8 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
           readLateCommentTime: createInstagramLateCommentTimeReader({
             instagramSendAccessService: appDomain.instagramSendAccessService,
           }),
+          // The month notices' backup check (WC-56, R53) rides this queue.
+          monthNotice: appDomain.messageMonthNoticeService,
         },
       });
     },

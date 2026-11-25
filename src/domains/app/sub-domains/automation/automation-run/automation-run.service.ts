@@ -1239,6 +1239,14 @@ export class AutomationRunService {
       }
       return handlingResult({ outcome: 'answer_invalid', runPublicIds: [run.public_id] });
     }
+    // The grouped "new contact details" note (UN13): one per account and hour, after this commit.
+    await this.dependencies.contactService.noteContactDetailsLeft({
+      databaseHandle: unit.databaseHandle,
+      scope: unit.scope,
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+      at: unit.now,
+    });
     await unit.runEvents.insertMany([
       {
         ...runKeyOf({ organizationId: unit.organizationId, run }),

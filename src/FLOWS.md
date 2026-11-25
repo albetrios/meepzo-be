@@ -577,7 +577,7 @@ sequenceDiagram
     Service->>DB: business match: a connection of that business left with no account revoked with its token
     Service->>DB: COMMIT (this organization's changes together)
   end
-  Service->>Service: no organization matched → error-level log and the team-alert port (the team email, R53)
+  Service->>Service: no organization matched → error-level log and the team email (GLOBAL_ADMIN_EMAILS, R53)
   Service-->>Controller: the match kind, the organizations changed (and route 17's answer)
   Controller->>DB: one audit entry per organization changed (anonymous actor, source meta) — after commit, best-effort
   Controller-->>Meta: 200 { data: null, meta } — or, route 17, { url, confirmation_code } outside the envelope
@@ -597,7 +597,7 @@ No Meta call: the app is already removed, so the disconnect skips the unsubscrib
 ### Failure modes
 
 - **A missing, doubled, malformed or wrongly signed `signed_request`, another algorithm, or no `user_id`** → `400 instagram_signed_request_invalid`; nothing changes. **A body over 16 KB** → `413`; **one that is not form-encoded** → `415`. **No `META_APP_SECRET`** → `503 instagram_not_configured`. **Over the webhook rate limit** → `429`. **A provider other than `meta`** → `400`.
-- **An id that matches neither an account nor a business, or whose organization was deleted** (its delete erased the account, D54) → still `200` (route 17 with its code), so Meta does not retry; no audit entry. An unmatched id is logged at error level (`app.channel_connection.meta_callback.unmatched`) and handed to the team-alert port, whose email the team handles by hand (MC16 — wired at R53).
+- **An id that matches neither an account nor a business, or whose organization was deleted** (its delete erased the account, D54) → still `200` (route 17 with its code), so Meta does not retry; no audit entry. An unmatched id is logged at error level (`app.channel_connection.meta_callback.unmatched`) and emailed to the team (`GLOBAL_ADMIN_EMAILS`, once per id), who handle it by hand (MC16, R53).
 - **Meta repeats a request** → nothing is left to do: `200` again, the same confirmation code, no new audit entry. **The account was connected again in between** → that connection is newer than the request and is left alone (D53); the same `200`, no new audit entry. A reconnect that races the request waits for its row lock and connects on top.
 - **A database failure in one organization** → the request fails and Meta retries it; the organizations already done find nothing left to do the second time.
 
@@ -913,3 +913,39 @@ As [instagram-comment-automation-flow](#instagram-comment-automation-flow), with
 - **A tap on a run that does not wait, of another person, a deleted automation or another account, or a payload the engine never sent** → ignored.
 - **A tag start whose chain number reaches 3, or while her window is closed** → nothing starts (D45).
 - **A database error** → the event is retried; nothing of it was written.
+
+## notification-notices-flow
+
+Notices and emails of the Instagram app (feat-instagram-dm-sending § 11.D, WC-56–WC-58, WC-63; ROUTE row R53). Domains: app (the facts and its two read ports, UN1), notify (recipients, choices, the inbox, the outbox, the weekly and grouped jobs), tenancy (memberships by permission code, the organization's language and time zone).
+
+### Trigger
+
+The send's claim moving the month over 80 % or 100 %; every minute, the owners' problem check and the month backup check (intake queue); every hour, the weekly summary's sweep (notification queue); an email or phone answer saved; a past-comments read ending `done`; a missed-comment look finding comments; an unmatched Meta callback.
+
+### Sequence
+
+```mermaid
+sequenceDiagram
+  participant App as app (claim / sweeps / run engine)
+  participant Notice as notify notifyOrganizationKind
+  participant Members as tenancy MembershipService
+  participant DB as Postgres
+  participant Queue as notification queue
+  App->>Notice: type, copy key, once key (in the organization's unit)
+  Notice->>Members: the kind's recipients by permission code (UN2)
+  Notice->>DB: lock (organization, type, key); in-app rows / email-only outbox rows (UN11)
+  Notice-->>Queue: after commit — the inbox rows' dispatch jobs (their emails)
+  App-->>Queue: after commit — noteContactDetailsLeft (one delayed job per account and hour)
+  Queue->>App: weekly summary / grouped note read the app through its ports (UN1)
+```
+
+### Side effects
+
+`notify.notifications` rows (in-app on), `auth.mail_outbox` rows (keys `notification:<type>:<once key>:<user>`), mail jobs; team emails (`team-alert:<key>:<address>`) to `GLOBAL_ADMIN_EMAILS`.
+
+### Failure modes
+
+- **A lost after-commit month notice** → the every-minute backup check tells the line (`month-limit:<month>:<line>` keeps it once).
+- **Two servers crossing one line** → the key's transaction lock: one notice, one email.
+- **A replayed or restarted job** → the once keys and job ids keep every notice once; a quiet week sends nothing.
+- **A stop that ended before its email was due** → nothing; one email of a kind per account in 6 hours.

@@ -11,6 +11,8 @@ import {
   isNotNull,
   isNull,
   lt,
+  lte,
+  or,
   sql,
   type SQL,
 } from 'drizzle-orm';
@@ -596,6 +598,38 @@ export class ContactRepository {
         );
     }
     return erased;
+  }
+
+  /**
+   * How many live contacts of the account saved an email or a phone in `[since, until]` — the
+   * grouped "new contact details" note's count (feat-instagram-dm-sending UN13, WC-63).
+   */
+  async countWithDetailsLeftBetween({
+    organizationId,
+    channelAccountId,
+    since,
+    until,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    since: Date;
+    until: Date;
+  }): Promise<number> {
+    const [row] = await this.db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.organization_id, organizationId),
+          eq(contacts.channel_account_id, channelAccountId),
+          isNull(contacts.deleted_at),
+          or(
+            and(gte(contacts.email_collected_at, since), lte(contacts.email_collected_at, until)),
+            and(gte(contacts.phone_collected_at, since), lte(contacts.phone_collected_at, until)),
+          ),
+        ),
+      );
+    return row?.count ?? 0;
   }
 
   /** The organization's live contact with this internal id, or `null` once erased (`findLiveContact`). */

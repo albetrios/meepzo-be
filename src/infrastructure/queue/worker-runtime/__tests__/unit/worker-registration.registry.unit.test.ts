@@ -61,7 +61,8 @@ describe('worker-registration.registry', () => {
     // +1 for Instagram intake (instagram family, throughput, Postgres-backed through the shared
     // limiter, its stuck-event pick-up riding the queue — feat-instagram-dm-sending WH5, R38); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
     // `instagram-send-slow` and `instagram-send-fast` in family `instagram-send`, `instagram-tasks`
-    // in `instagram`; throughput, event-driven, their database through the shared limiter).
+    // in `instagram`; throughput, event-driven, their database through the shared limiter); the weekly
+    // summary and the grouped contact-details note (R53) ride the notification worker — no new one.
     expect(definitions).toHaveLength(43);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
@@ -94,9 +95,10 @@ describe('worker-registration.registry', () => {
     // worker; the two run and automation clean-ups (the 7-day wait cancel, the deleted-automation purge)
     // two more; the Instagram webhook event processing (WH5, WH15) one
     // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the Instagram
-    // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers.
+    // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers; the
+    // notification worker is scheduled since R53 (the weekly summary's hourly sweep rides its queue).
     expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(40);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(35);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(36);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(11);

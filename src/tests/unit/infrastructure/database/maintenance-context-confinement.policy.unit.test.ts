@@ -56,6 +56,7 @@ const ALLOWED_PATH_FRAGMENTS: Record<MaintenanceContextKind, readonly string[]> 
   ],
   SYSTEM_TABLE_WORKER: [
     'notification/workers/notification.worker.ts', // web-push subscription reads outside a request
+    'notification/notification-notice.service.ts', // the team alert's outbox rows (no tenant, WC-57)
     'stripe-webhook/stripe-webhook.service.ts', // webhook-event ledger claim/settle
     'stripe-webhook/workers/', // catchup / reclaim processors over the ledger
     'infrastructure/mail/workers/', // mail outbox reads/settles around external sends

@@ -23,6 +23,22 @@ import {
 import { dispatchOutboxEmail, recordOutboxEmail } from '@/infrastructure/mail/queues/mail.queue.js';
 import { isMailConfigured } from '@/infrastructure/mail/mail.service.js';
 import { buildNotificationEmailHtml } from './notification-email-content.js';
+import { notificationContactDetailsJobDataSchema } from '@/domains/notify/sub-domains/notification/queues/notification-contact-details.job.schema.js';
+import { notificationWeeklySummaryJobDataSchema } from '@/domains/notify/sub-domains/notification/queues/notification-weekly-summary.job.schema.js';
+import { NOTIFICATION_CONTACT_DETAILS_JOB_NAME } from './notification-contact-details.constants.js';
+import {
+  type NotificationContactDetailsPort,
+  processNotificationContactDetailsJob,
+} from './notification-contact-details.processor.js';
+import {
+  NOTIFICATION_WEEKLY_SUMMARY_JOB_NAME,
+  NOTIFICATION_WEEKLY_SUMMARY_SWEEP_JOB_NAME,
+} from './notification-weekly-summary.constants.js';
+import {
+  type NotificationWeeklySummaryPort,
+  processNotificationWeeklySummaryJob,
+  runNotificationWeeklySummarySweepJob,
+} from './notification-weekly-summary.processor.js';
 import { buildNotificationEmailDedupeKey } from '@/domains/notify/sub-domains/notification/notification-dispatch.service.js';
 import {
   isNotificationEmailDispatched,
@@ -313,12 +329,88 @@ export async function processNotificationJob(options: {
 }
 
 /**
+ * The app's reads the notices of 11.D take (feat-instagram-dm-sending UN1) — passed in by the worker
+ * composition root (`appDomain.channelAccountService`, `appDomain.contactService`).
+ *
+ * @remarks
+ * - **Algorithm:** a value shape.
+ * - **Failure modes:** a notice job whose port is absent is skipped and logged.
+ * - **Side effects:** none.
+ * - **Notes:** both optional, so tests and a split worker need neither.
+ */
+export interface NotificationWorkerPorts {
+  weeklySummary?: NotificationWeeklySummaryPort | undefined;
+  contactDetails?: NotificationContactDetailsPort | undefined;
+}
+
+/**
+ * The notices of 11.D on the notification queue (feat-instagram-dm-sending UN12, UN13, R53): the
+ * weekly summary's hourly sweep and per-organization job, and the grouped contact-details note.
+ *
+ * @remarks
+ * - **Algorithm:** routes on `job.name`; any other name is the notification dispatch's
+ *   (`isRouted: false`). A payload is validated first (`parseJobDataOrDeadLetter`).
+ * - **Failure modes:** a malformed payload is dead-lettered; a missing port logs and skips.
+ * - **Side effects:** see the processors.
+ * - **Notes:** exported for the unit test.
+ */
+export async function routeNotificationNoticeJob({
+  job,
+  ports,
+}: {
+  job: { id?: string | undefined; name: string; data: unknown };
+  ports: NotificationWorkerPorts;
+}): Promise<{ isRouted: false } | { isRouted: true; result: unknown }> {
+  if (job.name === NOTIFICATION_WEEKLY_SUMMARY_SWEEP_JOB_NAME) {
+    return { isRouted: true, result: await runNotificationWeeklySummarySweepJob() };
+  }
+  if (job.name === NOTIFICATION_WEEKLY_SUMMARY_JOB_NAME) {
+    const jobData = await parseJobDataOrDeadLetter({
+      schema: notificationWeeklySummaryJobDataSchema,
+      job: job as never,
+      queueName: NOTIFICATION_QUEUE_NAME,
+    });
+    if (ports.weeklySummary === undefined) return skipNotice(job.name);
+    return {
+      isRouted: true,
+      result: await processNotificationWeeklySummaryJob({ jobData, port: ports.weeklySummary }),
+    };
+  }
+  if (job.name === NOTIFICATION_CONTACT_DETAILS_JOB_NAME) {
+    const jobData = await parseJobDataOrDeadLetter({
+      schema: notificationContactDetailsJobDataSchema,
+      job: job as never,
+      queueName: NOTIFICATION_QUEUE_NAME,
+    });
+    if (ports.contactDetails === undefined) return skipNotice(job.name);
+    const contactDetails = ports.contactDetails;
+    return {
+      isRouted: true,
+      result: await runWithPropagatedTraceContext({
+        carrier: { traceparent: jobData.traceparent, tracestate: jobData.tracestate },
+        spanName: job.name,
+        callback: () => processNotificationContactDetailsJob({ jobData, port: contactDetails }),
+      }),
+    };
+  }
+  return { isRouted: false };
+}
+
+/** A notice job whose app port this worker was not given: logged and finished. */
+function skipNotice(jobName: string): { isRouted: true; result: { skipped: true } } {
+  logger.warn({ jobName }, 'notification.worker.notice_port_missing');
+  return { isRouted: true, result: { skipped: true } };
+}
+
+/**
  * Creates a BullMQ worker that processes notification dispatch jobs.
  * Routes notifications to configured channels (email, in-app).
  *
  * @remarks
- * - **Algorithm:** parse the payload (a malformed one is dead-lettered at once), then run
- *   {@link processNotificationJob} inside the propagated trace context.
+ * - **Algorithm:** the notices of 11.D first ({@link routeNotificationNoticeJob} — the weekly
+ *   summary and the grouped contact-details note ride this queue, R53); else parse the payload (a
+ *   malformed one is dead-lettered at once), then run {@link processNotificationJob} inside the
+ *   propagated trace context.
  * - **Failure modes:** BullMQ retries on thrown errors using the queue's exponential backoff
  *   (3 attempts); stalls and completions are logged via the worker listeners.
  * - **Side effects:** subscribes a `Worker` to {@link NOTIFICATION_QUEUE_NAME}; reads notification
@@ -326,10 +418,12 @@ export async function processNotificationJob(options: {
  * - **Notes:** concurrency comes from `getWorkerConcurrencyNotify()`; default worker options
  *   provide stall + lock tuning. The returned handle wires graceful shutdown into bootstrap.
  */
-export function createNotificationWorker(): WorkerHandle {
+export function createNotificationWorker(ports: NotificationWorkerPorts = {}): WorkerHandle {
   const worker = new Worker<NotificationJobData>(
     NOTIFICATION_QUEUE_NAME,
     async (job) => {
+      const notice = await routeNotificationNoticeJob({ job, ports });
+      if (notice.isRouted) return notice.result;
       const jobData = await parseJobDataOrDeadLetter({
         schema: notificationJobDataSchema,
         job,

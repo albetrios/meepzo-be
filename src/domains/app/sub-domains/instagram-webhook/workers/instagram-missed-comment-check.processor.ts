@@ -5,7 +5,14 @@ import {
   PRINCIPAL_SCOPE,
 } from '@/infrastructure/database/contexts/database-context.js';
 import { runGlobalRetentionWorkerJob } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
-import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
+import {
+  MILLISECONDS_PER_DAY,
+  MILLISECONDS_PER_HOUR,
+  MILLISECONDS_PER_MINUTE,
+} from '@/shared/constants/ttl.constants.js';
+import { notifyOrganizationKind } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
+import { INSTAGRAM_ACCOUNT_FRONTEND_PATH } from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
+import { OWNER_PROBLEM_EMAIL_EVERY_HOURS } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.constants.js';
 import { NotFoundError } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { isPostWatchedByCommentAutomations } from '@/domains/app/sub-domains/automation/automation-run/automation-run-matching.util.js';
@@ -673,9 +680,9 @@ async function readLookAccount({
  * - **Side effects:** Meta reads; event and key rows; the posts' watch fields; one intake job.
  * - **Notes:** `callsMeta` — the task asks `mayTakeTickets` first; registered as
  *   `instagramSendWork.taskHandlers['missed-comment-check']` by the app container. Live comments
- *   are not read back (a Live reply is useless after the Live). The owner's "found N missed
- *   comments" notice is the log line `app.instagram_webhook.missed_comments_found` until the
- *   notices row adds it.
+ *   are not read back (a Live reply is useless after the Live). Comments found tell the owners
+ *   ({@link tellMissedCommentsFound}, WC-57) beside the log line
+ *   `app.instagram_webhook.missed_comments_found`.
  */
 export function createInstagramMissedCommentCheckTaskHandler({
   services,
@@ -715,6 +722,57 @@ export function createInstagramMissedCommentCheckTaskHandler({
       );
     },
   };
+}
+
+/**
+ * The owners' "missed comments found" problem notice (feat-instagram-dm-sending WC-57, AC-10.6):
+ * one `automation.stopped` notice (kind `automation_problem` — Owner, Admin, Editor; email and
+ * in-app on by default) with the count, at most once per account per 6-hour window.
+ *
+ * @remarks
+ * - **Algorithm:** notify's `notifyOrganizationKind` keyed
+ *   `owner-problem:<cha_…>:missed_comments_found:<6-hour window>` (the window is the epoch's
+ *   6-hour slot), in a database slot.
+ * - **Failure modes:** a failure is logged and never fails the look — the comments are saved.
+ * - **Side effects:** inbox and outbox rows; one log line on failure.
+ * - **Notes:** the window is a fixed slot, not a rolling 6 hours from the last email (no row
+ *   records that time).
+ */
+async function tellMissedCommentsFound({
+  scope,
+  channelAccountPublicId,
+  foundCommentCount,
+  now,
+  runInDatabaseSlot,
+  logFields,
+}: {
+  scope: OrganizationPrincipalDatabaseScope;
+  channelAccountPublicId: string;
+  foundCommentCount: number;
+  now: Date;
+  runInDatabaseSlot: <T>(callback: () => Promise<T>) => Promise<T>;
+  logFields: Record<string, unknown>;
+}): Promise<void> {
+  const window = Math.floor(
+    now.getTime() / (OWNER_PROBLEM_EMAIL_EVERY_HOURS * MILLISECONDS_PER_HOUR),
+  );
+  try {
+    await runInDatabaseSlot(() =>
+      notifyOrganizationKind({
+        scope,
+        type: 'automation.stopped',
+        copy: { key: 'missedCommentsFound', values: { count: foundCommentCount } },
+        dedupeKey: `owner-problem:${channelAccountPublicId}:missed_comments_found:${String(window)}`,
+        actionPath: INSTAGRAM_ACCOUNT_FRONTEND_PATH,
+        data: { problem: 'missed_comments_found', count: foundCommentCount },
+      }),
+    );
+  } catch (error) {
+    logger.warn(
+      { ...logFields, errorName: error instanceof Error ? error.name : typeof error },
+      'app.instagram_webhook.missed_comments_notice_failed',
+    );
+  }
 }
 
 /** One look, as {@link createInstagramMissedCommentCheckTaskHandler} describes it. */
@@ -891,6 +949,14 @@ async function runMissedCommentLook({
       { ...logFields, foundCommentCount: result.foundCommentCount },
       'app.instagram_webhook.missed_comments_found',
     );
+    await tellMissedCommentsFound({
+      scope,
+      channelAccountPublicId,
+      foundCommentCount: result.foundCommentCount,
+      now,
+      runInDatabaseSlot,
+      logFields,
+    });
     try {
       await enqueueIntake({
         organizationPublicId,

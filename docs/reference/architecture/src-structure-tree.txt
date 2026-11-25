@@ -448,8 +448,10 @@ src/
     │   │   │   │   ├── factories/
     │   │   │   │   │   └── instagram-sending.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── instagram-sending-notices.integration.test.ts
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
+    │   │   │   │   │   ├── instagram-owner-problem-email.unit.test.ts
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
@@ -506,13 +508,17 @@ src/
     │   │   │   │   ├── index.ts
     │   │   │   │   └── instagram-sending.bulk.seed.ts
     │   │   │   ├── workers/
+    │   │   │   │   ├── instagram-owner-problem-email.constants.ts
+    │   │   │   │   ├── instagram-owner-problem-email.processor.ts
     │   │   │   │   ├── instagram-send-fast.processor.ts
     │   │   │   │   ├── instagram-send-fast.worker.ts
     │   │   │   │   ├── instagram-send-slow.processor.ts
     │   │   │   │   ├── instagram-send-slow.worker.ts
     │   │   │   │   ├── instagram-send-ticket.processor.ts
     │   │   │   │   ├── instagram-tasks.processor.ts
-    │   │   │   │   └── instagram-tasks.worker.ts
+    │   │   │   │   ├── instagram-tasks.worker.ts
+    │   │   │   │   ├── message-month-notice-check.constants.ts
+    │   │   │   │   └── message-month-notice-check.processor.ts
     │   │   │   ├── instagram-send-access.service.ts
     │   │   │   ├── instagram-send-core.service.ts
     │   │   │   ├── instagram-send-day-count.repository.ts
@@ -539,6 +545,7 @@ src/
     │   │   │   ├── message-month-count.repository.ts
     │   │   │   ├── message-month-count.schema.ts
     │   │   │   ├── message-month-count.service.ts
+    │   │   │   ├── message-month-notice.service.ts
     │   │   │   ├── sending-state.repository.ts
     │   │   │   ├── sending-state.schema.ts
     │   │   │   └── sending-state.service.ts
@@ -1153,6 +1160,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   ├── notification-check-before-send.integration.test.ts
     │   │   │   │   │   ├── notification-detail.integration.test.ts
+    │   │   │   │   │   ├── notification-notices.integration.test.ts
     │   │   │   │   │   ├── notification-unread-count-cache.integration.test.ts
     │   │   │   │   │   └── notification.integration.test.ts
     │   │   │   │   └── unit/
@@ -1164,6 +1172,7 @@ src/
     │   │   │   │   │   ├── notification-dispatch.service.unit.test.ts
     │   │   │   │   │   ├── notification-email-content.unit.test.ts
     │   │   │   │   │   ├── notification-email-idempotency.unit.test.ts
+    │   │   │   │   │   ├── notification-notice-routing.unit.test.ts
     │   │   │   │   │   ├── notification-recipients.unit.test.ts
     │   │   │   │   │   ├── notification-retention.processor.db.unit.test.ts
     │   │   │   │   │   ├── notification-unread-count.cache.unit.test.ts
@@ -1182,6 +1191,10 @@ src/
     │   │   │   │   ├── membership-invitation.event-handlers.ts
     │   │   │   │   └── membership-notice.event-handlers.ts
     │   │   │   ├── queues/
+    │   │   │   │   ├── notification-contact-details.job.schema.ts
+    │   │   │   │   ├── notification-contact-details.queue.ts
+    │   │   │   │   ├── notification-weekly-summary.job.schema.ts
+    │   │   │   │   ├── notification-weekly-summary.queue.ts
     │   │   │   │   ├── notification.job.schema.ts
     │   │   │   │   └── notification.queue.ts
     │   │   │   ├── seed/
@@ -1189,14 +1202,20 @@ src/
     │   │   │   │   ├── notification.bulk.seed.ts
     │   │   │   │   └── notification.faker.ts
     │   │   │   ├── workers/
+    │   │   │   │   ├── notification-contact-details.constants.ts
+    │   │   │   │   ├── notification-contact-details.processor.ts
     │   │   │   │   ├── notification-email-content.ts
     │   │   │   │   ├── notification-email-idempotency.ts
     │   │   │   │   ├── notification-retention.constants.ts
     │   │   │   │   ├── notification-retention.processor.ts
     │   │   │   │   ├── notification-retention.worker.ts
+    │   │   │   │   ├── notification-weekly-summary.constants.ts
+    │   │   │   │   ├── notification-weekly-summary.processor.ts
     │   │   │   │   └── notification.worker.ts
     │   │   │   ├── notification-dispatch.service.ts
+    │   │   │   ├── notification-notice.service.ts
     │   │   │   ├── notification-unread-count.cache.ts
+    │   │   │   ├── notification-weekly-summary.repository.ts
     │   │   │   ├── notification.controller.ts
     │   │   │   ├── notification.dto.ts
     │   │   │   ├── notification.overview.md

@@ -9,6 +9,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * automations' past-comments watch and "next post" linking sweep (WC-41, WC-43 — R41).
  */
 
+const { runOwnerProblemJobMock, runMonthNoticeCheckMock } = vi.hoisted(() => ({
+  runOwnerProblemJobMock: vi.fn(async (..._arguments: unknown[]) => ({ toldCount: 0 })),
+  runMonthNoticeCheckMock: vi.fn(async (..._arguments: unknown[]) => ({ checkedCount: 0 })),
+}));
+
 const workerState = vi.hoisted(() => ({
   queueName: undefined as string | undefined,
   processor: undefined as ((job: unknown) => Promise<unknown>) | undefined,
@@ -138,6 +143,23 @@ vi.mock(
   () => ({
     runAutomationNextPostLinkingSweepJob: (...arguments_: unknown[]) =>
       runLinkingSweepMock(...arguments_),
+  }),
+);
+
+// The owners' problem emails and the month notices' backup check (R53): routed on their names.
+vi.mock(
+  '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.processor.js',
+  () => ({
+    runInstagramOwnerProblemEmailJob: (...arguments_: unknown[]) =>
+      runOwnerProblemJobMock(...arguments_),
+  }),
+);
+
+vi.mock(
+  '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.processor.js',
+  () => ({
+    runMessageMonthNoticeCheckJob: (...arguments_: unknown[]) =>
+      runMonthNoticeCheckMock(...arguments_),
   }),
 );
 
@@ -291,6 +313,17 @@ describe('instagram-webhook.worker', () => {
     const job = { id: 'job-8', name: 'intake-messages', data: { bad: true } };
 
     await expect(workerState.processor?.(job)).rejects.toThrow('dead-lettered');
+    expect(intakeJobMock).not.toHaveBeenCalled();
+  });
+
+  it('routes the owners’ problem emails and the month notices’ backup check on their job names, without a payload (WC-57, WC-56, R53)', async () => {
+    await workerState.processor?.({ id: 'repeat:5', name: 'check-owner-problem-emails', data: {} });
+    expect(runOwnerProblemJobMock).toHaveBeenCalledTimes(1);
+
+    await workerState.processor?.({ id: 'repeat:6', name: 'check-month-limit-notices', data: {} });
+    // No month-notice service was given to this worker: the check has nothing to tell.
+    expect(runMonthNoticeCheckMock).not.toHaveBeenCalled();
+    expect(parseJobDataMock).not.toHaveBeenCalled();
     expect(intakeJobMock).not.toHaveBeenCalled();
   });
 });

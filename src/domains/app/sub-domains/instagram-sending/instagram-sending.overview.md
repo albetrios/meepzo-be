@@ -50,6 +50,13 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   (shared, P43): per organization, month of its time zone and 16 slots. The service is the channel account's plan-stop
   port (`plan_limit`), the month add (tombstones the copy after commit) and route 64's read through the 10-second
   Redis copy `app:message_month_count:<organization>`.
+- `message-month-notice.service.ts` — the month at 80 % and 100 % (WC-56, R53): one `billing.usage_threshold`
+  notice and email per organization, month and line (`month-limit:<month>:<line>`), told after the claim that crossed
+  a line; `workers/message-month-notice-check.*` is its every-minute backup check on the intake queue.
+- `workers/instagram-owner-problem-email.*` — the owners' problem emails (WC-57, R53): every minute on the intake
+  queue, the stops that came due (a block, a connection, message access, plan ended or switched off at once; any
+  other stop after an hour) told once per account and kind in 6 hours (`automation.stopped`, `data.problem`), and
+  one team email grouping them by kind.
 - `instagram-send-day-count.schema.ts` / `.repository.ts` — one account's results of its organization's day (S8):
   route 63's "today" line.
 - `sending-state.schema.ts` / `.repository.ts` / `.service.ts` — `app.sending_states`, the one tenantless row (P16):

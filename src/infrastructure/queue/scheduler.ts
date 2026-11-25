@@ -14,6 +14,10 @@ import {
   AUDIT_OUTBOX_DRAIN_QUEUE_NAME,
   DEFAULT_AUDIT_OUTBOX_DRAIN_CRON,
 } from '@/domains/audit/workers/audit-outbox-drain.constants.js';
+import { NOTIFICATION_WEEKLY_SUMMARY_SWEEP_JOB_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-weekly-summary.constants.js';
+import { NOTIFICATION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/queues/notification.queue.js';
+import { INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.constants.js';
+import { MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.constants.js';
 import { NOTIFICATION_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/notification/workers/notification-retention.constants.js';
 import { SESSION_CLEANUP_QUEUE_NAME } from '@/domains/auth/sub-domains/auth-session/workers/session-cleanup.constants.js';
 import { WEBHOOK_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/notify/sub-domains/webhook/workers/webhook-tombstone-retention.constants.js';
@@ -145,6 +149,11 @@ const DEFAULT_AUTOMATION_BACKFILL_WATCH_CRON = '*/10 * * * *';
  * task per account with a live waiting "my next post" automation — Meta sends no new-post event.
  */
 const DEFAULT_AUTOMATION_NEXT_POST_LINKING_CRON = '*/15 * * * *';
+/** Every minute (WC-56, WC-57, P94): the owners' problem emails and the month notices' backup check. */
+const DEFAULT_INSTAGRAM_OWNER_PROBLEM_EMAIL_CRON = '* * * * *';
+const DEFAULT_MESSAGE_MONTH_NOTICE_CHECK_CRON = '* * * * *';
+/** Hourly (UN12): the weekly summary's sweep finds the organizations whose Monday 09:00 it is. */
+const DEFAULT_NOTIFICATION_WEEKLY_SUMMARY_SWEEP_CRON = '3 * * * *';
 const DEFAULT_STRIPE_WEBHOOK_EVENT_RETENTION_CRON = '0 3 * * *';
 /**
  * Daily at 03:00 (UTC with `SCHEDULER_TIMEZONE=UTC`): the 30-day clean-up of the Instagram webhook
@@ -445,6 +454,47 @@ function getRecoverySweepScheduledJobs(timezone: string | undefined): ScheduledJ
 }
 
 /**
+ * The notices' scheduled runs (feat-instagram-dm-sending WC-56–WC-58, ROUTE row R53): the owners'
+ * problem emails and the month notices' backup check every minute on the intake queue, and the
+ * weekly summary's hourly sweep on the notification queue — in the order {@link getScheduledJobs} registers
+ * them.
+ */
+function getNoticeScheduledJobs(timezone: string | undefined): ScheduledJob[] {
+  return [
+    // The owners' problem emails and the month notices' backup check ride the same queue (R53),
+    // each its own every-minute run (WC-57, WC-56).
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'instagram-owner-problem-email',
+        jobName: INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME,
+        cronPattern: DEFAULT_INSTAGRAM_OWNER_PROBLEM_EMAIL_CRON,
+      },
+    }),
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: INSTAGRAM_WEBHOOK_QUEUE_NAME,
+        schedulerId: 'message-month-notice-check',
+        jobName: MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME,
+        cronPattern: DEFAULT_MESSAGE_MONTH_NOTICE_CHECK_CRON,
+      },
+    }),
+    // The weekly summary's hourly sweep rides the notification queue (run by its worker, UN12).
+    withSchedulerTimezone({
+      timezone,
+      job: {
+        queueName: NOTIFICATION_QUEUE_NAME,
+        schedulerId: 'notification-weekly-summary-sweep',
+        jobName: NOTIFICATION_WEEKLY_SUMMARY_SWEEP_JOB_NAME,
+        cronPattern: DEFAULT_NOTIFICATION_WEEKLY_SUMMARY_SWEEP_CRON,
+      },
+    }),
+  ];
+}
+
+/**
  * The operational samplers and retries: idempotency and dead-letter sampling, the dead-letter retry
  * and the post-commit dispatch recovery — in the order {@link getScheduledJobs} registers them.
  */
@@ -595,6 +645,7 @@ export function getScheduledJobs(): ScheduledJob[] {
     ...getTombstoneRetentionScheduledJobs(timezone),
     ...getOperationalSweepScheduledJobs(timezone),
     ...getRecoverySweepScheduledJobs(timezone),
+    ...getNoticeScheduledJobs(timezone),
   ];
 }
 

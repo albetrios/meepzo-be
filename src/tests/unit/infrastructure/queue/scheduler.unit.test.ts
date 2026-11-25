@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(38);
+    expect(scheduledJobs).toHaveLength(41);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -103,6 +103,31 @@ describe('infrastructure queue scheduler', () => {
       // "next post" linking sweep (WC-43, every 15 minutes) ride the same queue.
       'instagram-webhook',
       'instagram-webhook',
+      // feat-instagram-dm-sending R53: the owners' problem emails (WC-57) and the month notices'
+      // backup check (WC-56) ride the same queue, every minute; the weekly summary's hourly sweep
+      // (UN12) rides the notification queue.
+      'instagram-webhook',
+      'instagram-webhook',
+      'notification',
+    ]);
+  });
+
+  it('runs the owners’ problem emails and the month notices’ check every minute and the weekly summary’s sweep hourly (WC-56–WC-58, R53)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const jobs = getScheduledJobs().filter((scheduledJob) =>
+      [
+        'check-owner-problem-emails',
+        'check-month-limit-notices',
+        'sweep-weekly-summaries',
+      ].includes(scheduledJob.jobName),
+    );
+    expect(jobs).toEqual([
+      expect.objectContaining({ queueName: 'instagram-webhook', cronPattern: '* * * * *' }),
+      expect.objectContaining({ queueName: 'instagram-webhook', cronPattern: '* * * * *' }),
+      expect.objectContaining({
+        queueName: 'notification',
+        cronPattern: '3 * * * *',
+      }),
     ]);
   });
 
@@ -268,17 +293,17 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(38);
-    // Each scheduled job opens one Queue for upsert (38) + the reconcile pass opens one Queue per
-    // unique queue name (35 — the seat reconcile, the export reclaim, the Instagram daily-check
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(41);
+    // Each scheduled job opens one Queue for upsert (41) + the reconcile pass opens one Queue per
+    // unique queue name (36 — the weekly summary's sweep rides the notification queue, which no other cron uses (R53); the seat reconcile, the export reclaim, the Instagram daily-check
     // sweep and the Instagram stuck-event pick-up ride queues no other cron uses, and the
-    // missed-comment sweep, the past-comments watch and the "next post" linking sweep ride the
-    // pick-up's queue), each closed in
+    // missed-comment sweep, the past-comments watch, the "next post" linking sweep, the owners'
+    // problem emails and the month notices' check ride the pick-up's queue), each closed in
     // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
     // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(73);
+    expect(queueCloseMock).toHaveBeenCalledTimes(77);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(73);
+    expect(queueCloseMock).toHaveBeenCalledTimes(77);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

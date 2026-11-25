@@ -5583,6 +5583,8 @@ None (job failures retry with the notify queue's backoff and land in the DLQ, as
 | UNC9 | UN12: `notify/sub-domains/notification/workers/notification-weekly-summary.{worker,processor,constants}.ts`, queue and job schema (`organizationPublicId`, `weekStart`), the sweep under the new maintenance scope (`database-context.ts`), registry, scheduler (hourly), DLQ; the email template; tests — an organization at Monday 09:30 local gets one job, at 10:00 none, a quiet week sends nothing, twice = once |
 | UNC10 | UN13: the delayed job `notification-contact-details` (queue, job schema with `organizationPublicId`, `channelAccountPublicId`, `windowStartedAt`), `noteContactDetailsLeft`; tests — three details in an hour → one note of 3, a detail after the note starts a new window |
 
+**As built at ROUTE row R53** ([P317](decisions.md), [P318](decisions.md)): both jobs ride the existing `notification` queue (its worker routes them by name — no new queue, the worker pool budget); the sweep reads under the retention arm (no new maintenance scope); the week is named by its Monday (`weekly:<organization>:<YYYY-MM-DD>`); the two UN1 ports are `ChannelAccountService.readWeeklySummary` and `ContactService.countContactsWithDetailsLeft`, passed to the notification worker by the worker registry. Every kind notice goes through notify's `notifyOrganizationKind` (`notification-notice.service.ts`).
+
 ---
 
 ## 12. Upload — message files — rev 4 (2026-11-24) — no nested sub-domains; final (rev 4, confirmed 2026-11-24)

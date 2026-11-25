@@ -6,6 +6,8 @@ import { closeBullMqRedis } from '@/infrastructure/cache/bullmq-redis.client.js'
 import { closeRedis } from '@/infrastructure/cache/redis.client.js';
 import { closeMailQueue } from '@/infrastructure/mail/queues/mail.queue.js';
 import { closeNotificationQueue } from '@/domains/notify/sub-domains/notification/queues/notification.queue.js';
+import { closeNotificationContactDetailsQueue } from '@/domains/notify/sub-domains/notification/queues/notification-contact-details.queue.js';
+import { closeNotificationWeeklySummaryQueue } from '@/domains/notify/sub-domains/notification/queues/notification-weekly-summary.queue.js';
 import { closeWebhookDeliveryQueue } from '@/domains/notify/sub-domains/webhook/webhook-delivery/queues/webhook-delivery.queue.js';
 import { closeSubscriptionSeatSyncQueue } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
 import { closeStripeWebhookQueue } from '@/domains/billing/sub-domains/stripe-webhook/queues/stripe-webhook.queue.js';
@@ -71,6 +73,8 @@ const shutdownMiddleware: FastifyPluginAsync = async (app) => {
     await Promise.allSettled([
       closeMailQueue(),
       closeNotificationQueue(),
+      closeNotificationContactDetailsQueue(),
+      closeNotificationWeeklySummaryQueue(),
       closeWebhookDeliveryQueue(),
       // REQ-4: producer queue used by change-plan + member add/remove on the request path.
       closeSubscriptionSeatSyncQueue(),

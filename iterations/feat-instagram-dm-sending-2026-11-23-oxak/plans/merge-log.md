@@ -148,3 +148,12 @@ Owner items 1–27) onto lane C's R54 / R55. "ours" is `lane-c/flows`, "theirs" 
 
 No conflicts (`AS-BUILT.md` auto-merged). Checked after the merge: no old switch name left in `src/`,
 `docs/`, `.env.example` or `tooling/`; no local-time `Date` method left in runtime `src/`.
+
+## Main ← lane E e027497 (corner-case tests: trial end, IST month edge, byte limits, out-of-order webhooks) — 2026-11-25
+
+No conflicts (`trial.e2e.test.ts` and `src-structure-tree.txt` auto-merged with main's rename and the lane A
+tests). The merged `trial.e2e.test.ts` is re-run before the Close.
+- After the merge, the new month-edge test failed on main only: `permission denied` for `CREATE SCHEMA`.
+  Main's harness pool is the operator login, which has no `CREATE` on the database (lane E ran with the
+  Compose superuser). Fixed: the test's clock schema DDL now runs as the migration login (the schema
+  owner), with `USAGE`/`EXECUTE` granted to `PUBLIC`. Re-run on main: 4/4. `trial.e2e`: passed.

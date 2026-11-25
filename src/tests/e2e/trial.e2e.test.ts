@@ -17,7 +17,25 @@ import {
   commentAutomationBody,
   completeAutomationSteps,
 } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
-import { insertInstagramAccount } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
+import {
+  insertContact,
+  insertInstagramAccount,
+} from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
+import { insertAutomation } from '@/domains/app/sub-domains/automation/__tests__/factories/automation.factory.js';
+import { insertAutomationRun } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
+import {
+  META_GRAPH_BASE_URL,
+  META_GRAPH_VERSION,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import { buildLaneHarness } from '@/domains/app/sub-domains/instagram-sending/__tests__/factories/instagram-lane-harness.factory.js';
+import {
+  insertInstagramMessage,
+  readInstagramMessages,
+} from '@/domains/app/sub-domains/instagram-sending/instagram-message/__tests__/factories/instagram-message.factory.js';
+import { InstagramSendComposeService } from '@/domains/app/sub-domains/instagram-sending/instagram-send-compose.service.js';
+import { InstagramSendingRepairService } from '@/domains/app/sub-domains/instagram-sending/instagram-sending-repair.service.js';
+import { InstagramSlowLaneRules } from '@/domains/app/sub-domains/instagram-sending/instagram-slow-lane.service.js';
+import { PRINCIPAL_SCOPE } from '@/infrastructure/database/contexts/database-context.js';
 import {
   type InstagramTeamFixture,
   createInstagramTeam,
@@ -498,6 +516,127 @@ describe('Flow: a trial from start to its end (R59)', () => {
     });
     await runHandedPlanChanges();
     expect(await planStops()).toEqual([null, 'plan_downgrade']);
+  });
+
+  /** A live comment automation on `account`, one run and its waiting opening private reply. */
+  async function queueOpeningDm(account: TestAccount, commentId: string) {
+    const contact = await insertContact({
+      organizationId: team.organization.id,
+      instagramAccountId: account.id,
+      full_name: 'Riya',
+    });
+    const automation = await insertAutomation({
+      organizationId: team.organization.id,
+      channelAccountId: account.channel_account_id,
+      status: 'live',
+    });
+    const commentAt = new Date(Date.now() - 60_000);
+    const run = await insertAutomationRun({
+      organizationId: team.organization.id,
+      automationId: automation.id,
+      contactId: contact.id,
+      trigger_type: 'comment',
+      trigger_instagram_comment_id: commentId,
+      trigger_instagram_media_id: '17800000000000001',
+      trigger_occurred_at: commentAt,
+      status: 'running',
+      current_step: 'comment_reply',
+      waiting_for: null,
+      waiting_since_at: null,
+    });
+    return insertInstagramMessage({
+      run,
+      channelAccountId: account.channel_account_id,
+      message_type: 'opening_message',
+      message_number: null,
+      lane: 'slow',
+      channel: 'private_reply',
+      is_counted_as_direct_message: true,
+      status: 'waiting',
+      reason: null,
+      trigger_occurred_at: commentAt,
+      not_before: commentAt,
+    });
+  }
+
+  /** The real send core over one account's slow lane (Meta by nock). */
+  function slowLaneOf(account: TestAccount) {
+    return buildLaneHarness({
+      organization: team.organization,
+      account,
+      laneRules: (messageService) => ({
+        slow: new InstagramSlowLaneRules({
+          messageService,
+          composeService: new InstagramSendComposeService({ translate: (key) => `t:${key}` }),
+          enqueueFastMessage: async () => undefined,
+          random: () => 0.5,
+        }),
+      }),
+    });
+  }
+
+  async function messageStatus(publicId: string) {
+    const rows = await readInstagramMessages(team.organization.id);
+    const row = rows.find((candidate) => candidate.public_id === publicId)!;
+    return { status: row.status, reason: row.reason };
+  }
+
+  it('the trial ends with DMs queued: the stopped account’s DM stays waiting, then expires after 7 days; the kept account’s DM still goes (AC-24.3, WC-15)', async () => {
+    const [accountA, accountB] = accounts as [TestAccount, TestAccount];
+    expect((await startTrial(catalog.creator.public_id)).statusCode).toBe(200);
+    await runHandedPlanChanges();
+    // Both accounts have an opening DM waiting when the trial ends.
+    const keptDm = await queueOpeningDm(accountA, '17900000000000101');
+    const stoppedDm = await queueOpeningDm(accountB, '17900000000000102');
+    handedTasks.length = 0;
+    await endTrialUnpaid(await liveRow());
+    await runHandedPlanChanges();
+    // No pick: the oldest-connected A stays, B is stopped.
+    expect(await planStops()).toEqual([null, 'plan_downgrade']);
+
+    // B's lane turn sends nothing (no Meta call is nocked for it — a send would fail the test).
+    await slowLaneOf(accountB).turn('slow');
+    expect(await messageStatus(stoppedDm.public_id)).toEqual({ status: 'waiting', reason: null });
+
+    // A's queued DM still goes.
+    const bodies: unknown[] = [];
+    const meta = nock(META_GRAPH_BASE_URL)
+      .post(`/${META_GRAPH_VERSION}/1784${accountA.channel_account_id}/messages`, (body) => {
+        bodies.push(body);
+        return true;
+      })
+      .query(true)
+      .reply(200, { message_id: 'mid.trial.kept' });
+    await slowLaneOf(accountA).turn('slow');
+    expect(meta.isDone()).toBe(true);
+    expect(bodies).toHaveLength(1);
+    expect(await messageStatus(keptDm.public_id)).toMatchObject({ status: 'sent' });
+    expect(await messageStatus(stoppedDm.public_id)).toEqual({ status: 'waiting', reason: null });
+
+    // 7 days after her comment the stopped account's DM ends `expired` — never sent. Its account's
+    // stop is `plan_downgrade`, not the month limit, so the reason is the plain `expired` (WC-15:
+    // `plan_limit` only behind the month stop; a message has no `plan_downgrade` reason).
+    const repair = new InstagramSendingRepairService({
+      messageService: app.appDomain.instagramMessageService,
+      gateService: app.appDomain.instagramSendGateService,
+      addLaneTurns: async (tickets) => ({ added: tickets.length }),
+      addFastMessages: async (tickets) => ({ added: tickets.length }),
+      runInDatabaseSlot: (callback) => callback(),
+      jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
+    });
+    const repairAt = (now: Date) => ({ now, isBudgetSpent: () => false });
+    expect(
+      (await repair.expireWaitingMessages(repairAt(new Date(Date.now() + 6 * DAY)))).done,
+    ).toBe(0);
+    expect(await messageStatus(stoppedDm.public_id)).toEqual({ status: 'waiting', reason: null });
+    expect(
+      (await repair.expireWaitingMessages(repairAt(new Date(Date.now() + 7 * DAY)))).done,
+    ).toBe(1);
+    expect(await messageStatus(stoppedDm.public_id)).toEqual({
+      status: 'expired',
+      reason: 'expired',
+    });
+    expect(await messageStatus(keptDm.public_id)).toMatchObject({ status: 'sent' });
   });
 
   it('Creator trial → Studio trial keeps the end date; with a card the plan goes on paid with no gap; a failed payment later tells the owner and keeps sending (AC-24.4, AC-24.6, P224)', async () => {

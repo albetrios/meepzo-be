@@ -255,6 +255,62 @@ describe('automation validator (feat-instagram-dm-sending § 4.A)', () => {
       ).toEqual(['steps.messages.0.text: text_invalid']);
     });
 
+    it('counts the 1,000 in UTF-8 bytes: exactly 1,000 passes, 1,001 fails — emoji and ZWJ sequences included (plan §18.5)', () => {
+      const emoji = '😀'; // 4 bytes, 2 UTF-16 units
+      const family = '👨‍👩‍👧'; // 3 emoji + 2 zero-width joiners: 18 bytes, one picture
+      expect(Buffer.byteLength(emoji, 'utf8')).toBe(4);
+      expect(Buffer.byteLength(family, 'utf8')).toBe(18);
+      const textProblems = (text: string) =>
+        problemsOf(
+          completeFields({
+            steps: {
+              ...completeFields().steps,
+              messages: [{ kind: 'text', wait_minutes: 0, text }],
+            },
+          }),
+        );
+      // 250 emoji = 1,000 bytes (only 500 UTF-16 units — a `.length` check would pass 1,001 too).
+      expect(textProblems(emoji.repeat(250))).toEqual([]);
+      expect(textProblems(`a${emoji.repeat(250)}`)).toEqual([
+        'steps.messages.0.text: text_invalid',
+      ]);
+      // 55 families (990 bytes) + 10 letters = 1,000; one letter more is over.
+      expect(textProblems(`${family.repeat(55)}${'a'.repeat(10)}`)).toEqual([]);
+      expect(textProblems(`${family.repeat(55)}${'a'.repeat(11)}`)).toEqual([
+        'steps.messages.0.text: text_invalid',
+      ]);
+      // A ZWJ sequence that would cross the limit is not cut short to fit: the whole text fails.
+      expect(textProblems(`${'a'.repeat(983)}${family}`)).toEqual([
+        'steps.messages.0.text: text_invalid',
+      ]);
+      expect(textProblems(`${'a'.repeat(982)}${family}`)).toEqual([]);
+
+      // The same byte count for a quick-replies text and an email wording.
+      const withQuickReplies = (text: string) =>
+        problemsOf(
+          completeFields({
+            steps: {
+              ...completeFields().steps,
+              messages: [{ kind: 'quick_replies', wait_minutes: 0, text, replies: ['Yes'] }],
+            },
+          }),
+        );
+      expect(withQuickReplies(emoji.repeat(250))).toEqual([]);
+      expect(withQuickReplies(`${emoji.repeat(250)}a`)).toEqual([
+        'steps.messages.0.text: text_invalid',
+      ]);
+      const withEmailWording = (wording: string) =>
+        problemsOf(
+          completeFields({
+            steps: { ...completeFields().steps, email: { on: true, wordings: [wording] } },
+          }),
+        );
+      expect(withEmailWording(`${family.repeat(55)}${'a'.repeat(10)}`)).toEqual([]);
+      expect(withEmailWording(`${family.repeat(55)}${'a'.repeat(11)}`)).toEqual([
+        'steps.email.wordings.0: text_invalid',
+      ]);
+    });
+
     it('a comment start without a hello sends one plain text only (check 12)', () => {
       const withoutHello = completeFields({
         steps: {

@@ -75,6 +75,37 @@ describe('composeInstagramMessage', () => {
     expect(fillInstagramName({ text: 'Hey {name}!', name: null })).toBe('Hey!');
   });
 
+  it('fills a long {name} into a text near the 1,000-byte limit whole — not cut to fit (plan §5.6, §18.5)', () => {
+    // A saved text of 998 bytes: the go-live check counts `{name}` as its 6 written bytes.
+    const saved = `${'😀'.repeat(248)}{name}`;
+    expect(Buffer.byteLength(saved, 'utf8')).toBe(998);
+    const name = 'Riya Krishnamurthy 🌸✨'; // 18 letters + a space + 4 + 3 bytes
+    const filled = fillInstagramName({ text: saved, name });
+    expect(filled).toBe(`${'😀'.repeat(248)}${name}`);
+    // Over 1,000 once filled: compose sends it as it is, every byte of her name kept (Instagram
+    // answers a refused text with `bad_text`, plan §33 — nothing here trims it first).
+    expect(Buffer.byteLength(filled, 'utf8')).toBe(992 + Buffer.byteLength(name, 'utf8'));
+    expect(Buffer.byteLength(filled, 'utf8')).toBeGreaterThan(1000);
+    const result = composeInstagramMessage({
+      message: {
+        message_type: 'message',
+        message_number: 1,
+        message_kind: 'text',
+        version_number: null,
+        wording_number: null,
+      },
+      steps: { messages: [{ kind: 'text', wait_minutes: 0, text: saved }] },
+      contactName: name,
+      accountUsername: 'shop.account',
+      buttonPayload: 'aut_x::run_y',
+      newestMediaId: null,
+      translate: (key) => `t:${key}`,
+    });
+    expect(built(result)).toEqual({ text: filled });
+    // Without a name the placeholder goes and the text is back under the limit.
+    expect(Buffer.byteLength(fillInstagramName({ text: saved, name: null }), 'utf8')).toBe(992);
+  });
+
   it('sends the hello version she got: plain text, or a button template with next and link buttons', () => {
     expect(built(compose({}))).toEqual({ text: 'Hey Riya!' });
     expect(built(compose({ version_number: 2 }))).toEqual({

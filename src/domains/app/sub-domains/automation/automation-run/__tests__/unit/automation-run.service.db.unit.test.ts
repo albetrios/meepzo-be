@@ -612,7 +612,9 @@ describe('AutomationRunService (database, recording sending port)', () => {
       | Array<{ run_part: string; event_part: string }>
       | { rows: Array<{ run_part: string; event_part: string }> };
     const [parts] = Array.isArray(rows) ? rows : rows.rows;
-    expect(parts?.run_part).toMatch(/automation_runs_(p202610|default)$/);
+    // October's own part — never the catch-all `default` (a missing month part would hide there).
+    expect(parts?.run_part).toMatch(/automation_runs_p202610$/);
+    expect(parts?.event_part).toMatch(/automation_run_events_p202610$/);
     expect(parts?.event_part).toBe(
       parts?.run_part.replace('automation_runs', 'automation_run_events'),
     );

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
+import { automation_counts } from '@/domains/app/sub-domains/automation/automation-count.schema.js';
 import { runAutomationTombstoneRetentionJob } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.processor.js';
 import {
   insertContact,
@@ -24,10 +25,12 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 /**
  * The deleted-automation purge against the real tables (routes-final § 3.B AU25, AQ7, AUC14;
- * WC-15): an automation deleted more than 180 days ago that nothing points at goes, in every
+ * WC-15, WC-47): an automation deleted more than 180 days ago that nothing points at goes, in every
  * organization; one a run or a comment log still points at is skipped (`RESTRICT`, the batch
- * delete's per-row fallback) and goes on a later day once they are gone; a younger delete and a
- * live automation stay. It runs under the retention context (`runGlobalRetentionWorkerJob`).
+ * delete's per-row fallback) and goes on a later hour once they are gone; a younger delete and a
+ * live automation stay. It runs under the retention context (`runGlobalRetentionWorkerJob`), hourly
+ * within the time budget, with the oldest-row gauge (P92); its counters go with it only (its file
+ * links: `app-table-clean-up.db.unit.test.ts`).
  */
 
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
@@ -63,6 +66,7 @@ describe('runAutomationTombstoneRetentionJob (database)', () => {
     referencedByLog: AutomationFixtureRow;
     kept: AutomationFixtureRow[];
     runId: number;
+    contactId: number;
   }> {
     const organization = await createTestOrganization({ ownerUserId: (await createTestUser()).id });
     const account = await insertInstagramAccount({ organizationId: organization.id });
@@ -110,6 +114,7 @@ describe('runAutomationTombstoneRetentionJob (database)', () => {
       referencedByLog,
       kept: [youngDelete, live],
       runId: run.id,
+      contactId: contact.id,
     };
   }
 
@@ -119,7 +124,18 @@ describe('runAutomationTombstoneRetentionJob (database)', () => {
 
     const result = await runAutomationTombstoneRetentionJob({ now });
 
-    expect(result).toEqual({ deletedCount: 2, blockedCount: 4, hasMore: false });
+    expect(result).toEqual([
+      {
+        table: 'app.automations',
+        deletedCount: 2,
+        blockedCount: 4,
+        stoppedBy: 'done',
+        // The oldest still-referenced one was deleted 200 days ago: 20 days past its keep time.
+        oldestOverdueSeconds: expect.any(Number),
+      },
+    ]);
+    expect(result[0]?.oldestOverdueSeconds).toBeGreaterThan(19 * 24 * 60 * 60);
+    expect(result[0]?.oldestOverdueSeconds).toBeLessThan(21 * 24 * 60 * 60);
     for (const { organization, referencedByRun, referencedByLog, kept } of [first, second]) {
       expect(await remainingAutomationIds(organization.id)).toEqual(
         [referencedByRun, referencedByLog, ...kept].map((automation) => automation.id),
@@ -127,21 +143,55 @@ describe('runAutomationTombstoneRetentionJob (database)', () => {
     }
   });
 
-  it('tries a still-referenced automation again the next day and purges it once nothing points at it', async () => {
+  it('tries a still-referenced automation again the next hour and purges it once nothing points at it', async () => {
     const { organization, referencedByRun, referencedByLog, kept, runId } =
       await seedOrganization();
 
     await runAutomationTombstoneRetentionJob({ now });
-    const repeat = await runAutomationTombstoneRetentionJob({ now });
-    expect(repeat).toEqual({ deletedCount: 0, blockedCount: 2, hasMore: false });
+    const [repeat] = await runAutomationTombstoneRetentionJob({ now });
+    expect(repeat).toMatchObject({ deletedCount: 0, blockedCount: 2, stoppedBy: 'done' });
 
     // Run retention removed the run meanwhile (WC-12).
     await getOperatorDatabase().delete(automation_runs).where(eq(automation_runs.id, runId));
-    const nextDay = await runAutomationTombstoneRetentionJob({ now });
+    const [nextHour] = await runAutomationTombstoneRetentionJob({ now });
 
-    expect(nextDay).toEqual({ deletedCount: 1, blockedCount: 1, hasMore: false });
+    expect(nextHour).toMatchObject({ deletedCount: 1, blockedCount: 1, stoppedBy: 'done' });
     const remaining = await remainingAutomationIds(organization.id);
     expect(remaining).not.toContain(referencedByRun.id);
     expect(remaining).toEqual([referencedByLog, ...kept].map((automation) => automation.id));
+  });
+
+  it("keeps a live automation's counters the same after the runs they counted are gone; a purged one's go with it (AC-18.8)", async () => {
+    const { organization, purgeable, kept, contactId } = await seedOrganization();
+    const live = kept[1]!;
+    const liveRun = await insertAutomationRun({
+      organizationId: organization.id,
+      automationId: live.id,
+      contactId,
+      status: 'cancelled',
+      cancel_reason: 'automation_deleted',
+      cancelled_at: daysBefore(100),
+      waiting_for: null,
+      waiting_since_at: null,
+    });
+    await getOperatorDatabase()
+      .insert(automation_counts)
+      .values([
+        { organization_id: organization.id, automation_id: purgeable.id, slot: 0, runs_started: 5 },
+        { organization_id: organization.id, automation_id: live.id, slot: 0, runs_started: 7 },
+      ]);
+    // The run's part is dropped (R49) — the counter is never recounted from runs.
+    await getOperatorDatabase().delete(automation_runs).where(eq(automation_runs.id, liveRun.id));
+
+    await runAutomationTombstoneRetentionJob({ now });
+
+    const counts = await getOperatorDatabase()
+      .select({
+        automationId: automation_counts.automation_id,
+        runs: automation_counts.runs_started,
+      })
+      .from(automation_counts)
+      .where(eq(automation_counts.organization_id, organization.id));
+    expect(counts).toEqual([{ automationId: live.id, runs: 7 }]);
   });
 });

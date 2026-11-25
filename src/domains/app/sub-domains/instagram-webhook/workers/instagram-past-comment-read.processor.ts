@@ -254,6 +254,40 @@ async function beforeMetaCall(context: ReadContext): Promise<void> {
   await context.pace();
 }
 
+/**
+ * One media page's posts of {@link scanPosts} into `posts`; `true` once the scan is done (past the
+ * read's posts, or {@link PAST_COMMENTS_POSTS_MAX} kept).
+ */
+function collectPagePosts({
+  items,
+  keep,
+  isPastEnd,
+  posts,
+}: {
+  items: ReadonlyArray<{
+    id: string;
+    timestamp?: string | undefined;
+    comments_count?: number | undefined;
+    media_product_type?: string | undefined;
+  }>;
+  keep: (post: { timestamp: number; commentsCount: number }) => boolean;
+  isPastEnd: (timestamp: number) => boolean;
+  posts: InstagramReadCommentMedia[];
+}): boolean {
+  for (const item of items) {
+    const timestamp = item.timestamp === undefined ? Number.NaN : Date.parse(item.timestamp);
+    if (Number.isNaN(timestamp)) continue;
+    if (isPastEnd(timestamp)) return true;
+    if (!keep({ timestamp, commentsCount: item.comments_count ?? 0 })) continue;
+    posts.push({
+      instagramMediaId: item.id,
+      mediaProductType: item.media_product_type?.toLowerCase() ?? null,
+    });
+    if (posts.length >= PAST_COMMENTS_POSTS_MAX) return true;
+  }
+  return false;
+}
+
 /** The account's newest posts, newest first, a page of 25 at a time — at most 4 pages. */
 async function scanPosts({
   context,
@@ -268,7 +302,10 @@ async function scanPosts({
 }): Promise<InstagramReadCommentMedia[]> {
   const posts: InstagramReadCommentMedia[] = [];
   let after: string | undefined;
-  for (let page = 0; page < MEDIA_PAGES_MAX; page += 1) {
+  let page = 0;
+  let isScanDone = false;
+  while (!isScanDone && page < MEDIA_PAGES_MAX) {
+    page += 1;
     await beforeMetaCall(context);
     const answer = await context.client.listMedia({
       encryptedAccessToken: context.access.encryptedAccessToken as string,
@@ -281,20 +318,10 @@ async function scanPosts({
         access: context.access,
       }),
     });
-    for (const item of answer.items) {
-      const timestamp = item.timestamp === undefined ? Number.NaN : Date.parse(item.timestamp);
-      if (Number.isNaN(timestamp)) continue;
-      if (isPastEnd(timestamp)) return posts;
-      if (keep({ timestamp, commentsCount: item.comments_count ?? 0 })) {
-        posts.push({
-          instagramMediaId: item.id,
-          mediaProductType: item.media_product_type?.toLowerCase() ?? null,
-        });
-        if (posts.length >= PAST_COMMENTS_POSTS_MAX) return posts;
-      }
-    }
-    if (answer.nextCursor === null) return posts;
-    after = answer.nextCursor;
+    isScanDone =
+      collectPagePosts({ items: answer.items, keep, isPastEnd, posts }) ||
+      answer.nextCursor === null;
+    after = answer.nextCursor ?? undefined;
   }
   return posts;
 }
@@ -496,6 +523,66 @@ async function wakeNextRead(
   }
 }
 
+/** One post's comments; Meta refusing that post (deleted, comments off) skips it only. */
+async function readPostCommentsOrSkip({
+  context,
+  post,
+  isRepliesIncluded,
+}: {
+  context: ReadContext;
+  post: InstagramReadCommentMedia;
+  isRepliesIncluded: boolean;
+}): Promise<InstagramCommentGraphItem[]> {
+  try {
+    return await readPostComments({ context, post, isRepliesIncluded });
+  } catch (error) {
+    if (!(error instanceof MetaGraphApiError) || error.errorClass !== 'refused') throw error;
+    logger.info(
+      { jobId: context.requestId, instagramMediaId: post.instagramMediaId },
+      'app.automation_backfill.post_refused',
+    );
+    return [];
+  }
+}
+
+/** A Meta failure of the read: a later job after 1, 5, 15, 60 min, then `failed` `meta_error`. */
+async function handleMetaReadFailure({
+  context,
+  error,
+  metaTry,
+  goOnLater,
+}: {
+  context: ReadContext;
+  error: MetaGraphApiError;
+  metaTry: number;
+  goOnLater: (input: { delayMinutes: number; nextTry: number }) => Promise<void>;
+}): Promise<'retrying' | 'failed'> {
+  const retryMinutes = META_TASK_RETRY_MINUTES[metaTry];
+  logger.warn(
+    {
+      jobId: context.requestId,
+      automationBackfillPublicId: context.read.automationBackfillPublicId,
+      errorClass: error.errorClass,
+      instagramErrorCode: error.instagramErrorCode,
+      metaTry,
+    },
+    'app.automation_backfill.meta_read_failed',
+  );
+  if (retryMinutes !== undefined) {
+    await goOnLater({ delayMinutes: retryMinutes, nextTry: metaTry + 1 });
+    return 'retrying';
+  }
+  await context.runInDatabaseSlot(() =>
+    context.services.automationBackfillService.finishAutomationBackfillRead({
+      scope: context.scope,
+      read: context.read,
+      failure: { reason: 'meta_error', lastError: describeMetaError(error) },
+    }),
+  );
+  await wakeNextRead(context);
+  return 'failed';
+}
+
 /** Reads the posts from `postNumber` on; a wait or a Meta failure goes on in a later job. */
 async function readFromPost({
   context,
@@ -534,18 +621,7 @@ async function readFromPost({
     const posts = await listReadPosts(context);
     for (; current < posts.length; current += 1) {
       const post = posts[current] as InstagramReadCommentMedia;
-      let comments: InstagramCommentGraphItem[];
-      try {
-        comments = await readPostComments({ context, post, isRepliesIncluded });
-      } catch (error) {
-        // Meta refusing one post (deleted, comments off) skips that post only.
-        if (!(error instanceof MetaGraphApiError) || error.errorClass !== 'refused') throw error;
-        logger.info(
-          { jobId: context.requestId, instagramMediaId: post.instagramMediaId },
-          'app.automation_backfill.post_refused',
-        );
-        comments = [];
-      }
+      const comments = await readPostCommentsOrSkip({ context, post, isRepliesIncluded });
       const { isStillReading, savedCount } = await saveComments({ context, post, comments });
       postsReadByThisJob += 1;
       if (savedCount > 0) await handToIntake(context);
@@ -568,30 +644,8 @@ async function readFromPost({
       return { outcome: 'waiting', postsReadByThisJob };
     }
     if (!(error instanceof MetaGraphApiError)) throw error;
-    const retryMinutes = META_TASK_RETRY_MINUTES[metaTry];
-    logger.warn(
-      {
-        jobId: context.requestId,
-        automationBackfillPublicId: context.read.automationBackfillPublicId,
-        errorClass: error.errorClass,
-        instagramErrorCode: error.instagramErrorCode,
-        metaTry,
-      },
-      'app.automation_backfill.meta_read_failed',
-    );
-    if (retryMinutes !== undefined) {
-      await goOnLater({ delayMinutes: retryMinutes, nextTry: metaTry + 1 });
-      return { outcome: 'retrying', postsReadByThisJob };
-    }
-    await context.runInDatabaseSlot(() =>
-      context.services.automationBackfillService.finishAutomationBackfillRead({
-        scope: context.scope,
-        read: context.read,
-        failure: { reason: 'meta_error', lastError: describeMetaError(error) },
-      }),
-    );
-    await wakeNextRead(context);
-    return { outcome: 'failed', postsReadByThisJob };
+    const outcome = await handleMetaReadFailure({ context, error, metaTry, goOnLater });
+    return { outcome, postsReadByThisJob };
   }
   const isFinished = await context.runInDatabaseSlot(() =>
     context.services.automationBackfillService.finishAutomationBackfillRead({

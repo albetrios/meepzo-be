@@ -610,18 +610,10 @@ async function readLookAccount({
     account.encryptedAccessToken === null ||
     !account.isAutomationEnabled
   ) {
-    logger.info(
-      {
-        ...logFields,
-        reason:
-          account === null
-            ? 'account_not_found'
-            : account.isAutomationEnabled
-              ? 'not_connected'
-              : 'automation_disabled',
-      },
-      'app.instagram_webhook.missed_comment_look_skipped',
-    );
+    let reason = 'account_not_found';
+    if (account !== null)
+      reason = account.isAutomationEnabled ? 'not_connected' : 'automation_disabled';
+    logger.info({ ...logFields, reason }, 'app.instagram_webhook.missed_comment_look_skipped');
     return null;
   }
   try {
@@ -722,6 +714,190 @@ export function createInstagramMissedCommentCheckTaskHandler({
       );
     },
   };
+}
+
+/** What one look shares across its posts. */
+interface LookAtPostContext {
+  scope: OrganizationPrincipalDatabaseScope;
+  access: InstagramSendAccess;
+  channelAccount: Parameters<
+    InstagramMissedCommentCheckServices['instagramMediaService']['updateCommentWatch']
+  >[0]['channelAccount'];
+  automations: Parameters<typeof isPostWatchedByCommentAutomations>[0]['candidates'];
+  oldestAllowed: number;
+  now: Date;
+  requestId: string;
+  logFields: Record<string, unknown>;
+}
+
+/**
+ * One watched post of a look: its watch stopped when nothing watches it any more, else its comments
+ * read back, saved and its watch moved on; `paused` when the look must stop (Meta down, or its usage
+ * reached the stop).
+ */
+async function lookAtPost({
+  post,
+  look,
+  isRepliesIncluded,
+  usageStopPercent,
+  runInDatabaseSlot,
+  services,
+  listComments,
+  pace,
+  result,
+}: {
+  post: InstagramMediaRow;
+  look: LookAtPostContext;
+  isRepliesIncluded: boolean;
+  usageStopPercent: number;
+  runInDatabaseSlot: <T>(callback: () => Promise<T>) => Promise<T>;
+  services: InstagramMissedCommentCheckServices;
+  listComments: typeof listInstagramMediaComments;
+  pace: () => Promise<void>;
+  result: InstagramMissedCommentLookResult;
+}): Promise<'paused' | 'next'> {
+  const { scope, access, channelAccount, now, requestId, logFields } = look;
+  const newestKnown = Math.max(
+    post.published_at.getTime(),
+    post.last_comment_at?.getTime() ?? Number.NEGATIVE_INFINITY,
+  );
+  const isWatched =
+    newestKnown >= look.oldestAllowed &&
+    isPostWatchedByCommentAutomations({
+      candidates: look.automations,
+      mediaId: post.instagram_media_id,
+      mediaPublishedAt: post.published_at,
+    });
+  if (!isWatched) {
+    await runInDatabaseSlot(() =>
+      services.instagramMediaService.updateCommentWatch({
+        scope,
+        channelAccount,
+        instagramMediaId: post.instagram_media_id,
+        watch: { commentsNextCheckAt: null },
+      }),
+    );
+    result.stoppedWatchCount += 1;
+    return 'next';
+  }
+  let read: PostRead;
+  try {
+    read = await readPostComments({
+      scope,
+      access,
+      post,
+      isRepliesIncluded,
+      usageStopPercent,
+      now,
+      requestId,
+      services,
+      listComments,
+      pace,
+      logFields,
+    });
+  } catch (error) {
+    if (!(error instanceof MetaGraphApiError)) throw error;
+    result.callCount += 1;
+    logger.warn(
+      {
+        ...logFields,
+        instagramMediaId: post.instagram_media_id,
+        errorClass: error.errorClass,
+        instagramErrorCode: error.instagramErrorCode,
+      },
+      'app.instagram_webhook.missed_comment_read_failed',
+    );
+    return error.errorClass === 'refused' ? 'next' : 'paused';
+  }
+  result.callCount += read.callCount;
+  if (read.isStopped && read.callCount === 0) return 'paused';
+  const savedCount = await saveReadComments({ post, read, look, runInDatabaseSlot, services });
+  result.readPostCount += 1;
+  result.foundCommentCount += savedCount;
+  return read.isStopped ? 'paused' : 'next';
+}
+
+/** A post's read comments saved as webhook events, and its watch moved on, in one unit. */
+async function saveReadComments({
+  post,
+  read,
+  look,
+  runInDatabaseSlot,
+  services,
+}: {
+  post: InstagramMediaRow;
+  read: PostRead;
+  look: LookAtPostContext;
+  runInDatabaseSlot: <T>(callback: () => Promise<T>) => Promise<T>;
+  services: InstagramMissedCommentCheckServices;
+}): Promise<number> {
+  const { scope, access, channelAccount, now, requestId } = look;
+  const events = toInstagramCommentEvents({
+    comments: read.comments,
+    media: {
+      instagramMediaId: post.instagram_media_id,
+      mediaProductType: post.media_product_type,
+    },
+    instagramUserId: access.instagramUserId,
+  });
+  // The last seen comment moves on only when the read completed (its older comments all read).
+  const lastSeen =
+    read.newestCommentAt !== null && read.isComplete ? { lastCommentAt: read.newestCommentAt } : {};
+  return runInDatabaseSlot(async () => {
+    const rows = await services.instagramWebhookEventService.recordReceivedEvents({
+      scope,
+      channelAccount,
+      requestId,
+      events,
+      now,
+    });
+    await services.instagramMediaService.updateCommentWatch({
+      scope,
+      channelAccount,
+      instagramMediaId: post.instagram_media_id,
+      watch: {
+        commentsCheckedAt: now,
+        commentsNextCheckAt: new Date(
+          now.getTime() + INSTAGRAM_MISSED_COMMENT_ROUND_MINUTES * MILLISECONDS_PER_MINUTE,
+        ),
+        ...lastSeen,
+      },
+    });
+    return rows.length;
+  });
+}
+
+/** The look's saved comments handed to intake; a failed add leaves them for the pick-up (WH17). */
+async function handFoundCommentsToIntake({
+  organizationPublicId,
+  channelAccountPublicId,
+  requestId,
+  enqueueIntake,
+  logFields,
+  foundCommentCount,
+}: {
+  organizationPublicId: string;
+  channelAccountPublicId: string;
+  requestId: string;
+  enqueueIntake: InstagramWebhookIntakeEnqueue;
+  logFields: Record<string, unknown>;
+  foundCommentCount: number;
+}): Promise<void> {
+  logger.info({ ...logFields, foundCommentCount }, 'app.instagram_webhook.missed_comments_found');
+  try {
+    await enqueueIntake({
+      organizationPublicId,
+      channelAccountPublicId,
+      intakeKind: 'comments',
+      requestId,
+    });
+  } catch (error) {
+    // The saved events wait `received`; the every-minute pick-up hands them to intake (WH17).
+    logger.warn(
+      { ...logFields, errorName: error instanceof Error ? error.name : typeof error },
+      'app.instagram_webhook.missed_comment_intake_enqueue_failed',
+    );
+  }
 }
 
 /**
@@ -846,109 +1022,32 @@ async function runMissedCommentLook({
     lastCallAt = Date.now();
   };
   for (const post of posts) {
-    const newestKnown = Math.max(
-      post.published_at.getTime(),
-      post.last_comment_at?.getTime() ?? Number.NEGATIVE_INFINITY,
-    );
-    const isWatched =
-      newestKnown >= oldestAllowed &&
-      isPostWatchedByCommentAutomations({
-        candidates: automations,
-        mediaId: post.instagram_media_id,
-        mediaPublishedAt: post.published_at,
-      });
-    if (!isWatched) {
-      await runInDatabaseSlot(() =>
-        services.instagramMediaService.updateCommentWatch({
-          scope,
-          channelAccount,
-          instagramMediaId: post.instagram_media_id,
-          watch: { commentsNextCheckAt: null },
-        }),
-      );
-      result.stoppedWatchCount += 1;
-      continue;
-    }
-    let read: PostRead;
-    try {
-      read = await readPostComments({
+    const step = await lookAtPost({
+      post,
+      look: {
         scope,
         access,
-        post,
-        isRepliesIncluded: prepared.isRepliesIncluded,
-        usageStopPercent: LOOK_MODE_SETTINGS[mode].usageStopPercent,
+        channelAccount,
+        automations,
+        oldestAllowed,
         now,
         requestId,
-        services,
-        listComments,
-        pace,
         logFields,
-      });
-    } catch (error) {
-      if (!(error instanceof MetaGraphApiError)) throw error;
-      result.callCount += 1;
-      logger.warn(
-        {
-          ...logFields,
-          instagramMediaId: post.instagram_media_id,
-          errorClass: error.errorClass,
-          instagramErrorCode: error.instagramErrorCode,
-        },
-        'app.instagram_webhook.missed_comment_read_failed',
-      );
-      if (error.errorClass === 'refused') continue;
-      result.outcome = 'paused';
-      break;
-    }
-    result.callCount += read.callCount;
-    if (read.isStopped && read.callCount === 0) {
-      result.outcome = 'paused';
-      break;
-    }
-    const events = toInstagramCommentEvents({
-      comments: read.comments,
-      media: {
-        instagramMediaId: post.instagram_media_id,
-        mediaProductType: post.media_product_type,
       },
-      instagramUserId: access.instagramUserId,
+      isRepliesIncluded: prepared.isRepliesIncluded,
+      usageStopPercent: LOOK_MODE_SETTINGS[mode].usageStopPercent,
+      runInDatabaseSlot,
+      services,
+      listComments,
+      pace,
+      result,
     });
-    const savedCount = await runInDatabaseSlot(async () => {
-      const rows = await services.instagramWebhookEventService.recordReceivedEvents({
-        scope,
-        channelAccount,
-        requestId,
-        events,
-        now,
-      });
-      await services.instagramMediaService.updateCommentWatch({
-        scope,
-        channelAccount,
-        instagramMediaId: post.instagram_media_id,
-        watch: {
-          commentsCheckedAt: now,
-          commentsNextCheckAt: new Date(
-            now.getTime() + INSTAGRAM_MISSED_COMMENT_ROUND_MINUTES * MILLISECONDS_PER_MINUTE,
-          ),
-          ...(read.newestCommentAt === null || !read.isComplete
-            ? {}
-            : { lastCommentAt: read.newestCommentAt }),
-        },
-      });
-      return rows.length;
-    });
-    result.readPostCount += 1;
-    result.foundCommentCount += savedCount;
-    if (read.isStopped) {
+    if (step === 'paused') {
       result.outcome = 'paused';
       break;
     }
   }
   if (result.foundCommentCount > 0) {
-    logger.info(
-      { ...logFields, foundCommentCount: result.foundCommentCount },
-      'app.instagram_webhook.missed_comments_found',
-    );
     await tellMissedCommentsFound({
       scope,
       channelAccountPublicId,
@@ -957,20 +1056,14 @@ async function runMissedCommentLook({
       runInDatabaseSlot,
       logFields,
     });
-    try {
-      await enqueueIntake({
-        organizationPublicId,
-        channelAccountPublicId,
-        intakeKind: 'comments',
-        requestId,
-      });
-    } catch (error) {
-      // The saved events wait `received`; the every-minute pick-up hands them to intake (WH17).
-      logger.warn(
-        { ...logFields, errorName: error instanceof Error ? error.name : typeof error },
-        'app.instagram_webhook.missed_comment_intake_enqueue_failed',
-      );
-    }
+    await handFoundCommentsToIntake({
+      organizationPublicId,
+      channelAccountPublicId,
+      requestId,
+      enqueueIntake,
+      logFields,
+      foundCommentCount: result.foundCommentCount,
+    });
   }
   return result;
 }

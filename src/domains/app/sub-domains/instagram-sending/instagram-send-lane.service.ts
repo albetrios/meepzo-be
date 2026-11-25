@@ -20,7 +20,6 @@ import { pickActiveStop } from './instagram-send-lane.util.js';
 import {
   INSTAGRAM_SEND_LANES,
   INSTAGRAM_SLOW_QUEUE_LANES,
-  type InstagramSlowQueueLane,
   INSTAGRAM_SEND_RECONNECT_STOP_REASONS,
   INSTAGRAM_SEND_STOP_ENDED_BY,
   type InstagramSendLane,
@@ -221,7 +220,7 @@ export class InstagramSendLaneService
         await enqueueLaneTurn({
           organizationPublicId: scope.organizationPublicId,
           channelAccountPublicId,
-          lane: lane as InstagramSlowQueueLane,
+          lane,
           turnNumber: row.turn_number,
           delayMilliseconds: Math.max(row.next_run_at.getTime() - now, 0) + extraDelayMilliseconds,
         });

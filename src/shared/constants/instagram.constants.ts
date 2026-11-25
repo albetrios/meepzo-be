@@ -55,6 +55,16 @@ export const INSTAGRAM_WEBHOOK_CHALLENGE_MAX_LENGTH = 256;
 export const AUTOMATION_TOMBSTONE_RETENTION_DAYS = 180;
 
 /**
+ * Months a message month count (`app.message_month_counts`) is kept, counted from the month's first
+ * day, before the hourly clean-up deletes it (feat-instagram-dm-sending WC-54): the current month and
+ * the twelve before it stay readable.
+ *
+ * @remarks
+ * Rationale: `src/POLICIES.md`.
+ */
+export const MESSAGE_MONTH_COUNT_KEEP_MONTHS = 13;
+
+/**
  * Minutes a channel connection's login state stays usable (routes-final § 1 MC3, MC4, P26): the
  * one-use Redis value routes 1 and 40 mint and the callback (route 2) reads and deletes.
  *

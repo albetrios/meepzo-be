@@ -23,6 +23,7 @@ import {
 import {
   type BatchDeleteResult,
   deleteInBatchesByCondition,
+  readOldestOverdueSeconds,
 } from '@/infrastructure/database/utils/batch-delete.util.js';
 import {
   databaseNowTimestamp,
@@ -904,23 +905,43 @@ export class AutomationRepository {
   }
 
   /**
-   * The deleted-automation purge (WC-47): deletes every automation deleted before `cutoff`, in
-   * capped batches (`idx_automations_tombstoned`). Counts and reply states go by cascade, the two
-   * contact keys are set null; one a run or a comment log still points at (`RESTRICT`) is skipped
-   * and counted `blockedCount`. Needs the retention context ({@link createRetentionAutomationRepository}).
+   * The deleted-automation purge (WC-47): deletes the automations deleted before `cutoff`, at most
+   * `maxBatches` batches in this unit of work (`idx_automations_tombstoned`). Counts, reply states
+   * and past-comment reads go by cascade, the contact and broadcast keys are set null; one a run or
+   * a comment log still points at (`RESTRICT`) is skipped and counted `blockedCount`. Needs the
+   * retention context ({@link createRetentionAutomationRepository}).
    */
-  async deleteTombstonedBefore(cutoff: Date): Promise<BatchDeleteResult> {
+  async deleteTombstonedBefore({
+    cutoff,
+    maxBatches,
+  }: {
+    cutoff: Date;
+    maxBatches?: number;
+  }): Promise<BatchDeleteResult> {
     return deleteInBatchesByCondition({
       databaseHandle: this.db(),
       table: automations,
       idColumn: automations.id,
-      whereCondition: and(
-        isNotNull(automations.deleted_at),
-        lt(automations.deleted_at, cutoff),
-      ) as SQL,
+      whereCondition: this.tombstonedBefore(cutoff),
+      ...(maxBatches === undefined ? {} : { maxBatches }),
       logContext: 'automation-tombstone-retention',
       tableLabel: 'app.automations',
     });
+  }
+
+  /** Seconds the oldest automation deleted before `cutoff` is past it — the purge's gauge (P92). */
+  async readTombstonedOverdueSeconds(cutoff: Date): Promise<number> {
+    return readOldestOverdueSeconds({
+      databaseHandle: this.db(),
+      table: automations,
+      column: automations.deleted_at,
+      cutoff,
+      whereCondition: this.tombstonedBefore(cutoff),
+    });
+  }
+
+  private tombstonedBefore(cutoff: Date): SQL {
+    return and(isNotNull(automations.deleted_at), lt(automations.deleted_at, cutoff)) as SQL;
   }
 }
 

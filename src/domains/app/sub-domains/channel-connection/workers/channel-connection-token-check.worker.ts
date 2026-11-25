@@ -29,7 +29,9 @@ import {
 
 /**
  * BullMQ worker of the channel connection's daily token check (routes-final § 1 MC10, MCC6): the
- * hourly sweep and one check per due connection, on one queue.
+ * hourly sweep and one check per due connection, on one queue — plus the 10-minute webhook
+ * subscription sweep of the Instagram accounts (WC-25, ROUTE row R40), which rides it since the
+ * launch's daily account check was deleted.
  *
  * @remarks
  * - **Algorithm:** routes on `job.name` — the sweep job

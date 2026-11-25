@@ -243,8 +243,8 @@ function claimCondition(claim: InstagramWebhookEventClaimKey): SQL | undefined {
  * 5.B.10, WHC11): the insert of a delivery's new events, the claim of a kind group's oldest waiting
  * event (a `MATERIALIZED` CTE), the guarded final marks (which clear the body, WH22) and the claim
  * release, intake's reads (the flood count, the owner's echoes, the waiting count), route 62's
- * keyset list, the stuck-event pick-up's read and the launch's clean-up (retired by the part drops
- * at ROUTE R49).
+ * keyset list and the stuck-event pick-up's read (the launch's batch clean-up is retired: rows go
+ * with their day part, ROUTE R49).
  *
  * @remarks
  * - **Algorithm:** every row statement names `organization_id` (and the channel account and the row

@@ -527,16 +527,39 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
       expect(notEmpty.statusCode).toBe(400);
     });
 
-    it('refuses deleting an active broadcast with broadcast_active and hides a draft, done or cancelled one (AC-9.8)', async () => {
-      const active = await createCompleteDraft();
-      await send(active.id);
-      const refused = await remove(active.id);
-      expect(refused.statusCode).toBe(409);
-      expect(errorOf(refused).reason).toBe('broadcast_active');
+    it('refuses deleting a scheduled, sending or waiting broadcast with broadcast_active and hides a draft, done or cancelled one (AC-9.8)', async () => {
+      const [scheduled, sending, waiting] = (await Promise.all(
+        [1, 2, 3].map(() => createCompleteDraft()),
+      )) as [BroadcastAnswer, BroadcastAnswer, BroadcastAnswer];
+      await send(scheduled.id, {
+        mode: 'scheduled',
+        scheduled_at: new Date(Date.now() + 3_600_000).toISOString(),
+      });
+      await send(sending.id);
+      await send(waiting.id, { mode: 'when_chat_opens', open_wait_days: 1 });
+      for (const [broadcast, status] of [
+        [scheduled, 'scheduled'],
+        [sending, 'sending'],
+        [waiting, 'waiting_for_chats'],
+      ] as const) {
+        const refused = await remove(broadcast.id);
+        expect(refused.statusCode, status).toBe(409);
+        expect(errorOf(refused).reason).toBe('broadcast_active');
+        const read = await injectAuthenticated(app, {
+          url: broadcastPath(broadcast.id),
+          token: team.ownerToken,
+        });
+        expect(read.statusCode).toBe(200);
+        expect(dataOf<BroadcastAnswer>(read).status).toBe(status);
+      }
       const draft = await createBroadcast();
       const cancelled = await createBroadcast();
       await cancel(cancelled.id);
-      for (const broadcast of [draft, cancelled]) {
+      const done = await createCompleteDraft();
+      await send(done.id);
+      await operatorQuery`
+        UPDATE app.broadcasts SET status = 'done' WHERE public_id = ${done.id}`;
+      for (const broadcast of [draft, done, cancelled]) {
         expect((await remove(broadcast.id)).statusCode).toBe(204);
         const read = await injectAuthenticated(app, {
           url: broadcastPath(broadcast.id),
@@ -546,11 +569,16 @@ describe('Broadcast routes (list, draft, open, edit, delete, send, cancel)', () 
         expect(errorOf(read).reason).toBe('broadcast_not_found');
         expect((await remove(broadcast.id)).statusCode).toBe(404);
       }
+      const hidden = await operatorQuery<Array<{ public_id: string; deleted_at: Date | null }>>`
+        SELECT public_id, deleted_at FROM app.broadcasts
+        WHERE public_id IN (${draft.id}, ${done.id}, ${cancelled.id})`;
+      expect(hidden).toHaveLength(3);
+      for (const row of hidden) expect(row.deleted_at).not.toBeNull();
       const audit = await readStagedAuditRows({
         organizationPublicId: team.organization.public_id,
         action: 'app.broadcast.delete',
       });
-      expect(audit).toHaveLength(2);
+      expect(audit).toHaveLength(3);
     });
 
     it('lists name, mode, status and the numbers, filters, sorts and pages with a cursor (AC-9.9)', async () => {

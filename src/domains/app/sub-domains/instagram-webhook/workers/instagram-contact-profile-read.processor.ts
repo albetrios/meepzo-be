@@ -117,7 +117,7 @@ export function createInstagramContactProfileReadTaskHandler({
           scope,
           instagramAccountPublicId: channelAccountPublicId,
         });
-        if (account === null || account.encryptedAccessToken === null) return null;
+        if (!account?.encryptedAccessToken) return null;
         const contact = await withAppDatabaseContext({
           scope,
           callback: (databaseHandle: WorkerDatabaseHandle) =>
@@ -127,7 +127,7 @@ export function createInstagramContactProfileReadTaskHandler({
               contactPublicId,
             }),
         });
-        return contact === null || contact.instagram_user_id === null ? null : { account, contact };
+        return contact?.instagram_user_id ? { account, contact } : null;
       });
       if (found === null) {
         logger.info(logFields, 'app.instagram_webhook.contact_profile_read_skipped');

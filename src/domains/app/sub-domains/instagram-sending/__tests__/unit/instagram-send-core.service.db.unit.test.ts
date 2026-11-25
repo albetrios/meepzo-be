@@ -343,6 +343,55 @@ describe('InstagramSendCoreService (database)', () => {
     expect(await minuteCount()).toBe(1);
   });
 
+  it('counts a hide and a follow check in no month, as count group none (AC-17.17)', async () => {
+    await insertInstagramMessage({
+      run,
+      channelAccountId: account.channel_account_id,
+      message_type: 'hide_comment',
+      message_number: null,
+      lane: 'reply',
+      channel: 'comment_hide',
+      is_counted_as_direct_message: false,
+      status: 'waiting',
+      reason: null,
+    });
+    nock(META_GRAPH_BASE_URL)
+      .post(/\/v27\.0\/\d+\/messages/)
+      .query(true)
+      .reply(200, { message_id: 'mid.hide' });
+    await turn('reply');
+    const followCheck = await insertInstagramMessage({
+      run,
+      channelAccountId: account.channel_account_id,
+      message_type: 'follow_check',
+      message_number: null,
+      lane: 'fast',
+      channel: null,
+      is_counted_as_direct_message: false,
+      status: 'waiting',
+      reason: null,
+    });
+    nock(META_GRAPH_BASE_URL)
+      .post(/\/v27\.0\/\d+\/messages/)
+      .query(true)
+      .reply(200, { message_id: 'mid.follow' });
+    await core.sendFastMessage({
+      ticket: {
+        organizationPublicId: organization.public_id,
+        channelAccountPublicId: account.public_id,
+        instagramMessagePublicId: followCheck.public_id,
+        automationRunStartedAt: followCheck.automation_run_started_at.toISOString(),
+        tries: 0,
+      },
+      scope: scope(),
+      context,
+    });
+    const attempts = await readInstagramSendAttempts(organization.id);
+    expect(attempts).toHaveLength(2);
+    expect(attempts.map((attempt) => attempt.count_group)).toEqual(['none', 'none']);
+    expect(await monthUsed()).toBe(0);
+  });
+
   it('holds the hour limit from Postgres alone, also for two claims racing in one minute (AC-17.8)', async () => {
     // Two people's list messages in the fast lane (one of hers at a time is R44's): one fast hour
     // place left.

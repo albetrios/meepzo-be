@@ -457,6 +457,7 @@ describe('Flow: a token error, the reconnect, the lanes waking (R60)', () => {
         return { added: tickets.length };
       },
       runInDatabaseSlot: (callback) => callback(),
+      jobScopeFor: (organizationPublicId) => PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
     });
   });
 

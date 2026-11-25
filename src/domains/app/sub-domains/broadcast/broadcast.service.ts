@@ -513,7 +513,7 @@ export class BroadcastService {
           ) {
             return null;
           }
-          const conditions = broadcast.conditions as SegmentConditions;
+          const conditions = broadcast.conditions;
           const publicIds = segmentAutomationPublicIds(conditions);
           const automationIds = await this.segmentRepository.findAccountAutomationIds({
             organizationId: organization.id,

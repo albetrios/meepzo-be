@@ -53,15 +53,14 @@ describe('worker-registration.registry', () => {
     // membership invitation expiry sweep (launch D84); +2 for the Instagram reconnect notice (notify
     // family, throughput) and the daily Instagram account check (retention family, cron — launch
     // IA8, IA9); +1 for the Instagram webhook event clean-up (instagram family, cron,
-    // Postgres-backed — launch-2026-11-20-ujai WH19); +1 for the "next post" expiry (retention
-    // family, cron every 15 minutes, Postgres-backed — launch D9, AU15); +4 for the run and
-    // automation clean-ups (retention family, crons, Postgres-backed — launch D8, AU25, AQ7: the
-    // hourly 7-day wait cancel, run retention, comment-log retention, the deleted-automation purge);
+    // Postgres-backed — launch-2026-11-20-ujai WH19); the "next post" expiry is gone (P127); +2 for
+    // the run and automation clean-ups (retention family, crons, Postgres-backed — the hourly 7-day
+    // wait cancel and the deleted-automation purge; run and comment-log retention retired at
+    // feat-instagram-dm-sending R14, P133 — their month parts are dropped);
     // +1 for the Instagram webhook event processing (instagram family, throughput,
     // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
-    // WH12–WH15); −1 for the "next post" expiry, retired by feat-instagram-dm-sending R13 (WC-44: a
-    // "next post" has no end date since P12).
-    expect(definitions).toHaveLength(42);
+    // WH12–WH15).
+    expect(definitions).toHaveLength(40);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -90,18 +89,17 @@ describe('worker-registration.registry', () => {
     // the Instagram reconnect notice one Postgres-backed throughput worker (event-driven) and the
     // daily Instagram account check one Postgres-backed, scheduled, maintenance worker (IA8, IA9);
     // the Instagram webhook event clean-up (WH19) one more Postgres-backed, scheduled, maintenance
-    // worker; the "next post" expiry (D9, AU15) one more; the four run and automation clean-ups
-    // (D8, AU25, AQ7) four more; the Instagram webhook event processing (WH5, WH15) one
-    // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the "next post"
-    // expiry (a Postgres-backed, scheduled, maintenance worker) retired at R13 (WC-44).
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(39);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(37);
+    // worker; the two run and automation clean-ups (the 7-day wait cancel, the deleted-automation purge)
+    // two more; the Instagram webhook event processing (WH5, WH15) one
+    // Postgres-backed throughput worker whose every-minute pick-up rides its queue.
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(37);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(35);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(8);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
-    ).toHaveLength(32);
+    ).toHaveLength(30);
     expect(
       definitions.filter((definition) => definition.criticality === 'observability'),
     ).toHaveLength(2);

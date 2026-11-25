@@ -32,8 +32,8 @@ the read job at R41); the automation object shows the open one as `open_backfill
   sorts), the reads and the locked read, insert, update, the action write, soft delete, the go-live's
   account-wide reads (catch-all, starter questions, ref code, shared keywords), the keyword test's
   candidates, the linking `UPDATE`, the contacts filter's lookup and the purge
-- `automation-count.{schema,repository,service}.ts` — the 16 count slots: the `+1` (R14 writes it in
-  the event's commit) and the sums the list and the read show
+- `automation-count.{schema,repository,service}.ts` — the 16 count slots: the `+1` (the run engine
+  writes it in the event's commit) and the sums the list and the read show
 - `automation-reply-state.{schema,repository,service}.ts` — the "Reply like a person" pacing the
   channel's reply lane reads and writes
 - `automation.service.ts` — routes 27–35, the go-live list (every check at once), the warnings,
@@ -45,8 +45,9 @@ the read job at R41); the automation object shows the open one as `open_backfill
 - `automation.dto.ts`, `automation.serializer.ts`, `automation.controller.ts`,
   `automation.routes.ts`, `automation.constants.ts`
 - `workers/` — the deleted-automation purge (`automation-tombstone-retention`, daily 03:40 UTC)
-- `automation-run/` — the nested run sub-domain: runs, run events, comment logs, the run engine and,
-  until R14, its step view of the shared row (`automation-run-automation.repository.ts`)
+- `automation-run/` — the nested run sub-domain: runs, run events and comment logs split by month,
+  the open-run keys and the run engine over `steps` (R14), which saves its steps through
+  `ChannelSendingPort` and reads automations through this folder's repository
 - `automation-backfill/` — the nested past-comments sub-domain: routes 38–39 and the open read the
   automation object shows (`openBackfills` port)
 - `seed/` — bulk: one automation of each of the 15 ways per seeded account, drafts, a paused one,

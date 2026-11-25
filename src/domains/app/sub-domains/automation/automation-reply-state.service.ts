@@ -68,6 +68,28 @@ export class AutomationReplyStateService {
   }
 
   /**
+   * Counts one more waiting public reply of the automation, in the caller's unit — the run engine's
+   * result save that makes the reply (4.B, plan §19.13).
+   *
+   * @remarks
+   * Algorithm: one upsert. Failure modes: as the repository. Side effects: one row.
+   */
+  async addWaitingReply({
+    scope,
+    key,
+    channelAccountId,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    key: AutomationReplyStateKey;
+    channelAccountId: number;
+  }): Promise<void> {
+    await withAppDatabaseContext({
+      scope,
+      callback: () => this.repository.addWaitingReply({ ...key, channelAccountId }),
+    });
+  }
+
+  /**
    * Empties the box after a reply-step change (route 30, AU12), in the save's unit.
    *
    * @remarks

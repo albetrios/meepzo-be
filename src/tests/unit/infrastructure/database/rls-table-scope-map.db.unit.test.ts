@@ -36,13 +36,17 @@ const RLS_TABLE_SCOPE_MAP: Record<string, readonly string[]> = {
   'billing.stripe_webhook_events': [],
   'tenancy.permissions': [],
 
-  // The run engine's three tables: organization-scoped, plus the retention sweep arm in USING (the
-  // 7-day wait scan, run and comment-log retention — routes-final § 3.B.3).
+  // The run engine's four tables: organization-scoped, plus the retention sweep arm in USING (the
+  // 7-day wait scan, the open-key repair, the part upkeep — feat-instagram-dm-sending § 4.B.3).
   'app.automation_comment_logs': [
     'app.current_organization_public_id',
     'app.global_retention_cleanup',
   ],
   'app.automation_run_events': [
+    'app.current_organization_public_id',
+    'app.global_retention_cleanup',
+  ],
+  'app.automation_run_open_keys': [
     'app.current_organization_public_id',
     'app.global_retention_cleanup',
   ],

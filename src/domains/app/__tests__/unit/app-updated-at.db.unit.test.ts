@@ -171,7 +171,7 @@ describe('app tables: updated_at when the row was created after this transaction
         organizationId: organization.id,
         automationId: automation.id,
         contactId: contact.id,
-        automation_run_id: run.id,
+        run,
       });
       return { automation, contact, run, log };
     }
@@ -183,7 +183,8 @@ describe('app tables: updated_at when the row was created after this transaction
           runRepository.update({
             organizationId: organization.id,
             runId: run.id,
-            changes: { queued_automations: [] },
+            runStartedAt: run.started_at,
+            changes: { last_step_at: new Date() },
           }),
       });
       expectNotBeforeCreation(row);
@@ -193,10 +194,12 @@ describe('app tables: updated_at when the row was created after this transaction
       const { runIds, logCount } = await changeAfterInsert({
         insert: insertRunAndLog,
         change: async ({ automation }) => {
-          const runIds = await runRepository.cancelOpenRunsOfAutomation({
-            organizationId: organization.id,
-            automationId: automation.id,
-          });
+          const runIds = (
+            await runRepository.cancelOpenRunsOfAutomation({
+              organizationId: organization.id,
+              automationId: automation.id,
+            })
+          ).map((run) => run.id);
           const logCount = await commentLogRepository.markRunsCancelled({
             organizationId: organization.id,
             runIds,
@@ -208,30 +211,27 @@ describe('app tables: updated_at when the row was created after this transaction
       expect(logCount).toBe(1);
     });
 
-    it('erases a contact’s copies from both', async () => {
+    it('erases a contact’s copies from the comment logs (a run keeps no text, D46)', async () => {
       const counts = await changeAfterInsert({
         insert: insertRunAndLog,
         change: async ({ contact }) => ({
-          runs: await runRepository.eraseContactCopies({
-            organizationId: organization.id,
-            contactId: contact.id,
-          }),
           logs: await commentLogRepository.eraseContactCopies({
             organizationId: organization.id,
             contactId: contact.id,
           }),
         }),
       });
-      expect(counts).toEqual({ runs: 1, logs: 1 });
+      expect(counts).toEqual({ logs: 1 });
     });
 
     it('writes a step of a comment log', async () => {
       const row = await changeAfterInsert({
         insert: insertRunAndLog,
-        change: ({ log }) =>
-          commentLogRepository.update({
+        change: ({ run }) =>
+          commentLogRepository.updateForRun({
             organizationId: organization.id,
-            commentLogId: log.id,
+            runId: run.id,
+            runStartedAt: run.started_at,
             changes: { overall_status: 'completed' },
           }),
       });

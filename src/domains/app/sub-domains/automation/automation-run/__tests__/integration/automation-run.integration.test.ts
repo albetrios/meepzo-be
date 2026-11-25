@@ -1,7 +1,14 @@
 import { organizationChannelAccountPath } from '@/domains/app/sub-domains/channel-account/__tests__/factories/channel-account.factory.js';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  PRINCIPAL_SCOPE,
+  withAppDatabaseContext,
+} from '@/infrastructure/database/contexts/database-context.js';
+import { instagram_account_settings } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.schema.js';
+import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
+import { RecordingSendingPort } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/recording-sending-port.factory.js';
 import { seedAllPermissions } from '@/domains/tenancy/__tests__/factories/permission.factory.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
@@ -22,6 +29,7 @@ import {
   contactPath,
   insertContact,
   insertInstagramAccount,
+  readContactRow,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
   type AutomationFixtureRow,
@@ -32,8 +40,11 @@ import {
   insertAutomationCommentLog,
   insertAutomationRun,
   readCommentLogRows,
+  nextInstagramObjectId,
+  readOpenRunKeys,
   readRunEventTrail,
   readRunRow,
+  readRunRows,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 
 /**
@@ -47,7 +58,7 @@ import {
 describe('Automation runs through the routes', () => {
   let app: FastifyInstance;
   let team: InstagramTeamFixture;
-  let account: { id: number; public_id: string };
+  let account: { id: number; public_id: string; channel_account_id: number };
   let automation: AutomationFixtureRow;
   let otherAutomation: AutomationFixtureRow;
   let contact: ContactFixtureRow;
@@ -234,7 +245,7 @@ describe('Automation runs through the routes', () => {
         organizationId: team.organization.id,
         automationId: automation.id,
         contactId: contact.id,
-        automation_run_id: waiting.id,
+        run: waiting,
         overall_status: 'waiting',
         waiting_for: 'email',
       });
@@ -266,18 +277,17 @@ describe('Automation runs through the routes', () => {
   });
 
   describe('DELETE /app/contacts/{contact_id} erases the run copies (AU26, CT8)', () => {
-    it("cancels the contact's open runs and clears the trigger text and every comment-log copy", async () => {
+    it("cancels the contact's open runs, deletes their open keys and clears every comment-log copy", async () => {
       const open = await insertAutomationRun({
         organizationId: team.organization.id,
         automationId: automation.id,
         contactId: contact.id,
-        trigger_text: 'my secret text',
       });
       const log = await insertAutomationCommentLog({
         organizationId: team.organization.id,
         automationId: automation.id,
         contactId: contact.id,
-        automation_run_id: open.id,
+        run: open,
         overall_status: 'waiting',
         waiting_for: 'email',
         email_received: 'jordan@example.com',
@@ -293,9 +303,8 @@ describe('Automation runs through the routes', () => {
       expect(await readRunRow(open.id)).toMatchObject({
         status: 'cancelled',
         cancel_reason: 'contact_deleted',
-        trigger_text: null,
-        queued_automations: [],
       });
+      expect(await readOpenRunKeys(team.organization.id)).toEqual([]);
       const [erasedLog] = await readCommentLogRows(team.organization.id);
       expect(erasedLog).toMatchObject({
         id: log.id,
@@ -329,6 +338,124 @@ describe('Automation runs through the routes', () => {
         status: 'waiting',
         cancel_reason: null,
       });
+    });
+  });
+
+  describe('the account settings the run engine reads through the channel account (AC-3.6, AC-3.7; R7, R14)', () => {
+    let port: RecordingSendingPort;
+
+    beforeEach(async () => {
+      port = new RecordingSendingPort();
+      app.appDomain.channelSendingPorts.instagram = port;
+    });
+
+    afterEach(() => {
+      delete app.appDomain.channelSendingPorts.instagram;
+    });
+
+    async function saveSettings(values: {
+      is_comment_reply_trigger_enabled?: boolean;
+      is_once_per_person_per_post_enabled?: boolean;
+    }): Promise<void> {
+      await getOperatorDatabase()
+        .insert(instagram_account_settings)
+        .values({
+          organization_id: team.organization.id,
+          channel_account_id: account.channel_account_id,
+          ...values,
+        });
+    }
+
+    async function commentOnce({
+      mediaId = '17900000000000001',
+      parentCommentId = null,
+    }: {
+      mediaId?: string;
+      parentCommentId?: string | null;
+    } = {}) {
+      const commentId = nextInstagramObjectId();
+      const fresh = (await readContactRow(contact.id)) as ContactFixtureRow;
+      return {
+        commentId,
+        result: await app.appDomain.automationRunService.startCommentRun({
+          scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: team.organization.public_id }),
+          channelAccountPublicId: account.public_id,
+          contact: fresh,
+          event: {
+            eventKey: `comment:${commentId}`,
+            eventId: commentId,
+            occurredAt: new Date(),
+            isLastAttempt: false,
+          },
+          kind: 'comment',
+          commentId,
+          mediaId,
+          parentCommentId,
+          text: 'link please',
+          commenterUsername: 'jordan.lee',
+        }),
+      };
+    }
+
+    it('with replies under comments OFF, a reply under another comment starts nothing: ignored · thread_reply_off (AC-3.6)', async () => {
+      await saveSettings({ is_comment_reply_trigger_enabled: false });
+      const { result, commentId } = await commentOnce({ parentCommentId: '17950000000000999' });
+      expect(result.outcome).toBe('comment_logged');
+      const logs = (await readCommentLogRows(team.organization.id)).filter(
+        (log) => log.instagram_comment_id === commentId,
+      );
+      expect(logs.find((log) => log.automation_id === automation.id)).toMatchObject({
+        overall_status: 'ignored',
+        ignored_reason: 'thread_reply_off',
+      });
+      expect(port.saved).toEqual([]);
+      // ON (the default), the same reply starts a run.
+      await getOperatorDatabase()
+        .update(instagram_account_settings)
+        .set({ is_comment_reply_trigger_enabled: true })
+        .where(eq(instagram_account_settings.channel_account_id, account.channel_account_id));
+      expect((await commentOnce({ parentCommentId: '17950000000000999' })).result.outcome).toBe(
+        'run_started',
+      );
+    });
+
+    it('with once per person per post OFF, a second comment on the same post starts a new run once her earlier run ended (AC-3.7)', async () => {
+      await saveSettings({ is_once_per_person_per_post_enabled: false });
+      const first = await commentOnce();
+      expect(first.result.outcome).toBe('run_started');
+      const [firstRun] = await readRunRows(team.organization.id);
+      await getOperatorDatabase()
+        .update(automation_runs)
+        .set({ direct_message_sent_at: new Date() })
+        .where(eq(automation_runs.id, firstRun!.id));
+      await withAppDatabaseContext({
+        scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId: team.organization.public_id }),
+        callback: (databaseHandle) =>
+          app.appDomain.automationRunService.cancelContactOpenRuns({
+            organizationId: team.organization.id,
+            contactId: contact.id,
+            reason: 'contact_excluded',
+            databaseHandle,
+          }),
+      });
+      const second = await commentOnce();
+      expect(second.result.outcome).toBe('run_started');
+      const runs = await readRunRows(team.organization.id);
+      expect(runs.map((run) => run.once_key)).toEqual([
+        `17900000000000001:${first.commentId}`,
+        `17900000000000001:${second.commentId}`,
+      ]);
+    });
+
+    it('with once per person per post ON (the default), the same comment again is ignored once_per_post (D13)', async () => {
+      await commentOnce();
+      const [run] = await readRunRows(team.organization.id);
+      await getOperatorDatabase()
+        .update(automation_runs)
+        .set({ direct_message_sent_at: new Date() })
+        .where(eq(automation_runs.id, run!.id));
+      expect((await commentOnce()).result.outcome).toBe('comment_logged');
+      expect(await readRunRows(team.organization.id)).toHaveLength(1);
     });
   });
 });

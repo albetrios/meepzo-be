@@ -1,5 +1,6 @@
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import type { RequestScopedPostgresDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
+import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
 import type { ChannelAccountChannel } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 
 /**
@@ -11,15 +12,17 @@ import type { ChannelAccountChannel } from '@/domains/app/sub-domains/channel-ac
  *
  * @remarks
  * Types only: Instagram's implementation is sub-domain 6's message service (ROUTE rows R19–R20); the
- * run engine writes through it from ROUTE row R14. Until they land, `channelSendingPorts` is empty and
- * the automation routes skip the port's side effects (a pause's cancel is still recorded as
- * `cancelled_before_at`, which the lanes read).
+ * run engine (4.B) saves every step through it since ROUTE row R14 and takes results at its
+ * `recordMessageResult` (a follow check's `sent` result carries `reason` `following` or
+ * `not_following`). Until R19–R20 wire `channelSendingPorts.instagram`, the engine throws on an event
+ * of that channel and the automation routes skip the port's side effects (a pause's cancel is still
+ * recorded as `cancelled_before_at`, which the lanes read).
  */
 
 /** A database handle the caller's transaction runs on — the port writes in the caller's commit. */
 export type ChannelPortDatabaseHandle = WorkerDatabaseHandle | RequestScopedPostgresDatabase;
 
-/** The step a waiting message belongs to (AU35). */
+/** The step a waiting message belongs to (AU35) — `follow_check` is a read of her follow, not a message. */
 export type ChannelMessageStep =
   | 'hello'
   | 'follow'
@@ -79,8 +82,13 @@ export interface ChannelWaitingMessageSelection {
 /** A message's final result, reported to the engine in the same commit (AU35, AU25). */
 export type ChannelMessageResult = 'sent' | 'failed' | 'skipped' | 'unknown';
 
-/** What a channel's sending sub-domain reports to `recordMessageResult` (AU35). */
+/**
+ * What a channel's sending sub-domain reports to `recordMessageResult` (AU35) — with its job's
+ * organization scope, so the engine joins the result's commit (ROUTE row R14, P130).
+ */
 export interface ChannelMessageResultInput {
+  /** The sending job's organization scope — the engine's writes join its open unit. */
+  scope: OrganizationPrincipalDatabaseScope;
   databaseHandle: ChannelPortDatabaseHandle;
   organizationId: number;
   channelAccountId: number;

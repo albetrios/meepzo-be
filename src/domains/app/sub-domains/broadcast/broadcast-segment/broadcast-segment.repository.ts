@@ -173,11 +173,12 @@ function automationCondition({
           AND ${automation_comment_logs.created_at} >= ${daysAgo(SEGMENT_AUTOMATION_RUN_LOOKBACK_DAYS)}
       )`;
     case 'got_message':
-      // Today's runs send one message after the opening one and complete when it is sent; a
-      // numbered message list arrives with ROUTE rows R14 and R19 (P310).
-      return condition.message_number === 1
-        ? runOfAutomation({ automationId, extra: sql`${automation_runs.status} = 'completed'` })
-        : sql`false`;
+      // The run records the highest list message it sent (`last_message_number`, R14), so message
+      // N reached her when a run of the last 90 days got at least that far (P310, revised at R14).
+      return runOfAutomation({
+        automationId,
+        extra: sql`${automation_runs.last_message_number} >= ${condition.message_number}`,
+      });
   }
 }
 

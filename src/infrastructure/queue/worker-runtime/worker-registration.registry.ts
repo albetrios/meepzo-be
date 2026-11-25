@@ -84,10 +84,6 @@ import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains
 import { isMetaConfigured } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { createAutomationRunWaitExpiryWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.worker.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
-import { createAutomationRunRetentionWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.worker.js';
-import { AUTOMATION_RUN_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.constants.js';
-import { createAutomationCommentLogRetentionWorker } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.worker.js';
-import { AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.constants.js';
 import { createAutomationTombstoneRetentionWorker } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.worker.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 import {
@@ -495,11 +491,11 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
         accountService: workerContainers.appDomain.instagramAccountService,
       }),
   }),
-  // Launch D8 (routes-final § 3.B AU25, AQ7): the four run and automation clean-ups — every hour
-  // the runs waiting more than 7 days are cancelled (a cross-organization scan, then each
-  // organization's cancel in its own context, through the run service); daily at 03:20, 03:30 and
-  // 03:40 UTC the runs ended, the comment logs written and the automations deleted more than 180
-  // days ago are removed. Pure database sweeps: no Instagram call, no provider pause, no gate.
+  // Launch D8 (routes-final § 3.B AU25, AQ7): the run and automation clean-ups — every hour the
+  // runs waiting more than 7 days are cancelled with their open keys (a cross-organization scan, then
+  // each organization's cancel in its own context, through the run service — WC-45); daily at 03:40
+  // UTC the automations deleted more than 180 days ago are removed. Runs and comment logs go by
+  // month-part drops (the shared upkeep, R49). Pure database sweeps: no channel call, no gate.
   retentionDefinition({
     queueName: AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
     family: 'retention',
@@ -508,18 +504,6 @@ const WORKER_QUEUE_REGISTRATION_DEFINITIONS: WorkerQueueRegistrationDefinition[]
       createAutomationRunWaitExpiryWorker({
         runService: workerContainers.appDomain.automationRunService,
       }),
-  }),
-  retentionDefinition({
-    queueName: AUTOMATION_RUN_RETENTION_QUEUE_NAME,
-    family: 'retention',
-    logLabel: 'automation run retention worker',
-    create: () => createAutomationRunRetentionWorker(),
-  }),
-  retentionDefinition({
-    queueName: AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME,
-    family: 'retention',
-    logLabel: 'automation comment log retention worker',
-    create: () => createAutomationCommentLogRetentionWorker(),
   }),
   retentionDefinition({
     queueName: AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,

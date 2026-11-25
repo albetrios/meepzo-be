@@ -1,13 +1,23 @@
+import { randomInt } from 'node:crypto';
 import {
   type OrganizationPrincipalDatabaseScope,
   withAppDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
-import type { InstagramMessageRecipient } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
-import { MetaGraphApiError } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph-error.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
-import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
-import type { InstagramAutomationAccountAccess } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
+import type {
+  ChannelMessageResultInput,
+  ChannelMessageStep,
+  ChannelSendingPort,
+  ChannelSendingPorts,
+  SaveWaitingMessageResult,
+} from '@/domains/app/app.channel-ports.js';
+import type { ChannelAccountChannel } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
+import type {
+  ChannelAccountPlanAccessService,
+  ChannelAccountService,
+} from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
+import type { AutomationRunChannelAccount } from '@/domains/app/sub-domains/channel-account/channel-account.types.js';
 import type { ContactRow } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import type { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
 import type {
@@ -15,843 +25,508 @@ import type {
   ContactPauseStepInput,
 } from '@/domains/app/sub-domains/contact/contact.types.js';
 import {
-  AutomationRunAutomationRepository,
-  type AutomationRunAutomationRow,
-  createWorkerAutomationRunAutomationRepository,
-} from './automation-run-automation.repository.js';
-import type { AutomationOpenRunCancelInput } from '@/domains/app/sub-domains/automation/automation.types.js';
+  AUTOMATION_COMMENT_TRIGGER_TYPES,
+  type AutomationTriggerType,
+} from '@/domains/app/sub-domains/automation/automation.constants.js';
 import {
+  AutomationRepository,
+  type AutomationRow,
+  createWorkerAutomationRepository,
+} from '@/domains/app/sub-domains/automation/automation.repository.js';
+import type { AutomationOpenRunCancelInput } from '@/domains/app/sub-domains/automation/automation.types.js';
+import type { AutomationCountService } from '@/domains/app/sub-domains/automation/automation-count.service.js';
+import type { AutomationReplyStateService } from '@/domains/app/sub-domains/automation/automation-reply-state.service.js';
+import {
+  AUTOMATION_PUBLIC_REPLY_CHANCE_PERCENT,
+  AUTOMATION_PUBLIC_REPLY_CHANCE_SCALE,
+  AUTOMATION_PUBLIC_REPLY_SKIP_REASONS,
+  AUTOMATION_RUN_ASK_MAX_COUNT,
+  AUTOMATION_RUN_CANCEL_REASONS,
+  AUTOMATION_RUN_CHAT_WINDOW_MILLISECONDS,
   AUTOMATION_RUN_ERROR_MESSAGE_MAX_LENGTH,
-  AUTOMATION_RUN_QUEUED_AUTOMATIONS_MAX_COUNT,
-  AUTOMATION_RUN_WAITING_FOR,
-  type AutomationCommentLogErrorType,
+  AUTOMATION_RUN_NUDGE_AFTER_MILLISECONDS,
+  AUTOMATION_RUN_PART_DROP_AFTER_DAYS,
+  AUTOMATION_TAG_CHAIN_MAX,
   type AutomationCommentLogIgnoredReason,
-  type AutomationCommentLogStep,
-  type AutomationRunSendingMessageKind,
-  type AutomationRunStatus,
+  type AutomationCommentLogStepStatus,
+  type AutomationPublicReplySkipReason,
+  type AutomationRunCancelReason,
   type AutomationRunStep,
   type AutomationRunWaitingFor,
 } from './automation-run.constants.js';
+import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
 import {
+  type AutomationRunChanges,
   AutomationRunRepository,
+  type AutomationEndedRun,
   type AutomationRunRow,
   createWorkerAutomationRunRepository,
 } from './automation-run.repository.js';
 import {
   AutomationRunEventRepository,
+  type AutomationRunEventValues,
   createWorkerAutomationRunEventRepository,
 } from './automation-run-event.repository.js';
 import {
   type AutomationCommentLogChanges,
   AutomationCommentLogRepository,
   type AutomationCommentLogInsertValues,
-  type AutomationCommentLogRow,
   createWorkerAutomationCommentLogRepository,
 } from './automation-comment-log.repository.js';
 import {
+  AutomationRunOpenKeyRepository,
+  createRetentionAutomationRunOpenKeyRepository,
+  createWorkerAutomationRunOpenKeyRepository,
+} from './automation-run-open-key.repository.js';
+import {
+  type AutomationMatch,
   chooseCommentAutomation,
-  chooseDirectMessageAutomation,
-  chooseStoryReplyAutomation,
-  decideExistingRunConflict,
+  chooseExactSourceAutomation,
+  chooseMessageAutomation,
+  chooseTagAutomation,
+  matchesAutomationKeywords,
   pickEmailAnswer,
   pickPhoneAnswer,
 } from './automation-run-matching.util.js';
 import {
-  type ComposedAutomationMessage,
-  resolveAutomationMessageRecipient,
-} from './automation-run-message.util.js';
-import {
-  planAutomationRunStep,
-  planWaitedStepNowOff,
-  toCommentLogStep,
+  type AutomationPlanSwitches,
+  type AutomationRandomSource,
+  buildOnceKey,
+  followStepOf,
+  helloHasNextButton,
+  helloStepOf,
+  isPlanSwitchOn,
+  isSheMessagedFirst,
+  messagesOf,
+  organizationDayOf,
+  pickVersionNumber,
+  pickWordingNumber,
+  questionStepOf,
+  tagsOf,
+  uploadPublicIdsOf,
 } from './automation-run-step.util.js';
-import { assertQueuedAutomations, readQueuedAutomations } from './automation-run.validator.js';
-import type {
-  AutomationRunMessageService,
-  AutomationSendResult,
-} from './automation-run-message.service.js';
-import type { AutomationPublicReplySafetyService } from './automation-public-reply-safety.service.js';
 import type {
   AutomationButtonClickInput,
   AutomationCommentRunInput,
   AutomationDirectMessageInput,
   AutomationFailedEventInput,
-  AutomationQueuedTrigger,
   AutomationRunEvent,
+  AutomationRunHandlingOutcome,
   AutomationRunHandlingResult,
-  AutomationRunStepPlan,
   AutomationRunTriggerInput,
-  AutomationStoryReplyRunInput,
-  AutomationWaitedStepOff,
+  AutomationRunVersionNumbers,
+  AutomationTagRunInput,
 } from './automation-run.types.js';
 
-/** The most actions one advance takes before it stops — a backstop against a planning loop. */
-const ADVANCE_MAX_ACTIONS = 24;
-
-/** The organization a unit of work writes in, and its scope for the log lines. */
-interface AutomationRunOrganization {
-  scope: OrganizationPrincipalDatabaseScope;
-  organizationId: number;
+/**
+ * What the run engine is built from (4.B — wired by `app.container.ts`).
+ *
+ * @remarks
+ * Notes: every dependency is channel-neutral (AUC13) — the account through the channel account,
+ * the channel's sending through `sendingPorts` (AU35); tests pass a recording port and a fixed draw.
+ */
+export interface AutomationRunServiceDependencies {
+  /** The channel account's run read (AU34) — the engine reaches no channel's own sub-domain. */
+  channelAccountService: Pick<ChannelAccountService, 'readAutomationRunAccount'>;
+  contactService: ContactService;
+  /** The plan read — the PRO switches, read once per job (AU26, D57). */
+  planAccessService: ChannelAccountPlanAccessService;
+  countService: AutomationCountService;
+  replyStateService: AutomationReplyStateService;
+  /**
+   * The channels' sending ports (AU35) — the container's record, filled per channel as its sending
+   * sub-domain lands (Instagram's at ROUTE rows R19–R20); the engine picks one by the account's
+   * `channel` at each call.
+   */
+  sendingPorts: ChannelSendingPorts;
+  /** The draw of versions, wordings and the public reply chance; `crypto.randomInt` by default. */
+  drawInteger?: AutomationRandomSource;
 }
 
-/** One engine call: the event's account as read once, and the event (AU5, AU27). */
-interface AutomationRunCall extends AutomationRunOrganization {
-  access: InstagramAutomationAccountAccess;
-  instagramAccountId: number;
-  contactId: number;
-  instagramUserId: string;
-  event: AutomationRunEvent;
-}
-
-/** The repositories of one short unit of work, all bound to its handle (AU19). */
+/** The repositories of one unit of work, bound to its handle. */
 interface AutomationRunRepositories {
   databaseHandle: WorkerDatabaseHandle;
   runs: AutomationRunRepository;
   runEvents: AutomationRunEventRepository;
   commentLogs: AutomationCommentLogRepository;
-  automations: AutomationRunAutomationRepository;
+  openKeys: AutomationRunOpenKeyRepository;
+  automations: AutomationRepository;
 }
 
-/** One short unit of work of a call, its contact and its open runs' automations locked (AU12, CT8). */
+/** One unit of the engine: the organization, the account, the plan, the port and her locked row. */
 interface AutomationRunUnit extends AutomationRunRepositories {
-  /** The call's contact, its row locked until the unit ends — `null` once erased (CT8, CT9). */
-  contact: ContactRow | null;
+  scope: OrganizationPrincipalDatabaseScope;
+  organizationId: number;
+  channelAccountId: number;
+  switches: AutomationPlanSwitches;
+  port: ChannelSendingPort;
+  /** Her live contact, locked `FOR KEY SHARE` until the unit ends (CT8). */
+  contact: ContactRow;
+  now: Date;
 }
 
-/** A locked `waiting` run, its automation as it is now (AU14), and the step it waits for if now off. */
-interface WaitingRun {
-  run: AutomationRunRow;
-  automation: AutomationRunAutomationRow | null;
-  /** Where the run goes on to when the step it waits for is now off; `null` while it is still on. */
-  stepOff: AutomationWaitedStepOff | null;
+/** The unit of an event: the unit plus the account's rules and the event. */
+interface AutomationRunEventUnit extends AutomationRunUnit {
+  account: AutomationRunChannelAccount;
+  event: AutomationRunEvent;
 }
 
-/** The run state one prepared action works on. */
-interface PreparedRunState {
-  run: AutomationRunRow;
-  automation: AutomationRunAutomationRow;
-  commentLog: AutomationCommentLogRow | null;
+/** How a run ends (AU21). */
+type AutomationRunEnd =
+  | { status: 'completed' }
+  | { status: 'failed'; errorMessage: string }
+  | { status: 'cancelled'; reason: AutomationRunCancelReason };
+
+/** A message the engine asks its channel to save (AU35): its step and content by reference. */
+interface AutomationWaitingMessage {
+  step: ChannelMessageStep;
+  messageNumber?: number | null;
+  versionNumber?: number | null;
+  wordingNumber?: number | null;
+  messageKind?: string;
+  stepPath: string;
+  uploadPublicIds?: readonly string[];
+  notBefore?: Date | null;
+  answersEventId?: string | null;
 }
 
-/** What the prepare unit of an advance decided (AU19 step a). */
-type PreparedAction =
-  | { kind: 'stop' }
-  | { kind: 'failed'; errorType: AutomationCommentLogErrorType }
-  | (PreparedRunState & { kind: 'public_reply'; text: string })
-  | (PreparedRunState & {
-      kind: 'send';
-      plan: Extract<AutomationRunStepPlan, { action: 'send' }>;
-      recipient: InstagramMessageRecipient;
-      composed: ComposedAutomationMessage;
-    })
-  | (PreparedRunState & { kind: 'read_follow' });
+/** The run steps whose message holds the run until its result (the hello and the DM steps). */
+type AutomationBlockingStep = Exclude<
+  ChannelMessageStep,
+  'public_reply' | 'hide_comment' | 'nudge' | 'broadcast'
+>;
 
-/** What a record unit leaves the advance to do next. */
-type RecordedAction =
-  | { kind: 'continue'; isFollowNotConfirmed?: boolean }
-  | { kind: 'stop' }
-  | { kind: 'failed'; errorType: AutomationCommentLogErrorType; tokenError?: MetaGraphApiError }
-  | { kind: 'rethrow'; error: unknown };
+/** The comment log's step and status column of each run step. */
+const COMMENT_LOG_STEP_OF_RUN_STEP = {
+  keyword_match: { step: 'opening_dm', status: 'opening_dm_status' },
+  comment_reply: { step: 'opening_dm', status: 'opening_dm_status' },
+  follow_check: { step: 'follow_check', status: 'follow_status' },
+  email_collect: { step: 'email_collect', status: 'email_status' },
+  phone_collect: { step: 'phone_collect', status: 'phone_status' },
+  messages: { step: 'messages', status: 'messages_status' },
+} as const satisfies Record<AutomationRunStep, { step: string; status: string }>;
 
-/** Why a step failed, as the run and its comment log record it. */
-interface AutomationRunFailure {
-  errorType: AutomationCommentLogErrorType;
-  /** A short reason slug (`refused`, `send_outcome_unknown`, `outside_messaging_window`, …). */
-  reason: string;
-  /** Instagram's error, when it answered. */
-  error: unknown;
-  /** Leave the send claim set — its outcome is unknown, so it is never sent again (AQ5). */
-  isClaimKept: boolean;
-}
-
-/** The empty result of an entry point. */
+/** The result a call answers when nothing was moved. */
 function handlingResult({
   outcome,
   runPublicIds = [],
-  failedErrorType = null,
 }: {
-  outcome: AutomationRunHandlingResult['outcome'];
+  outcome: AutomationRunHandlingOutcome;
   runPublicIds?: string[];
-  failedErrorType?: AutomationCommentLogErrorType | null;
 }): AutomationRunHandlingResult {
-  return { outcome, runPublicIds, failedErrorType };
+  return { outcome, runPublicIds, failedErrorType: null };
 }
 
-/** The run sub-domain's repositories (and the automations') on one unit's handle. */
-function bindRepositories(databaseHandle: WorkerDatabaseHandle): AutomationRunRepositories {
-  return {
-    databaseHandle,
-    runs: createWorkerAutomationRunRepository(databaseHandle),
-    runEvents: createWorkerAutomationRunEventRepository(databaseHandle),
-    commentLogs: createWorkerAutomationCommentLogRepository(databaseHandle),
-    automations: createWorkerAutomationRunAutomationRepository(databaseHandle),
-  };
+/** Whether a way to start carries a comment (the public reply, the hide, the comment log). */
+function isCommentTrigger(triggerType: string): boolean {
+  return AUTOMATION_COMMENT_TRIGGER_TYPES.includes(triggerType as AutomationTriggerType);
 }
 
-/** The comment-log step a message belongs to (D19). */
-function commentLogStepOfMessage(
-  messageKind: AutomationRunSendingMessageKind,
-): AutomationCommentLogStep {
-  switch (messageKind) {
-    case 'public_reply':
-      return 'public_reply';
-    case 'opening_message':
-      return 'opening_dm';
-    case 'follow_request':
-      return 'follow_check';
-    case 'email_question':
-    case 'invalid_email':
-      return 'email_collect';
-    case 'phone_question':
-      return 'phone_collect';
-    case 'final_message':
-      return 'final_dm';
-  }
+/** Whether her chat window is open now (plan §9): her last message or tap + 24 h − 15 min. */
+function isChatOpen({ contact, now }: { contact: ContactRow; now: Date }): boolean {
+  const last = contact.last_direct_message_received_at;
+  return last !== null && now.getTime() - last.getTime() < AUTOMATION_RUN_CHAT_WINDOW_MILLISECONDS;
 }
 
-/** The run step a comment-log step belongs to — where a failure is recorded. */
-function failedCommentLogStep({
-  run,
-  commentLog,
-}: {
-  run: AutomationRunRow;
-  commentLog: AutomationCommentLogRow | null;
-}): AutomationCommentLogStep | null {
-  if (run.sending_message_kind !== null) {
-    return commentLogStepOfMessage(run.sending_message_kind as AutomationRunSendingMessageKind);
-  }
-  return toCommentLogStep({
-    runStep: run.current_step as AutomationRunStep,
-    // A log already at the opening message has no public reply to come: it was never on (D19).
-    isPublicReplyPending:
-      commentLog?.public_reply_status === 'off' && commentLog.current_step !== 'opening_dm',
-  });
+/** The start of the comment-log months a comment's logs are read in (AU28: the last two). */
+function lastTwoMonthsStart(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
 }
 
-/** A short, text-free error message: `instagram_api:<code>/<subcode>` or the reason. */
-function describeFailure(failure: AutomationRunFailure): string {
-  const { error } = failure;
-  const message =
-    error instanceof MetaGraphApiError && error.instagramErrorCode !== null
-      ? `${failure.errorType}:${error.instagramErrorCode}/${error.instagramErrorSubcode ?? '-'}`
-      : `${failure.errorType}:${failure.reason}`;
-  return message.slice(0, AUTOMATION_RUN_ERROR_MESSAGE_MAX_LENGTH);
+/** A short, text-free error message: `<step>:<reason>`. */
+function describeFailure({ step, reason }: { step: string; reason: string | null }): string {
+  return `${step}:${reason ?? 'failed'}`.slice(0, AUTOMATION_RUN_ERROR_MESSAGE_MAX_LENGTH);
+}
+
+/** The run's key as its statements name it. */
+function runKeyOf({ organizationId, run }: { organizationId: number; run: AutomationRunRow }) {
+  return { organizationId, runId: run.id, runStartedAt: run.started_at };
+}
+
+/** The run's cancel reason for a channel's skip reason, or `null` when the run fails instead. */
+function cancelReasonOfSkip(reason: string | null): AutomationRunCancelReason | null {
+  if (reason === 'live_ended' || reason === 'reply_too_old') return 'expired';
+  if (reason === 'paused_by_owner') return 'contact_excluded';
+  return (AUTOMATION_RUN_CANCEL_REASONS as readonly string[]).includes(reason ?? '')
+    ? (reason as AutomationRunCancelReason)
+    : null;
 }
 
 /**
- * The comment log's error columns for a failure (schema-routes § 8.12): Instagram's class, codes,
- * type, trace id and HTTP status — never its text, which can name a person or quote a token (D53).
- */
-function failureColumns(failure: AutomationRunFailure): AutomationCommentLogChanges {
-  const { error } = failure;
-  const isInstagramAnswer = error instanceof MetaGraphApiError;
-  return {
-    error_type: failure.errorType,
-    http_status: isInstagramAnswer ? (error.status ?? null) : null,
-    error_code: isInstagramAnswer ? error.instagramErrorCode : null,
-    error_subcode: isInstagramAnswer ? error.instagramErrorSubcode : null,
-    error_message: describeFailure(failure),
-    error_reason: failure.reason,
-    fbtrace_id: isInstagramAnswer ? error.fbtraceId : null,
-    error_response: isInstagramAnswer
-      ? {
-          error_class: error.errorClass,
-          http_status: error.status ?? null,
-          code: error.instagramErrorCode,
-          error_subcode: error.instagramErrorSubcode,
-          type: error.instagramErrorType,
-          fbtrace_id: error.fbtraceId,
-        }
-      : null,
-    error_at: new Date(),
-  };
-}
-
-/** The columns a comment log has no value for yet — an error already logged is kept (D47). */
-function unsetColumns({
-  commentLog,
-  columns,
-}: {
-  commentLog: AutomationCommentLogRow | null;
-  columns: AutomationCommentLogChanges;
-}): AutomationCommentLogChanges {
-  if (commentLog === null) return columns;
-  return Object.fromEntries(
-    Object.entries(columns).filter(
-      ([column]) => commentLog[column as keyof AutomationCommentLogRow] === null,
-    ),
-  );
-}
-
-/** The reason slug of a send that did not deliver. */
-function failureReasonOf(result: Exclude<AutomationSendResult, { outcome: 'delivered' }>): string {
-  if (result.outcome === 'unknown') return 'send_outcome_unknown';
-  if (result.error instanceof MetaGraphApiError) return result.error.errorClass;
-  return result.outcome;
-}
-
-/** The comment-log status columns of a step whose message went (AU18). */
-function deliveredCommentLogChanges({
-  messageKind,
-  isWaiting,
-  now,
-}: {
-  messageKind: AutomationRunSendingMessageKind;
-  isWaiting: boolean;
-  now: Date;
-}): AutomationCommentLogChanges {
-  const status = isWaiting ? 'waiting' : 'sent';
-  switch (messageKind) {
-    case 'opening_message':
-      return { opening_dm_status: status, opening_dm_at: now };
-    case 'follow_request':
-      return { follow_status: 'waiting', follow_at: now };
-    case 'email_question':
-      return { email_status: 'waiting' };
-    case 'phone_question':
-      return { phone_status: 'waiting' };
-    case 'final_message':
-      return { final_dm_status: 'sent', final_dm_at: now };
-    case 'invalid_email':
-    case 'public_reply':
-      return {};
-  }
-}
-
-/**
- * The run engine (routes-final § 3.B, AU16–AU26): what starts a run and which automation answers,
- * the steps, every send claimed before and recorded after, reply safety, the queued automations,
- * the three hooks other sub-domains run inside their own transactions — the contact erase's step
- * (AU26), the automation delete's open-run cancel (AU12) and the runs of an event that ended `failed`
- * or was skipped on a retry (AU19, D51) — and the 7-day wait's cancel (AU25).
+ * The run engine (feat-instagram-dm-sending routes-final § 4.B, AU21–AU30, AU35–AU37): which
+ * automation an event starts, the once key and the one open run per automation and person, the steps
+ * of `steps` saved as **waiting messages** through the channel's `ChannelSendingPort` — it decides,
+ * it never sends (WC-9 removed) — the results that come back (`recordMessageResult`), the taps and
+ * answers, the counts, and the cancels other sub-domains run (delete, erase, pause, the 7-day wait).
  *
  * @remarks
  * Algorithm:
- * - **Entry points** (3.B.8 — `startCommentRun`, `handleDirectMessage`, `startStoryReplyRun`,
- *   `handleButtonClick`): sub-domain 4 calls them per event, **outside** any database context,
- *   with its job's organization scope (relayed, never minted here), the event's Instagram account
- *   and the contact it recorded. Each opens its own short units of work (`withAppDatabaseContext`)
- *   and makes every Instagram call between them (AU5, AU19).
- * - **One account** (AU27): the account must be this organization's connected account; only its
- *   automations are matched.
- * - **Choice** (AU16, D26): a comment is answered by one automation — the post-linked ones first,
- *   the oldest match — written with every other match's `comment_already_answered` log in one
- *   unit; a DM is first an answer to a run waiting for an email or a phone; a story reply and a
- *   click follow their own rules. AU17 then decides whether the chosen automation starts a run.
- * - **Steps** (AU18): a pure planner ({@link planAutomationRunStep}) reads the run, the automation
- *   as it is now (AU14) and the contact; each send is claimed (`sending_message_kind`) in a short
- *   unit, sent outside it, and recorded in another (AU19).
- * - **A step turned off while a run waits for it** (AU14, D48): the run no longer takes an answer,
- *   holds a trigger back or asks again, and once the event's own handling is done it goes on from its
- *   next step, the automations queued behind its email with it — inside the messaging window, where a
- *   DM reaches the contact (3.B.10); a comment outside it moves no waiting run on (D50).
- * - **Safe to run twice:** an event whose key is a run's `last_instagram_event_key` resumes that
- *   run instead of being applied again; a comment whose logs exist resumes its chosen run; a claim
- *   still set fails the step (AQ5).
- * - **An erase wins** (CT8, CT9): every unit locks the contact first, as the erase does, and reads it
- *   live before it starts a run, logs a comment or takes a step — an erased person's event writes
- *   and sends nothing.
- * - **One lock order** (AU12, CT8, D47): the contact, then the automation, then its runs — every unit
- *   of the engine and the contact erase lock the automations of the contact's open runs
- *   `FOR KEY SHARE` before they touch a run, and a unit that starts a run locks its automation and
- *   reads it live again first; the delete (route 15) holds the automation `FOR UPDATE` and then
- *   cancels its runs. So whoever holds a run holds its automation too: the delete, once it has the
- *   automation, waits for nobody, and leaves no open run behind. (The other order — the delete taking
- *   the runs first — cannot stop a unit from adding one, and the automation's row is what both
- *   sides need in the end.) The 7-day cancel, which holds many runs, skips those another transaction
- *   holds and so waits for none.
+ * - **Entry points** (4.B.10, the inbound seam): `startCommentRun`, `handleDirectMessage`,
+ *   `handleButtonClick`, `startTagRun` — called by the channel's intake (Instagram's 5, intake per
+ *   kind at ROUTE row R38) outside any database context, with the job's organization scope, the
+ *   account's public id, the contact and a normalized event. Each reads the account and the plan's
+ *   PRO switches once, then does **all of its work in one unit of work** — no call to the channel
+ *   happens here, so the run, its key, events, comment log, counts, contact changes and the waiting
+ *   messages commit together. `recordMessageResult` (the outbound seam's way back) runs inside the
+ *   channel's result commit.
+ * - **Lock order** (D47): her contact `FOR KEY SHARE` first (`lockLiveContact` — an erased contact
+ *   writes nothing, CT9), then the automations of her open runs and the chosen automation
+ *   `FOR KEY SHARE`, then the runs `FOR UPDATE`.
+ * - **Choice:** a comment — one automation, post-linked first, the oldest; every other match logged
+ *   `comment_already_answered`; a message — her waiting run first (a tap, an answer, `any`), then the
+ *   exact source, the keyword or kind, her first DM, "no other automation answered" (plan §4.3).
+ * - **The once rule** (AU22): the start's once key; a DM already sent for (automation, person, key)
+ *   → `ignored` · `once_per_post`. **One open run** (AU23, AU37): the open-key insert is the guard —
+ *   an allowed new comment (another post, or "every time") replaces her open run (`replaced`, its
+ *   waiting messages skipped through the port) in the same commit; any other start while it is open
+ *   is `ignored` · `run_in_progress`.
+ * - **Steps** (AU24): hello → (comments: public reply → hide, after the first DM is `sent`) → her tap
+ *   or any text (a nudge after 60 min when she messaged first) → follow check → follow ask → email →
+ *   phone → messages 1–N (`not_before` = now + its wait) → tags → `completed`. Each step is one waiting
+ *   message; its result moves the run on. An `unknown` result is never sent again by itself: the run
+ *   waits for `any` (D17, AU25). PRO parts read the plan's switches (AU26): without them the email and
+ *   phone steps are skipped, "Reply like a person" works as off, only version 1 is picked.
+ * - **Counts** (AU27): `runs_started` at the start, a hello tap `taps`, her first text while the run
+ *   waits for the hello's tap `typed_answers` — each with its hello version — in the event's commit.
  *
- * Failure modes:
- * - A temporary Instagram error (a throttle, a 5xx other than 502 and 504, an open circuit, a
- *   connection refused) is rethrown after its claim is cleared — sub-domain 4 retries the event —
- *   except on the event's last attempt, when the run fails instead. A permanent refusal, a dead token (the account then
- *   marked broken, IA9) or an unknown outcome fails the run with its error; the call returns.
- * - A database error propagates (a temporary failure for sub-domain 4).
+ * Failure modes: a database error propagates (a temporary failure for the intake, which retries the
+ * event; nothing of the event was written). A channel without a wired sending port throws.
  *
- * Side effects:
- * - Writes `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs`, the
- *   automation's `last_triggered_at` (through the engine's step view of the automations — ROUTE row
- *   R13; the counts in `app.automation_counts` are written from R14) and the
- *   contact through sub-domain 2's service; sends through Instagram. No audit entry — runs are
- *   their own history (AU4).
- *
- * Notes:
- * - Events of one account are processed in order (D15), so two events never move one run at once;
- *   the run row lock and the one-open-run index are the backstop. Log lines carry public ids and
- *   counts only, never message or comment text (K7).
+ * Side effects: writes `app.automation_runs`, `app.automation_run_events`,
+ * `app.automation_comment_logs`, `app.automation_run_open_keys`, `app.automation_counts`, the reply
+ * state, the automation's `last_triggered_at` and the contact (sub-domain 3); the channel's waiting
+ * messages through its port. No audit entry. Log lines carry public ids and counts only (K7).
  */
 export class AutomationRunService {
-  constructor(
-    private readonly instagramAccountService: InstagramAccountService,
-    private readonly contactService: ContactService,
-    private readonly messageService: AutomationRunMessageService,
-    private readonly replySafetyService: AutomationPublicReplySafetyService,
-  ) {}
+  private readonly drawInteger: AutomationRandomSource;
+
+  constructor(private readonly dependencies: AutomationRunServiceDependencies) {
+    this.drawInteger = dependencies.drawInteger ?? ((maxExclusive) => randomInt(maxExclusive));
+  }
+
+  // ── Entry points (4.B.10) ────────────────────────────────────────────────────────────────
 
   /**
-   * A comment on one of the account's posts (3.B.8, AU16, AU17, AU24): one automation answers it —
-   * its run started (or its AU17 reason logged), every other match logged
+   * A comment, Live comment or ad comment (AU22, AU23, AU28; plan §4.4): one automation answers it —
+   * its run started, or its reason logged — and every other match is logged
    * `comment_already_answered`.
    *
    * @remarks
-   * Algorithm: one unit — the contact erased meanwhile → nothing written (CT9); the comment's logs
-   * exist, or it moved a run (AU14) → a retry: resume the runs this event moved (or ask the email
-   * question again when it has not gone for this comment yet); else the account's live comment
-   * automations, the choice ({@link chooseCommentAutomation}) — deleted or turned off before its lock
-   * → ignored, nothing written (AU12) — AU17 for the chosen one (another automation's run waiting for
-   * the contact's email → the trigger queued on it and the question asked again, as a private reply
-   * to this comment or a DM), a new run and every log of the comment. Then the new run is advanced;
-   * last, a run of the contact waiting for a step now off goes on (AU14). Called after sub-domain 4
-   * saved the contact and the post and ran `linkNextPostAutomations`. Failure modes and side effects:
-   * as the class.
+   * Algorithm: one unit — a comment whose logs exist (the last two months) is `already_handled`;
+   * else the choice, then the gates in order: the account's own comment (`own_comment`), a reply
+   * under another comment with the account's switch off (`thread_reply_off`, D64), her automations
+   * paused (`contact_excluded`), her stop word (only a keyword comment restarts her, D49), another
+   * automation's run waiting for her email (`waiting_for_other_email`), the once key
+   * (`once_per_post`), her open run (the same once key → `once_per_post`; else replaced, P35). Then
+   * the run, its key and the logs, and its first step. Failure modes and side effects: as the class.
    */
   async startCommentRun(input: AutomationCommentRunInput): Promise<AutomationRunHandlingResult> {
-    return this.handleEvent({
+    return this.withEventUnit({
       input,
-      handle: (call) => this.handleComment({ call, input }),
+      work: (unit) => this.handleComment({ unit, input }),
     });
-  }
-
-  /** A comment's own handling ({@link startCommentRun}). */
-  private async handleComment({
-    call,
-    input,
-  }: {
-    call: AutomationRunCall;
-    input: AutomationCommentRunInput;
-  }): Promise<AutomationRunHandlingResult> {
-    const now = new Date();
-    const choice = await this.unit({
-      call: call,
-      work: async (unit) => {
-        if (unit.contact === null) return { kind: 'ignored' as const };
-        const retry = await this.findCommentRetry({
-          unit,
-          call,
-          instagramCommentId: input.instagramCommentId,
-        });
-        if (retry !== null) return { kind: 'retry' as const, ...retry };
-        const candidates = await unit.automations.listLiveAutomationsOfAccount({
-          organizationId: call.organizationId,
-          instagramAccountId: call.instagramAccountId,
-          triggerType: 'comment',
-          isDmKeywordTriggerRequired: false,
-        });
-        const { chosen: match, otherMatches } = chooseCommentAutomation({
-          candidates,
-          instagramMediaId: input.instagramMediaId,
-          text: input.text,
-        });
-        if (match === null) return { kind: 'nothing' as const };
-        const chosen = await this.lockLiveAutomation({ unit, call, automationId: match.id });
-        if (chosen === null) return { kind: 'ignored' as const };
-        const trigger: AutomationQueuedTrigger = {
-          type: 'comment',
-          instagram_media_id: input.instagramMediaId,
-          instagram_comment_id: input.instagramCommentId,
-          text: input.text,
-        };
-        const conflict = await this.findConflict({ unit, call, automationId: chosen.id });
-        let runId: number | null = null;
-        if (conflict.reason === null) {
-          runId = (await this.startRun({ unit, call, automation: chosen, trigger })).id;
-        } else if (conflict.emailWaitingRun !== null) {
-          await this.queueTrigger({
-            unit,
-            call,
-            waitingRun: conflict.emailWaitingRun,
-            automation: chosen,
-            trigger,
-            now,
-          });
-        }
-        const logOf = ({
-          automation,
-          automationRunId,
-          ignoredReason,
-        }: {
-          automation: AutomationRunAutomationRow;
-          automationRunId: number | null;
-          ignoredReason: AutomationCommentLogIgnoredReason | null;
-        }): AutomationCommentLogInsertValues => ({
-          organizationId: call.organizationId,
-          automationId: automation.id,
-          automationName: automation.name,
-          automationRunId,
-          contactId: call.contactId,
-          instagramMediaId: input.instagramMediaId,
-          instagramCommentId: input.instagramCommentId,
-          commentText: input.text,
-          commenterUsername: input.commenterUsername,
-          commenterInstagramUserId: call.instagramUserId,
-          overallStatus: ignoredReason === null ? 'started' : 'ignored',
-          ignoredReason,
-        });
-        await unit.commentLogs.insertMany([
-          logOf({ automation: chosen, automationRunId: runId, ignoredReason: conflict.reason }),
-          ...otherMatches.map((automation) =>
-            logOf({
-              automation: automation,
-              automationRunId: null,
-              ignoredReason: 'comment_already_answered',
-            }),
-          ),
-        ]);
-        return {
-          kind: 'chosen' as const,
-          runId,
-          reason: conflict.reason,
-          emailWaitingRunId: conflict.emailWaitingRun?.id ?? null,
-          ignoredCount: otherMatches.length,
-        };
-      },
-    });
-    if (choice.kind === 'ignored') return handlingResult({ outcome: 'ignored' });
-    const privateReply = {
-      instagramCommentId: input.instagramCommentId,
-      commentedAt: input.event.occurredAt,
-    };
-    if (choice.kind === 'retry') {
-      return choice.emailWaitingRunId === null
-        ? this.resumeRunsMovedByEvent(call)
-        : this.askEmailAgain({ call, runId: choice.emailWaitingRunId, privateReply });
-    }
-    if (choice.kind === 'nothing') return handlingResult({ outcome: 'nothing_matched' });
-    logger.info(
-      {
-        organizationPublicId: call.scope.organizationPublicId,
-        instagramAccountPublicId: call.access.instagramAccountPublicId,
-        isRunStarted: choice.runId !== null,
-        ignoredReason: choice.reason,
-        alreadyAnsweredCount: choice.ignoredCount,
-      },
-      'app.automation_run.comment_matched',
-    );
-    if (choice.runId !== null) {
-      return this.advanceRuns({ call, runIds: [choice.runId], outcome: 'run_started' });
-    }
-    if (choice.emailWaitingRunId !== null) {
-      return this.askEmailAgain({ call, runId: choice.emailWaitingRunId, privateReply });
-    }
-    return handlingResult({ outcome: 'comment_logged' });
   }
 
   /**
-   * A DM, or a `messages` change (3.B.8, AU16, D18): first an answer to the contact's run waiting
-   * for an email (first) or a phone number; otherwise the first live automation of the account
-   * with the DM keyword trigger on and a matching keyword starts a run.
+   * A message event — a DM, a story reply or mention, a shared post (plan §4.3): first her run that
+   * waits for it (an email, a phone, the hello's tap as typed text, `any`), else the one automation
+   * it starts.
    *
    * @remarks
-   * Algorithm: a retried event resumes the runs it moved. An email answer — the quick reply, an
-   * attachment's email or the typed text (D18) — goes to `recordContactEmail`: invalid → the
-   * wrong-email text with the question again; saved → an `email_received` event, the run moves on
-   * and every queued automation starts as its own run (AU21). A phone answer: invalid → nothing
-   * sent, the run keeps waiting; saved → `phone_received`, the run moves on. A run waiting for a
-   * step turned off meanwhile takes no answer: the DM goes to the next run that waits, or starts an
-   * automation, and that run goes on after it (AU14). Failure modes and side effects: as the class.
+   * Algorithm: one unit — an event that already moved a run is `already_handled`; her waiting runs
+   * (email first, then phone, then the oldest); else the match order of plan §4.3 levels 3–5 with the
+   * once key and the one open run (`run_in_progress`). Failure modes and side effects: as the class.
    */
   async handleDirectMessage(
     input: AutomationDirectMessageInput,
   ): Promise<AutomationRunHandlingResult> {
-    return this.handleEvent({
+    return this.withEventUnit({
       input,
-      handle: (call) => this.handleMessage({ call, input }),
+      work: (unit) => this.handleMessage({ unit, input }),
     });
-  }
-
-  /** A DM's own handling ({@link handleDirectMessage}). */
-  private async handleMessage({
-    call,
-    input,
-  }: {
-    call: AutomationRunCall;
-    input: AutomationDirectMessageInput;
-  }): Promise<AutomationRunHandlingResult> {
-    const retried = await this.findRunsMovedByEvent(call);
-    if (retried.length > 0) return this.resumeRunsMovedByEvent(call);
-    const answer = await this.unit({
-      call: call,
-      work: (unit) => this.takeAnswer({ unit, call, input }),
-    });
-    switch (answer.kind) {
-      case 'continued':
-        return this.advanceRuns({ call, runIds: answer.runIds, outcome: 'run_continued' });
-      case 'invalid_email':
-        return this.sendToWaitingRun({
-          call,
-          runId: answer.runId,
-          messageKind: 'invalid_email',
-          privateReply: null,
-          outcome: 'answer_invalid',
-        });
-      case 'invalid_phone':
-        return handlingResult({ outcome: 'answer_invalid' });
-      case 'erased':
-        return handlingResult({ outcome: 'ignored' });
-      case 'none':
-        break;
-    }
-    const started = await this.unit({
-      call: call,
-      work: async (unit) => {
-        if (unit.contact === null) return { kind: 'held' as const };
-        const candidates = await unit.automations.listLiveAutomationsOfAccount({
-          organizationId: call.organizationId,
-          instagramAccountId: call.instagramAccountId,
-          triggerType: null,
-          isDmKeywordTriggerRequired: true,
-        });
-        const match = chooseDirectMessageAutomation({ candidates, text: input.text });
-        if (match === null) return { kind: 'nothing' as const };
-        const chosen = await this.lockLiveAutomation({ unit, call, automationId: match.id });
-        if (chosen === null) return { kind: 'held' as const };
-        const conflict = await this.findConflict({ unit, call, automationId: chosen.id });
-        if (conflict.reason !== null) return { kind: 'held' as const };
-        const run = await this.startRun({
-          unit,
-          call,
-          automation: chosen,
-          trigger: { type: 'dm', text: input.text },
-        });
-        return { kind: 'started' as const, runId: run.id };
-      },
-    });
-    if (started.kind === 'nothing') return handlingResult({ outcome: 'nothing_matched' });
-    if (started.kind === 'held') return handlingResult({ outcome: 'ignored' });
-    return this.advanceRuns({ call, runIds: [started.runId], outcome: 'run_started' });
   }
 
   /**
-   * A reply to one of the account's stories (3.B.8, AU16): the account's first live `story_reply`
-   * automation — any story, or this one — whose keywords match starts a run (AU17 first: another
-   * automation's run waiting for the contact's email takes the trigger into its queue and asks
-   * again).
+   * A tap (plan §4.3 levels 1–2): our button's postback `<aut_…>::<run_…>` moves that run (the hello's
+   * tap, the "I'm following" tap, or a step that waits for `any`); a starter question, an ig.me link
+   * or an ad's "Send message" starts the automation it names (a paused starter question falls through
+   * to a message with its text, rule 5).
    *
    * @remarks
-   * Algorithm: a retried event resumes the runs it moved; else one unit for the choice — deleted or
-   * turned off before its lock → ignored (AU12) — and AU17, then the new run is advanced; last, a run
-   * of the contact waiting for a step now off goes on (AU14). An expired story simply stops matching
-   * (D18). Failure modes and side effects: as the class.
-   */
-  async startStoryReplyRun(
-    input: AutomationStoryReplyRunInput,
-  ): Promise<AutomationRunHandlingResult> {
-    return this.handleEvent({
-      input,
-      handle: (call) => this.handleStoryReply({ call, input }),
-    });
-  }
-
-  /** A story reply's own handling ({@link startStoryReplyRun}). */
-  private async handleStoryReply({
-    call,
-    input,
-  }: {
-    call: AutomationRunCall;
-    input: AutomationStoryReplyRunInput;
-  }): Promise<AutomationRunHandlingResult> {
-    const retried = await this.findRunsMovedByEvent(call);
-    if (retried.length > 0) return this.resumeRunsMovedByEvent(call);
-    const now = new Date();
-    const choice = await this.unit({
-      call: call,
-      work: async (unit) => {
-        if (unit.contact === null) return { kind: 'held' as const };
-        const candidates = await unit.automations.listLiveAutomationsOfAccount({
-          organizationId: call.organizationId,
-          instagramAccountId: call.instagramAccountId,
-          triggerType: 'story_reply',
-          isDmKeywordTriggerRequired: false,
-        });
-        const match = chooseStoryReplyAutomation({
-          candidates,
-          instagramStoryId: input.instagramStoryId,
-          text: input.text,
-        });
-        if (match === null) return { kind: 'nothing' as const };
-        const chosen = await this.lockLiveAutomation({ unit, call, automationId: match.id });
-        if (chosen === null) return { kind: 'held' as const };
-        const trigger: AutomationQueuedTrigger = {
-          type: 'story_reply',
-          instagram_story_id: input.instagramStoryId,
-          text: input.text,
-        };
-        const conflict = await this.findConflict({ unit, call, automationId: chosen.id });
-        if (conflict.emailWaitingRun !== null) {
-          await this.queueTrigger({
-            unit,
-            call,
-            waitingRun: conflict.emailWaitingRun,
-            automation: chosen,
-            trigger,
-            now,
-          });
-          return { kind: 'ask_again' as const, runId: conflict.emailWaitingRun.id };
-        }
-        if (conflict.reason !== null) return { kind: 'held' as const };
-        const run = await this.startRun({ unit, call, automation: chosen, trigger });
-        return { kind: 'started' as const, runId: run.id };
-      },
-    });
-    switch (choice.kind) {
-      case 'nothing':
-        return handlingResult({ outcome: 'nothing_matched' });
-      case 'held':
-        return handlingResult({ outcome: 'ignored' });
-      case 'ask_again':
-        return this.askEmailAgain({ call, runId: choice.runId, privateReply: null });
-      case 'started':
-        return this.advanceRuns({ call, runIds: [choice.runId], outcome: 'run_started' });
-    }
-  }
-
-  /**
-   * A postback `<aut_…>::<run_…>` (3.B.8, AU16, D18): continues that run when it waits for the
-   * opening button or the "I'm following" button, belongs to this contact and its automation to
-   * the event's account; a run waiting for the contact's email (its email step still on) comes
-   * first — the click is not continued and the question is asked again (AU17 (1)).
-   *
-   * @remarks
-   * Algorithm: a retried event resumes the runs it moved; else one unit: the email wait, then the
-   * clicked run locked — a `completed`, `failed`, `cancelled` or running run, one of a deleted
-   * automation or another account's ignores the click. The opening button moves the run to the
-   * follow check; the "I'm following" button reads the follow status again (following continues,
-   * not following sends the request again). Last, a run of the contact waiting for a step now off
-   * goes on (AU14). Failure modes and side effects: as the class.
+   * Algorithm: one unit. A postback on a run that is not waiting, of another contact, of a deleted
+   * automation or of another account is `ignored`. Failure modes and side effects: as the class.
    */
   async handleButtonClick(input: AutomationButtonClickInput): Promise<AutomationRunHandlingResult> {
-    return this.handleEvent({
+    return this.withEventUnit({
       input,
-      handle: (call) => this.handleClick({ call, input }),
+      work: (unit) => this.handleTap({ unit, input }),
     });
-  }
-
-  /** A button click's own handling ({@link handleButtonClick}). */
-  private async handleClick({
-    call,
-    input,
-  }: {
-    call: AutomationRunCall;
-    input: AutomationButtonClickInput;
-  }): Promise<AutomationRunHandlingResult> {
-    const retried = await this.findRunsMovedByEvent(call);
-    if (retried.length > 0) return this.resumeRunsMovedByEvent(call);
-    const now = new Date();
-    const click = await this.unit({
-      call: call,
-      work: async (unit) => {
-        const emailWaitingRun = await this.lockEmailWaitingRun({ unit, call });
-        if (emailWaitingRun !== null && emailWaitingRun.public_id !== input.runPublicId) {
-          return { kind: 'ask_again' as const, runId: emailWaitingRun.id };
-        }
-        const run = await unit.runs.lockContactRunByPublicId({
-          organizationId: call.organizationId,
-          contactId: call.contactId,
-          runPublicId: input.runPublicId,
-        });
-        if (run === null || run.status !== 'waiting') return { kind: 'ignored' as const };
-        const automation = await unit.automations.findByIdIncludingDeleted({
-          organizationId: call.organizationId,
-          automationId: run.automation_id,
-        });
-        if (
-          automation === null ||
-          automation.deleted_at !== null ||
-          automation.public_id !== input.automationPublicId ||
-          automation.instagram_account_id !== call.instagramAccountId
-        ) {
-          return { kind: 'ignored' as const };
-        }
-        if (run.waiting_for !== 'opening_message_button' && run.waiting_for !== 'follow') {
-          return { kind: 'ignored' as const };
-        }
-        const isOpeningButton = run.waiting_for === 'opening_message_button';
-        await this.resumeWaitingRun({
-          unit,
-          call,
-          run,
-          toStep: 'follow_check',
-          commentLogChanges: isOpeningButton
-            ? { opening_dm_status: 'done', button_clicked_at: now }
-            : {},
-        });
-        return { kind: 'continued' as const, runId: run.id };
-      },
-    });
-    switch (click.kind) {
-      case 'ask_again':
-        return this.askEmailAgain({ call, runId: click.runId, privateReply: null });
-      case 'ignored':
-        return handlingResult({ outcome: 'ignored' });
-      case 'continued':
-        return this.advanceRuns({ call, runIds: [click.runId], outcome: 'run_continued' });
-    }
   }
 
   /**
-   * The automation delete's open-run cancel (AU12, `cancelAutomationOpenRuns`) — registered with
-   * the automation service by the app container; runs inside route 15's unit of work. Cancels the
-   * automation's `running` and `waiting` runs (`automation_deleted`, one `status_changed` event
-   * each, their comment logs `cancelled`) and answers how many.
+   * A tag added to or removed from her (3.B's tag event, D45): the oldest live automation of that
+   * change and tag starts — never the automation whose tag step made it, never at chain number
+   * {@link AUTOMATION_TAG_CHAIN_MAX}, and only while her chat window is open.
    *
    * @remarks
-   * Algorithm: one conditional update of the open runs, their events and logs — joining the
-   * route's transaction (no handle of its own), which already holds the automation `FOR UPDATE`: no
-   * unit can be starting or moving a run of it, so the update finds every open run and waits for
-   * none (D47). Failure modes: a database error rolls the delete back. Side effects: the cancelled
-   * runs, their events and logs; runs and logs stay.
+   * Algorithm: one unit — the choice, the window, the once key (`tag:<tag>:<event id>`) and the open
+   * run. Called by the tag intake (ROUTE row R38). Failure modes and side effects: as the class.
+   */
+  async startTagRun(input: AutomationTagRunInput): Promise<AutomationRunHandlingResult> {
+    return this.withEventUnit({
+      input,
+      work: async (unit) => {
+        if (input.chainNumber >= AUTOMATION_TAG_CHAIN_MAX)
+          return handlingResult({ outcome: 'ignored' });
+        if (await this.isEventHandled(unit)) return handlingResult({ outcome: 'already_handled' });
+        const candidates = await unit.automations.listRunCandidates({
+          organizationId: unit.organizationId,
+          channelAccountId: unit.channelAccountId,
+        });
+        const match = chooseTagAutomation({
+          candidates,
+          change: input.change,
+          tag: input.tag,
+          sourceAutomationId: input.sourceAutomationId,
+        });
+        if (match === null) return handlingResult({ outcome: 'nothing_matched' });
+        if (!isChatOpen({ contact: unit.contact, now: unit.now })) {
+          logger.info(
+            { organizationPublicId: unit.scope.organizationPublicId, reason: 'window_closed' },
+            'app.automation_run.tag_start_skipped',
+          );
+          return handlingResult({ outcome: 'ignored' });
+        }
+        return this.startFromMatch({
+          unit,
+          match,
+          eventId: String(input.tagEventId),
+          targets: { tag: input.tag },
+          versionExtras: { tag_chain: input.chainNumber },
+        });
+      },
+    });
+  }
+
+  /**
+   * The outbound seam's way back (AU35): a waiting message's final result — `sent`, `failed`,
+   * `skipped` or `unknown` — reported by the channel's sending sub-domain **in the commit of the
+   * message's final status**. The engine moves the run on: the next step, the public reply and hide
+   * after the first DM of a comment, the wait for her tap or answer, completion; an `unknown` waits
+   * for `any` (D17); a failed step fails the run; a skipped one cancels it with its reason. A repeat
+   * call for a settled message, or for a run that moved on, does nothing.
+   *
+   * @remarks
+   * Algorithm: joins the caller's unit (`withAppDatabaseContext` with its scope); her contact, then the
+   * run's automation, then the run locked. Failure modes: a database error rolls the caller's commit
+   * back. Side effects: as the class.
+   */
+  async recordMessageResult(input: ChannelMessageResultInput): Promise<void> {
+    await withAppDatabaseContext({
+      scope: input.scope,
+      callback: async (databaseHandle) => {
+        const repositories = this.bindRepositories(databaseHandle);
+        const key = {
+          organizationId: input.organizationId,
+          runId: input.automationRunId,
+          runStartedAt: input.automationRunStartedAt,
+        };
+        const runCopy = await repositories.runs.findByKey(key);
+        if (runCopy === null) return;
+        const contact = await this.dependencies.contactService.lockLiveContact({
+          databaseHandle,
+          organizationId: input.organizationId,
+          contactId: runCopy.contact_id,
+        });
+        if (contact === null) return;
+        await repositories.automations.lockForRunChanges({
+          organizationId: input.organizationId,
+          automationIds: [runCopy.automation_id],
+        });
+        const run = await repositories.runs.lockByKey(key);
+        const automation = await repositories.automations.findByIdIncludingDeleted({
+          organizationId: input.organizationId,
+          automationId: runCopy.automation_id,
+        });
+        if (run === null || automation === null) return;
+        if (run.status !== 'running' && run.status !== 'waiting') return;
+        const port = this.dependencies.sendingPorts[automation.channel as ChannelAccountChannel];
+        if (port === undefined) return;
+        const unit: AutomationRunUnit = {
+          ...repositories,
+          scope: input.scope,
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          switches: await this.readPlanSwitches(input.scope),
+          port,
+          contact,
+          now: input.occurredAt,
+        };
+        await this.applyResult({ unit, run, automation, input });
+      },
+    });
+  }
+
+  /**
+   * The automation delete's open-run cancel (AU29) — registered with the automation service by the
+   * app container; runs inside route 31's unit, which holds the automation `FOR UPDATE`. Cancels its
+   * open runs (`automation_deleted`), deletes their open keys, writes their events and logs.
+   * Answers how many. (The waiting messages are cancelled by the automation service through the
+   * port.)
+   *
+   * @remarks
+   * Algorithm: one update joining the route's unit. Failure modes: a database error rolls the delete
+   * back. Side effects: the runs, keys, events and logs.
    */
   async cancelAutomationOpenRuns({
     organizationId,
     automationId,
   }: AutomationOpenRunCancelInput): Promise<number> {
-    const runs = new AutomationRunRepository();
-    const cancelledRunIds = await runs.cancelOpenRunsOfAutomation({ organizationId, automationId });
-    await this.recordCancelledRuns({ organizationId, runIds: cancelledRunIds });
-    return cancelledRunIds.length;
+    const repositories = this.bindRouteRepositories();
+    const cancelled = await repositories.runs.cancelOpenRunsOfAutomation({
+      organizationId,
+      automationId,
+    });
+    await this.recordEndedRuns({
+      repositories,
+      organizationId,
+      ended: cancelled,
+      status: 'cancelled',
+    });
+    return cancelled.length;
   }
 
   /**
-   * This sub-domain's contact erasure step (AU26, CT8) — registered with the contact service by
-   * the app container; runs inside route 10's unit of work, before the contact is anonymised.
+   * The contact erase's step (AU29, CT8) — runs inside route 23's unit, before the contact is
+   * anonymised: her open runs `cancelled` · `contact_deleted` (keys deleted, events and logs written),
+   * then every comment log's personal copies cleared (her free text is never on a run, D46).
    *
    * @remarks
-   * Algorithm: the automations of the contact's open runs locked `FOR KEY SHARE` — the erase holds
-   * the contact, and the writes below change those runs and logs twice, which makes Postgres reach
-   * for their automation (the engine's lock order, D47); the contact's `running` and `waiting` runs
-   * cancelled (`contact_deleted`, one `status_changed` event each, their logs `cancelled`, queued
-   * automations emptied); then on all its runs `trigger_text` and the queued automations cleared, and
-   * on all its comment logs the comment text, the commenter's username and Instagram id, the email
-   * and the phone received — matched by `contact_id` alone (every log carries it, AU24). The
-   * Instagram ids of posts, stories and comments stay. Failure modes: a database error rolls the
-   * erase back. Side effects: the writes above.
+   * Algorithm: the automations of her open runs locked `FOR KEY SHARE` (D47), the cancel, the erase.
+   * Failure modes: a database error rolls the erase back. Side effects: the writes above.
    */
   async eraseContactRunCopies({
     organizationId,
     contactId,
   }: ContactErasureStepInput): Promise<void> {
-    const runs = new AutomationRunRepository();
-    await new AutomationRunAutomationRepository().lockForRunChanges({
+    const repositories = this.bindRouteRepositories();
+    await this.cancelOpenRunsOfContact({
+      repositories,
       organizationId,
-      automationIds: await runs.listOpenRunAutomationIds({ organizationId, contactId }),
+      contactId,
+      reason: 'contact_deleted',
     });
-    const cancelledRunIds = await runs.cancelOpenRunsOfContact({ organizationId, contactId });
-    await this.recordCancelledRuns({ organizationId, runIds: cancelledRunIds });
-    await runs.eraseContactCopies({ organizationId, contactId });
-    await new AutomationCommentLogRepository().eraseContactCopies({ organizationId, contactId });
+    await repositories.commentLogs.eraseContactCopies({ organizationId, contactId });
   }
 
   /**
-   * This sub-domain's contact pause step (routes-final § 3.10, CTC4, D71, D49) — registered with the
-   * contact service by the app container; runs inside the commit that pauses her automations
-   * (`contact_excluded`) or records her opt-out (`opted_out`).
+   * The contact pause step (AU29, CTC4, D71, D49) — runs inside the commit that pauses her
+   * automations (`contact_excluded`) or records her stop word (`opted_out`): her open runs `cancelled`
+   * with that reason, keys deleted, events and logs written; on the job's handle when one is given.
    *
    * @remarks
-   * Algorithm: as the erase's run cancel (lock order D47) — the automations of her open runs locked
-   * `FOR KEY SHARE`, then her `running` and `waiting` runs `cancelled` with the given reason, one
-   * `status_changed` event each and their comment logs `cancelled`; on the job's handle when one is
-   * given, else in the request's unit. Nothing personal is cleared (that is the erase's). Failure
-   * modes: a database error rolls the pause back. Side effects: the cancelled runs, events and logs.
+   * Algorithm: as the erase's cancel. Failure modes: a database error rolls the pause back. Side
+   * effects: the cancelled runs, keys, events and logs.
    */
   async cancelContactOpenRuns({
     organizationId,
@@ -859,45 +534,23 @@ export class AutomationRunService {
     reason,
     databaseHandle,
   }: ContactPauseStepInput): Promise<void> {
-    const runs =
+    const repositories =
       databaseHandle === undefined
-        ? new AutomationRunRepository()
-        : createWorkerAutomationRunRepository(databaseHandle);
-    const automationRepository =
-      databaseHandle === undefined
-        ? new AutomationRunAutomationRepository()
-        : createWorkerAutomationRunAutomationRepository(databaseHandle);
-    await automationRepository.lockForRunChanges({
-      organizationId,
-      automationIds: await runs.listOpenRunAutomationIds({ organizationId, contactId }),
-    });
-    const cancelledRunIds = await runs.cancelOpenRunsOfContact({
-      organizationId,
-      contactId,
-      reason,
-    });
-    await this.recordCancelledRuns({
-      organizationId,
-      runIds: cancelledRunIds,
-      ...(databaseHandle === undefined ? {} : { databaseHandle }),
-    });
+        ? this.bindRouteRepositories()
+        : this.bindRepositories(databaseHandle);
+    await this.cancelOpenRunsOfContact({ repositories, organizationId, contactId, reason });
   }
 
   /**
-   * The 7-day wait's cancel (AU25, WC-13) — the hourly worker calls it for one organization's runs
-   * its cross-organization scan found, inside that organization's job context
-   * (`runOrganizationScopedWorkerJob`), and answers how many it cancelled.
+   * The 7-day wait's cancel (WC-45, CHANGED — P99, P100): one organization's runs the hourly scan
+   * found, in its job's unit — each still waiting since before the cutoff is `cancelled` ·
+   * `wait_expired`, **its open key deleted in the same commit**, its event and log written, its
+   * waiting messages cancelled through its channel's port. Answers how many.
    *
    * @remarks
-   * Algorithm: the same cancel as an automation delete or a contact erase — one conditional update
-   * that re-checks each run still waits since before `waitingSinceBefore` (a run that got its
-   * answer, moved on or was cancelled since the scan is left as it is, and so is one another
-   * transaction holds right now — still due the next hour, D47), `cancelled` ·
-   * `wait_expired`, the wait, the claim and the queued automations cleared (AU21 — none of them
-   * starts); then one `status_changed` event each and their comment logs `cancelled` — all on the
-   * job's handle, in its one unit of work. Failure modes: a database error rolls the organization's
-   * cancel back; the worker counts it and the runs stay due for the next hour. Side effects: the
-   * cancelled runs, their events and logs. Safe to repeat — a cancelled run no longer waits.
+   * Algorithm: one conditional update (`SKIP LOCKED` — a run another transaction holds stays due the
+   * next hour), then the keys, events, logs and the port. Failure modes: a database error rolls the
+   * organization's cancel back. Side effects: as described. Safe to repeat.
    */
   async cancelExpiredWaitingRuns({
     databaseHandle,
@@ -910,1795 +563,1819 @@ export class AutomationRunService {
     runIds: readonly number[];
     waitingSinceBefore: Date;
   }): Promise<number> {
-    const cancelledRunIds = await createWorkerAutomationRunRepository(
-      databaseHandle,
-    ).cancelExpiredWaitingRuns({ organizationId, runIds, waitingSinceBefore });
-    await this.recordCancelledRuns({ organizationId, runIds: cancelledRunIds, databaseHandle });
-    return cancelledRunIds.length;
+    const repositories = this.bindRepositories(databaseHandle);
+    const cancelled = await repositories.runs.cancelExpiredWaitingRuns({
+      organizationId,
+      runIds,
+      waitingSinceBefore,
+    });
+    await this.recordEndedRuns({
+      repositories,
+      organizationId,
+      ended: cancelled,
+      status: 'cancelled',
+    });
+    for (const run of cancelled) {
+      const automation = await repositories.automations.findByIdIncludingDeleted({
+        organizationId,
+        automationId: run.automation_id,
+      });
+      const port =
+        automation === null
+          ? undefined
+          : this.dependencies.sendingPorts[automation.channel as ChannelAccountChannel];
+      await port?.cancelWaitingMessages({
+        databaseHandle,
+        organizationId,
+        by: 'run',
+        id: run.id,
+        reason: 'wait_expired',
+      });
+    }
+    return cancelled.length;
   }
 
   /**
-   * The runs a webhook event that ended `failed` left `running` (AU19, WH14, D47) — sub-domain 4
-   * calls it whenever it marks an event `failed` (the 5th failed attempt, attempts that ran out, a
-   * permanent or token failure), or `skipped` after a claim (the account switched off or disconnected
-   * between two tries, D51), in the unit of work of that mark. Fails each and answers their `run_…`
-   * ids.
+   * The repair duty of the open keys (WC-67, P100, P94): removes up to `limit` keys of every
+   * organization whose run has ended — a missed delete never blocks her for good. Its own repeat job
+   * on sub-domain 6's repair queue (40 s budget) is scheduled by ROUTE row R47. Answers how many.
    *
    * @remarks
-   * Algorithm: one short unit, joining the caller's when one is open for the organization — every
-   * `running` run whose `last_instagram_event_key` is the event's: the contact, then the automations,
-   * then each run locked (the engine's order) and read again; still `running` under that key →
-   * `failed` with `code:<errorCode>`, the claim cleared, a `status_changed` event, and its comment
-   * log `failed` (`error_type` `code`, the failed step, `error_at`) — a value the log already holds is
-   * kept. A DM or story-reply run keeps its error on the run (D16). Runs that wait, or ended, are left
-   * as they are. Failure modes: a database error rolls the unit back, the caller's mark included — the
-   * event stays to be picked up again. Side effects: the failed runs, their events and logs; nothing
-   * is sent. Idempotent: a second call finds none left running.
+   * Algorithm: one delete on a retention handle (the sweep arm), `SKIP LOCKED`. Failure modes: a
+   * database error propagates. Side effects: deletes keys only.
    */
-  async failRunsOfFailedEvent({
-    scope,
-    organizationId,
-    eventKey,
-    errorCode,
-  }: AutomationFailedEventInput): Promise<string[]> {
-    return withAppDatabaseContext({
-      scope,
-      callback: async (databaseHandle) => {
-        const unit = bindRepositories(databaseHandle);
-        const leftRunning = await unit.runs.listRunningMovedByEvent({ organizationId, eventKey });
-        const contactIds = [...new Set(leftRunning.map((run) => run.contact_id))];
-        contactIds.sort((left, right) => left - right);
-        for (const contactId of contactIds) {
-          await this.contactService.lockLiveContact({ databaseHandle, organizationId, contactId });
-        }
-        await unit.automations.lockForRunChanges({
-          organizationId,
-          automationIds: [...new Set(leftRunning.map((run) => run.automation_id))],
-        });
-        const failedRunPublicIds: string[] = [];
-        for (const { id } of leftRunning) {
-          const run = await unit.runs.lockById({ organizationId, runId: id });
-          if (run?.status !== 'running' || run.last_instagram_event_key !== eventKey) continue;
-          await this.failRun({
-            unit,
-            call: { scope, organizationId },
-            run,
-            commentLog:
-              run.trigger_type === 'comment'
-                ? await unit.commentLogs.findForRun({ organizationId, runId: run.id })
-                : null,
-            failure: { errorType: 'code', reason: errorCode, error: null, isClaimKept: false },
-            isLoggedErrorKept: true,
-          });
-          failedRunPublicIds.push(run.public_id);
-        }
-        return failedRunPublicIds;
-      },
+  async repairOpenRunKeys({
+    databaseHandle,
+    limit,
+  }: {
+    databaseHandle: WorkerDatabaseHandle;
+    limit: number;
+  }): Promise<number> {
+    return createRetentionAutomationRunOpenKeyRepository(databaseHandle).deleteKeysOfEndedRuns({
+      limit,
     });
   }
 
   /**
-   * The `status_changed` events and `cancelled` logs of runs just cancelled (AU12, AU25, AU26) — on
-   * the job's handle when given, else in the route's own unit of work.
+   * The runs a webhook event that ended `failed` left `running` — kept for the intake's contract.
+   * Since R14 an event's work is one commit (no call to the channel inside it), so a failed event
+   * wrote nothing and leaves no run behind: always `[]`.
+   *
+   * @remarks
+   * Algorithm: none. Failure modes: none. Side effects: none. ROUTE row R38 (intake per kind) drops
+   * the call.
    */
-  private async recordCancelledRuns({
-    organizationId,
-    runIds,
-    databaseHandle,
-  }: {
-    organizationId: number;
-    runIds: readonly number[];
-    databaseHandle?: WorkerDatabaseHandle | undefined;
-  }): Promise<void> {
-    if (runIds.length === 0) return;
-    const runEvents =
-      databaseHandle === undefined
-        ? new AutomationRunEventRepository()
-        : createWorkerAutomationRunEventRepository(databaseHandle);
-    const commentLogs =
-      databaseHandle === undefined
-        ? new AutomationCommentLogRepository()
-        : createWorkerAutomationCommentLogRepository(databaseHandle);
-    await runEvents.insertMany(
-      runIds.map((runId) => ({
-        organizationId,
-        runId,
-        eventType: 'status_changed' as const,
-        status: 'cancelled' as const,
-      })),
-    );
-    await commentLogs.markRunsCancelled({ organizationId, runIds });
+  async failRunsOfFailedEvent(_input: AutomationFailedEventInput): Promise<string[]> {
+    return [];
+  }
+
+  // ── Units ────────────────────────────────────────────────────────────────────────────────
+
+  /** The repositories of a job's unit. */
+  private bindRepositories(databaseHandle: WorkerDatabaseHandle): AutomationRunRepositories {
+    return {
+      databaseHandle,
+      runs: createWorkerAutomationRunRepository(databaseHandle),
+      runEvents: createWorkerAutomationRunEventRepository(databaseHandle),
+      commentLogs: createWorkerAutomationCommentLogRepository(databaseHandle),
+      openKeys: createWorkerAutomationRunOpenKeyRepository(databaseHandle),
+      automations: createWorkerAutomationRepository(databaseHandle),
+    };
+  }
+
+  /** The repositories joining a route's own unit (no handle). */
+  private bindRouteRepositories(): Omit<AutomationRunRepositories, 'databaseHandle'> {
+    return {
+      runs: new AutomationRunRepository(),
+      runEvents: new AutomationRunEventRepository(),
+      commentLogs: new AutomationCommentLogRepository(),
+      openKeys: new AutomationRunOpenKeyRepository(),
+      automations: new AutomationRepository(),
+    };
+  }
+
+  /** The plan's feature switches (P83), or `null` when the organization has no readable plan. */
+  private async readPlanSwitches(
+    scope: OrganizationPrincipalDatabaseScope,
+  ): Promise<AutomationPlanSwitches> {
+    const planAccess = await this.dependencies.planAccessService.getPlanAccess({
+      organizationPublicId: scope.organizationPublicId,
+    });
+    return planAccess.features?.feature_switches ?? null;
   }
 
   /**
-   * One event of the account (3.B.8): its own handling, then the contact's runs that wait for a step
-   * now off (AU14, {@link continueRunsWithStepOff}) — in that order, so that a run this event moved
-   * means its own handling is done and a retry only has to resume (AU19).
+   * An event's one unit: the account read once (this organization's connected account, the contact
+   * of that account), the plan's switches once, then the work with her contact locked and the
+   * automations of her open runs locked (D47).
    */
-  private async handleEvent({
+  private async withEventUnit({
     input,
-    handle,
+    work,
   }: {
     input: AutomationRunTriggerInput;
-    handle: (call: AutomationRunCall) => Promise<AutomationRunHandlingResult>;
+    work: (unit: AutomationRunEventUnit) => Promise<AutomationRunHandlingResult>;
   }): Promise<AutomationRunHandlingResult> {
-    const call = await this.openCall(input);
-    if (call === null) return handlingResult({ outcome: 'account_unavailable' });
-    return this.continueRunsWithStepOff({ call, handled: await handle(call) });
-  }
-
-  /**
-   * The contact's runs that wait for a step now off (AU14, D48), after the event's own handling: each
-   * goes on as if it had no such step, and the automations queued behind its email start as when the
-   * email arrives (AU21). Nothing goes on after a dead token — every send would only fail on it — the
-   * runs wait for a later event. Answers the two results as one, the event's own outcome first.
-   */
-  private async continueRunsWithStepOff({
-    call,
-    handled,
-  }: {
-    call: AutomationRunCall;
-    handled: AutomationRunHandlingResult;
-  }): Promise<AutomationRunHandlingResult> {
-    if (handled.failedErrorType === 'token') return handled;
-    const runIds = await this.unit({
-      call: call,
-      work: (unit) => this.skipStepsNowOff({ unit, call }),
-    });
-    if (runIds.length === 0) return handled;
-    const continued = await this.advanceRuns({ call, runIds, outcome: 'run_continued' });
-    const isNothingElseMoved =
-      handled.runPublicIds.length === 0 || handled.outcome === 'already_handled';
-    return handlingResult({
-      outcome: isNothingElseMoved ? continued.outcome : handled.outcome,
-      runPublicIds: [...new Set([...handled.runPublicIds, ...continued.runPublicIds])],
-      failedErrorType:
-        continued.failedErrorType === 'token'
-          ? 'token'
-          : (handled.failedErrorType ?? continued.failedErrorType),
-    });
-  }
-
-  /**
-   * Inside one unit: every waiting run of the contact whose step is now off ({@link
-   * planWaitedStepNowOff}) is `running` again at its next step, the waited one closed on its comment
-   * log, and the automations queued behind an email wait start (AU21). Answers the runs to advance,
-   * each followed by the ones its queue started. Only inside the messaging window (D50): a comment
-   * does not open it, Instagram takes one private reply per comment and the run's has gone, so outside
-   * it nothing could be sent and the run waits on (3.B.10). A run of a deleted automation, or another
-   * account's, is left alone.
-   */
-  private async skipStepsNowOff({
-    unit,
-    call,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-  }): Promise<number[]> {
-    if (unit.contact === null) return [];
-    const recipient = resolveAutomationMessageRecipient({
-      instagramUserId: call.instagramUserId,
-      lastDirectMessageReceivedAt: unit.contact.last_direct_message_received_at,
-      privateReply: null,
-      now: new Date(),
-    });
-    if (recipient === null) return [];
-    const waitingRuns = await this.lockWaitingRuns({
-      unit,
-      call,
-      waitingFor: AUTOMATION_RUN_WAITING_FOR,
-    });
-    const runIds: number[] = [];
-    for (const { run, automation, stepOff } of waitingRuns) {
-      if (
-        stepOff === null ||
-        automation === null ||
-        automation.deleted_at !== null ||
-        automation.instagram_account_id !== call.instagramAccountId
-      ) {
-        continue;
-      }
-      await this.resumeWaitingRun({ unit, call, run, ...stepOff });
-      runIds.push(run.id);
-      if (run.waiting_for === 'email') {
-        runIds.push(...(await this.startQueuedAutomations({ unit, call, answeredRun: run })));
-      }
-    }
-    return runIds;
-  }
-
-  /**
-   * Reads the event's account once (AU27): this organization's connected account with a token,
-   * and the contact of that account; `null` otherwise — nothing runs.
-   */
-  private async openCall(input: AutomationRunTriggerInput): Promise<AutomationRunCall | null> {
-    const access = await this.instagramAccountService.findAutomationAccountAccess({
+    const account = await this.dependencies.channelAccountService.readAutomationRunAccount({
       scope: input.scope,
-      instagramAccountPublicId: input.instagramAccountPublicId,
+      channelAccountPublicId: input.channelAccountPublicId,
     });
-    const { contact } = input;
     if (
-      access === null ||
-      access.connectionStatus !== 'connected' ||
-      access.encryptedAccessToken === null ||
-      contact.channel_account_id !== access.channelAccountId ||
-      contact.instagram_user_id === null
+      account === null ||
+      account.connection_status !== 'connected' ||
+      input.contact.channel_account_id !== account.id
     ) {
       logger.info(
         {
           organizationPublicId: input.scope.organizationPublicId,
-          instagramAccountPublicId: input.instagramAccountPublicId,
-          connectionStatus: access?.connectionStatus ?? null,
+          channelAccountPublicId: input.channelAccountPublicId,
+          connectionStatus: account?.connection_status ?? null,
         },
         'app.automation_run.account_unavailable',
       );
-      return null;
+      return handlingResult({ outcome: 'account_unavailable' });
     }
-    return {
-      scope: input.scope,
-      access,
-      organizationId: access.instagramAccount.organizationId,
-      instagramAccountId: access.instagramAccount.instagramAccountId,
-      contactId: contact.id,
-      instagramUserId: contact.instagram_user_id,
-      event: input.event,
-    };
-  }
-
-  /**
-   * One short unit of work in the call's organization scope, its repositories bound to it (AU19).
-   *
-   * @remarks
-   * Locks the call's contact first (`lockLiveContact`, `FOR KEY SHARE`) — the order of a contact
-   * erase, which locks the contact and then its runs (CT8). Otherwise a unit that holds a run and
-   * then needs the contact (its message time, or the reference check of a run changed twice in one
-   * transaction) and an erase that holds the contact and waits for the run block each other. So an
-   * erase waits for the unit and clears what it wrote, and a unit that comes after an erase finds no
-   * `contact` and writes nothing of the erased person.
-   *
-   * Then the automations of the contact's open runs (`lockForRunChanges`, `FOR KEY SHARE`) — the only
-   * runs a unit moves — before any of those runs: a unit that holds a run and then needs its
-   * automation (the counters, the same reference check) and a delete (route 15) that holds the
-   * automation and waits for the run block each other (AU12, D47). A delete waits for the unit and
-   * cancels what it left open; a unit that comes after a delete finds the run cancelled.
-   */
-  private unit<T>({
-    call,
-    work,
-  }: {
-    call: AutomationRunCall;
-    work: (unit: AutomationRunUnit) => Promise<T>;
-  }): Promise<T> {
+    const port = this.dependencies.sendingPorts[account.channel];
+    if (port === undefined) {
+      throw new Error(`automation run engine: no sending port wired for ${account.channel}`);
+    }
+    const switches = await this.readPlanSwitches(input.scope);
     return withAppDatabaseContext({
-      scope: call.scope,
+      scope: input.scope,
       callback: async (databaseHandle) => {
-        const { organizationId, contactId } = call;
-        const contact = await this.contactService.lockLiveContact({
+        const repositories = this.bindRepositories(databaseHandle);
+        const contact = await this.dependencies.contactService.lockLiveContact({
           databaseHandle,
-          organizationId,
-          contactId,
+          organizationId: account.organizationId,
+          contactId: input.contact.id,
         });
-        const repositories = bindRepositories(databaseHandle);
+        if (contact === null) return handlingResult({ outcome: 'ignored' });
         await repositories.automations.lockForRunChanges({
-          organizationId,
-          automationIds: await repositories.runs.listOpenRunAutomationIds({
-            organizationId,
-            contactId,
+          organizationId: account.organizationId,
+          automationIds: await repositories.openKeys.listAutomationIdsOfContact({
+            organizationId: account.organizationId,
+            contactId: contact.id,
           }),
         });
-        return work({ ...repositories, contact });
+        return work({
+          ...repositories,
+          scope: input.scope,
+          organizationId: account.organizationId,
+          channelAccountId: account.id,
+          switches,
+          port,
+          contact,
+          now: new Date(),
+          account,
+          event: input.event,
+        });
       },
     });
   }
 
-  /**
-   * The automation a run is about to start on, proven live under its lock (AU12, D47) — `null` when
-   * it was deleted or turned off since it was matched: nothing starts. Taken before AU17 locks a run.
-   */
-  private lockLiveAutomation({
-    unit,
-    call,
-    automationId,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    automationId: number;
-  }): Promise<AutomationRunAutomationRow | null> {
-    return unit.automations.lockLiveForRunStart({
-      organizationId: call.organizationId,
-      automationId,
+  /** Whether this event already moved a run of hers (a retry — its commit holds all of its work). */
+  private isEventHandled(unit: AutomationRunEventUnit): Promise<boolean> {
+    return unit.runs.hasRunMovedByEvent({
+      organizationId: unit.organizationId,
+      contactId: unit.contact.id,
+      eventKey: unit.event.eventKey,
+      since: new Date(
+        unit.now.getTime() - (AUTOMATION_RUN_PART_DROP_AFTER_DAYS + 31) * MILLISECONDS_PER_DAY,
+      ),
     });
   }
 
-  /**
-   * The contact's runs that wait for one of `waitingFor`, locked (email waits first, then the oldest
-   * wait), each with its automation as it is now and what AU14 says of the step it waits for.
-   */
-  private async lockWaitingRuns({
+  // ── Comments ─────────────────────────────────────────────────────────────────────────────
+
+  /** A comment's own handling ({@link startCommentRun}). */
+  private async handleComment({
     unit,
-    call,
-    waitingFor,
+    input,
   }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    waitingFor: readonly AutomationRunWaitingFor[];
-  }): Promise<WaitingRun[]> {
-    const runs = await unit.runs.lockWaitingRunsOfContact({
-      organizationId: call.organizationId,
-      contactId: call.contactId,
-      waitingFor,
+    unit: AutomationRunEventUnit;
+    input: AutomationCommentRunInput;
+  }): Promise<AutomationRunHandlingResult> {
+    const since = lastTwoMonthsStart(unit.now);
+    const existingLogs = await unit.commentLogs.listForComment({
+      organizationId: unit.organizationId,
+      commentId: input.commentId,
+      since,
     });
-    const waitingRuns: WaitingRun[] = [];
-    for (const run of runs) {
-      const automation = await unit.automations.findByIdIncludingDeleted({
-        organizationId: call.organizationId,
-        automationId: run.automation_id,
-      });
-      const stepOff =
-        automation === null
-          ? null
-          : planWaitedStepNowOff({
-              waitingFor: run.waiting_for as AutomationRunWaitingFor,
-              automation,
-            });
-      waitingRuns.push({ run, automation, stepOff });
+    if (existingLogs.length > 0) return handlingResult({ outcome: 'already_handled' });
+    const candidates = await unit.automations.listRunCandidates({
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+    });
+    const { chosen, otherMatches } = chooseCommentAutomation({
+      candidates,
+      kind: input.kind,
+      mediaId: input.mediaId,
+      adId: input.adId ?? null,
+      mediaPublishedAt: input.mediaPublishedAt ?? null,
+      text: input.text,
+    });
+    if (chosen === null) return handlingResult({ outcome: 'nothing_matched' });
+    const logOf = ({
+      automation,
+      run,
+      ignoredReason,
+    }: {
+      automation: AutomationRow;
+      run: AutomationRunRow | null;
+      ignoredReason: AutomationCommentLogIgnoredReason | null;
+    }): AutomationCommentLogInsertValues => ({
+      organizationId: unit.organizationId,
+      automationId: automation.id,
+      automationName: automation.name,
+      automationRun: run === null ? null : { id: run.id, startedAt: run.started_at },
+      contactId: unit.contact.id,
+      mediaId: input.mediaId,
+      commentId: input.commentId,
+      commentOccurredAt: input.event.occurredAt,
+      commentText: input.text,
+      commenterUsername: input.commenterUsername,
+      commenterUserId: unit.contact.instagram_user_id,
+      overallStatus: ignoredReason === null ? 'started' : 'ignored',
+      ignoredReason,
+    });
+    const writeLogs = async ({
+      run,
+      ignoredReason,
+    }: {
+      run: AutomationRunRow | null;
+      ignoredReason: AutomationCommentLogIgnoredReason | null;
+    }) => {
+      await unit.commentLogs.insertMany([
+        logOf({ automation: chosen.automation, run, ignoredReason }),
+        ...otherMatches.map((automation) =>
+          logOf({ automation, run: null, ignoredReason: 'comment_already_answered' }),
+        ),
+      ]);
+    };
+    const gate = await this.commentGate({ unit, input, match: chosen });
+    if (gate === 'opted_out') return handlingResult({ outcome: 'ignored' });
+    if (gate !== null) {
+      await writeLogs({ run: null, ignoredReason: gate });
+      return handlingResult({ outcome: 'comment_logged' });
     }
-    return waitingRuns;
-  }
-
-  /**
-   * The contact's run that waits for the email (locked), its automation's email step still on — a
-   * wait whose step is now off asks nobody and holds nothing back (AU14); `null` when there is none.
-   */
-  private async lockEmailWaitingRun({
-    unit,
-    call,
-    otherThanAutomationId,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    /** Leave this automation's own wait out (AU17 — never asked again, D14). */
-    otherThanAutomationId?: number;
-  }): Promise<AutomationRunRow | null> {
-    const waitingRuns = await this.lockWaitingRuns({ unit, call, waitingFor: ['email'] });
-    const waiting = waitingRuns.find(
-      ({ run, stepOff }) => stepOff === null && run.automation_id !== otherThanAutomationId,
+    const started = await this.startRun({
+      unit,
+      match: chosen,
+      eventId: input.commentId,
+      targets: { mediaId: input.mediaId, commentId: input.commentId, adId: input.adId ?? null },
+      isReplaceAllowed: true,
+      beforeFirstStep: (run) => writeLogs({ run, ignoredReason: null }),
+    });
+    if (started.kind === 'held') {
+      await writeLogs({ run: null, ignoredReason: started.reason });
+      return handlingResult({ outcome: 'comment_logged' });
+    }
+    if (started.kind === 'gone') return handlingResult({ outcome: 'ignored' });
+    logger.info(
+      {
+        organizationPublicId: unit.scope.organizationPublicId,
+        runPublicId: started.run.public_id,
+        isReplacement: started.isReplacement,
+        alreadyAnsweredCount: otherMatches.length,
+      },
+      'app.automation_run.comment_matched',
     );
-    return waiting?.run ?? null;
-  }
-
-  /** The contact's runs this event last moved (AU19). */
-  private findRunsMovedByEvent(call: AutomationRunCall): Promise<AutomationRunRow[]> {
-    return this.unit({
-      call: call,
-      work: (unit) =>
-        unit.runs.findRunsMovedByEvent({
-          organizationId: call.organizationId,
-          contactId: call.contactId,
-          eventKey: call.event.eventKey,
-        }),
+    return handlingResult({
+      outcome: started.isReplacement ? 'run_replaced' : 'run_started',
+      runPublicIds: [started.run.public_id],
     });
   }
 
   /**
-   * A retried event (AU19, 3.B.10): every run it last moved — `running` ones resume from their
-   * saved step; a `waiting` one with a claim still set (a question asked again, its outcome
-   * unknown) has the claim cleared, never re-sent. Nothing else is applied again.
+   * The comment's gates before a run may start (AU28; plan §4.4): `null` when it may; an ignored
+   * reason to log; `opted_out` — nothing is written.
    */
-  private async resumeRunsMovedByEvent(
-    call: AutomationRunCall,
-  ): Promise<AutomationRunHandlingResult> {
-    const moved = await this.findRunsMovedByEvent(call);
-    const runningIds: number[] = [];
-    for (const run of moved) {
-      if (run.status === 'running') {
-        runningIds.push(run.id);
-      } else if (run.status === 'waiting' && run.sending_message_kind !== null) {
-        await this.unit({
-          call: call,
-          work: (unit) =>
-            unit.runs.update({
-              organizationId: call.organizationId,
-              runId: run.id,
-              changes: { sending_message_kind: null, sending_started_at: null },
-            }),
+  private async commentGate({
+    unit,
+    input,
+    match,
+  }: {
+    unit: AutomationRunEventUnit;
+    input: AutomationCommentRunInput;
+    match: AutomationMatch<AutomationRow>;
+  }): Promise<AutomationCommentLogIgnoredReason | 'opted_out' | null> {
+    if (input.isOwnComment === true) return 'own_comment';
+    const isThreadReply = (input.parentCommentId ?? null) !== null;
+    if (isThreadReply && !unit.account.is_comment_reply_trigger_enabled) return 'thread_reply_off';
+    if (unit.contact.automations_off_at !== null) return 'contact_excluded';
+    if (unit.contact.opted_out_at !== null) {
+      // Only a keyword comment restarts her (D49).
+      if (match.automation.keywords.length === 0) return 'opted_out';
+      await this.dependencies.contactService.clearContactOptOut({
+        databaseHandle: unit.databaseHandle,
+        organizationId: unit.organizationId,
+        contactId: unit.contact.id,
+      });
+    }
+    const emailWaits = await unit.runs.lockWaitingRunsOfContact({
+      organizationId: unit.organizationId,
+      contactId: unit.contact.id,
+      waitingFor: ['email'],
+    });
+    if (emailWaits.some((run) => run.automation_id !== match.automation.id)) {
+      return 'waiting_for_other_email';
+    }
+    return null;
+  }
+
+  // ── Messages and taps ────────────────────────────────────────────────────────────────────
+
+  /** A message event's own handling ({@link handleDirectMessage}). */
+  private async handleMessage({
+    unit,
+    input,
+  }: {
+    unit: AutomationRunEventUnit;
+    input: AutomationDirectMessageInput;
+  }): Promise<AutomationRunHandlingResult> {
+    if (await this.isEventHandled(unit)) return handlingResult({ outcome: 'already_handled' });
+    if (input.kind === 'message') {
+      const answered = await this.answerWaitingRun({ unit, input });
+      if (answered !== null) return answered;
+    }
+    const candidates = await unit.automations.listRunCandidates({
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+    });
+    const match = chooseMessageAutomation({
+      candidates,
+      input: {
+        kind: input.kind,
+        text: input.text,
+        storyId: input.storyId ?? null,
+        sharedMediaId: input.sharedMediaId ?? null,
+        isFirstMessage: input.isFirstMessage ?? false,
+        isOwnerChatting: input.isOwnerChatting ?? false,
+      },
+    });
+    if (match === null) return handlingResult({ outcome: 'nothing_matched' });
+    // A keyword DM restarts her after a stop word (D49); nothing else does.
+    const isRestart =
+      match.triggerType === 'dm_keyword' &&
+      matchesAutomationKeywords({
+        keywords: match.automation.keywords,
+        text: input.text,
+        isMatchWithoutKeywords: false,
+      });
+    return this.startFromMatch({
+      unit,
+      match,
+      eventId: input.event.eventId,
+      targets: {
+        mediaId: input.sharedMediaId ?? null,
+        storyId: input.storyId ?? null,
+      },
+      isRestart,
+    });
+  }
+
+  /** A tap's own handling ({@link handleButtonClick}). */
+  private async handleTap({
+    unit,
+    input,
+  }: {
+    unit: AutomationRunEventUnit;
+    input: AutomationButtonClickInput;
+  }): Promise<AutomationRunHandlingResult> {
+    if (await this.isEventHandled(unit)) return handlingResult({ outcome: 'already_handled' });
+    const kind = input.kind ?? 'postback';
+    if (kind === 'postback') {
+      if (input.runPublicId == null || input.automationPublicId == null) {
+        return handlingResult({ outcome: 'ignored' });
+      }
+      return this.tapOurButton({
+        unit,
+        automationPublicId: input.automationPublicId,
+        runPublicId: input.runPublicId,
+      });
+    }
+    const value =
+      kind === 'starter_question'
+        ? input.starterQuestion
+        : kind === 'ref_link'
+          ? input.refCode
+          : input.adId;
+    if (value == null || value.trim() === '') return handlingResult({ outcome: 'ignored' });
+    const candidates = await unit.automations.listRunCandidates({
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+    });
+    const match = chooseExactSourceAutomation({ candidates, kind, value });
+    if (match === null) {
+      if (kind !== 'starter_question') return handlingResult({ outcome: 'nothing_matched' });
+      // A paused automation's question goes on as a message with its text (plan §4.3 rule 5).
+      return this.handleMessage({
+        unit,
+        input: {
+          ...input,
+          kind: 'message',
+          text: value,
+          quickReplyPayload: null,
+          attachmentEmail: null,
+        },
+      });
+    }
+    return this.startFromMatch({
+      unit,
+      match,
+      eventId: input.event.eventId,
+      targets: {
+        adId: kind === 'ad_message' ? value : null,
+        refCode: kind === 'ref_link' ? value : null,
+      },
+      isRestart: kind !== 'ad_message',
+    });
+  }
+
+  /** A tap on our own button: the run it names moves on (the hello, the follow, or `any`). */
+  private async tapOurButton({
+    unit,
+    automationPublicId,
+    runPublicId,
+  }: {
+    unit: AutomationRunEventUnit;
+    automationPublicId: string;
+    runPublicId: string;
+  }): Promise<AutomationRunHandlingResult> {
+    const run = await unit.runs.lockContactRunByPublicId({
+      organizationId: unit.organizationId,
+      contactId: unit.contact.id,
+      runPublicId,
+    });
+    if (run === null || run.status !== 'waiting') return handlingResult({ outcome: 'ignored' });
+    const automation = await unit.automations.findByIdIncludingDeleted({
+      organizationId: unit.organizationId,
+      automationId: run.automation_id,
+    });
+    if (
+      automation === null ||
+      automation.deleted_at !== null ||
+      automation.public_id !== automationPublicId ||
+      automation.channel_account_id !== unit.channelAccountId
+    ) {
+      return handlingResult({ outcome: 'ignored' });
+    }
+    const marked = await this.markMovedByEvent({ unit, run });
+    switch (run.waiting_for as AutomationRunWaitingFor) {
+      case 'opening_message_button':
+        await this.takeHelloAnswer({ unit, run: marked, automation, isTap: true });
+        return handlingResult({ outcome: 'run_continued', runPublicIds: [run.public_id] });
+      case 'follow': {
+        await unit.runEvents.insertMany([
+          { ...runKeyOf({ organizationId: unit.organizationId, run }), eventType: 'follow_tapped' },
+        ]);
+        await this.updateCommentLog({
+          unit,
+          run,
+          changes: { follow_confirmed_at: unit.now },
         });
+        await this.saveFollowCheck({ unit, run: marked, automation });
+        return handlingResult({ outcome: 'run_continued', runPublicIds: [run.public_id] });
+      }
+      case 'any':
+        await this.sendPendingStepAgain({ unit, run: marked, automation });
+        return handlingResult({ outcome: 'run_continued', runPublicIds: [run.public_id] });
+      default:
+        // A tap proves only the message that carries that button (AU25); an email or phone wait
+        // takes no tap.
+        return handlingResult({ outcome: 'ignored' });
+    }
+  }
+
+  /**
+   * Her text answers her waiting run (plan §4.3 level 1): an email, a phone, the hello's tap as
+   * typed text, or `any`. `null` when no run of hers waits for a message.
+   */
+  private async answerWaitingRun({
+    unit,
+    input,
+  }: {
+    unit: AutomationRunEventUnit;
+    input: AutomationDirectMessageInput;
+  }): Promise<AutomationRunHandlingResult | null> {
+    const waiting = await unit.runs.lockWaitingRunsOfContact({
+      organizationId: unit.organizationId,
+      contactId: unit.contact.id,
+      waitingFor: ['email', 'phone', 'opening_message_button', 'any'],
+    });
+    for (const candidate of waiting) {
+      const automation = await unit.automations.findByIdIncludingDeleted({
+        organizationId: unit.organizationId,
+        automationId: candidate.automation_id,
+      });
+      if (automation === null || automation.deleted_at !== null) continue;
+      if (automation.channel_account_id !== unit.channelAccountId) continue;
+      const run = await this.markMovedByEvent({ unit, run: candidate });
+      switch (run.waiting_for as AutomationRunWaitingFor) {
+        case 'email':
+        case 'phone':
+          return this.takeQuestionAnswer({ unit, run, automation, input });
+        case 'opening_message_button':
+          await this.takeHelloAnswer({ unit, run, automation, isTap: false });
+          return handlingResult({ outcome: 'run_continued', runPublicIds: [run.public_id] });
+        case 'any':
+          await this.sendPendingStepAgain({ unit, run, automation });
+          return handlingResult({ outcome: 'run_continued', runPublicIds: [run.public_id] });
+        default:
+          continue;
       }
     }
-    if (runningIds.length === 0) {
-      return handlingResult({
-        outcome: 'already_handled',
-        runPublicIds: moved.map((run) => run.public_id),
+    return null;
+  }
+
+  /** Stamps the event on a run it moves — a retried event finds its work done. */
+  private async markMovedByEvent({
+    unit,
+    run,
+  }: {
+    unit: AutomationRunEventUnit;
+    run: AutomationRunRow;
+  }): Promise<AutomationRunRow> {
+    return (
+      (await unit.runs.update({
+        ...runKeyOf({ organizationId: unit.organizationId, run }),
+        changes: { last_instagram_event_key: unit.event.eventKey },
+      })) ?? run
+    );
+  }
+
+  /** The hello's tap or her first text while the run waits for it (AU27): counted, then on. */
+  private async takeHelloAnswer({
+    unit,
+    run,
+    automation,
+    isTap,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    isTap: boolean;
+  }): Promise<void> {
+    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    if (isTap) {
+      await unit.runEvents.insertMany([
+        { ...runKeyOf({ organizationId: unit.organizationId, run }), eventType: 'hello_tapped' },
+      ]);
+    }
+    await this.dependencies.countService.increment({
+      scope: unit.scope,
+      increment: {
+        organizationId: unit.organizationId,
+        automationId: automation.id,
+        automationRunId: run.id,
+        counter: isTap ? 'taps' : 'typed_answers',
+        versionKey: `hello.${versions.hello ?? 1}`,
+      },
+    });
+    if (isSheMessagedFirst(run.trigger_type as AutomationTriggerType)) {
+      // Her tap or message before it goes cancels the nudge (plan §5.6, `answered`).
+      await unit.port.cancelWaitingMessages({
+        databaseHandle: unit.databaseHandle,
+        organizationId: unit.organizationId,
+        by: 'run',
+        id: run.id,
+        reason: 'answered',
       });
     }
-    return this.advanceRuns({ call, runIds: runningIds, outcome: 'run_resumed' });
-  }
-
-  /**
-   * Whether the comment was handled before (AU16, AU19): its logs exist — or, when it matched nothing
-   * and so has none, it moved a run on (AU14). `null` for a new comment; for a retried one, the run
-   * its email question still has to be asked on, if any.
-   */
-  private async findCommentRetry({
-    unit,
-    call,
-    instagramCommentId,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    instagramCommentId: string;
-  }): Promise<{ emailWaitingRunId: number | null } | null> {
-    const existingLogs = await unit.commentLogs.listForComment({
-      organizationId: call.organizationId,
-      instagramCommentId,
-    });
-    if (existingLogs.length > 0) {
-      return {
-        emailWaitingRunId: await this.findRunStillToAskAgain({ unit, call, existingLogs }),
-      };
-    }
-    const moved = await unit.runs.findRunsMovedByEvent({
-      organizationId: call.organizationId,
-      contactId: call.contactId,
-      eventKey: call.event.eventKey,
-    });
-    return moved.length > 0 ? { emailWaitingRunId: null } : null;
-  }
-
-  /**
-   * The run a retried comment still has to ask for the email (AU17 (1), AU19): the comment was held
-   * back (`waiting_for_other_email`) and the run waiting for the contact's email was not moved by
-   * this event — its question was never claimed, or Instagram could not take it for now. `null`
-   * when there is nothing to ask.
-   */
-  private async findRunStillToAskAgain({
-    unit,
-    call,
-    existingLogs,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    existingLogs: readonly AutomationCommentLogRow[];
-  }): Promise<number | null> {
-    if (!existingLogs.some((log) => log.ignored_reason === 'waiting_for_other_email')) return null;
-    const emailWaitingRun = await this.lockEmailWaitingRun({ unit, call });
-    return emailWaitingRun === null ||
-      emailWaitingRun.last_instagram_event_key === call.event.eventKey
-      ? null
-      : emailWaitingRun.id;
-  }
-
-  /**
-   * AU17 for the chosen automation and the contact: **another** automation's run waiting for the
-   * contact's email (locked, its email step still on — AU14) — the chosen automation's own wait is
-   * `already_waiting`, never asked again (D14) — and the decision ({@link decideExistingRunConflict}).
-   */
-  private async findConflict({
-    unit,
-    call,
-    automationId,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    automationId: number;
-  }): Promise<{
-    reason: AutomationCommentLogIgnoredReason | null;
-    emailWaitingRun: AutomationRunRow | null;
-  }> {
-    const emailWaitingRun = await this.lockEmailWaitingRun({
+    await this.updateCommentLog({
       unit,
-      call,
-      otherThanAutomationId: automationId,
+      run,
+      changes: { opening_dm_status: 'done', button_clicked_at: unit.now, waiting_for: null },
     });
-    const latest = await unit.runs.findLatestRunOfAutomationForContact({
-      organizationId: call.organizationId,
-      automationId,
-      contactId: call.contactId,
-    });
-    return {
-      reason: decideExistingRunConflict({
-        hasEmailWaitingRun: emailWaitingRun !== null,
-        latestRunStatus: (latest?.status ?? null) as AutomationRunStatus | null,
-      }),
-      emailWaitingRun,
+    await this.proceed({ unit, run, automation, from: 'follow' });
+  }
+
+  /** An email or phone answer (plan §14): saved → on; wrong → asked again up to 3 times in all. */
+  private async takeQuestionAnswer({
+    unit,
+    run,
+    automation,
+    input,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    input: AutomationDirectMessageInput;
+  }): Promise<AutomationRunHandlingResult> {
+    const part = run.waiting_for === 'email' ? 'email' : 'phone';
+    const nextStage = part === 'email' ? 'phone' : 'messages';
+    const question = questionStepOf({ steps: automation.steps, part, switches: unit.switches });
+    if (question === null) {
+      // The step is off or the plan lost its PRO switch: the run moves on (AU26).
+      await this.proceed({ unit, run, automation, from: nextStage });
+      return handlingResult({ outcome: 'run_continued', runPublicIds: [run.public_id] });
+    }
+    const answer =
+      part === 'email'
+        ? pickEmailAnswer({
+            quickReplyPayload: input.quickReplyPayload,
+            attachmentEmail: input.attachmentEmail,
+            text: input.text,
+          })
+        : pickPhoneAnswer({ quickReplyPayload: input.quickReplyPayload, text: input.text });
+    const target = {
+      databaseHandle: unit.databaseHandle,
+      organizationId: unit.organizationId,
+      contactId: unit.contact.id,
+      collectedAt: unit.now,
     };
+    const saved =
+      answer === null
+        ? { outcome: 'invalid' as const }
+        : part === 'email'
+          ? await this.dependencies.contactService.recordContactEmail({ ...target, email: answer })
+          : await this.dependencies.contactService.recordContactPhone({ ...target, phone: answer });
+    if (saved === null) return handlingResult({ outcome: 'ignored' });
+    if (saved.outcome === 'invalid') {
+      const versions = run.version_numbers as AutomationRunVersionNumbers;
+      const asks = (part === 'email' ? versions.email_asks : versions.phone_asks) ?? 1;
+      if (asks < AUTOMATION_RUN_ASK_MAX_COUNT) {
+        await this.askQuestion({ unit, run, automation, part });
+      }
+      return handlingResult({ outcome: 'answer_invalid', runPublicIds: [run.public_id] });
+    }
+    await unit.runEvents.insertMany([
+      {
+        ...runKeyOf({ organizationId: unit.organizationId, run }),
+        eventType: part === 'email' ? 'email_received' : 'phone_received',
+      },
+    ]);
+    await this.updateCommentLog({
+      unit,
+      run,
+      changes:
+        part === 'email'
+          ? { email_status: 'done', email_at: unit.now, email_received: answer, waiting_for: null }
+          : { phone_status: 'done', phone_at: unit.now, phone_received: answer, waiting_for: null },
+    });
+    await this.proceed({ unit, run, automation, from: nextStage });
+    return handlingResult({ outcome: 'run_continued', runPublicIds: [run.public_id] });
+  }
+
+  // ── Starting a run ───────────────────────────────────────────────────────────────────────
+
+  /** A non-comment start: the gates of a message or tap start, then the run (plan §4.3). */
+  private async startFromMatch({
+    unit,
+    match,
+    eventId,
+    targets,
+    isRestart = false,
+    versionExtras = {},
+  }: {
+    unit: AutomationRunEventUnit;
+    match: AutomationMatch<AutomationRow>;
+    eventId: string;
+    targets: {
+      mediaId?: string | null;
+      storyId?: string | null;
+      adId?: string | null;
+      refCode?: string | null;
+      tag?: string | null;
+    };
+    isRestart?: boolean;
+    versionExtras?: AutomationRunVersionNumbers;
+  }): Promise<AutomationRunHandlingResult> {
+    if (unit.contact.automations_off_at !== null) return handlingResult({ outcome: 'ignored' });
+    if (unit.contact.opted_out_at !== null) {
+      if (!isRestart) return handlingResult({ outcome: 'ignored' });
+      await this.dependencies.contactService.clearContactOptOut({
+        databaseHandle: unit.databaseHandle,
+        organizationId: unit.organizationId,
+        contactId: unit.contact.id,
+      });
+    }
+    const started = await this.startRun({
+      unit,
+      match,
+      eventId,
+      targets: { ...targets, cameInRef: targets.refCode ?? targets.adId ?? null },
+      isReplaceAllowed: false,
+      versionExtras,
+    });
+    if (started.kind !== 'started') return handlingResult({ outcome: 'ignored' });
+    return handlingResult({ outcome: 'run_started', runPublicIds: [started.run.public_id] });
   }
 
   /**
-   * Starts a run (AU18 step 1): `running` at `keyword_match`, keyed by the event, the automation's
-   * `last_triggered_at` stamped (AU10) and a `status_changed` event. Every caller has the automation
-   * from {@link lockLiveAutomation}: live, and locked until the unit ends (AU12).
+   * Starts a run (AU22–AU27): the automation locked live, the once key, the open key (the replace
+   * rule for an allowed comment, P35), the run with its versions, its key, its event, the count, her
+   * first run, `last_triggered_at`; then `beforeFirstStep` (the comment logs) and its first step.
    */
   private async startRun({
     unit,
-    call,
-    automation,
-    trigger,
+    match,
+    eventId,
+    targets,
+    isReplaceAllowed,
+    versionExtras = {},
+    beforeFirstStep,
   }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    automation: AutomationRunAutomationRow;
-    trigger: AutomationQueuedTrigger;
-  }): Promise<AutomationRunRow> {
+    unit: AutomationRunEventUnit;
+    match: AutomationMatch<AutomationRow>;
+    eventId: string;
+    targets: {
+      mediaId?: string | null;
+      commentId?: string | null;
+      storyId?: string | null;
+      adId?: string | null;
+      tag?: string | null;
+      cameInRef?: string | null;
+    };
+    isReplaceAllowed: boolean;
+    versionExtras?: AutomationRunVersionNumbers;
+    beforeFirstStep?: (run: AutomationRunRow) => Promise<void>;
+  }): Promise<
+    | { kind: 'started'; run: AutomationRunRow; isReplacement: boolean }
+    | { kind: 'held'; reason: AutomationCommentLogIgnoredReason }
+    | { kind: 'gone' }
+  > {
+    const { organizationId } = unit;
+    const automation = await unit.automations.lockLiveForRunStart({
+      organizationId,
+      automationId: match.automation.id,
+    });
+    if (automation === null) return { kind: 'gone' };
+    const onceKey = buildOnceKey({
+      triggerType: match.triggerType,
+      isOncePerPersonPerPost: unit.account.is_once_per_person_per_post_enabled,
+      defaultReplyMode: automation.default_reply_mode,
+      day: organizationDayOf({ at: unit.event.occurredAt, timeZone: unit.account.time_zone }),
+      eventId,
+      mediaId: targets.mediaId ?? null,
+      storyId: targets.storyId ?? null,
+      adId: targets.adId ?? null,
+      tag: targets.tag ?? null,
+    });
+    if (
+      await unit.runs.hasDirectMessageForOnceKey({
+        organizationId,
+        automationId: automation.id,
+        contactId: unit.contact.id,
+        onceKey,
+      })
+    ) {
+      return { kind: 'held', reason: 'once_per_post' };
+    }
+    const opening = await this.takeOpenKey({ unit, automation, onceKey, isReplaceAllowed });
+    if (opening.kind === 'held') return opening;
+    const isReplacement = opening.isReplacement;
+    const versionNumbers = this.pickVersions({ unit, automation, versionExtras });
     const run = await unit.runs.insert({
-      organizationId: call.organizationId,
+      organizationId,
       automationId: automation.id,
-      contactId: call.contactId,
-      triggerType: trigger.type,
-      triggerInstagramMediaId: trigger.instagram_media_id ?? null,
-      triggerInstagramCommentId: trigger.instagram_comment_id ?? null,
-      triggerInstagramStoryId: trigger.instagram_story_id ?? null,
-      triggerText: trigger.text,
-      lastInstagramEventKey: call.event.eventKey,
+      contactId: unit.contact.id,
+      triggerType: match.triggerType,
+      triggerMediaId: targets.mediaId ?? null,
+      triggerCommentId: targets.commentId ?? null,
+      triggerStoryId: targets.storyId ?? null,
+      triggerOccurredAt: unit.event.occurredAt,
+      onceKey,
+      versionNumbers,
+      lastEventKey: unit.event.eventKey,
     });
-    await unit.automations.markRunStarted({
-      organizationId: call.organizationId,
+    const isKeyTaken = await unit.openKeys.insert({
+      organizationId,
       automationId: automation.id,
+      contactId: unit.contact.id,
+      runId: run.id,
+      runStartedAt: run.started_at,
     });
+    if (!isKeyTaken) {
+      // Another start of the same pair committed its key first (AU37): this one never existed.
+      await unit.runs.deleteJustInserted(runKeyOf({ organizationId, run }));
+      return { kind: 'held', reason: 'run_in_progress' };
+    }
     await unit.runEvents.insertMany([
-      {
-        organizationId: call.organizationId,
-        runId: run.id,
-        eventType: 'status_changed',
-        status: 'running',
-      },
+      { ...runKeyOf({ organizationId, run }), eventType: 'status_changed', status: 'running' },
     ]);
-    return run;
+    await this.dependencies.countService.increment({
+      scope: unit.scope,
+      increment: {
+        organizationId,
+        automationId: automation.id,
+        automationRunId: run.id,
+        counter: 'runs_started',
+        versionKey: versionNumbers.hello === undefined ? null : `hello.${versionNumbers.hello}`,
+      },
+    });
+    await this.dependencies.contactService.recordContactFirstRun({
+      databaseHandle: unit.databaseHandle,
+      organizationId,
+      contactId: unit.contact.id,
+      automationId: automation.id,
+      cameInVia: match.triggerType,
+      cameInRef: targets.cameInRef ?? null,
+    });
+    await unit.automations.markRunStarted({ organizationId, automationId: automation.id });
+    await beforeFirstStep?.(run);
+    await this.proceed({ unit, run, automation, from: 'hello' });
+    return { kind: 'started', run, isReplacement };
   }
 
   /**
-   * Queues a trigger behind another automation's run waiting for the contact's email (AU21): one
-   * entry per automation (a second trigger is logged, not added), at most 100.
+   * The open key of the automation and person before a start (AU23, AU37, P35): none → the start may
+   * go; her open run under the same once key → `once_per_post`; another start while it is open →
+   * `run_in_progress`, or for an allowed comment the open run is replaced (`replaced`, its waiting
+   * messages skipped) and its key deleted, in this commit.
    */
-  private async queueTrigger({
+  private async takeOpenKey({
     unit,
-    call,
-    waitingRun,
     automation,
-    trigger,
-    now,
+    onceKey,
+    isReplaceAllowed,
+  }: {
+    unit: AutomationRunEventUnit;
+    automation: AutomationRow;
+    onceKey: string;
+    isReplaceAllowed: boolean;
+  }): Promise<
+    | { kind: 'free'; isReplacement: boolean }
+    | { kind: 'held'; reason: AutomationCommentLogIgnoredReason }
+  > {
+    const { organizationId } = unit;
+    const openKey = await unit.openKeys.lockForAutomationAndContact({
+      organizationId,
+      automationId: automation.id,
+      contactId: unit.contact.id,
+    });
+    if (openKey === null) return { kind: 'free', isReplacement: false };
+    const openRun = await unit.runs.lockByKey({
+      organizationId,
+      runId: openKey.automation_run_id,
+      runStartedAt: openKey.automation_run_started_at,
+    });
+    if (openRun !== null && openRun.once_key === onceKey) {
+      return { kind: 'held', reason: 'once_per_post' };
+    }
+    if (!isReplaceAllowed) return { kind: 'held', reason: 'run_in_progress' };
+    if (openRun !== null && (openRun.status === 'running' || openRun.status === 'waiting')) {
+      await this.endRun({ unit, run: openRun, end: { status: 'cancelled', reason: 'replaced' } });
+      await unit.port.skipWaitingMessages({
+        databaseHandle: unit.databaseHandle,
+        organizationId,
+        by: 'run',
+        id: openRun.id,
+        reason: 'replaced',
+      });
+    } else {
+      await unit.openKeys.deleteForRuns({
+        organizationId,
+        runs: [{ id: openKey.automation_run_id, started_at: openKey.automation_run_started_at }],
+      });
+    }
+    return { kind: 'free', isReplacement: true };
+  }
+
+  /** The hello and follow versions of a new run, at random (PRO only beyond 1 — AU27). */
+  private pickVersions({
+    unit,
+    automation,
+    versionExtras,
   }: {
     unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    waitingRun: AutomationRunRow;
-    automation: AutomationRunAutomationRow;
-    trigger: AutomationQueuedTrigger;
-    now: Date;
+    automation: AutomationRow;
+    versionExtras: AutomationRunVersionNumbers;
+  }): AutomationRunVersionNumbers {
+    const versionNumbers: AutomationRunVersionNumbers = { ...versionExtras };
+    const hello = helloStepOf(automation.steps);
+    if (hello !== null) {
+      versionNumbers.hello = pickVersionNumber({
+        count: hello.versions.length,
+        switches: unit.switches,
+        drawInteger: this.drawInteger,
+      });
+    }
+    const follow = followStepOf(automation.steps);
+    if (follow !== null) {
+      versionNumbers.follow = pickVersionNumber({
+        count: follow.versions.length,
+        switches: unit.switches,
+        drawInteger: this.drawInteger,
+      });
+    }
+    return versionNumbers;
+  }
+
+  // ── Steps ────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Moves a run on from a stage (AU24): the first step that is on and needed saves its waiting message
+   * and the run stays `running` at it; with nothing left, the tags and `completed`.
+   */
+  private async proceed({
+    unit,
+    run,
+    automation,
+    from,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    from: 'hello' | 'follow' | 'email' | 'phone' | 'messages';
   }): Promise<void> {
-    const { entries } = readQueuedAutomations(waitingRun.queued_automations);
+    const stages = ['hello', 'follow', 'email', 'phone', 'messages'] as const;
+    for (const stage of stages.slice(stages.indexOf(from))) {
+      if (await this.saveStage({ unit, run, automation, stage })) return;
+    }
+    await this.completeRun({ unit, run, automation });
+  }
+
+  /** One stage of {@link proceed}: saves its waiting message and answers `true`, or `false` when off or not needed. */
+  private async saveStage({
+    unit,
+    run,
+    automation,
+    stage,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    stage: 'hello' | 'follow' | 'email' | 'phone' | 'messages';
+  }): Promise<boolean> {
+    const steps = automation.steps;
+    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    switch (stage) {
+      case 'hello':
+        if (helloStepOf(steps) === null) return false;
+        await this.saveBlockingMessage({
+          unit,
+          run,
+          automation,
+          runStep: 'comment_reply',
+          message: {
+            step: 'hello',
+            versionNumber: versions.hello ?? 1,
+            stepPath: `steps.hello.versions.${(versions.hello ?? 1) - 1}`,
+          },
+        });
+        return true;
+      case 'follow':
+        if (followStepOf(steps) === null || unit.contact.is_following_account === true)
+          return false;
+        await this.saveFollowCheck({ unit, run, automation });
+        return true;
+      case 'email':
+      case 'phone':
+        if (questionStepOf({ steps, part: stage, switches: unit.switches }) === null) return false;
+        if ((stage === 'email' ? unit.contact.email : unit.contact.phone) !== null) return false;
+        await this.askQuestion({ unit, run, automation, part: stage });
+        return true;
+      case 'messages':
+        return this.saveNextListMessage({ unit, run, automation });
+    }
+  }
+
+  /** The next message of the list, its wait as `not_before` (D29); `false` when the list is done. */
+  private async saveNextListMessage({
+    unit,
+    run,
+    automation,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+  }): Promise<boolean> {
+    const messageNumber = (run.last_message_number ?? 0) + 1;
+    const message = messagesOf(automation.steps)[messageNumber - 1];
+    if (message === undefined) return false;
+    await this.saveBlockingMessage({
+      unit,
+      run,
+      automation,
+      runStep: 'messages',
+      message: {
+        step: 'messages',
+        messageNumber,
+        messageKind: message.kind,
+        stepPath: `steps.messages.${messageNumber - 1}`,
+        uploadPublicIds: uploadPublicIdsOf(message),
+        notBefore:
+          message.wait_minutes > 0
+            ? new Date(unit.now.getTime() + message.wait_minutes * 60_000)
+            : null,
+      },
+    });
+    return true;
+  }
+
+  /** The follow check (plan §14.1): a read of her follow, which comes back as a result. */
+  private async saveFollowCheck({
+    unit,
+    run,
+    automation,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+  }): Promise<void> {
+    await this.saveBlockingMessage({
+      unit,
+      run,
+      automation,
+      runStep: 'follow_check',
+      message: { step: 'follow_check', stepPath: 'steps.follow' },
+    });
+  }
+
+  /** Asks for her email or phone with a wording other than the last (plan §5.8), counting the asks. */
+  private async askQuestion({
+    unit,
+    run,
+    automation,
+    part,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    part: 'email' | 'phone';
+  }): Promise<void> {
+    const question = automation.steps[part];
+    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    const wordingNumber = pickWordingNumber({
+      count: question?.wordings.length ?? 1,
+      lastWordingNumber: versions[part] ?? null,
+      drawInteger: this.drawInteger,
+    });
+    const asksKey = part === 'email' ? 'email_asks' : 'phone_asks';
+    const updated =
+      (await unit.runs.update({
+        ...runKeyOf({ organizationId: unit.organizationId, run }),
+        changes: {
+          version_numbers: {
+            ...versions,
+            [part]: wordingNumber,
+            [asksKey]: (versions[asksKey] ?? 0) + 1,
+          },
+        },
+      })) ?? run;
+    await this.saveBlockingMessage({
+      unit,
+      run: updated,
+      automation,
+      runStep: part === 'email' ? 'email_collect' : 'phone_collect',
+      message: {
+        step: part,
+        wordingNumber,
+        stepPath: `steps.${part}.wordings.${wordingNumber - 1}`,
+      },
+    });
+  }
+
+  /**
+   * Saves one step's waiting message through the channel's port (AU35) and keeps the run `running` at
+   * that step; a message that can never go (`skipped` at the save) ends the run as its result would.
+   */
+  private async saveBlockingMessage({
+    unit,
+    run,
+    automation,
+    runStep,
+    message,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    runStep: AutomationRunStep;
+    message: AutomationWaitingMessage;
+  }): Promise<void> {
+    const isFirstDirectMessage =
+      run.direct_message_sent_at === null && message.step !== 'follow_check';
+    const saved = await this.saveMessage({
+      unit,
+      run,
+      message: {
+        ...message,
+        // A comment's first DM answers her comment — the channel picks a private reply or a DM.
+        answersEventId:
+          isFirstDirectMessage && isCommentTrigger(run.trigger_type)
+            ? run.trigger_instagram_comment_id
+            : null,
+      },
+    });
+    const moved =
+      (await unit.runs.update({
+        ...runKeyOf({ organizationId: unit.organizationId, run }),
+        changes: {
+          status: 'running',
+          current_step: runStep,
+          waiting_for: null,
+          waiting_since_at: null,
+          last_step_at: unit.now,
+        },
+      })) ?? run;
+    if (run.status !== 'running') {
+      await unit.runEvents.insertMany([
+        {
+          ...runKeyOf({ organizationId: unit.organizationId, run }),
+          eventType: 'status_changed',
+          status: 'running',
+        },
+      ]);
+    }
+    const logStep = COMMENT_LOG_STEP_OF_RUN_STEP[runStep];
+    await this.updateCommentLog({
+      unit,
+      run,
+      changes: {
+        overall_status: 'started',
+        current_step: logStep.step,
+        waiting_for: null,
+        [logStep.status]: 'waiting',
+      },
+    });
+    if (saved.status === 'skipped') {
+      await this.applyBlockingResult({
+        unit,
+        run: moved,
+        automation,
+        step: message.step as AutomationBlockingStep,
+        result: 'skipped',
+        reason: saved.reason,
+      });
+    }
+  }
+
+  /** One `saveWaitingMessage` call for a run (AU35): content by reference, never text. */
+  private saveMessage({
+    unit,
+    run,
+    message,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    message: AutomationWaitingMessage;
+  }): Promise<SaveWaitingMessageResult> {
+    return unit.port.saveWaitingMessage({
+      databaseHandle: unit.databaseHandle,
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+      contactId: run.contact_id,
+      source: {
+        automationId: run.automation_id,
+        automationRunId: run.id,
+        automationRunStartedAt: run.started_at,
+      },
+      step: message.step,
+      messageNumber: message.messageNumber ?? null,
+      versionNumber: message.versionNumber ?? null,
+      wordingNumber: message.wordingNumber ?? null,
+      messageKind: message.messageKind ?? 'text',
+      content: { stepPath: message.stepPath, uploadPublicIds: message.uploadPublicIds ?? [] },
+      notBefore: message.notBefore ?? null,
+      triggerOccurredAt: run.trigger_occurred_at,
+      answersEventId: message.answersEventId ?? null,
+    });
+  }
+
+  /** The run's pending step once more after an `unknown` result — only on her next message or tap (AU25). */
+  private async sendPendingStepAgain({
+    unit,
+    run,
+    automation,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+  }): Promise<void> {
+    switch (run.current_step as AutomationRunStep) {
+      case 'keyword_match':
+      case 'comment_reply':
+        await this.proceed({ unit, run, automation, from: 'hello' });
+        return;
+      case 'follow_check': {
+        const versions = run.version_numbers as AutomationRunVersionNumbers;
+        await this.saveBlockingMessage({
+          unit,
+          run,
+          automation,
+          runStep: 'follow_check',
+          message: {
+            step: 'follow',
+            versionNumber: versions.follow ?? 1,
+            stepPath: `steps.follow.versions.${(versions.follow ?? 1) - 1}`,
+          },
+        });
+        return;
+      }
+      case 'email_collect':
+        await this.askQuestion({ unit, run, automation, part: 'email' });
+        return;
+      case 'phone_collect':
+        await this.askQuestion({ unit, run, automation, part: 'phone' });
+        return;
+      case 'messages':
+        await this.proceed({ unit, run, automation, from: 'messages' });
+        return;
+    }
+  }
+
+  /** The tag step (D45) and `completed` (AU24): her tags with the automation as their source. */
+  private async completeRun({
+    unit,
+    run,
+    automation,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+  }): Promise<void> {
+    const tags = tagsOf(automation.steps);
+    if (tags.length > 0) {
+      const versions = run.version_numbers as AutomationRunVersionNumbers;
+      const isTagStart = run.trigger_type === 'tag_added' || run.trigger_type === 'tag_removed';
+      await this.dependencies.contactService.addContactTags({
+        databaseHandle: unit.databaseHandle,
+        organizationId: unit.organizationId,
+        contactId: run.contact_id,
+        tags,
+        sourceAutomationId: automation.id,
+        chainNumber: isTagStart ? (versions.tag_chain ?? 0) + 1 : 0,
+      });
+    }
+    await this.endRun({ unit, run, end: { status: 'completed' } });
+  }
+
+  // ── Results (AU35) ───────────────────────────────────────────────────────────────────────
+
+  /** A result for a run that is still open: the public reply, the hide, the nudge or a blocking step. */
+  private async applyResult({
+    unit,
+    run,
+    automation,
+    input,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    input: ChannelMessageResultInput;
+  }): Promise<void> {
+    switch (input.step) {
+      case 'public_reply':
+      case 'hide_comment':
+        await this.updateCommentLog({
+          unit,
+          run,
+          changes: this.replyLogChanges({
+            step: input.step,
+            result: input.result,
+            reason: input.reason,
+            at: input.occurredAt,
+          }),
+        });
+        return;
+      case 'nudge':
+      case 'broadcast':
+        return;
+      default:
+        break;
+    }
     if (
-      entries.some((entry) => entry.automation_id === automation.public_id) ||
-      entries.length >= AUTOMATION_RUN_QUEUED_AUTOMATIONS_MAX_COUNT
+      run.status !== 'running' ||
+      !this.isPendingStep({ run, step: input.step, messageNumber: input.messageNumber })
     ) {
       return;
     }
-    const queued = assertQueuedAutomations([
-      ...entries,
-      { automation_id: automation.public_id, queued_at: now.toISOString(), trigger },
-    ]);
-    await unit.runs.replaceQueuedAutomations({
-      organizationId: call.organizationId,
-      runId: waitingRun.id,
-      entries: queued,
+    await this.applyBlockingResult({
+      unit,
+      run,
+      automation,
+      step: input.step,
+      result: input.result,
+      reason: input.reason,
     });
+  }
+
+  /** Whether a result names the step the run is held at (a repeat or a stale result does nothing). */
+  private isPendingStep({
+    run,
+    step,
+    messageNumber,
+  }: {
+    run: AutomationRunRow;
+    step: ChannelMessageStep;
+    messageNumber: number | null;
+  }): boolean {
+    switch (step) {
+      case 'hello':
+        return run.current_step === 'comment_reply';
+      case 'follow':
+      case 'follow_check':
+        return run.current_step === 'follow_check';
+      case 'email':
+        return run.current_step === 'email_collect';
+      case 'phone':
+        return run.current_step === 'phone_collect';
+      case 'messages':
+        return (
+          run.current_step === 'messages' && messageNumber === (run.last_message_number ?? 0) + 1
+        );
+      default:
+        return false;
+    }
+  }
+
+  /** The comment-log columns of a public reply's or hide's result. */
+  private replyLogChanges({
+    step,
+    result,
+    reason,
+    at,
+  }: {
+    step: 'public_reply' | 'hide_comment';
+    result: ChannelMessageResultInput['result'];
+    reason: string | null;
+    at: Date;
+  }): AutomationCommentLogChanges {
+    let status: AutomationCommentLogStepStatus = result;
+    let skipReason: AutomationPublicReplySkipReason | null = null;
+    if (result === 'skipped') {
+      if (reason === 'expired' || reason === 'reply_too_old') status = 'expired';
+      else if (
+        step === 'public_reply' &&
+        !(AUTOMATION_PUBLIC_REPLY_SKIP_REASONS as readonly string[]).includes(reason ?? '')
+      ) {
+        status = 'failed';
+      } else if (step === 'public_reply') skipReason = reason as AutomationPublicReplySkipReason;
+    }
+    if (step === 'hide_comment') {
+      return { hide_status: status, ...(result === 'sent' ? { hidden_at: at } : {}) };
+    }
+    return {
+      public_reply_status: status,
+      public_reply_skip_reason: skipReason,
+      ...(result === 'sent' ? { public_reply_at: at } : {}),
+    };
+  }
+
+  /** A blocking step's result: on, wait, `any`, failed or cancelled (AU24, AU25). */
+  private async applyBlockingResult({
+    unit,
+    run,
+    automation,
+    step,
+    result,
+    reason,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    step: ChannelMessageStep;
+    result: ChannelMessageResultInput['result'];
+    reason: string | null;
+  }): Promise<void> {
+    if (step === 'follow_check') {
+      await this.applyFollowCheckResult({ unit, run, automation, result, reason });
+      return;
+    }
+    if (result === 'failed' || result === 'skipped') {
+      await this.endStepFailedOrSkipped({ unit, run, step, result, reason });
+      return;
+    }
+    const isFirstDirectMessage = run.direct_message_sent_at === null;
+    const moved =
+      (await unit.runs.update({
+        ...runKeyOf({ organizationId: unit.organizationId, run }),
+        changes: {
+          ...(isFirstDirectMessage ? { direct_message_sent_at: unit.now } : {}),
+          ...(step === 'messages' && result === 'sent'
+            ? { last_message_number: (run.last_message_number ?? 0) + 1 }
+            : {}),
+          last_step_at: unit.now,
+        },
+      })) ?? run;
+    if (result === 'unknown') {
+      // Never sent again by itself: her next message or tap may send it once more (D17, AU25).
+      const logStep = COMMENT_LOG_STEP_OF_RUN_STEP[run.current_step as AutomationRunStep];
+      await this.waitFor({
+        unit,
+        run: moved,
+        waitingFor: 'any',
+        logChanges: { [logStep.status]: 'unknown' },
+      });
+      return;
+    }
+    if (isFirstDirectMessage && isCommentTrigger(run.trigger_type)) {
+      await this.makePublicReplyAndHide({ unit, run: moved, automation });
+    }
+    await this.moveOnAfterSent({ unit, run: moved, automation, step });
+  }
+
+  /** A follow check's result: two tries, both failed = "following" (D12); only "not following" asks. */
+  private async applyFollowCheckResult({
+    unit,
+    run,
+    automation,
+    result,
+    reason,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    result: ChannelMessageResultInput['result'];
+    reason: string | null;
+  }): Promise<void> {
+    if (result === 'sent' && reason === 'not_following') {
+      const versions = run.version_numbers as AutomationRunVersionNumbers;
+      await this.saveBlockingMessage({
+        unit,
+        run,
+        automation,
+        runStep: 'follow_check',
+        message: {
+          step: 'follow',
+          versionNumber: versions.follow ?? 1,
+          stepPath: `steps.follow.versions.${(versions.follow ?? 1) - 1}`,
+        },
+      });
+      return;
+    }
+    await this.updateCommentLog({ unit, run, changes: { follow_status: 'done' } });
+    await this.proceed({ unit, run, automation, from: 'email' });
+  }
+
+  /** A blocking step `failed` (the run fails) or `skipped` (cancelled with its reason, else failed). */
+  private async endStepFailedOrSkipped({
+    unit,
+    run,
+    step,
+    result,
+    reason,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    step: ChannelMessageStep;
+    result: 'failed' | 'skipped';
+    reason: string | null;
+  }): Promise<void> {
+    const logStep = COMMENT_LOG_STEP_OF_RUN_STEP[run.current_step as AutomationRunStep];
+    const cancelReason = result === 'skipped' ? cancelReasonOfSkip(reason) : null;
+    await this.updateCommentLog({
+      unit,
+      run,
+      changes: {
+        [logStep.status]: result === 'skipped' && reason === 'expired' ? 'expired' : result,
+        ...(result === 'failed'
+          ? {
+              failed_step: logStep.step,
+              error_type: 'instagram_api',
+              error_reason: reason,
+              error_message: describeFailure({ step, reason }),
+              error_at: unit.now,
+            }
+          : {}),
+      },
+    });
+    await this.endRun({
+      unit,
+      run,
+      end:
+        cancelReason === null
+          ? {
+              status: 'failed',
+              errorMessage: describeFailure({ step, reason: `${result}:${reason ?? ''}` }),
+            }
+          : { status: 'cancelled', reason: cancelReason },
+    });
+  }
+
+  /** A blocking step `sent`: the hello waits for her tap (a nudge when she messaged first), a question for her answer, a list message moves on. */
+  private async moveOnAfterSent({
+    unit,
+    run,
+    automation,
+    step,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+    step: ChannelMessageStep;
+  }): Promise<void> {
+    switch (step) {
+      case 'hello':
+        await this.afterHelloSent({ unit, run, automation });
+        return;
+      case 'follow':
+        await this.waitFor({
+          unit,
+          run,
+          waitingFor: 'follow',
+          logChanges: { follow_status: 'waiting', follow_at: unit.now },
+        });
+        return;
+      case 'email':
+      case 'phone':
+        await this.waitFor({
+          unit,
+          run,
+          waitingFor: step,
+          logChanges: step === 'email' ? { email_status: 'waiting' } : { phone_status: 'waiting' },
+        });
+        return;
+      case 'messages':
+        await this.updateCommentLog({
+          unit,
+          run,
+          changes: { messages_status: 'sent', messages_at: unit.now },
+        });
+        await this.proceed({ unit, run, automation, from: 'messages' });
+        return;
+      default:
+        return;
+    }
+  }
+
+  /** The hello `sent`: without a "next step" button the run goes on; else it waits for her tap. */
+  private async afterHelloSent({
+    unit,
+    run,
+    automation,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    automation: AutomationRow;
+  }): Promise<void> {
+    const versions = run.version_numbers as AutomationRunVersionNumbers;
+    const logChanges: AutomationCommentLogChanges = {
+      opening_dm_status: 'sent',
+      opening_dm_at: unit.now,
+    };
+    if (!helloHasNextButton({ steps: automation.steps, versionNumber: versions.hello ?? 1 })) {
+      await this.updateCommentLog({ unit, run, changes: logChanges });
+      await this.proceed({ unit, run, automation, from: 'follow' });
+      return;
+    }
+    if (
+      isSheMessagedFirst(run.trigger_type as AutomationTriggerType) &&
+      automation.steps.hello?.nudge === true
+    ) {
+      await this.saveMessage({
+        unit,
+        run,
+        message: {
+          step: 'nudge',
+          versionNumber: versions.hello ?? 1,
+          stepPath: `steps.hello.versions.${(versions.hello ?? 1) - 1}`,
+          notBefore: new Date(unit.now.getTime() + AUTOMATION_RUN_NUDGE_AFTER_MILLISECONDS),
+        },
+      });
+    }
+    await this.waitFor({ unit, run, waitingFor: 'opening_message_button', logChanges });
   }
 
   /**
-   * A waiting run takes its event (a click, an answer, AU14): `running` again at `toStep`, keyed
-   * by the event, a `status_changed` event, its comment log back to `started`. A claim still on it —
-   * a question asked again by an event that died — is over and cleared: nothing of it is re-sent, and
-   * it is not a message of the step the run goes on to.
+   * After the first DM of a comment is `sent` (plan §7.2): the public reply (when on — a duplicate is
+   * `skipped`; "Reply like a person" with its PRO switch draws 80 %) and then the hide (when on).
+   * A Live comment gets neither.
    */
-  private async resumeWaitingRun({
+  private async makePublicReplyAndHide({
     unit,
-    call,
     run,
-    toStep,
-    commentLogChanges,
+    automation,
   }: {
     unit: AutomationRunUnit;
-    call: AutomationRunCall;
     run: AutomationRunRow;
-    toStep: AutomationRunStep;
-    commentLogChanges: AutomationCommentLogChanges;
+    automation: AutomationRow;
   }): Promise<void> {
+    if (run.trigger_type === 'live_comment' || run.trigger_instagram_comment_id === null) return;
+    const commentId = run.trigger_instagram_comment_id;
+    const logChanges: AutomationCommentLogChanges = {};
+    if (automation.is_public_reply_enabled && automation.public_reply_texts.length > 0) {
+      const logs = await unit.commentLogs.listForComment({
+        organizationId: unit.organizationId,
+        commentId,
+        since: lastTwoMonthsStart(unit.now),
+      });
+      const isDuplicate = logs.some(
+        (log) =>
+          log.automation_run_id !== run.id &&
+          (log.public_reply_status === 'waiting' || log.public_reply_status === 'sent'),
+      );
+      const isLikePerson =
+        automation.is_reply_like_person_enabled &&
+        isPlanSwitchOn({ switches: unit.switches, feature: 'reply_like_person' });
+      const skipReason: AutomationPublicReplySkipReason | null = isDuplicate
+        ? 'duplicate'
+        : isLikePerson &&
+            this.drawInteger(AUTOMATION_PUBLIC_REPLY_CHANCE_SCALE) >=
+              AUTOMATION_PUBLIC_REPLY_CHANCE_PERCENT
+          ? 'random'
+          : null;
+      if (skipReason !== null) {
+        Object.assign(logChanges, {
+          public_reply_status: 'skipped',
+          public_reply_skip_reason: skipReason,
+        });
+      } else {
+        const saved = await this.saveMessage({
+          unit,
+          run,
+          message: {
+            step: 'public_reply',
+            stepPath: 'public_reply_texts',
+            answersEventId: commentId,
+          },
+        });
+        if (saved.status === 'waiting') {
+          await this.dependencies.replyStateService.addWaitingReply({
+            scope: unit.scope,
+            key: { organizationId: unit.organizationId, automationId: automation.id },
+            channelAccountId: unit.channelAccountId,
+          });
+          Object.assign(logChanges, { public_reply_status: 'waiting' });
+        } else {
+          Object.assign(
+            logChanges,
+            this.replyLogChanges({
+              step: 'public_reply',
+              result: 'skipped',
+              reason: saved.reason,
+              at: unit.now,
+            }),
+          );
+        }
+      }
+    }
+    if (automation.is_hide_comment_after_direct_message_enabled) {
+      const saved = await this.saveMessage({
+        unit,
+        run,
+        message: { step: 'hide_comment', stepPath: 'hide_comment', answersEventId: commentId },
+      });
+      Object.assign(
+        logChanges,
+        saved.status === 'waiting'
+          ? { hide_status: 'waiting' }
+          : this.replyLogChanges({
+              step: 'hide_comment',
+              result: 'skipped',
+              reason: saved.reason,
+              at: unit.now,
+            }),
+      );
+    }
+    await this.updateCommentLog({ unit, run, changes: logChanges });
+  }
+
+  // ── Run state ────────────────────────────────────────────────────────────────────────────
+
+  /** The run waits for her (status `waiting`), its event and its log. */
+  private async waitFor({
+    unit,
+    run,
+    waitingFor,
+    logChanges,
+  }: {
+    unit: AutomationRunUnit;
+    run: AutomationRunRow;
+    waitingFor: AutomationRunWaitingFor;
+    logChanges: AutomationCommentLogChanges;
+  }): Promise<void> {
+    const key = runKeyOf({ organizationId: unit.organizationId, run });
     await unit.runs.update({
-      organizationId: call.organizationId,
-      runId: run.id,
+      ...key,
       changes: {
-        status: 'running',
-        current_step: toStep,
-        waiting_for: null,
-        waiting_since_at: null,
-        sending_message_kind: null,
-        sending_started_at: null,
-        last_instagram_event_key: call.event.eventKey,
-        last_step_at: new Date(),
+        status: 'waiting',
+        waiting_for: waitingFor,
+        waiting_since_at: unit.now,
+        last_step_at: unit.now,
       },
     });
-    await unit.runEvents.insertMany([
-      {
-        organizationId: call.organizationId,
-        runId: run.id,
-        eventType: 'status_changed',
-        status: 'running',
-      },
-    ]);
-    await this.updateCommentLogOfRun({
+    if (run.status !== 'waiting') {
+      await unit.runEvents.insertMany([{ ...key, eventType: 'status_changed', status: 'waiting' }]);
+    }
+    await this.updateCommentLog({
       unit,
-      call,
-      runId: run.id,
-      changes: { ...commentLogChanges, overall_status: 'started', waiting_for: null },
+      run,
+      changes: { ...logChanges, overall_status: 'waiting', waiting_for: waitingFor },
     });
   }
 
-  /** Writes `changes` to the run's comment log, when it has one. */
-  private async updateCommentLogOfRun({
+  /** Ends a run (AU21): its status, its event, its log and — in the same commit — its open key (AU37). */
+  private async endRun({
     unit,
-    call,
-    runId,
-    changes,
+    run,
+    end,
   }: {
     unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    runId: number;
+    run: AutomationRunRow;
+    end: AutomationRunEnd;
+  }): Promise<void> {
+    const key = runKeyOf({ organizationId: unit.organizationId, run });
+    const changes: AutomationRunChanges = {
+      status: end.status,
+      waiting_for: null,
+      waiting_since_at: null,
+      last_step_at: unit.now,
+      ...(end.status === 'completed' ? { completed_at: unit.now } : {}),
+      ...(end.status === 'failed' ? { failed_at: unit.now, error_message: end.errorMessage } : {}),
+      ...(end.status === 'cancelled' ? { cancelled_at: unit.now, cancel_reason: end.reason } : {}),
+    };
+    await unit.runs.update({ ...key, changes });
+    await unit.runEvents.insertMany([{ ...key, eventType: 'status_changed', status: end.status }]);
+    await unit.openKeys.deleteForRuns({
+      organizationId: unit.organizationId,
+      runs: [{ id: run.id, started_at: run.started_at }],
+    });
+    await this.updateCommentLog({
+      unit,
+      run,
+      changes: {
+        overall_status: end.status,
+        waiting_for: null,
+        ...(end.status === 'failed' ? { error_at: unit.now } : {}),
+      },
+    });
+    logger.info(
+      {
+        organizationPublicId: unit.scope.organizationPublicId,
+        runPublicId: run.public_id,
+        status: end.status,
+        cancelReason: end.status === 'cancelled' ? end.reason : null,
+      },
+      'app.automation_run.ended',
+    );
+  }
+
+  /** Writes a comment run's log changes (a comment way only); nothing to write is a no-op. */
+  private async updateCommentLog({
+    unit,
+    run,
+    changes,
+  }: {
+    unit: Pick<AutomationRunUnit, 'commentLogs' | 'organizationId'>;
+    run: AutomationRunRow;
     changes: AutomationCommentLogChanges;
   }): Promise<void> {
-    const commentLog = await unit.commentLogs.findForRun({
-      organizationId: call.organizationId,
-      runId,
-    });
-    if (commentLog === null) return;
-    await unit.commentLogs.update({
-      organizationId: call.organizationId,
-      commentLogId: commentLog.id,
+    if (!isCommentTrigger(run.trigger_type) || Object.keys(changes).length === 0) return;
+    await unit.commentLogs.updateForRun({
+      ...runKeyOf({ organizationId: unit.organizationId, run }),
       changes,
     });
   }
 
-  /**
-   * The DM's answer to the contact's waiting run (AU16, AU18 steps 4–5, AU21) — inside one unit:
-   * `continued` with the runs to advance (the answered one, then the queued ones it started),
-   * `invalid_email` / `invalid_phone`, `erased`, or `none` (no run waits for an answer). A run whose
-   * step is now off takes none (AU14).
-   */
-  private async takeAnswer({
-    unit,
-    call,
-    input,
+  /** Cancels her open runs with a reason (erase or pause): the lock order, then the cancel. */
+  private async cancelOpenRunsOfContact({
+    repositories,
+    organizationId,
+    contactId,
+    reason,
   }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    input: AutomationDirectMessageInput;
-  }): Promise<
-    | { kind: 'continued'; runIds: number[] }
-    | { kind: 'invalid_email'; runId: number }
-    | { kind: 'invalid_phone' }
-    | { kind: 'erased' }
-    | { kind: 'none' }
-  > {
-    const waitingRuns = await this.lockWaitingRuns({
-      unit,
-      call,
-      waitingFor: ['email', 'phone'],
-    });
-    const asked = waitingRuns.find(
-      ({ automation, stepOff }) => automation !== null && stepOff === null,
-    );
-    if (asked === undefined) return { kind: 'none' };
-    const { run } = asked;
-    const contactKey = {
-      databaseHandle: unit.databaseHandle,
-      organizationId: call.organizationId,
-      contactId: call.contactId,
-    };
-    const isEmail = run.waiting_for === 'email';
-    const nextStep: AutomationRunStep = isEmail ? 'phone_collect' : 'final_dm';
-    const collectedAt = input.event.occurredAt;
-    const saved = isEmail
-      ? await this.contactService.recordContactEmail({
-          ...contactKey,
-          email: pickEmailAnswer(input) ?? '',
-          collectedAt,
-        })
-      : await this.contactService.recordContactPhone({
-          ...contactKey,
-          phone: pickPhoneAnswer(input) ?? '',
-          collectedAt,
-        });
-    if (saved === null) return { kind: 'erased' };
-    if (saved.outcome === 'invalid') {
-      return isEmail ? { kind: 'invalid_email', runId: run.id } : { kind: 'invalid_phone' };
-    }
-    await this.resumeWaitingRun({
-      unit,
-      call,
-      run,
-      toStep: nextStep,
-      commentLogChanges: isEmail
-        ? { email_status: 'done', email_at: collectedAt, email_received: saved.contact.email }
-        : { phone_status: 'done', phone_at: collectedAt, phone_received: saved.contact.phone },
-    });
-    await unit.runEvents.insertMany([
-      {
-        organizationId: call.organizationId,
-        runId: run.id,
-        eventType: isEmail ? 'email_received' : 'phone_received',
-      },
-    ]);
-    if (!isEmail) return { kind: 'continued', runIds: [run.id] };
-    const queuedRunIds = await this.startQueuedAutomations({ unit, call, answeredRun: run });
-    return { kind: 'continued', runIds: [run.id, ...queuedRunIds] };
-  }
-
-  /**
-   * The automations queued behind the email question, answered or now off (AU21, AU14): each starts
-   * as its own run, in order — skipped when the automation is no longer live or was deleted (read
-   * under its lock, AU12), belongs to another account, or AU17 holds it back — and its comment log
-   * moves from `ignored` to `started` with the new run. A malformed entry is skipped and logged
-   * (3.B.9). The queue is emptied.
-   */
-  private async startQueuedAutomations({
-    unit,
-    call,
-    answeredRun,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    answeredRun: AutomationRunRow;
-  }): Promise<number[]> {
-    const { entries, malformedCount } = readQueuedAutomations(answeredRun.queued_automations);
-    if (malformedCount > 0) {
-      logger.warn(
-        { runPublicId: answeredRun.public_id, malformedCount },
-        'app.automation_run.queued_entry_malformed',
-      );
-    }
-    await unit.runs.replaceQueuedAutomations({
-      organizationId: call.organizationId,
-      runId: answeredRun.id,
-      entries: [],
-    });
-    const startedRunIds: number[] = [];
-    for (const entry of entries) {
-      const queued = await unit.automations.findByPublicIdIncludingDeleted({
-        organizationId: call.organizationId,
-        automationPublicId: entry.automation_id,
-      });
-      if (queued === null || queued.instagram_account_id !== call.instagramAccountId) continue;
-      const automation = await this.lockLiveAutomation({ unit, call, automationId: queued.id });
-      if (automation === null) continue;
-      const latest = await unit.runs.findLatestRunOfAutomationForContact({
-        organizationId: call.organizationId,
-        automationId: automation.id,
-        contactId: call.contactId,
-      });
-      const conflict = decideExistingRunConflict({
-        hasEmailWaitingRun: false,
-        latestRunStatus: (latest?.status ?? null) as AutomationRunStatus | null,
-      });
-      if (conflict !== null) continue;
-      const run = await this.startRun({ unit, call, automation, trigger: entry.trigger });
-      const commentId = entry.trigger.instagram_comment_id;
-      if (entry.trigger.type === 'comment' && commentId !== undefined) {
-        const commentLog = await unit.commentLogs.findForAutomationComment({
-          organizationId: call.organizationId,
-          automationId: automation.id,
-          instagramCommentId: commentId,
-        });
-        if (commentLog !== null) {
-          await unit.commentLogs.update({
-            organizationId: call.organizationId,
-            commentLogId: commentLog.id,
-            changes: { overall_status: 'started', ignored_reason: null, automation_run_id: run.id },
-          });
-        }
-      }
-      startedRunIds.push(run.id);
-    }
-    return startedRunIds;
-  }
-
-  /** Advances each run in order and sums up the call's result. */
-  private async advanceRuns({
-    call,
-    runIds,
-    outcome,
-  }: {
-    call: AutomationRunCall;
-    runIds: readonly number[];
-    outcome: AutomationRunHandlingResult['outcome'];
-  }): Promise<AutomationRunHandlingResult> {
-    let failedErrorType: AutomationCommentLogErrorType | null = null;
-    const runPublicIds: string[] = [];
-    for (const runId of runIds) {
-      const result = await this.advanceRun({ call, runId });
-      failedErrorType ??= result.failedErrorType;
-      if (result.runPublicId !== null) runPublicIds.push(result.runPublicId);
-    }
-    return handlingResult({ outcome, runPublicIds, failedErrorType });
-  }
-
-  /**
-   * Moves one `running` run as far as it goes (AU18, AU19): plan → (claim) → Instagram → record,
-   * each unit short, until the run waits, completes, fails or stops.
-   */
-  private async advanceRun({ call, runId }: { call: AutomationRunCall; runId: number }): Promise<{
-    failedErrorType: AutomationCommentLogErrorType | null;
-    runPublicId: string | null;
-  }> {
-    let isFollowNotConfirmed = false;
-    let runPublicId: string | null = null;
-    for (let actionCount = 0; actionCount < ADVANCE_MAX_ACTIONS; actionCount += 1) {
-      const prepared = await this.unit({
-        call: call,
-        work: (unit) => this.prepareAction({ unit, call, runId, isFollowNotConfirmed }),
-      });
-      isFollowNotConfirmed = false;
-      if (prepared.kind === 'stop') return { failedErrorType: null, runPublicId };
-      if (prepared.kind === 'failed') return { failedErrorType: prepared.errorType, runPublicId };
-      runPublicId = prepared.run.public_id;
-      const recorded = await this.performAction({ call, prepared });
-      if (recorded.kind === 'rethrow') throw recorded.error;
-      if (recorded.kind === 'failed') {
-        if (recorded.tokenError !== undefined)
-          await this.markTokenBroken({ call: call, error: recorded.tokenError });
-        return { failedErrorType: recorded.errorType, runPublicId };
-      }
-      if (recorded.kind === 'stop') return { failedErrorType: null, runPublicId };
-      isFollowNotConfirmed = recorded.isFollowNotConfirmed === true;
-    }
-    logger.warn({ runId }, 'app.automation_run.advance_limit_reached');
-    return { failedErrorType: null, runPublicId };
-  }
-
-  /** The Instagram half of one prepared action and its record unit (AU19 steps b and c). */
-  private async performAction({
-    call,
-    prepared,
-  }: {
-    call: AutomationRunCall;
-    prepared: Exclude<PreparedAction, { kind: 'stop' } | { kind: 'failed' }>;
-  }): Promise<RecordedAction> {
-    const requestId = call.event.requestId;
-    switch (prepared.kind) {
-      case 'public_reply': {
-        const result = await this.messageService.sendPublicReply({
-          access: call.access,
-          instagramCommentId: prepared.run.trigger_instagram_comment_id ?? '',
-          text: prepared.text,
-          requestId,
-        });
-        return this.unit({
-          call: call,
-          work: (unit) => this.recordPublicReply({ unit, call, prepared, result }),
-        });
-      }
-      case 'send': {
-        const result = await this.messageService.sendDirectMessage({
-          access: call.access,
-          recipient: prepared.recipient,
-          composed: prepared.composed,
-          requestId,
-        });
-        return this.unit({
-          call: call,
-          work: (unit) => this.recordSend({ unit, call, prepared, result }),
-        });
-      }
-      case 'read_follow': {
-        const result = await this.messageService.readFollowStatus({
-          access: call.access,
-          instagramUserId: call.instagramUserId,
-          requestId,
-        });
-        return this.unit({
-          call: call,
-          work: (unit) => this.recordFollowRead({ unit, call, prepared, result }),
-        });
-      }
-    }
-  }
-
-  /**
-   * AU19 step a — in one unit: the run locked; stopped when it is not `running`, its contact was
-   * erased or its automation deleted; a claim still set fails the step (AQ5 — a public reply is
-   * marked failed and the flow goes on); then the planner, moving through every step that sends
-   * nothing, until a send is claimed, a public reply decided or a follow read is due.
-   */
-  private async prepareAction({
-    unit,
-    call,
-    runId,
-    isFollowNotConfirmed,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    runId: number;
-    /** The follow read just said "not following": send the request now. */
-    isFollowNotConfirmed: boolean;
-  }): Promise<PreparedAction> {
-    const organizationId = call.organizationId;
-    let run = await unit.runs.lockById({ organizationId, runId });
-    if (run === null || run.status !== 'running') return { kind: 'stop' };
-    const contact = await this.contactService.findLiveContact({
-      databaseHandle: unit.databaseHandle,
-      organizationId,
-      contactId: run.contact_id,
-    });
-    const automation = await unit.automations.findByIdIncludingDeleted({
-      organizationId,
-      automationId: run.automation_id,
-    });
-    if (contact === null || automation === null || automation.deleted_at !== null) {
-      return { kind: 'stop' };
-    }
-    let commentLog =
-      run.trigger_type === 'comment'
-        ? await unit.commentLogs.findForRun({ organizationId, runId })
-        : null;
-    if (run.sending_message_kind !== null) {
-      const failure: AutomationRunFailure = {
-        errorType: 'network',
-        reason: 'send_outcome_unknown',
-        error: null,
-        isClaimKept: true,
-      };
-      if (run.sending_message_kind !== 'public_reply') {
-        await this.failRun({ unit, call, run, commentLog, failure });
-        return { kind: 'failed', errorType: 'network' };
-      }
-      run = await this.clearClaim({ unit, call, run });
-      commentLog = await this.updateCommentLog({
-        unit,
-        call,
-        commentLog,
-        changes: { public_reply_status: 'failed', ...failureColumns(failure) },
-      });
-    }
-    const now = new Date();
-    // The comment log's step name for a step: the public reply while it is still to come (D19).
-    const logStepOf = (runStep: AutomationRunStep) =>
-      toCommentLogStep({
-        runStep,
-        isPublicReplyPending:
-          automation.is_public_reply_enabled && commentLog?.public_reply_status === 'off',
-      });
-    for (let moveCount = 0; moveCount < ADVANCE_MAX_ACTIONS; moveCount += 1) {
-      let plan = planAutomationRunStep({
-        currentStep: run.current_step as AutomationRunStep,
-        isCommentTrigger: run.trigger_type === 'comment',
-        isPublicReplyPending: commentLog?.public_reply_status === 'off',
-        automation,
-        contact,
-        now,
-      });
-      if (plan.action === 'read_follow' && isFollowNotConfirmed) {
-        plan = {
-          action: 'send',
-          messageKind: 'follow_request',
-          waitFor: 'follow',
-          nextStep: 'email_collect',
-        };
-      }
-      switch (plan.action) {
-        case 'move': {
-          run = await this.moveRun({ unit, call, run, toStep: plan.toStep });
-          commentLog = await this.updateCommentLog({
-            unit,
-            call,
-            commentLog,
-            changes: { ...plan.commentLogChanges, current_step: logStepOf(plan.toStep) },
-          });
-          continue;
-        }
-        case 'public_reply': {
-          const prepared = await this.preparePublicReply({
-            unit,
-            call,
-            state: { run, automation, commentLog },
-            now,
-          });
-          if (prepared.kind !== 'skipped') return prepared;
-          commentLog = prepared.commentLog;
-          continue;
-        }
-        case 'read_follow':
-          return { kind: 'read_follow', run, automation, commentLog };
-        case 'send':
-          return this.prepareSend({
-            unit,
-            call,
-            state: { run, automation, commentLog },
-            contact,
-            plan,
-            now,
-          });
-      }
-    }
-    return { kind: 'stop' };
-  }
-
-  /**
-   * The public reply's turn (AU20): reply safety decides; a skip is logged with its reason and the
-   * flow goes on (`skipped`), a reply is claimed with its text.
-   */
-  private async preparePublicReply({
-    unit,
-    call,
-    state,
-    now,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    state: PreparedRunState;
-    now: Date;
-  }): Promise<
-    | Extract<PreparedAction, { kind: 'public_reply' }>
-    | { kind: 'skipped'; commentLog: AutomationCommentLogRow | null }
-  > {
-    const { run, automation, commentLog } = state;
-    const decision = await this.replySafetyService.decide({
-      commentLogRepository: unit.commentLogs,
-      // The account settings carry no reply safety since ROUTE row R7 (IA12); the pacing moves to
-      // each automation at R13 (D32) — until then safety is off.
-      settings: null,
-      organizationId: call.organizationId,
-      automationId: automation.id,
-      instagramCommentId: run.trigger_instagram_comment_id ?? '',
-      replyTexts: automation.public_reply_texts,
-      now,
-    });
-    if (decision.kind === 'skip') {
-      return {
-        kind: 'skipped',
-        commentLog: await this.updateCommentLog({
-          unit,
-          call,
-          commentLog,
-          changes: {
-            public_reply_status: 'skipped',
-            public_reply_skip_reason: decision.skipReason,
-            current_step: 'opening_dm',
-          },
-        }),
-      };
-    }
-    const claimed = await this.claim({ unit, call, run, messageKind: 'public_reply' });
-    return { kind: 'public_reply', run: claimed, automation, commentLog, text: decision.text };
-  }
-
-  /**
-   * A DM's turn (AU18, 3.B.10): the channel — none open fails the step without a call
-   * (`outside_messaging_window`) — then the message composed and the send claimed.
-   */
-  private async prepareSend({
-    unit,
-    call,
-    state,
-    contact,
-    plan,
-    now,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    state: PreparedRunState;
-    contact: { last_direct_message_received_at: Date | null };
-    plan: Extract<AutomationRunStepPlan, { action: 'send' }>;
-    now: Date;
-  }): Promise<PreparedAction> {
-    const { run, automation, commentLog } = state;
-    const recipient = resolveAutomationMessageRecipient({
-      instagramUserId: call.instagramUserId,
-      lastDirectMessageReceivedAt: contact.last_direct_message_received_at,
-      privateReply: this.privateReplyOf(run),
-      now,
-    });
-    if (recipient === null) {
-      await this.failRun({
-        unit,
-        call,
-        run: { ...run, sending_message_kind: plan.messageKind },
-        commentLog,
-        failure: {
-          errorType: 'instagram_api',
-          reason: 'outside_messaging_window',
-          error: null,
-          isClaimKept: false,
-        },
-      });
-      return { kind: 'failed', errorType: 'instagram_api' };
-    }
-    const composed = this.messageService.composeMessage({
-      messageKind: plan.messageKind,
-      automation,
-      automationPublicId: automation.public_id,
-      runPublicId: run.public_id,
-      accountUsername: call.access.username,
-    });
-    const claimed = await this.claim({ unit, call, run, messageKind: plan.messageKind });
-    return { kind: 'send', run: claimed, automation, commentLog, plan, recipient, composed };
-  }
-
-  /** The comment a private reply answers: the run's own comment, within its window (3.B.10). */
-  private privateReplyOf(
-    run: AutomationRunRow,
-  ): { instagramCommentId: string; commentedAt: Date } | null {
-    if (run.trigger_type !== 'comment' || run.trigger_instagram_comment_id === null) return null;
-    return { instagramCommentId: run.trigger_instagram_comment_id, commentedAt: run.started_at };
-  }
-
-  /** Moves a running run to `toStep` with nothing sent. */
-  private async moveRun({
-    unit,
-    call,
-    run,
-    toStep,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    run: AutomationRunRow;
-    toStep: AutomationRunStep;
-  }): Promise<AutomationRunRow> {
-    const moved = await unit.runs.update({
-      organizationId: call.organizationId,
-      runId: run.id,
-      changes: { current_step: toStep, last_step_at: new Date() },
-    });
-    return moved ?? run;
-  }
-
-  /** Claims a send on the locked run (AU19 step a): the kind, its time, the event. */
-  private async claim({
-    unit,
-    call,
-    run,
-    messageKind,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    run: AutomationRunRow;
-    messageKind: AutomationRunSendingMessageKind;
-  }): Promise<AutomationRunRow> {
-    const claimed = await unit.runs.update({
-      organizationId: call.organizationId,
-      runId: run.id,
-      changes: {
-        sending_message_kind: messageKind,
-        sending_started_at: new Date(),
-        last_instagram_event_key: call.event.eventKey,
-      },
-    });
-    return claimed ?? run;
-  }
-
-  /** Clears the run's send claim. */
-  private async clearClaim({
-    unit,
-    call,
-    run,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    run: AutomationRunRow;
-  }): Promise<AutomationRunRow> {
-    const cleared = await unit.runs.update({
-      organizationId: call.organizationId,
-      runId: run.id,
-      changes: { sending_message_kind: null, sending_started_at: null },
-    });
-    return cleared ?? run;
-  }
-
-  /** Writes `changes` to a comment log and returns it; nothing without one. */
-  private async updateCommentLog({
-    unit,
-    call,
-    commentLog,
-    changes,
-  }: {
-    unit: AutomationRunRepositories;
-    call: AutomationRunOrganization;
-    commentLog: AutomationCommentLogRow | null;
-    changes: AutomationCommentLogChanges;
-  }): Promise<AutomationCommentLogRow | null> {
-    if (commentLog === null) return null;
-    return (
-      (await unit.commentLogs.update({
-        organizationId: call.organizationId,
-        commentLogId: commentLog.id,
-        changes,
-      })) ?? commentLog
-    );
-  }
-
-  /**
-   * Fails the run (AU19, 3.B.9): `failed` with a text-free error message, the wait cleared, the
-   * claim cleared unless its outcome is unknown (AQ5), a `status_changed` event, and its comment
-   * log `failed` with the step and Instagram's error — in the caller's unit, so a DM or story-reply
-   * run keeps its error after any rollback of a later unit (D16).
-   */
-  private async failRun({
-    unit,
-    call,
-    run,
-    commentLog,
-    failure,
-    isLoggedErrorKept = false,
-  }: {
-    unit: AutomationRunRepositories;
-    call: AutomationRunOrganization;
-    run: AutomationRunRow;
-    commentLog: AutomationCommentLogRow | null;
-    failure: AutomationRunFailure;
-    /** Keep what the comment log already says went wrong; fill in the rest only (D47). */
-    isLoggedErrorKept?: boolean;
+    repositories: Omit<AutomationRunRepositories, 'databaseHandle'>;
+    organizationId: number;
+    contactId: number;
+    reason: 'contact_deleted' | 'contact_excluded' | 'opted_out';
   }): Promise<void> {
-    const errorColumns: AutomationCommentLogChanges = {
-      failed_step: failedCommentLogStep({ run, commentLog }),
-      ...failureColumns(failure),
-    };
-    await unit.runs.update({
-      organizationId: call.organizationId,
-      runId: run.id,
-      changes: {
-        status: 'failed',
-        failed_at: new Date(),
-        error_message: describeFailure(failure),
-        waiting_for: null,
-        waiting_since_at: null,
-        last_step_at: new Date(),
-        ...(failure.isClaimKept ? {} : { sending_message_kind: null, sending_started_at: null }),
-      },
-    });
-    await unit.runEvents.insertMany([
-      {
-        organizationId: call.organizationId,
-        runId: run.id,
-        eventType: 'status_changed',
-        status: 'failed',
-      },
-    ]);
-    await this.updateCommentLog({
-      unit,
-      call,
-      commentLog,
-      changes: {
-        overall_status: 'failed',
-        waiting_for: null,
-        ...(isLoggedErrorKept ? unsetColumns({ commentLog, columns: errorColumns }) : errorColumns),
-      },
-    });
-    logger.warn(
-      {
-        organizationPublicId: call.scope.organizationPublicId,
-        runPublicId: run.public_id,
-        errorType: failure.errorType,
-        reason: failure.reason,
-      },
-      'app.automation_run.failed',
-    );
-  }
-
-  /**
-   * The run's failure for a send that did not deliver (3.B.9), or `null` for a temporary one that
-   * is rethrown — on the event's last attempt a temporary error fails the run instead (AU19).
-   */
-  private failureOf({
-    call,
-    result,
-  }: {
-    call: AutomationRunCall;
-    result: Exclude<AutomationSendResult, { outcome: 'delivered' }>;
-  }): AutomationRunFailure | null {
-    switch (result.outcome) {
-      case 'temporary':
-        return call.event.isLastAttempt
-          ? {
-              errorType: result.errorType,
-              reason: failureReasonOf(result),
-              error: result.error,
-              isClaimKept: false,
-            }
-          : null;
-      case 'refused':
-        return {
-          errorType: 'instagram_api',
-          reason: failureReasonOf(result),
-          error: result.error,
-          isClaimKept: false,
-        };
-      case 'token':
-        return {
-          errorType: 'token',
-          reason: failureReasonOf(result),
-          error: result.error,
-          isClaimKept: false,
-        };
-      case 'unknown':
-        return {
-          errorType: result.errorType,
-          reason: failureReasonOf(result),
-          error: result.error,
-          isClaimKept: true,
-        };
-    }
-  }
-
-  /**
-   * AU19 step c of a DM — in one unit, on the re-locked run: delivered → the claim cleared, the
-   * contact's `last_message_sent_at`, then the run waits, moves on or completes (AU10: the
-   * completed-run count and the contact's tags in the same unit); otherwise the failure, or the
-   * claim cleared and a temporary error rethrown.
-   */
-  private async recordSend({
-    unit,
-    call,
-    prepared,
-    result,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    prepared: Extract<PreparedAction, { kind: 'send' }>;
-    result: AutomationSendResult;
-  }): Promise<RecordedAction> {
-    const run = await unit.runs.lockById({
-      organizationId: call.organizationId,
-      runId: prepared.run.id,
-    });
-    if (run === null) return { kind: 'stop' };
-    const commentLog =
-      run.trigger_type === 'comment'
-        ? await unit.commentLogs.findForRun({ organizationId: call.organizationId, runId: run.id })
-        : null;
-    const now = new Date();
-    if (result.outcome === 'delivered') {
-      await this.contactService.recordContactMessageSent({
-        databaseHandle: unit.databaseHandle,
-        organizationId: call.organizationId,
-        contactId: run.contact_id,
-        sentAt: now,
-      });
-      // A run cancelled while the message went (a delete, an erase) stays cancelled.
-      if (run.status !== 'running') return { kind: 'stop' };
-      await this.recordDelivered({ unit, call, run, commentLog, plan: prepared.plan, now });
-      return prepared.plan.waitFor === null && prepared.plan.nextStep !== null
-        ? { kind: 'continue' }
-        : { kind: 'stop' };
-    }
-    return this.recordUndelivered({ unit, call, run, commentLog, result });
-  }
-
-  /** The run state after a delivered DM: waiting, the next step, or completed. */
-  private async recordDelivered({
-    unit,
-    call,
-    run,
-    commentLog,
-    plan,
-    now,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    run: AutomationRunRow;
-    commentLog: AutomationCommentLogRow | null;
-    plan: Extract<AutomationRunStepPlan, { action: 'send' }>;
-    now: Date;
-  }): Promise<void> {
-    const organizationId = call.organizationId;
-    const logChanges = deliveredCommentLogChanges({
-      messageKind: plan.messageKind,
-      isWaiting: plan.waitFor !== null,
-      now,
-    });
-    const cleared = { sending_message_kind: null, sending_started_at: null, last_step_at: now };
-    if (plan.nextStep === null) {
-      await this.completeRun({ unit, call, run, commentLog, logChanges, now });
-      return;
-    }
-    if (plan.waitFor !== null) {
-      await unit.runs.update({
+    await repositories.automations.lockForRunChanges({
+      organizationId,
+      automationIds: await repositories.openKeys.listAutomationIdsOfContact({
         organizationId,
-        runId: run.id,
-        changes: {
-          ...cleared,
-          status: 'waiting',
-          waiting_for: plan.waitFor,
-          waiting_since_at: now,
-        },
-      });
-      await unit.runEvents.insertMany([
-        { organizationId, runId: run.id, eventType: 'status_changed', status: 'waiting' },
-      ]);
-      await this.updateCommentLog({
-        unit,
-        call,
-        commentLog,
-        changes: {
-          ...logChanges,
-          overall_status: 'waiting',
-          waiting_for: plan.waitFor,
-          current_step: commentLogStepOfMessage(plan.messageKind),
-        },
-      });
-      return;
-    }
-    await unit.runs.update({
-      organizationId,
-      runId: run.id,
-      changes: { ...cleared, current_step: plan.nextStep },
+        contactId,
+      }),
     });
-    await this.updateCommentLog({
-      unit,
-      call,
-      commentLog,
-      changes: {
-        ...logChanges,
-        current_step: toCommentLogStep({ runStep: plan.nextStep, isPublicReplyPending: false }),
-      },
+    const cancelled = await repositories.runs.cancelOpenRunsOfContact({
+      organizationId,
+      contactId,
+      reason,
+    });
+    await this.recordEndedRuns({
+      repositories,
+      organizationId,
+      ended: cancelled,
+      status: 'cancelled',
     });
   }
 
-  /**
-   * Completes the run (AU18 step 6): `completed` (the all-time counts are R14's, AU19), the
-   * automation's tags — or its name when it has none — on the contact (CT10), a `status_changed`
-   * event, the comment log `completed`.
-   */
-  private async completeRun({
-    unit,
-    call,
-    run,
-    commentLog,
-    logChanges,
-    now,
+  /** The keys, `status_changed` events and logs of runs a bulk statement just ended. */
+  private async recordEndedRuns({
+    repositories,
+    organizationId,
+    ended,
+    status,
   }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    run: AutomationRunRow;
-    commentLog: AutomationCommentLogRow | null;
-    logChanges: AutomationCommentLogChanges;
-    now: Date;
+    repositories: Pick<AutomationRunRepositories, 'runEvents' | 'commentLogs' | 'openKeys'>;
+    organizationId: number;
+    ended: readonly AutomationEndedRun[];
+    status: 'cancelled';
   }): Promise<void> {
-    const organizationId = call.organizationId;
-    await unit.runs.update({
+    if (ended.length === 0) return;
+    await repositories.openKeys.deleteForRuns({ organizationId, runs: ended });
+    const events: AutomationRunEventValues[] = ended.map((run) => ({
       organizationId,
       runId: run.id,
-      changes: {
-        status: 'completed',
-        completed_at: now,
-        current_step: 'final_dm',
-        sending_message_kind: null,
-        sending_started_at: null,
-        waiting_for: null,
-        waiting_since_at: null,
-        last_step_at: now,
-      },
-    });
-    const automation = await unit.automations.findByIdIncludingDeleted({
+      runStartedAt: run.started_at,
+      eventType: 'status_changed',
+      status,
+    }));
+    await repositories.runEvents.insertMany(events);
+    await repositories.commentLogs.markRunsCancelled({
       organizationId,
-      automationId: run.automation_id,
-    });
-    if (automation !== null) {
-      await this.contactService.addContactTags({
-        databaseHandle: unit.databaseHandle,
-        organizationId,
-        contactId: run.contact_id,
-        tags: automation.tags.length > 0 ? automation.tags : [automation.name],
-      });
-    }
-    await unit.runEvents.insertMany([
-      { organizationId, runId: run.id, eventType: 'status_changed', status: 'completed' },
-    ]);
-    await this.updateCommentLog({
-      unit,
-      call,
-      commentLog,
-      changes: {
-        ...logChanges,
-        overall_status: 'completed',
-        current_step: 'final_dm',
-        waiting_for: null,
-      },
-    });
-  }
-
-  /** A DM that did not deliver: fail the run, or clear the claim and rethrow (AU19, 3.B.9). */
-  private async recordUndelivered({
-    unit,
-    call,
-    run,
-    commentLog,
-    result,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    run: AutomationRunRow;
-    commentLog: AutomationCommentLogRow | null;
-    result: Exclude<AutomationSendResult, { outcome: 'delivered' }>;
-  }): Promise<RecordedAction> {
-    if (run.status !== 'running') return { kind: 'stop' };
-    const failure = this.failureOf({ call, result });
-    if (failure === null) {
-      await this.clearClaim({ unit, call, run });
-      return { kind: 'rethrow', error: result.error };
-    }
-    await this.failRun({ unit, call, run, commentLog, failure });
-    return {
-      kind: 'failed',
-      errorType: failure.errorType,
-      ...(result.outcome === 'token' ? { tokenError: result.error } : {}),
-    };
-  }
-
-  /**
-   * AU19 step c of the public reply — any failure is logged and the flow goes on (3.B.9), except a
-   * dead token, which fails the run.
-   */
-  private async recordPublicReply({
-    unit,
-    call,
-    prepared,
-    result,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    prepared: Extract<PreparedAction, { kind: 'public_reply' }>;
-    result: AutomationSendResult;
-  }): Promise<RecordedAction> {
-    const run = await unit.runs.lockById({
-      organizationId: call.organizationId,
-      runId: prepared.run.id,
-    });
-    if (run === null) return { kind: 'stop' };
-    const commentLog = await unit.commentLogs.findForRun({
-      organizationId: call.organizationId,
-      runId: run.id,
-    });
-    const now = new Date();
-    if (result.outcome === 'token') {
-      const failure: AutomationRunFailure = {
-        errorType: 'token',
-        reason: failureReasonOf(result),
-        error: result.error,
-        isClaimKept: false,
-      };
-      if (run.status === 'running') await this.failRun({ unit, call, run, commentLog, failure });
-      return { kind: 'failed', errorType: 'token', tokenError: result.error };
-    }
-    if (run.status === 'running') await this.clearClaim({ unit, call, run });
-    const changes: AutomationCommentLogChanges =
-      result.outcome === 'delivered'
-        ? { public_reply_status: 'sent', public_reply_text: prepared.text, public_reply_at: now }
-        : {
-            public_reply_status: 'failed',
-            ...failureColumns({
-              errorType: result.outcome === 'refused' ? 'instagram_api' : result.errorType,
-              reason: failureReasonOf(result),
-              error: result.error,
-              isClaimKept: false,
-            }),
-          };
-    await this.updateCommentLog({
-      unit,
-      call,
-      commentLog,
-      changes: { ...changes, current_step: 'opening_dm' },
-    });
-    return run.status === 'running' ? { kind: 'continue' } : { kind: 'stop' };
-  }
-
-  /**
-   * After the follow read (AU18 step 3): following → saved on the contact and the step done;
-   * not following (or unknown) → the request goes next; a dead token fails the run; a temporary
-   * failure is rethrown, or fails the run on the event's last attempt.
-   */
-  private async recordFollowRead({
-    unit,
-    call,
-    prepared,
-    result,
-  }: {
-    unit: AutomationRunUnit;
-    call: AutomationRunCall;
-    prepared: Extract<PreparedAction, { kind: 'read_follow' }>;
-    result: Awaited<ReturnType<AutomationRunMessageService['readFollowStatus']>>;
-  }): Promise<RecordedAction> {
-    const run = await unit.runs.lockById({
-      organizationId: call.organizationId,
-      runId: prepared.run.id,
-    });
-    if (run === null || run.status !== 'running') return { kind: 'stop' };
-    const commentLog =
-      run.trigger_type === 'comment'
-        ? await unit.commentLogs.findForRun({ organizationId: call.organizationId, runId: run.id })
-        : null;
-    if (result.outcome !== 'read') {
-      const isFailing = result.outcome === 'token' || call.event.isLastAttempt;
-      if (!isFailing) return { kind: 'rethrow', error: result.error };
-      const errorType = result.outcome === 'token' ? 'token' : result.errorType;
-      await this.failRun({
-        unit,
-        call,
-        run,
-        commentLog,
-        failure: {
-          errorType,
-          reason: 'follow_read_failed',
-          error: result.error,
-          isClaimKept: false,
-        },
-      });
-      return {
-        kind: 'failed',
-        errorType,
-        ...(result.outcome === 'token' ? { tokenError: result.error } : {}),
-      };
-    }
-    const now = new Date();
-    if (result.isFollowing !== null) {
-      await this.contactService.recordContactProfile({
-        databaseHandle: unit.databaseHandle,
-        organizationId: call.organizationId,
-        contactId: run.contact_id,
-        profile: { isFollowingAccount: result.isFollowing },
-        checkedAt: now,
-      });
-    }
-    if (result.isFollowing !== true) return { kind: 'continue', isFollowNotConfirmed: true };
-    await this.moveRun({ unit, call, run, toStep: 'email_collect' });
-    const wasRequested = commentLog?.follow_status === 'waiting';
-    await this.updateCommentLog({
-      unit,
-      call,
-      commentLog,
-      changes: wasRequested
-        ? { follow_status: 'done', follow_confirmed_at: now, current_step: 'email_collect' }
-        : { follow_status: 'skipped', current_step: 'email_collect' },
-    });
-    return { kind: 'continue' };
-  }
-
-  /**
-   * Asks the email question again on the run waiting for it (AU17 (1), D18) — as a private reply to
-   * the new comment, or a DM; the run keeps waiting.
-   */
-  private askEmailAgain({
-    call,
-    runId,
-    privateReply,
-  }: {
-    call: AutomationRunCall;
-    runId: number;
-    privateReply: { instagramCommentId: string; commentedAt: Date } | null;
-  }): Promise<AutomationRunHandlingResult> {
-    return this.sendToWaitingRun({
-      call,
-      runId,
-      messageKind: 'email_question',
-      privateReply,
-      outcome: 'question_asked_again',
-    });
-  }
-
-  /**
-   * One message to a waiting run — the question asked again, or the wrong-email text (AU17 (1),
-   * AU18 step 4): claimed, sent, recorded; the run keeps waiting whatever happens. The claim is
-   * cleared whatever the outcome, and the event key the claim set marks the message done, so it is
-   * never re-sent — except after a temporary error (not delivered, 3.B.9), which puts the run's
-   * previous event key back and is rethrown before the last attempt: the retry sends it. A dead
-   * token marks the account broken.
-   */
-  private async sendToWaitingRun({
-    call,
-    runId,
-    messageKind,
-    privateReply,
-    outcome,
-  }: {
-    call: AutomationRunCall;
-    runId: number;
-    messageKind: Extract<AutomationRunSendingMessageKind, 'email_question' | 'invalid_email'>;
-    privateReply: { instagramCommentId: string; commentedAt: Date } | null;
-    outcome: AutomationRunHandlingResult['outcome'];
-  }): Promise<AutomationRunHandlingResult> {
-    const prepared = await this.unit({
-      call: call,
-      work: async (unit) => {
-        const run = await unit.runs.lockById({ organizationId: call.organizationId, runId });
-        if (run === null || run.status !== 'waiting' || run.waiting_for !== 'email') return null;
-        if (run.sending_message_kind !== null) return null;
-        const contact = await this.contactService.findLiveContact({
-          databaseHandle: unit.databaseHandle,
-          organizationId: call.organizationId,
-          contactId: run.contact_id,
-        });
-        const automation = await unit.automations.findByIdIncludingDeleted({
-          organizationId: call.organizationId,
-          automationId: run.automation_id,
-        });
-        if (contact === null || automation === null) return null;
-        // Turned off since: not asked again — the run goes on after this event's handling (AU14).
-        if (planWaitedStepNowOff({ waitingFor: 'email', automation }) !== null) return null;
-        const recipient = resolveAutomationMessageRecipient({
-          instagramUserId: call.instagramUserId,
-          lastDirectMessageReceivedAt: contact.last_direct_message_received_at,
-          privateReply,
-          now: new Date(),
-        });
-        if (recipient === null) return null;
-        const composed = this.messageService.composeMessage({
-          messageKind,
-          automation,
-          automationPublicId: automation.public_id,
-          runPublicId: run.public_id,
-          accountUsername: call.access.username,
-        });
-        const claimed = await this.claim({ unit, call, run, messageKind });
-        return {
-          run: claimed,
-          recipient,
-          composed,
-          previousEventKey: run.last_instagram_event_key,
-        };
-      },
-    });
-    if (prepared === null) return handlingResult({ outcome });
-    const result = await this.messageService.sendDirectMessage({
-      access: call.access,
-      recipient: prepared.recipient,
-      composed: prepared.composed,
-      requestId: call.event.requestId,
-    });
-    const isRetried = result.outcome === 'temporary' && !call.event.isLastAttempt;
-    await this.unit({
-      call: call,
-      work: async (unit) => {
-        const run = await unit.runs.lockById({ organizationId: call.organizationId, runId });
-        if (run === null) return;
-        await unit.runs.update({
-          organizationId: call.organizationId,
-          runId,
-          changes: {
-            sending_message_kind: null,
-            sending_started_at: null,
-            ...(isRetried ? { last_instagram_event_key: prepared.previousEventKey } : {}),
-          },
-        });
-        if (result.outcome === 'delivered') {
-          await this.contactService.recordContactMessageSent({
-            databaseHandle: unit.databaseHandle,
-            organizationId: call.organizationId,
-            contactId: run.contact_id,
-            sentAt: new Date(),
-          });
-        }
-      },
-    });
-    if (isRetried) throw result.error;
-    if (result.outcome === 'token') {
-      await this.markTokenBroken({ call: call, error: result.error });
-      return handlingResult({
-        outcome,
-        runPublicIds: [prepared.run.public_id],
-        failedErrorType: 'token',
-      });
-    }
-    return handlingResult({ outcome, runPublicIds: [prepared.run.public_id] });
-  }
-
-  /** A dead token: the account's guarded status change and its reconnect notice (IA9, WC-11). */
-  private async markTokenBroken({
-    call,
-    error,
-  }: {
-    call: AutomationRunCall;
-    error: MetaGraphApiError;
-  }): Promise<void> {
-    await this.instagramAccountService.markConnectionBroken({
-      scope: call.scope,
-      instagramAccount: call.access.instagramAccount,
-      connectionStatus: error.connectionStatus ?? 'error',
-      requestId: call.event.requestId,
+      runIds: ended.map((run) => run.id),
     });
   }
 }

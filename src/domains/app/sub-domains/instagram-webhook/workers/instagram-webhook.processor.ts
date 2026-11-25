@@ -92,11 +92,7 @@ export interface InstagramWebhookProcessingServices {
   automationService: Pick<AutomationService, 'linkNextPostAutomations'>;
   automationRunService: Pick<
     AutomationRunService,
-    | 'startCommentRun'
-    | 'handleDirectMessage'
-    | 'startStoryReplyRun'
-    | 'handleButtonClick'
-    | 'failRunsOfFailedEvent'
+    'startCommentRun' | 'handleDirectMessage' | 'handleButtonClick' | 'failRunsOfFailedEvent'
   >;
 }
 
@@ -468,28 +464,37 @@ async function runEngine({
       });
       return automationRunService.startCommentRun({
         ...trigger,
-        instagramCommentId: dispatch.instagramCommentId,
-        instagramMediaId: dispatch.instagramMediaId,
+        kind: 'comment',
+        commentId: dispatch.instagramCommentId,
+        mediaId: dispatch.instagramMediaId,
         text: dispatch.text,
         commenterUsername: dispatch.username,
       });
     case 'direct_message':
       return automationRunService.handleDirectMessage({
         ...trigger,
+        kind: 'message',
         text: dispatch.text,
         quickReplyPayload: dispatch.quickReplyPayload,
         attachmentEmail: dispatch.attachmentEmail,
       });
     case 'story_reply':
-      return automationRunService.startStoryReplyRun({
+      return automationRunService.handleDirectMessage({
         ...trigger,
-        instagramStoryId: dispatch.instagramStoryId,
+        kind: 'story_reply',
+        storyId: dispatch.instagramStoryId,
         text: dispatch.text,
+        quickReplyPayload: null,
+        attachmentEmail: null,
       });
     case 'button_click':
       // A payload this engine never sent names no run: nothing continues (D18).
       if (dispatch.button === null) return null;
-      return automationRunService.handleButtonClick({ ...trigger, ...dispatch.button });
+      return automationRunService.handleButtonClick({
+        ...trigger,
+        kind: 'postback',
+        ...dispatch.button,
+      });
   }
 }
 
@@ -529,6 +534,8 @@ async function handleEvent({
   const contact = await recordContact({ context, account, dispatch, occurredAt });
   const runEvent: AutomationRunEvent = {
     eventKey: event.event_key,
+    // The event's own id (the "every time" once key, D65): the key without its kind prefix.
+    eventId: event.event_key.slice(event.event_key.indexOf(':') + 1),
     occurredAt,
     isLastAttempt: context.isLastAttempt,
     requestId: context.requestId,
@@ -539,16 +546,12 @@ async function handleEvent({
     dispatch,
     trigger: {
       scope: context.scope,
-      instagramAccountPublicId: context.instagramAccountPublicId,
+      channelAccountPublicId: context.instagramAccountPublicId,
       contact,
       event: runEvent,
     },
   });
   if (result === null) return { kind: 'processed', outcome: 'button_not_ours', runPublicIds: [] };
-  // A dead token marked the account broken (IA9): the event fails at once (WH14).
-  if (result.failedErrorType === 'token') {
-    return { kind: 'failed', errorMessage: 'instagram_api:token' };
-  }
   // The account stopped being this organization's connected account since the check (AU27).
   if (result.outcome === 'account_unavailable') {
     return { kind: 'skipped', skipReason: 'account_disconnected' };
@@ -763,7 +766,7 @@ async function processClaimedEvent(context: ClaimedEventContext): Promise<EventO
  *   (3) the contact first (sub-domain 2; a new contact's profile read, CQ3), then the kind — a
  *   comment stores its post and runs "next post" linking in a savepoint before `startCommentRun`
  *   (D18, D26); a DM (or a `messages` change) `handleDirectMessage`; a story reply
- *   `startStoryReplyRun`; a button click `handleButtonClick` with `parseAutomationButtonPayload`'s
+ *   `handleDirectMessage` (`story_reply`); a button click `handleButtonClick` with `parseAutomationButtonPayload`'s
  *   ids — every call outside any database context with the job's scope and `isLastAttempt` (the
  *   claim's attempt is the last); (4) mark it `processed` while the claim holds. After the last
  *   event of the batch the job adds one follow-up job, so a busy account yields its slot.

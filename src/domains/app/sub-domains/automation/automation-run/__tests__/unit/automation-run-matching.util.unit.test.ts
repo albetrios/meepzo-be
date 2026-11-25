@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import {
   type AutomationMatchCandidate,
   chooseCommentAutomation,
-  chooseDirectMessageAutomation,
-  chooseStoryReplyAutomation,
-  decideExistingRunConflict,
+  chooseExactSourceAutomation,
+  chooseMessageAutomation,
+  chooseTagAutomation,
+  matchAutomationKeyword,
   matchesAutomationKeywords,
   pickEmailAnswer,
   pickPhoneAnswer,
 } from '@/domains/app/sub-domains/automation/automation-run/automation-run-matching.util.js';
 
 /**
- * The run engine's matching rules (routes-final § 3.B — AU16, AU17, D18, D26) as pure functions:
- * which automation answers a comment (post-linked first, the oldest match, every other match
- * returned), which one a DM or a story reply starts, what a trigger meets for an existing run, and
- * where a DM's email or phone answer comes from.
+ * The run engine's matching rules (feat-instagram-dm-sending routes-final § 4.B, plan §4.3–§4.4, D37)
+ * as pure functions: which automation answers a comment (post-linked first, the oldest, every other
+ * match returned), which one a message, a tap or a tag starts, and where a DM's answer comes from.
  */
 
 const POST = '17900000000000001';
@@ -33,217 +33,240 @@ function candidate(
     id: nextId,
     created_at: new Date(Date.UTC(2026, 10, 21, 12, 0) - ageInMinutes * 60_000),
     trigger_type: 'comment',
+    also_start_from: [],
     target_scope: 'any',
     target_instagram_media_id: null,
     target_instagram_story_id: null,
+    target_starts_at: null,
+    target_ends_at: null,
     keywords: [],
-    is_dm_keyword_trigger_enabled: true,
+    ad_id: null,
+    ref_code: null,
+    starter_questions: [],
+    trigger_tag: null,
     ...rest,
   };
 }
 
-describe('matchesAutomationKeywords', () => {
-  it('matches when the lowercased text contains any keyword', () => {
-    expect(
-      matchesAutomationKeywords({
-        keywords: ['price', 'link'],
-        text: 'What is the PRICE?',
-        isMatchWithoutKeywords: false,
-      }),
-    ).toBe(true);
-    expect(
-      matchesAutomationKeywords({
-        keywords: ['price'],
-        text: 'nice',
-        isMatchWithoutKeywords: true,
-      }),
-    ).toBe(false);
+/** A message event's match input. */
+function message(overrides: Partial<Parameters<typeof chooseMessageAutomation>[0]['input']> = {}) {
+  return {
+    kind: 'message' as const,
+    text: 'price please',
+    storyId: null,
+    sharedMediaId: null,
+    isFirstMessage: false,
+    isOwnerChatting: false,
+    ...overrides,
+  };
+}
+
+describe('matchAutomationKeyword / matchesAutomationKeywords (D39, D60)', () => {
+  it('matches a keyword the text contains, and a close spelling of a long word', () => {
+    expect(matchAutomationKeyword({ keywords: ['guide'], text: 'Send the GUIDE' })).toEqual({
+      keyword: 'guide',
+      kind: 'exact',
+    });
+    expect(matchAutomationKeyword({ keywords: ['guide'], text: 'the guida please' })).toEqual({
+      keyword: 'guide',
+      kind: 'close',
+    });
   });
 
   it('no keywords matches every comment and story reply, never a DM', () => {
     expect(
-      matchesAutomationKeywords({ keywords: [], text: 'hello', isMatchWithoutKeywords: true }),
+      matchesAutomationKeywords({ keywords: [], text: 'x', isMatchWithoutKeywords: true }),
     ).toBe(true);
     expect(
-      matchesAutomationKeywords({ keywords: [], text: 'hello', isMatchWithoutKeywords: false }),
-    ).toBe(false);
-  });
-
-  it('a missing text matches no keyword', () => {
-    expect(
-      matchesAutomationKeywords({ keywords: ['price'], text: null, isMatchWithoutKeywords: true }),
+      matchesAutomationKeywords({ keywords: [], text: 'x', isMatchWithoutKeywords: false }),
     ).toBe(false);
   });
 });
 
-describe('chooseCommentAutomation (AU16, D26)', () => {
-  it('a post-linked match beats an older "any post" one', () => {
-    const olderAnyPost = candidate({ ageInMinutes: 60 });
-    const specific = candidate({
-      ageInMinutes: 10,
-      target_scope: 'specific',
-      target_instagram_media_id: POST,
-    });
-
-    const { chosen, otherMatches } = chooseCommentAutomation({
-      candidates: [olderAnyPost, specific],
-      instagramMediaId: POST,
-      text: 'link',
-    });
-
-    expect(chosen).toBe(specific);
-    expect(otherMatches).toEqual([olderAnyPost]);
-  });
-
-  it('the oldest of a kind wins — two linked "next post" automations', () => {
-    const newerNext = candidate({
-      ageInMinutes: 5,
-      target_scope: 'next',
-      target_instagram_media_id: POST,
-    });
-    const olderNext = candidate({
-      ageInMinutes: 50,
-      target_scope: 'next',
-      target_instagram_media_id: POST,
-    });
-
-    const { chosen, otherMatches } = chooseCommentAutomation({
-      candidates: [newerNext, olderNext],
-      instagramMediaId: POST,
-      text: 'anything',
-    });
-
-    expect(chosen).toBe(olderNext);
-    expect(otherMatches).toEqual([newerNext]);
-  });
-
-  it('only when no post-linked automation matches is an "any post" one chosen, oldest first', () => {
-    const specificNoMatch = candidate({
-      target_scope: 'specific',
-      target_instagram_media_id: POST,
-      keywords: ['shoes'],
-    });
-    const newerAny = candidate({ ageInMinutes: 1 });
-    const olderAny = candidate({ ageInMinutes: 2 });
-
-    const { chosen, otherMatches } = chooseCommentAutomation({
-      candidates: [specificNoMatch, newerAny, olderAny],
-      instagramMediaId: POST,
-      text: 'link please',
-    });
-
-    expect(chosen).toBe(olderAny);
-    expect(otherMatches).toEqual([newerAny]);
-  });
-
-  it("leaves another post's automations and a waiting or expired next-post one untouched", () => {
+describe('chooseCommentAutomation (plan §4.4)', () => {
+  it('a post-linked match beats an older "any post" one; every other match is returned', () => {
+    const anyPost = candidate({ ageInMinutes: 30 });
+    const linked = candidate({ target_scope: 'specific', target_instagram_media_id: POST });
     const otherPost = candidate({
       target_scope: 'specific',
       target_instagram_media_id: OTHER_POST,
     });
-    const waitingNext = candidate({ target_scope: 'next', target_instagram_media_id: null });
-
     const { chosen, otherMatches } = chooseCommentAutomation({
-      candidates: [otherPost, waitingNext],
-      instagramMediaId: POST,
-      text: 'link',
+      candidates: [anyPost, linked, otherPost],
+      kind: 'comment',
+      mediaId: POST,
+      adId: null,
+      mediaPublishedAt: null,
+      text: 'hi',
     });
-
-    expect(chosen).toBeNull();
-    expect(otherMatches).toEqual([]);
+    expect(chosen?.automation).toBe(linked);
+    expect(chosen?.triggerType).toBe('comment');
+    expect(otherMatches).toEqual([anyPost]);
   });
 
-  it('ignores a non-comment automation and one whose keywords do not match', () => {
-    const story = candidate({ trigger_type: 'story_reply' });
-    const keywordMiss = candidate({ keywords: ['price'] });
-
+  it('"posts between" holds a post published inside its dates; an ad comment matches its ad', () => {
+    const between = candidate({
+      target_scope: 'between',
+      target_starts_at: new Date('2026-11-01T00:00:00Z'),
+      target_ends_at: new Date('2026-11-30T00:00:00Z'),
+    });
+    const ad = candidate({ trigger_type: 'ad_comment', ad_id: '777', ageInMinutes: 10 });
     expect(
       chooseCommentAutomation({
-        candidates: [story, keywordMiss],
-        instagramMediaId: POST,
-        text: 'hi',
-      }).chosen,
-    ).toBeNull();
+        candidates: [between],
+        kind: 'comment',
+        mediaId: POST,
+        adId: null,
+        mediaPublishedAt: new Date('2026-11-10T00:00:00Z'),
+        text: null,
+      }).chosen?.automation,
+    ).toBe(between);
+    expect(
+      chooseCommentAutomation({
+        candidates: [between, ad],
+        kind: 'ad_comment',
+        mediaId: POST,
+        adId: '777',
+        mediaPublishedAt: new Date('2026-12-10T00:00:00Z'),
+        text: null,
+      }).chosen?.automation,
+    ).toBe(ad);
+  });
+
+  it('a Live comment matches only Live comment automations', () => {
+    const live = candidate({ trigger_type: 'live_comment', ageInMinutes: 1 });
+    const comment = candidate({ ageInMinutes: 5 });
+    const { chosen, otherMatches } = chooseCommentAutomation({
+      candidates: [comment, live],
+      kind: 'live_comment',
+      mediaId: POST,
+      adId: null,
+      mediaPublishedAt: null,
+      text: 'x',
+    });
+    expect(chosen?.automation).toBe(live);
+    expect(otherMatches).toEqual([]);
   });
 });
 
-describe('chooseDirectMessageAutomation (AU16)', () => {
-  it('the first automation, any trigger, with the DM trigger on and a matching keyword', () => {
-    const triggerOff = candidate({
-      ageInMinutes: 90,
-      keywords: ['catalog'],
-      is_dm_keyword_trigger_enabled: false,
-    });
-    const commentWithDm = candidate({ ageInMinutes: 60, keywords: ['catalog'] });
-    const dm = candidate({ ageInMinutes: 30, trigger_type: 'dm', keywords: ['catalog'] });
-
-    expect(
-      chooseDirectMessageAutomation({
-        candidates: [dm, triggerOff, commentWithDm],
-        text: 'Catalog?',
-      }),
-    ).toBe(commentWithDm);
+describe('chooseMessageAutomation (plan §4.3 levels 3–5)', () => {
+  it('a keyword DM: its own way before "also start from", oldest first', () => {
+    const also = candidate({ also_start_from: ['dm'], keywords: ['price'], ageInMinutes: 60 });
+    const own = candidate({ trigger_type: 'dm_keyword', keywords: ['price'] });
+    const match = chooseMessageAutomation({ candidates: [also, own], input: message() });
+    expect(match?.automation).toBe(own);
+    expect(match?.triggerType).toBe('dm_keyword');
+    const viaAlso = chooseMessageAutomation({ candidates: [also], input: message() });
+    expect(viaAlso).toEqual({ automation: also, triggerType: 'dm_keyword' });
   });
 
-  it('no keywords never matches a DM', () => {
-    expect(
-      chooseDirectMessageAutomation({
-        candidates: [candidate({ trigger_type: 'dm', keywords: [] })],
-        text: 'hello',
-      }),
-    ).toBeNull();
-  });
-});
-
-describe('chooseStoryReplyAutomation (AU16, D18)', () => {
-  it('any story, or a specific one on this story; the oldest matching first', () => {
-    const otherStory = candidate({
-      ageInMinutes: 90,
-      trigger_type: 'story_reply',
-      target_scope: 'specific',
-      target_instagram_story_id: '17910000000000009',
-    });
+  it('a story reply: one story before "any story"; a story mention; a shared post', () => {
+    const anyStory = candidate({ trigger_type: 'story_reply', ageInMinutes: 60 });
     const thisStory = candidate({
-      ageInMinutes: 60,
       trigger_type: 'story_reply',
       target_scope: 'specific',
       target_instagram_story_id: STORY,
     });
-    const anyStory = candidate({ ageInMinutes: 30, trigger_type: 'story_reply' });
-
     expect(
-      chooseStoryReplyAutomation({
-        candidates: [anyStory, otherStory, thisStory],
-        instagramStoryId: STORY,
-        text: 'wow',
-      }),
+      chooseMessageAutomation({
+        candidates: [anyStory, thisStory],
+        input: message({ kind: 'story_reply', storyId: STORY }),
+      })?.automation,
     ).toBe(thisStory);
+    const mention = candidate({ trigger_type: 'story_mention' });
+    expect(
+      chooseMessageAutomation({
+        candidates: [mention],
+        input: message({ kind: 'story_mention', text: null, storyId: STORY }),
+      })?.triggerType,
+    ).toBe('story_mention');
+    const shared = candidate({ trigger_type: 'shared_post' });
+    expect(
+      chooseMessageAutomation({
+        candidates: [shared],
+        input: message({ kind: 'shared_post', text: null, sharedMediaId: POST }),
+      })?.automation,
+    ).toBe(shared);
   });
 
-  it('no keywords matches every story reply', () => {
-    const anyStory = candidate({ trigger_type: 'story_reply' });
+  it('her first DM, then "no other automation answered" — not while the owner chats by hand', () => {
+    const first = candidate({ trigger_type: 'first_message' });
+    const fallback = candidate({ trigger_type: 'default_reply' });
     expect(
-      chooseStoryReplyAutomation({ candidates: [anyStory], instagramStoryId: STORY, text: null }),
-    ).toBe(anyStory);
+      chooseMessageAutomation({
+        candidates: [first, fallback],
+        input: message({ text: 'hi', isFirstMessage: true }),
+      })?.automation,
+    ).toBe(first);
+    expect(
+      chooseMessageAutomation({ candidates: [first, fallback], input: message({ text: 'hi' }) })
+        ?.automation,
+    ).toBe(fallback);
+    expect(
+      chooseMessageAutomation({
+        candidates: [fallback],
+        input: message({ text: 'hi', isOwnerChatting: true }),
+      }),
+    ).toBeNull();
+  });
+
+  it('a message without words reaches only levels 4 and 5', () => {
+    const keyword = candidate({ trigger_type: 'dm_keyword', keywords: ['price'] });
+    expect(
+      chooseMessageAutomation({ candidates: [keyword], input: message({ text: null }) }),
+    ).toBeNull();
   });
 });
 
-describe('decideExistingRunConflict (AU17)', () => {
-  it.each([
-    [true, null, 'waiting_for_other_email'],
-    [true, 'completed', 'waiting_for_other_email'],
-    [false, 'waiting', 'already_waiting'],
-    [false, 'running', 'run_in_progress'],
-    [false, 'completed', 'previous_run_final'],
-    [false, 'failed', 'previous_run_final'],
-    [false, 'cancelled', null],
-    [false, null, null],
-  ] as const)(
-    'email wait %s, last run %s → %s',
-    (hasEmailWaitingRun, latestRunStatus, expected) => {
-      expect(decideExistingRunConflict({ hasEmailWaitingRun, latestRunStatus })).toBe(expected);
-    },
-  );
+describe('chooseExactSourceAutomation and chooseTagAutomation', () => {
+  it('a starter question, a ref and an ad name their automation', () => {
+    const starter = candidate({ trigger_type: 'starter_question', starter_questions: ['Prices?'] });
+    const ref = candidate({ trigger_type: 'ref_link', ref_code: 'spring' });
+    const ad = candidate({ trigger_type: 'ad_message', ad_id: '55' });
+    const candidates = [starter, ref, ad];
+    expect(
+      chooseExactSourceAutomation({ candidates, kind: 'starter_question', value: 'Prices?' })
+        ?.automation,
+    ).toBe(starter);
+    expect(
+      chooseExactSourceAutomation({ candidates, kind: 'ref_link', value: 'spring' })?.automation,
+    ).toBe(ref);
+    expect(
+      chooseExactSourceAutomation({ candidates, kind: 'ad_message', value: '55' })?.automation,
+    ).toBe(ad);
+    expect(
+      chooseExactSourceAutomation({ candidates, kind: 'ref_link', value: 'other' }),
+    ).toBeNull();
+  });
+
+  it('a tag starts the oldest automation of that change and tag, never its own source', () => {
+    const older = candidate({ trigger_type: 'tag_added', trigger_tag: 'vip', ageInMinutes: 9 });
+    const newer = candidate({ trigger_type: 'tag_added', trigger_tag: 'vip' });
+    expect(
+      chooseTagAutomation({
+        candidates: [newer, older],
+        change: 'added',
+        tag: 'vip',
+        sourceAutomationId: null,
+      })?.automation,
+    ).toBe(older);
+    expect(
+      chooseTagAutomation({
+        candidates: [older, newer],
+        change: 'added',
+        tag: 'vip',
+        sourceAutomationId: older.id,
+      })?.automation,
+    ).toBe(newer);
+    expect(
+      chooseTagAutomation({
+        candidates: [older],
+        change: 'removed',
+        tag: 'vip',
+        sourceAutomationId: null,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe('the answer a DM carries (D18)', () => {
@@ -254,9 +277,6 @@ describe('the answer a DM carries (D18)', () => {
     expect(pickEmailAnswer({ quickReplyPayload: ' ', attachmentEmail: 'b@x.com', text: 'c' })).toBe(
       'b@x.com',
     );
-    expect(
-      pickEmailAnswer({ quickReplyPayload: null, attachmentEmail: null, text: ' c@x.com ' }),
-    ).toBe('c@x.com');
     expect(
       pickEmailAnswer({ quickReplyPayload: null, attachmentEmail: null, text: null }),
     ).toBeNull();

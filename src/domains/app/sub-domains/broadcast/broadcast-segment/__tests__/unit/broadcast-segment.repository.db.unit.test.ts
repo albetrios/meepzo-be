@@ -83,7 +83,8 @@ describe('BroadcastSegmentRepository audience (database)', () => {
       automationId: automation.id,
       contactId: avery.id,
       status: 'completed',
-      current_step: 'final_dm',
+      current_step: 'messages',
+      last_message_number: 2,
       waiting_for: null,
       waiting_since_at: null,
       completed_at: new Date(),
@@ -187,7 +188,8 @@ describe('BroadcastSegmentRepository audience (database)', () => {
     expect(await state('never')).toBe(1);
     expect(await state('tapped_hello')).toBe(1);
     expect(await state('got_message', 1)).toBe(1);
-    expect(await state('got_message', 2)).toBe(0);
+    expect(await state('got_message', 2)).toBe(1);
+    expect(await state('got_message', 3)).toBe(0);
   });
 
   it('came_in: the first automation, an ad, a ref with and without its value, a story mention', async () => {

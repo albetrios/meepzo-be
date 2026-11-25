@@ -220,25 +220,28 @@ const CONVERSIONS: readonly Conversion[] = [
     'automation_runs_contact_fk',
   ),
   link(
-    'app.automation_run_events',
-    'automation_run_id',
-    'app.automation_runs',
-    'cascade',
-    'automation_run_events_automation_run_fk',
-  ),
-  link(
     'app.automation_comment_logs',
     'automation_id',
     'app.automations',
     'restrict',
     'automation_comment_logs_automation_fk',
   ),
+  // feat-instagram-dm-sending R14 (4.B.3, AU37): the open-run key names its automation and contact
+  // through the composite key; its run (and a run event's) through (organization_id, id, started_at)
+  // — checked below. A comment log's run is a copy with no key since the split (AU36).
   link(
-    'app.automation_comment_logs',
-    'automation_run_id',
-    'app.automation_runs',
-    'set null',
-    'automation_comment_logs_automation_run_fk',
+    'app.automation_run_open_keys',
+    'automation_id',
+    'app.automations',
+    'cascade',
+    'automation_run_open_keys_automation_fk',
+  ),
+  link(
+    'app.automation_run_open_keys',
+    'contact_id',
+    'app.contacts',
+    'restrict',
+    'automation_run_open_keys_contact_fk',
   ),
   link(
     'app.automation_comment_logs',
@@ -406,10 +409,10 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
      VALUES ($1, $2, $3, 'vip', 'added', 'automation', $4)`,
     [organization.id, Number(channelAccount?.id), Number(contact?.id), Number(automation?.id)],
   );
-  const [run] = rowsOf<{ id: string }>(
+  const [run] = rowsOf<{ id: string; started_at: Date }>(
     await operatorQuery.unsafe(
-      `INSERT INTO app.automation_runs (public_id, organization_id, automation_id, contact_id, trigger_type, trigger_text, status, current_step, completed_at, last_instagram_event_key)
-       VALUES ($1, $2, $3, $4, 'dm', 'price', 'completed', 'final_dm', now(), 'message:composite-key') RETURNING id`,
+      `INSERT INTO app.automation_runs (public_id, organization_id, automation_id, contact_id, trigger_type, trigger_occurred_at, once_key, status, current_step, waiting_for, waiting_since_at, last_instagram_event_key)
+       VALUES ($1, $2, $3, $4, 'dm_keyword', now(), 'dm:2026-11-24', 'waiting', 'email_collect', 'email', now(), 'message:composite-key') RETURNING id, started_at`,
       [
         `run_${String(organization.id).padStart(21, '0')}`,
         organization.id,
@@ -419,18 +422,30 @@ async function seedOrganizationWithLinks(): Promise<{ id: number }> {
     ),
   );
   await operatorQuery.unsafe(
-    `INSERT INTO app.automation_run_events (organization_id, automation_run_id, event_type, status)
-     VALUES ($1, $2, 'status_changed', 'completed')`,
-    [organization.id, Number(run?.id)],
+    `INSERT INTO app.automation_run_events (organization_id, automation_run_id, automation_run_started_at, event_type, status)
+     VALUES ($1, $2, $3, 'status_changed', 'running')`,
+    [organization.id, Number(run?.id), run?.started_at],
   );
   await operatorQuery.unsafe(
-    `INSERT INTO app.automation_comment_logs (public_id, organization_id, automation_id, automation_name, automation_run_id, contact_id, instagram_media_id, instagram_comment_id, overall_status)
-     VALUES ($1, $2, $3, 'Price reply', $4, $5, '18030000000000001', '17950000000000001', 'completed')`,
+    `INSERT INTO app.automation_run_open_keys (organization_id, automation_id, contact_id, automation_run_id, automation_run_started_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      organization.id,
+      Number(automation?.id),
+      Number(contact?.id),
+      Number(run?.id),
+      run?.started_at,
+    ],
+  );
+  await operatorQuery.unsafe(
+    `INSERT INTO app.automation_comment_logs (public_id, organization_id, automation_id, automation_name, automation_run_id, automation_run_started_at, contact_id, instagram_media_id, instagram_comment_id, overall_status)
+     VALUES ($1, $2, $3, 'Price reply', $4, $5, $6, '18030000000000001', '17950000000000001', 'waiting')`,
     [
       `acl_${String(organization.id).padStart(21, '0')}`,
       organization.id,
       Number(automation?.id),
       Number(run?.id),
+      run?.started_at,
       Number(contact?.id),
     ],
   );
@@ -517,6 +532,38 @@ describe('Integration: tenant composite foreign keys (B2-5)', () => {
       ),
     );
     expect(singleColumn.map((row) => row.constraint_name)).toEqual([]);
+  });
+
+  it('names a run by (organization_id, id, started_at) from its run events and open keys (AU36, AU37)', async () => {
+    const rows = rowsOf<{ constraint_name: string; child_columns: string; parent_columns: string }>(
+      await operatorQuery.unsafe(
+        `
+        SELECT c.conname AS constraint_name,
+               (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                  FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) AS child_columns,
+               (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                  FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+                  JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum) AS parent_columns
+          FROM pg_constraint c
+         WHERE c.contype = 'f' AND c.conparentid = 0 AND c.conname = ANY($1)
+         ORDER BY c.conname
+        `,
+        [['automation_run_events_automation_run_fk', 'automation_run_open_keys_automation_run_fk']],
+      ),
+    );
+    expect(rows).toEqual([
+      {
+        constraint_name: 'automation_run_events_automation_run_fk',
+        child_columns: 'organization_id,automation_run_id,automation_run_started_at',
+        parent_columns: 'organization_id,id,started_at',
+      },
+      {
+        constraint_name: 'automation_run_open_keys_automation_run_fk',
+        child_columns: 'organization_id,automation_run_id,automation_run_started_at',
+        parent_columns: 'organization_id,id,started_at',
+      },
+    ]);
   });
 
   it.each(

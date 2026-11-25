@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { runOrganizationScopedWorkerJob } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
-import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { ContactService } from '@/domains/app/sub-domains/contact/contact.service.js';
 import { AutomationRunService } from '@/domains/app/sub-domains/automation/automation-run/automation-run.service.js';
-import { AutomationRunMessageService } from '@/domains/app/sub-domains/automation/automation-run/automation-run-message.service.js';
-import { AutomationPublicReplySafetyService } from '@/domains/app/sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
+import { RecordingSendingPort } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/recording-sending-port.factory.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import {
   type AutomationRunWaitExpiryService,
@@ -21,6 +19,7 @@ import {
   insertAutomationCommentLog,
   insertAutomationRun,
   readCommentLogRows,
+  readOpenRunKeys,
   readRunEventTrail,
   readRunRow,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
@@ -32,12 +31,13 @@ import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 /**
- * The 7-day wait check against the real tables (routes-final § 3.B AU25, AUC14; WC-13, D8): the
- * cross-organization scan under the retention context, then each organization's cancel in its own
- * job scope through the run service — the same cancel as an automation delete. A run waiting more
- * than 7 days is cancelled `wait_expired` with one `status_changed` event, its comment log
- * `cancelled` and its queued automations dropped; a younger wait, a run that got its answer just
- * before, and another organization's rows are left alone; a repeat changes nothing.
+ * The 7-day wait check against the real tables (feat-instagram-dm-sending routes-final § 4.B AU30,
+ * AUC11; WC-45 CHANGED — P99, P100): the cross-organization scan under the retention context, then
+ * each organization's cancel in its own job scope through the run service. A run waiting more than
+ * 7 days is cancelled `wait_expired` with one `status_changed` event, its comment log `cancelled`,
+ * **its open-run key deleted in the same commit** and its waiting messages cancelled through the
+ * channel's port; a younger wait, a run that got its answer just before, and another organization's
+ * rows are left alone; a repeat changes nothing.
  */
 
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
@@ -82,13 +82,16 @@ async function insertWaitingRun({
   });
 }
 
-function createRunService(): AutomationRunService {
-  return new AutomationRunService(
-    {} as InstagramAccountService,
-    {} as ContactService,
-    new AutomationRunMessageService(),
-    new AutomationPublicReplySafetyService(),
-  );
+/** The run engine with a recording port — the 7-day cancel needs nothing else. */
+function createRunService(port: RecordingSendingPort): AutomationRunService {
+  return new AutomationRunService({
+    channelAccountService: { readAutomationRunAccount: async () => null },
+    contactService: {} as ContactService,
+    planAccessService: { getPlanAccess: (async () => ({ features: null })) as never },
+    countService: {} as never,
+    replyStateService: {} as never,
+    sendingPorts: { instagram: port },
+  });
 }
 
 describe('runAutomationRunWaitExpiryJob (database)', () => {
@@ -96,6 +99,7 @@ describe('runAutomationRunWaitExpiryJob (database)', () => {
   let first: OrganizationFixture;
   let second: OrganizationFixture;
   let runService: AutomationRunService;
+  let port: RecordingSendingPort;
 
   function daysBefore(days: number): Date {
     return new Date(now.getTime() - days * DAY_MILLISECONDS);
@@ -106,28 +110,17 @@ describe('runAutomationRunWaitExpiryJob (database)', () => {
     now = new Date();
     first = await createOrganizationFixture();
     second = await createOrganizationFixture();
-    runService = createRunService();
+    port = new RecordingSendingPort();
+    runService = createRunService(port);
   });
 
-  it('cancels every run waiting more than 7 days, each in its own organization — event, log and queue included', async () => {
+  it('cancels every run waiting more than 7 days, each in its own organization — event, log, key and messages included', async () => {
     const expired = await insertWaitingRun({ fixture: first, waitingSince: daysBefore(8) });
-    await getOperatorDatabase()
-      .update(automation_runs)
-      .set({
-        queued_automations: [
-          {
-            automation_id: 'aut_queuedautomationentry1',
-            queued_at: daysBefore(8).toISOString(),
-            trigger: { type: 'dm', text: 'catalog please' },
-          },
-        ],
-      })
-      .where(eq(automation_runs.id, expired.id));
     const expiredLog = await insertAutomationCommentLog({
       organizationId: first.organization.id,
       automationId: first.automationId,
       contactId: expired.contact_id,
-      automation_run_id: expired.id,
+      run: expired,
       overall_status: 'waiting',
       waiting_for: 'email',
       email_status: 'waiting',
@@ -146,7 +139,6 @@ describe('runAutomationRunWaitExpiryJob (database)', () => {
       cancel_reason: 'wait_expired',
       waiting_for: null,
       waiting_since_at: null,
-      queued_automations: [],
     });
     expect(cancelled?.cancelled_at).toBeInstanceOf(Date);
     expect(cancelled?.ended_at).toEqual(cancelled?.cancelled_at);
@@ -161,6 +153,18 @@ describe('runAutomationRunWaitExpiryJob (database)', () => {
       cancel_reason: 'wait_expired',
     });
     expect(await readRunEventTrail(otherExpired.id)).toEqual(['status_changed:cancelled']);
+    // The open keys of the cancelled runs went in their commits; the young waits keep theirs.
+    expect(await readOpenRunKeys(first.organization.id)).toEqual([
+      `${first.automationId}:${young.contact_id}:${young.id}`,
+    ]);
+    expect(
+      port.cancelled.map((selection) => [selection.by, selection.id, selection.reason]).sort(),
+    ).toEqual(
+      [
+        ['run', expired.id, 'wait_expired'],
+        ['run', otherExpired.id, 'wait_expired'],
+      ].sort(),
+    );
 
     for (const untouched of [young, otherYoung]) {
       expect(await readRunRow(untouched.id)).toMatchObject({

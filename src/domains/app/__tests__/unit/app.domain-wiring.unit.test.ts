@@ -61,6 +61,7 @@ describe('app domain wiring', () => {
       'channelConnectionService',
       'channelConnectionTokenService',
       'channelConnectionUsageService',
+      'channelSendingPorts',
       'contactService',
       'contactTagEventService',
       'instagramAccountErasureService',

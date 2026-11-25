@@ -22,7 +22,8 @@ import {
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
 
 /**
- * The run engine's three tables under FORCE RLS as the RLS-subject `meepzo_be_app` role
+ * The run engine's four tables (runs, run events, comment logs, open-run keys — feat-instagram-dm-sending
+ * § 4.B.3, AU37) under FORCE RLS as the RLS-subject `meepzo_be_app` role
  * (routes-final § 3.B.3, K5): an organization reads, changes and creates only its own runs, run
  * events and comment logs — another organization's are invisible and `WITH CHECK` refuses a row
  * planted into it; the retention sweep (the 7-day wait scan, run and comment-log retention) reads
@@ -71,12 +72,12 @@ describe('Security: app.automation_runs / _run_events / _comment_logs tenant iso
       organizationId: organization.id,
       automationId: automation.id,
       contactId: contact.id,
-      automation_run_id: run.id,
+      run,
     });
     await executeAsMeepzoBeAppTenant(organization.public_id, (transaction) =>
       transaction.execute(drizzleSql`
-        INSERT INTO app.automation_run_events (organization_id, automation_run_id, event_type, status)
-        VALUES (${organization.id}, ${run.id}, 'status_changed', 'waiting')`),
+        INSERT INTO app.automation_run_events (organization_id, automation_run_id, automation_run_started_at, event_type, status)
+        VALUES (${organization.id}, ${run.id}, ${run.started_at.toISOString()}, 'status_changed', 'waiting')`),
     );
     return {
       organization,
@@ -97,6 +98,7 @@ describe('Security: app.automation_runs / _run_events / _comment_logs tenant iso
     ['app.automation_runs', 'id', (side: Side) => side.runId],
     ['app.automation_comment_logs', 'id', (side: Side) => side.commentLogId],
     ['app.automation_run_events', 'automation_run_id', (side: Side) => side.runId],
+    ['app.automation_run_open_keys', 'automation_run_id', (side: Side) => side.runId],
   ] as const)(
     "%s: reads only the active organization's rows; none without an organization",
     async (table, column, keyOf) => {
@@ -105,7 +107,7 @@ describe('Security: app.automation_runs / _run_events / _comment_logs tenant iso
         async (transaction) =>
           rowsOf<{ key: number }>(
             await transaction.execute(
-              drizzleSql.raw(`SELECT ${column}::int AS key FROM ${table} ORDER BY id`),
+              drizzleSql.raw(`SELECT ${column}::int AS key FROM ${table} ORDER BY 1`),
             ),
           ),
       );
@@ -126,7 +128,7 @@ describe('Security: app.automation_runs / _run_events / _comment_logs tenant iso
       async (transaction) => [
         ...rowsOf(
           await transaction.execute(drizzleSql`
-            UPDATE app.automation_runs SET trigger_text = NULL WHERE id = ${sideB.runId} RETURNING id`),
+            UPDATE app.automation_runs SET last_step_at = now() WHERE id = ${sideB.runId} RETURNING id`),
         ),
         ...rowsOf(
           await transaction.execute(drizzleSql`
@@ -144,16 +146,23 @@ describe('Security: app.automation_runs / _run_events / _comment_logs tenant iso
       executeAsMeepzoBeAppTenant(sideA.organization.public_id, (transaction) =>
         transaction.execute(drizzleSql`
           INSERT INTO app.automation_runs (public_id, organization_id, automation_id, contact_id,
-            trigger_type, last_instagram_event_key)
+            trigger_type, trigger_occurred_at, once_key, last_instagram_event_key)
           VALUES ('run_plantedplantedplanted', ${sideB.organization.id}, ${sideB.automationId},
-            ${sideB.contactId}, 'dm', 'message:planted')`),
+            ${sideB.contactId}, 'dm_keyword', now(), 'dm:planted', 'message:planted')`),
       ),
     ).rejects.toThrow();
     await expect(
       executeAsMeepzoBeAppTenant(sideA.organization.public_id, (transaction) =>
         transaction.execute(drizzleSql`
-          INSERT INTO app.automation_run_events (organization_id, automation_run_id, event_type, status)
-          VALUES (${sideB.organization.id}, ${sideB.runId}, 'status_changed', 'failed')`),
+          INSERT INTO app.automation_run_events (organization_id, automation_run_id, automation_run_started_at, event_type, status)
+          SELECT ${sideB.organization.id}, ${sideB.runId}, now(), 'status_changed', 'failed'`),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      executeAsMeepzoBeAppTenant(sideA.organization.public_id, (transaction) =>
+        transaction.execute(drizzleSql`
+          INSERT INTO app.automation_run_open_keys (organization_id, automation_id, contact_id, automation_run_id, automation_run_started_at)
+          VALUES (${sideB.organization.id}, ${sideB.automationId}, ${sideB.contactId}, ${sideB.runId}, now())`),
       ),
     ).rejects.toThrow();
     await expect(
@@ -184,7 +193,7 @@ describe('Security: app.automation_runs / _run_events / _comment_logs tenant iso
         scope: MAINTENANCE_SCOPE.GLOBAL_RETENTION_CLEANUP,
         callback: (databaseHandle) =>
           databaseHandle.execute(drizzleSql`
-            UPDATE app.automation_runs SET trigger_text = NULL WHERE id = ${sideB.runId}`),
+            UPDATE app.automation_runs SET last_step_at = now() WHERE id = ${sideB.runId}`),
         options: { useMaintenanceDatabaseRole: true },
       }),
     ).rejects.toThrow();

@@ -87,6 +87,32 @@ export class AutomationReplyStateRepository {
       });
   }
 
+  /**
+   * One more waiting public reply of the automation (plan §19.13 — the result save that makes a
+   * public reply row): the row made on the first reply, else `waiting_count + 1`.
+   */
+  async addWaitingReply({
+    organizationId,
+    automationId,
+    channelAccountId,
+  }: AutomationReplyStateKey & { channelAccountId: number }): Promise<void> {
+    await this.db()
+      .insert(automation_reply_states)
+      .values({
+        organization_id: organizationId,
+        automation_id: automationId,
+        channel_account_id: channelAccountId,
+        waiting_count: 1,
+      })
+      .onConflictDoUpdate({
+        target: [automation_reply_states.organization_id, automation_reply_states.automation_id],
+        set: {
+          waiting_count: sql`${automation_reply_states.waiting_count} + 1`,
+          updated_at: sql`now()`,
+        },
+      });
+  }
+
   /** Empties the hour box after a reply-step change (AU12): it starts again. No row is a no-op. */
   async emptyBox({ organizationId, automationId }: AutomationReplyStateKey): Promise<void> {
     await this.db()

@@ -1,22 +1,23 @@
 /**
  * Automation-run bulk seeder — gives every demo team organization's automations a few runs for its
- * contacts (`app.automation_runs`), each with its status history (`app.automation_run_events`), and
- * the comment logs of the comment runs (`app.automation_comment_logs`) — routes-final § 3.B.3,
- * AUC14: a run in every status (`running`, `waiting`, `completed`, `failed`, `cancelled`), an
- * answered comment, a skipped public reply and a failed step with Instagram's error.
+ * contacts (`app.automation_runs`), each with its status history (`app.automation_run_events`), the
+ * comment logs of the comment runs (`app.automation_comment_logs`) and the open-run key of each open
+ * run (`app.automation_run_open_keys`) — feat-instagram-dm-sending routes-final § 4.B.3 (AUC9,
+ * AUC14, AUC15): a run in every status, a once key per way to start, picked versions, an answered
+ * comment, a skipped public reply and a failed step.
  *
  * Idempotency: count-and-resume — an organization that already has a run is skipped, so a re-run
  * writes nothing twice. No reference data: runs are tenant rows only.
  */
 import { and, asc, count, eq, isNull, ne } from 'drizzle-orm';
 import { getRequestDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
-import { instagram_accounts } from '@/domains/app/sub-domains/instagram-account/instagram-account.schema.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
 import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import { automation_runs } from '@/domains/app/sub-domains/automation/automation-run/automation-run.schema.js';
 import { automation_run_events } from '@/domains/app/sub-domains/automation/automation-run/automation-run-event.schema.js';
 import { automation_comment_logs } from '@/domains/app/sub-domains/automation/automation-run/automation-comment-log.schema.js';
+import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import type { SeedContext, SeededOrg } from '@/scripts/seed/seed-contract.js';
@@ -38,7 +39,7 @@ function seededInstagramId({
   return `6${String(organizationId).padStart(12, '0')}${String(slot).padStart(3, '0')}`;
 }
 
-/** The status history a seeded run of `status` went through (AU23). */
+/** The status history a seeded run of `status` went through (AU27). */
 function statusHistory(status: string): string[] {
   switch (status) {
     case 'running':
@@ -50,7 +51,7 @@ function statusHistory(status: string): string[] {
   }
 }
 
-/** The demo runs of one organization: one per status, the open ones on distinct pairs (AU17). */
+/** The demo runs of one organization: one per status, the open ones on distinct pairs (AU37). */
 function buildSeededRuns({
   organizationId,
   now,
@@ -60,18 +61,23 @@ function buildSeededRuns({
 }): SeededRunShape[] {
   const hoursAgo = (hourCount: number) => new Date(now - hourCount * MILLISECONDS_PER_HOUR);
   const daysAgo = (dayCount: number) => new Date(now - dayCount * MILLISECONDS_PER_DAY);
+  const mediaId = seededInstagramId({ organizationId, slot: 0 });
   const comment = (slot: number) => ({
     trigger_type: 'comment',
-    trigger_instagram_media_id: seededInstagramId({ organizationId, slot: 0 }),
+    trigger_instagram_media_id: mediaId,
     trigger_instagram_comment_id: seededInstagramId({ organizationId, slot }),
-    trigger_text: 'link please',
+    once_key: mediaId,
+    version_numbers: { hello: 1 },
     last_instagram_event_key: `comment:${seededInstagramId({ organizationId, slot })}`,
   });
   return [
     {
       ...comment(1),
       status: 'completed',
-      current_step: 'final_dm',
+      current_step: 'messages',
+      trigger_occurred_at: daysAgo(3),
+      direct_message_sent_at: daysAgo(3),
+      last_message_number: 1,
       started_at: daysAgo(3),
       completed_at: daysAgo(3),
     },
@@ -80,6 +86,8 @@ function buildSeededRuns({
       status: 'waiting',
       current_step: 'comment_reply',
       waiting_for: 'opening_message_button',
+      trigger_occurred_at: hoursAgo(2),
+      direct_message_sent_at: hoursAgo(2),
       started_at: hoursAgo(2),
       waiting_since_at: hoursAgo(2),
     },
@@ -87,43 +95,52 @@ function buildSeededRuns({
       ...comment(3),
       status: 'failed',
       current_step: 'comment_reply',
-      error_message: 'instagram_api:10/2534022',
+      error_message: 'hello:failed:user_not_found',
+      trigger_occurred_at: daysAgo(1),
       started_at: daysAgo(1),
       failed_at: daysAgo(1),
     },
     {
-      trigger_type: 'dm',
-      trigger_text: 'catalog',
+      trigger_type: 'dm_keyword',
+      once_key: `dm:${daysAgo(0).toISOString().slice(0, 10)}`,
+      version_numbers: { email: 1, email_asks: 1 },
       last_instagram_event_key: `message:seed-${organizationId}-dm`,
       status: 'waiting',
       current_step: 'email_collect',
       waiting_for: 'email',
+      trigger_occurred_at: hoursAgo(5),
+      direct_message_sent_at: hoursAgo(5),
       started_at: hoursAgo(5),
       waiting_since_at: hoursAgo(5),
     },
     {
-      trigger_type: 'dm',
-      trigger_text: 'catalog',
+      trigger_type: 'dm_keyword',
+      once_key: `dm:${daysAgo(10).toISOString().slice(0, 10)}`,
       last_instagram_event_key: `message:seed-${organizationId}-cancelled`,
       status: 'cancelled',
       current_step: 'email_collect',
       cancel_reason: 'wait_expired',
+      trigger_occurred_at: daysAgo(10),
+      direct_message_sent_at: daysAgo(10),
       started_at: daysAgo(10),
       cancelled_at: daysAgo(3),
     },
     {
       trigger_type: 'story_reply',
       trigger_instagram_story_id: seededInstagramId({ organizationId, slot: 9 }),
-      trigger_text: 'love it',
+      once_key: `story:${seededInstagramId({ organizationId, slot: 9 })}`,
+      version_numbers: { hello: 1, follow: 1 },
       last_instagram_event_key: `message:seed-${organizationId}-story`,
       status: 'running',
       current_step: 'follow_check',
+      trigger_occurred_at: hoursAgo(1),
+      direct_message_sent_at: hoursAgo(1),
       started_at: hoursAgo(1),
     },
   ];
 }
 
-/** The comment log of a seeded comment run (AU24) — its steps as the run left them. */
+/** The comment log of a seeded comment run (AU28) — its steps as the run left them. */
 function seededCommentLog({
   run,
   automationName,
@@ -137,10 +154,12 @@ function seededCommentLog({
     automation_id: run.automation_id,
     automation_name: automationName,
     automation_run_id: run.id,
+    automation_run_started_at: run.started_at,
     contact_id: run.contact_id,
     instagram_media_id: run.trigger_instagram_media_id ?? '0',
     instagram_comment_id: run.trigger_instagram_comment_id ?? '0',
-    comment_text: run.trigger_text,
+    comment_occurred_at: run.trigger_occurred_at,
+    comment_text: 'link please',
     created_at: run.started_at,
     updated_at: run.started_at,
   };
@@ -154,10 +173,10 @@ function seededCommentLog({
         opening_dm_status: 'done',
         opening_dm_at: run.started_at,
         button_clicked_at: run.started_at,
-        final_dm_status: 'sent',
-        final_dm_at: run.completed_at,
+        messages_status: 'sent',
+        messages_at: run.completed_at,
         overall_status: 'completed',
-        current_step: 'final_dm',
+        current_step: 'messages',
       };
     case 'waiting':
       return {
@@ -178,11 +197,8 @@ function seededCommentLog({
         current_step: 'opening_dm',
         failed_step: 'opening_dm',
         error_type: 'instagram_api',
-        http_status: 400,
-        error_code: 10,
-        error_subcode: 2534022,
-        error_message: 'instagram_api:10/2534022',
-        error_reason: 'refused',
+        error_message: 'hello:user_not_found',
+        error_reason: 'user_not_found',
         error_at: run.failed_at,
       };
   }
@@ -197,24 +213,15 @@ async function seedRunsForOrganization(organization: SeededOrg): Promise<number>
     .where(eq(automation_runs.organization_id, organization.id));
   if ((existing?.total ?? 0) > 0) return 0;
   const [account] = await database
-    .select({
-      id: instagram_accounts.id,
-      channel_account_id: instagram_accounts.channel_account_id,
-    })
-    .from(instagram_accounts)
-    .innerJoin(
-      channel_accounts,
-      and(
-        eq(channel_accounts.organization_id, instagram_accounts.organization_id),
-        eq(channel_accounts.id, instagram_accounts.channel_account_id),
-      ),
-    )
+    .select({ channel_account_id: channel_accounts.id })
+    .from(channel_accounts)
     .where(
       and(
-        eq(instagram_accounts.organization_id, organization.id),
+        eq(channel_accounts.organization_id, organization.id),
         ne(channel_accounts.connection_status, 'revoked'),
       ),
     )
+    .orderBy(asc(channel_accounts.id))
     .limit(1);
   if (account === undefined) return 0;
   const [automation] = await database
@@ -265,12 +272,25 @@ async function seedRunsForOrganization(organization: SeededOrg): Promise<number>
       statusHistory(run.status).map((status) => ({
         organization_id: organization.id,
         automation_run_id: run.id,
+        automation_run_started_at: run.started_at,
         event_type: 'status_changed',
         status,
         created_at: run.started_at,
       })),
     ),
   );
+  const openRuns = runs.filter((run) => run.status === 'running' || run.status === 'waiting');
+  if (openRuns.length > 0) {
+    await database.insert(automation_run_open_keys).values(
+      openRuns.map((run) => ({
+        organization_id: organization.id,
+        automation_id: run.automation_id,
+        contact_id: run.contact_id,
+        automation_run_id: run.id,
+        automation_run_started_at: run.started_at,
+      })),
+    );
+  }
   const commentRuns = runs.filter((run) => run.trigger_type === 'comment');
   if (commentRuns.length > 0) {
     await database
@@ -285,12 +305,13 @@ async function seedRunsForOrganization(organization: SeededOrg): Promise<number>
  *
  * @remarks
  * Parents read: `context.registry.organizations` — the tenancy seeder's bulk team organizations —
- * each one's live `app.instagram_accounts` row, its first automation (`app.automations`) and its
+ * each one's first not-revoked `app.channel_accounts` row, its first automation (`app.automations`) and its
  * first contacts (`app.contacts`), which the contact and automation seeders wrote just before (the
  * automation contribution composes this one after its own). Algorithm: per organization, skip when
  * it already has runs or lacks an automation or a contact; then one run per status — each on its
- * own contact, so no two open runs share an automation × contact pair (AU17) — with its status
- * events and, for the comment runs, a comment log. Side effects: inserts into the three tables.
+ * own contact, so no two open runs share an automation × contact pair (AU37) — with its status
+ * events, its open key when open and, for the comment runs, a comment log. Side effects: inserts
+ * into the four tables.
  * Failure modes: warns and returns early when the registry has no organizations; otherwise
  * propagates database errors.
  */

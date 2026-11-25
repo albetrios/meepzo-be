@@ -2,6 +2,10 @@ import { createHmac } from 'node:crypto';
 import { readChannelAccountPublicIdOfInstagramAccount } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import type { FastifyInstance } from 'fastify';
 import nock from 'nock';
+import { createTestSubscription } from '@/domains/billing/__tests__/factories/subscription.factory.js';
+import { CREATOR_PLAN_FEATURES } from '@/domains/billing/sub-domains/plan/seed/plan.reference.seed.js';
+import { createTestPlan } from '@/tests/factories/plan.factory.js';
+import { RecordingSendingPort } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/recording-sending-port.factory.js';
 import pino from 'pino';
 import {
   META_GRAPH_VERSION,
@@ -18,12 +22,9 @@ import {
   connectInstagramAccount,
   readInstagramAccountRows,
 } from '@/domains/app/sub-domains/instagram-account/__tests__/factories/instagram-account.factory.js';
-import { instagram_media } from '@/domains/app/sub-domains/instagram-account/instagram-media/instagram-media.schema.js';
 import {
   type ContactFixtureRow,
   contactPath,
-  insertContact,
-  insertInstagramAccount,
   readAccountContactRows,
 } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
@@ -35,16 +36,14 @@ import {
   type AutomationRunFixtureRow,
   insertAutomationCommentLog,
   insertAutomationRun,
-  insertAutomationRunEvent,
   nextInstagramObjectId,
   readRunRows,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
-import { insertTestInstagramWebhookEvent } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/__tests__/factories/instagram-webhook-event.factory.js';
 import {
   type InstagramWebhookAccountJobResult,
   processInstagramWebhookAccountJob,
 } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
-import { getOperatorDatabase, operatorQuery } from '@/tests/helpers/operator-database.js';
+import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import {
   type InjectHttpResult,
@@ -75,6 +74,17 @@ export interface ConnectedInstagramTeam extends InstagramTeamFixture {
  */
 export async function connectInstagramTeam(app: FastifyInstance): Promise<ConnectedInstagramTeam> {
   const team = await createInstagramTeam();
+  // Creator's features: the email and phone asks are PRO, read by the run engine at run time (AU26).
+  const plan = await createTestPlan({
+    features: CREATOR_PLAN_FEATURES,
+    priceMonthly: '29.00',
+    priceYearly: '276.00',
+  });
+  await createTestSubscription({
+    organizationId: team.organization.id,
+    planId: plan.id,
+    status: 'ACTIVE',
+  });
   const profile = buildInstagramProfile();
   await connectInstagramAccount({ app, token: team.ownerToken, profile });
   const [account] = await readInstagramAccountRows(team.organization.id);
@@ -308,7 +318,7 @@ export async function processInstagramEvents({
   app: FastifyInstance;
   team: ConnectedInstagramTeam;
 }): Promise<InstagramWebhookAccountJobResult> {
-  return processInstagramWebhookAccountJob({
+  const result = await processInstagramWebhookAccountJob({
     jobData: {
       organizationPublicId: team.organization.public_id,
       channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(team.account.id),
@@ -317,6 +327,17 @@ export async function processInstagramEvents({
     jobId: 'job-retention-erasure',
     enqueueFollowUp: async () => undefined,
   });
+  // The run engine saves waiting messages (R14); the suite's recording port "sends" them as the
+  // channel's sending sub-domain will (R19–R20).
+  const port = app.appDomain.channelSendingPorts.instagram;
+  if (port instanceof RecordingSendingPort) {
+    await port.sendAll({
+      service: app.appDomain.automationRunService,
+      scope: { organizationPublicId: team.organization.public_id, source: 'job' } as never,
+      organizationId: team.organization.id,
+    });
+  }
+  return result;
 }
 
 /** Deletes a contact over route 10 as the team's Owner. */
@@ -497,9 +518,8 @@ export async function writeHistory({
   const runningRun = await insertAutomationRun({
     ...owner,
     automationId: automations.catalog.id,
-    trigger_text: texts.catalog,
     status: 'running',
-    current_step: 'final_dm',
+    current_step: 'messages',
     waiting_for: null,
     waiting_since_at: null,
   });
@@ -510,7 +530,6 @@ export async function writeHistory({
       automationId: automations.story.id,
       trigger_type: 'story_reply',
       trigger_instagram_story_id: nextInstagramObjectId(),
-      trigger_text: texts.story,
       status,
       waiting_for: null,
       waiting_since_at: null,
@@ -520,7 +539,7 @@ export async function writeHistory({
     await insertAutomationCommentLog({
       ...owner,
       automationId: automations.story.id,
-      automation_run_id: run.id,
+      run,
       overall_status: 'completed',
       comment_text: texts.story,
       commenter_username: person.username,
@@ -563,155 +582,6 @@ export async function readRowsOfContact({
     commentLogs: (rows.automation_comment_logs ?? []).filter(
       (row) => row.contact_id === contact.id,
     ),
-  };
-}
-
-/** What {@link seedAgedOrganization} inserted: the rows on both sides of every limit. */
-export interface AgedOrganization {
-  organizationId: number;
-  /** The deleted automation nothing points at, and the one a younger run still points at. */
-  unreferencedAutomation: AutomationFixtureRow;
-  referencedAutomation: AutomationFixtureRow;
-  windowAutomation: AutomationFixtureRow;
-  openRunIds: number[];
-  oldRunIds: number[];
-  youngRunIds: number[];
-  /** Of an old ended run; of a young one (written before that run ended); a young one. */
-  logIds: { ofOldRun: number; ofYoungRun: number; young: number };
-  youngEventId: number;
-}
-
-/** One organization with rows on both sides of every limit, as seen from `now`. */
-export async function seedAgedOrganization(now: Date): Promise<AgedOrganization> {
-  const at = (days: number) => daysBefore({ from: now, days });
-  const written = (days: number) => ({ created_at: at(days), updated_at: at(days) });
-  const team = await createInstagramTeam();
-  const organizationId = team.organization.id;
-  const account = await insertInstagramAccount({ organizationId });
-  const key = { organizationId, instagramAccountId: account.id };
-  // Three years old — nothing times these out.
-  const contact = await insertContact({
-    ...key,
-    username: JORDAN.username,
-    first_seen_at: at(1095),
-    last_message_received_at: at(1095),
-    ...written(1095),
-  });
-  const otherContact = await insertContact({ ...key, ...written(1095) });
-  await getOperatorDatabase()
-    .insert(instagram_media)
-    .values({
-      organization_id: organizationId,
-      channel_account_id: account.channel_account_id,
-      instagram_media_id: nextInstagramObjectId(),
-      published_at: at(1095),
-      ...written(1095),
-    });
-
-  const automationOf = (overrides: AutomationOverrides) =>
-    insertAutomation({ ...key, ...written(300), ...overrides });
-  const live = await automationOf({ status: 'live' });
-  const deleted = { deleted_at: at(181), delete_reason: 'not_needed' } as const;
-  const unreferencedAutomation = await automationOf({ ...deleted, name: 'Unreferenced' });
-  const referencedAutomation = await automationOf({ ...deleted, name: 'Referenced' });
-  const windowAutomation = await automationOf({
-    status: 'live',
-    target_scope: 'next',
-    next_post_status: 'waiting',
-    next_post_starts_at: at(3),
-    next_post_ends_at: at(1),
-  });
-
-  const endedRun = async ({
-    automation,
-    status,
-    days,
-  }: {
-    automation: AutomationFixtureRow;
-    status: EndedRunStatus;
-    days: number;
-  }) => {
-    const run = await insertAutomationRun({
-      organizationId,
-      automationId: automation.id,
-      contactId: contact.id,
-      status,
-      waiting_for: null,
-      waiting_since_at: null,
-      started_at: at(days),
-      ...written(days),
-      ...ENDED_RUN_COLUMNS[status](at(days)),
-    });
-    await insertAutomationRunEvent({ organizationId, runId: run.id, status });
-    return run;
-  };
-  const oldRun = await endedRun({ automation: live, status: 'completed', days: 181 });
-  const oldRuns = [
-    oldRun,
-    await endedRun({ automation: live, status: 'failed', days: 181 }),
-    await endedRun({ automation: live, status: 'cancelled', days: 181 }),
-  ];
-  const youngRun = await endedRun({ automation: live, status: 'completed', days: 179 });
-  const referencingRun = await endedRun({
-    automation: referencedAutomation,
-    status: 'cancelled',
-    days: 179,
-  });
-  const openRunKey = { organizationId, automationId: live.id, started_at: at(300) };
-  const openRuns = [
-    await insertAutomationRun({
-      ...openRunKey,
-      ...written(300),
-      contactId: contact.id,
-      status: 'running',
-      waiting_for: null,
-      waiting_since_at: null,
-    }),
-    await insertAutomationRun({
-      ...openRunKey,
-      ...written(300),
-      contactId: otherContact.id,
-      waiting_since_at: at(3),
-    }),
-  ];
-
-  const logOf = async ({ run, days }: { run: AutomationRunFixtureRow; days: number }) => {
-    const log = await insertAutomationCommentLog({
-      organizationId,
-      automationId: run.automation_id,
-      contactId: contact.id,
-      automation_run_id: run.id,
-      overall_status: 'completed',
-      ...written(days),
-    });
-    return log.id;
-  };
-  const eventOf = ({ status, days }: { status: string; days: number }) =>
-    insertTestInstagramWebhookEvent({
-      organizationId,
-      account: { id: account.id, instagramUserId: '9000000000000001' },
-      status,
-      receivedAt: at(days),
-    });
-  for (const status of ['received', 'queued', 'processed', 'skipped', 'failed']) {
-    await eventOf({ status, days: 31 });
-  }
-  const youngEvent = await eventOf({ status: 'failed', days: 29 });
-
-  return {
-    organizationId,
-    unreferencedAutomation,
-    referencedAutomation,
-    windowAutomation,
-    openRunIds: openRuns.map((run) => run.id),
-    oldRunIds: oldRuns.map((run) => run.id),
-    youngRunIds: [youngRun.id, referencingRun.id],
-    logIds: {
-      ofOldRun: await logOf({ run: oldRun, days: 182 }),
-      ofYoungRun: await logOf({ run: youngRun, days: 181 }),
-      young: await logOf({ run: referencingRun, days: 179 }),
-    },
-    youngEventId: youngEvent.id,
   };
 }
 

@@ -1035,6 +1035,8 @@ rule on a split table holds only inside one part.
 
 ### automation_run
 
+**Built R14** ([AS-BUILT](../AS-BUILT.md), [P132](decisions.md)): `app.automation_runs` split by month of `started_at` (PK `(id, started_at)`), + `trigger_occurred_at`, `once_key`, `direct_message_sent_at`, `last_message_number`, `version_numbers` (also `email_asks`, `phone_asks`, `tag_chain`); − `trigger_text`, `sending_message_kind`, `sending_started_at`, `queued_automations`.
+
 - **Holds:** as at launch, one person going through one automation — plus when the event that started
   it happened (the 7-day clock, D9), its once key (D13), when its first DM was sent, the highest list
   message sent (read by segments after message rows are gone) and which version of each step it used.
@@ -1094,6 +1096,8 @@ erDiagram
 
 ### automation_run_open_key
 
+**Built R14** ([AS-BUILT](../AS-BUILT.md), [P132](decisions.md)–[P135](decisions.md)): `app.automation_run_open_keys` — `organization_id`, `automation_id`, `contact_id` (PK), `automation_run_id`, `automation_run_started_at`, `created_at`; FKs automation CASCADE, contact RESTRICT, run `(organization_id, id, started_at)` CASCADE; indexes `idx_automation_run_open_keys_automation_run`, `_contact`.
+
 - **Holds:** one row per **open** run (`running` or `waiting`) — the rule "one open run per automation and
   person" now that runs are split by month ([P100](decisions.md), AU37). Its key is the organization, the
   automation and the person, so a second start meets the conflict and is ignored (`run_in_progress`) or, for a
@@ -1144,6 +1148,8 @@ erDiagram
 
 ### automation_run_event
 
+**Built R14**: `app.automation_run_events` split by `automation_run_started_at` (PK `(id, automation_run_started_at)`), + `hello_tapped`, `follow_tapped`.
+
 - **Holds:** as at launch, the append-only history of a run — `event_type` adds `hello_tapped` and
   `follow_tapped` (the tap counts of D61). Kept with its run — **split by month of its run's start**
   ([P96](decisions.md)), so a copy of the run's start (`automation_run_started_at`) is its split key and its
@@ -1171,6 +1177,8 @@ erDiagram
 ```
 
 ### automation_comment_log
+
+**Built R14**: `app.automation_comment_logs` split by month of `created_at` (PK `(id, created_at)`), + `automation_run_started_at`, `comment_occurred_at`, `hide_status`, `hidden_at`, `messages_status`, `messages_at` (− `final_dm_status`, `final_dm_at`); the run is a copy with no FK.
 
 - **Holds:** as at launch, one row per comment an automation saw, with each step's status — plus the
   comment's time and the hide step (status and when). The

@@ -53,8 +53,6 @@ import { INSTAGRAM_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/app/sub-
 import { INSTAGRAM_WEBHOOK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { INSTAGRAM_WEBHOOK_RECLAIM_JOB_NAME } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.constants.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
-import { AUTOMATION_RUN_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.constants.js';
-import { AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { env } from '@/shared/config/env.config.js';
@@ -146,13 +144,11 @@ const DEFAULT_INSTAGRAM_ACCOUNT_DAILY_CHECK_CRON = '0 4 * * *';
  */
 const DEFAULT_AUTOMATION_RUN_WAIT_EXPIRY_CRON = '0 * * * *';
 /**
- * Launch D8 (AU25, AQ7; worker-changes rule 11): the app domain's daily clean-ups after the
- * webhook events (03:00) — runs ended more than 180 days ago at 03:20 (WC-12), comment logs written
- * more than 180 days ago at 03:30 (WC-9), then the automations deleted more than 180 days ago that
- * nothing points at any more at 03:40 (WC-15). Fixed times, not settings.
+ * Launch D8 (AU25, AQ7; worker-changes rule 11): the app domain's daily clean-up after the webhook
+ * events (03:00) — the automations deleted more than 180 days ago that nothing points at any more at
+ * 03:40 (WC-15). A fixed time, not a setting. (The 03:20 run and 03:30 comment-log batch deletes
+ * retired with feat-instagram-dm-sending R14: their month parts are dropped by the shared upkeep.)
  */
-const DEFAULT_AUTOMATION_RUN_RETENTION_CRON = '20 3 * * *';
-const DEFAULT_AUTOMATION_COMMENT_LOG_RETENTION_CRON = '30 3 * * *';
 const DEFAULT_AUTOMATION_TOMBSTONE_RETENTION_CRON = '40 3 * * *';
 
 function withSchedulerTimezone({
@@ -167,7 +163,9 @@ function withSchedulerTimezone({
 
 /**
  * Launch D8 (routes-final § 3.B AU25, AQ7): the automation runs' and deleted automations' clean-ups
- * — the hourly 7-day wait cancel, then the daily run, comment-log and deleted-automation removals.
+ * — the hourly 7-day wait cancel and the daily deleted-automation removal. Runs, run events and
+ * comment logs are no longer batch-deleted: their month parts are dropped by the shared upkeep
+ * (feat-instagram-dm-sending AU36, P96 — ROUTE row R49).
  */
 function getAutomationCleanupScheduledJobs(timezone: string | undefined): ScheduledJob[] {
   return [
@@ -178,24 +176,6 @@ function getAutomationCleanupScheduledJobs(timezone: string | undefined): Schedu
         schedulerId: 'automation-run-wait-expiry-hourly',
         jobName: 'cancel-long-waiting-automation-runs',
         cronPattern: DEFAULT_AUTOMATION_RUN_WAIT_EXPIRY_CRON,
-      },
-    }),
-    withSchedulerTimezone({
-      timezone,
-      job: {
-        queueName: AUTOMATION_RUN_RETENTION_QUEUE_NAME,
-        schedulerId: 'daily-automation-run-retention',
-        jobName: 'purge-old-ended-automation-runs',
-        cronPattern: DEFAULT_AUTOMATION_RUN_RETENTION_CRON,
-      },
-    }),
-    withSchedulerTimezone({
-      timezone,
-      job: {
-        queueName: AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME,
-        schedulerId: 'daily-automation-comment-log-retention',
-        jobName: 'purge-old-automation-comment-logs',
-        cronPattern: DEFAULT_AUTOMATION_COMMENT_LOG_RETENTION_CRON,
       },
     }),
     withSchedulerTimezone({

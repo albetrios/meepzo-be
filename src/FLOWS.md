@@ -625,21 +625,18 @@ sequenceDiagram
   Scheduler->>Worker: every hour — automation-run-wait-expiry
   Worker->>DB: scan (read only, live organizations) — runs waiting more than 7 days, 500 a tick
   loop each organization, its own PRINCIPAL_SCOPE.JOB
-    Worker->>Engine: cancelExpiredWaitingRuns — re-check, cancelled · wait_expired, one status_changed event, log cancelled, saved automations dropped
+    Worker->>Engine: cancelExpiredWaitingRuns — re-check, cancelled · wait_expired, its open key deleted, one status_changed event, log cancelled, its waiting messages cancelled through the channel's port (WC-45)
   end
   Scheduler->>Worker: 03:00 — instagram-webhook-event-retention
   Worker->>DB: events received more than 30 days ago, any status
-  Scheduler->>Worker: 03:20 — automation-run-retention
-  Worker->>DB: runs ended more than 180 days ago (events cascade, logs keep their row without the run, never an open run)
-  Scheduler->>Worker: 03:30 — automation-comment-log-retention
-  Worker->>DB: comment logs written more than 180 days ago
+  Note over Scheduler,DB: runs, run events and comment logs expire by month-part drops (the shared upkeep, R49) — no batch delete since feat-instagram-dm-sending R14
   Scheduler->>Worker: 03:40 — automation-tombstone-retention
   Worker->>DB: automations deleted more than 180 days ago that nothing points at (the others wait for a later day)
 
   Team->>Contact: DELETE /app/contacts/{contact_id}
   Contact->>DB: lock the live contact (FOR UPDATE) — else 404 contact_not_found
   Contact->>Engine: eraseContactRunCopies (the ContactErasureStep)
-  Engine->>DB: open runs cancelled · contact_deleted (one event each, logs cancelled), trigger texts, saved automations and the comment-log copies cleared
+  Engine->>DB: open runs cancelled · contact_deleted (open keys deleted, one event each, logs cancelled), the comment-log copies cleared (a run keeps no text, D46)
   Contact->>DB: every personal column cleared, deleted_at stamped, COMMIT — all or nothing
 
   Team->>Organization: DELETE /tenancy/organization (the owner, with a recent step-up)
@@ -755,7 +752,7 @@ sequenceDiagram
       Worker->>Instagram: read the post the first time (outside any unit)
       Worker->>Engine: store the post, then linkNextPostAutomations in a savepoint
     end
-    Worker->>Engine: startCommentRun / handleDirectMessage / startStoryReplyRun / handleButtonClick (job scope, isLastAttempt)
+    Worker->>Engine: startCommentRun / handleDirectMessage (message, story_reply) / handleButtonClick (job scope) — one commit, no channel call
     Worker->>Events: mark processed (only while the claim holds) — or failed, and then in the same unit
     opt marked failed
       Worker->>Engine: failRunsOfFailedEvent — the runs this event left running are failed with its code
@@ -767,14 +764,14 @@ sequenceDiagram
 ### Side effects
 
 - `app.instagram_webhook_events` — the claim (`attempt_count`, `last_attempted_at`) and the final status: `processed` once the handling finished (a run that could not send shows it on the run and its comment log), `skipped` with `automation_disabled` / `account_disconnected`, or `failed` with a code (`instagram_api:<code>/<subcode>`, `event_payload_invalid:<reason>`, `processing_attempts_exhausted`, `processing_error:<name>`) — never payload text.
-- Through sub-domains 1–3: the contact (and a new contact's profile), the stored post, "next post" links, runs, run events, comment logs, Instagram sends; a token refused on processing's own reads marks the account broken (the reconnect notice follows). Whenever an event is marked `failed` — or `skipped` on a retry, after the account was switched off or disconnected between two tries (D51) — the runs it left `running` are failed in the same unit of work (D47).
+- Through sub-domains 1–4: the contact (and a new contact's profile), the stored post, "next post" links, runs, run events, comment logs and waiting messages through the channel's sending port (the engine sends nothing, R14); a token refused on processing's own reads marks the account broken (the reconnect notice follows). Whenever an event is marked `failed` — or `skipped` on a retry, after the account was switched off or disconnected between two tries (D51) — the runs it left `running` are failed in the same unit of work (D47).
 - Log lines `app.instagram_webhook.*` with ids, kinds, keys, statuses and counts — never the payload, a message or comment text, emails or phone numbers (WH6).
 
 ### Failure modes
 
 - **A temporary failure** (a lost connection, a database blip, an Instagram 5xx other than 502 and 504, which the engine rethrows) → the lease ends, the attempt is kept, the job retries with backoff (5 attempts, from 5 s) while the account's later events wait; the event's 5th failed attempt marks it `failed` and the next event runs.
 - **A permanent failure** (an unreadable payload, a refused token — the account then `expired` / `error`) → `failed` at once.
-- **An event that ends `failed` any way** (the 5th attempt, attempts that ran out after crashes, a permanent or token failure) → every run it left `running` is `failed` with it (`code:<the event's code>`), its comment log too, so no run stays `running` and holds its contact back; the mark and the runs are one unit — if it fails, the event is taken up again.
+- **An event that ends `failed` any way** (the 5th attempt, attempts that ran out after crashes, a permanent failure) → since feat-instagram-dm-sending R14 the engine's work on an event is one commit with no channel call, so a failed event left no run behind (`failRunsOfFailedEvent` answers none; intake per kind, R38, drops the call).
 - **An Instagram outage** (the `instagram` circuit open) → the claim is given back with its attempt and the queue pauses on every replica, probing every five minutes.
 - **A lost job** (a Redis refusal at the receiver, a crash mid-event) → the stuck-event pick-up re-adds the account's job every minute once the event is 5 minutes old and its lease is over.
 - A skipped event is never processed later, even when the switch is turned back on. Nobody is told about a failed event; it shows in route 18.
@@ -783,57 +780,49 @@ sequenceDiagram
 
 ### Trigger
 
-Somebody comments on a post of a connected Instagram account (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 3.B, built by ROUTE row R10, proven end to end by R15: `src/domains/app/__tests__/e2e/instagram-comment-flow.e2e.test.ts`). Meta delivers the comment ([instagram-webhook-intake-flow](#instagram-webhook-intake-flow)), the account's job claims it ([instagram-webhook-processing-flow](#instagram-webhook-processing-flow)) and calls `AutomationRunService.startCommentRun`; the person's later button clicks and answers come back the same way, as `handleButtonClick` and `handleDirectMessage`.
+Somebody comments on a post of a connected account (feat-instagram-dm-sending routes-final § 4.B, the run
+engine rebuilt by ROUTE row R14 — `src/domains/app/sub-domains/automation/automation-run/__tests__/unit/automation-run.service.db.unit.test.ts`).
+The account's job claims the comment ([instagram-webhook-processing-flow](#instagram-webhook-processing-flow))
+and calls `AutomationRunService.startCommentRun`; her later taps and answers come back as
+`handleButtonClick` and `handleDirectMessage`; each saved message's result comes back from the
+channel's sending sub-domain as `recordMessageResult` (Instagram's at ROUTE rows R19–R20).
 
 ### Sequence
 
 ```mermaid
 sequenceDiagram
-  participant Worker as instagram-webhook worker
-  participant Contact as ContactService
+  participant Worker as intake (instagram-webhook worker)
   participant Engine as AutomationRunService
-  participant Safety as AutomationPublicReplySafetyService
-  participant Message as AutomationRunMessageService
-  participant Instagram as meta-graph.client
-  participant DB as Postgres (the organization's JOB scope, short units)
+  participant Port as ChannelSendingPort (the account's channel)
+  participant Sending as the channel's sending sub-domain
+  participant DB as Postgres (the organization's JOB scope, one unit per event)
 
-  Worker->>Contact: the contact first; a new one's profile, a new post stored, "next post" linked
-  Worker->>Engine: startCommentRun (the event's account, the comment)
-  Engine->>DB: one unit — the comment's logs exist? a retry: go on with the chosen run, never choose again
-  Engine->>DB: else choose — post-linked first, the oldest match; only then "any post"
-  Engine->>DB: the chosen automation's run (or its ignored reason) and every other match's log
-  opt the chosen automation started a run
-    loop until the run waits, completes or fails
-      Engine->>DB: plan the step, claim the send (sending_message_kind, the event key)
-      opt the public reply
-        Engine->>Safety: duplicate → random → hour limit → gap (only while safety is on); the text, never the last one
-      end
-      Engine->>Message: compose (English defaults), pause 200–1000 ms
-      Message->>Instagram: public reply · private reply to the comment or DM · follow read
-      Engine->>DB: record — the claim cleared, the step moved, run event, comment log, the contact's last message sent
-    end
-  end
-  Note over Worker,Engine: the person clicks, follows, answers the email or phone — the next events move the waiting run on
-  Engine->>DB: the final message went — completed, the tags (or the name) on the contact (the all-time counts are app.automation_counts, written from ROUTE row R14)
+  Worker->>Engine: startCommentRun (the account, the contact, the comment)
+  Engine->>DB: lock her contact, the automations of her open runs; the choice (post-linked first, oldest); every other match logged comment_already_answered
+  Engine->>DB: the gates — own comment, a reply under a comment with the switch off (thread_reply_off), paused (contact_excluded), the once key (once_per_post), her open run (same key → once_per_post; else replaced, P35)
+  Engine->>DB: the run, its open key, runs_started (+ hello version), her first run, the comment log
+  Engine->>Port: saveWaitingMessage — hello (answers the comment), content by reference
+  Engine->>DB: COMMIT — run, key, log, counts and the waiting message together
+  Sending->>Engine: recordMessageResult (hello sent) in its commit
+  Engine->>Port: public reply (unless a duplicate, or the 80 % draw of "Reply like a person"), then the hide
+  Engine->>DB: the run waits for her tap
+  Worker->>Engine: handleButtonClick (her tap) or handleDirectMessage (her text — a typed answer)
+  Engine->>DB: hello_tapped event, taps / typed_answers (+ hello version)
+  Engine->>Port: follow check → follow ask → email → phone → messages 1–N, one at a time, each moved on by its result
+  Engine->>DB: tags (with tag events), completed, the open key deleted — in the last result's commit
 ```
 
 ### Side effects
 
-- `app.contacts` — created or touched by every comment, click and answer; the profile of a new one; the follow answer, the email (lowercased) and the phone (normalised) with their times; `last_message_sent_at` after every DM; the tags of a completed run. `app.instagram_media` — the post, the first time. `app.automations` — a "next post" link, `last_triggered_at`.
-- `app.automation_runs` — one run per chosen automation and contact, its step, wait, claim and queued automations; `app.automation_run_events` — one row per status change and per email or phone collected; `app.automation_comment_logs` — one per comment × matching automation: the chosen one with each step's status, time and error, every other match `ignored` · `comment_already_answered`.
-- Instagram: at most one public reply per comment, one private reply per comment (until the person messages the account), then DMs inside the 24-hour messaging window — each after a random pause.
-- A comment that meets a run starts none: another automation's run waiting for the email asks for it again and saves the new automation (`waiting_for_other_email`); this automation's own wait — for the email too — is `already_waiting`; `run_in_progress`; `previous_run_final`. When the email arrives each saved automation starts as its own run, in order, its email step skipped; after a `cancelled` run a new one may start.
-- A step turned off (route 14) while a run waits for it sends nothing then; at the contact's next event inside the messaging window the run goes on from its next step, and the automations saved behind its email start (AU14, D48); a comment outside it moves nothing on (D50). Until then it takes no answer, is not asked again and holds nothing back.
-- An automation deleted (route 15) while one of its runs starts or moves: the unit and the delete wait for each other in one order (contact, automation, runs) — the run is cancelled with the delete or never starts (`ignored`, nothing written), and none stays open (AU12, D47). Proven with the two cases above end to end: `src/domains/app/__tests__/e2e/instagram-engine-recovery.e2e.test.ts`; on two connections: `automation-run-lock-order.db.unit.test.ts`.
+- `app.automation_runs`, `app.automation_run_events`, `app.automation_comment_logs`, `app.automation_run_open_keys`, `app.automation_counts`, the reply state, the contact (email, phone, tags, first run) — and the channel's waiting messages, through its port (AU35). The engine never sends.
+- Log lines `app.automation_run.*` with public ids and counts — never a comment's or message's text.
 
 ### Failure modes
 
-- **A public reply that fails** (refused, busy, no answer) → `public_reply_status` `failed`, the flow goes on; only a dead token stops it.
-- **A temporary failure of a DM** (a throttle, a 5xx other than 502 and 504, a connection refused) → the claim is cleared and the event retried with its account's later events held back; the fifth try fails the run (an Instagram outage spends no try — the queue pauses); a run whose last try dies from our own error or a crash is failed with its event. A question asked again, or the wrong-email text, that could not go is sent by the retry the same way — the run keeps waiting throughout.
-- **An unknown outcome** (no answer after the request left, a gateway's 502 or 504 (D55), a crash between the send and its save) → the step fails and the message is never sent again.
-- **A DM refused for good** (outside the messaging window, the comment gone) → the run `failed`, Instagram's codes on the run and its comment log (never its text — D53); the account stays connected, the event is `processed`.
-- **A dead token** → the account `error` and one reconnect notice ([instagram-account-health-flow](#instagram-account-health-flow)), the run `failed`, the event `failed` (`instagram_api:token`); later comments are stored `skipped` until a reconnect.
-- **A refused email or phone quick reply** → the question goes again as plain text, under the same claim.
+- **A database error** → the unit rolls back; the intake retries the event; nothing of it was written.
+- **A result `unknown`** → never sent again by itself: the run waits for `any`, and her next message or tap sends that step once more (D17).
+- **A result `failed`** → the run fails with `<step>:failed:<reason>`; **`skipped`** → cancelled with its reason (`window_closed`, `expired`, …) or failed.
+- **A start racing another for the same person** → the open key's insert is the guard: one run, the other `run_in_progress` (AU37).
 
 ## instagram-next-post-flow
 
@@ -886,60 +875,39 @@ sequenceDiagram
 
 ### Trigger
 
-A person sends the connected Instagram account a DM (a `messaging[]` message, or Meta's `messages` change — the same thing, D18), replies to one of its stories, or clicks a button of a DM the engine sent (a postback whose payload is `<aut_…>::<run_…>`). Meta's signed delivery is stored by the [instagram-webhook-intake-flow](#instagram-webhook-intake-flow) and worked through by the [instagram-webhook-processing-flow](#instagram-webhook-processing-flow), which records the contact first and then calls the run engine's `handleDirectMessage`, `startStoryReplyRun` or `handleButtonClick` (`iterations/launch-2026-11-20-ujai/plans/routes-final.md` § 3.B AU16–AU21). Built by ROUTE rows R10 and R14, proven end to end by R16 (`src/domains/app/__tests__/e2e/instagram-message-flow.e2e.test.ts`).
+A person sends the connected account a DM, replies to or mentions one of its stories, shares a post, taps a
+button of a message the engine saved, a starter question, an ig.me link or an ad's "Send message"
+(feat-instagram-dm-sending § 4.B, plan §4.3 — ROUTE row R14; intake per kind is R38). The intake calls
+`handleDirectMessage` or `handleButtonClick`; a tag change calls `startTagRun`.
 
 ### Sequence
 
 ```mermaid
 sequenceDiagram
-  participant Worker as instagram-webhook worker
-  participant Contact as ContactService
+  participant Worker as intake
   participant Engine as AutomationRunService
-  participant Message as AutomationRunMessageService
-  participant Instagram as meta-graph.client
-  participant DB as Postgres (the organization's JOB scope)
+  participant Port as ChannelSendingPort
+  participant DB as Postgres (one unit per event)
 
-  Worker->>Contact: recordContactInteraction — the contact first, its 24-hour messaging window opened
-  Worker->>Engine: the event's entry point (job scope, the event's account, isLastAttempt)
-  alt a DM while a run of the contact waits for an email (first) or a phone (then the oldest wait)
-    Engine->>Contact: the answer — quick reply, attachment's email, typed text
-    Engine->>DB: valid — the run goes on (email_received / phone_received), the automations queued behind an email start
-    Engine->>Message: invalid email — the wrong-email text and the question again (an invalid phone sends nothing)
-  else a DM with a keyword
-    Engine->>DB: the oldest live automation, any trigger, with the DM keyword trigger on and the keyword, live again under its lock — one run (AU17)
-  else a story reply
-    Engine->>DB: the oldest live story-reply automation, any story or this one, whose keywords match — one run (AU17)
-  else a button click
-    Engine->>DB: the named run of this contact, waiting for the opening button or a follow — running again at the follow check
-  else a story reply or a click while another run of the contact waits for an email
-    Engine->>DB: the story reply saved on that run (queued_automations); the clicked run not moved
-    Engine->>Message: the email question again, as a normal DM
+  Worker->>Engine: handleDirectMessage / handleButtonClick / startTagRun
+  Engine->>DB: lock her contact, then the automations of her open runs
+  alt one of her runs waits for this (level 1)
+    Engine->>DB: an email or phone answer (wrong → asked again, at most 3 asks), her text as the hello's answer, a tap, or `any` after an unknown result
+    Engine->>Port: the run's next step
+  else a start (levels 2–5)
+    Engine->>DB: exact source → keyword or kind → her first DM → "no other automation answered"; her stop word (only a keyword DM, a starter question or a link restarts her), the once key, her open run (run_in_progress)
+    Engine->>DB: the run, its key, runs_started, her first run
+    Engine->>Port: the first step (a DM — her window is open)
   end
-  opt a run of the contact waits for a step its automation has since turned off (AU14)
-    Engine->>DB: it goes on from its next step; the automations queued behind its email start
-  end
-  loop each step of a running run, until it waits, completes or fails (AU18)
-    Engine->>DB: claim the send (short unit, committed)
-    Engine->>Message: compose and send — outside any unit, after a 200–1000 ms pause
-    Message->>Instagram: POST /{account}/messages to the person
-    Engine->>DB: record it (short unit) — wait, next step, completed or failed
-  end
+  Engine->>DB: COMMIT
 ```
-
-The steps are a comment run's without the public reply: the opening message (a normal DM, skipped when a DM went to the contact in the last 24 hours; with a button the run waits for the click), the follow check, the email, the phone, the final message. Only a button click confirms a follow — a typed message never does (D14).
 
 ### Side effects
 
-- `app.contacts` — created or touched by every event (a new one's profile read), `email` / `phone` with their collected times, `is_following_account` with each follow read, `last_message_sent_at` after every DM, the automation's tags (or its name) when a run completes.
-- `app.automation_runs` and `app.automation_run_events` — one run per automation and contact while one is open, `last_instagram_event_key` the event that last moved it, one `status_changed` row per status change and one `email_received` / `phone_received` per answer. No `app.automation_comment_logs` row: those belong to comment runs.
-- `app.automations` — `last_triggered_at` when a run starts (only when over 60 s old, AU19); the counts in `app.automation_counts` from ROUTE row R14.
-- Instagram — normal DMs only, never a private or public reply.
+As [instagram-comment-automation-flow](#instagram-comment-automation-flow), without comment logs, public replies or hides.
 
 ### Failure modes
 
-- **Nothing matches** (no keyword, an automation without keywords on a DM, a story reply to another story than the automation's — an expired story simply stops matching) or **the chosen automation already has an open, completed or failed run for the contact** → nothing starts and the next match is not tried; the event is `processed`.
-- **A click on a completed, failed or cancelled run, on a deleted automation's, another account's or another person's run, or with a payload the engine never sent** → ignored, nothing sent.
-- **Instagram refuses a DM** → the run is `failed` with its code (`instagram_api:<code>/<subcode>`) in its own short transaction, so the error stays when the rest of the event's handling is undone; the retried event sends nothing again (D16).
-- **Instagram throttles or fails temporarily** → the claim is cleared and the event retried: the run resumes from its saved step; a question asked again on a waiting run (an invalid email, a story reply, a click) is asked on the retry. The last attempt fails the running run instead — and when the event ends `failed` for any other reason (our own error, a crash), the run it left running is failed with it.
-- **The chosen automation is deleted or turned off just before its run starts** → nothing starts, the event is `processed` (`ignored`); one deleted while a run of it is open cancels that run (AU12, D47).
-- **The outcome of a send is unknown** (a timeout, a crash) → the claim stays and the run fails — never sent twice (AQ5).
+- **A tap on a run that does not wait, of another person, a deleted automation or another account, or a payload the engine never sent** → ignored.
+- **A tag start whose chain number reaches 3, or while her window is closed** → nothing starts (D45).
+- **A database error** → the event is retried; nothing of it was written.

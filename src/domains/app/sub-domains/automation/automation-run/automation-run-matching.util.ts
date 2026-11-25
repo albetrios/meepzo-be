@@ -1,26 +1,30 @@
-import type { AutomationTargetScope } from '@/domains/app/sub-domains/automation/automation.constants.js';
-import type {
-  AutomationRunTriggerType,
-  AutomationCommentLogIgnoredReason,
-  AutomationRunStatus,
-} from './automation-run.constants.js';
+import type { AutomationTriggerType } from '@/domains/app/sub-domains/automation/automation.constants.js';
 
-/** The automation fields the matching rules read (AU16) — a row of `app.automations` fits. */
+/**
+ * The automation fields the matching rules read (plan §4.3, §4.4) — a row of `app.automations` fits.
+ */
 export interface AutomationMatchCandidate {
   id: number;
   created_at: Date;
   trigger_type: string;
+  also_start_from: readonly string[];
   target_scope: string;
   target_instagram_media_id: string | null;
   target_instagram_story_id: string | null;
+  target_starts_at: Date | null;
+  target_ends_at: Date | null;
   keywords: readonly string[];
-  is_dm_keyword_trigger_enabled: boolean;
+  ad_id: string | null;
+  ref_code: string | null;
+  starter_questions: readonly string[];
+  trigger_tag: string | null;
 }
 
-/** Oldest first: `created_at`, then `id` (AU16). */
-function byAge<T extends AutomationMatchCandidate>({ left, right }: { left: T; right: T }): number {
-  const timeDifference = left.created_at.getTime() - right.created_at.getTime();
-  return timeDifference === 0 ? left.id - right.id : timeDifference;
+/** A chosen automation and the way to start the run takes from it (the "also start from" one's). */
+export interface AutomationMatch<T extends AutomationMatchCandidate> {
+  automation: T;
+  /** How the run starts — the automation's own way, or the event's kind through "also start from". */
+  triggerType: AutomationTriggerType;
 }
 
 /** The shortest word that may match with one wrong letter (D39, D60 — AU17). */
@@ -119,7 +123,7 @@ export function matchAutomationKeyword({
 
 /**
  * Whether a text matches an automation's keywords ({@link matchAutomationKeyword}). No keywords
- * matches every comment and story reply (`isMatchWithoutKeywords`) but never a DM.
+ * matches every comment, story reply and shared post (`isMatchWithoutKeywords`) but never a DM.
  */
 export function matchesAutomationKeywords({
   keywords,
@@ -134,137 +138,301 @@ export function matchesAutomationKeywords({
   return matchAutomationKeyword({ keywords, text }) !== null;
 }
 
+/** Oldest first: `created_at`, then `id`. */
+function byAge<T extends AutomationMatchCandidate>({ left, right }: { left: T; right: T }): number {
+  const timeDifference = left.created_at.getTime() - right.created_at.getTime();
+  return timeDifference === 0 ? left.id - right.id : timeDifference;
+}
+
+/** Whether a comment's post is the one an automation targets (one post, a linked next post, between). */
+function isPostLinked<T extends AutomationMatchCandidate>({
+  candidate,
+  mediaId,
+  mediaPublishedAt,
+}: {
+  candidate: T;
+  mediaId: string;
+  mediaPublishedAt: Date | null;
+}): boolean {
+  if (candidate.target_scope === 'specific' || candidate.target_scope === 'next') {
+    return candidate.target_instagram_media_id === mediaId;
+  }
+  if (candidate.target_scope === 'between') {
+    if (mediaPublishedAt === null) return false;
+    const time = mediaPublishedAt.getTime();
+    return (
+      (candidate.target_starts_at === null || candidate.target_starts_at.getTime() <= time) &&
+      (candidate.target_ends_at === null || time <= candidate.target_ends_at.getTime())
+    );
+  }
+  return false;
+}
+
 /**
- * One automation answers a comment (AU16, AQ1 — your rule, D26): among the account's live comment
- * automations whose keywords the comment matches, the post-linked ones (`specific` on this post,
- * or a `next` linked to it) are checked first and the oldest match is chosen; only when none of
- * them matches is the oldest matching "any post" automation chosen. Every other match — of either
- * kind — is returned in `otherMatches` (logged `comment_already_answered`).
+ * One automation answers a comment (plan §4.4, D37): among the account's live comment automations
+ * whose keywords the comment matches (none = every comment), the post-linked ones — one post, a
+ * linked "next post", "posts between" holding the post, an ad-comment automation of the comment's
+ * ad — come first and the oldest wins; else the oldest "any post" one. A Live comment matches only
+ * `live_comment` automations. Every other match is returned in `otherMatches` (logged
+ * `comment_already_answered`).
  *
  * @remarks
- * A `next` automation still `waiting` or `expired` has no media id, so it matches nothing; an
- * automation of another post, or one that does not match, is in neither list. The caller passes
- * the account's live comment automations only (AU27).
+ * Pure. The caller passes the account's live, not-stopped automations only.
  */
 export function chooseCommentAutomation<T extends AutomationMatchCandidate>({
   candidates,
-  instagramMediaId,
+  kind,
+  mediaId,
+  adId,
+  mediaPublishedAt,
   text,
 }: {
   candidates: readonly T[];
-  instagramMediaId: string;
+  kind: 'comment' | 'live_comment' | 'ad_comment';
+  mediaId: string;
+  adId: string | null;
+  mediaPublishedAt: Date | null;
   text: string | null;
-}): { chosen: T | null; otherMatches: T[] } {
-  const matching = candidates
-    .filter(
-      (candidate) => candidate.trigger_type === ('comment' satisfies AutomationRunTriggerType),
-    )
-    .filter((candidate) =>
-      matchesAutomationKeywords({
-        keywords: candidate.keywords,
-        text,
-        isMatchWithoutKeywords: true,
-      }),
-    );
-  const postLinked = matching
-    .filter(
-      (candidate) =>
-        (candidate.target_scope === ('specific' satisfies AutomationTargetScope) ||
-          candidate.target_scope === ('next' satisfies AutomationTargetScope)) &&
-        candidate.target_instagram_media_id === instagramMediaId,
-    )
-    .sort((left, right) => byAge({ left, right }));
-  const anyPost = matching
-    .filter((candidate) => candidate.target_scope === ('any' satisfies AutomationTargetScope))
-    .sort((left, right) => byAge({ left, right }));
-  const chosen = postLinked[0] ?? anyPost[0] ?? null;
-  const otherMatches = [...postLinked, ...anyPost]
+}): { chosen: AutomationMatch<T> | null; otherMatches: T[] } {
+  const isKeywordMatch = (candidate: T) =>
+    matchesAutomationKeywords({ keywords: candidate.keywords, text, isMatchWithoutKeywords: true });
+  const linked: T[] = [];
+  const anyPost: T[] = [];
+  for (const candidate of candidates) {
+    if (!isKeywordMatch(candidate)) continue;
+    if (kind === 'live_comment') {
+      if (candidate.trigger_type === 'live_comment') anyPost.push(candidate);
+      continue;
+    }
+    if (candidate.trigger_type === 'ad_comment') {
+      if (adId !== null && candidate.ad_id === adId) linked.push(candidate);
+      continue;
+    }
+    if (candidate.trigger_type !== 'comment') continue;
+    if (candidate.target_scope === 'any') anyPost.push(candidate);
+    else if (isPostLinked({ candidate, mediaId, mediaPublishedAt })) linked.push(candidate);
+  }
+  linked.sort((left, right) => byAge({ left, right }));
+  anyPost.sort((left, right) => byAge({ left, right }));
+  const chosen = linked[0] ?? anyPost[0] ?? null;
+  const otherMatches = [...linked, ...anyPost]
     .filter((candidate) => candidate !== chosen)
     .sort((left, right) => byAge({ left, right }));
-  return { chosen, otherMatches };
+  return {
+    chosen:
+      chosen === null
+        ? null
+        : { automation: chosen, triggerType: chosen.trigger_type as AutomationTriggerType },
+    otherMatches,
+  };
+}
+
+/** What a message event is, for the match order of plan §4.3. */
+export interface AutomationMessageMatchInput {
+  kind: 'message' | 'story_reply' | 'story_mention' | 'shared_post';
+  text: string | null;
+  storyId: string | null;
+  sharedMediaId: string | null;
+  isFirstMessage: boolean;
+  isOwnerChatting: boolean;
+}
+
+/** One level-3 candidate, ranked: an exact target first, then its own way to start, then the oldest. */
+interface RankedMatch<T extends AutomationMatchCandidate> {
+  automation: T;
+  triggerType: AutomationTriggerType;
+  isExactTarget: boolean;
+  isOwnWay: boolean;
+}
+
+/** A level-3 match of one candidate for one message kind, or `null`. */
+function levelThreeMatchOf<T extends AutomationMatchCandidate>({
+  candidate,
+  input,
+}: {
+  candidate: T;
+  input: AutomationMessageMatchInput;
+}): RankedMatch<T> | null {
+  const keywordMatch = (isMatchWithoutKeywords: boolean) =>
+    matchesAutomationKeywords({
+      keywords: candidate.keywords,
+      text: input.text,
+      isMatchWithoutKeywords,
+    });
+  const ranked = ({
+    triggerType,
+    isExactTarget,
+    isOwnWay,
+  }: {
+    triggerType: AutomationTriggerType;
+    isExactTarget: boolean;
+    isOwnWay: boolean;
+  }) => ({ automation: candidate, triggerType, isExactTarget, isOwnWay });
+  const isTargetMatch = ({
+    targetId,
+    eventId,
+  }: {
+    targetId: string | null;
+    eventId: string | null;
+  }) => candidate.target_scope === 'any' || (eventId !== null && targetId === eventId);
+  const isAlso = (way: string) => candidate.also_start_from.includes(way) && keywordMatch(false);
+  switch (input.kind) {
+    case 'message':
+      if (candidate.trigger_type === 'dm_keyword' && keywordMatch(false)) {
+        return ranked({ triggerType: 'dm_keyword', isExactTarget: false, isOwnWay: true });
+      }
+      return isAlso('dm')
+        ? ranked({ triggerType: 'dm_keyword', isExactTarget: false, isOwnWay: false })
+        : null;
+    case 'story_reply':
+      if (
+        candidate.trigger_type === 'story_reply' &&
+        isTargetMatch({ targetId: candidate.target_instagram_story_id, eventId: input.storyId }) &&
+        keywordMatch(true)
+      ) {
+        return ranked({
+          triggerType: 'story_reply',
+          isExactTarget: candidate.target_scope !== 'any',
+          isOwnWay: true,
+        });
+      }
+      return isAlso('story_reply')
+        ? ranked({ triggerType: 'story_reply', isExactTarget: false, isOwnWay: false })
+        : null;
+    case 'story_mention':
+      return candidate.trigger_type === 'story_mention'
+        ? ranked({ triggerType: 'story_mention', isExactTarget: false, isOwnWay: true })
+        : null;
+    case 'shared_post':
+      return candidate.trigger_type === 'shared_post' &&
+        isTargetMatch({
+          targetId: candidate.target_instagram_media_id,
+          eventId: input.sharedMediaId,
+        }) &&
+        keywordMatch(true)
+        ? ranked({
+            triggerType: 'shared_post',
+            isExactTarget: candidate.target_scope !== 'any',
+            isOwnWay: true,
+          })
+        : null;
+  }
+}
+
+/** Level 3 of plan §4.3: keyword or kind — an exact target first, then its own way, then the oldest. */
+function levelThreeMatches<T extends AutomationMatchCandidate>({
+  candidates,
+  input,
+}: {
+  candidates: readonly T[];
+  input: AutomationMessageMatchInput;
+}): RankedMatch<T>[] {
+  return candidates
+    .flatMap((candidate) => {
+      const match = levelThreeMatchOf({ candidate, input });
+      return match === null ? [] : [match];
+    })
+    .sort((left, right) => {
+      if (left.isExactTarget !== right.isExactTarget) return left.isExactTarget ? -1 : 1;
+      if (left.isOwnWay !== right.isOwnWay) return left.isOwnWay ? -1 : 1;
+      return byAge({ left: left.automation, right: right.automation });
+    });
 }
 
 /**
- * The automation a DM starts (AU16): the **first** of the account's live automations — any
- * trigger — with the DM keyword trigger on and a keyword the text contains, oldest first. No
- * keywords never matches a DM (schema-routes § 6.5).
+ * The one automation a message event starts (plan §4.3 levels 3–5, D37): keyword or kind (an exact
+ * target first, then its own way to start before "also start from", then the oldest); else her first
+ * ever DM's "first message" automation; else "no other automation answered" — not while the owner
+ * chats with her by hand. A message without words (a photo, a sticker) reaches only levels 4 and 5.
+ * `null` when nothing matches.
+ *
+ * @remarks
+ * Pure. A match whose once key is used still ends the search — the caller logs it ignored.
  */
-export function chooseDirectMessageAutomation<T extends AutomationMatchCandidate>({
+export function chooseMessageAutomation<T extends AutomationMatchCandidate>({
   candidates,
-  text,
+  input,
 }: {
   candidates: readonly T[];
-  text: string | null;
-}): T | null {
+  input: AutomationMessageMatchInput;
+}): AutomationMatch<T> | null {
+  const hasWords = input.text !== null && input.text.trim() !== '';
+  if (hasWords || input.kind !== 'message') {
+    const [first] = levelThreeMatches({ candidates, input });
+    if (first !== undefined)
+      return { automation: first.automation, triggerType: first.triggerType };
+  }
+  if (input.kind !== 'message') return null;
+  const oldestOf = (triggerType: AutomationTriggerType) =>
+    candidates
+      .filter((candidate) => candidate.trigger_type === triggerType)
+      .sort((left, right) => byAge({ left, right }))[0];
+  if (input.isFirstMessage) {
+    const first = oldestOf('first_message');
+    if (first !== undefined) return { automation: first, triggerType: 'first_message' };
+  }
+  if (input.isOwnerChatting) return null;
+  const fallback = oldestOf('default_reply');
+  return fallback === undefined ? null : { automation: fallback, triggerType: 'default_reply' };
+}
+
+/**
+ * The automation an exact source names (plan §4.3 level 2): a starter question's text, an ig.me
+ * link's `ref` or an ad's id, the oldest first. `null` when none.
+ *
+ * @remarks
+ * Pure. A paused automation is not a candidate, so its starter question falls through (rule 5).
+ */
+export function chooseExactSourceAutomation<T extends AutomationMatchCandidate>({
+  candidates,
+  kind,
+  value,
+}: {
+  candidates: readonly T[];
+  kind: 'starter_question' | 'ref_link' | 'ad_message';
+  value: string;
+}): AutomationMatch<T> | null {
+  const trimmed = value.trim();
   const matching = candidates
-    .filter((candidate) => candidate.is_dm_keyword_trigger_enabled)
-    .filter((candidate) =>
-      matchesAutomationKeywords({
-        keywords: candidate.keywords,
-        text,
-        isMatchWithoutKeywords: false,
-      }),
-    )
+    .filter((candidate) => {
+      if (candidate.trigger_type !== kind) return false;
+      if (kind === 'starter_question') return candidate.starter_questions.includes(trimmed);
+      if (kind === 'ref_link') return candidate.ref_code === trimmed;
+      return candidate.ad_id === trimmed;
+    })
     .sort((left, right) => byAge({ left, right }));
-  return matching[0] ?? null;
+  const [chosen] = matching;
+  return chosen === undefined ? null : { automation: chosen, triggerType: kind };
 }
 
 /**
- * The automation a story reply starts (AU16): the account's first live `story_reply` automation —
- * `any`, or `specific` on this story — whose keywords match (none = every story reply), oldest
- * first. An expired story simply stops matching (D18): nothing here reads the story's age.
+ * The one automation a tag event starts (plan §5.12, D45): the oldest live one of that change and
+ * tag, never the automation whose tag step made the event. `null` when none.
+ *
+ * @remarks
+ * Pure.
  */
-export function chooseStoryReplyAutomation<T extends AutomationMatchCandidate>({
+export function chooseTagAutomation<T extends AutomationMatchCandidate>({
   candidates,
-  instagramStoryId,
-  text,
+  change,
+  tag,
+  sourceAutomationId,
 }: {
   candidates: readonly T[];
-  instagramStoryId: string;
-  text: string | null;
-}): T | null {
-  const matching = candidates
-    .filter(
-      (candidate) => candidate.trigger_type === ('story_reply' satisfies AutomationRunTriggerType),
-    )
+  change: 'added' | 'removed';
+  tag: string;
+  sourceAutomationId: number | null;
+}): AutomationMatch<T> | null {
+  const triggerType: AutomationTriggerType = change === 'added' ? 'tag_added' : 'tag_removed';
+  const [chosen] = candidates
     .filter(
       (candidate) =>
-        candidate.target_scope === ('any' satisfies AutomationTargetScope) ||
-        (candidate.target_scope === ('specific' satisfies AutomationTargetScope) &&
-          candidate.target_instagram_story_id === instagramStoryId),
-    )
-    .filter((candidate) =>
-      matchesAutomationKeywords({
-        keywords: candidate.keywords,
-        text,
-        isMatchWithoutKeywords: true,
-      }),
+        candidate.trigger_type === triggerType &&
+        candidate.trigger_tag === tag &&
+        candidate.id !== sourceAutomationId,
     )
     .sort((left, right) => byAge({ left, right }));
-  return matching[0] ?? null;
-}
-
-/**
- * What a trigger meets for the chosen automation and contact (AU17, D14), in order:
- * (1) another run of the contact waits for an email → `waiting_for_other_email` (the trigger is
- * queued on that run and the question asked again); (2) this automation's run waits →
- * `already_waiting`; (3) it runs → `run_in_progress`; (4) its last run is `completed` or `failed`
- * → `previous_run_final`. `null` = a new run may start (no run yet, or the last one `cancelled`).
- */
-export function decideExistingRunConflict({
-  hasEmailWaitingRun,
-  latestRunStatus,
-}: {
-  /** Whether another automation's run of the contact waits for an email. */
-  hasEmailWaitingRun: boolean;
-  /** The status of this automation's last run for the contact; `null` = none. */
-  latestRunStatus: AutomationRunStatus | null;
-}): AutomationCommentLogIgnoredReason | null {
-  if (hasEmailWaitingRun) return 'waiting_for_other_email';
-  if (latestRunStatus === 'waiting') return 'already_waiting';
-  if (latestRunStatus === 'running') return 'run_in_progress';
-  if (latestRunStatus === 'completed' || latestRunStatus === 'failed') return 'previous_run_final';
-  return null;
+  return chosen === undefined ? null : { automation: chosen, triggerType };
 }
 
 /** A non-blank string, trimmed; `null` otherwise. */

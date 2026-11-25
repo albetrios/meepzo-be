@@ -52,10 +52,9 @@ import { AutomationBackfillRepository } from './sub-domains/automation/automatio
 import { AutomationBackfillService } from './sub-domains/automation/automation-backfill/automation-backfill.service.js';
 import type { AutomationOpenRunCancelStep } from './sub-domains/automation/automation.types.js';
 import { AutomationRunService } from './sub-domains/automation/automation-run/automation-run.service.js';
-import { AutomationRunMessageService } from './sub-domains/automation/automation-run/automation-run-message.service.js';
-import { AutomationPublicReplySafetyService } from './sub-domains/automation/automation-run/automation-public-reply-safety.service.js';
 import { BroadcastSegmentRepository } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.repository.js';
 import { BroadcastSegmentService } from './sub-domains/broadcast/broadcast-segment/broadcast-segment.service.js';
+import type { ChannelSendingPorts } from './app.channel-ports.js';
 import { InstagramSendLaneRepository } from './sub-domains/instagram-sending/instagram-send-lane.repository.js';
 import { InstagramSendLaneService } from './sub-domains/instagram-sending/instagram-send-lane.service.js';
 import { InstagramSendStopRepository } from './sub-domains/instagram-sending/instagram-send-stop.repository.js';
@@ -122,6 +121,11 @@ export type AppContainer = {
   automationReplyStateService: AutomationReplyStateService;
   automationRunService: AutomationRunService;
   broadcastSegmentService: BroadcastSegmentService;
+  /**
+   * The channels' sending ports (AU35), one record shared by the automations and the run engine —
+   * Instagram's is wired by its sending sub-domain (ROUTE rows R19–R20); tests put a recording one.
+   */
+  channelSendingPorts: ChannelSendingPorts;
   instagramSendLaneService: InstagramSendLaneService;
   messageMonthCountService: MessageMonthCountService;
   sendingStateService: SendingStateService;
@@ -394,19 +398,20 @@ function createContactServices({
  * sync (R40) and the channels' sending ports (R19–R20) join later.
  */
 function createAutomationServices({
-  instagramAccountService,
   organizationService,
   channelAccountService,
   planAccessService,
   messageMonthCountService,
   messageFilePort,
+  channelSendingPorts,
 }: {
-  instagramAccountService: InstagramAccountService;
   organizationService: OrganizationService;
   channelAccountService: ChannelAccountService;
   planAccessService: ChannelConnectionPlanAccessService;
   messageMonthCountService: MessageMonthCountService;
   messageFilePort: AutomationMessageFilePort | undefined;
+  /** The channels' sending ports (AU35) — one record shared by the automations and the run engine. */
+  channelSendingPorts: ChannelSendingPorts;
 }) {
   // The automation delete's hook (AU16): every step registered here runs inside route 31's
   // transaction, after the soft delete, and answers how many open runs it cancelled. Sub-domain 4.B
@@ -437,6 +442,7 @@ function createAutomationServices({
       monthLimit: messageMonthCountService,
       messageFiles: messageFilePort,
       openBackfills: automationBackfillService,
+      sendingPorts: channelSendingPorts,
     },
   );
   const { contactService, contactTagEventService, contactErasureSteps } = createContactServices({
@@ -444,14 +450,17 @@ function createAutomationServices({
     automationService,
     cancelContactOpenRuns: (input) => automationRunService.cancelContactOpenRuns(input),
   });
-  // The run engine (sub-domain 4.B): sub-domain 5's event processing calls its entry points; it
-  // sends through sub-domain 1 and writes contacts through sub-domain 3 (AU5).
-  const automationRunService = new AutomationRunService(
-    instagramAccountService,
+  // The run engine (sub-domain 4.B, R14): the intake calls its entry points; it saves every step
+  // as a waiting message through the channel's sending port (AU35 — the shared record, filled per
+  // channel by its sending sub-domain, Instagram's at R19–R20) and writes contacts through 3.
+  const automationRunService = new AutomationRunService({
+    channelAccountService,
     contactService,
-    new AutomationRunMessageService(),
-    new AutomationPublicReplySafetyService(),
-  );
+    planAccessService,
+    countService: automationCountService,
+    replyStateService: automationReplyStateService,
+    sendingPorts: channelSendingPorts,
+  });
   automationOpenRunCancelSteps.push((input) =>
     automationRunService.cancelAutomationOpenRuns(input),
   );
@@ -496,6 +505,8 @@ export function createAppContainer({
    */
   messageFilePort?: AutomationMessageFilePort | undefined;
 }): AppContainer {
+  // Filled per channel as its sending sub-domain lands (Instagram's at R19–R20).
+  const channelSendingPorts: ChannelSendingPorts = {};
   const channelConnectionRepository = new ChannelConnectionRepository();
   const channelConnectionTokenService = new ChannelConnectionTokenService(
     new ChannelConnectionTokenRepository(),
@@ -578,12 +589,12 @@ export function createAppContainer({
     contactTagEventService,
     automationRunService,
   } = createAutomationServices({
-    instagramAccountService,
     organizationService,
     channelAccountService,
     planAccessService,
     messageMonthCountService: sending.messageMonthCountService,
     messageFilePort,
+    channelSendingPorts,
   });
   const { instagramWebhookEventService, instagramWebhookService } = createInstagramWebhookServices({
     instagramAccountService,
@@ -608,6 +619,7 @@ export function createAppContainer({
     automationCountService,
     automationReplyStateService,
     automationRunService,
+    channelSendingPorts,
     instagramSendLaneService: sending.instagramSendLaneService,
     messageMonthCountService: sending.messageMonthCountService,
     sendingStateService: sending.sendingStateService,

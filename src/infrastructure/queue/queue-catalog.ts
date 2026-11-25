@@ -37,8 +37,6 @@ import { DLQ_AUTO_RETRY_QUEUE_NAME } from '@/infrastructure/queue/dlq/dlq-auto-r
 import { INSTAGRAM_RECONNECT_NOTICE_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-daily-check.queue.js';
 import { AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-wait-expiry.constants.js';
-import { AUTOMATION_RUN_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-run-retention.constants.js';
-import { AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/automation-run/workers/automation-comment-log-retention.constants.js';
 import { AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME } from '@/domains/app/sub-domains/automation/workers/automation-tombstone-retention.constants.js';
 
 /**
@@ -91,8 +89,6 @@ export const WORKER_QUEUE_NAMES = [
   USER_DATA_EXPORT_RETENTION_QUEUE_NAME,
   INSTAGRAM_ACCOUNT_DAILY_CHECK_QUEUE_NAME,
   AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
-  AUTOMATION_RUN_RETENTION_QUEUE_NAME,
-  AUTOMATION_COMMENT_LOG_RETENTION_QUEUE_NAME,
   AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
   IDEMPOTENCY_CARDINALITY_QUEUE_NAME,
   DLQ_DEPTH_QUEUE_NAME,

@@ -41,7 +41,11 @@ import {
 } from '@/shared/utils/http/list-query.util.js';
 import type { RecordDeleteReason } from '@/shared/constants/record-fields.constants.js';
 import { channel_accounts } from '@/domains/app/sub-domains/channel-account/channel-account.schema.js';
-import type { AutomationStatus, AutomationTriggerType } from './automation.constants.js';
+import {
+  AUTOMATION_LAST_TRIGGERED_UPDATE_SECONDS,
+  type AutomationStatus,
+  type AutomationTriggerType,
+} from './automation.constants.js';
 import { automations } from './automation.schema.js';
 import type {
   AutomationRepositoryListQuery,
@@ -182,8 +186,9 @@ function toWrittenColumns(fields: AutomationWritableFields) {
  * @remarks
  * - **Algorithm:** every statement names `organization_id`, and a single-automation statement the
  *   internal `id` too, so tenant isolation does not rest on RLS alone. Every route read and write
- *   carries `deleted_at IS NULL`. The run engine's reads (4.B) live in
- *   `automation-run/automation-run-automation.repository.ts` until ROUTE row R14 rebuilds it.
+ *   carries `deleted_at IS NULL`. The run engine (4.B, ROUTE row R14) reads its candidates, locks
+ *   and the automation as it is now through {@link AutomationRepository.listRunCandidates},
+ *   {@link AutomationRepository.lockForRunChanges} and {@link AutomationRepository.findByIdIncludingDeleted}.
  * - **Failure modes:** a value that breaks a `chk_automations_*` CHECK throws Postgres 23514; the
  *   unique `idx_automations_account_ref_code` throws 23505 — the service checks every rule first.
  * - **Side effects:** reads `app.channel_accounts` (the account's public id — a join-only use of
@@ -707,6 +712,114 @@ export class AutomationRepository {
       )
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /**
+   * The run engine's candidates (4.B): the account's live automations that are not stopped
+   * (`stopped_reason`, AU3 — a stopped one sends nothing until fixed), oldest first; the engine
+   * matches in memory (an account holds few).
+   */
+  async listRunCandidates({
+    organizationId,
+    channelAccountId,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+  }): Promise<AutomationRow[]> {
+    return this.db()
+      .select()
+      .from(automations)
+      .where(
+        and(
+          eq(automations.organization_id, organizationId),
+          eq(automations.channel_account_id, channelAccountId),
+          eq(automations.status, 'live'),
+          LIVE_AUTOMATION,
+          isNull(automations.stopped_reason),
+        ),
+      )
+      .orderBy(asc(automations.created_at), asc(automations.id));
+  }
+
+  /** The organization's automation with this internal id, deleted ones included; `null` when absent. */
+  async findByIdIncludingDeleted({
+    organizationId,
+    automationId,
+  }: AutomationKey): Promise<AutomationRow | null> {
+    const rows = await this.db()
+      .select()
+      .from(automations)
+      .where(and(eq(automations.organization_id, organizationId), eq(automations.id, automationId)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Locks automations `FOR KEY SHARE`, by id ascending, until the unit ends — what the run engine,
+   * the contact erase and pause take before they lock or change a run of them (D47: the contact,
+   * then the automation, then its runs). Nothing to lock is a no-op.
+   */
+  async lockForRunChanges({
+    organizationId,
+    automationIds,
+  }: {
+    organizationId: number;
+    automationIds: readonly number[];
+  }): Promise<void> {
+    if (automationIds.length === 0) return;
+    await this.db()
+      .select({ id: automations.id })
+      .from(automations)
+      .where(
+        and(
+          eq(automations.organization_id, organizationId),
+          inArray(automations.id, [...automationIds]),
+        ),
+      )
+      .orderBy(asc(automations.id))
+      .for('key share');
+  }
+
+  /**
+   * The automation a run is about to start on, locked `FOR KEY SHARE` until the unit ends — proof it
+   * is still live and not stopped; `null` otherwise: nothing starts.
+   */
+  async lockLiveForRunStart({
+    organizationId,
+    automationId,
+  }: AutomationKey): Promise<AutomationRow | null> {
+    const rows = await this.db()
+      .select()
+      .from(automations)
+      .where(
+        and(
+          eq(automations.organization_id, organizationId),
+          eq(automations.id, automationId),
+          eq(automations.status, 'live'),
+          LIVE_AUTOMATION,
+          isNull(automations.stopped_reason),
+        ),
+      )
+      .limit(1)
+      .for('key share');
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Moves `last_triggered_at` to now when a run starts — only when over 60 s old
+   * (`AUTOMATION_LAST_TRIGGERED_UPDATE_SECONDS`, AU19); `updated_at` is left as it is.
+   */
+  async markRunStarted({ organizationId, automationId }: AutomationKey): Promise<void> {
+    await this.db()
+      .update(automations)
+      .set({ last_triggered_at: databaseNowTimestamp })
+      .where(
+        and(
+          eq(automations.organization_id, organizationId),
+          eq(automations.id, automationId),
+          sql`(${automations.last_triggered_at} IS NULL OR ${automations.last_triggered_at} < now() - make_interval(secs => ${AUTOMATION_LAST_TRIGGERED_UPDATE_SECONDS}))`,
+        ),
+      );
   }
 
   /**

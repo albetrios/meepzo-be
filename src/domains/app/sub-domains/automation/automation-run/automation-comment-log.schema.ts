@@ -8,6 +8,7 @@ import {
   integer,
   jsonb,
   pgPolicy,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -28,16 +29,15 @@ import {
   AUTOMATION_RUN_INSTAGRAM_ID_PATTERN,
   AUTOMATION_RUN_WAITING_FOR,
 } from './automation-run.constants.js';
-import { automation_runs } from './automation-run.schema.js';
 
 /** A comment-log step status column: `off` until the step is reached (schema-routes § 8.12). */
 function stepStatusColumn(name: string) {
   return varchar(name, { length: 10 }).notNull().default('off');
 }
 
-/** The columns of `app.automation_comment_logs` (routes-final § 3.B.3), as the table is built from them. */
+/** The columns of `app.automation_comment_logs` (routes-final § 4.B.3), as the table is built from them. */
 const automationCommentLogColumns = {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  id: bigserial('id', { mode: 'number' }).notNull(),
   /** `acl_…` — unused until a read route (D13). */
   public_id: varchar('public_id', { length: 28 }).notNull(),
   organization_id: bigint('organization_id', { mode: 'number' })
@@ -46,11 +46,15 @@ const automationCommentLogColumns = {
   automation_id: bigint('automation_id', { mode: 'number' }).notNull(),
   /** The automation's name at the time. */
   automation_name: varchar('automation_name', { length: 255 }).notNull(),
-  /** `null` when the comment was ignored (AU24). */
+  /** `null` when the comment was ignored — a copy, no reference (its parts drop on their own clock, AU36). */
   automation_run_id: bigint('automation_run_id', { mode: 'number' }),
+  /** A copy of the run's start (AU36), set with `automation_run_id`. */
+  automation_run_started_at: timestamp('automation_run_started_at', { withTimezone: true }),
   contact_id: bigint('contact_id', { mode: 'number' }).notNull(),
   instagram_media_id: varchar('instagram_media_id', { length: 64 }).notNull(),
   instagram_comment_id: varchar('instagram_comment_id', { length: 64 }).notNull(),
+  /** The comment's own time (AU28). */
+  comment_occurred_at: timestamp('comment_occurred_at', { withTimezone: true }),
   /** Personal data — cleared by the contact erase (AU26). */
   comment_text: text('comment_text'),
   /** Personal data — cleared by the contact erase (AU26). */
@@ -76,8 +80,11 @@ const automationCommentLogColumns = {
   phone_at: timestamp('phone_at', { withTimezone: true }),
   /** Personal data — cleared by the contact erase (AU26). */
   phone_received: varchar('phone_received', { length: 50 }),
-  final_dm_status: stepStatusColumn('final_dm_status'),
-  final_dm_at: timestamp('final_dm_at', { withTimezone: true }),
+  messages_status: stepStatusColumn('messages_status'),
+  messages_at: timestamp('messages_at', { withTimezone: true }),
+  /** "Hide their comment" (D33) — `off` unless the option is on. */
+  hide_status: stepStatusColumn('hide_status'),
+  hidden_at: timestamp('hidden_at', { withTimezone: true }),
   overall_status: varchar('overall_status', { length: 10 }).notNull().default('started'),
   current_step: varchar('current_step', { length: 15 }),
   failed_step: varchar('failed_step', { length: 15 }),
@@ -92,9 +99,10 @@ const automationCommentLogColumns = {
   /** Never returned. */
   error_stack: text('error_stack'),
   fbtrace_id: varchar('fbtrace_id', { length: 100 }),
-  /** Instagram's class, codes, type, trace id and HTTP status — never its text (D53). */
+  /** The channel's class, codes, type, trace id and HTTP status — never its text (D53). */
   error_response: jsonb('error_response').$type<Record<string, unknown>>(),
   error_at: timestamp('error_at', { withTimezone: true }),
+  /** The month split key (P96, AU36). */
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 };
@@ -106,59 +114,44 @@ type AutomationCommentLogTableColumns = BuildExtraConfigColumns<
   'pg'
 >;
 
-/** The three composite references and every index of 3.B.3 — each declared for the index-hygiene gate. */
+/** The two composite references and every index of 4.B.3 — each local to its month part (AU36). */
 function automationCommentLogKeysAndIndexes(table: AutomationCommentLogTableColumns) {
   return [
+    primaryKey({ name: 'automation_comment_logs_pkey', columns: [table.id, table.created_at] }),
     foreignKey({
       name: 'automation_comment_logs_automation_fk',
       columns: [table.organization_id, table.automation_id],
       foreignColumns: [automations.organization_id, automations.id],
     }).onDelete('restrict'),
-    // The migration writes `ON DELETE SET NULL (automation_run_id)` — only the run column is
-    // cleared when run retention removes the run (organization_id stays NOT NULL); Drizzle cannot
-    // express the column list.
-    foreignKey({
-      name: 'automation_comment_logs_automation_run_fk',
-      columns: [table.organization_id, table.automation_run_id],
-      foreignColumns: [automation_runs.organization_id, automation_runs.id],
-    }).onDelete('set null'),
     foreignKey({
       name: 'automation_comment_logs_contact_fk',
       columns: [table.organization_id, table.contact_id],
       foreignColumns: [contacts.organization_id, contacts.id],
     }).onDelete('restrict'),
-    uniqueIndex('idx_automation_comment_logs_public_id').on(table.public_id),
-    // One log per comment × automation (AU24), and the automation reference.
-    uniqueIndex('idx_automation_comment_logs_automation_comment').on(
+    // A split table's unique index carries the split key.
+    uniqueIndex('idx_automation_comment_logs_public_id').on(table.public_id, table.created_at),
+    // The automation reference and one log per comment and automation — plain since the split
+    // (AU28): the engine checks it in the last two month parts under the contact lock.
+    index('idx_automation_comment_logs_automation_comment').on(
       table.organization_id,
       table.automation_id,
       table.instagram_comment_id,
     ),
-    // The duplicate check (AU20) and a retried comment finding its logs (AU16).
+    // The duplicate public reply and a retried comment finding its logs.
     index('idx_automation_comment_logs_comment').on(
       table.organization_id,
       table.instagram_comment_id,
     ),
-    // The run reference (`SET NULL`).
+    // A run's log (a copy, no reference).
     index('idx_automation_comment_logs_automation_run')
       .on(table.organization_id, table.automation_run_id)
       .where(sql`${table.automation_run_id} IS NOT NULL`),
-    // The contact reference and the erase step (AU26).
+    // The contact reference and the erase step.
     index('idx_automation_comment_logs_contact').on(table.organization_id, table.contact_id),
-    // The hour limit and the gap (AU20).
-    index('idx_automation_comment_logs_public_replies')
-      .on(table.organization_id, table.public_reply_at)
-      .where(sql`${table.public_reply_status} = 'sent'`),
-    // The automation's last reply text (AU20).
-    index('idx_automation_comment_logs_automation_public_replies')
-      .on(table.organization_id, table.automation_id, table.public_reply_at)
-      .where(sql`${table.public_reply_status} = 'sent'`),
-    // Comment-log retention across organizations (D8).
-    index('idx_automation_comment_logs_created').on(table.created_at),
   ];
 }
 
-/** The value-list CHECKs of 3.B.3 — the five step statuses and every other list. */
+/** The value-list CHECKs of 4.B.3 — the seven step statuses and every other list. */
 function automationCommentLogValueChecks(table: AutomationCommentLogTableColumns) {
   const stepStatuses = sqlLiteralList(AUTOMATION_COMMENT_LOG_STEP_STATUSES);
   return [
@@ -183,8 +176,12 @@ function automationCommentLogValueChecks(table: AutomationCommentLogTableColumns
       sql`${table.phone_status} IN (${stepStatuses})`,
     ),
     check(
-      'chk_automation_comment_logs_final_dm_status',
-      sql`${table.final_dm_status} IN (${stepStatuses})`,
+      'chk_automation_comment_logs_messages_status',
+      sql`${table.messages_status} IN (${stepStatuses})`,
+    ),
+    check(
+      'chk_automation_comment_logs_hide_status',
+      sql`${table.hide_status} IN (${stepStatuses})`,
     ),
     check(
       'chk_automation_comment_logs_overall_status',
@@ -217,7 +214,7 @@ function automationCommentLogValueChecks(table: AutomationCommentLogTableColumns
   ];
 }
 
-/** The state CHECKs of 3.B.3: ignored ⇔ its reason, failed ⇒ its time, the skipped reply's reason. */
+/** The state CHECKs of 4.B.3: ignored ⇔ its reason, failed ⇒ its time, the skipped reply's reason, the run copy. */
 function automationCommentLogStateChecks(table: AutomationCommentLogTableColumns) {
   return [
     check(
@@ -237,29 +234,32 @@ function automationCommentLogStateChecks(table: AutomationCommentLogTableColumns
       sql`${table.instagram_media_id} ~ ${sqlLiteral(AUTOMATION_RUN_INSTAGRAM_ID_PATTERN)}
         AND ${table.instagram_comment_id} ~ ${sqlLiteral(AUTOMATION_RUN_INSTAGRAM_ID_PATTERN)}`,
     ),
+    check(
+      'chk_automation_comment_logs_run_copy',
+      sql`(${table.automation_run_id} IS NULL) = (${table.automation_run_started_at} IS NULL)`,
+    ),
     check('chk_automation_comment_logs_updated', sql`${table.updated_at} >= ${table.created_at}`),
   ];
 }
 
 /**
- * `app.automation_comment_logs` — the step results of one comment × automation (routes-final
- * § 3.B.3, AU24): the automation that answered the comment and every other match, ignored ones
- * included.
+ * `app.automation_comment_logs` — one comment an automation saw (routes-final § 4.B.3, AU28): the
+ * automation that answered the comment and every other match, ignored ones included, with each
+ * step's status — the hello (`opening_dm`), the public reply, the hide, the follow, email and phone
+ * asks and the message list.
  *
  * @remarks
- * - **One per comment × automation** (`idx_automation_comment_logs_automation_comment`); one
- *   automation answers a comment, the other matches are logged `ignored` ·
- *   `comment_already_answered` (AU16, D26).
- * - **Keys (AU24):** composite references to the automation (`RESTRICT`), the contact
- *   (`RESTRICT`, NOT NULL — every log carries its contact) and the run (`ON DELETE SET NULL
- *   (automation_run_id)` — a run removed after 180 days leaves its log). The engine writes the log
- *   in the run's own short transactions, so both are committed with or before it.
- * - **Reply safety** counts the organization's `sent` public replies here (AU20): the duplicate,
- *   the hour limit and the gap — Postgres is the only source of truth.
- * - **Personal data:** the comment text, the commenter's username and Instagram id, the email and
- *   phone received — masked in logs and cleared by the contact erase (AU26).
- * - **RLS:** the organization policy, plus the retention sweep arm in `USING` only (comment-log
- *   retention reads and deletes across organizations).
+ * - **Split by month** of `created_at` (P96, AU36): an ignored comment has no run, so the log keeps
+ *   its own month; a part is dropped 90 days after its month by the shared upkeep (ROUTE row R49).
+ *   Primary key `(id, created_at)`, unique `(public_id, created_at)`.
+ * - **One per comment and automation** — checked by the engine in the last two month parts under
+ *   the contact lock (the index is plain since the split); one automation answers a comment, the
+ *   other matches are logged `ignored` · `comment_already_answered`.
+ * - **Keys:** composite references to the automation and the contact (`RESTRICT`); the run is a
+ *   copy (`automation_run_id` + `automation_run_started_at`) with no reference, like the messages'.
+ * - **Personal data:** the comment text, the commenter's username and id, the email and phone
+ *   received — cleared by the contact erase.
+ * - **RLS:** the organization policy, plus the retention sweep arm in `USING` only.
  */
 export const automation_comment_logs = appSchema
   .table('automation_comment_logs', automationCommentLogColumns, (table) => [

@@ -1,4 +1,4 @@
-import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
+import { signInWithEmailCode, generateTestToken } from '@/tests/helpers/test-auth.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { createTestApp } from '@/tests/helpers/test-app.js';
 import {
@@ -7,7 +7,6 @@ import {
 } from '@/tests/helpers/test-http-inject.helper.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
-import { generateTestToken } from '@/tests/helpers/test-auth.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { auth_methods } from '@/domains/auth/sub-domains/auth-method/auth-method.schema.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';

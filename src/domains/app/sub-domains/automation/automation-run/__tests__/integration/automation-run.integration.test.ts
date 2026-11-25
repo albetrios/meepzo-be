@@ -319,7 +319,7 @@ describe('Automation runs through the routes', () => {
     });
   });
 
-  describe('DELETE /app/social/instagram/account cancels nothing (IQ1, D24)', () => {
+  describe('DELETE /app/social/channel-accounts/{channel_account_id} cancels nothing (IQ1, D24)', () => {
     it('leaves the waiting runs waiting', async () => {
       const waiting = await insertAutomationRun({
         organizationId: team.organization.id,

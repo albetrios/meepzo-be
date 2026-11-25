@@ -2,7 +2,7 @@
  * Design-iteration tooling — `pnpm iteration:frontend-map` (`tooling/iterations/iteration-frontend-map.util.ts`).
  *
  * Pins the route catalog parser (its summary section skipped), the route review numbers and their
- * two spellings, the OpenAPI summaries with their fallbacks, the generated section (modules, gates,
+ * spellings (own path, without `/tenancy`, without `/app`, `/api/v1` and `{param}` normalised), the app module, the OpenAPI summaries with their fallbacks, the generated section (modules, gates,
  * flags, escaped pipes), the splice that keeps the hand-written sections, the arguments, and the
  * plan: a new map from the template, an unchanged one, and a frozen iteration refused.
  */
@@ -44,6 +44,8 @@ const CATALOG = `===============================================================
   POST   /api/v1/tenancy/organization/roles                       200  req  team  PERM: role:create
   POST   /api/v1/auth/login                                       200  -    both  PUBLIC
   GET    /livez                                                   200  -    both  PUBLIC
+  GET    /api/v1/app/social/channel-accounts/:channel_account_id  200  -    team  PERM: channel:read
+  GET    /api/v1/app/contacts/:contact_id                         200  -    team  PERM: contact:read
 
 ================================================================================
   SUMMARY
@@ -73,6 +75,13 @@ const REVIEW = `# Final routes
 | # | Method | Path | Operation | Access | Idem |
 | --- | --- | --- | --- | --- | --- |
 | 7 | GET | \`/notify/webhooks\` | Repeated in a nested table | \`webhook:read\` | |
+
+## 6. Channel connection — final
+
+| # | Method | Path | Operation | Access | Idem |
+| --- | --- | --- | --- | --- | --- |
+| 2 | GET | \`/social/channel-accounts/{channel_account_id}\` | Get a channel | \`channel:read\` | |
+| 5 | GET | \`/api/v1/app/contacts/{contact_id}\` | Get a contact (full path) | \`contact:read\` | |
 `;
 
 describe('frontendMapRoutes', () => {
@@ -84,6 +93,8 @@ describe('frontendMapRoutes', () => {
       'POST /tenancy/organization/roles',
       'POST /auth/login',
       'GET /livez',
+      'GET /app/social/channel-accounts/:channel_account_id',
+      'GET /app/contacts/:contact_id',
     ]);
     expect(routes[1]).toMatchObject({ isIdempotencyRequired: true, isTeamOnly: false });
     expect(routes[2]).toMatchObject({ isTeamOnly: true, gate: 'PERM: role:create' });
@@ -110,6 +121,23 @@ describe('route review numbers', () => {
       }),
     ).toBe('2.9');
     expect(routeReviewNumber({ numbers, route: { method: 'POST', path: '/auth/login' } })).toBe('');
+  });
+
+  it('finds an app route the review writes without /app, and one it writes in full with /api/v1', () => {
+    const numbers = parseRouteReviewNumbers(REVIEW);
+    expect(numbers.get('GET /app/contacts/:contact_id')).toBe('6.5');
+    expect(
+      routeReviewNumber({
+        numbers,
+        route: { method: 'GET', path: '/app/social/channel-accounts/:channel_account_id' },
+      }),
+    ).toBe('6.2');
+    expect(
+      routeReviewNumber({ numbers, route: { method: 'GET', path: '/app/contacts/:contact_id' } }),
+    ).toBe('6.5');
+    expect(
+      routeReviewNumber({ numbers, route: { method: 'GET', path: '/app/contacts/:other_id' } }),
+    ).toBe('');
   });
 });
 
@@ -141,7 +169,14 @@ describe('renderRouteSection', () => {
       ]),
       reviewNumbers: parseRouteReviewNumbers(REVIEW),
     });
-    expect(block).toMatch(/^5 routes, from `docs\/routes.txt`/);
+    expect(block).toMatch(/^7 routes, from `docs\/routes.txt`/);
+    expect(block).toContain('| [App (the product)](#app-the-product) | 2 |');
+    expect(block).toContain(
+      '| GET | `/app/social/channel-accounts/:channel_account_id` | `channel:read` |  | team | 6.2 |  |',
+    );
+    expect(block.indexOf('| GET | `/app/contacts/:contact_id` |')).toBeLessThan(
+      block.indexOf('### Platform administration and operations'),
+    );
     expect(block).toContain('| [Notifications and webhooks](#notifications-and-webhooks) | 2 |');
     expect(block).toContain(
       '| POST | `/notify/webhooks` | `webhook:create` | req |  | 5.3 | Create webhook \\| or endpoint |',

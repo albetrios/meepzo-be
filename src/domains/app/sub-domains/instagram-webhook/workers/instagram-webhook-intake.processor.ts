@@ -80,7 +80,7 @@ const ONE_MINUTE_MILLISECONDS = 60_000;
 
 /**
  * The kinds that are her reply to a broadcast (BC17 — her first message after it): her chat
- * messages. A tap on a broadcast's button (its `taps`) is the broadcast's, not built yet.
+ * messages. A tap on a broadcast's button counts in its `taps` instead (§ 7.A.10).
  */
 const BROADCAST_REPLY_KINDS: ReadonlySet<string> = new Set([
   'message',
@@ -113,7 +113,10 @@ export interface InstagramWebhookIntakeServices {
   /** The account's break (D44) — it starts the lanes' login stop with the status change (SN5). */
   channelAccountService: Pick<ChannelAccountService, 'markAccountBroken'>;
   /** Her reply after a broadcast (BC17), in her message's commit. */
-  broadcastRecipientService: Pick<BroadcastRecipientService, 'recordContactReply'>;
+  broadcastRecipientService: Pick<
+    BroadcastRecipientService,
+    'recordContactReply' | 'handleChatOpened' | 'findBroadcastTap' | 'recordBroadcastTap'
+  >;
   instagramAccountSettingsService: Pick<InstagramAccountSettingsService, 'findSettings'>;
   instagramWebhookEventService: Pick<
     InstagramWebhookEventService,
@@ -141,7 +144,7 @@ export interface InstagramWebhookIntakeServices {
   >;
   instagramMessageService: Pick<
     InstagramMessageService,
-    'findOwnSentMessageIds' | 'matchEchoedMessage'
+    'findOwnSentMessageIds' | 'matchEchoedMessage' | 'markTappedMessageSent'
   >;
 }
 
@@ -648,12 +651,15 @@ async function callRunEngine({
   prepared,
   trigger,
   isFirstMessage,
+  broadcastStartAutomationPublicId = null,
 }: {
   context: ClaimedEventContext;
   prepared: PreparedEvent;
   trigger: AutomationRunTriggerInput;
   /** Her first message in the chat (`first_message_at` was empty) — plan §4.3 level 4. */
   isFirstMessage: boolean;
+  /** A tapped broadcast button's "start automation" (§ 7.A.10); `null` — none. */
+  broadcastStartAutomationPublicId?: string | null;
 }): Promise<AutomationRunHandlingResult | null> {
   const { automationRunService } = context.services;
   const { dispatch } = prepared;
@@ -705,6 +711,15 @@ async function callRunEngine({
         isOwnerChatting: prepared.isOwnerChatting,
       });
     case 'postback':
+      // A broadcast message's button starts the automation it names for her (§ 7.A.10).
+      if (dispatch.broadcastPublicId !== null) {
+        if (broadcastStartAutomationPublicId === null) return null;
+        return automationRunService.handleButtonClick({
+          ...trigger,
+          kind: 'broadcast_tap',
+          automationPublicId: broadcastStartAutomationPublicId,
+        });
+      }
       // A payload this engine never sent names no run: nothing continues (D18).
       if (dispatch.button === null) return null;
       return automationRunService.handleButtonClick({
@@ -778,6 +793,8 @@ async function decideAfterContact({
   if (prepared.decision.status === 'skipped') return { handling: null, runPublicIds: [] };
   if (prepared.dispatch.inboundKind === 'reaction')
     return { handling: 'reaction', runPublicIds: [] };
+  const organizationId = prepared.account.instagramAccount.organizationId;
+  const broadcastTap = await readTapBeforeEngine({ context, prepared, databaseHandle });
   const handled = await callRunEngine({
     context,
     prepared,
@@ -788,8 +805,17 @@ async function decideAfterContact({
       event: runEventOf({ context, prepared }),
     },
     isFirstMessage: recorded.isFirstMessage,
+    broadcastStartAutomationPublicId: broadcastTap?.startAutomationPublicId ?? null,
   });
   if (handled?.outcome === 'account_unavailable') throw new AccountUnavailableDuringIntake();
+  if (broadcastTap !== null) {
+    // The broadcast's `taps` + 1 (§ 7.A.10) — after the engine, in the one lock order.
+    await services.broadcastRecipientService.recordBroadcastTap({
+      databaseHandle,
+      organizationId,
+      broadcastId: broadcastTap.broadcastId,
+    });
+  }
   if (BROADCAST_REPLY_KINDS.has(prepared.dispatch.inboundKind)) {
     // Her reply after a broadcast (BC17) — after the engine, so the lock order stays contact →
     // automation → runs, then her recipients.
@@ -799,8 +825,50 @@ async function decideAfterContact({
       contactId: recorded.contact.id,
       repliedAt: prepared.occurredAt,
     });
+    // Her chat opened: a "when her chat opens" broadcast she matches makes her row (BC17, R47) —
+    // after the engine, so a run it just started holds her (an open-run key) and she waits.
+    await services.broadcastRecipientService.handleChatOpened({
+      databaseHandle,
+      organizationId: prepared.account.instagramAccount.organizationId,
+      channelAccountId: prepared.account.channelAccountId,
+      contactId: recorded.contact.id,
+      isOwnerChatting: prepared.isOwnerChatting,
+    });
   }
   return { handling: handled?.outcome ?? 'ignored', runPublicIds: handled?.runPublicIds ?? [] };
+}
+
+/**
+ * A tap's work before the run engine, in the tap's unit: the message whose button she tapped goes
+ * `unknown` → `sent` (her tap proves it arrived — the payload's `igm_…`, R44), and a broadcast
+ * message's button names its broadcast and the automation it starts (§ 7.A.10, R45). `null` when
+ * the event is no tap on a broadcast's button.
+ */
+async function readTapBeforeEngine({
+  context,
+  prepared,
+  databaseHandle,
+}: {
+  context: ClaimedEventContext;
+  prepared: PreparedEvent;
+  databaseHandle: WorkerDatabaseHandle;
+}): Promise<{ broadcastId: number; startAutomationPublicId: string | null } | null> {
+  const { dispatch } = prepared;
+  if (dispatch.inboundKind !== 'postback') return null;
+  const organizationId = prepared.account.instagramAccount.organizationId;
+  if (dispatch.messagePublicId !== null) {
+    await context.services.instagramMessageService.markTappedMessageSent({
+      databaseHandle,
+      organizationId,
+      messagePublicId: dispatch.messagePublicId,
+    });
+  }
+  if (dispatch.broadcastPublicId === null) return null;
+  return context.services.broadcastRecipientService.findBroadcastTap({
+    databaseHandle,
+    organizationId,
+    broadcastPublicId: dispatch.broadcastPublicId,
+  });
 }
 
 /**

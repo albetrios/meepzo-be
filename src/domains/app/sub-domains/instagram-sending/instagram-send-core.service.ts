@@ -32,6 +32,7 @@ import {
 } from './instagram-message/instagram-send-attempt.repository.js';
 import type {
   InstagramMessageChannel,
+  InstagramMessageReason,
   InstagramSendAttemptCountGroup,
 } from './instagram-message/instagram-message.constants.js';
 import type { InstagramSendResultInput } from './instagram-message/instagram-message.types.js';
@@ -54,6 +55,7 @@ import {
 import type { InstagramSendLaneService } from './instagram-send-lane.service.js';
 import { planStopHoldsLane } from './instagram-send-lane.util.js';
 import {
+  FAST_LANE_SETTINGS,
   INSTAGRAM_SEND_CORE_SETTINGS,
   INSTAGRAM_SEND_STOP_ENDED_BY,
   INSTAGRAM_SLOW_QUEUE_LANES,
@@ -68,11 +70,13 @@ import type {
   InstagramLaneTurnWork,
   InstagramSendAccess,
   InstagramSendFastMessageTicket,
+  InstagramSendLanePaceUpdate,
   InstagramSendLaneRules,
   InstagramSendLaneTarget,
   InstagramSendLaneTurnTicket,
   InstagramSendLimits,
   InstagramSendMessageKey,
+  InstagramSendPick,
   InstagramSendResult,
   InstagramSendTicketContext,
 } from './instagram-sending.types.js';
@@ -170,6 +174,17 @@ export interface InstagramSendCoreDependencies {
   producers?: InstagramSendTicketProducers | undefined;
   /** Waits between result-save tries (tests pass a fake). */
   sleep?: ((milliseconds: number) => Promise<void>) | undefined;
+  /**
+   * The read-only call that tests an `instagram_down` stop before any real person is (plan §33.5
+   * rule 2, ROUTE row R48): `answered` lets the test DM go, `unclear` keeps the stop its time again.
+   * Absent = no read-only call (the test DM goes).
+   */
+  probeAccount?:
+    | ((input: {
+        scope: OrganizationPrincipalDatabaseScope;
+        access: InstagramSendAccess;
+      }) => Promise<'answered' | 'unclear'>)
+    | undefined;
 }
 
 /** The count group of a message (SN3): `none` for follow checks and hides. */
@@ -246,6 +261,8 @@ interface TurnEnd {
   nextRunAt: Date | null;
   isHeld: boolean;
   waitReason: InstagramSendWaitReason | null;
+  /** The lane's pace columns after a send (the lane's `nextTurnAt`). */
+  paceUpdate?: InstagramSendLanePaceUpdate | undefined;
 }
 
 /**
@@ -333,6 +350,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
             nextRunAt: end.nextRunAt,
             isHeld: end.isHeld,
             waitReason: end.waitReason,
+            paceUpdate: end.paceUpdate,
           }),
       });
       await this.scheduleLaneTickets({ target, access, context });
@@ -447,6 +465,11 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       if (turn.isTest) await this.endTest({ target, context });
       return { nextRunAt: pace.waitUntil, isHeld: false, waitReason: 'box' };
     }
+    if (await this.isDownTestUnclear({ target, access, turn })) {
+      // §33.5 rule 2: Instagram still gives no clear answer — no person is used as the test.
+      await this.extendTestedStop({ target, row: turn.row, delayMilliseconds: null, context });
+      return { nextRunAt: null, isHeld: false, waitReason: null };
+    }
     const pick = await context.runInDatabaseSlot(
       async () =>
         (await rules.pickNextMessage?.({
@@ -455,6 +478,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
           lane: turn.row,
           now,
           isTest: turn.isTest,
+          pace: pace.pace,
         })) ?? { key: null, nextRunAt: null, waitReason: null },
     );
     if (pick.key === null) {
@@ -478,19 +502,41 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       context,
     });
     if (turn.isTest) await this.finishTest({ target, row: turn.row, result, context });
-    return this.turnEndAfter({ rules, row: turn.row, result, pace: pace.pace, limits });
+    return this.turnEndAfter({ rules, row: turn.row, pick, result, pace: pace.pace, limits });
+  }
+
+  /**
+   * Whether a test turn of an `instagram_down` stop met an unclear read-only call (plan §33.5 rule
+   * 2): the probe runs outside any transaction and slot; no probe wired → `false`.
+   */
+  private async isDownTestUnclear({
+    target,
+    access,
+    turn,
+  }: {
+    target: InstagramSendLaneTarget;
+    access: InstagramSendAccess;
+    turn: { row: InstagramSendLaneRow; isTest: boolean };
+  }): Promise<boolean> {
+    const probe = this.dependencies.probeAccount;
+    if (!turn.isTest || turn.row.stop_reason !== 'instagram_down' || probe === undefined) {
+      return false;
+    }
+    return (await probe({ scope: target.scope, access })) === 'unclear';
   }
 
   /** When the lane goes again after a send (the lane's rule, else one box). */
   private turnEndAfter({
     rules,
     row,
+    pick,
     result,
     pace,
     limits,
   }: {
     rules: InstagramSendLaneRules;
     row: InstagramSendLaneRow;
+    pick: Extract<InstagramSendPick, { key: InstagramSendMessageKey }>;
     result: InstagramSendResult;
     pace: MetaUsagePace;
     limits: InstagramSendLimits;
@@ -516,10 +562,16 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         waitReason: 'hour_limit',
       };
     }
-    const nextRunAt =
-      rules.nextTurnAt?.({ lane: row, result, pace, limits, now }) ??
-      defaultNextTurnAt({ lane: row, pace, limits, now });
-    return { nextRunAt, isHeld: false, waitReason: 'box' };
+    const next = rules.nextTurnAt?.({ lane: row, pick, result, pace, limits, now });
+    if (next === undefined) {
+      return {
+        nextRunAt: defaultNextTurnAt({ lane: row, pace, limits, now }),
+        isHeld: false,
+        waitReason: 'box',
+      };
+    }
+    const { nextRunAt, ...paceUpdate } = next;
+    return { nextRunAt, isHeld: false, waitReason: 'box', paceUpdate };
   }
 
   /**
@@ -562,8 +614,10 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
    *
    * @remarks
    * Algorithm: rules, access, the message still `waiting` in the fast lane, the holds (the fast
-   * lane's own stop and its test), `not_before` and the pace (the ticket back), then
-   * {@link sendMessage}; a used try adds the next try's ticket, a sure "not sent" puts this one back.
+   * lane's own stop and its test), `not_before` and the pace (the ticket back), the lane's
+   * `checkFastMessage` (ended, moved or later — R44), then {@link sendMessage}; a used try adds the
+   * next try's ticket, a sure "not sent" puts this one back; her busy contact (1 s) or full places
+   * (500 ms) put it back too.
    * Failure modes: as {@link workLaneTurn}. Side effects: as the class says.
    */
   async sendFastMessage({
@@ -604,6 +658,17 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
       if (ready.isTest) await this.endTest({ target, context });
       await context.returnTicket(Math.max(pace.waitUntil.getTime() - now.getTime(), 0));
     }
+    const check =
+      rules.checkFastMessage === undefined
+        ? ({ kind: 'send' } as const)
+        : await context.runInDatabaseSlot(() =>
+            rules.checkFastMessage!({ scope, target, key, now }),
+          );
+    if (check.kind !== 'send') {
+      if (ready.isTest) await this.endTest({ target, context });
+      if (check.kind === 'later') await context.returnTicket(check.delayMilliseconds);
+      return;
+    }
     const limits = await rules.readLimits({ scope, access, now });
     const result = await this.sendMessage({ target, access, rules, limits, key, context });
     if (ready.isTest && ready.row !== null) {
@@ -623,7 +688,11 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     context: InstagramSendTicketContext;
   }): Promise<void> {
     if (result.kind === 'refused') {
-      if (
+      if (result.reason === 'person_busy') {
+        await context.returnTicket(FAST_LANE_SETTINGS.personBusyRetryMilliseconds);
+      } else if (result.reason === 'fast_busy') {
+        await context.returnTicket(FAST_LANE_SETTINGS.accountBusyRetryMilliseconds);
+      } else if (
         result.reason === 'hour_limit' ||
         result.reason === 'gate_one' ||
         result.reason === 'person_limit'
@@ -893,6 +962,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
     const startedAt = Date.now();
     let reading = readingOf('sent');
     let instagramMessageId: string | null = null;
+    let answerReason: InstagramMessageReason | null = null;
     let callError: unknown = null;
     try {
       const answer = await composition.call({
@@ -901,6 +971,7 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
         recordUsage: this.dependencies.accessService.buildUsageRecorder({ scope, access }),
       });
       instagramMessageId = answer.instagramMessageId;
+      answerReason = answer.reason ?? null;
     } catch (error) {
       callError = error;
       reading = classifyInstagramSendError({ error, channel });
@@ -925,13 +996,18 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
           }),
       });
     }
-    const outcome = decideInstagramSendOutcome({
+    const decided = decideInstagramSendOutcome({
       reading,
       lane,
       messageType: message.message_type,
       channel,
       tries: message.tries,
     });
+    // A follow check's `sent` carries what Meta said: following or not (P130).
+    const outcome =
+      decided.status === 'sent' && answerReason !== null
+        ? { ...decided, reason: answerReason }
+        : decided;
     const result = await settle({ reading, outcome, instagramMessageId, durationMilliseconds });
     await this.applyStops({ target, access, outcome, reading, callError, context });
     return result;
@@ -1313,11 +1389,48 @@ export class InstagramSendCoreService implements InstagramLaneTurnWork, Instagra
             },
           }),
       });
-    } else if (result.kind === 'refused' || UNCLEAR_GROUPS.includes(result.group)) {
+    } else if (
+      result.kind === 'refused' ||
+      UNCLEAR_GROUPS.includes(result.group) ||
+      (await this.isLastTestTurn({ target, row, context }))
+    ) {
       await this.extendTestedStop({ target, row, delayMilliseconds: null, context });
       return;
     }
     await this.endTest({ target, context });
+  }
+
+  /**
+   * Whether a test that said nothing about the account (that person, that text) was the stop's last
+   * test turn (`testMaxTurns`, plan §33.4): every finished attempt of the account since the stop's
+   * end is one of its test turns.
+   */
+  private async isLastTestTurn({
+    target,
+    row,
+    context,
+  }: {
+    target: InstagramSendLaneTarget;
+    row: InstagramSendLaneRow;
+    context: InstagramSendTicketContext;
+  }): Promise<boolean> {
+    const stopEnd = row.stop_until;
+    if (stopEnd === null) return false;
+    const turns = await this.untilSaved({
+      context,
+      what: 'test turns',
+      callback: () =>
+        withAppDatabaseContext({
+          scope: target.scope,
+          callback: () =>
+            new InstagramSendAttemptRepository().countFinishedSince({
+              organizationId: target.organizationId,
+              channelAccountId: target.channelAccountId,
+              since: stopEnd,
+            }),
+        }),
+    });
+    return (turns ?? 0) >= SETTINGS.testMaxTurns;
   }
 
   /** An unclear test (or none possible): the same stop again — no count added — and the test ends. */

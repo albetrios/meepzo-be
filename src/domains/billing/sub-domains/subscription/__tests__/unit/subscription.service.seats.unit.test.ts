@@ -8,6 +8,21 @@ vi.mock(
   () => seatSyncMocks,
 );
 
+// BL9 / WC-65 (R52): the seat sync is off by its billing switch; the token tests turn it on.
+const seatSyncSwitch = vi.hoisted(() => ({ isEnabled: false }));
+vi.mock(
+  '@/domains/billing/sub-domains/subscription/subscription.constants.js',
+  async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    return {
+      ...actual,
+      get BILLING_SEAT_SYNC_ENABLED() {
+        return seatSyncSwitch.isEnabled;
+      },
+    };
+  },
+);
+
 vi.mock('@/infrastructure/database/contexts/database-context.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -331,7 +346,18 @@ describe('SubscriptionService seat counters (REQ-4)', () => {
     });
   });
 
+  it('enqueueSeatQuantitySync enqueues nothing while the seat sync is off (BL9, WC-65, AC-11.12)', () => {
+    seatSyncSwitch.isEnabled = false;
+    service.enqueueSeatQuantitySync({ organization_public_id: 'org_public' });
+    service.enqueueSeatQuantitySync({
+      organization_public_id: 'org_public',
+      idempotencyKey: 'client-key-123',
+    });
+    expect(seatSyncMocks.enqueueSubscriptionSeatSyncBestEffort).not.toHaveBeenCalled();
+  });
+
   it('enqueueSeatQuantitySync stamps a stable per-enqueue token when the hot path passes none (audit #1)', () => {
+    seatSyncSwitch.isEnabled = true;
     service.enqueueSeatQuantitySync({ organization_public_id: 'org_public' });
     const call = vi.mocked(seatSyncMocks.enqueueSubscriptionSeatSyncBestEffort).mock
       .calls[0]![0] as {
@@ -341,6 +367,7 @@ describe('SubscriptionService seat counters (REQ-4)', () => {
   });
 
   it('enqueueSeatQuantitySync namespaces an explicit caller key by organization before Stripe (changePlan path)', () => {
+    seatSyncSwitch.isEnabled = true;
     service.enqueueSeatQuantitySync({
       organization_public_id: 'org_public',
       idempotencyKey: 'client-key-123',

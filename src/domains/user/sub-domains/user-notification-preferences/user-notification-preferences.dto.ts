@@ -39,7 +39,7 @@ export const PutNotificationPreferencesDto = z
           if (seen.has(key)) {
             context.addIssue({
               code: 'custom',
-              message: `Repeated kind and channel: ${item.kind} ${item.channel}`,
+              message: 'errors:validation.notificationPreferenceRepeated',
             });
             return;
           }

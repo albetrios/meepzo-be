@@ -606,25 +606,29 @@ describe('Instagram retention and erasure flow (e2e)', () => {
   });
 
   /** Meta's signed data-deletion request for the account the team connected (route 8). */
-  /**
-   * Meta's data-deletion call for the team's account. `issuedAt` defaults to now + 60 s; a repeat
-   * passes the first call's, so Meta's repeated request is the same signed request (its code is
-   * derived from `issued_at` — two calls across a second boundary would otherwise differ).
-   */
+  /** Meta's signed data-deletion request for the team's account — signed once, so a repeat is the same request. */
+  function signMetaDataDeletion(team: ConnectedInstagramTeam): string {
+    return metaCallbackFormBody(
+      buildMetaSignedRequest({
+        payload: metaSignedRequestPayload({
+          userId: team.profile.id,
+          issuedAt: metaIssuedAtAfterConnections(),
+        }),
+        appSecret: getEnv().META_APP_SECRET ?? '',
+      }),
+    );
+  }
+
+  /** Posts a signed data-deletion request — the one given, or a freshly signed one. */
   function requestMetaDataDeletion(
     team: ConnectedInstagramTeam,
-    issuedAt: number = metaIssuedAtAfterConnections(),
+    payload: string = signMetaDataDeletion(team),
   ): Promise<InjectHttpResult> {
     return injectRoute(app, {
       method: 'POST',
       url: META_DATA_DELETION_PATH,
       headers: { 'content-type': FORM_CONTENT_TYPE },
-      payload: metaCallbackFormBody(
-        buildMetaSignedRequest({
-          payload: metaSignedRequestPayload({ userId: team.profile.id, issuedAt }),
-          appSecret: getEnv().META_APP_SECRET ?? '',
-        }),
-      ),
+      payload,
     });
   }
 
@@ -646,8 +650,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(tokensBefore).toHaveLength(1);
       expect(postsBefore).toHaveLength(2);
 
-      const issuedAt = metaIssuedAtAfterConnections();
-      const response = await requestMetaDataDeletion(team, issuedAt);
+      const signedDeletion = signMetaDataDeletion(team);
+      const response = await requestMetaDataDeletion(team, signedDeletion);
 
       expect(response.statusCode).toBe(200);
       const after = await readAppRowsOfOrganization(team.organization.id);
@@ -681,8 +685,8 @@ describe('Instagram retention and erasure flow (e2e)', () => {
       expect(untouched).toEqual(before);
       expect(await readRunRow(waitingRun.id)).toMatchObject({ status: 'waiting' });
 
-      // Meta repeats itself: nothing is left to do.
-      expect((await requestMetaDataDeletion(team, issuedAt)).json()).toEqual(response.json());
+      // Meta repeats the same signed request: nothing is left to do, the same code answers.
+      expect((await requestMetaDataDeletion(team, signedDeletion)).json()).toEqual(response.json());
       expect(await readAppRowsOfOrganization(team.organization.id)).toEqual(after);
     });
   });

@@ -7,6 +7,8 @@ import { WEBHOOK_DELIVERY_QUEUE_NAME } from '@/domains/notify/sub-domains/webhoo
 import { WEBHOOK_DELIVERY_RECLAIM_QUEUE_NAME } from '@/domains/notify/sub-domains/webhook/webhook-delivery/workers/webhook-delivery-reclaim.constants.js';
 import { STRIPE_WEBHOOK_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/queues/stripe-webhook.queue.js';
 import { SUBSCRIPTION_SEAT_SYNC_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
+import { SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME } from '@/domains/billing/sub-domains/subscription/queues/subscription-plan-state-check.queue.js';
+import { INSTAGRAM_SENDING_REPAIR_QUEUE_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-repair.constants.js';
 import { STRIPE_WEBHOOK_EVENT_RETENTION_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-retention.constants.js';
 import { STRIPE_WEBHOOK_EVENT_RECLAIM_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-reclaim.constants.js';
 import { STRIPE_WEBHOOK_EVENT_CATCHUP_QUEUE_NAME } from '@/domains/billing/sub-domains/stripe-webhook/workers/stripe-webhook-event-catchup.constants.js';
@@ -75,6 +77,7 @@ export const WORKER_QUEUE_NAMES = [
   INSTAGRAM_DATABASE_TASKS_QUEUE_NAME,
   INSTAGRAM_SEND_SLOW_QUEUE_NAME,
   INSTAGRAM_SEND_FAST_QUEUE_NAME,
+  INSTAGRAM_SENDING_REPAIR_QUEUE_NAME,
   AUDIT_RETENTION_QUEUE_NAME,
   AUDIT_OUTBOX_DRAIN_QUEUE_NAME,
   AUDIT_EXPORT_QUEUE_NAME,
@@ -95,6 +98,7 @@ export const WORKER_QUEUE_NAMES = [
   UPLOAD_PENDING_SWEEP_QUEUE_NAME,
   USER_DATA_EXPORT_RETENTION_QUEUE_NAME,
   CHANNEL_CONNECTION_TOKEN_CHECK_QUEUE_NAME,
+  SUBSCRIPTION_PLAN_STATE_CHECK_QUEUE_NAME,
   AUTOMATION_RUN_WAIT_EXPIRY_QUEUE_NAME,
   AUTOMATION_TOMBSTONE_RETENTION_QUEUE_NAME,
   APP_PARTITION_UPKEEP_QUEUE_NAME,

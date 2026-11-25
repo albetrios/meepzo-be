@@ -27,6 +27,13 @@ import {
   UnprocessableEntityError,
 } from '@/shared/errors/index.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import { noteContactDetailsLeft } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
+import {
+  ChannelAccountRepository,
+  createWorkerChannelAccountRepository,
+} from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { CHANNEL_ACCOUNT_STATUS } from '@/domains/app/sub-domains/channel-account/channel-account.constants.js';
 import { assertRecordNotChangedSince } from '@/shared/utils/validation/record-fields.util.js';
 import {
   CONTACT_BULK_ACTION_MATCH_MAX_COUNT,
@@ -1307,6 +1314,100 @@ export class ContactService {
       collectedAt,
     });
     return contact === null ? null : { outcome: 'saved', contact };
+  }
+
+  /**
+   * Notes, after the caller's commit, that a contact of the account left her email or phone — the
+   * grouped "new contact details" note (feat-instagram-dm-sending UN13, WC-63): notify adds one
+   * delayed note per account and hour.
+   *
+   * @remarks
+   * Algorithm: the account's public id in the caller's unit, then notify's `noteContactDetailsLeft`
+   * through `runEnqueueAfterCommit`. Failure modes: an enqueue failure is logged and dropped (the
+   * note is a convenience; the contact's time is saved). Side effects: one read; one BullMQ job.
+   */
+  async noteContactDetailsLeft({
+    databaseHandle,
+    scope,
+    organizationId,
+    channelAccountId,
+    at,
+  }: {
+    databaseHandle: WorkerDatabaseHandle;
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    channelAccountId: number;
+    at: Date;
+  }): Promise<void> {
+    const account = await createWorkerChannelAccountRepository(databaseHandle).findById({
+      organizationId,
+      channelAccountId,
+    });
+    if (account === null) return;
+    await runEnqueueAfterCommit(async () => {
+      try {
+        await noteContactDetailsLeft({
+          organizationPublicId: scope.organizationPublicId,
+          channelAccountPublicId: account.public_id,
+          at,
+        });
+      } catch (error) {
+        logger.warn(
+          {
+            organizationPublicId: scope.organizationPublicId,
+            channelAccountPublicId: account.public_id,
+            errorName: error instanceof Error ? error.name : typeof error,
+          },
+          'app.contact.details_note_failed',
+        );
+      }
+    });
+  }
+
+  /**
+   * The grouped note's count (feat-instagram-dm-sending UN1, UN13) — the app's side of notify's
+   * `NotificationContactDetailsPort`: the account's live contacts whose email or phone was saved in
+   * `[since, until]`, and the account's username for the copy.
+   *
+   * @remarks
+   * Algorithm: in the given organization scope (joining the job's unit): the organization, the live
+   * account by public id, one count. Failure modes: read errors propagate. Side effects: none.
+   * Notes: `null` when the organization or the account is gone (revoked).
+   */
+  async countContactsWithDetailsLeft({
+    scope,
+    channelAccountPublicId,
+    since,
+    until,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+    since: Date;
+    until: Date;
+  }): Promise<{ count: number; username: string } | null> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.findOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        if (!organization) return null;
+        const account = await new ChannelAccountRepository().findByPublicId({
+          organizationId: organization.id,
+          channelAccountPublicId,
+        });
+        if (account === null || account.connection_status === CHANNEL_ACCOUNT_STATUS.REVOKED) {
+          return null;
+        }
+        const count = await this.contactRepository.countWithDetailsLeftBetween({
+          organizationId: organization.id,
+          channelAccountId: account.id,
+          since,
+          until,
+        });
+        return { count, username: account.display_name.replace(/^@/, '') };
+      },
+    });
   }
 
   /**

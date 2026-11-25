@@ -1,7 +1,9 @@
 import type { Redis } from 'ioredis';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChannelConnectionRow } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
-import type { ChannelConnectionRepository } from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
+import type {
+  ChannelConnectionRow,
+  ChannelConnectionRepository,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection.repository.js';
 import {
   type ChannelConnectionPlanAccessService,
   ChannelConnectionService,

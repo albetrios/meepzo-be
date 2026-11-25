@@ -8,6 +8,10 @@ import {
   configureNotificationRecipients,
   createNotificationDispatch,
 } from './sub-domains/notification/notification-dispatch.service.js';
+import {
+  configureNotificationNotices,
+  type NotificationNoticeLocalePort,
+} from './sub-domains/notification/notification-notice.service.js';
 import { NotificationRepository } from './sub-domains/notification/notification.repository.js';
 import { WebhookRepository } from './sub-domains/webhook/webhook.repository.js';
 import { WebhookDeliveryAttemptRepository } from './sub-domains/webhook/webhook-delivery/webhook-delivery-attempt.repository.js';
@@ -36,8 +40,11 @@ export function createNotifyContainer({
   organizationService,
   membershipService,
   userService,
+  organizationSettingsService,
 }: {
   organizationService: OrganizationService;
+  /** The organization's language for the kinds' notices (feat-instagram-dm-sending UN11). */
+  organizationSettingsService: NotificationNoticeLocalePort;
   /** The recipients resolver's membership reads (feat-instagram-dm-sending UN2). */
   membershipService: Pick<
     MembershipService,
@@ -60,6 +67,7 @@ export function createNotifyContainer({
 
   configureNotificationDispatch(createNotificationDispatch(notificationRepository));
   configureNotificationRecipients(membershipService);
+  configureNotificationNotices({ notificationService, localePort: organizationSettingsService });
   registerNotifyEventHandlers({ webhookService });
 
   return {
@@ -76,10 +84,16 @@ export function createNotifyContainer({
  * `application.notifyDomain` for routes and other plugins to consume.
  */
 export function registerNotifyContainer(application: FastifyInstance): void {
-  const { organizationService, membershipService } = application.tenancyDomain;
+  const { organizationService, membershipService, organizationSettingsService } =
+    application.tenancyDomain;
   const { userService } = application.userDomain;
   application.decorate(
     'notifyDomain',
-    createNotifyContainer({ organizationService, membershipService, userService }),
+    createNotifyContainer({
+      organizationService,
+      membershipService,
+      userService,
+      organizationSettingsService,
+    }),
   );
 }

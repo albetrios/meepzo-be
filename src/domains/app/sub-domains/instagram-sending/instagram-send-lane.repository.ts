@@ -6,6 +6,7 @@ import {
 import { databaseUpdatedAtTimestamp } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import type { ChannelAccountKey } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
 import { instagram_send_lanes } from './instagram-send-lane.schema.js';
+import type { InstagramSendLanePaceUpdate } from './instagram-sending.types.js';
 import {
   INSTAGRAM_SEND_LANE_STATE,
   INSTAGRAM_SEND_LANES,
@@ -20,6 +21,18 @@ export type InstagramSendLaneRow = typeof instagram_send_lanes.$inferSelect;
 
 /** `updated_at` for every change of a lane — never before the row's `created_at`. */
 const laneUpdatedAtTimestamp = databaseUpdatedAtTimestamp(instagram_send_lanes.created_at);
+
+/** The release's pace columns (box, last send, mix place) — only the ones a send moved. */
+function paceColumnsOf(
+  paceUpdate: InstagramSendLanePaceUpdate | undefined,
+): Partial<Pick<InstagramSendLaneRow, 'box_start' | 'last_sent_at' | 'pick_count'>> {
+  if (paceUpdate === undefined) return {};
+  return {
+    ...(paceUpdate.boxStart === undefined ? {} : { box_start: paceUpdate.boxStart }),
+    ...(paceUpdate.lastSentAt === undefined ? {} : { last_sent_at: paceUpdate.lastSentAt }),
+    ...(paceUpdate.pickCount === undefined ? {} : { pick_count: paceUpdate.pickCount }),
+  };
+}
 
 /** One stop group as a quoted Postgres text literal (the groups are fixed constants, never input). */
 function quotedStopReason(reason: InstagramSendStopReason): string {
@@ -286,6 +299,7 @@ export class InstagramSendLaneRepository {
     nextRunAt,
     isHeld = false,
     waitReason = null,
+    paceUpdate,
     ...key
   }: ChannelAccountKey & {
     lane: InstagramSendLane;
@@ -295,6 +309,8 @@ export class InstagramSendLaneRepository {
     /** The account holds this lane (pause, suspend, plan stop): `stopped` until its wake. */
     isHeld?: boolean;
     waitReason?: InstagramSendWaitReason | null;
+    /** The pace columns a send moved (plan §28.3 rule 6: in the release's commit); absent = kept. */
+    paceUpdate?: InstagramSendLanePaceUpdate | undefined;
   }): Promise<InstagramSendLaneRow | null> {
     const isStopped = isHeld ? sql`true` : sql`${instagram_send_lanes.stop_reason} IS NOT NULL`;
     const nextRun =
@@ -311,6 +327,7 @@ export class InstagramSendLaneRepository {
         turn_number: sql`${instagram_send_lanes.turn_number} + 1`,
         next_run_at: sql`CASE WHEN ${isStopped} THEN NULL::timestamptz ELSE ${nextRun} END`,
         wait_reason: sql`CASE WHEN ${isStopped} THEN 'stop' ELSE ${waitReason}::varchar END`,
+        ...paceColumnsOf(paceUpdate),
         updated_at: laneUpdatedAtTimestamp,
       })
       .where(
@@ -339,6 +356,42 @@ export class InstagramSendLaneRepository {
       .where(and(this.keyOf(key), eq(instagram_send_lanes.lane, lane)))
       .for('update');
     return rows[0] ?? null;
+  }
+
+  /**
+   * Moves the fast lane's `sending_count` by `delta` (plan §30.2 steps 10, 12): + 1 in a fast claim's
+   * commit, − 1 in its result save — never below 0 nor above the CHECK's 20. Answers whether a row moved.
+   */
+  async addToSendingCount({
+    delta,
+    ...key
+  }: ChannelAccountKey & { delta: 1 | -1 }): Promise<boolean> {
+    const moved = await this.db()
+      .update(instagram_send_lanes)
+      .set({
+        sending_count: sql`least(greatest(${instagram_send_lanes.sending_count} + ${delta}, 0), 20)`,
+        updated_at: laneUpdatedAtTimestamp,
+      })
+      .where(and(this.keyOf(key), eq(instagram_send_lanes.lane, 'fast')))
+      .returning({ id: instagram_send_lanes.id });
+    return moved.length > 0;
+  }
+
+  /**
+   * The organization's fast messages `sending` across its accounts (S21): the sum of its fast lanes'
+   * `sending_count`, read without a lock — the cap is a fairness bound, not a count to the message.
+   */
+  async sumOrganizationSendingCount(organizationId: number): Promise<number> {
+    const rows = await this.db()
+      .select({ total: sql<number>`coalesce(sum(${instagram_send_lanes.sending_count}), 0)::int` })
+      .from(instagram_send_lanes)
+      .where(
+        and(
+          eq(instagram_send_lanes.organization_id, organizationId),
+          eq(instagram_send_lanes.lane, 'fast'),
+        ),
+      );
+    return Number(rows[0]?.total ?? 0);
   }
 
   /**
@@ -446,5 +499,36 @@ export class InstagramSendLaneRepository {
       .update(instagram_send_lanes)
       .set({ half_speed_until: until, updated_at: laneUpdatedAtTimestamp })
       .where(and(this.keyOf(key), inArray(instagram_send_lanes.lane, [...lanes])));
+  }
+
+  /**
+   * Writes the slow lane's stored "will go / may expire" estimate (S29, WC-24 — ROUTE row R48);
+   * answers whether the slow row exists. `estimated_at` is Postgres's clock.
+   */
+  async writeEstimate({
+    key,
+    estimate,
+  }: {
+    key: ChannelAccountKey;
+    estimate: {
+      waitingCount: number;
+      willGoCount: number;
+      mayExpireCount: number;
+      doneAt: Date | null;
+    };
+  }): Promise<boolean> {
+    const rows = await this.db()
+      .update(instagram_send_lanes)
+      .set({
+        estimate_waiting_count: estimate.waitingCount,
+        estimate_will_go_count: estimate.willGoCount,
+        estimate_may_expire_count: estimate.mayExpireCount,
+        estimate_done_at: estimate.doneAt,
+        estimated_at: sql`now()`,
+        updated_at: laneUpdatedAtTimestamp,
+      })
+      .where(and(this.keyOf(key), eq(instagram_send_lanes.lane, 'slow')))
+      .returning({ id: instagram_send_lanes.id });
+    return rows.length > 0;
   }
 }

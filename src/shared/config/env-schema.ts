@@ -1049,7 +1049,7 @@ const envSchemaBase = z.object({
    * many units of work of one process hold a Postgres connection at once. The worker connection
    * budget counts these slots once per process, not the job places above. A unit of work that waits
    * 2 s for a slot puts its ticket back with no try used. Default 3 (P140): every queue runs in the
-   * one `worker` service, and its demand (61 + the slots) must fit the default pool of 80 with 25 %
+   * one `worker` service, and its demand (60 + the slots) must fit the default pool of 80 with 25 %
    * burst headroom; a deployment that raises the slots raises `DATABASE_POOL_MAX` with them
    * (`docs/deployment/runbooks/resource-limits.md`).
    */
@@ -1077,9 +1077,9 @@ const envSchemaBase = z.object({
    * Each HTTP request runs in its own RLS transaction holding one pooled connection for its
    * duration, so the pool size is the per-process in-flight DB concurrency ceiling. The default
    * is the monolithic worker's demand with burst headroom: with every optional queue on, the
-   * Postgres-using queues peak at 64 connections at the template's concurrency (61, plus the
-   * template's 3 Instagram database slots — SN24), 80 with the 25%
-   * burst margin (it was 70 until the Instagram automation workers; CI's API boots share a
+   * Postgres-using queues peak at 58 connections at the template's concurrency (55, plus the
+   * template's 3 Instagram database slots — SN24), 73 with the 25%
+   * burst margin (within the default 80) (it was 70 until the Instagram automation workers; CI's API boots share a
    * 100-connection Postgres and accept no default above 80 — `ci-boot-connection-budget.policy`),
    * and `assertPostgresConnectionBudget` refuses to boot a worker whose pool is
    * below its demand. The default used to be 30 (sized for a 100-connection Postgres), below

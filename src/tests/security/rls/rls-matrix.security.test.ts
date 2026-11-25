@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql as drizzleSql } from 'drizzle-orm';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { sql as drizzleSql } from 'drizzle-orm';
 import {
   EXPECTED_FORCE_RLS_TABLES,
   USER_SCOPED_FORCE_RLS_TABLES,

@@ -9,6 +9,10 @@ import type { SubscriptionService } from '@/domains/billing/sub-domains/subscrip
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { captureMessage } from '@/infrastructure/observability/sentry/sentry.js';
 import { omitUndefined } from '@/shared/utils/validation/omit-undefined.util.js';
+import { env } from '@/shared/config/env.config.js';
+import { MILLISECONDS_PER_DAY } from '@/shared/constants/ttl.constants.js';
+import { notifyOrganizationKind } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
+import { BILLING_FRONTEND_PATH } from '@/domains/billing/sub-domains/subscription/workers/subscription-plan-state-check.constants.js';
 import type { PlanRepository } from '@/domains/billing/sub-domains/plan/plan.repository.js';
 import type {
   StripeWebhookIngressResult,
@@ -31,6 +35,7 @@ import {
 } from '@/domains/billing/sub-domains/subscription/subscription-plan-change.util.js';
 import { isPaidPlan } from '@/domains/billing/sub-domains/plan/plan.service.js';
 import {
+  DUNNING_STATUSES,
   decideEndedPlanChange,
   decideSyncedPlanChange,
   isLiveSubscriptionStatus,
@@ -44,6 +49,7 @@ import {
 import { STRIPE_WEBHOOK_MAX_PROCESSING_ATTEMPTS } from '@/shared/constants/billing.constants.js';
 import {
   MAINTENANCE_SCOPE,
+  PRINCIPAL_SCOPE,
   withMaintenanceDatabaseContext,
 } from '@/infrastructure/database/contexts/database-context.js';
 
@@ -1037,7 +1043,8 @@ export class StripeWebhookService {
    *   the row's cycle with route 103's own rule ({@link decideChangePlanDirection}). After the commit,
    *   `PLAN_STATE_CHANGED` — with the kept accounts when the scheduled move was applied.
    * - **Side effects:** one `subscription.plan_state_changed` after commit (only when the entitlement
-   *   moved).
+   *   moved); a row that just entered dunning tells the billing managers once
+   *   ({@link tellPaymentFailed}, WC-57).
    */
   private async applySyncedPlanState({
     planStateBefore,
@@ -1047,7 +1054,13 @@ export class StripeWebhookService {
     subscriptionRepository,
   }: {
     planStateBefore: PlanStateBefore;
-    row: { status: string; plan_id: number; billing_cycle: string };
+    row: {
+      public_id: string;
+      status: string;
+      plan_id: number;
+      billing_cycle: string;
+      current_period_end: Date;
+    };
     isScheduledMove: boolean;
     matchedPlan: MatchedPlanForCreate;
     subscriptionRepository: SubscriptionRepository;
@@ -1057,6 +1070,12 @@ export class StripeWebhookService {
       return;
     }
     const { previous } = planStateBefore;
+    if (!DUNNING_STATUSES.has(previous.status) && DUNNING_STATUSES.has(row.status)) {
+      await this.tellPaymentFailed({
+        organizationPublicId: planStateBefore.organizationPublicId,
+        row,
+      });
+    }
     const change = decideSyncedPlanChange({
       before: previous,
       after: row,
@@ -1072,6 +1091,40 @@ export class StripeWebhookService {
       change,
       previous: planStateBefore.access,
       keptChannelAccountPublicIds: isScheduledMove ? previous.downgrade_keep : null,
+    });
+  }
+
+  /**
+   * "Payment failed" (feat-instagram-dm-sending WC-57, UN2; P318): a paid row that just entered
+   * dunning tells the billing managers in-app and by email (the `billing` kind, email locked on),
+   * with the grace's last day.
+   *
+   * @remarks
+   * - **Algorithm:** `notifyOrganizationKind` (`billing.payment_failed`) in the event's organization
+   *   unit, keyed `payment-failed:<sub_…>:<period end>` — once per failed period.
+   * - **Failure modes:** propagates (the event's unit rolls back and the job retries; the key keeps
+   *   the retry once).
+   * - **Side effects:** notification and outbox rows.
+   */
+  private async tellPaymentFailed({
+    organizationPublicId,
+    row,
+  }: {
+    organizationPublicId: string;
+    row: { public_id: string; current_period_end: Date };
+  }): Promise<void> {
+    const graceEndsOn = new Date(
+      row.current_period_end.getTime() + env.BILLING_DUNNING_GRACE_DAYS * MILLISECONDS_PER_DAY,
+    )
+      .toISOString()
+      .slice(0, 10);
+    await notifyOrganizationKind({
+      scope: PRINCIPAL_SCOPE.JOB({ organizationPublicId }),
+      type: 'billing.payment_failed',
+      copy: { key: 'billingPaymentFailed', values: { graceEndsOn } },
+      dedupeKey: `payment-failed:${row.public_id}:${String(row.current_period_end.getTime())}`,
+      actionPath: BILLING_FRONTEND_PATH,
+      data: { grace_ends_on: graceEndsOn },
     });
   }
 

@@ -42,6 +42,8 @@ import {
   INSTAGRAM_STARTER_QUESTION_SYNC_JOB_NAME,
   INSTAGRAM_WEBHOOK_SUBSCRIPTION_CHECK_JOB_NAME,
   INSTAGRAM_WEBHOOK_SUBSCRIPTION_CHECK_MINUTES,
+  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES,
+  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE,
   type InstagramAccountChainJobName,
   type InstagramAccountChainTaskInput,
   enqueueInstagramAccountChainTask,
@@ -55,10 +57,6 @@ import { buildInstagramReconnectNoticeActionUrl } from './instagram-reconnect-no
 import type { InstagramReconnectNoticeServices } from './instagram-reconnect-notice.processor.js';
 import { classifyChannelConnectionTokenCheckFailure } from '@/domains/app/sub-domains/channel-connection/workers/channel-connection-token-check.processor.js';
 import type { ChannelAccountService } from '@/domains/app/sub-domains/channel-account/channel-account.service.js';
-import {
-  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES,
-  INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE,
-} from '@/domains/app/sub-domains/instagram-account/instagram-account.constants.js';
 
 /** The notification type of the set-up failure email (the `automation_problem` kind, UN8). */
 const INSTAGRAM_ACCOUNT_SETUP_FAILED_NOTIFICATION_TYPE = 'instagram.reconnect_required';
@@ -777,7 +775,7 @@ export type InstagramWebhookSubscriptionSweepResult =
  *
  * @remarks
  * - **Algorithm:** off unless `env.SENDING_ENABLED` (the task worker runs only then). Pages of the
- *   connected accounts through the cross-organization read (`listConnectedForSubscriptionCheck`
+ *   connected accounts through the cross-organization read (`listConnectedForWebhookSubscriptionSweep`
  *   under `runGlobalRetentionWorkerJob`, `USING`-only sweep arm), then, with the context closed, one
  *   check job per account keyed by the window's start.
  * - **Failure modes:** a failed read throws to BullMQ; a failed add is logged
@@ -785,8 +783,7 @@ export type InstagramWebhookSubscriptionSweepResult =
  *   accounts again. Reaching the page cap logs `…sweep_capped` at error.
  * - **Side effects:** jobs on `instagram-tasks`; no row is changed.
  * - **Notes:** rides the channel connection's token-check queue and worker (`scheduler.ts`, every
- *   10 minutes — moved there from the launch's daily account check, deleted when R51's token check
- *   replaced it). `now` is injectable.
+ *   10 minutes; the launch daily check that carried it until R51 is retired). `now` is injectable.
  */
 export async function runInstagramWebhookSubscriptionCheckSweep(
   options: { now?: Date } = {},
@@ -801,7 +798,9 @@ export async function runInstagramWebhookSubscriptionCheckSweep(
   for (let page = 0; page < INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES; page += 1) {
     const cursor = afterId;
     const candidates = await runGlobalRetentionWorkerJob((databaseHandle) =>
-      createRetentionInstagramAccountRepository(databaseHandle).listConnectedForSubscriptionCheck({
+      createRetentionInstagramAccountRepository(
+        databaseHandle,
+      ).listConnectedForWebhookSubscriptionSweep({
         afterId: cursor,
         limit: INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE,
       }),

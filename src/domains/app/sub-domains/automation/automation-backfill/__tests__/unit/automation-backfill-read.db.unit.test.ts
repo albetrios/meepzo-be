@@ -10,6 +10,7 @@ import {
   insertAutomationBackfill,
   readAutomationBackfillRows,
 } from '@/domains/app/sub-domains/automation/automation-backfill/__tests__/factories/automation-backfill.factory.js';
+import { AutomationRepository } from '@/domains/app/sub-domains/automation/automation.repository.js';
 import { AutomationBackfillRepository } from '@/domains/app/sub-domains/automation/automation-backfill/automation-backfill.repository.js';
 import {
   type AutomationBackfillAutomationReader,
@@ -26,6 +27,20 @@ import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
+// The "past comments done" notice (AC-8.8, R53) is notify's; its recipients and copy are pinned by
+// notify's `notification-notices.integration.test.ts`. Here: told once, in the finishing unit.
+const { notifyOrganizationKindMock } = vi.hoisted(() => ({
+  notifyOrganizationKindMock: vi.fn(async () => ({
+    createdCount: 1,
+    failedCount: 0,
+    deduplicated: false,
+    recipientCount: 1,
+  })),
+}));
+vi.mock('@/domains/notify/sub-domains/notification/notification-notice.service.js', () => ({
+  notifyOrganizationKind: notifyOrganizationKindMock,
+}));
 
 /**
  * The past-comments read's state against the database (feat-instagram-dm-sending § 4.C AU32,
@@ -45,13 +60,14 @@ describe('Past-comments read state and the two sweeps (database)', () => {
   let service: AutomationBackfillService;
 
   beforeEach(async () => {
+    notifyOrganizationKindMock.mockClear();
     await cleanupDatabase();
     organization = await createTestOrganization({ ownerUserId: (await createTestUser()).id });
     account = await insertInstagramAccount({ organizationId: organization.id });
     featureAnswer = { isAllowed: true };
     service = new AutomationBackfillService(
       new AutomationBackfillRepository(),
-      {} as AutomationBackfillAutomationReader,
+      new AutomationRepository() as AutomationBackfillAutomationReader,
       { canChannelAccountUseFeature: async () => featureAnswer },
       {} as OrganizationService,
     );
@@ -149,6 +165,15 @@ describe('Past-comments read state and the two sweeps (database)', () => {
       fail_reason: null,
       done_at: expect.any(Date),
     });
+    // The "past comments done" notice with the read's numbers, to who started it (AC-8.8).
+    expect(notifyOrganizationKindMock).toHaveBeenCalledTimes(1);
+    expect(notifyOrganizationKindMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'automation.backfill_done',
+        dedupeKey: `backfill-done:${older.public_id}`,
+        data: { found: 4, matched: 2, queued_count: 1 },
+      }),
+    );
     expect((await startedRead()).automationBackfillPublicId).toBe(newer.public_id);
     expect(await begin()).toEqual({ kind: 'busy' });
   });
@@ -259,11 +284,11 @@ describe('Past-comments read state and the two sweeps (database)', () => {
     });
     const running = await startedRead();
 
-    const failed = await service.failAutomationBackfillsForPlanFeatureOff({
+    const failed = await service.failOpenBackfillsForPlanFeatureOff({
       scope: scope(),
       organizationId: organization.id,
     });
-    expect(failed).toHaveLength(2);
+    expect(failed).toBe(2);
     for (const automation of [first, second]) {
       expect((await readAutomationBackfillRows(automation.id))[0]).toMatchObject({
         status: 'failed',

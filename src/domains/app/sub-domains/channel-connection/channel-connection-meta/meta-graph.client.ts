@@ -467,7 +467,7 @@ async function listInstagramEdge<TItem extends { id: string }>({
   fields,
 }: {
   options: ListInstagramItemsOptions;
-  edge: 'media' | 'stories';
+  edge: 'media' | 'stories' | 'live_media';
   fields: string;
 }): Promise<InstagramGraphPage<TItem>> {
   const answer = await callMetaGraphWithToken<InstagramGraphListAnswer>({
@@ -528,6 +528,23 @@ export async function listInstagramStories(
     edge: 'stories',
     fields: INSTAGRAM_STORY_FIELDS,
   });
+}
+
+/**
+ * Lists the account's Lives on air now (`/{instagram_user_id}/live_media`, feat-instagram-dm-sending
+ * WC-16 — ROUTE row R48's Live check).
+ *
+ * @remarks
+ * - **Algorithm:** `GET /v27.0/{id}/live_media?fields=id&limit=…` with the token in the
+ *   `Authorization` header; items without an id are dropped. A Live no longer listed has ended.
+ * - **Failure modes:** as {@link listInstagramMedia}.
+ * - **Side effects:** one Instagram call; nothing is stored.
+ * - **Notes:** the Live comment way to start is go-live-gated until Meta's §43 test (P36).
+ */
+export async function listInstagramLiveMedia(
+  options: ListInstagramItemsOptions,
+): Promise<InstagramGraphPage<{ id: string }>> {
+  return listInstagramEdge<{ id: string }>({ options, edge: 'live_media', fields: 'id' });
 }
 
 /**
@@ -935,11 +952,18 @@ export interface InstagramQuickReply {
   payload?: string;
 }
 
-/** The `message` object of a send, in Instagram's wire shape (text, quick replies, a template). */
+/**
+ * The `message` object of a send, in Instagram's wire shape: text, quick replies, a template, a file
+ * by its uploaded `attachment_id` (`image`, `audio`, `file`) or one of the account's posts
+ * (`MEDIA_SHARE`).
+ */
 export interface InstagramOutgoingMessage {
   text?: string;
   quick_replies?: readonly InstagramQuickReply[];
-  attachment?: { type: 'template'; payload: Readonly<Record<string, unknown>> };
+  attachment?: {
+    type: 'template' | 'image' | 'audio' | 'file' | 'MEDIA_SHARE';
+    payload: Readonly<Record<string, unknown>>;
+  };
 }
 
 /** What Instagram answers for a sent message. */
@@ -1025,6 +1049,77 @@ export async function replyToInstagramComment({
     recordUsage,
   });
   return { instagramCommentReplyId: readAnswerId(answer.id) };
+}
+
+/**
+ * Hides a comment under the account's post (`POST /{comment_id}?hide=true`) — sub-domain 6's hide
+ * (plan §29.4 rule 5, `instagram_manage_comments`).
+ *
+ * @remarks
+ * - **Algorithm:** `POST /v27.0/{comment_id}?hide=true` with the token in the `Authorization`
+ *   header; Instagram answers `{ success: true }`.
+ * - **Failure modes:** `MetaGraphApiError` as {@link sendInstagramMessage}; any answer but
+ *   `success: true` → `outage` (malformed answer).
+ * - **Side effects:** one Instagram call — the comment is hidden from everyone but its writer.
+ * - **Notes:** safe to repeat; the reply lane's claim keeps it single.
+ */
+export async function hideInstagramComment({
+  encryptedAccessToken,
+  instagramCommentId,
+  requestId,
+  recordUsage,
+}: {
+  encryptedAccessToken: string;
+  instagramCommentId: string;
+} & MetaGraphCallTracing): Promise<void> {
+  const answer = await callMetaGraphWithToken<{ success?: unknown }>({
+    encryptedAccessToken,
+    path: encodeURIComponent(instagramCommentId),
+    query: { hide: 'true' },
+    method: 'POST',
+    requestId,
+    recordUsage,
+  });
+  assertInstagramSuccessAnswer({ answer, operation: 'the comment hide' });
+}
+
+/** What a comment read answers: whether it is still there to answer, and whether it is hidden. */
+export interface InstagramCommentState {
+  isHidden: boolean;
+}
+
+/**
+ * Reads one comment (`GET /{comment_id}?fields=id,hidden`) — the send's check before a
+ * `deleted_comment` (plan §33.7 rule 1): a comment Meta no longer shows answers its error.
+ *
+ * @remarks
+ * - **Algorithm:** `GET /v27.0/{comment_id}?fields=id,hidden` with the token in the
+ *   `Authorization` header.
+ * - **Failure modes:** `MetaGraphApiError` (code 100 when the comment is gone); an answer without
+ *   `id` → `outage` (malformed answer).
+ * - **Side effects:** one Instagram call, read only.
+ * - **Notes:** the caller reads a gone comment as `comment_gone` and one still there as bad text.
+ */
+export async function readInstagramComment({
+  encryptedAccessToken,
+  instagramCommentId,
+  requestId,
+  recordUsage,
+}: {
+  encryptedAccessToken: string;
+  instagramCommentId: string;
+} & MetaGraphCallTracing): Promise<InstagramCommentState> {
+  const answer = await callMetaGraphWithToken<{ id?: unknown; hidden?: unknown }>({
+    encryptedAccessToken,
+    path: encodeURIComponent(instagramCommentId),
+    query: { fields: 'id,hidden' },
+    requestId,
+    recordUsage,
+  });
+  if (readAnswerId(answer.id) === null) {
+    throw buildMetaGraphMalformedAnswerError({ operation: 'the comment read', missing: 'id' });
+  }
+  return { isHidden: answer.hidden === true };
 }
 
 /** The kinds of file Instagram takes as a message attachment (image, voice note, PDF). */

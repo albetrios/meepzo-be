@@ -59,14 +59,17 @@ describe('worker-registration.registry', () => {
     // wait cancel and the deleted-automation purge; run and comment-log retention retired at
     // feat-instagram-dm-sending R14, P133 — their month parts are dropped);
     // +1 for Instagram intake (instagram family, throughput, Postgres-backed through the shared
-    // limiter, its stuck-event pick-up riding the queue — feat-instagram-dm-sending WH5, R38); +3
-    // for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
+    // limiter, its stuck-event pick-up riding the queue — launch WH5, feat-instagram-dm-sending R38); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
     // `instagram-send-slow`, `instagram-send-fast` and `instagram-tasks`, all in family `instagram`
     // (P140); throughput, event-driven, their database through the shared limiter); +1 for the
-    // channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34),
-    // which replaced the daily Instagram account check (−1); +1 for the database-heavy Instagram
-    // task queue (`instagram-database-tasks`, S19 — R46).
-    expect(definitions).toHaveLength(44);
+    // channel connection's token check (retention family, cron, Postgres-backed — MC10, WC-34; the
+    // launch daily account check it replaced is gone, −1, R40 × R51 merge); +1 for the
+    // database-heavy Instagram task queue (`instagram-database-tasks`, S19 — R46); +2 for the
+    // plan-state check and the sending repair queue (R52, R48); the webhook event clean-up gave
+    // way to the shared partition upkeep (R49, ±0); the weekly summary and the grouped
+    // contact-details note (R53) ride the notification worker and R47's repair duties the sending
+    // repair queue — no new one.
+    expect(definitions).toHaveLength(46);
     for (const definition of definitions) {
       expect(definition.queueName).toBeTruthy();
       expect(definition.logLabel).toBeTruthy();
@@ -93,22 +96,26 @@ describe('worker-registration.registry', () => {
     // scheduled, maintenance worker; user-data-export also runs its lost-enqueue sweep; the
     // membership invitation expiry sweep (D84) one Postgres-backed, scheduled, maintenance worker;
     // the Instagram reconnect notice one Postgres-backed throughput worker (event-driven) (IA9; the
-    // daily Instagram account check, IA8, went when the token check below replaced it);
-    // the Instagram webhook event clean-up (WH19) one more Postgres-backed, scheduled, maintenance
-    // worker; the two run and automation clean-ups (the 7-day wait cancel, the deleted-automation purge)
+    // launch daily account check, IA8, is retired — the token check and the subscription check took
+    // its work, R40 × R51 merge); the shared partition upkeep (WC-55, R49 — it replaced the
+    // Instagram webhook event clean-up, WH19) one Postgres-backed, scheduled, maintenance worker; the two run and automation clean-ups (the 7-day wait cancel, the deleted-automation purge)
     // two more; the Instagram webhook event processing (WH5, WH15) one
     // Postgres-backed throughput worker whose every-minute pick-up rides its queue; the Instagram
     // send and task queues (SN2, R37) three Postgres-backed, event-driven throughput workers; the
     // channel connection's token check (MC10) one more Postgres-backed, scheduled, maintenance worker;
-    // the database-heavy task queue (S19, R46) one more Postgres-backed, event-driven throughput one.
-    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(41);
-    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(35);
+    // the database-heavy task queue (S19, R46) one more Postgres-backed, event-driven throughput one;
+    // R52 the plan-state check (WC-59) and the sending repair duties (WC-37, WC-38) two more
+    // Postgres-backed, scheduled, maintenance workers, and the seat sync is no longer scheduled
+    // (its hourly reconcile is off with the seat sync, BL9, WC-65); the notification worker is
+    // scheduled since R53 (the weekly summary's hourly sweep rides its queue).
+    expect(definitions.filter((definition) => definition.usesPostgres)).toHaveLength(43);
+    expect(definitions.filter((definition) => definition.scheduled)).toHaveLength(37);
     expect(
       definitions.filter((definition) => definition.criticality === 'throughput'),
     ).toHaveLength(12);
     expect(
       definitions.filter((definition) => definition.criticality === 'maintenance'),
-    ).toHaveLength(30);
+    ).toHaveLength(32);
     expect(
       definitions.filter((definition) => definition.criticality === 'observability'),
     ).toHaveLength(2);
@@ -121,7 +128,7 @@ describe('worker-registration.registry', () => {
     ).toEqual([]);
   });
 
-  it('puts Instagram intake and the send and task queues on one database limiter in the instagram family, intake, the send and the Meta-calling tasks gated (SN24, P140, R38, S19)', () => {
+  it('puts Instagram intake and the send and task queues on one database limiter in the instagram family, the send and Meta-calling ones gated on sending (SN24, P140, S19, R38)', () => {
     const sendingQueues = getWorkerQueueRegistrationDefinitions().filter(
       (definition) => definition.databaseSlotLimiterName !== undefined,
     );
@@ -131,14 +138,15 @@ describe('worker-registration.registry', () => {
       ['instagram-send-fast', 'instagram'],
       ['instagram-tasks', 'instagram'],
       ['instagram-database-tasks', 'instagram'],
+      // R48: the repair duties and watches run several at once on the same limiter (P94, SN24).
+      ['instagram-sending-repair', 'instagram'],
     ]);
     for (const definition of sendingQueues) {
       expect(definition.databaseSlotLimiterName).toBe('instagram-database');
       expect(definition.resolvePostgresConcurrency?.(undefined)).toBe(16);
     }
-    // Intake waits for the Meta app settings (R38); the send and Meta-calling task queues wait for
-    // sending; the database-heavy tasks (bulk changes, counts, audiences, retries) call no Meta and
-    // run with sending off too (R46).
+    // The send and Meta-calling task queues wait for sending; the database-heavy tasks (bulk
+    // changes, counts, audiences, retries) call no Meta and run with sending off too (R46).
     expect(
       sendingQueues.map((definition) => [definition.queueName, definition.isEnabled !== undefined]),
     ).toEqual([
@@ -147,6 +155,7 @@ describe('worker-registration.registry', () => {
       ['instagram-send-fast', true],
       ['instagram-tasks', true],
       ['instagram-database-tasks', false],
+      ['instagram-sending-repair', false],
     ]);
   });
 

@@ -182,6 +182,7 @@ describe('readInstagramWebhookEventDispatch', () => {
       contactInstagramUserId: SENDER,
       button: { automationPublicId: AUTOMATION, runPublicId: RUN },
       messagePublicId: null,
+      broadcastPublicId: null,
     });
     expect(
       readInstagramWebhookEventDispatch({
@@ -198,7 +199,26 @@ describe('readInstagramWebhookEventDispatch', () => {
         contactInstagramUserId: SENDER,
         payload: messaging({ postback: { mid: 'm_7', payload: 'SOMETHING_ELSE' } }),
       }),
-    ).toMatchObject({ button: null, messagePublicId: null });
+    ).toMatchObject({ button: null, messagePublicId: null, broadcastPublicId: null });
+    // A broadcast message's button (§ 7.A.10, R45): its broadcast and message, no run.
+    expect(
+      readInstagramWebhookEventDispatch({
+        eventKind: 'postback',
+        contactInstagramUserId: SENDER,
+        payload: messaging({
+          postback: {
+            mid: 'm_8',
+            payload: 'brc_acmeshop0000000000001::igm_acmeshop0000000000001',
+          },
+        }),
+      }),
+    ).toEqual({
+      inboundKind: 'postback',
+      contactInstagramUserId: SENDER,
+      button: null,
+      messagePublicId: 'igm_acmeshop0000000000001',
+      broadcastPublicId: 'brc_acmeshop0000000000001',
+    });
   });
 
   it('a starter-question tap carries its question: the title, else the payload after `starter:`', () => {

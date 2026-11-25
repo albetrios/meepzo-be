@@ -1,4 +1,8 @@
-import { signInWithEmailCode } from '@/tests/helpers/test-auth.js';
+import {
+  signInWithEmailCode,
+  generateTestToken,
+  generateTestTokenAndSession,
+} from '@/tests/helpers/test-auth.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -22,7 +26,6 @@ import { createTestUser } from '@/tests/factories/user.factory.js';
 import { getOperatorDatabase } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import { createTestApp } from '@/tests/helpers/test-app.js';
-import { generateTestToken, generateTestTokenAndSession } from '@/tests/helpers/test-auth.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
 import {
   injectAuthenticated,

@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import {
+  InstagramSendingWatchService,
+  probeInstagramAccountReadOnly,
+} from './sub-domains/instagram-sending/instagram-sending-watch.service.js';
+import { measurePostgresClockSkewMilliseconds } from '@/infrastructure/queue/worker-runtime/worker-clock-watch.js';
+import { readWorkerQueueHeartbeats } from '@/infrastructure/queue/worker-runtime/worker-queue-heartbeat.js';
+import { INSTAGRAM_SENDING_REPAIR_QUEUE_NAME } from './sub-domains/instagram-sending/workers/instagram-sending-repair.constants.js';
+import { readInstagramLateLaneGauge } from './sub-domains/instagram-sending/workers/instagram-sending-watch.processor.js';
 import { registerHealthSendingProbe } from '@/shared/utils/infrastructure/health-operational-metrics.util.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import { ChannelAccountRepository } from './sub-domains/channel-account/channel-account.repository.js';
@@ -34,7 +42,10 @@ import type {
 import { InstagramAccountErasureService } from './sub-domains/instagram-account/instagram-account-erasure.service.js';
 import { InstagramMediaRepository } from './sub-domains/instagram-account/instagram-media/instagram-media.repository.js';
 import { InstagramMediaService } from './sub-domains/instagram-account/instagram-media/instagram-media.service.js';
-import { ChannelConnectionMetaCallbackService } from './sub-domains/channel-connection/channel-connection-meta-callback.service.js';
+import {
+  ChannelConnectionMetaCallbackService,
+  channelConnectionMetaCallbackTeamAlert,
+} from './sub-domains/channel-connection/channel-connection-meta-callback.service.js';
 import { InstagramWebhookEventRepository } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
 import { InstagramWebhookEventService } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import { InstagramWebhookService } from './sub-domains/instagram-webhook/instagram-webhook.service.js';
@@ -95,6 +106,7 @@ import { InstagramSendLaneService } from './sub-domains/instagram-sending/instag
 import { InstagramSendStopRepository } from './sub-domains/instagram-sending/instagram-send-stop.repository.js';
 import { InstagramSendDayCountRepository } from './sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import { MessageMonthCountRepository } from './sub-domains/instagram-sending/message-month-count.repository.js';
+import { MessageMonthNoticeService } from './sub-domains/instagram-sending/message-month-notice.service.js';
 import { MessageMonthCountService } from './sub-domains/instagram-sending/message-month-count.service.js';
 import { SendingStateService } from './sub-domains/instagram-sending/sending-state.service.js';
 import { InstagramSendingService } from './sub-domains/instagram-sending/instagram-sending.service.js';
@@ -103,8 +115,23 @@ import { InstagramSendAccessService } from './sub-domains/instagram-sending/inst
 import { InstagramAttachmentService } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.service.js';
 import type { InstagramAttachmentFilePort } from './sub-domains/instagram-sending/instagram-attachment/instagram-attachment.types.js';
 import type { InstagramSendWork } from './sub-domains/instagram-sending/instagram-sending.types.js';
+import { InstagramSendComposeService } from './sub-domains/instagram-sending/instagram-send-compose.service.js';
+import { InstagramReplyLaneRules } from './sub-domains/instagram-sending/instagram-reply-lane.service.js';
+import { InstagramSlowLaneRules } from './sub-domains/instagram-sending/instagram-slow-lane.service.js';
+import { InstagramFastLaneRules } from './sub-domains/instagram-sending/instagram-fast-lane.service.js';
+import { InstagramBroadcastLaneRules } from './sub-domains/instagram-sending/instagram-broadcast-lane.service.js';
+import { enqueueInstagramSendFastMessage } from './sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { InstagramSendCoreService } from './sub-domains/instagram-sending/instagram-send-core.service.js';
 import { InstagramSendGateService } from './sub-domains/instagram-sending/instagram-send-gate.service.js';
+import {
+  broadcastSendQueue,
+  contactBulkActionQueue,
+  createAppTaskHandlers,
+  instagramAttachmentUploadQueue,
+  instagramMessageRetryQueue,
+  segmentBackgroundCountPort,
+} from './app.tasks.js';
+import { registerInstagramPlanChangeEventHandlers } from './sub-domains/instagram-sending/events/instagram-plan-change.event-handlers.js';
 import {
   INSTAGRAM_STARTER_QUESTION_SYNC_JOB_NAME,
   startInstagramAccountChainBestEffort,
@@ -114,14 +141,6 @@ import {
   buildInstagramAccountTaskHandlers,
 } from './sub-domains/instagram-account/workers/instagram-account-tasks.processor.js';
 import type { InstagramReconnectNoticeServices } from './sub-domains/instagram-account/workers/instagram-reconnect-notice.processor.js';
-import {
-  broadcastSendQueue,
-  contactBulkActionQueue,
-  createAppTaskHandlers,
-  instagramAttachmentUploadQueue,
-  instagramMessageRetryQueue,
-  segmentBackgroundCountPort,
-} from './app.tasks.js';
 
 /**
  * Services exposed by the app domain container (mounted on `app.appDomain`): the channel connection
@@ -147,11 +166,11 @@ import {
  *
  * @remarks
  * The connection's token service is exposed for the Instagram workers that call Meta with an
- * account's connection token; the token check and the account tasks read it through the worker
- * token repository (MC9). The connection reaches accounts through its account port — the channel
+ * account's connection token; the connection's token check and the account jobs read it through
+ * the worker token repository (MC9). The connection reaches accounts through its account port — the channel
  * account service (`ChannelAccountService`, ROUTE row R5), which also serves routes 6–11 and the one
  * feature check the go-live, settings, broadcasts and the engine call (CA11). The worker process builds
- * this container too (`createDomainContainers` → `appDomain`), for the account tasks' guarded status
+ * this container too (`createDomainContainers` → `appDomain`), for the account jobs' guarded status
  * change (IA9) and for Instagram webhook event processing (WH12–WH14), which drives the
  * account, events, contact, media, automation and run-engine services from it.
  */
@@ -193,6 +212,8 @@ export type AppContainer = {
   channelSendingPorts: ChannelSendingPorts;
   instagramSendLaneService: InstagramSendLaneService;
   messageMonthCountService: MessageMonthCountService;
+  /** The month at 80 % and 100 % (WC-56, ROUTE row R53): the claim's after-commit notice and the backup check. */
+  messageMonthNoticeService: MessageMonthNoticeService;
   sendingStateService: SendingStateService;
   instagramSendingService: InstagramSendingService;
   /**
@@ -214,16 +235,22 @@ export type AppContainer = {
   instagramAttachmentService: InstagramAttachmentService;
   /**
    * The work the Instagram send and task workers hand their tickets to (SN2, SN24, ROUTE row R37):
-   * the send core for the lane turn and the fast send (R42; the lane rules R43–R45); the task
-   * handlers — the account jobs (R40), intake's profile read (R38), the missed-comment look (R39),
-   * the past-comments read and the "next post" linking (R41), and R46's upload and database-heavy
-   * four.
+   * the account jobs' task handlers (set-up, subscription check, starter-question sync — R40); the
+   * lane turn is ROUTE rows R42–R45's, the fast send R42 / R44's, the other task handlers R41 / R46's;
+   * until then such a ticket is logged and finished without touching a row.
    */
   instagramSendWork: InstagramSendWork;
+  /** Gate 1 and the claim's commit (SN3, ROUTE row R42) — shared by the send core and the Redis rebuild (R48). */
+  instagramSendGateService: InstagramSendGateService;
+  /**
+   * The watches' work (§ 6 SN6, SNC5; WC-16, WC-22, WC-24 — ROUTE row R48): the all-accounts outage
+   * stop, the Live check and the waiting estimate, run by the repair worker's watch duties.
+   */
+  instagramSendingWatchService: InstagramSendingWatchService;
   /**
    * The account jobs' late-wired parts (R40): the set-up failure email's services (tenancy's and
-   * notify's — the worker composition root sets them, `null` until then; the jobs log what they
-   * skipped) and the missed-comment look (WC-26, ROUTE row R39's full pass, set here).
+   * notify's — the worker composition root sets them) and the missed-comment look (WC-26, ROUTE row
+   * R39). `null` until set; the jobs log what they skipped.
    */
   instagramAccountTaskSlots: InstagramAccountTaskSlots;
 };
@@ -260,23 +287,6 @@ function createChannelConnectionService(options: {
     options.lanePort,
     options.trialPort,
   );
-}
-
-/**
- * Route 12's channel account port (P42, CA11). The channel account service depends on the settings
- * service, so route 12 reaches it through this port; each call reads the service at request time,
- * after both are built.
- */
-function createSettingsChannelAccountPort(
-  readChannelAccountService: () => ChannelAccountService,
-): InstagramAccountSettingsChannelAccountPort {
-  return {
-    requireLiveInstagramAccount: (input) =>
-      readChannelAccountService().requireLiveInstagramAccount(input),
-    setAutomationEnabled: (input) => readChannelAccountService().setAutomationEnabled(input),
-    canChannelAccountUseFeature: (input) =>
-      readChannelAccountService().canChannelAccountUseFeature(input),
-  };
 }
 
 /**
@@ -391,26 +401,47 @@ function createBroadcastServices({
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only, plus the health
  * probe's registration.
  */
-function createInstagramSendingServices(planAccessService: ChannelConnectionPlanAccessService) {
+function createInstagramSendingServices({
+  planAccessService,
+  organizationService,
+}: {
+  planAccessService: ChannelConnectionPlanAccessService;
+  organizationService: OrganizationService;
+}) {
   const instagramSendLaneService = new InstagramSendLaneService(
     new InstagramSendLaneRepository(),
     new InstagramSendStopRepository(),
   );
   const sendingStateService = new SendingStateService();
   // The readiness body's sending part (SNC9): may this deployment send, and why not.
+  // R48 adds the clock skew, the repair age and the late lanes (SNC9, plan §40.1).
   registerHealthSendingProbe(async () => {
-    const check = await sendingStateService.checkSending();
+    const [check, clockSkewMilliseconds, heartbeats, lateLanes] = await Promise.all([
+      sendingStateService.checkSending(),
+      measurePostgresClockSkewMilliseconds().catch(() => null),
+      readWorkerQueueHeartbeats([INSTAGRAM_SENDING_REPAIR_QUEUE_NAME]).catch(() => []),
+      readInstagramLateLaneGauge(),
+    ]);
     return {
       may_send: check.maySend,
       reason: check.reason,
       settings_version: check.settingsVersion,
       minimum_compatible_settings_version: check.minimumCompatibleSettingsVersion,
       server_settings_version: check.serverSettingsVersion,
+      clock_skew_milliseconds: clockSkewMilliseconds,
+      repair_last_round_at: heartbeats[0]?.last_job_at ?? null,
+      late_lane_count: lateLanes?.count ?? null,
     };
   });
   const messageMonthCountService = new MessageMonthCountService(
     new MessageMonthCountRepository(),
     planAccessService,
+  );
+  // The month at 80 % and 100 % (WC-56, R53): told after the claim that crossed a line.
+  const messageMonthNoticeService = new MessageMonthNoticeService(
+    new MessageMonthCountRepository(),
+    messageMonthCountService,
+    organizationService,
   );
   // Meta's usage per connection (MC19, S13): the Postgres store; the app-level usage once, on the
   // global sending row (P107).
@@ -422,6 +453,7 @@ function createInstagramSendingServices(planAccessService: ChannelConnectionPlan
     instagramSendLaneService,
     sendingStateService,
     messageMonthCountService,
+    messageMonthNoticeService,
     channelConnectionUsageService,
     // The tickets' work (SN2, SN24, R37): the account jobs' task handlers (R40) are added and the
     // send core (R42) replaces the lane turn and the fast send in `createAppContainer`; R41 / R46
@@ -458,6 +490,8 @@ function createInstagramSendingStatusService({
     dayCountRepository: new InstagramSendDayCountRepository(),
     sources: {
       countWaitingByLane: (target) => instagramMessageService.countWaitingByLane(target),
+      listWindowClosedByAutomation: (target) =>
+        instagramMessageService.listWindowClosedByAutomation(target),
       findLastRetry: (target) => instagramMessageService.findLastRetry(target),
     },
   });
@@ -473,7 +507,7 @@ function createInstagramSendingStatusService({
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only. Meta's 190 on a media
  * read breaks the account's connection through the connection (MC11, R4's `markConnectionBroken`).
  * The callback service's lane port is 6's lane service (R18), so Meta's callbacks stop the reached
- * accounts' lanes as route 8 does; R53 adds the callbacks' team-alert port as its sixth argument.
+ * accounts' lanes as route 8 does; the sixth is the callbacks' team-alert path (R53).
  */
 function createInstagramMediaAndErasureServices(options: {
   instagramAccountService: InstagramAccountService;
@@ -498,6 +532,8 @@ function createInstagramMediaAndErasureServices(options: {
     options.channelAccountService,
     instagramAccountErasureService,
     options.lanePort,
+    // The unmatched id's team email (MC16, R53).
+    channelConnectionMetaCallbackTeamAlert,
   );
   return {
     instagramMediaService,
@@ -702,6 +738,8 @@ function createAutomationServices({
       messageFiles: messageFilePort,
       openBackfills: automationBackfillService,
       sendingPorts: channelSendingPorts,
+      // WC-32's upload ahead of the sends (R46) — the channel's attachment service.
+      attachmentUploads,
       // IA6, WC-31 (R40): the account's ice breakers rewritten after a starter automation's change.
       starterQuestionSync: {
         enqueueStarterQuestionSync: ({ organizationPublicId, channelAccountPublicId }) =>
@@ -711,8 +749,6 @@ function createAutomationServices({
             channelAccountPublicId,
           }),
       },
-      // WC-32's upload ahead of the sends (R46) — the channel's attachment service.
-      attachmentUploads,
     },
   );
   const { contactService, contactTagEventService, contactErasureSteps } = createContactServices({
@@ -773,27 +809,79 @@ function createSendAccessServices({
     // WC-32's `attachment-upload` task (R46): go-live and a live file change upload ahead.
     uploadQueue: instagramAttachmentUploadQueue,
   });
-  return { instagramSendAccessService, instagramAttachmentService };
+  return {
+    instagramSendAccessService,
+    instagramAttachmentService,
+    // Gate 1 and the claim (R42), shared by the send core and the Redis rebuild (R48).
+    instagramSendGateService: new InstagramSendGateService({
+      laneService: sending.instagramSendLaneService,
+      // The month at 80 % and 100 % told after the claim that crossed a line (WC-56, R53).
+      monthNotice: sending.messageMonthNoticeService,
+    }),
+  };
+}
+
+/**
+ * One port per channel (AU35): Instagram's message service (R19) with its fast tickets after commit
+ * (R44), her `last_broadcast_at` in the result's commit (R45) and the failed-message retry (R46), and the broadcast recipients behind
+ * the ports (§ 7.C, R23). The engine is built after, so
+ * its calls are late-bound.
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only, no side effects.
+ */
+function createChannelSendingServices(late: {
+  automation: () => Pick<
+    ReturnType<typeof createAutomationServices>,
+    'automationRunService' | 'contactService'
+  >;
+}): {
+  instagramMessageService: InstagramMessageService;
+  channelSendingPorts: ChannelSendingPorts;
+  broadcastRecipientService: BroadcastRecipientService;
+} {
+  const instagramMessageService = new InstagramMessageService({
+    recordRunMessageResult: (input) =>
+      late.automation().automationRunService.recordMessageResult(input),
+    recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
+    recordContactOpeningMessage: (input) =>
+      late.automation().contactService.recordContactOpeningMessage(input),
+    recordContactBroadcastSent: (input) =>
+      late.automation().contactService.recordContactBroadcastSent(input),
+    enqueueFastMessage: enqueueInstagramSendFastMessage,
+    // WC-42's `retry-failed` task (R46) and the retried runs reopened in its commit.
+    retryQueue: instagramMessageRetryQueue,
+    reopenRetriedRuns: (input) => late.automation().automationRunService.reopenRetriedRuns(input),
+  });
+  const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
+  const broadcastRecipientService = new BroadcastRecipientService({
+    sendingPorts: channelSendingPorts,
+  });
+  return { instagramMessageService, channelSendingPorts, broadcastRecipientService };
 }
 
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
- * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45); the task handlers already registered (the account jobs', R40) are kept, and
- * intake's profile read (R38), the missed-comment look (R39), the past-comments read and the "next
- * post" linking (R41) — Meta-calling, on `instagram-tasks` — and R46's (`createAppTaskHandlers`) added.
+ * the gates, the message's result save, the send access, the attachments and the breaks, with the
+ * slow, reply (R43), fast (R44) and broadcast (R45) lanes' rules and the down-stop probe (R48); the
+ * task handlers already registered (the account jobs', R40) are kept and R46 / R52's
+ * (`createAppTaskHandlers`) and intake's (R38's profile read, R39's missed-comment look, R41's
+ * past-comments read and "next post" linking — {@link createInstagramIntakeTaskHandlers}) join them.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
  */
 function createInstagramSendWork(
-  container: Omit<AppContainer, 'instagramSendWork'> & { instagramSendWork: InstagramSendWork },
+  container: Omit<AppContainer, 'instagramSendWork' | 'instagramSendingWatchService'> & {
+    instagramSendWork: InstagramSendWork;
+  },
 ): InstagramSendWork {
   const lanes = container.instagramSendLaneService;
+  const messageService = container.instagramMessageService;
   const sendCore = new InstagramSendCoreService({
     laneService: lanes,
     messageService: container.instagramMessageService,
-    gateService: new InstagramSendGateService({ laneService: lanes }),
+    gateService: container.instagramSendGateService,
     accessService: container.instagramSendAccessService,
     attachmentService: container.instagramAttachmentService,
     sendingStateService: container.sendingStateService,
@@ -803,37 +891,66 @@ function createInstagramSendWork(
         container.channelConnectionService.markConnectionBroken(input),
       markAccountBroken: (input) => container.channelAccountService.markAccountBroken(input),
     },
-    // The lanes' own rules plug in at R43–R45; until then a ticket is logged and finished.
-    laneRules: {},
+    // The slow and reply lanes' own rules (R43), the fast lane's (R44) and the broadcast lane's (R45).
+    laneRules: {
+      broadcast: new InstagramBroadcastLaneRules({
+        messageService,
+        composeService: new InstagramSendComposeService(),
+      }),
+      slow: new InstagramSlowLaneRules({
+        messageService,
+        composeService: new InstagramSendComposeService(),
+      }),
+      fast: new InstagramFastLaneRules({
+        messageService,
+        composeService: new InstagramSendComposeService(),
+      }),
+      reply: new InstagramReplyLaneRules({
+        messageService,
+        replyStateService: container.automationReplyStateService,
+        canUseReplyLikePerson: async (target) =>
+          (
+            await container.channelAccountService.canChannelAccountUseFeature({
+              ...target,
+              feature: 'reply_like_person',
+            })
+          ).isAllowed,
+      }),
+    },
+    // R48 (plan §33.5 rule 2): a down stop is tested by reading the account's own profile first.
+    probeAccount: (input) =>
+      probeInstagramAccountReadOnly({
+        ...input,
+        accessService: container.instagramSendAccessService,
+      }),
   });
   const baseWork = container.instagramSendWork;
   return {
     ...baseWork,
     laneTurn: sendCore,
     fastMessage: sendCore,
-    // ROUTE row R46's tasks (S19): the upload on `instagram-tasks`, the database-heavy four on
-    // `instagram-database-tasks` — beside the account jobs' (R40).
+    // The account jobs (R40) already in `baseWork`; ROUTE row R46's tasks (S19): the upload on
+    // `instagram-tasks`, the database-heavy four on `instagram-database-tasks`; R52's plan change.
     taskHandlers: {
       ...baseWork.taskHandlers,
-      ...createInstagramWebhookTaskHandlers(container),
       ...createAppTaskHandlers(container),
+      ...createInstagramIntakeTaskHandlers(container),
     },
   };
 }
 
 /**
- * The Meta-calling tasks of the Instagram webhook sub-domain on `instagram-tasks` (S19's Meta side):
- * intake's profile read (R38), the missed-comment look (R39), the past-comments read and the "next
- * post" linking (R41).
+ * Intake's tasks on the Meta-calling `instagram-tasks` (§ 5, S11, P93; WC-26, WC-41, WC-43): the
+ * new contact's profile read (R38), one account's missed-comment look (R39), its past-comments read
+ * and its "my next post" linking (R41) — by job name.
  *
  * @remarks
- * Notes: split out of {@link createInstagramSendWork} to keep it short; wiring only, no side effects.
+ * Notes: split out of {@link createInstagramSendWork} to keep it short; wiring only.
  */
-function createInstagramWebhookTaskHandlers(
-  container: Omit<AppContainer, 'instagramSendWork'>,
+function createInstagramIntakeTaskHandlers(
+  container: Omit<AppContainer, 'instagramSendWork' | 'instagramSendingWatchService'>,
 ): InstagramSendWork['taskHandlers'] {
   return {
-    // Intake's new-contact profile read is a low-priority task (S11, ROUTE row R38).
     [INSTAGRAM_CONTACT_PROFILE_READ_JOB_NAME]: createInstagramContactProfileReadTaskHandler({
       services: {
         instagramAccountService: container.instagramAccountService,
@@ -871,6 +988,47 @@ function createInstagramWebhookTaskHandlers(
   };
 }
 
+/**
+ * The container with its send work (R42) and the watches' service (§ 6 SN6, SNC5; WC-16, WC-22,
+ * WC-24 — ROUTE row R48: the outage stop, the Live check and the waiting estimate).
+ *
+ * @remarks
+ * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
+ */
+function withSendWorkAndWatches(
+  container: Omit<AppContainer, 'instagramSendWork' | 'instagramSendingWatchService'> & {
+    instagramSendWork: InstagramSendWork;
+  },
+): AppContainer {
+  return {
+    ...container,
+    instagramSendWork: createInstagramSendWork(container),
+    instagramSendingWatchService: new InstagramSendingWatchService({
+      sendingStateService: container.sendingStateService,
+      accessService: container.instagramSendAccessService,
+      messageService: container.instagramMessageService,
+      mediaService: container.instagramMediaService,
+    }),
+  };
+}
+
+/**
+ * Route 12's channel account port (P42, CA11). The channel account service depends on the settings
+ * service, so route 12 reaches it through this port; each call reads the service at request time,
+ * after both are built.
+ */
+function createSettingsChannelAccountPort(
+  readChannelAccountService: () => ChannelAccountService,
+): InstagramAccountSettingsChannelAccountPort {
+  return {
+    requireLiveInstagramAccount: (input) =>
+      readChannelAccountService().requireLiveInstagramAccount(input),
+    setAutomationEnabled: (input) => readChannelAccountService().setAutomationEnabled(input),
+    canChannelAccountUseFeature: (input) =>
+      readChannelAccountService().canChannelAccountUseFeature(input),
+  };
+}
+
 /** The connection's repository and its one token path (MC9) — shared by the account and connection services. */
 function createConnectionToken() {
   const channelConnectionRepository = new ChannelConnectionRepository();
@@ -900,7 +1058,7 @@ function createInstagramAccountTaskWork({
   const baseWork = sending.instagramSendWork;
   const instagramAccountTaskSlots: InstagramAccountTaskSlots = {
     noticeServices: null,
-    // WC-26 (R39): the subscription check's missed-comment look — the full pass for the account.
+    // The full pass after a lost subscription field (WC-25 → WC-26): R39's look, on `instagram-tasks`.
     missedCommentPort: { lookForMissedComments },
   };
   const instagramSendWork: InstagramSendWork = {
@@ -908,6 +1066,7 @@ function createInstagramAccountTaskWork({
     taskHandlers: {
       ...baseWork.taskHandlers,
       ...buildInstagramAccountTaskHandlers({
+        // The guarded break that also stops the account's lanes (CA4, SN5 — intake's path, P142).
         channelAccountService,
         // The extension's one writer (2.A.10) — stateless, so the jobs hold their own instance.
         extensionService: new InstagramAccountExtensionService(new InstagramAccountRepository()),
@@ -952,23 +1111,11 @@ export function createAppContainer({
   trialPort,
   messageFilePort,
 }: AppContainerDependencies): AppContainer {
-  // One port per channel (AU35): Instagram's message service (R19, the retry job R46).
-  const instagramMessageService = new InstagramMessageService({
-    recordRunMessageResult: (input) => automation.automationRunService.recordMessageResult(input),
-    recordBroadcastMessageResult: (input) => broadcastRecipientService.recordMessageResult(input),
-    recordContactOpeningMessage: (input) =>
-      automation.contactService.recordContactOpeningMessage(input),
-    retryQueue: instagramMessageRetryQueue,
-    reopenRetriedRuns: (input) => automation.automationRunService.reopenRetriedRuns(input),
-  });
-  const channelSendingPorts: ChannelSendingPorts = { instagram: instagramMessageService };
-  // Broadcast recipients (§ 7.C, R23): every broadcast message through the account's channel's port.
-  const broadcastRecipientService = new BroadcastRecipientService({
-    sendingPorts: channelSendingPorts,
-  });
+  const { instagramMessageService, channelSendingPorts, broadcastRecipientService } =
+    createChannelSendingServices({ automation: () => automation });
   const { channelConnectionRepository, channelConnectionTokenService } = createConnectionToken();
   // The sending sub-domain's root (§ 6.A, ROUTE row R18).
-  const sending = createInstagramSendingServices(planAccessService);
+  const sending = createInstagramSendingServices({ planAccessService, organizationService });
   const {
     channelAccountRepository,
     instagramAccountExtensionService,
@@ -977,6 +1124,8 @@ export function createAppContainer({
   } = createInstagramAccountServices({
     organizationService,
     channelConnectionTokenService,
+    // The channel account service depends on the settings service, so route 12 reaches it through
+    // this port; each call runs at request time, after both are built.
     settingsChannelAccountPort: createSettingsChannelAccountPort(() => channelAccountService),
     settingsLanePort: sending.instagramSendLaneService,
   });
@@ -1005,7 +1154,7 @@ export function createAppContainer({
     lanePort: sending.instagramSendLaneService,
     trialPort,
   });
-  // Routes 63–64 (§ 6.A); route 63's waiting counts and last retry come from the messages (R19).
+  // Routes 63–64 (§ 6.A); route 63's waiting counts and last retry from the messages (R19).
   const instagramSendingService = createInstagramSendingStatusService({
     organizationService,
     channelAccountService,
@@ -1070,7 +1219,9 @@ export function createAppContainer({
     instagramMessageService,
     ...sendAccess,
   };
-  return { ...container, instagramSendWork: createInstagramSendWork(container) };
+  // WC-38 (ROUTE row R52): billing's plan-state change → the plan-change task, in both processes.
+  registerInstagramPlanChangeEventHandlers();
+  return withSendWorkAndWatches(container);
 }
 
 /**

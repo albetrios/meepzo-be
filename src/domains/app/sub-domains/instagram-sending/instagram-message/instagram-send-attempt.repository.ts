@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   type RequestScopedPostgresDatabase,
   resolveRepositoryDatabaseHandle,
@@ -143,5 +143,31 @@ export class InstagramSendAttemptRepository {
       contactId: row.contactId,
       countGroup: row.countGroup,
     }));
+  }
+  /**
+   * The account's finished attempts since a time (the account test's turns, plan §33.4: every
+   * attempt after a stop's end is one of its tests while the stop holds).
+   */
+  async countFinishedSince({
+    organizationId,
+    channelAccountId,
+    since,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    since: Date;
+  }): Promise<number> {
+    const [row] = await this.db()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(instagram_send_attempts)
+      .where(
+        and(
+          eq(instagram_send_attempts.organization_id, organizationId),
+          eq(instagram_send_attempts.channel_account_id, channelAccountId),
+          gte(instagram_send_attempts.started_at, since),
+          isNotNull(instagram_send_attempts.result_group),
+        ),
+      );
+    return Number(row?.count ?? 0);
   }
 }

@@ -20,6 +20,22 @@ import { runSubscriptionSeatReconcileJob } from '@/domains/billing/sub-domains/s
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 
+// The seat sync is switched off (BL9, WC-65 — feat-instagram-dm-sending R52); its machinery is
+// kept, so this suite turns the switch on to keep proving it, and checks the off switch once.
+const seatSyncSwitch = vi.hoisted(() => ({ isEnabled: true }));
+vi.mock(
+  '@/domains/billing/sub-domains/subscription/subscription.constants.js',
+  async (importOriginal) => {
+    const actual = await importOriginal<Record<string, unknown>>();
+    return {
+      ...actual,
+      get BILLING_SEAT_SYNC_ENABLED() {
+        return seatSyncSwitch.isEnabled;
+      },
+    };
+  },
+);
+
 const FREE_PLAN_SEATS = 2;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -187,6 +203,27 @@ describe('Losing the paid entitlement keeps the team', () => {
     expect(await suspendedMembershipIds(lapsed.organization.id)).toEqual([]);
     expect(await suspendedMembershipIds(drifted.organization.id)).toEqual([]);
     enqueueSeatQuantitySync.mockRestore();
+  });
+
+  it('does nothing while the seat sync is off (BL9, WC-65, AC-11.12)', async () => {
+    const drifted = await teamWithMembers(1);
+    const driftedSubscription = await createTestSubscription({
+      organizationId: drifted.organization.id,
+      planId: paidPlanId,
+      providerSubscriptionId: `sub_drift_${generatePublicId('subscription')}`,
+    });
+    await getOperatorDatabase()
+      .update(subscriptions)
+      .set({ seats: 1 })
+      .where(eq(subscriptions.id, driftedSubscription.id));
+    seatSyncSwitch.isEnabled = false;
+    try {
+      await expect(
+        runSubscriptionSeatReconcileJob(containers.billingDomain.subscriptionService),
+      ).resolves.toEqual({ quantityDriftCount: 0, entitlementLapsedCount: 0 });
+    } finally {
+      seatSyncSwitch.isEnabled = true;
+    }
   });
 
   it('runs whole in the worker process without suspending anyone', async () => {

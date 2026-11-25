@@ -91,7 +91,7 @@ Real example from [`src/domains/auth/sub-domains/auth-method/email-login.service
  * Failure modes:
  * - Disposable email → 400 errors:disposableEmail from `sendCode`.
  * - Unknown email on `login`, wrong/expired/used code, or attempt cap exceeded → 401
- *   errors:invalidOrExpiredVerificationCode.
+ *   errors:emailCodeExpired (each code failure has its own key).
  *
  * Side effects:
  * - `sendCode` may auto-create a user + `EMAIL_CODE` auth-method and emits a domain event whose

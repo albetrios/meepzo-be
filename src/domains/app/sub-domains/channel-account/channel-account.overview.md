@@ -41,6 +41,11 @@ organization's or a revoked account is `404 channel_account_not_found`. Routes 7
   through `ChannelAccountLanePort` (sub-domain 6's `InstagramSendLaneService`, R18) and the stop an activated account
   takes through `ChannelAccountPlanStopPort` (`plan_limit` from sub-domain 6's month count, R18; `plan_ended`, R24);
   `countActiveAccounts` and `findLiveInstagramAccount` serve sub-domain 6's routes 64 and 63.
+  `applyOrganizationPlanStops` (R52, WC-37, WC-38) puts every account's plan stop in line with the plan under the
+  account-limit lock — the pick of who stays is `channel-account-plan-stop.util.ts` (`pickChannelAccountsInPlan`:
+  the kept, then the accounts in the plan, oldest first, then on a move up the `plan_downgrade` ones); while the plan
+  has ended nothing is trimmed. The repository's `listOrganizationsHoldingPlanStop` (retention handle,
+  `createRetentionChannelAccountRepository`) is the repair duties' cross-organization read.
 - `channel-account-capabilities.constants.ts` — `CHANNEL_CAPABILITIES` (per channel: ways to start, steps, message
   kinds, features), `CHANNEL_FEATURES` (each feature's permission, plan switch and Meta test — the plan switches are
   exactly billing's `PLAN_FEATURE_KEYS`, a unit test pins it). `APP_UNTESTED_META_FEATURES` lives in sub-domain 6's

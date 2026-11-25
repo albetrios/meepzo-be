@@ -3,6 +3,7 @@ import { INSTAGRAM_MESSAGE_TYPE_OF_STEP } from '@/domains/app/sub-domains/instag
 import {
   channelResultOf,
   chooseInstagramMessagePlace,
+  drawInstagramExtraDelayMilliseconds,
   instagramMessageStepOf,
   isInstagramChatWindowOpen,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-message/instagram-message.util.js';
@@ -99,5 +100,30 @@ describe('chooseInstagramMessagePlace (SN22)', () => {
     expect(instagramMessageStepOf('invalid_email')).toBe('email');
     expect(channelResultOf('expired')).toBe('skipped');
     expect(channelResultOf('unknown')).toBe('unknown');
+  });
+});
+
+describe('drawInstagramExtraDelayMilliseconds (PRO, plan §30.12 rule 2)', () => {
+  it('is min + (max − min) × (r1 + r2) ÷ 2 seconds in whole milliseconds, 0 while off', () => {
+    const draw = (firstRandom: number, secondRandom: number) =>
+      drawInstagramExtraDelayMilliseconds({
+        minimumSeconds: 3,
+        maximumSeconds: 8,
+        firstRandom,
+        secondRandom,
+      });
+    expect(draw(0, 0)).toBe(3_000);
+    expect(draw(1, 1)).toBe(8_000);
+    // The plan's example: 5,420 ms.
+    expect(draw(0.384, 0.4)).toBe(4_960);
+    expect(draw(0.5, 0.468)).toBe(5_420);
+    expect(
+      drawInstagramExtraDelayMilliseconds({
+        minimumSeconds: null,
+        maximumSeconds: null,
+        firstRandom: 1,
+        secondRandom: 1,
+      }),
+    ).toBe(0);
   });
 });

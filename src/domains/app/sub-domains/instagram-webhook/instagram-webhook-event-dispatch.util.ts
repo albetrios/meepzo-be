@@ -1,3 +1,4 @@
+import { parseBroadcastButtonPayload } from '@/domains/app/sub-domains/broadcast/broadcast-recipient/broadcast-recipient-button-payload.util.js';
 import type { ChannelInboundEventKind } from '@/domains/app/app.channel-ports.js';
 import {
   type AutomationButtonPayload,
@@ -66,7 +67,8 @@ interface CommentDispatchFields {
  *   the quick reply's payload, an attachment's email, the story or the shared post;
  * - `postback` — `handleButtonClick` with our payload's two public ids (`button: null` for a
  *   payload this engine never sent) and the message the button was on (`messagePublicId`, when
- *   the payload names it);
+ *   the payload names it); a broadcast message's button (`<brc_…>::<igm_…>`, § 7.A.10) carries
+ *   `broadcastPublicId` and its message instead;
  * - `starter_question` — `handleButtonClick` with the question's text;
  * - `referral` — `handleButtonClick` with the link's `ref` code or the ad's id;
  * - `reaction` — her window only;
@@ -93,6 +95,8 @@ export type InstagramWebhookEventDispatch =
       button: AutomationButtonPayload | null;
       /** `igm_…` — the message whose button was tapped (the payload's third part), when present. */
       messagePublicId: string | null;
+      /** `brc_…` — a broadcast message's button (§ 7.A.10); `null` for any other payload. */
+      broadcastPublicId: string | null;
     }
   | {
       inboundKind: 'starter_question';
@@ -259,7 +263,8 @@ const STARTER_QUESTION_PAYLOAD_PREFIX = 'starter:';
 
 /**
  * A stored postback: our payload `<aut_…>::<run_…>` (optionally `::<igm_…>`, WH8) split into the
- * run engine's two ids and the message's — `button: null` when the payload is not ours.
+ * run engine's two ids and the message's, or a broadcast message's `<brc_…>::<igm_…>` (§ 7.A.10)
+ * into the broadcast's and the message's — `button: null` when the payload is not an automation's.
  */
 function readPostback({
   payload,
@@ -272,7 +277,23 @@ function readPostback({
   if (postback === null) throw invalidPayload('postback_missing');
   const buttonPayload = readText(postback.payload);
   if (buttonPayload === null) {
-    return { inboundKind: 'postback', contactInstagramUserId, button: null, messagePublicId: null };
+    return {
+      inboundKind: 'postback',
+      contactInstagramUserId,
+      button: null,
+      messagePublicId: null,
+      broadcastPublicId: null,
+    };
+  }
+  const broadcastButton = parseBroadcastButtonPayload(buttonPayload);
+  if (broadcastButton !== null) {
+    return {
+      inboundKind: 'postback',
+      contactInstagramUserId,
+      button: null,
+      messagePublicId: broadcastButton.messagePublicId,
+      broadcastPublicId: broadcastButton.broadcastPublicId,
+    };
   }
   const parts = buttonPayload.split(BUTTON_PAYLOAD_SEPARATOR);
   const messagePublicId = parts.length === 3 ? (parts[2] ?? null) : null;
@@ -284,6 +305,7 @@ function readPostback({
     contactInstagramUserId,
     button,
     messagePublicId: button === null ? null : messagePublicId,
+    broadcastPublicId: null,
   };
 }
 

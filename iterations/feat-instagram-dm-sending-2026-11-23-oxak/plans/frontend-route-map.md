@@ -454,12 +454,78 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 
 | Module | Routes |
 | --- | --- |
+| [App (the product)](#app-the-product) | 60 |
 | [Session and account](#session-and-account) | 48 |
 | [Organization and team](#organization-and-team) | 44 |
 | [Files](#files) | 4 |
 | [Notifications and webhooks](#notifications-and-webhooks) | 14 |
 | [Subscription billing (the platform)](#subscription-billing-the-platform) | 15 |
-| [Platform administration and operations](#platform-administration-and-operations) | 74 |
+| [Platform administration and operations](#platform-administration-and-operations) | 14 |
+
+### App (the product)
+
+| Method | Path | Gate | Idem | Team | # | What it does |
+| --- | --- | --- | --- | --- | --- | --- |
+| GET | `/app/automations` | `automation:read` |  | team | 4.27 | List automations |
+| POST | `/app/automations` | `automation:create` | req | team | 4.28 | Save an automation draft |
+| GET | `/app/automations/:automation_id` | `automation:read` |  | team | 4.29 | Get an automation |
+| PATCH | `/app/automations/:automation_id` | `automation:update` |  | team | 4.30 | Save automation content |
+| DELETE | `/app/automations/:automation_id` | `automation:delete` |  | team | 4.31 | Delete an automation |
+| POST | `/app/automations/:automation_id/backfills` | `automation:update` | req | team | 4.38 | Answer past comments |
+| GET | `/app/automations/:automation_id/backfills/:automation_backfill_id` | `automation:read` |  | team | 4.39 | Get a past-comments read |
+| POST | `/app/automations/:automation_id/duplicate` | `automation:create` | req | team | 4.34 | Duplicate an automation |
+| POST | `/app/automations/:automation_id/failed-messages/retry` | `automation:update` | req | team | 4.37 | Retry an automation's failed messages |
+| GET | `/app/automations/:automation_id/failed-messages/summary` | `automation:read` |  | team | 4.36 | Count an automation's failed messages |
+| POST | `/app/automations/:automation_id/go-live` | `automation:update` |  | team | 4.32 | Go live |
+| POST | `/app/automations/:automation_id/keyword-test` | `automation:read` |  | team | 4.35 | Try an automation keyword |
+| POST | `/app/automations/:automation_id/pause` | `automation:update` |  | team | 4.33 | Pause an automation |
+| GET | `/app/broadcasts` | `automation:read` |  | team | 7.70 | List broadcasts |
+| POST | `/app/broadcasts` | `automation:create` | req | team | 7.71 | Create a broadcast draft |
+| GET | `/app/broadcasts/:broadcast_id` | `automation:read` |  | team | 7.72 | Get a broadcast |
+| PATCH | `/app/broadcasts/:broadcast_id` | `automation:update` |  | team | 7.73 | Update a broadcast draft |
+| DELETE | `/app/broadcasts/:broadcast_id` | `automation:delete` |  | team | 7.74 | Delete a broadcast |
+| POST | `/app/broadcasts/:broadcast_id/cancel` | `automation:update` | req | team | 7.76 | Cancel a broadcast |
+| POST | `/app/broadcasts/:broadcast_id/send` | `automation:update` | req | team | 7.75 | Send a broadcast |
+| GET | `/app/contact-tags` | `contact:read` |  | team | 3.22 | List contact tags |
+| GET | `/app/contacts` | `contact:read` |  | team | 3.18 | List contacts |
+| GET | `/app/contacts/:contact_id` | `contact:read` |  | team | 3.19 | Get a contact |
+| PATCH | `/app/contacts/:contact_id` | `contact:update` |  | team | 3.20 | Update a contact |
+| DELETE | `/app/contacts/:contact_id` | `contact:delete` |  | team | 3.23 | Delete a contact |
+| GET | `/app/contacts/:contact_id/activity` | `contact:read` |  | team | 3.24 | List a contact's activity |
+| POST | `/app/contacts/:contact_id/failed-messages/retry` | `contact:update` | req | team | 3.26 | Retry a contact's failed messages |
+| GET | `/app/contacts/:contact_id/failed-messages/summary` | `contact:read` |  | team | 3.25 | Count a contact's failed messages |
+| POST | `/app/contacts/bulk-actions` | `contact:update` | req | team | 3.21 | Run a bulk action on contacts |
+| GET | `/app/segments` | `automation:read` |  | team | 7.77 | List segments |
+| POST | `/app/segments` | `automation:create` | req | team | 7.78 | Create a segment |
+| GET | `/app/segments/:segment_id` | `automation:read` |  | team | 7.79 | Get a segment |
+| PATCH | `/app/segments/:segment_id` | `automation:update` |  | team | 7.80 | Update a segment |
+| DELETE | `/app/segments/:segment_id` | `automation:delete` |  | team | 7.81 | Delete a segment |
+| POST | `/app/segments/audience-count` | `automation:read` | req | team | 7.82 | Count a segment audience |
+| GET | `/app/social/channel-accounts` | `channel-account:read` |  | team | 1.6 | List channel accounts |
+| GET | `/app/social/channel-accounts/:channel_account_id` | `channel-account:read` |  | team | 1.7 | Get a channel account |
+| DELETE | `/app/social/channel-accounts/:channel_account_id` | `channel-account:manage` |  | team | 1.8 | Disconnect a channel account |
+| POST | `/app/social/channel-accounts/:channel_account_id/activate` | `channel-account:manage` | req | team | 1.11 | Choose an active channel account |
+| POST | `/app/social/channel-accounts/:channel_account_id/pause` | `channel-account:manage` |  | team | 1.9 | Pause a channel account |
+| POST | `/app/social/channel-accounts/:channel_account_id/resume` | `channel-account:manage` |  | team | 1.10 | Resume a channel account |
+| GET | `/app/social/channel-connections` | `channel-account:read` |  | team | 1.4 | List channel connections |
+| GET | `/app/social/channel-connections/:channel_connection_id` | `channel-account:read` |  | team | 1.42 | Get a channel connection |
+| DELETE | `/app/social/channel-connections/:channel_connection_id` | `channel-account:manage` |  | team | 1.5 | Disconnect a business |
+| POST | `/app/social/channel-connections/:channel_connection_id/accounts` | `channel-account:manage` | req | team | 1.3 | Connect picked channel accounts |
+| GET | `/app/social/channel-connections/:channel_connection_id/ad-accounts` | `channel-account:read` |  | team | 1.41 | List a channel connection's ad accounts |
+| GET | `/app/social/channel-connections/:channel_connection_id/ads` | `channel-account:read` |  | team | 1.15 | List one ad account's ads |
+| POST | `/app/social/channel-connections/:channel_connection_id/reconnect` | `channel-account:manage` |  | team | 1.40 | Start a reconnect of a channel connection |
+| POST | `/app/social/channel-connections/:provider/callback` | `channel-account:manage` | req | team | 1.2 | Finish a channel connection |
+| POST | `/app/social/channel-connections/:provider/data-deletion` | public |  |  | 1.17 | Meta: delete the person's data (data deletion) |
+| POST | `/app/social/channel-connections/:provider/deauthorize` | public |  |  | 1.16 | Meta: the app was removed (deauthorize) |
+| POST | `/app/social/channel-connections/:provider/start` | `channel-account:manage` |  | team | 1.1 | Start a channel connection |
+| GET | `/app/social/channel-connections/meta/webhooks/instagram` | public |  |  | 5.60 | Verify the Instagram webhook subscription |
+| POST | `/app/social/channel-connections/meta/webhooks/instagram` | public |  |  | 5.61 | Receive an Instagram webhook delivery |
+| GET | `/app/social/instagram/accounts/:channel_account_id/media` | `instagram-account:read` |  | team | 2.13 | List Instagram posts and reels |
+| GET | `/app/social/instagram/accounts/:channel_account_id/sending-status` | `instagram-account:read` |  | team | 6.63 | Get an Instagram account sending status |
+| PATCH | `/app/social/instagram/accounts/:channel_account_id/settings` | `instagram-account:manage` |  | team | 2.12 | Change an Instagram account settings |
+| GET | `/app/social/instagram/accounts/:channel_account_id/stories` | `instagram-account:read` |  | team | 2.14 | List live Instagram stories |
+| GET | `/app/social/instagram/webhook-events` | `instagram-webhook-event:read` |  | team | 5.62 | List received Instagram webhook events |
+| GET | `/app/usage` | `organization:read` |  | team | 6.64 | Get the organization usage |
 
 ### Session and account
 
@@ -615,66 +681,6 @@ or `204` for a `DELETE`. **What it does** is the OpenAPI summary.
 
 | Method | Path | Gate | Idem | Team | # | What it does |
 | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/app/automations` | `automation:read` |  | team |  | List automations |
-| POST | `/app/automations` | `automation:create` | req | team |  | Save an automation draft |
-| GET | `/app/automations/:automation_id` | `automation:read` |  | team |  | Get an automation |
-| PATCH | `/app/automations/:automation_id` | `automation:update` |  | team |  | Save automation content |
-| DELETE | `/app/automations/:automation_id` | `automation:delete` |  | team |  | Delete an automation |
-| POST | `/app/automations/:automation_id/backfills` | `automation:update` | req | team |  | Answer past comments |
-| GET | `/app/automations/:automation_id/backfills/:automation_backfill_id` | `automation:read` |  | team |  | Get a past-comments read |
-| POST | `/app/automations/:automation_id/duplicate` | `automation:create` | req | team |  | Duplicate an automation |
-| POST | `/app/automations/:automation_id/failed-messages/retry` | `automation:update` | req | team |  | Retry an automation's failed messages |
-| GET | `/app/automations/:automation_id/failed-messages/summary` | `automation:read` |  | team |  | Count an automation's failed messages |
-| POST | `/app/automations/:automation_id/go-live` | `automation:update` |  | team |  | Go live |
-| POST | `/app/automations/:automation_id/keyword-test` | `automation:read` |  | team |  | Try an automation keyword |
-| POST | `/app/automations/:automation_id/pause` | `automation:update` |  | team |  | Pause an automation |
-| GET | `/app/broadcasts` | `automation:read` |  | team |  | List broadcasts |
-| POST | `/app/broadcasts` | `automation:create` | req | team |  | Create a broadcast draft |
-| GET | `/app/broadcasts/:broadcast_id` | `automation:read` |  | team |  | Get a broadcast |
-| PATCH | `/app/broadcasts/:broadcast_id` | `automation:update` |  | team |  | Update a broadcast draft |
-| DELETE | `/app/broadcasts/:broadcast_id` | `automation:delete` |  | team |  | Delete a broadcast |
-| POST | `/app/broadcasts/:broadcast_id/cancel` | `automation:update` | req | team |  | Cancel a broadcast |
-| POST | `/app/broadcasts/:broadcast_id/send` | `automation:update` | req | team |  | Send a broadcast |
-| GET | `/app/contact-tags` | `contact:read` |  | team |  | List contact tags |
-| GET | `/app/contacts` | `contact:read` |  | team |  | List contacts |
-| GET | `/app/contacts/:contact_id` | `contact:read` |  | team |  | Get a contact |
-| PATCH | `/app/contacts/:contact_id` | `contact:update` |  | team |  | Update a contact |
-| DELETE | `/app/contacts/:contact_id` | `contact:delete` |  | team |  | Delete a contact |
-| GET | `/app/contacts/:contact_id/activity` | `contact:read` |  | team |  | List a contact's activity |
-| POST | `/app/contacts/:contact_id/failed-messages/retry` | `contact:update` | req | team |  | Retry a contact's failed messages |
-| GET | `/app/contacts/:contact_id/failed-messages/summary` | `contact:read` |  | team |  | Count a contact's failed messages |
-| POST | `/app/contacts/bulk-actions` | `contact:update` | req | team |  | Run a bulk action on contacts |
-| GET | `/app/segments` | `automation:read` |  | team |  | List segments |
-| POST | `/app/segments` | `automation:create` | req | team |  | Create a segment |
-| GET | `/app/segments/:segment_id` | `automation:read` |  | team |  | Get a segment |
-| PATCH | `/app/segments/:segment_id` | `automation:update` |  | team |  | Update a segment |
-| DELETE | `/app/segments/:segment_id` | `automation:delete` |  | team |  | Delete a segment |
-| POST | `/app/segments/audience-count` | `automation:read` | req | team |  | Count a segment audience |
-| GET | `/app/social/channel-accounts` | `channel-account:read` |  | team |  | List channel accounts |
-| GET | `/app/social/channel-accounts/:channel_account_id` | `channel-account:read` |  | team |  | Get a channel account |
-| DELETE | `/app/social/channel-accounts/:channel_account_id` | `channel-account:manage` |  | team |  | Disconnect a channel account |
-| POST | `/app/social/channel-accounts/:channel_account_id/activate` | `channel-account:manage` | req | team |  | Choose an active channel account |
-| POST | `/app/social/channel-accounts/:channel_account_id/pause` | `channel-account:manage` |  | team |  | Pause a channel account |
-| POST | `/app/social/channel-accounts/:channel_account_id/resume` | `channel-account:manage` |  | team |  | Resume a channel account |
-| GET | `/app/social/channel-connections` | `channel-account:read` |  | team |  | List channel connections |
-| GET | `/app/social/channel-connections/:channel_connection_id` | `channel-account:read` |  | team |  | Get a channel connection |
-| DELETE | `/app/social/channel-connections/:channel_connection_id` | `channel-account:manage` |  | team |  | Disconnect a business |
-| POST | `/app/social/channel-connections/:channel_connection_id/accounts` | `channel-account:manage` | req | team |  | Connect picked channel accounts |
-| GET | `/app/social/channel-connections/:channel_connection_id/ad-accounts` | `channel-account:read` |  | team |  | List a channel connection's ad accounts |
-| GET | `/app/social/channel-connections/:channel_connection_id/ads` | `channel-account:read` |  | team |  | List one ad account's ads |
-| POST | `/app/social/channel-connections/:channel_connection_id/reconnect` | `channel-account:manage` |  | team |  | Start a reconnect of a channel connection |
-| POST | `/app/social/channel-connections/:provider/callback` | `channel-account:manage` | req | team |  | Finish a channel connection |
-| POST | `/app/social/channel-connections/:provider/data-deletion` | public |  |  |  | Meta: delete the person's data (data deletion) |
-| POST | `/app/social/channel-connections/:provider/deauthorize` | public |  |  |  | Meta: the app was removed (deauthorize) |
-| POST | `/app/social/channel-connections/:provider/start` | `channel-account:manage` |  | team |  | Start a channel connection |
-| GET | `/app/social/channel-connections/meta/webhooks/instagram` | public |  |  |  | Verify the Instagram webhook subscription |
-| POST | `/app/social/channel-connections/meta/webhooks/instagram` | public |  |  |  | Receive an Instagram webhook delivery |
-| GET | `/app/social/instagram/accounts/:channel_account_id/media` | `instagram-account:read` |  | team |  | List Instagram posts and reels |
-| GET | `/app/social/instagram/accounts/:channel_account_id/sending-status` | `instagram-account:read` |  | team |  | Get an Instagram account sending status |
-| PATCH | `/app/social/instagram/accounts/:channel_account_id/settings` | `instagram-account:manage` |  | team |  | Change an Instagram account settings |
-| GET | `/app/social/instagram/accounts/:channel_account_id/stories` | `instagram-account:read` |  | team |  | List live Instagram stories |
-| GET | `/app/social/instagram/webhook-events` | `instagram-webhook-event:read` |  | team |  | List received Instagram webhook events |
-| GET | `/app/usage` | `organization:read` |  | team |  | Get the organization usage |
 | GET | `/audit/logs` | platform admin |  |  |  | List audit logs (admin) |
 | GET | `/mcp` | platform admin |  |  |  | MCP streamable HTTP (GET) |
 | POST | `/mcp` | platform admin |  |  |  | MCP streamable HTTP (POST) |

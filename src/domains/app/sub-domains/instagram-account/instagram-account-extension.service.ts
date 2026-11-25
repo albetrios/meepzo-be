@@ -31,7 +31,8 @@ import type {
  * Notes:
  * - The connection's token check refreshes the profile through {@link recordProfileRefresh} (P17,
  *   ROUTE row R51). The account jobs (set-up, subscription check, starter-question sync, ROUTE row
- *   R40) write through this service in their job scope.
+ *   R40) write the webhook stamp and the starter-question stamp through this service in their job
+ *   scope (the launch daily check that also stamped is retired).
  */
 export class InstagramAccountExtensionService {
   constructor(private readonly accountRepository: InstagramAccountRepository) {}

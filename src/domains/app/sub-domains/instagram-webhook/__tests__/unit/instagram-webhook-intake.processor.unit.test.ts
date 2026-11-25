@@ -124,7 +124,10 @@ beforeEach(() => {
       })),
     },
     channelAccountService: { markAccountBroken: vi.fn(async () => true) },
-    broadcastRecipientService: { recordContactReply: vi.fn(async () => 0) },
+    broadcastRecipientService: {
+      recordContactReply: vi.fn(async () => 0),
+      handleChatOpened: vi.fn(async () => 0),
+    },
     instagramAccountSettingsService: {
       findSettings: vi.fn(async () => ({ extra_stop_words: ['basta'] })),
     },
@@ -193,7 +196,7 @@ describe('processInstagramWebhookIntakeJob — the entry point of each kind (WH2
     );
   });
 
-  it('a DM records her reply to a broadcast in its commit (BC17); a comment does not', async () => {
+  it('a DM records her reply to a broadcast and her chat opening in its commit (BC17); a comment does not', async () => {
     queue.push({
       event_kind: 'message',
       payload: messaging({ message: { mid: 'm_r', text: 'hi' } }),
@@ -208,6 +211,11 @@ describe('processInstagramWebhookIntakeJob — the entry point of each kind (WH2
     expect(services.broadcastRecipientService.recordContactReply).toHaveBeenCalledTimes(1);
     expect(services.broadcastRecipientService.recordContactReply).toHaveBeenCalledWith(
       expect.objectContaining({ contactId: CONTACT.id, organizationId: 7 }),
+    );
+    // Her chat opened: the "when her chat opens" hook runs in the same commit (BC17, R47).
+    expect(services.broadcastRecipientService.handleChatOpened).toHaveBeenCalledTimes(1);
+    expect(services.broadcastRecipientService.handleChatOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ contactId: CONTACT.id, organizationId: 7, isOwnerChatting: false }),
     );
   });
 

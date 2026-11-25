@@ -10,9 +10,14 @@ import {
 } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import { redisConnection } from '@/infrastructure/cache/redis.client.js';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import {
+  type MessageMonthNoticeService,
+  decideMessageMonthLine,
+} from './message-month-notice.service.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { MILLISECONDS_PER_HOUR } from '@/shared/constants/ttl.constants.js';
 import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { ContactRepository } from '@/domains/app/sub-domains/contact/contact.repository.js';
 import {
   CHANNEL_ACCOUNT_CHANNELS,
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
@@ -30,13 +35,18 @@ import type {
   InstagramMessageChannel,
   InstagramSendAttemptCountGroup,
 } from './instagram-message/instagram-message.constants.js';
-import { InstagramSendLaneRepository } from './instagram-send-lane.repository.js';
+import {
+  InstagramSendLaneRepository,
+  type InstagramSendLaneRow,
+} from './instagram-send-lane.repository.js';
 import { InstagramSendMinuteCountRepository } from './instagram-send-minute-count.repository.js';
 import { MessageMonthCountRepository } from './message-month-count.repository.js';
 import { invalidateCachedMessageMonthCount } from './message-month-count.cache.js';
 import type { InstagramSendLaneService } from './instagram-send-lane.service.js';
 import {
+  FAST_LANE_SETTINGS,
   INSTAGRAM_SEND_CORE_SETTINGS,
+  INSTAGRAM_SEND_FAST_SENDING_MAX,
   type InstagramSendLane,
 } from './instagram-sending.constants.js';
 
@@ -90,7 +100,10 @@ export type InstagramSendClaim =
       /** The month reached the limit with this message (its plan stop started, SN8). */
       isMonthLimitReached: boolean;
     }
-  | { kind: 'refused'; reason: 'gone' | 'hour_limit' | 'person_limit' | 'month_limit' };
+  | {
+      kind: 'refused';
+      reason: 'gone' | 'hour_limit' | 'person_limit' | 'month_limit' | 'person_busy' | 'fast_busy';
+    };
 
 /**
  * The two gates and the month count of a send (feat-instagram-dm-sending routes-final § 6 SN3, SN8,
@@ -101,17 +114,22 @@ export type InstagramSendClaim =
  * @remarks
  * - **Algorithm:** gate 1 — a sorted set per account and count group of the last hour's claims
  *   (100 ms timeout; after 3 timeouts in a row skipped for 30 s; never inside a transaction). The
- *   claim — one unit with `lock_timeout` 1 s and `statement_timeout` 5 s: the lane row locked (two
+ *   claim — one unit with `lock_timeout` 1 s and `statement_timeout` 5 s: a fast or broadcast
+ *   message first takes her contact (`NO KEY UPDATE SKIP LOCKED`, plan §30.14 step 6) and a fast one
+ *   finds none of hers `sending` (else `person_busy`, plan §30.2 steps 2, 5); the lane row locked (two
  *   claims of one account and group never check and add at once), the message still `waiting` in
- *   this lane and channel, gate 2 (the 61 minute rows of the group against the hour limit), her
+ *   this lane and channel, the fast places — the account's 20 `sending`, 5 audio, the organization's
+ *   25 (S21; else `fast_busy`) — gate 2 (the 61 minute rows of the group against the hour limit), her
  *   sent messages of the last hour, the month's 16 slots against the plan's limit (a DM only), the
- *   adds, `sending`, the attempt. A DM that fills the month starts the organization's `plan_limit`
+ *   adds, `sending` (a fast one + 1 on `sending_count`), the attempt. A DM that fills the month starts the organization's `plan_limit`
  *   in the same commit (SN8: slow, fast and broadcast lanes stop; the reply lane goes on).
  * - **Failure modes:** gate 1 fails open (Postgres decides, P32); database errors roll the claim back
  *   (nothing was sent, the ticket goes back).
  * - **Side effects:** the claim's rows; after commit the month's Redis copy is tombstoned and gate 1
  *   records the claim.
- * - **Notes:** the month at 80 % and 100 % notices and emails are WC-56's (ROUTE row R53).
+ * - **Notes:** a counted DM that moves the month over its 80 % or 100 % line tells the organization
+ *   after the commit (`monthNotice`, WC-56, ROUTE row R53); the every-minute backup check covers a
+ *   lost call.
  */
 export class InstagramSendGateService {
   private gateOneTimeoutsInARow = 0;
@@ -120,6 +138,8 @@ export class InstagramSendGateService {
   constructor(
     private readonly options: {
       laneService: Pick<InstagramSendLaneService, 'recordPlanStop'>;
+      /** The month's 80 % / 100 % notice (WC-56), told after the claim that crossed a line. */
+      monthNotice?: Pick<MessageMonthNoticeService, 'tellMonthLineAfterCommit'> | undefined;
       /** Gate 1's Redis (the cache connection); `null` skips gate 1 (Postgres decides). */
       redis?: Redis | null | undefined;
     },
@@ -229,6 +249,78 @@ export class InstagramSendGateService {
   }
 
   /**
+   * Rebuilds gate 1 from Postgres's minute counts after Redis was lost (WC-21, SN10 — ROUTE row
+   * R48): each minute row becomes that many members at its minute, the key kept an hour. Answers
+   * how many keys it wrote.
+   *
+   * @remarks
+   * Algorithm: one `ZADD` per row with members `rebuild-<minute>-<n>` (a second rebuild of the same
+   * minute writes the same members, so twice changes nothing), `PEXPIRE` an hour. Failure modes: a
+   * Redis error propagates (the rebuild is tried again; gate 1 fails open meanwhile). Side effects:
+   * the Redis keys. Notes: the keys are built from the stored public ids — a maintenance rebuild,
+   * not a request.
+   */
+  async rebuildGateOne(
+    rows: readonly {
+      organizationPublicId: string;
+      channelAccountPublicId: string;
+      countGroup: string;
+      minuteStart: Date;
+      count: number;
+    }[],
+  ): Promise<number> {
+    const redis = this.redis();
+    if (redis === null) return 0;
+    const keys = new Set<string>();
+    for (const row of rows) {
+      if (row.countGroup === 'none' || row.count <= 0) continue;
+      const key = gateOneKey({
+        organizationPublicId: row.organizationPublicId,
+        channelAccountPublicId: row.channelAccountPublicId,
+        countGroup: row.countGroup as InstagramSendAttemptCountGroup,
+      });
+      const score = row.minuteStart.getTime();
+      const members: (string | number)[] = [];
+      for (let index = 0; index < row.count; index += 1) {
+        members.push(score, `rebuild-${String(score)}-${String(index)}`);
+      }
+      await redis.zadd(key, ...members);
+      await redis.pexpire(key, MILLISECONDS_PER_HOUR);
+      keys.add(key);
+    }
+    return keys.size;
+  }
+
+  /**
+   * Gate 1's count of the last hour for one account and group (WC-20, the repair's comparison with
+   * the minute counts) — `null` when Redis did not answer in time.
+   *
+   * @remarks
+   * Algorithm: one `ZCOUNT` over the last hour (no prune — a read only). Failure modes: a timeout or
+   * Redis error answers `null`. Side effects: none. Notes: the ids come from the duty's database
+   * read under the job's own scope (K8), never from a request.
+   */
+  async readGateOneCount({
+    scope,
+    channelAccountPublicId,
+    countGroup,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    channelAccountPublicId: string;
+    countGroup: InstagramSendAttemptCountGroup;
+  }): Promise<number | null> {
+    if (countGroup === 'none') return 0;
+    const key = gateOneKey({
+      organizationPublicId: scope.organizationPublicId,
+      channelAccountPublicId,
+      countGroup,
+    });
+    return this.withGateOneTimeout((redis) =>
+      redis.zcount(key, Date.now() - MILLISECONDS_PER_HOUR, '+inf'),
+    );
+  }
+
+  /**
    * The claim's one commit (SN3 (a)–(d), SN8): gate 2, her hour, the month, the adds, `sending` and
    * the attempt — or why the message stays `waiting`.
    *
@@ -245,6 +337,39 @@ export class InstagramSendGateService {
         return this.claimInUnit({ input, databaseHandle });
       },
     });
+  }
+
+  /**
+   * The claim's month step (SN3 (c), WC-56): a counted message over the month's limit starts the
+   * `plan_limit` stop and is refused; else whether this one reaches the limit, and a crossed 80 % /
+   * 100 % line is told after the commit (R53).
+   */
+  private async checkMonth({
+    input,
+    found,
+    month,
+  }: {
+    input: InstagramSendClaimInput;
+    found: { organization_id: number; is_counted_as_direct_message: boolean };
+    month: MessageMonthCountRepository;
+  }): Promise<'month_limit' | { isMonthLimitReached: boolean }> {
+    if (!found.is_counted_as_direct_message || input.monthLimit === null) {
+      return { isMonthLimitReached: false };
+    }
+    const used = (await month.readMonth(found.organization_id))?.used ?? 0;
+    if (used >= input.monthLimit) {
+      await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
+      return 'month_limit';
+    }
+    const lineBefore = decideMessageMonthLine({ used, limit: input.monthLimit });
+    const lineAfter = decideMessageMonthLine({ used: used + 1, limit: input.monthLimit });
+    const monthNotice = this.options.monthNotice;
+    if (lineAfter !== lineBefore && monthNotice !== undefined) {
+      await runEnqueueAfterCommit(() =>
+        monthNotice.tellMonthLineAfterCommit({ scope: input.scope }),
+      );
+    }
+    return { isMonthLimitReached: used + 1 >= input.monthLimit };
   }
 
   /** {@link claimSend}'s unit. */
@@ -264,24 +389,36 @@ export class InstagramSendGateService {
       organizationId: found.organization_id,
       channelAccountId: found.channel_account_id,
     };
-    await new InstagramSendLaneRepository(databaseHandle).lockLane({
-      ...account,
-      lane: input.lane,
-    });
+    const lanes = new InstagramSendLaneRepository(databaseHandle);
+    if (input.lane === 'fast' || input.lane === 'broadcast') {
+      // Her contact, skip locked (plan §30.2 step 7, §30.14 step 6): another claim of hers now →
+      // the next pick.
+      const isHers = await new ContactRepository(databaseHandle).lockForFastSend({
+        organizationId: found.organization_id,
+        contactId: found.contact_id,
+      });
+      if (!isHers) return { kind: 'refused', reason: 'person_busy' };
+    }
+    if (input.lane === 'fast') {
+      const hersSending = await messages.countFastSending({
+        organizationId: found.organization_id,
+        contactId: found.contact_id,
+      });
+      if (hersSending > 0) return { kind: 'refused', reason: 'person_busy' };
+    }
+    const laneRow = await lanes.lockLane({ ...account, lane: input.lane });
+    if (input.lane === 'fast' && laneRow !== null) {
+      const isBusy = await this.isFastLaneBusy({ found, laneRow, lanes, messages });
+      if (isBusy) return { kind: 'refused', reason: 'fast_busy' };
+    }
     const minutes = new InstagramSendMinuteCountRepository(databaseHandle);
     const hourRefusal = await this.hourLimitRefusal({ input, found, messages, minutes });
     if (hourRefusal !== null) return { kind: 'refused', reason: hourRefusal };
     const isCounted = found.is_counted_as_direct_message;
     const month = new MessageMonthCountRepository(databaseHandle);
-    let isMonthLimitReached = false;
-    if (isCounted && input.monthLimit !== null) {
-      const used = (await month.readMonth(found.organization_id))?.used ?? 0;
-      if (used >= input.monthLimit) {
-        await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
-        return { kind: 'refused', reason: 'month_limit' };
-      }
-      isMonthLimitReached = used + 1 >= input.monthLimit;
-    }
+    const monthCheck = await this.checkMonth({ input, found, month });
+    if (monthCheck === 'month_limit') return { kind: 'refused', reason: 'month_limit' };
+    const { isMonthLimitReached } = monthCheck;
     if (input.countGroup !== 'none') {
       await minutes.addToMinute({ ...account, countGroup: input.countGroup, count: 1 });
     }
@@ -297,6 +434,7 @@ export class InstagramSendGateService {
       channel: input.channel,
     });
     if (message === null) return { kind: 'refused', reason: 'gone' };
+    if (input.lane === 'fast') await lanes.addToSendingCount({ ...account, delta: 1 });
     const attempt = await new InstagramSendAttemptRepository(databaseHandle).start({
       ...account,
       messageId: message.id,
@@ -309,6 +447,34 @@ export class InstagramSendGateService {
       await this.startPlanLimit({ scope: input.scope, organizationId: found.organization_id });
     }
     return { kind: 'claimed', message, attempt, isMonthLimitReached };
+  }
+
+  /**
+   * {@link claimInUnit}'s fast places (plan §30.2 step 8, S21): the account's 20 `sending`, its 5
+   * audio messages, and the organization's cap across its accounts.
+   */
+  private async isFastLaneBusy({
+    found,
+    laneRow,
+    lanes,
+    messages,
+  }: {
+    found: InstagramMessageRow;
+    laneRow: InstagramSendLaneRow;
+    lanes: InstagramSendLaneRepository;
+    messages: InstagramMessageRepository;
+  }): Promise<boolean> {
+    if (laneRow.sending_count >= INSTAGRAM_SEND_FAST_SENDING_MAX) return true;
+    if (found.message_kind === 'audio') {
+      const audioSending = await messages.countFastSending({
+        organizationId: found.organization_id,
+        channelAccountId: found.channel_account_id,
+        messageKind: 'audio',
+      });
+      if (audioSending >= FAST_LANE_SETTINGS.audioSendingMax) return true;
+    }
+    const organizationSending = await lanes.sumOrganizationSendingCount(found.organization_id);
+    return organizationSending >= FAST_LANE_SETTINGS.organizationSendingMax;
   }
 
   /**

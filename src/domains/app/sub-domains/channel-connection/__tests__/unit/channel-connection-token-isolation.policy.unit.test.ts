@@ -28,9 +28,9 @@ import { describe, expect, it } from 'vitest';
  *
  * The allowlists are exact paths, each with its reason. The worker paths in
  * {@link TOKEN_REPOSITORY_IMPORTERS} are MC9's "the token service, the sender and the token check":
- * the connection's token check (MC10, ROUTE row R51) and, until it is deleted, the launch daily
- * account check's subscription retry (the sender lands at ROUTE row R42); any other addition is
- * deliberate, never casual.
+ * the connection's token check (MC10, ROUTE row R51) and the Instagram account jobs (R40 — the
+ * launch daily account check went at the R40 × R51 merge; the sender lands at ROUTE row R42); any
+ * other addition is deliberate, never casual.
  * The secrets-key rotation script (D37) is in {@link TOKEN_SCHEMA_IMPORTERS} and
  * {@link TOKEN_DECRYPTERS}: it re-encrypts the column onto the current key version through the
  * shared field-secret util's `reencryptFieldSecretToCurrentVersion`, as the token check does for a

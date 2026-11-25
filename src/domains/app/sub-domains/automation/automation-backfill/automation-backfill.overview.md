@@ -17,8 +17,9 @@ The read itself (WC-41, ROUTE row R41) is Instagram's `automation-backfill-read`
 automation folder imports no channel, AUC13), woken through the `AutomationBackfillReadQueue` port:
 Meta's comments saved as "old" comment events that intake takes in at the low priority, one read at
 a time per account, its start, numbers and end through this service; the 10-minute watch
-(`workers/automation-backfill-watch.*`) wakes a stuck one. The `automation.backfill_done` notice is
-ROUTE row R53's.
+(`workers/automation-backfill-watch.*`) wakes a stuck one. A read that ends `done` tells who started it
+and the Owner and Admin in the same unit — the `automation.backfill_done` notice with the numbers,
+in-app on and email off by default (AC-8.8, R53).
 
 ## Layout
 
@@ -31,7 +32,7 @@ ROUTE row R53's.
 - `automation-backfill.service.ts` — `AutomationBackfillService`: route 38's checks and insert,
   route 39, `findOpenAutomationBackfill` (the automation service's `openBackfills` port); the read
   job's `beginAutomationBackfillRead` / `recordAutomationBackfillProgress` /
-  `finishAutomationBackfillRead`, and `failAutomationBackfillsForPlanFeatureOff` (WC-38, R52)
+  `finishAutomationBackfillRead`, and `failOpenBackfillsForPlanFeatureOff` (WC-38, R52)
 - `workers/automation-backfill-watch.*` — the 10-minute watch (job `watch-automation-backfill-reads`
   on the intake queue, run by the intake worker)
 - `automation-backfill.routes.ts` / `.controller.ts` / `.dto.ts` / `.validator.ts` — routes 38–39:

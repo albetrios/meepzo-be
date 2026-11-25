@@ -74,12 +74,15 @@ describe('app domain wiring', () => {
       'instagramMediaService',
       'instagramMessageService',
       'instagramSendAccessService',
+      'instagramSendGateService',
       'instagramSendLaneService',
       'instagramSendWork',
       'instagramSendingService',
+      'instagramSendingWatchService',
       'instagramWebhookEventService',
       'instagramWebhookService',
       'messageMonthCountService',
+      'messageMonthNoticeService',
       'sendingStateService',
     ]);
     expect(application.appDomain.instagramAccountService).toBeInstanceOf(InstagramAccountService);

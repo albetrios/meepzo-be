@@ -52,6 +52,20 @@ export const INSTAGRAM_ACCOUNT_TASK_HOURLY_RETRY_MINUTES = 60;
  */
 export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_CHECK_MINUTES = 10;
 
+/** Connected accounts one subscription sweep page reads (one short retention read per page, the adds after it). */
+export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE = 500;
+
+/**
+ * Most pages one subscription sweep reads — 100 000 connected accounts, the bound that keeps one
+ * sweep run finite.
+ *
+ * @remarks
+ * Rationale: the launch daily check's bound, kept when that check was retired (R40 × R51 merge).
+ * Consequences of change: an estate past it logs `…webhook_subscription_check.sweep_capped` at
+ * error and the accounts past the cap wait for a raised cap (or page size).
+ */
+export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES = 200;
+
 /** Input of the set-up and the starter-question sync: the account, its chain of tries and the try. */
 export const instagramAccountChainTaskInputSchema = z.object({
   channelAccountPublicId: z.string().min(1).max(28),

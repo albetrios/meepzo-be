@@ -39,7 +39,7 @@ Workers are grouped into seven families in the [worker registry](../../reference
 
 | When to split                                              | Why                                                                                                                     |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Monolithic worker exceeds `DATABASE_POOL_MAX`              | Default demand is 61 Postgres connections, plus the Instagram database limiter (`WORKER_INSTAGRAM_DATABASE_SLOTS`, default 3) while sending is on; raise `DATABASE_POOL_MAX` with the slots first, split only past that. |
+| Monolithic worker exceeds `DATABASE_POOL_MAX`              | Default demand is 60 Postgres connections plus the Instagram database limiter (`WORKER_INSTAGRAM_DATABASE_SLOTS`, default 3, counted once — the database tasks and the repair duties use it with sending off too); raise `DATABASE_POOL_MAX` with the slots first, split only past that. |
 | Retention crons compete with throughput jobs at peak hours | Isolate `retention` to its own service so audit/tombstone runs do not steal connections from `mail`/`webhook`/`stripe`. |
 | Need to size memory or replicas differently per workload   | Throughput families benefit from more replicas; retention typically needs only one replica.                             |
 

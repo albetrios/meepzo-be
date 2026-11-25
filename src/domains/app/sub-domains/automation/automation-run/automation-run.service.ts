@@ -7,6 +7,7 @@ import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import type {
   ChannelActivityCursor,
+  ChannelAnswerDelay,
   ChannelMessageResultInput,
   ChannelMessageStep,
   ChannelSendingPort,
@@ -166,6 +167,19 @@ interface AutomationRunUnit extends AutomationRunRepositories {
   /** Her live contact, locked `FOR KEY SHARE` until the unit ends (CT8). */
   contact: ContactRow;
   now: Date;
+  /** The wait of the messages this unit saves without a `notBefore` (plan §30.2 step 13); absent → by the unit. */
+  answerDelay?: ChannelAnswerDelay | undefined;
+}
+
+/**
+ * The wait of a message the unit saves without a `notBefore` (plan §30.2 step 13, §30.12): the first
+ * answer to her DM, tap or story reply (`answer`, with the PRO extra delay) — never to a comment, which
+ * the box times — else the random delay (`next`), unless the unit says otherwise.
+ */
+function answerDelayOf(unit: AutomationRunUnit | AutomationRunEventUnit): ChannelAnswerDelay {
+  if (unit.answerDelay !== undefined) return unit.answerDelay;
+  if (!('event' in unit)) return 'next';
+  return unit.event.eventKey.includes('comment') ? 'next' : 'answer';
 }
 
 /** The unit of an event: the unit plus the account's rules and the event. */
@@ -260,7 +274,7 @@ function exactSourceValueOf({
   kind,
   input,
 }: {
-  kind: Exclude<AutomationTapKind, 'postback'>;
+  kind: Exclude<AutomationTapKind, 'postback' | 'broadcast_tap'>;
   input: AutomationButtonClickInput;
 }): string | null | undefined {
   if (kind === 'starter_question') return input.starterQuestion;
@@ -1045,6 +1059,9 @@ export class AutomationRunService {
         runPublicId: input.runPublicId,
       });
     }
+    if (kind === 'broadcast_tap') {
+      return this.startFromBroadcastTap({ unit, input });
+    }
     const value = exactSourceValueOf({ kind, input });
     if (value == null || value.trim() === '') return handlingResult({ outcome: 'ignored' });
     const candidates = await unit.automations.listRunCandidates({
@@ -1075,6 +1092,34 @@ export class AutomationRunService {
         refCode: kind === 'ref_link' ? value : null,
       },
       isRestart: kind !== 'ad_message',
+    });
+  }
+
+  /**
+   * A tap on a broadcast message's "start automation X" button (§ 7.A.10): that automation's run
+   * for her, when it is a live automation of the account — started as by its own way to start (its
+   * once key and open run), an opted-out contact coming back as with a starter question.
+   */
+  private async startFromBroadcastTap({
+    unit,
+    input,
+  }: {
+    unit: AutomationRunEventUnit;
+    input: AutomationButtonClickInput;
+  }): Promise<AutomationRunHandlingResult> {
+    if (input.automationPublicId == null) return handlingResult({ outcome: 'ignored' });
+    const candidates = await unit.automations.listRunCandidates({
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+    });
+    const chosen = candidates.find((candidate) => candidate.public_id === input.automationPublicId);
+    if (chosen === undefined) return handlingResult({ outcome: 'nothing_matched' });
+    return this.startFromMatch({
+      unit,
+      match: { automation: chosen, triggerType: chosen.trigger_type as AutomationTriggerType },
+      eventId: input.event.eventId,
+      targets: {},
+      isRestart: true,
     });
   }
 
@@ -1293,6 +1338,14 @@ export class AutomationRunService {
       }
       return handlingResult({ outcome: 'answer_invalid', runPublicIds: [run.public_id] });
     }
+    // The grouped "new contact details" note (UN13): one per account and hour, after this commit.
+    await this.dependencies.contactService.noteContactDetailsLeft({
+      databaseHandle: unit.databaseHandle,
+      scope: unit.scope,
+      organizationId: unit.organizationId,
+      channelAccountId: unit.channelAccountId,
+      at: unit.now,
+    });
     await unit.runEvents.insertMany([
       {
         ...runKeyOf({ organizationId: unit.organizationId, run }),
@@ -1824,6 +1877,9 @@ export class AutomationRunService {
       notBefore: message.notBefore ?? null,
       triggerOccurredAt: run.trigger_occurred_at,
       answersEventId: message.answersEventId ?? null,
+      organizationPublicId: unit.scope.organizationPublicId,
+      answerDelay: answerDelayOf(unit),
+      isExtraDelayAllowed: isPlanSwitchOn({ switches: unit.switches, feature: 'extra_delay' }),
     });
   }
 
@@ -2090,7 +2146,8 @@ export class AutomationRunService {
       return;
     }
     await this.updateCommentLog({ unit, run, changes: { follow_status: 'done' } });
-    await this.proceed({ unit, run, automation, from: 'email' });
+    // The check sent her nothing: the next step goes at once (plan §30.2 step 13).
+    await this.proceed({ unit: { ...unit, answerDelay: 'none' }, run, automation, from: 'email' });
   }
 
   /** A blocking step `failed` (the run fails) or `skipped` (cancelled with its reason, else failed). */

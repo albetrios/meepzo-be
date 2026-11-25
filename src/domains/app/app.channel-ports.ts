@@ -67,7 +67,23 @@ export interface SaveWaitingMessageInput {
   triggerOccurredAt: Date;
   /** The comment or message a private or public reply answers. */
   answersEventId: string | null;
+  /**
+   * The job's organization public id — the channel adds the message's ticket after the caller's
+   * commit with it (Instagram's fast lane, ROUTE row R44); absent → the repair finds the message.
+   */
+  organizationPublicId?: string | undefined;
+  /**
+   * The wait of a message with no `notBefore` (plan §30.2 step 13, §30.12): `answer` — the first
+   * answer to her event (the random delay plus the extra delay when `isExtraDelayAllowed`); `next`
+   * (the default) — the random delay; `none` — at once (after a follow check, which sent her nothing).
+   */
+  answerDelay?: ChannelAnswerDelay | undefined;
+  /** The plan holds the extra delay (`extra_delay`, PRO) — the account's own setting decides. */
+  isExtraDelayAllowed?: boolean | undefined;
 }
+
+/** How long a message with no `notBefore` waits after its save (see {@link SaveWaitingMessageInput}). */
+export type ChannelAnswerDelay = 'answer' | 'next' | 'none';
 
 /** What `saveWaitingMessage` answers: the row it wrote, or why the message can never go. */
 export type SaveWaitingMessageResult =
@@ -82,6 +98,8 @@ export interface ChannelWaitingMessageSelection {
   by: 'run' | 'automation' | 'contact' | 'broadcast';
   id: number;
   reason: string;
+  /** At most this many, oldest first (a repair duty's piece, WC-29); absent — every one. */
+  limit?: number | undefined;
 }
 
 /** A message's final result, reported to the engine in the same commit (AU35, AU25). */

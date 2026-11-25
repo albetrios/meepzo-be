@@ -9,6 +9,7 @@ import { getEnv } from '@/shared/config/env.config.js';
 import { DEFAULT_FRONTEND_URL } from '@/shared/constants/index.js';
 import { MILLISECONDS_PER_SECOND } from '@/shared/constants/ttl.constants.js';
 import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { sendTeamAlertEmail } from '@/domains/notify/sub-domains/notification/notification-notice.service.js';
 import type { InstagramAccountErasureService } from '@/domains/app/sub-domains/instagram-account/instagram-account-erasure.service.js';
 import type { InstagramAccountMetaMatch } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import { deriveMetaDataDeletionConfirmationCode } from './channel-connection-meta-callback-confirmation-code.util.js';
@@ -395,3 +396,33 @@ export class ChannelConnectionMetaCallbackService {
     }
   }
 }
+
+/**
+ * The team-alert path of an unmatched Meta callback (routes-final § 1 MC16, WC-57's team part,
+ * ROUTE row R53): one email to the team (`GLOBAL_ADMIN_EMAILS`) with the callback, the signed id
+ * and route 17's confirmation code, so the team handles the deletion by hand.
+ *
+ * @remarks
+ * - **Algorithm:** notify's `sendTeamAlertEmail` (copy `common:teamAlerts.metaCallbackUnmatched*`),
+ *   keyed `meta-callback-unmatched:<callback>:<provider>:<id>` — Meta repeating the callback sends
+ *   no second email.
+ * - **Failure modes:** propagates; the callback service logs it and still answers Meta `200`.
+ * - **Side effects:** outbox rows and mail jobs (none without a team address or mail settings).
+ * - **Notes:** passed as {@link ChannelConnectionMetaCallbackService}'s sixth argument by the app
+ *   container.
+ */
+export const channelConnectionMetaCallbackTeamAlert: ChannelConnectionMetaCallbackTeamAlertPort = {
+  async alertUnmatchedMetaCallback(alert) {
+    await sendTeamAlertEmail({
+      key: 'metaCallbackUnmatched',
+      values: {
+        callback: alert.callback,
+        provider: alert.provider,
+        providerId: alert.providerId,
+        confirmationCode: alert.confirmationCode ?? '—',
+        requestId: alert.requestId ?? '—',
+      },
+      dedupeKey: `meta-callback-unmatched:${alert.callback}:${alert.provider}:${alert.providerId}`,
+    });
+  },
+};

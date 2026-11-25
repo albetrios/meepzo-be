@@ -27,6 +27,11 @@ import { runInstagramMissedCommentSweepJob } from './instagram-missed-comment-ch
 import { AUTOMATION_BACKFILL_WATCH_JOB_NAME } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.constants.js';
 import { runAutomationBackfillWatchJob } from '@/domains/app/sub-domains/automation/automation-backfill/workers/automation-backfill-watch.processor.js';
 import { AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.constants.js';
+import type { MessageMonthNoticeService } from '@/domains/app/sub-domains/instagram-sending/message-month-notice.service.js';
+import { INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.constants.js';
+import { runInstagramOwnerProblemEmailJob } from '@/domains/app/sub-domains/instagram-sending/workers/instagram-owner-problem-email.processor.js';
+import { MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME } from '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.constants.js';
+import { runMessageMonthNoticeCheckJob } from '@/domains/app/sub-domains/instagram-sending/workers/message-month-notice-check.processor.js';
 import { runAutomationNextPostLinkingSweepJob } from '@/domains/app/sub-domains/automation/workers/automation-next-post-linking.processor.js';
 import { createInstagramNextPostLinkingEnqueue } from './instagram-next-post-linking.processor.js';
 import { INSTAGRAM_PAST_COMMENT_READ_QUEUE } from './instagram-past-comment-read.processor.js';
@@ -55,6 +60,8 @@ export interface InstagramWebhookWorkerServices {
   enqueueProfileRead: InstagramContactProfileReadEnqueue | null;
   /** A late comment's own time from Meta (WH12 step 2, R39); absent — the received time. */
   readLateCommentTime?: InstagramLateCommentTimeReader | undefined;
+  /** The month notices' backup check (WC-56, R53); absent — the check finds nothing to do. */
+  monthNotice?: Pick<MessageMonthNoticeService, 'tellMonthLine'> | undefined;
 }
 
 /**
@@ -69,7 +76,9 @@ export interface InstagramWebhookWorkerServices {
  *   ({@link INSTAGRAM_MISSED_COMMENT_SWEEP_JOB_NAME}, no payload) runs
  *   {@link runInstagramMissedCommentSweepJob}; the watch ({@link AUTOMATION_BACKFILL_WATCH_JOB_NAME})
  *   and the linking sweep ({@link AUTOMATION_NEXT_POST_LINKING_SWEEP_JOB_NAME}) run their
- *   channel-neutral processors with Instagram's task enqueues; `intake-tag-events` validates its payload
+ *   channel-neutral processors with Instagram's task enqueues; the owners' problem emails
+ *   ({@link INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME}) and the month notices' backup check
+ *   ({@link MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME}) run every minute (WC-57, WC-56); `intake-tag-events` validates its payload
  *   and runs {@link processInstagramTagEventIntakeJob}; `intake-messages`, `intake-live` and
  *   `intake-comments` validate theirs and run {@link processInstagramWebhookIntakeJob} — every unit
  *   of work in a slot of the process's Instagram database limiter (`getInstagramDatabaseSlotLimiter`,
@@ -113,6 +122,16 @@ export function createInstagramWebhookWorker({
         return runAutomationNextPostLinkingSweepJob({
           enqueueByChannel: { instagram: createInstagramNextPostLinkingEnqueue() },
         });
+      }
+      // The owners' problem emails and the month notices' backup check ride this queue too (R53):
+      // every minute, each its own scheduled run (WC-56, WC-57).
+      if (job.name === INSTAGRAM_OWNER_PROBLEM_EMAIL_JOB_NAME) {
+        return runInstagramOwnerProblemEmailJob();
+      }
+      if (job.name === MESSAGE_MONTH_NOTICE_CHECK_JOB_NAME) {
+        const monthNotice = services.monthNotice;
+        if (monthNotice === undefined) return { skipped: true };
+        return runMessageMonthNoticeCheckJob({ monthNotice });
       }
       const jobId = job.id ?? INSTAGRAM_WEBHOOK_QUEUE_NAME;
       if (job.name === INSTAGRAM_TAG_EVENT_INTAKE_JOB_NAME) {

@@ -154,16 +154,16 @@ describe('subscription-seat-sync.worker', () => {
     );
   });
 
-  it('binds to the subscription-seat-sync queue at the Stripe concurrency tier', () => {
+  it('binds to the subscription-seat-sync queue, one job at a time while the seat sync is off (BL9; R48 pool budget)', () => {
     const handle = createSubscriptionSeatSyncWorker(billingContainer as never);
 
     expect(workerState.queueName).toBe('subscription-seat-sync');
     expect(handle.queueName).toBe('subscription-seat-sync');
     // While Stripe is down the queue pauses instead of spending attempts.
     expect(pausableWorkerState.provider).toBe('stripe');
-    // getWorkerConcurrencyStripe() → WORKER_CONCURRENCY_STRIPE, not the generic budget. Seat
-    // pushes are Stripe API calls and share that provider's bulkhead.
-    expect(workerState.options).toEqual(expect.objectContaining({ concurrency: 3 }));
+    // With BILLING_SEAT_SYNC_ENABLED off (WC-65) nothing is enqueued; the worker only drains what
+    // an older release left, one at a time — WORKER_CONCURRENCY_STRIPE applies once it is on.
+    expect(workerState.options).toEqual(expect.objectContaining({ concurrency: 1 }));
   });
 
   it('uses the default runtime options and the shared BullMQ connection', () => {

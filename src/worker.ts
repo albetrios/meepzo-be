@@ -49,9 +49,12 @@ import { closeStripeWebhookQueue } from '@/domains/billing/sub-domains/stripe-we
 import { closeSubscriptionSeatSyncQueue } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
 import { closeMailQueue } from '@/infrastructure/mail/queues/mail.queue.js';
 import { closeNotificationQueue } from '@/domains/notify/sub-domains/notification/queues/notification.queue.js';
+import { closeNotificationContactDetailsQueue } from '@/domains/notify/sub-domains/notification/queues/notification-contact-details.queue.js';
+import { closeNotificationWeeklySummaryQueue } from '@/domains/notify/sub-domains/notification/queues/notification-weekly-summary.queue.js';
 import { closeWebhookDeliveryQueue } from '@/domains/notify/sub-domains/webhook/webhook-delivery/queues/webhook-delivery.queue.js';
 import { closeUserDataExportQueue } from '@/domains/user/sub-domains/user-data-export/queues/user-data-export.queue.js';
 import { closeChannelConnectionTokenCheckQueue } from '@/domains/app/sub-domains/channel-connection/queues/channel-connection-token-check.queue.js';
+import { closeSubscriptionPlanStateCheckQueue } from '@/domains/billing/sub-domains/subscription/queues/subscription-plan-state-check.queue.js';
 import { closeInstagramReconnectNoticeQueue } from '@/domains/app/sub-domains/instagram-account/queues/instagram-reconnect-notice.queue.js';
 import { closeInstagramWebhookQueue } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 import { closeInstagramSendSlowQueue } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-slow.queue.js';
@@ -144,12 +147,15 @@ async function main() {
         closeSubscriptionSeatSyncQueue(), // REQ-4: seat-quantity sync producer queue
         closeMailQueue(),
         closeNotificationQueue(),
+        closeNotificationContactDetailsQueue(),
+        closeNotificationWeeklySummaryQueue(),
         closeWebhookDeliveryQueue(),
         closeUserDataExportQueue(), // sec-r4-R1: was missing from shutdown sequence
-        // Launch IA9: a break enqueues its notice.
+        // Launch IA9: a break enqueues its reconnect notice.
         closeInstagramReconnectNoticeQueue(),
         // feat-instagram-dm-sending MC10: the token check's hourly sweep adds its checks.
         closeChannelConnectionTokenCheckQueue(),
+        closeSubscriptionPlanStateCheckQueue(),
         // WH12 / WH15: a job that yielded adds its follow-up; the stuck-event pick-up adds jobs.
         closeInstagramWebhookQueue(),
         // SN2 (R37): the send and task producers — a released turn, a repair duty or a task adds

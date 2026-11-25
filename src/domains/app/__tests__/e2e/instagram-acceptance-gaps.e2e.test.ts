@@ -669,6 +669,10 @@ describe('Instagram acceptance across features (e2e)', () => {
         token: team.ownerToken,
         accounts: [{ id: profile.user_id, username: profile.username }],
       });
+      // The set-up task (WC-30, R40) stamps the subscription in the worker; stamped here.
+      await operatorQuery`
+        UPDATE app.instagram_accounts SET webhook_subscribed_at = now()
+        WHERE organization_id = ${team.organization.id}`;
       const accountPath = await organizationChannelAccountPath(team.organization.id);
       const [connection] = await operatorQuery<Array<{ public_id: string }>>`
         SELECT public_id FROM app.channel_connections WHERE organization_id = ${team.organization.id}`;

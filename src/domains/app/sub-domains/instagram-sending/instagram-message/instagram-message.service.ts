@@ -2,7 +2,13 @@ import { withAppDatabaseContext } from '@/infrastructure/database/contexts/datab
 import type { RequestScopedPostgresDatabase } from '@/infrastructure/database/contexts/database-context-runtime.js';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import { brandWorkerContextDatabaseHandle } from '@/infrastructure/database/utils/database-handle.types.js';
+import { randomInt } from 'node:crypto';
 import { runEnqueueAfterCommit } from '@/core/events/event-bus.js';
+import { logger } from '@/shared/utils/infrastructure/logger.util.js';
+import { ChannelAccountRepository } from '@/domains/app/sub-domains/channel-account/channel-account.repository.js';
+import { InstagramAccountSettingsRepository } from '@/domains/app/sub-domains/instagram-account/instagram-account-settings/instagram-account-settings.repository.js';
+import { InstagramSendLaneRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-lane.repository.js';
+import type { enqueueInstagramSendFastMessage } from '@/domains/app/sub-domains/instagram-sending/queues/instagram-send-fast.queue.js';
 import { InstagramSendDayCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import type { InstagramSendDayCounts } from '@/domains/app/sub-domains/instagram-sending/instagram-send-day-count.repository.js';
 import { InstagramSendMinuteCountRepository } from '@/domains/app/sub-domains/instagram-sending/instagram-send-minute-count.repository.js';
@@ -28,6 +34,7 @@ import type {
   InstagramSendingStatusOutput,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.types.js';
 import {
+  FAST_LANE_SETTINGS,
   INSTAGRAM_SEND_LANES,
   type InstagramSendLane,
 } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
@@ -47,6 +54,7 @@ import {
 import { InstagramSendAttemptRepository } from './instagram-send-attempt.repository.js';
 import type {
   InstagramMessageBroadcastResultPort,
+  InstagramMessageBroadcastSentPort,
   InstagramMessageClaimInput,
   InstagramMessageOpeningPort,
   InstagramMessageRetryOptions,
@@ -58,6 +66,7 @@ import type {
 import {
   channelResultOf,
   chooseInstagramMessagePlace,
+  drawInstagramExtraDelayMilliseconds,
   instagramMessageStepOf,
   isInstagramChatWindowOpen,
 } from './instagram-message.util.js';
@@ -135,6 +144,10 @@ export class InstagramMessageService implements ChannelSendingPort {
       reopenRetriedRuns?: InstagramMessageRunReopenPort | undefined;
       /** The contact's opening-DM bookkeeping (3.A.10), called in the result's commit (R42). */
       recordContactOpeningMessage?: InstagramMessageOpeningPort | undefined;
+      /** The contact's `last_broadcast_at` (3.A.10), called in the result's commit (R45). */
+      recordContactBroadcastSent?: InstagramMessageBroadcastSentPort | undefined;
+      /** A fast message's ticket after the save's commit (R44); absent → the repair finds it. */
+      enqueueFastMessage?: typeof enqueueInstagramSendFastMessage | undefined;
     },
   ) {}
 
@@ -179,7 +192,9 @@ export class InstagramMessageService implements ChannelSendingPort {
     if (place.kind === 'skip') {
       return { messagePublicId: null, status: 'skipped', reason: place.reason };
     }
-    const notBefore = input.notBefore ?? now;
+    const notBefore =
+      input.notBefore ??
+      (place.lane === 'fast' ? await this.fastNotBefore({ input, place, now }) : now);
     if ('automationRunId' in input.source) {
       const existing = await repository.lockRunPlace({
         organizationId: input.organizationId,
@@ -190,7 +205,20 @@ export class InstagramMessageService implements ChannelSendingPort {
         messageKind: input.messageKind,
       });
       if (existing !== null) {
-        return this.reuseRunPlace({ repository, existing, place, input, notBefore });
+        const reused = await this.reuseRunPlace({ repository, existing, place, input, notBefore });
+        if (reused.status === 'waiting' && existing.status !== 'waiting') {
+          await this.addFastTicketAfterCommit({
+            input,
+            place,
+            ticket: {
+              publicId: reused.messagePublicId,
+              automationRunStartedAt: existing.automation_run_started_at,
+              tries: 0,
+            },
+            notBefore,
+          });
+        }
+        return reused;
       }
     }
     const row = await repository.insertWaiting({
@@ -215,7 +243,133 @@ export class InstagramMessageService implements ChannelSendingPort {
       notBefore,
       triggerOccurredAt: isRun ? input.triggerOccurredAt : null,
     });
+    await this.addFastTicketAfterCommit({
+      input,
+      place,
+      ticket: {
+        publicId: row.public_id,
+        automationRunStartedAt: row.automation_run_started_at,
+        tries: row.tries,
+      },
+      notBefore,
+    });
     return { messagePublicId: row.public_id, status: 'waiting' };
+  }
+
+  /**
+   * A fast message's `not_before` when the engine gave none (plan §30.2 step 13, §30.12): `none` →
+   * now; `next` → a random 500–2,000 ms; `answer` → that plus, on a direct message whose plan holds the
+   * extra delay, min + (max − min) × (r1 + r2) ÷ 2 of the account's extra delay — her event, both
+   * delays at most 25 s (the extra delay is cut).
+   */
+  private async fastNotBefore({
+    input,
+    place,
+    now,
+  }: {
+    input: SaveWaitingMessageInput;
+    place: { channel: string | null };
+    now: Date;
+  }): Promise<Date> {
+    const answerDelay = input.answerDelay ?? 'next';
+    if (answerDelay === 'none') return now;
+    const random = randomInt(
+      FAST_LANE_SETTINGS.answerDelayMinimumMilliseconds,
+      FAST_LANE_SETTINGS.answerDelayMaximumMilliseconds + 1,
+    );
+    let extra = 0;
+    if (
+      answerDelay === 'answer' &&
+      input.isExtraDelayAllowed === true &&
+      place.channel === 'direct'
+    ) {
+      const settings = await new InstagramAccountSettingsRepository(
+        input.databaseHandle as RequestScopedPostgresDatabase,
+      ).findByChannelAccount({
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+      });
+      extra = drawInstagramExtraDelayMilliseconds({
+        minimumSeconds: settings?.extra_delay_seconds_min ?? null,
+        maximumSeconds: settings?.extra_delay_seconds_max ?? null,
+        firstRandom: randomInt(0, 1_000_001) / 1_000_000,
+        secondRandom: randomInt(0, 1_000_001) / 1_000_000,
+      });
+    }
+    const delay = Math.min(
+      random + extra,
+      Math.max(FAST_LANE_SETTINGS.answerLatestMilliseconds, random),
+    );
+    return new Date(now.getTime() + delay);
+  }
+
+  /**
+   * A fast message's ticket `fast-<igm_…>-<tries>` at its `not_before`, added after the caller's
+   * commit (plan §30.2 step 13, WC-7): needs the job's organization public id and the producer wired;
+   * otherwise the repair's late-message duty (WC-13, R47) finds the row. An enqueue error is logged.
+   */
+  private async addFastTicketAfterCommit({
+    input,
+    place,
+    ticket,
+    notBefore,
+  }: {
+    input: SaveWaitingMessageInput;
+    place: { lane: InstagramSendLane };
+    ticket: { publicId: string; automationRunStartedAt: Date; tries: number };
+    notBefore: Date;
+  }): Promise<void> {
+    const enqueue = this.options.enqueueFastMessage;
+    const organizationPublicId = input.organizationPublicId;
+    if (place.lane !== 'fast' || enqueue === undefined || organizationPublicId === undefined)
+      return;
+    const account = await new ChannelAccountRepository(
+      input.databaseHandle as RequestScopedPostgresDatabase,
+    ).findById({ organizationId: input.organizationId, channelAccountId: input.channelAccountId });
+    if (account === null) return;
+    await runEnqueueAfterCommit(async () => {
+      try {
+        await enqueue({
+          organizationPublicId,
+          channelAccountPublicId: account.public_id,
+          instagramMessagePublicId: ticket.publicId,
+          automationRunStartedAt: ticket.automationRunStartedAt.toISOString(),
+          tries: ticket.tries,
+          delayMilliseconds: Math.max(notBefore.getTime() - Date.now(), 0),
+        });
+      } catch (error) {
+        logger.warn(
+          { error_name: (error as Error | null)?.name },
+          'app.instagram_send.enqueue_failed',
+        );
+      }
+    });
+  }
+
+  /**
+   * A message `unknown` proved `sent` by her tap on its button — the payload's third part
+   * (`<aut_…>::<run_…>::<igm_…>`, plan §14, WH8): the intake calls it in the event's unit (ROUTE row
+   * R38), before the tap moves the run. Answers whether it moved.
+   *
+   * @remarks
+   * Algorithm: one guarded update `unknown` → `sent` on the caller's handle. Failure modes: database
+   * errors roll the caller's unit back. Side effects: the row; the engine is not told — her tap is
+   * the engine's own input in the same unit.
+   */
+  async markTappedMessageSent({
+    databaseHandle,
+    organizationId,
+    messagePublicId,
+  }: {
+    databaseHandle: SaveWaitingMessageInput['databaseHandle'];
+    organizationId: number;
+    messagePublicId: string;
+  }): Promise<boolean> {
+    const moved = await new InstagramMessageRepository(databaseHandle).markUnknownSent({
+      organizationId,
+      publicId: messagePublicId,
+    });
+    return moved !== null;
   }
 
   /** A run place saved again (SN16, D17): reopen a `sent` question or an `unknown` step once more. */
@@ -703,6 +857,14 @@ export class InstagramMessageService implements ChannelSendingPort {
                 errorSubcode: input.errorSubcode,
               });
         if (message === null) return null;
+        if (message.lane === 'fast') {
+          // The claim's place on the account's fast lane comes back (plan §30.2 step 12).
+          await new InstagramSendLaneRepository(databaseHandle).addToSendingCount({
+            organizationId: message.organization_id,
+            channelAccountId: message.channel_account_id,
+            delta: -1,
+          });
+        }
         if (input.attempt !== null) {
           await new InstagramSendAttemptRepository(databaseHandle).finish({
             key: input.attempt,
@@ -717,6 +879,51 @@ export class InstagramMessageService implements ChannelSendingPort {
         if (input.status === 'waiting') return message;
         await this.recordSettledMessage({ input, status: input.status, message, databaseHandle });
         return message;
+      },
+    });
+  }
+
+  /**
+   * The repair duties' end of waiting messages (WC-15 the 7-day expiry, WC-17 a closed window,
+   * WC-18 the reply trim): each `waiting` row takes `expired` or `skipped` with the reason, and
+   * reports like a send's result in the same commit — today's line (S8) and the engine's
+   * `recordMessageResult` (`expired` as `skipped`), so her run moves on as for any skipped message.
+   * Answers how many ended; a message no longer waiting is left as it is.
+   *
+   * @remarks
+   * Algorithm: one unit in the scope — per key the guarded end, then the settled message's
+   * bookkeeping (the same path {@link saveSendResult} takes). Failure modes: a database error rolls
+   * the piece back (the next minute tries again). Side effects: the rows, the day counts, the runs.
+   */
+  async settleWaitingMessages({
+    scope,
+    keys,
+    status,
+    reason,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    keys: readonly InstagramMessageKey[];
+    status: 'expired' | 'skipped';
+    reason: InstagramMessageReason;
+  }): Promise<number> {
+    if (keys.length === 0) return 0;
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const repository = new InstagramMessageRepository(databaseHandle);
+        let ended = 0;
+        for (const key of keys) {
+          const message = await repository.finishWaiting({ key, status, reason });
+          if (message === null) continue;
+          ended += 1;
+          await this.recordSettledMessage({
+            input: { scope, reason },
+            status,
+            message,
+            databaseHandle,
+          });
+        }
+        return ended;
       },
     });
   }
@@ -760,7 +967,7 @@ export class InstagramMessageService implements ChannelSendingPort {
     message,
     databaseHandle,
   }: {
-    input: InstagramSendResultInput;
+    input: Pick<InstagramSendResultInput, 'scope' | 'reason'>;
     status: Exclude<InstagramSendResultInput['status'], 'waiting'>;
     message: InstagramMessageRow;
     databaseHandle: RequestScopedPostgresDatabase;
@@ -780,6 +987,19 @@ export class InstagramMessageService implements ChannelSendingPort {
       this.options.recordContactOpeningMessage !== undefined
     ) {
       await this.options.recordContactOpeningMessage({
+        databaseHandle: databaseHandle as WorkerDatabaseHandle,
+        organizationId: message.organization_id,
+        contactId: message.contact_id,
+        sentAt: occurredAt,
+      });
+    }
+    if (
+      message.message_type === 'broadcast' &&
+      (status === 'sent' || status === 'unknown') &&
+      this.options.recordContactBroadcastSent !== undefined
+    ) {
+      // `unknown` too: Meta may have sent it, so the 24-hour broadcast gap counts it (as D8 does).
+      await this.options.recordContactBroadcastSent({
         databaseHandle: databaseHandle as WorkerDatabaseHandle,
         organizationId: message.organization_id,
         contactId: message.contact_id,
@@ -816,6 +1036,141 @@ export class InstagramMessageService implements ChannelSendingPort {
         occurredAt,
       });
     }
+  }
+
+  /**
+   * The Live check's end of the account's waiting Live private replies (WC-16, AC-16.18, plan helper
+   * rule 10): those whose Live is not in `onAirMediaIds` (or already marked ended), or whose comment
+   * is older than `LIVE_REPLY_MAX_AGE_MINUTES`, become `expired` · `live_ended`, each reported like a
+   * settled message (today's line, the run's `recordMessageResult` — `expired` as `skipped`) in the
+   * same commit. Answers how many and the media ids of the Lives seen ended.
+   *
+   * @remarks
+   * Algorithm: one unit in the job's organization scope — the guarded update of `waiting` rows
+   * (`SKIP LOCKED`: a row the lane holds is left to the next round), then each row's report.
+   * Failure modes: a database error rolls the unit back (the next round tries again). Side effects:
+   * the messages, today's line, the runs' next step.
+   */
+  async expireWaitingLiveReplies({
+    scope,
+    organizationId,
+    channelAccountId,
+    onAirMediaIds,
+    oldestCommentAt,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    organizationId: number;
+    channelAccountId: number;
+    onAirMediaIds: readonly string[] | null;
+    oldestCommentAt: Date;
+  }): Promise<{ expiredCount: number; endedMediaIds: string[] }> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const { rows, endedMediaIds } = await new InstagramMessageRepository(
+          databaseHandle,
+        ).expireWaitingLiveReplies({
+          organizationId,
+          channelAccountId,
+          onAirMediaIds,
+          oldestCommentAt,
+        });
+        for (const message of rows) {
+          await this.recordSettledMessage({
+            input: { scope, reason: 'live_ended' },
+            status: 'expired',
+            message,
+            databaseHandle,
+          });
+        }
+        return { expiredCount: rows.length, endedMediaIds };
+      },
+    });
+  }
+
+  /**
+   * Ends one waiting message a lane turn's check passed over for good (plan §28.1 step 7, §29.5
+   * rule 4, §30.2 step 6): `expired`, or `skipped` (she opted out, the owner excluded her, she was
+   * erased, her window closed) — with today's line and the engine told in the same commit, as the
+   * result save does; or `cancelled` (a nudge she answered — nothing else told; a cancelled
+   * broadcast's message — its recipient `skipped` with the reason, R45). Answers whether it ended
+   * (a message no longer waiting is left alone).
+   *
+   * @remarks
+   * Algorithm: one unit — the guarded update, then the settled message's day line, opening
+   * bookkeeping and the engine's or recipients' result. Failure modes: database errors roll it back.
+   * Side effects: the row, the day line, the run's next step.
+   */
+  async endWaitingMessage({
+    scope,
+    key,
+    status,
+    reason,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    key: InstagramMessageKey;
+    status: 'skipped' | 'expired' | 'cancelled';
+    reason: InstagramMessageReason;
+  }): Promise<boolean> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const message = await new InstagramMessageRepository(databaseHandle).endWaitingByKey({
+          key,
+          status,
+          reason,
+        });
+        if (message === null) return false;
+        if (status === 'cancelled') {
+          // A cancelled broadcast's message (plan §30.14 step 7): its recipient `skipped` with the
+          // same reason. A nudge she answered first (§30.7 rule 4): her tap already moved the run.
+          if (message.broadcast_id !== null && message.message_number !== null) {
+            await this.options.recordBroadcastMessageResult({
+              databaseHandle,
+              organizationId: message.organization_id,
+              broadcastId: message.broadcast_id,
+              contactId: message.contact_id,
+              messagePublicId: message.public_id,
+              messageNumber: message.message_number,
+              result: 'skipped',
+              reason,
+              occurredAt: new Date(),
+            });
+          }
+          return true;
+        }
+        await this.recordSettledMessage({
+          input: { scope, reason },
+          status,
+          message,
+          databaseHandle,
+        });
+        return true;
+      },
+    });
+  }
+
+  /**
+   * Today's "chat closed" skips of the account per automation (route 63's per-automation lines,
+   * SN14).
+   *
+   * @remarks
+   * Algorithm: one read in the scope's unit. Failure modes: none of its own. Side effects: none.
+   */
+  async listWindowClosedByAutomation({
+    scope,
+    organizationId,
+    channelAccountId,
+  }: InstagramSendLaneTarget): Promise<Array<{ automation_id: string; count: number }>> {
+    const rows = await withAppDatabaseContext({
+      scope,
+      callback: (databaseHandle) =>
+        new InstagramMessageRepository(databaseHandle).countWindowClosedTodayByAutomation({
+          organizationId,
+          channelAccountId,
+        }),
+    });
+    return rows.map((row) => ({ automation_id: row.automationPublicId, count: row.count }));
   }
 
   /**

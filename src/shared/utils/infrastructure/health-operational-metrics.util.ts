@@ -36,6 +36,15 @@ export type HealthSendingSnapshot = {
   settings_version: string | null;
   minimum_compatible_settings_version: string | null;
   server_settings_version: string;
+  /**
+   * This server's clock minus Postgres's, in ms (WC-23); `null` when it could not be read. A worker
+   * over 2 s off takes no tickets — each worker checks its own clock.
+   */
+  clock_skew_milliseconds: number | null;
+  /** When a repair duty last finished (the repair queue's heartbeat — the "repair age"), or `null`. */
+  repair_last_round_at: string | null;
+  /** Lanes over a minute past their turn, as the last outage watch counted them (late tickets), or `null`. */
+  late_lane_count: number | null;
 };
 
 /** The registered sending check — the app domain's, set when its container is built. */

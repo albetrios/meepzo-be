@@ -407,6 +407,11 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   halfSpeedAfterBlockHours: 24,
   /** One account test's lease (`TEST_LEASE_MINUTES`, plan §33.4). */
   testLeaseMinutes: 2,
+  /**
+   * Test turns whose answer was about that person or text before the stop waits its time again
+   * (`TEST_MAX_TURNS`, plan §33.4).
+   */
+  testMaxTurns: 3,
   /** A waiting opening DM's "try later" waits, then `failed` (`TRY_LATER_MINUTES`). */
   tryLaterMinutes: [1, 5, 15],
   /** A surely-not-sent call ("never connected") comes back after these seconds (plan §33.1). */
@@ -415,4 +420,176 @@ export const INSTAGRAM_SEND_CORE_SETTINGS = {
   followCheckTries: 1,
   /** A lane turn with nothing to send looks again after this many seconds. */
   idleTurnSeconds: 60,
+} as const;
+
+/**
+ * The slow lane's numbers (plan §28, WC-5, D5): the box, the gap, the pick's mix and how many picks
+ * one turn may look at.
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ */
+export const SLOW_LANE_SETTINGS = {
+  /** At least this long between two opening DMs of one account (`OPENING_MIN_GAP_MS`). */
+  minimumGapMilliseconds: 1500,
+  /** Half speed makes the box this many times longer (`HALF_SPEED_FACTOR`). */
+  halfSpeedFactor: 2,
+  /** A comment under this many minutes old is "new" (`PICK_NEW_MINUTES`). */
+  newCommentMinutes: 60,
+  /** The mix places of one round (`pick_count` 1–5). */
+  mixPlaces: 5,
+  /** Places 1–4 take a new comment (`PICK_MIX_NORMAL` 4 : 1). */
+  newPlacesNormal: 4,
+  /** Places 1–3 take a new comment while the oldest is urgent (`PICK_MIX_URGENT` 3 : 2). */
+  newPlacesUrgent: 3,
+  /** The oldest waiting comment with fewer hours left than this is urgent (`URGENT_HOURS_LEFT`). */
+  urgentHoursLeft: 12,
+  /** Messages one turn may look at before it gives up for a second (`PICK_TRIES_PER_TURN`). */
+  picksPerTurn: 5,
+  /** A turn whose picks were all passed over looks again this much later. */
+  pickAgainMilliseconds: 1000,
+  /** One opening private reply per person per this many hours (D8, the 24-hour person rule). */
+  personGapHours: 24,
+} as const;
+
+/**
+ * The reply lane's numbers (plan §29, WC-6, D32): "Reply like a person"'s gap and Meta's 80 %
+ * factor; the lane has no account hour limit, so gate 2 counts its replies against
+ * `hourLimitForCounting` only for the watch numbers (§29.5 rule 1).
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ */
+export const REPLY_LANE_SETTINGS = {
+  /** At least this long after the account's last ON reply (`PUBLIC_REPLY_GAP_MIN_SECONDS`). */
+  gapMilliseconds: 20_000,
+  /** ON boxes at Meta's 80 % or at half speed are this many times longer (`REPLY_USAGE_FACTOR`). */
+  usageSlowFactor: 2,
+  /** Gate 2's limit for the `reply` group: no real limit (§29.5 rule 1), counted for the watch. */
+  hourLimitForCounting: 1_000_000,
+} as const;
+
+/**
+ * The broadcast lane's numbers (plan §30.14, §11.7, WC-8, D68): the 24-hour gap between two
+ * broadcasts to one person and how long a message waits when her hour limit is full. The box is
+ * the slow lane's (3600 ÷ the broadcast hour limit, ≥ 1.5 s apart, twice as long at half speed).
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ */
+export const BROADCAST_LANE_SETTINGS = {
+  /** At most one broadcast per person in this many hours (`BROADCAST_MIN_GAP_HOURS`). */
+  personGapHours: 24,
+  /** Her hour limit full (plan §30.14 step 7): the message's `not_before` moves this much later. */
+  personLimitRetryMinutes: 5,
+} as const;
+
+/**
+ * The fast lane's numbers (plan §30, WC-7, S21): the waits of one fast message's ticket, the
+ * per-account and per-organization in-flight caps, the answer delays and the Live reply's age.
+ *
+ * @remarks
+ * Consequences of change: a value the lanes read changed → raise {@link SENDING_SETTINGS_VERSION}.
+ * The organization cap is a quarter of the default fast places of one server
+ * (`WORKER_CONCURRENCY_INSTAGRAM_SEND_FAST` 100, scale review S21).
+ */
+export const FAST_LANE_SETTINGS = {
+  /** Her contact is being claimed, or another of her messages is `sending` (`FAST_PERSON_BUSY_RETRY_MS`). */
+  personBusyRetryMilliseconds: 1000,
+  /** The account's (or the organization's) places are all taken (`FAST_ACCOUNT_BUSY_RETRY_MS`). */
+  accountBusyRetryMilliseconds: 500,
+  /** Audio messages of one account `sending` at once (`AUDIO_MAX_PARALLEL_PER_ACCOUNT`). */
+  audioSendingMax: 5,
+  /** Fast messages of one organization `sending` at once across its accounts (S21). */
+  organizationSendingMax: 25,
+  /** The random delay before an answer, lowest (`ANSWER_DELAY_MIN_MS`, plan §30.2 step 13). */
+  answerDelayMinimumMilliseconds: 500,
+  /** The random delay before an answer, highest (`ANSWER_DELAY_MAX_MS`). */
+  answerDelayMaximumMilliseconds: 2000,
+  /** Her event + both delays at most this long (`BOT_ANSWER_MAX_SECONDS` 30 − 5 safety, §30.12). */
+  answerLatestMilliseconds: 25_000,
+  /** A follow check's second try comes after a random wait, lowest (`FOLLOW_CHECK_RETRY_MIN_MS`). */
+  followCheckRetryMinimumMilliseconds: 2000,
+  /** … and highest (`FOLLOW_CHECK_RETRY_MAX_MS`). */
+  followCheckRetryMaximumMilliseconds: 5000,
+  /** A Live private reply older than this is `expired` · `live_ended` without a call (`LIVE_REPLY_MAX_AGE_MINUTES`). */
+  liveReplyMaximumAgeMinutes: 240,
+} as const;
+
+/**
+ * How often the plan-stop backup looks for organizations still holding `plan_ended` (WC-38's
+ * 15-minute backup — ROUTE row R52): every 15 minutes, its own repair duty.
+ */
+export const INSTAGRAM_PLAN_STOP_BACKUP_MINUTES = 15;
+
+/** An organization's lane wake after its plan stops end is spread over 5 minutes (WC-37). */
+export const INSTAGRAM_PLAN_WAKE_SPREAD_MINUTES = 5;
+
+/**
+ * The watches' numbers (ROUTE row R48 — routes-final § 6 SN6, SNC5, SNC9; WC-16, WC-21–WC-24;
+ * plan §12.3, §33.5, §33.6, helper rules 10, 15–17): the outage watch, the Live check, the waiting
+ * estimate, the server clock and the "Redis lost" watch. Engine numbers in the one settings file
+ * (P4, AC-17.25).
+ */
+export const INSTAGRAM_SENDING_WATCH_SETTINGS = {
+  /** The outage watch's cadence (`DOWN_CHECK_EVERY_SECONDS`, P7): every 10 seconds. */
+  outageCheckMilliseconds: 10_000,
+  /** The window the "30 % bad calls" rule reads (`BAD_WINDOW_SECONDS`). */
+  badWindowSeconds: 30,
+  /** At least this many calls in the window before the rule counts (`BAD_MIN_CALLS`). */
+  badMinCalls: 50,
+  /** This share of bad calls in the window stops every account (`BAD_PERCENT`). */
+  badPercent: 30,
+  /** This share of active accounts in a down stop stops every account (`DOWN_ALL_SHARE_PERCENT`). */
+  downAllSharePercent: 30,
+  /** The all-accounts `instagram_down` stop, by its count (`DOWN_STOP_MINUTES`, plan §33.5). */
+  allDownStopMinutes: [5, 10, 20, 40],
+  /** The all-accounts stop count goes back to 0 after this many quiet hours (plan §33.6 rule 4). */
+  allStopCountResetHours: 24,
+  /** A lane `ready` or `sleeping` this many minutes past its turn counts as late (`LATE_TICKET_MINUTES`). */
+  lateTicketMinutes: 1,
+  /** A Live reply waits at most this long after its comment (`LIVE_REPLY_MAX_AGE_MINUTES`). */
+  liveReplyMaxAgeMinutes: FAST_LANE_SETTINGS.liveReplyMaximumAgeMinutes,
+  /** Accounts one Live check page reads. */
+  liveCheckPageSize: 200,
+  /** The estimate's cadence (`PENDING_ESTIMATE_EVERY_MINUTES`, D10, S29). */
+  estimateEveryMinutes: 10,
+  /** Accounts one estimate page reads. */
+  estimatePageSize: 200,
+  /** The estimate looks this many hours ahead (plan §12.3: h = 1 … 168). */
+  estimateHorizonHours: 168,
+  /** The old line's share of an hour (plan §28: new : old 4 : 1). */
+  estimateOldShare: 1 / 5,
+  /** The old line's share with the urgent mix on (3 : 2, a waiting DM under 12 hours left). */
+  estimateUrgentOldShare: 2 / 5,
+  /** A waiting DM with under this many hours left turns the urgent mix on (plan §28). */
+  estimateUrgentHours: 12,
+  /** A server clock this far from Postgres's takes no tickets (`CLOCK_SKEW_MAX_MS`, WC-23). */
+  clockSkewMaxMilliseconds: 2_000,
+  /** The clock check's cadence in each server process (helper rule 15: every minute). */
+  clockCheckMilliseconds: 60_000,
+  /** The "Redis lost" watch's cadence in each server process (P7: a 10-second Redis-down check). */
+  redisWatchMilliseconds: 10_000,
+} as const;
+
+/**
+ * The sending repair duties' numbers (feat-instagram-dm-sending § 6 SN6, WC-13–WC-20; P94), one
+ * place. The 40 s budget and the 500-row piece are every repair duty's (`repair-duty.util.ts`).
+ *
+ * @remarks
+ * Consequences of change: none for the lanes — the duties read these, the lanes do not.
+ */
+export const INSTAGRAM_SENDING_REPAIR_SETTINGS = {
+  /** A turn or a fast message over this late with no ticket is lost (WC-13). */
+  lateTurnMilliseconds: 60_000,
+  /** After a fast stop ended, its waiting fast messages are spread over this time (WC-13). */
+  fastSpreadAfterStopMilliseconds: 5 * 60_000,
+  /** "Reply like a person": waiting public replies kept per automation (WC-18). */
+  replyBacklogMax: 500,
+  /** Minute counts are kept this long (WC-20). */
+  minuteCountKeepMilliseconds: 2 * 60 * 60_000,
+  /** Gate 1's quick count may differ from the minute counts by this much before it is a mismatch (WC-20). */
+  quickCountTolerance: 2,
+  /** The UTC hour of the daily month-count comparison (WC-20, "once a day"). */
+  dailyMonthCheckHourUtc: 3,
 } as const;

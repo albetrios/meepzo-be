@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
@@ -146,7 +147,12 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
       ),
       instagramAccountSettingsService: { findSettings: async () => null },
       channelAccountService: { markAccountBroken: async () => true },
-      broadcastRecipientService: { recordContactReply: async () => 0 },
+      broadcastRecipientService: {
+        recordContactReply: async () => 0,
+        handleChatOpened: async () => 0,
+        findBroadcastTap: async () => null,
+        recordBroadcastTap: async () => undefined,
+      },
       contactService,
       instagramMediaService: new InstagramMediaService(
         new InstagramMediaRepository(),
@@ -158,6 +164,7 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
       instagramMessageService: {
         findOwnSentMessageIds: async () => new Set<string>(),
         matchEchoedMessage: async () => 'none',
+        markTappedMessageSent: async () => false,
       },
     };
   });
@@ -370,6 +377,56 @@ describe('processInstagramWebhookIntakeJob (database, the real run engine)', () 
 
     expect((await readTestInstagramWebhookEvent(click.id))?.status).toBe('processed');
     expect(port.steps().at(-1)).toBe('messages#1');
+  });
+
+  it("a tap on a broadcast button: its message `sent`, the automation it names starts for her, the broadcast's taps + 1 (§ 7.A.10, R44, R45)", async () => {
+    const automation = await liveAutomation({
+      trigger_type: 'dm',
+      keywords: ['nothing-typed'],
+      is_opening_message_enabled: false,
+      opening_message: null,
+    });
+    const broadcastPublicId = generatePublicId('broadcast');
+    const messagePublicId = generatePublicId('instagramMessage');
+    const tapped: string[] = [];
+    const taps: number[] = [];
+    services = {
+      ...services,
+      broadcastRecipientService: {
+        ...services.broadcastRecipientService,
+        findBroadcastTap: async ({ broadcastPublicId: named }) =>
+          named === broadcastPublicId
+            ? { broadcastId: 77, startAutomationPublicId: automation.public_id }
+            : null,
+        recordBroadcastTap: async ({ broadcastId }) => {
+          taps.push(broadcastId);
+        },
+      },
+      instagramMessageService: {
+        ...services.instagramMessageService,
+        markTappedMessageSent: async ({ messagePublicId: named }) => {
+          tapped.push(named);
+          return true;
+        },
+      },
+    };
+    const clickId = `m_${nextInstagramObjectId()}`;
+    const click = await storeEvent({
+      eventKind: 'postback',
+      eventKey: `postback:${clickId}`,
+      payload: {
+        sender: { id: SENDER },
+        timestamp: Date.now(),
+        postback: { mid: clickId, payload: `${broadcastPublicId}::${messagePublicId}` },
+      },
+    });
+
+    await runJob('messages');
+
+    expect((await readTestInstagramWebhookEvent(click.id))?.status).toBe('processed');
+    expect(tapped).toEqual([messagePublicId]);
+    expect(taps).toEqual([77]);
+    expect((await readRunRows(organization.id))[0]).toMatchObject({ automation_id: automation.id });
   });
 
   it('a DM with a keyword: the DM automation runs to its final message', async () => {

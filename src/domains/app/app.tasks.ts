@@ -47,6 +47,15 @@ import {
 } from './sub-domains/instagram-sending/queues/instagram-attachment-upload.job.schema.js';
 import { createInstagramRetryFailedTaskHandler } from './sub-domains/instagram-sending/workers/instagram-retry-failed.processor.js';
 import { createInstagramAttachmentUploadTaskHandler } from './sub-domains/instagram-sending/workers/instagram-attachment-upload.processor.js';
+import type { AutomationBackfillService } from './sub-domains/automation/automation-backfill/automation-backfill.service.js';
+import type { ChannelAccountService } from './sub-domains/channel-account/channel-account.service.js';
+import {
+  INSTAGRAM_MONTH_WAKE_JOB_NAME,
+  INSTAGRAM_PLAN_CHANGE_JOB_NAME,
+  type InstagramPlanChangeTaskInput,
+  instagramPlanChangeTaskInputSchema,
+} from './sub-domains/instagram-sending/queues/instagram-plan-change.job.schema.js';
+import { runInstagramPlanChangeTask } from './sub-domains/instagram-sending/workers/instagram-plan-change.processor.js';
 
 /** Adds one piece of a bulk contact change (WC-36) on the database-heavy task queue. */
 async function enqueueContactBulkActionPiece({
@@ -251,7 +260,10 @@ export const instagramAttachmentUploadQueue: InstagramAttachmentUploadQueue = {
 export interface AppTaskServices {
   contactService: Pick<ContactService, 'applyBulkActionPiece'>;
   broadcastSegmentService: Pick<BroadcastSegmentService, 'countAudienceInBackground'>;
-  broadcastService: Pick<BroadcastService, 'countWaitingBroadcastMatched'>;
+  broadcastService: Pick<
+    BroadcastService,
+    'countWaitingBroadcastMatched' | 'cancelBroadcastsForPlanFeatureOff'
+  >;
   broadcastRecipientService: Pick<BroadcastRecipientService, 'buildAudiencePiece'>;
   instagramMessageService: Pick<
     InstagramMessageService,
@@ -259,13 +271,36 @@ export interface AppTaskServices {
   >;
   instagramAttachmentService: Pick<InstagramAttachmentService, 'uploadAttachments'>;
   instagramSendLaneService: Pick<InstagramSendLaneService, 'wakeLanes' | 'wakeLaneTurns'>;
+  channelAccountService: Pick<ChannelAccountService, 'applyOrganizationPlanStops'>;
+  automationBackfillService: Pick<AutomationBackfillService, 'failOpenBackfillsForPlanFeatureOff'>;
+}
+
+/** The plan change and the month wake (WC-37, WC-38 — ROUTE row R52): one handler, two job names. */
+function createInstagramPlanChangeTaskHandler(services: AppTaskServices): InstagramTaskHandler {
+  return {
+    callsMeta: false,
+    inputSchema: instagramPlanChangeTaskInputSchema,
+    run: async ({ organizationPublicId, taskInput, context }) => {
+      await runInstagramPlanChangeTask({
+        services: {
+          channelAccountService: services.channelAccountService,
+          laneService: services.instagramSendLaneService,
+          broadcastService: services.broadcastService,
+          automationBackfillService: services.automationBackfillService,
+        },
+        organizationPublicId,
+        taskInput: taskInput as InstagramPlanChangeTaskInput,
+        runInDatabaseSlot: (callback) => context.runInDatabaseSlot(callback),
+      });
+    },
+  };
 }
 
 /**
- * The task handlers of ROUTE row R46, by job name (`instagramSendWork.taskHandlers`, S19): the
- * Meta-calling `attachment-upload` (on `instagram-tasks`) and the database-heavy
- * `contact-bulk-action`, `segment-count`, `broadcast-audience` and `retry-failed` (on
- * `instagram-database-tasks`).
+ * The task handlers of ROUTE rows R46 and R52, by job name (`instagramSendWork.taskHandlers`, S19):
+ * the Meta-calling `attachment-upload` (on `instagram-tasks`) and the database-heavy
+ * `contact-bulk-action`, `segment-count`, `broadcast-audience`, `retry-failed`, `plan-change` and
+ * `month-wake` (on `instagram-database-tasks`).
  *
  * @remarks
  * - **Algorithm:** each handler validates its input with its schema and runs its owner's processor,
@@ -325,5 +360,7 @@ export function createAppTaskHandlers(
     [INSTAGRAM_ATTACHMENT_UPLOAD_JOB_NAME]: createInstagramAttachmentUploadTaskHandler({
       attachmentService: services.instagramAttachmentService,
     }),
+    [INSTAGRAM_PLAN_CHANGE_JOB_NAME]: createInstagramPlanChangeTaskHandler(services),
+    [INSTAGRAM_MONTH_WAKE_JOB_NAME]: createInstagramPlanChangeTaskHandler(services),
   };
 }

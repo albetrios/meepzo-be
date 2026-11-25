@@ -16,6 +16,20 @@ import {
 } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.queue.js';
 import { subscriptionSeatSyncJobDataSchema } from '@/domains/billing/sub-domains/subscription/queues/subscription-seat-sync.job.schema.js';
 import { processSubscriptionSeatSyncJob } from '@/domains/billing/sub-domains/subscription/workers/subscription-seat-sync.processor.js';
+import { BILLING_SEAT_SYNC_ENABLED } from '@/domains/billing/sub-domains/subscription/subscription.constants.js';
+
+/**
+ * The seat sync worker's jobs at once: the Stripe family's concurrency while the seat sync is on,
+ * else 1 — it only drains what an older release left (BL9, WC-65), so it holds no more of the
+ * worker's Postgres budget than that (feat-instagram-dm-sending ROUTE row R48, the pool budget).
+ *
+ * @remarks
+ * Algorithm: reads `BILLING_SEAT_SYNC_ENABLED`. Failure modes: none. Side effects: none. Notes: the
+ * registry reports the same number as the queue's Postgres demand.
+ */
+export function getSubscriptionSeatSyncConcurrency(): number {
+  return BILLING_SEAT_SYNC_ENABLED ? getWorkerConcurrencyStripe() : 1;
+}
 
 /**
  * Subset of {@link BillingContainer} the seat-sync worker needs (REQ-4): just the subscription
@@ -83,7 +97,7 @@ export function createSubscriptionSeatSyncWorker(
     },
     workerOptions: {
       connection: getBullMQConnectionOptions(),
-      concurrency: getWorkerConcurrencyStripe(),
+      concurrency: getSubscriptionSeatSyncConcurrency(),
       ...getDefaultWorkerOptions(),
     },
   });

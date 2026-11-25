@@ -34,8 +34,8 @@ export type DomainContainers = {
   notifyDomain: NotifyContainer;
   uploadDomain: UploadContainer;
   /**
-   * The Instagram automation (launch): its workers — the channel connection's token check, the
-   * 7-day wait check — use its services.
+   * The Instagram automation (launch): its workers — the connection's token check, the 7-day wait
+   * check, the Instagram account and send jobs — use its services.
    */
   appDomain: AppContainer;
 };
@@ -69,6 +69,7 @@ export function createDomainContainers(
     organizationService: tenancyDomain.organizationService,
     membershipService: tenancyDomain.membershipService,
     userService: userBase.userService,
+    organizationSettingsService: tenancyDomain.organizationSettingsService,
   });
   const uploadDomain = createUploadContainer({
     userService: userBase.userService,

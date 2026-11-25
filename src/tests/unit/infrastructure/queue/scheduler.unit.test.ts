@@ -54,7 +54,7 @@ describe('infrastructure queue scheduler', () => {
   it('getScheduledJobs returns audit, session, stripe retention, audit export, tombstone retention, membership invitation expiry, idempotency, dlq depth, mail sweeper, upload pending sweep, stripe reclaim, webhook delivery reclaim, and audit-outbox drain jobs', async () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
-    expect(scheduledJobs).toHaveLength(40);
+    expect(scheduledJobs).toHaveLength(59);
     expect(scheduledJobs.map((job) => job.queueName)).toEqual([
       'audit-retention',
       'audit-outbox-drain',
@@ -65,10 +65,10 @@ describe('infrastructure queue scheduler', () => {
       'stripe-webhook-event-retention',
       'audit-export',
       // feat-instagram-dm-sending MC10 (WC-34): the channel connection's hourly token-check sweep
-      // (job `sweep-due-channel-connections`) — it replaced the launch's daily account check — and
-      // the 10-minute webhook subscription sweep (WC-25, R40; job
-      // `sweep-instagram-webhook-subscriptions`) ride its queue.
+      // (job `sweep-due-channel-connections`).
       'channel-connection-token-check',
+      // feat-instagram-dm-sending WC-25 (R40): the 10-minute webhook subscription sweep rides it too
+      // (job `sweep-instagram-webhook-subscriptions`; the launch daily check is retired).
       'channel-connection-token-check',
       // feat-instagram-dm-sending WC-55 (R49): the partition upkeep's daily make and hourly drop —
       // webhook events and keys, attempts, messages, comment logs, run events and runs expire by
@@ -94,8 +94,12 @@ describe('infrastructure queue scheduler', () => {
       'upload-pending-sweep',
       'stripe-webhook-event-reclaim',
       'stripe-webhook-event-catchup',
-      // The hourly seat reconcile rides the seat-sync queue (job `reconcile-subscription-seats`).
-      'subscription-seat-sync',
+      // feat-instagram-dm-sending R52: the hourly seat reconcile is off with the seat sync (BL9,
+      // WC-65); the 15-minute plan-state check (WC-59) and the sending repair duties — the month
+      // wake's check every minute (WC-37) and the plan-stop backup every 15 minutes (WC-38).
+      'subscription-plan-state-check',
+      'instagram-sending-repair',
+      'instagram-sending-repair',
       'webhook-delivery-reclaim',
       // The export lost-enqueue sweep rides the export queue (job `reclaim-pending-user-data-exports`).
       'user-data-export',
@@ -109,6 +113,78 @@ describe('infrastructure queue scheduler', () => {
       // "next post" linking sweep (WC-43, every 15 minutes) ride the same queue.
       'instagram-webhook',
       'instagram-webhook',
+      // feat-instagram-dm-sending R53: the owners' problem emails (WC-57) and the month notices'
+      // backup check (WC-56) ride the same queue, every minute; the weekly summary's hourly sweep
+      // (UN12) rides the notification queue.
+      'instagram-webhook',
+      'instagram-webhook',
+      'notification',
+      // feat-instagram-dm-sending R47 (SN6, P94): the repair duties, one scheduler each, every
+      // minute, all eleven on the repair queue (the R47 × R48 merge).
+      ...Array.from({ length: 11 }, () => 'instagram-sending-repair'),
+      // feat-instagram-dm-sending R48: the watches on the repair queue — the outage watch every
+      // 10 s, the Live check every minute, the waiting estimate every 10 minutes.
+      'instagram-sending-repair',
+      'instagram-sending-repair',
+      'instagram-sending-repair',
+    ]);
+  });
+
+  it('runs every repair duty as its own every-minute scheduler (SN6, P94, R47)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    // R52's two (`repair-month-wake`, `repair-plan-stops`) have their own test.
+    const duties = getScheduledJobs().filter(
+      (scheduledJob) =>
+        scheduledJob.jobName.startsWith('repair-') &&
+        !['repair-month-wake', 'repair-plan-stops'].includes(scheduledJob.jobName),
+    );
+    expect(
+      duties.map((duty) => [duty.queueName, duty.jobName, duty.schedulerId, duty.cronPattern]),
+    ).toEqual(
+      [
+        ['instagram-sending-repair', 'repair-lost-turns'],
+        ['instagram-sending-repair', 'repair-stuck-sends'],
+        ['instagram-sending-repair', 'repair-expiry'],
+        ['instagram-sending-repair', 'repair-closed-windows'],
+        ['instagram-sending-repair', 'repair-reply-trim'],
+        ['instagram-sending-repair', 'repair-paused-cancel'],
+        ['instagram-sending-repair', 'repair-counts'],
+        ['instagram-sending-repair', 'repair-broadcast-start'],
+        ['instagram-sending-repair', 'repair-broadcast-end'],
+        ['instagram-sending-repair', 'repair-tag-event-pickup'],
+        ['instagram-sending-repair', 'repair-open-run-keys'],
+      ].map(([queueName, jobName]) => [queueName, jobName, `instagram-${jobName}`, '* * * * *']),
+    );
+  });
+
+  it('gives the repair worker one place per duty on its queue (SN6, P94 — the R47 × R48 merge)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const { INSTAGRAM_SENDING_REPAIR_CONCURRENCY } = await import(
+      '@/domains/app/sub-domains/instagram-sending/workers/instagram-sending-watch.constants.js'
+    );
+    const repairDuties = getScheduledJobs().filter(
+      (scheduledJob) => scheduledJob.queueName === 'instagram-sending-repair',
+    );
+    expect(new Set(repairDuties.map((duty) => duty.jobName)).size).toBe(repairDuties.length);
+    expect(INSTAGRAM_SENDING_REPAIR_CONCURRENCY).toBe(repairDuties.length);
+  });
+
+  it('runs the owners’ problem emails and the month notices’ check every minute and the weekly summary’s sweep hourly (WC-56–WC-58, R53)', async () => {
+    const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
+    const jobs = getScheduledJobs().filter((scheduledJob) =>
+      [
+        'check-owner-problem-emails',
+        'check-month-limit-notices',
+        'sweep-weekly-summaries',
+      ].includes(scheduledJob.jobName),
+    );
+    expect(jobs).toEqual([
+      expect.objectContaining({ queueName: 'instagram-webhook', cronPattern: '* * * * *' }),
+      expect.objectContaining({ queueName: 'instagram-webhook', cronPattern: '* * * * *' }),
+      expect.objectContaining({
+        queueName: 'notification',
+        cronPattern: '3 * * * *',
+      }),
     ]);
   });
 
@@ -133,6 +209,36 @@ describe('infrastructure queue scheduler', () => {
         cronPattern: '*/15 * * * *',
       }),
     ]);
+  });
+
+  it('repeats the outage watch every 10 seconds and the Live check and estimate by cron (SNC5, R48)', async () => {
+    const { getScheduledJobs, resolveScheduledJobRepeat } = await import(
+      '@/infrastructure/queue/scheduler.js'
+    );
+    const watches = getScheduledJobs().filter((job) =>
+      job.schedulerId.startsWith('instagram-watch-'),
+    );
+    expect(watches.map((job) => [job.jobName, resolveScheduledJobRepeat(job)])).toEqual([
+      ['outage-check', { every: 10_000 }],
+      ['live-check', expect.objectContaining({ pattern: '* * * * *' })],
+      ['waiting-estimate', expect.objectContaining({ pattern: '*/10 * * * *' })],
+    ]);
+    // Every registry row repeats exactly one way.
+    for (const job of getScheduledJobs())
+      expect(() => resolveScheduledJobRepeat(job)).not.toThrow();
+  });
+
+  it('refuses a scheduled job with both, neither or a sub-second interval (SNC5)', async () => {
+    const { resolveScheduledJobRepeat } = await import('@/infrastructure/queue/scheduler.js');
+    const base = { queueName: 'q', schedulerId: 's', jobName: 'j' };
+    expect(() => resolveScheduledJobRepeat(base)).toThrow(/exactly one/);
+    expect(() =>
+      resolveScheduledJobRepeat({ ...base, cronPattern: '* * * * *', everyMilliseconds: 10_000 }),
+    ).toThrow(/exactly one/);
+    expect(() => resolveScheduledJobRepeat({ ...base, everyMilliseconds: 500 })).toThrow(/1000/);
+    expect(
+      resolveScheduledJobRepeat({ ...base, cronPattern: '0 3 * * *', timezone: 'UTC' }),
+    ).toEqual({ pattern: '0 3 * * *', tz: 'UTC' });
   });
 
   it('tombstone retention jobs run in FK-safe order (uploads before organizations before users)', async () => {
@@ -281,6 +387,8 @@ describe('infrastructure queue scheduler', () => {
     const { getScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const scheduledJobs = getScheduledJobs();
     for (const job of scheduledJobs) {
+      // An interval (the 10-second outage watch, R48) has no wall clock.
+      if (job.everyMilliseconds !== undefined) continue;
       expect(job.timezone).toBe('America/New_York');
     }
   });
@@ -288,18 +396,20 @@ describe('infrastructure queue scheduler', () => {
   it('registerScheduledJobs registers one repeatable job per cleanup queue when enabled', async () => {
     const { registerScheduledJobs } = await import('@/infrastructure/queue/scheduler.js');
     const schedulerHandle = await registerScheduledJobs();
-    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(40);
-    // Each scheduled job opens one Queue for upsert (40) + the reconcile pass opens one Queue per
-    // unique queue name (35 — the seat reconcile, the export reclaim, the channel connection
-    // token-check sweep and the Instagram stuck-event pick-up ride queues no other cron uses; the
-    // 10-minute webhook subscription sweep shares the token-check queue, R40, the missed-comment
-    // sweep, the past-comments watch and the "next post" linking sweep ride the pick-up's queue,
-    // R39, R41, and the partition upkeep's make and drop share one queue, R49), each closed in
-    // its own loop iteration. The upsert queues are closed as soon as registration ends — not held
-    // open for the life of the process.
-    expect(queueCloseMock).toHaveBeenCalledTimes(75);
+    expect(upsertJobSchedulerMock).toHaveBeenCalledTimes(59);
+    // Each scheduled job opens one Queue for upsert (59) + the reconcile pass opens one Queue per
+    // unique queue name (37 — the channel connection token-check sweep (with the 10-minute webhook
+    // subscription sweep, R40), the plan-state check, the export reclaim, the weekly summary's sweep
+    // on the notification queue (R53) and the Instagram stuck-event pick-up ride queues no other
+    // cron uses; the missed-comment sweep, the past-comments watch, the "next post" linking sweep,
+    // the owners' problem emails and the month notices' check ride the pick-up's queue; the sending
+    // repair queue carries sixteen duties (R52's two, R48's three watches, R47's eleven); the
+    // partition upkeep's make and drop share one queue, R49), each closed in its own loop
+    // iteration. The upsert queues are closed as soon as registration ends — not held open for the
+    // life of the process.
+    expect(queueCloseMock).toHaveBeenCalledTimes(96);
     await schedulerHandle.close();
-    expect(queueCloseMock).toHaveBeenCalledTimes(75);
+    expect(queueCloseMock).toHaveBeenCalledTimes(96);
   });
 
   it('registerScheduledJobs does not instantiate queues when SCHEDULER_ENABLED is false', async () => {

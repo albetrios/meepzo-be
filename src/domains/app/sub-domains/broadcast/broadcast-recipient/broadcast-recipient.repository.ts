@@ -7,6 +7,8 @@ import { contacts } from '@/domains/app/sub-domains/contact/contact.schema.js';
 import { contact_activities } from '@/domains/app/sub-domains/contact/contact-activity.schema.js';
 import { CONTACT_CHAT_WINDOW_MS } from '@/domains/app/sub-domains/contact/contact.constants.js';
 import { broadcasts } from '@/domains/app/sub-domains/broadcast/broadcast.schema.js';
+import { automation_run_open_keys } from '@/domains/app/sub-domains/automation/automation-run/automation-run-open-key.schema.js';
+import { automations } from '@/domains/app/sub-domains/automation/automation.schema.js';
 import {
   buildSegmentAudienceCondition,
   type SegmentAutomationIds,
@@ -21,7 +23,14 @@ export type BroadcastRecipientRow = typeof broadcast_recipients.$inferSelect;
 /** What the recipients read of their broadcast: its account, channel, status, audience copy and messages. */
 export type BroadcastRecipientParentRow = Pick<
   typeof broadcasts.$inferSelect,
-  'id' | 'organization_id' | 'channel_account_id' | 'channel' | 'status' | 'conditions' | 'messages'
+  | 'id'
+  | 'public_id'
+  | 'organization_id'
+  | 'channel_account_id'
+  | 'channel'
+  | 'status'
+  | 'conditions'
+  | 'messages'
 >;
 
 /** The broadcast's numbers a recipient move adds to (BC8 — moved in the result's commit). */
@@ -31,11 +40,13 @@ export interface BroadcastNumbersChange {
   skipped?: number;
   failed?: number;
   replies?: number;
+  taps?: number;
 }
 
 /** The columns {@link BroadcastRecipientParentRow} reads. */
 const PARENT_COLUMNS = {
   id: broadcasts.id,
+  public_id: broadcasts.public_id,
   organization_id: broadcasts.organization_id,
   channel_account_id: broadcasts.channel_account_id,
   channel: broadcasts.channel,
@@ -156,6 +167,30 @@ export class BroadcastRecipientRepository {
           isNull(broadcasts.audience_built_at),
         ),
       );
+  }
+
+  /**
+   * Whether she holds an open run of any automation (BC17: a "when her chat opens" row waits until
+   * her runs finished) — the open-run keys (AU37).
+   */
+  async hasOpenRun({
+    organizationId,
+    contactId,
+  }: {
+    organizationId: number;
+    contactId: number;
+  }): Promise<boolean> {
+    const [row] = await this.db()
+      .select({ contactId: automation_run_open_keys.contact_id })
+      .from(automation_run_open_keys)
+      .where(
+        and(
+          eq(automation_run_open_keys.organization_id, organizationId),
+          eq(automation_run_open_keys.contact_id, contactId),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
   }
 
   /**
@@ -417,6 +452,43 @@ export class BroadcastRecipientRepository {
       )
       .returning({ broadcast_id: broadcast_recipients.broadcast_id });
     return rows.map((row) => row.broadcast_id);
+  }
+
+  /**
+   * A tapped broadcast button's broadcast (§ 7.A.10): its id and the public id of the automation
+   * its "start automation" button names (`null` when it names none, or that automation is deleted)
+   * — `null` when the broadcast is not this organization's or is deleted.
+   */
+  async findTapTarget({
+    organizationId,
+    broadcastPublicId,
+  }: {
+    organizationId: number;
+    broadcastPublicId: string;
+  }): Promise<{ broadcastId: number; startAutomationPublicId: string | null } | null> {
+    const [row] = await this.db()
+      .select({
+        broadcastId: broadcasts.id,
+        startAutomationPublicId: automations.public_id,
+      })
+      .from(broadcasts)
+      .leftJoin(
+        automations,
+        and(
+          eq(automations.organization_id, broadcasts.organization_id),
+          eq(automations.id, broadcasts.start_automation_id),
+          isNull(automations.deleted_at),
+        ),
+      )
+      .where(
+        and(
+          eq(broadcasts.organization_id, organizationId),
+          eq(broadcasts.public_id, broadcastPublicId),
+          isNull(broadcasts.deleted_at),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
   }
 
   /** Adds to a broadcast's numbers (BC8) — in the commit of the move that caused it. */

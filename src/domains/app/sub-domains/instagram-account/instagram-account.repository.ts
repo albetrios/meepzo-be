@@ -526,7 +526,7 @@ export class InstagramAccountRepository {
    * extension's and the channel account's policies, so it reads every organization's rows and can
    * write none.
    */
-  async listConnectedForSubscriptionCheck({
+  async listConnectedForWebhookSubscriptionSweep({
     afterId,
     limit,
   }: {
@@ -626,8 +626,8 @@ export function createWorkerInstagramAccountRepository(
 }
 
 /**
- * {@link InstagramAccountRepository} bound to a retention maintenance handle — the webhook subscription
- * sweep's cross-organization read of the `connected` accounts (WC-25), through the sweep arm the account
+ * {@link InstagramAccountRepository} bound to a retention maintenance handle — the webhook
+ * subscription sweep's cross-organization read of the `connected` accounts (WC-25), through the sweep arm the account
  * policy carries in `USING` only.
  */
 export function createRetentionInstagramAccountRepository(

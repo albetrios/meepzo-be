@@ -98,12 +98,20 @@ export interface AutomationDirectMessageInput extends AutomationRunTriggerInput 
 }
 
 /** The tap kinds `handleButtonClick` takes (normalized — 4.B.10). */
-export type AutomationTapKind = 'postback' | 'starter_question' | 'ref_link' | 'ad_message';
+export type AutomationTapKind =
+  | 'postback'
+  | 'starter_question'
+  | 'ref_link'
+  | 'ad_message'
+  | 'broadcast_tap';
 
 /** Input of `handleButtonClick` — a tap on our button, a starter question, an ig.me link, an ad. */
 export interface AutomationButtonClickInput extends AutomationRunTriggerInput {
   kind?: AutomationTapKind;
-  /** `aut_…` from a postback payload. */
+  /**
+   * `aut_…` from a postback payload; for `broadcast_tap`, the automation a broadcast button's
+   * "start automation" names (§ 7.A.10).
+   */
   automationPublicId?: string | null;
   /** `run_…` from a postback payload. */
   runPublicId?: string | null;

@@ -35,6 +35,11 @@ No routes of its own: contacts (routes 24–26) and automations (routes 36–37)
   claim (`claimMessage`), the one result save (`saveSendResult`, which calls the engine's
   `recordMessageResult` in its commit), the lane move, the own-echo lookup (`findOwnSentMessageIds`,
   the webhook receiver's 4th argument) and route 63's sources (`countWaitingByLane`, `findLastRetry`).
+- `instagram-message-compose.util.ts` — a waiting message's Meta `message` built from its automation's steps at
+  the last moment (ROUTE row R43): the hello and nudge, the follow ask, the email / phone questions with Instagram's
+  button and their plain-text fallback (the default texts when a wording is empty), each list kind, `{name}`. The
+  service adds `endWaitingMessage` (a lane's check again: `expired` / `skipped`, the engine told in its commit) and
+  `listWindowClosedByAutomation` (route 63's "chat closed" lines); the repository the lanes' pick reads.
 - `instagram-message.types.ts` — the engine result port, the `retry-failed` queue port (R46), the
   claim and result inputs.
 
@@ -61,6 +66,7 @@ No routes of its own: contacts (routes 24–26) and automations (routes 36–37)
 ## Tests
 
 - `__tests__/unit/instagram-message.util.unit.test.ts` — the lane rule and mappings.
+- `__tests__/unit/instagram-message-compose.util.unit.test.ts` — every composed kind, `{name}`, the fallbacks (R43).
 - `__tests__/unit/instagram-message.service.db.unit.test.ts` — the engine through the real port, every
   status move, `unknown` never re-sent, the own-echo lookup, the summary and retry verdicts.
 - `__tests__/integration/instagram-message.integration.test.ts` — routes 24–26 and 36–37 over HTTP.

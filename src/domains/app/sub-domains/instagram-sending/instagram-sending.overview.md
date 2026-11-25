@@ -16,7 +16,7 @@ the nested [Instagram messages](instagram-message/instagram-message.overview.md)
 Instagram's `ChannelSendingPort`, the claim, the one result save, the failed-message summary and retry). ROUTE row
 R20 built the nested [Instagram attachments](instagram-attachment/instagram-attachment.overview.md) (6.C — one Meta
 upload per account and file) and `InstagramSendAccessService`, the one read before every Meta call (the pace from the
-connection's usage, SN23). ROUTE row R42 built the **send core** (below); the lanes' own rules (R43–R45), the repair duties (R47) and the watches (R48) come with their rows. ROUTE
+connection's usage, SN23). ROUTE row R42 built the **send core** (below), R43 the slow and reply lanes' rules, R44 the fast lane's, R45 the broadcast lane's; the repair duties are R47's (below, the **repair duties**) and the watches R48's (below), all on the repair queue `instagram-sending-repair`. ROUTE
 row R37 built the **queues, their workers and the database limiter** (SN2, SN24, P91) — the workers hand each ticket
 to work the later rows build. No table here has a public id; route 63 takes the account's `cha_` id.
 
@@ -31,6 +31,18 @@ Team organizations only: a personal one reads `404 team_organization_required`. 
 instagram_not_connected` for another organization's, a revoked or a non-Instagram account.
 
 ## Layout
+
+- **Repair duties (R47, SN6, P94)** — `instagram-sending-repair.service.ts` (`InstagramSendingRepairService`: WC-13 lost
+  turns, WC-14 stuck sends, WC-15 the 7-day expiry, WC-17 closed windows, WC-18 the reply trim, WC-19 the paused cancel,
+  WC-20 the send counts) over `instagram-sending-repair.repository.ts` (the cross-organization reads under the
+  `app.global_retention_cleanup` arm, each organization's writes in its job scope); `workers/instagram-send-repair-duties.processor.ts`
+  routes the eleven every-minute jobs on the repair queue `instagram-sending-repair` (these seven, 7's broadcast start
+  and end, 3.B's tag-event pick-up and 4.B's open-run key repair — handed over by `runInstagramSendingRepairDuty`) through
+  `runRepairDutyRound` (`src/infrastructure/queue/worker-runtime/repair-duty.util.ts`: the `mayTakeTickets` gate, the 40 s
+  budget, pieces of 500, `repair_duty_round_seconds` / `repair_duty_backlog`). Lost tickets are re-added in one `addBulk`
+  per piece by `addMissingInstagramSendLaneTurns` / `addMissingInstagramSendFastMessages` (a ticket still on its way is
+  only counted). Waiting messages end through `InstagramMessageService.settleWaitingMessages` (the result save's
+  bookkeeping, the engine told); a stuck send through `saveSendResult`.
 
 - `instagram-sending.constants.ts` — the **sending settings file** (P4): the settings-file limits an empty owner value
   falls back to (route 12 and the lanes read one source), `STOP_WORDS`, the untested Meta features, ways to start and
@@ -50,6 +62,13 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   (shared, P43): per organization, month of its time zone and 16 slots. The service is the channel account's plan-stop
   port (`plan_limit`), the month add (tombstones the copy after commit) and route 64's read through the 10-second
   Redis copy `app:message_month_count:<organization>`.
+- `message-month-notice.service.ts` — the month at 80 % and 100 % (WC-56, R53): one `billing.usage_threshold`
+  notice and email per organization, month and line (`month-limit:<month>:<line>`), told after the claim that crossed
+  a line; `workers/message-month-notice-check.*` is its every-minute backup check on the intake queue.
+- `workers/instagram-owner-problem-email.*` — the owners' problem emails (WC-57, R53): every minute on the intake
+  queue, the stops that came due (a block, a connection, message access, plan ended or switched off at once; any
+  other stop after an hour) told once per account and kind in 6 hours (`automation.stopped`, `data.problem`), and
+  one team email grouping them by kind.
 - `instagram-send-day-count.schema.ts` / `.repository.ts` — one account's results of its organization's day (S8):
   route 63's "today" line.
 - `sending-state.schema.ts` / `.repository.ts` / `.service.ts` — `app.sending_states`, the one tenantless row (P16):
@@ -95,13 +114,80 @@ instagram_not_connected` for another organization's, a revoked or a non-Instagra
   or lock timeout 3 times, a lost connection after 1, 2, 4, 8 s; then the message stays `sending` for the repair, D17),
   the stops (lanes by ladder, the connection's break on 190, the account's break, the app limit, "in a row" from the
   attempts), the test's end and half speed, the next tickets. Each lane's own rules plug in through
-  `InstagramSendLaneRules` (R43–R45); a lane without rules sends nothing.
+  `InstagramSendLaneRules` (R43–R45; the fast lane's `checkFastMessage` before its claim, R44); a lane without rules
+  sends nothing. A test that says nothing about the
+  account (that person, that text) tests again up to 3 turns (`testMaxTurns`), then the stop waits its time again.
+- `instagram-slow-lane.service.ts` — `InstagramSlowLaneRules` (R43, WC-5): opening DMs as private replies, one per
+  box (3600 ÷ the opening hour limit — 600, ≤ 700, 150 for a new account's 7 days; doubled at half speed or Meta's
+  80 %) at a random millisecond, at least 1.5 s apart (`box_start`, `last_sent_at`, `pick_count` written in the
+  release); the pick mixes new (under 60 min, newest first) and old (oldest first) comments 4 : 1 (3 : 2 under 12 h
+  left), checks each again (expired, erased, opted out, excluded → ended with the engine told; window open → moved to
+  the fast lane with its ticket; an opening to her in the last 24 h → `not_before` + 24 h, D8).
+- `instagram-reply-lane.service.ts` — `InstagramReplyLaneRules` (R43, WC-6): hides and "Reply like a person" OFF
+  replies at once (a hide only after its reply ended), ON replies at their automation's hashed box second (10–100 an
+  hour) and 20 s after the account's last ON reply; the line never the last one (only the first without PRO, D57),
+  `@username` first; the reply state's box, line and waiting count. The 500 trim is the repair's (R47).
+- `instagram-fast-lane.service.ts` — `InstagramFastLaneRules` (R44, WC-7): every message after the opening, one
+  ticket `fast-<igm_…>-<tries>` per message at its `not_before` (the message service adds it after the save's commit:
+  a random 500–2,000 ms, the PRO extra delay on her event's first answer cut at 25 s, at once after a follow check).
+  Before the claim: gone / opted out / excluded → `skipped`; a Live private reply over 240 min → `expired` ·
+  `live_ended`; a nudge she answered → `cancelled` · `answered`; her window closed (24 h − 15 min) → a comment's DM
+  back to the slow lane, a Live comment's DM to a private reply, anything else `skipped` · `window_closed`. The
+  claim takes her contact `NO KEY UPDATE SKIP LOCKED` and one of hers `sending` at a time (else back in 1 s), the
+  account's 20 `sending` (`sending_count`, − 1 in the result save), 5 audio and the organization's 25 (S21; else back
+  in 500 ms). The follow check reads `is_user_follow_business` (2 tries, the second after 2–5 s, then "following").
+  Buttons carry `<aut_…>::<run_…>::<igm_…>`; `InstagramMessageService.markTappedMessageSent` proves an `unknown`
+  message `sent` (the intake calls it, R38). "Seen" after a reply is not sent (P36 keeps `mark_seen` off, P412).
+- `instagram-broadcast-lane.service.ts` — `InstagramBroadcastLaneRules` (R45, WC-8): broadcast messages (PRO) one per
+  box of the broadcast hour limit (600, ≤ 2,000; 3600 ÷ limit, a random second, ≥ 1.5 s apart, ×2 at half speed or
+  Meta's 80 %), her window closing soonest first across the account's broadcasts, at most 5 picks a turn. Checks
+  again before each send: the broadcast no longer active → message `cancelled`, recipient `skipped`, both
+  `broadcast_cancelled`; gone / opted out / excluded / window closed → `skipped`; message 1 within 24 h of her last
+  broadcast → `recent_broadcast`; her hour full → `not_before` + 5 min. The claim takes her contact skip locked; gate 2
+  counts the `broadcast` group, the month counts it as a DM (P3: the month's `plan_limit` holds this lane). The result
+  save moves her `last_broadcast_at` (`sent` or `unknown`), the recipient and message N + 1. Too fast here stops only
+  this lane for twice the time (Meta's too); the slow or fast lane's too fast holds it too. Buttons carry
+  `<brc_…>::<igm_…>` (`broadcast-recipient-button-payload.util.ts`, read by intake R38).
+- `instagram-send-compose.service.ts` — a run DM's Meta call composed at the last moment
+  (`instagram-message/instagram-message-compose.util.ts`: the hello, follow ask, email / phone questions with their
+  plain-text fallback and default texts, each list kind, `{name}`); `callWithCommentCheck` reads a maybe-gone comment
+  once before `deleted_comment` (§33.7). The fast lane (R44) composes its DMs here too; `composeBroadcastMessage` the
+  broadcast lane's (R45: the broadcast's message N as a list message, a normal DM to her id, no tag).
+- `instagram-send-pace.util.ts` — the boxes, the mix, the reply box second and the line pick (pure).
 - `instagram-send-gate.service.ts` — gate 1 (an advisory Redis sorted set per account and count group, 100 ms, skipped
   30 s after 3 timeouts) and the claim's **one commit**: the lane row locked, gate 2 over the 61 minute rows, her hour,
   the month's 16 slots against the plan's limit, the adds, `sending`, the attempt; the DM that fills the month starts
   `plan_limit` on every account of the organization (the reply lane goes on).
 - `instagram-send-error.util.ts` — Meta's answer → its one group (the code table `INSTAGRAM_SEND_ERROR_CODE_GROUPS` in
   the settings file) → the message's outcome and the stop it starts.
+- **The plan change and the month wake** (R52, WC-37, WC-38): `events/instagram-plan-change.event-handlers.ts` turns
+  billing's `subscription.plan_state_changed` into one `plan-change` task on `instagram-database-tasks` (job id
+  `plan-change-<org>-<change>-<key>` — the plan-state check's findings carry their key, so a repeat is dropped);
+  `workers/instagram-plan-change.processor.ts` (also the `month-wake` job) puts the accounts' plan stops in line with
+  the plan through `ChannelAccountService.applyOrganizationPlanStops` (over the limit → `plan_downgrade`, the kept and
+  then the oldest stay; a move up lets `plan_downgrade` back; every account in the plan takes the organization's own
+  stop — `plan_ended`, else `plan_limit`, else none), on a move down or a trial end cancels the scheduled and waiting
+  broadcasts and fails the unfinished past-comment reads (`plan_feature_off`) when the new plan lacks the switch, then
+  wakes the accounts whose stop got weaker, spread over 5 minutes. `workers/instagram-sending-repair.*` — the repair
+  queue `instagram-sending-repair` (SN6, one repeat job per duty; R47's eleven and R48's watches beside them): `repair-month-wake` every minute
+  (organizations holding `plan_limit` since before their month turned, their time zone) and `repair-plan-stops` every
+  15 minutes (organizations still holding `plan_ended`), each adding one task per organization. The queue runs
+  `INSTAGRAM_SENDING_REPAIR_CONCURRENCY` (16 — one place per duty, so a 40 s round never holds another back) duties
+  at once, every database unit of a duty in a slot of the `instagram-database` limiter (R48 — so the queue adds no
+  Postgres demand of its own).
+- **The watches (ROUTE row R48)** — `workers/instagram-sending-watch.*` on the repair queue, over
+  `InstagramSendingWatchService` and `InstagramSendingWatchRepository` (the cross-organization reads, retention
+  context): `outage-check` every 10 s (`everyMilliseconds`, WC-22 — 30 % bad of ≥ 50 calls in 30 s, or 30 % of the
+  active accounts in a down stop → the all-accounts `instagram_down` stop 5 · 10 · 20 · 40 min on `app.sending_states`;
+  the all-stop count back to 0 after 24 quiet hours; the late-lane gauge for readiness), `live-check` every minute
+  (WC-16 — `GET /<account>/live_media`, then the waiting Live replies of a Live off air or older than 240 min end
+  `expired` · `live_ended` and the Live's `live_ended_at` is saved) and `waiting-estimate` every 10 min (WC-24, S29 —
+  `computeInstagramWaitingEstimate`, plan §12.3, written to the slow lane's `estimate_*`). A down stop is tested with a
+  read-only profile read first (`probeAccount`, plan §33.5 rule 2). Two watches run in each worker process, not on the
+  schedule (worker-changes note 6): the clock against Postgres every minute (`worker-clock-watch.ts` — over 2 s and
+  `mayTakeTickets` refuses, WC-23) and the "Redis lost" watch every 10 s (`worker-redis-watch.ts` — schedules
+  re-registered and gate 1 rebuilt from the minute counts under one lock, WC-21). Readiness's `sending` part adds the
+  clock skew, the repair queue's last round and the late lanes (SNC9).
 - `seed/` — four lanes per seeded account, an ended stop, this minute's and this month's counts.
 
 ## Rules

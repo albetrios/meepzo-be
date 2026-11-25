@@ -64,9 +64,11 @@ describe('SendingStateService (database)', () => {
         maySend: false,
         reason: 'environment_mismatch',
       });
-      expect(await new SendingStateService().mayTakeTickets()).toBe(false);
+      // A clock in line (WC-23, R48) — the worker's clock watch reads it in a real process.
+      const inLine = { readClockSkewMilliseconds: () => 0 };
+      expect(await new SendingStateService(inLine).mayTakeTickets()).toBe(false);
       env.SENDING_ENVIRONMENT_ID = 'production';
-      expect(await new SendingStateService().mayTakeTickets()).toBe(true);
+      expect(await new SendingStateService(inLine).mayTakeTickets()).toBe(true);
     } finally {
       env.SENDING_ENABLED = enabled;
       env.SENDING_ENVIRONMENT_ID = environmentId;

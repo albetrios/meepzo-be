@@ -113,6 +113,29 @@ export class AutomationReplyStateRepository {
       });
   }
 
+  /**
+   * `count` fewer waiting public replies (WC-18, the 500 trim): never below 0. No row is a no-op.
+   */
+  async subtractWaitingReplies({
+    organizationId,
+    automationId,
+    count,
+  }: AutomationReplyStateKey & { count: number }): Promise<void> {
+    if (count <= 0) return;
+    await this.db()
+      .update(automation_reply_states)
+      .set({
+        waiting_count: sql`greatest(0, ${automation_reply_states.waiting_count} - ${count})`,
+        updated_at: sql`now()`,
+      })
+      .where(
+        and(
+          eq(automation_reply_states.organization_id, organizationId),
+          eq(automation_reply_states.automation_id, automationId),
+        ),
+      );
+  }
+
   /** Empties the hour box after a reply-step change (AU12): it starts again. No row is a no-op. */
   async emptyBox({ organizationId, automationId }: AutomationReplyStateKey): Promise<void> {
     await this.db()

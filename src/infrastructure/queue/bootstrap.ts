@@ -12,6 +12,13 @@ import { attachDeadLetterAndAlerting } from '@/infrastructure/queue/dlq/dead-let
 import { attachBullMQJobMetrics } from '@/infrastructure/observability/metrics/bullmq-metrics.js';
 import { attachWorkerQueueHeartbeat } from '@/infrastructure/queue/worker-runtime/worker-queue-heartbeat.js';
 import { registerScheduledJobs } from '@/infrastructure/queue/scheduler.js';
+import { bullmqRedisConnection } from '@/infrastructure/cache/bullmq-redis.client.js';
+import { redisConnection } from '@/infrastructure/cache/redis.client.js';
+import { usesSeparateBullMqRedisEndpoint } from '@/infrastructure/cache/redis-url.parse.util.js';
+import { resolveBullMqRedisUrl } from '@/infrastructure/cache/redis-url.util.js';
+import { startWorkerClockWatch } from '@/infrastructure/queue/worker-runtime/worker-clock-watch.js';
+import { startWorkerRedisWatch } from '@/infrastructure/queue/worker-runtime/worker-redis-watch.js';
+import { INSTAGRAM_SENDING_WATCH_SETTINGS } from '@/domains/app/sub-domains/instagram-sending/instagram-sending.constants.js';
 import { auditSchedulerRegistryConsistency } from '@/infrastructure/queue/worker-runtime/scheduler-registry-audit.js';
 import {
   computeWorkerPostgresPoolDemand,
@@ -66,6 +73,37 @@ function pushWorkerWithRuntimeHooks({
     attachBullMQJobMetrics({ worker: handle.worker, queueName: handle.queueName });
     attachWorkerQueueHeartbeat({ worker: handle.worker, queueName: handle.queueName });
   }
+}
+
+/**
+ * The two watches each server process runs for itself (feat-instagram-dm-sending WC-21, WC-23 —
+ * not on the shared schedule; worker-changes note 6: they need no slot): the clock against
+ * Postgres every minute (a server over 2 s off takes no tickets — the sending check reads it) and
+ * the "Redis lost" watch every 10 seconds (P7), which re-registers this process's schedules and
+ * runs the registered rebuild steps under one lock. Started where the `instagram` family runs.
+ */
+async function startSendingProcessWatches(
+  activeQueueNames: ReadonlySet<string>,
+): Promise<WorkerHandle[]> {
+  const clockWatch = await startWorkerClockWatch({
+    intervalMilliseconds: INSTAGRAM_SENDING_WATCH_SETTINGS.clockCheckMilliseconds,
+    warnAboveMilliseconds: INSTAGRAM_SENDING_WATCH_SETTINGS.clockSkewMaxMilliseconds,
+  });
+  const clients = usesSeparateBullMqRedisEndpoint({
+    cacheRedisUrl: env.REDIS_URL,
+    bullMqRedisUrl: resolveBullMqRedisUrl(),
+  })
+    ? [redisConnection, bullmqRedisConnection]
+    : [redisConnection];
+  const redisWatch = await startWorkerRedisWatch({
+    clients,
+    intervalMilliseconds: INSTAGRAM_SENDING_WATCH_SETTINGS.redisWatchMilliseconds,
+    rebuildSchedules: async () => {
+      const handle = await registerScheduledJobs({ activeQueueNames });
+      await handle.close();
+    },
+  });
+  return [clockWatch, redisWatch];
 }
 
 /**
@@ -127,6 +165,10 @@ export async function registerDomainWorkers(
   });
   const schedulerHandle = await registerScheduledJobs({ activeQueueNames });
   workers.push(schedulerHandle);
+
+  if (selectedFamilies.includes('instagram')) {
+    workers.push(...(await startSendingProcessWatches(activeQueueNames)));
+  }
 
   const registrations = getWorkerRegistrationsForFamilies(selectedFamilies);
 

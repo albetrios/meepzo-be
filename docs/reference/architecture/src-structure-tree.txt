@@ -90,6 +90,7 @@ src/
     │   │   │   │   │   │   ├── events/
     │   │   │   │   │   │       └── worker/
     │   │   │   │   │   │       │   └── automation-run-wait-expiry.worker.unit.test.ts
+    │   │   │   │   │   │   ├── automation-run-button-payload.util.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-matching.util.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-seed.db.unit.test.ts
     │   │   │   │   │   │   ├── automation-run-step.util.unit.test.ts
@@ -102,6 +103,7 @@ src/
     │   │   │   │   │   ├── automation-run.bulk.seed.ts
     │   │   │   │   │   └── index.ts
     │   │   │   │   ├── workers/
+    │   │   │   │   │   ├── automation-run-open-key-repair.processor.ts
     │   │   │   │   │   ├── automation-run-wait-expiry.constants.ts
     │   │   │   │   │   ├── automation-run-wait-expiry.processor.ts
     │   │   │   │   │   └── automation-run-wait-expiry.worker.ts
@@ -154,6 +156,7 @@ src/
     │   │   │   │   │   └── broadcast.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── broadcast-channel-seam.policy.unit.test.ts
+    │   │   │   │   │   ├── broadcast-duties.db.unit.test.ts
     │   │   │   │   │   ├── broadcast.repository.db.unit.test.ts
     │   │   │   │   │   ├── broadcast.serializer.unit.test.ts
     │   │   │   │   │   ├── broadcast.service.unit.test.ts
@@ -169,6 +172,7 @@ src/
     │   │   │   │   │   └── broadcast-audience.job.schema.ts
     │   │   │   │   ├── workers/
     │   │   │   │   │   └── broadcast-audience.processor.ts
+    │   │   │   │   ├── broadcast-recipient-button-payload.util.ts
     │   │   │   │   ├── broadcast-recipient.constants.ts
     │   │   │   │   ├── broadcast-recipient.overview.md
     │   │   │   │   ├── broadcast-recipient.repository.ts
@@ -207,6 +211,9 @@ src/
     │   │   │   ├── seed/
     │   │   │   │   ├── broadcast.bulk.seed.ts
     │   │   │   │   └── index.ts
+    │   │   │   ├── workers/
+    │   │   │   │   ├── broadcast-end.processor.ts
+    │   │   │   │   └── broadcast-start.processor.ts
     │   │   │   ├── broadcast.constants.ts
     │   │   │   ├── broadcast.controller.ts
     │   │   │   ├── broadcast.dto.ts
@@ -227,6 +234,7 @@ src/
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── channel-account-capabilities.constants.unit.test.ts
     │   │   │   │   │   ├── channel-account-feature-check.service.unit.test.ts
+    │   │   │   │   │   ├── channel-account-plan-stop.util.unit.test.ts
     │   │   │   │   │   ├── channel-account.serializer.unit.test.ts
     │   │   │   │   │   ├── channel-account.service.unit.test.ts
     │   │   │   │   │   └── channel-account.validator.unit.test.ts
@@ -236,6 +244,7 @@ src/
     │   │   │   ├── channel-account-capabilities.constants.ts
     │   │   │   ├── channel-account-error.util.ts
     │   │   │   ├── channel-account-plan-stop.service.ts
+    │   │   │   ├── channel-account-plan-stop.util.ts
     │   │   │   ├── channel-account.constants.ts
     │   │   │   ├── channel-account.controller.ts
     │   │   │   ├── channel-account.dto.ts
@@ -342,11 +351,14 @@ src/
     │   │   │   ├── contact-tag-event/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── contact-tag-event-pickup.processor.db.unit.test.ts
     │   │   │   │   │   │   ├── contact-tag-event.service.db.unit.test.ts
     │   │   │   │   │   │   └── contact-tag-event.service.unit.test.ts
     │   │   │   │   ├── seed/
     │   │   │   │   │   ├── contact-tag-event.bulk.seed.ts
     │   │   │   │   │   └── index.ts
+    │   │   │   │   ├── workers/
+    │   │   │   │   │   └── contact-tag-event-pickup.processor.ts
     │   │   │   │   ├── contact-tag-event.constants.ts
     │   │   │   │   ├── contact-tag-event.overview.md
     │   │   │   │   ├── contact-tag-event.repository.ts
@@ -472,28 +484,45 @@ src/
     │   │   ├── instagram-sending/
     │   │   │   ├── __tests__/
     │   │   │   │   ├── factories/
+    │   │   │   │   │   ├── instagram-lane-harness.factory.ts
     │   │   │   │   │   └── instagram-sending.factory.ts
     │   │   │   │   ├── integration/
+    │   │   │   │   │   ├── instagram-plan-change.integration.test.ts
+    │   │   │   │   │   ├── instagram-sending-notices.integration.test.ts
     │   │   │   │   │   └── instagram-sending.integration.test.ts
     │   │   │   │   └── unit/
     │   │   │   │   │   ├── events/
-    │   │   │   │   │       └── worker/
-    │   │   │   │   │       │   └── instagram-database-tasks.worker.unit.test.ts
+    │   │   │   │   │       ├── worker/
+    │   │   │   │   │       │   ├── instagram-database-tasks.worker.unit.test.ts
+    │   │   │   │   │       │   └── instagram-sending-repair.worker.unit.test.ts
+    │   │   │   │   │       └── instagram-plan-change.event-handlers.unit.test.ts
     │   │   │   │   │   ├── instagram-attachment-upload.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-broadcast-lane.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-fast-lane.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-owner-problem-email.unit.test.ts
+    │   │   │   │   │   ├── instagram-reply-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-access.service.unit.test.ts
     │   │   │   │   │   ├── instagram-send-core.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-error.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-estimate.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-fast.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-send-lane.util.unit.test.ts
+    │   │   │   │   │   ├── instagram-send-pace.util.unit.test.ts
     │   │   │   │   │   ├── instagram-send-slow.processor.unit.test.ts
     │   │   │   │   │   ├── instagram-send-ticket.processor.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending-repair.service.db.unit.test.ts
+    │   │   │   │   │   ├── instagram-sending-watch.processor.db.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.constants.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.serializer.unit.test.ts
     │   │   │   │   │   ├── instagram-sending.service.unit.test.ts
+    │   │   │   │   │   ├── instagram-slow-lane.service.db.unit.test.ts
     │   │   │   │   │   ├── instagram-tasks.processor.unit.test.ts
+    │   │   │   │   │   ├── sending-state.clock.unit.test.ts
     │   │   │   │   │   ├── sending-state.decide.unit.test.ts
     │   │   │   │   │   └── sending-state.service.db.unit.test.ts
+    │   │   │   ├── events/
+    │   │   │   │   └── instagram-plan-change.event-handlers.ts
     │   │   │   ├── instagram-attachment/
     │   │   │   │   ├── __tests__/
     │   │   │   │   │   └── unit/
@@ -512,11 +541,13 @@ src/
     │   │   │   │   │   ├── integration/
     │   │   │   │   │   │   └── instagram-message.integration.test.ts
     │   │   │   │   │   └── unit/
+    │   │   │   │   │   │   ├── instagram-message-compose.util.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.port-contract.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.repository.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.db.unit.test.ts
     │   │   │   │   │   │   ├── instagram-message.service.unit.test.ts
     │   │   │   │   │   │   └── instagram-message.util.unit.test.ts
+    │   │   │   │   ├── instagram-message-compose.util.ts
     │   │   │   │   ├── instagram-message.constants.ts
     │   │   │   │   ├── instagram-message.overview.md
     │   │   │   │   ├── instagram-message.repository.ts
@@ -530,6 +561,7 @@ src/
     │   │   │   │   ├── instagram-attachment-upload.job.schema.ts
     │   │   │   │   ├── instagram-database-tasks.job.schema.ts
     │   │   │   │   ├── instagram-database-tasks.queue.ts
+    │   │   │   │   ├── instagram-plan-change.job.schema.ts
     │   │   │   │   ├── instagram-retry-failed.job.schema.ts
     │   │   │   │   ├── instagram-send-fast.job.schema.ts
     │   │   │   │   ├── instagram-send-fast.queue.ts
@@ -543,19 +575,35 @@ src/
     │   │   │   ├── workers/
     │   │   │   │   ├── instagram-attachment-upload.processor.ts
     │   │   │   │   ├── instagram-database-tasks.worker.ts
+    │   │   │   │   ├── instagram-owner-problem-email.constants.ts
+    │   │   │   │   ├── instagram-owner-problem-email.processor.ts
+    │   │   │   │   ├── instagram-plan-change.processor.ts
     │   │   │   │   ├── instagram-retry-failed.processor.ts
     │   │   │   │   ├── instagram-send-fast.processor.ts
     │   │   │   │   ├── instagram-send-fast.worker.ts
+    │   │   │   │   ├── instagram-send-repair-duties.processor.ts
     │   │   │   │   ├── instagram-send-slow.processor.ts
     │   │   │   │   ├── instagram-send-slow.worker.ts
     │   │   │   │   ├── instagram-send-ticket.processor.ts
+    │   │   │   │   ├── instagram-sending-repair.constants.ts
+    │   │   │   │   ├── instagram-sending-repair.processor.ts
+    │   │   │   │   ├── instagram-sending-repair.worker.ts
+    │   │   │   │   ├── instagram-sending-watch.constants.ts
+    │   │   │   │   ├── instagram-sending-watch.processor.ts
     │   │   │   │   ├── instagram-tasks.processor.ts
-    │   │   │   │   └── instagram-tasks.worker.ts
+    │   │   │   │   ├── instagram-tasks.worker.ts
+    │   │   │   │   ├── message-month-notice-check.constants.ts
+    │   │   │   │   └── message-month-notice-check.processor.ts
+    │   │   │   ├── instagram-broadcast-lane.service.ts
+    │   │   │   ├── instagram-fast-lane.service.ts
+    │   │   │   ├── instagram-reply-lane.service.ts
     │   │   │   ├── instagram-send-access.service.ts
+    │   │   │   ├── instagram-send-compose.service.ts
     │   │   │   ├── instagram-send-core.service.ts
     │   │   │   ├── instagram-send-day-count.repository.ts
     │   │   │   ├── instagram-send-day-count.schema.ts
     │   │   │   ├── instagram-send-error.util.ts
+    │   │   │   ├── instagram-send-estimate.util.ts
     │   │   │   ├── instagram-send-gate.service.ts
     │   │   │   ├── instagram-send-lane.repository.ts
     │   │   │   ├── instagram-send-lane.schema.ts
@@ -563,8 +611,13 @@ src/
     │   │   │   ├── instagram-send-lane.util.ts
     │   │   │   ├── instagram-send-minute-count.repository.ts
     │   │   │   ├── instagram-send-minute-count.schema.ts
+    │   │   │   ├── instagram-send-pace.util.ts
     │   │   │   ├── instagram-send-stop.repository.ts
     │   │   │   ├── instagram-send-stop.schema.ts
+    │   │   │   ├── instagram-sending-repair.repository.ts
+    │   │   │   ├── instagram-sending-repair.service.ts
+    │   │   │   ├── instagram-sending-watch.repository.ts
+    │   │   │   ├── instagram-sending-watch.service.ts
     │   │   │   ├── instagram-sending.constants.ts
     │   │   │   ├── instagram-sending.controller.ts
     │   │   │   ├── instagram-sending.dto.ts
@@ -573,10 +626,12 @@ src/
     │   │   │   ├── instagram-sending.serializer.ts
     │   │   │   ├── instagram-sending.service.ts
     │   │   │   ├── instagram-sending.types.ts
+    │   │   │   ├── instagram-slow-lane.service.ts
     │   │   │   ├── message-month-count.cache.ts
     │   │   │   ├── message-month-count.repository.ts
     │   │   │   ├── message-month-count.schema.ts
     │   │   │   ├── message-month-count.service.ts
+    │   │   │   ├── message-month-notice.service.ts
     │   │   │   ├── sending-state.repository.ts
     │   │   │   ├── sending-state.schema.ts
     │   │   │   └── sending-state.service.ts
@@ -1096,6 +1151,7 @@ src/
     │   │   │       │   ├── subscription-happy.integration.test.ts
     │   │   │       │   ├── subscription-lifecycle.integration.test.ts
     │   │   │       │   ├── subscription-payment-method.integration.test.ts
+    │   │   │       │   ├── subscription-plan-state-check.integration.test.ts
     │   │   │       │   ├── subscription-refusals.integration.test.ts
     │   │   │       │   ├── subscription-seat-ceiling.integration.test.ts
     │   │   │       │   ├── subscription-seat-entitlement.integration.test.ts
@@ -1108,6 +1164,7 @@ src/
     │   │   │       │   ├── subscription-entitlement.util.unit.test.ts
     │   │   │       │   ├── subscription-period.util.unit.test.ts
     │   │   │       │   ├── subscription-plan-change.util.unit.test.ts
+    │   │   │       │   ├── subscription-plan-state.util.unit.test.ts
     │   │   │       │   ├── subscription-routes-rate-limit.policy.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.job.schema.unit.test.ts
     │   │   │       │   ├── subscription-seat-sync.processor.unit.test.ts
@@ -1133,12 +1190,17 @@ src/
     │   │   │   ├── events/
     │   │   │       └── subscription.events.ts
     │   │   │   ├── queues/
+    │   │   │       ├── subscription-plan-state-check.job.schema.ts
+    │   │   │       ├── subscription-plan-state-check.queue.ts
     │   │   │       ├── subscription-seat-sync.job.schema.ts
     │   │   │       └── subscription-seat-sync.queue.ts
     │   │   │   ├── seed/
     │   │   │       ├── subscription.bulk.seed.ts
     │   │   │       └── subscription.faker.ts
     │   │   │   ├── workers/
+    │   │   │       ├── subscription-plan-state-check.constants.ts
+    │   │   │       ├── subscription-plan-state-check.processor.ts
+    │   │   │       ├── subscription-plan-state-check.worker.ts
     │   │   │       ├── subscription-seat-reconcile.constants.ts
     │   │   │       ├── subscription-seat-reconcile.processor.ts
     │   │   │       ├── subscription-seat-sync.processor.ts
@@ -1149,6 +1211,7 @@ src/
     │   │   │   ├── subscription-entitlement.util.ts
     │   │   │   ├── subscription-period.util.ts
     │   │   │   ├── subscription-plan-change.util.ts
+    │   │   │   ├── subscription-plan-state.util.ts
     │   │   │   ├── subscription-trial.service.ts
     │   │   │   ├── subscription.constants.ts
     │   │   │   ├── subscription.controller.ts
@@ -1188,6 +1251,7 @@ src/
     │   │   │   │   ├── integration/
     │   │   │   │   │   ├── notification-check-before-send.integration.test.ts
     │   │   │   │   │   ├── notification-detail.integration.test.ts
+    │   │   │   │   │   ├── notification-notices.integration.test.ts
     │   │   │   │   │   ├── notification-unread-count-cache.integration.test.ts
     │   │   │   │   │   └── notification.integration.test.ts
     │   │   │   │   └── unit/
@@ -1199,6 +1263,7 @@ src/
     │   │   │   │   │   ├── notification-dispatch.service.unit.test.ts
     │   │   │   │   │   ├── notification-email-content.unit.test.ts
     │   │   │   │   │   ├── notification-email-idempotency.unit.test.ts
+    │   │   │   │   │   ├── notification-notice-routing.unit.test.ts
     │   │   │   │   │   ├── notification-recipients.unit.test.ts
     │   │   │   │   │   ├── notification-retention.processor.db.unit.test.ts
     │   │   │   │   │   ├── notification-unread-count.cache.unit.test.ts
@@ -1217,6 +1282,10 @@ src/
     │   │   │   │   ├── membership-invitation.event-handlers.ts
     │   │   │   │   └── membership-notice.event-handlers.ts
     │   │   │   ├── queues/
+    │   │   │   │   ├── notification-contact-details.job.schema.ts
+    │   │   │   │   ├── notification-contact-details.queue.ts
+    │   │   │   │   ├── notification-weekly-summary.job.schema.ts
+    │   │   │   │   ├── notification-weekly-summary.queue.ts
     │   │   │   │   ├── notification.job.schema.ts
     │   │   │   │   └── notification.queue.ts
     │   │   │   ├── seed/
@@ -1224,14 +1293,20 @@ src/
     │   │   │   │   ├── notification.bulk.seed.ts
     │   │   │   │   └── notification.faker.ts
     │   │   │   ├── workers/
+    │   │   │   │   ├── notification-contact-details.constants.ts
+    │   │   │   │   ├── notification-contact-details.processor.ts
     │   │   │   │   ├── notification-email-content.ts
     │   │   │   │   ├── notification-email-idempotency.ts
     │   │   │   │   ├── notification-retention.constants.ts
     │   │   │   │   ├── notification-retention.processor.ts
     │   │   │   │   ├── notification-retention.worker.ts
+    │   │   │   │   ├── notification-weekly-summary.constants.ts
+    │   │   │   │   ├── notification-weekly-summary.processor.ts
     │   │   │   │   └── notification.worker.ts
     │   │   │   ├── notification-dispatch.service.ts
+    │   │   │   ├── notification-notice.service.ts
     │   │   │   ├── notification-unread-count.cache.ts
+    │   │   │   ├── notification-weekly-summary.repository.ts
     │   │   │   ├── notification.controller.ts
     │   │   │   ├── notification.dto.ts
     │   │   │   ├── notification.overview.md
@@ -1456,7 +1531,6 @@ src/
     │   │   │   │   │   ├── membership.service.directory-and-lifecycle.unit.test.ts
     │   │   │   │   │   ├── membership.service.grantable-permissions.unit.test.ts
     │   │   │   │   │   ├── membership.service.invitation-endings.unit.test.ts
-    │   │   │   │   │   ├── membership.service.seat-downgrade.unit.test.ts
     │   │   │   │   │   ├── membership.service.unit.test.ts
     │   │   │   │   │   └── membership.validator.unit.test.ts
     │   │   │   ├── events/
@@ -2151,17 +2225,21 @@ src/
     │   │   │   └── unit/
     │   │   │   │   ├── provider-outage-pause.util.unit.test.ts
     │   │   │   │   ├── registry-scheduler-consistency.unit.test.ts
+    │   │   │   │   ├── repair-duty.util.unit.test.ts
     │   │   │   │   ├── scheduler-registry-audit.unit.test.ts
     │   │   │   │   ├── worker-connection-budget.unit.test.ts
     │   │   │   │   ├── worker-database-slot-limiter.unit.test.ts
     │   │   │   │   ├── worker-failure-sanitizer.util.unit.test.ts
     │   │   │   │   ├── worker-organization-group.util.unit.test.ts
     │   │   │   │   ├── worker-queue-family.util.unit.test.ts
+    │   │   │   │   ├── worker-redis-watch.unit.test.ts
     │   │   │   │   └── worker-registration.registry.unit.test.ts
     │   │   ├── provider-outage-pause.util.ts
     │   │   ├── provider-pause.util.ts
+    │   │   ├── repair-duty.util.ts
     │   │   ├── scheduler-registry-audit.ts
     │   │   ├── shutdown-timing.util.ts
+    │   │   ├── worker-clock-watch.ts
     │   │   ├── worker-close.util.ts
     │   │   ├── worker-connection-budget.ts
     │   │   ├── worker-database-slot-limiter.ts
@@ -2174,6 +2252,7 @@ src/
     │   │   ├── worker-queue-family.constants.ts
     │   │   ├── worker-queue-family.util.ts
     │   │   ├── worker-queue-heartbeat.ts
+    │   │   ├── worker-redis-watch.ts
     │   │   └── worker-registration.registry.ts
     │   ├── bootstrap.ts
     │   ├── connection.ts

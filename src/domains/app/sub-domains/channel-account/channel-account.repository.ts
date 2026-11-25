@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+import { type SQL, and, asc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -15,6 +15,7 @@ import {
 } from '@/shared/utils/infrastructure/database-timestamp.util.js';
 import { generatePublicId } from '@/shared/utils/identity/public-id.util.js';
 import { runInsertWithPublicIdentifierRetry } from '@/shared/utils/infrastructure/postgres-error.util.js';
+import { organizations } from '@/domains/tenancy/sub-domains/organization/organization.schema.js';
 import { channel_accounts } from './channel-account.schema.js';
 import {
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
@@ -32,6 +33,19 @@ export interface OrganizationCountsRow {
   membersCount: number;
   channelAccountsCount: number;
   liveAutomationsCount: number;
+}
+
+/** One live channel account's week as {@link ChannelAccountRepository.readWeeklySummary} reads it. */
+export interface ChannelAccountWeekRow {
+  channelAccountPublicId: string;
+  displayName: string;
+  runsStarted: number;
+  tappedRuns: number;
+  directMessagesSent: number;
+  newContacts: number;
+  emailsCollected: number;
+  phonesCollected: number;
+  topAutomationName: string | null;
 }
 
 /** One `app.channel_accounts` row as Drizzle reads it. */
@@ -275,6 +289,81 @@ export class ChannelAccountRepository {
     }));
   }
 
+  /**
+   * The weekly summary's numbers (feat-instagram-dm-sending UN12, WC-58) per live account of the
+   * organization over `[since, until)`: runs started (by the run's start — the month parts are
+   * pruned), runs with a button tap, DMs sent, new contacts (first seen), emails and phones saved,
+   * and the automation with the most runs. One statement; every part names `organization_id`.
+   */
+  async readWeeklySummary({
+    organizationId,
+    since,
+    until,
+  }: {
+    organizationId: number;
+    since: Date;
+    until: Date;
+  }): Promise<ChannelAccountWeekRow[]> {
+    const from = since.toISOString();
+    const to = until.toISOString();
+    const result = await this.db().execute(sql`
+      WITH week_runs AS (
+        SELECT r.id, r.automation_id, a.channel_account_id
+        FROM app.automation_runs r
+        JOIN app.automations a ON a.organization_id = r.organization_id AND a.id = r.automation_id
+        WHERE r.organization_id = ${organizationId}
+          AND r.started_at >= ${from}::timestamptz AND r.started_at < ${to}::timestamptz
+      ),
+      tapped_runs AS (
+        SELECT DISTINCT e.automation_run_id
+        FROM app.automation_run_events e
+        WHERE e.organization_id = ${organizationId}
+          AND e.automation_run_started_at >= ${from}::timestamptz
+          AND e.automation_run_started_at < ${to}::timestamptz
+          AND e.event_type IN ('hello_tapped', 'follow_tapped')
+      )
+      SELECT ca.public_id, ca.display_name,
+        (SELECT count(*) FROM week_runs w WHERE w.channel_account_id = ca.id)::int AS runs_started,
+        (SELECT count(*) FROM week_runs w JOIN tapped_runs t ON t.automation_run_id = w.id
+          WHERE w.channel_account_id = ca.id)::int AS tapped_runs,
+        (SELECT count(*) FROM app.instagram_messages m
+          WHERE m.organization_id = ${organizationId} AND m.channel_account_id = ca.id
+            AND m.status = 'sent' AND m.is_counted_as_direct_message
+            AND m.sent_at >= ${from}::timestamptz AND m.sent_at < ${to}::timestamptz)::int AS direct_messages_sent,
+        (SELECT count(*) FROM app.contacts c
+          WHERE c.organization_id = ${organizationId} AND c.channel_account_id = ca.id
+            AND c.deleted_at IS NULL
+            AND c.first_seen_at >= ${from}::timestamptz AND c.first_seen_at < ${to}::timestamptz)::int AS new_contacts,
+        (SELECT count(*) FROM app.contacts c
+          WHERE c.organization_id = ${organizationId} AND c.channel_account_id = ca.id
+            AND c.deleted_at IS NULL
+            AND c.email_collected_at >= ${from}::timestamptz AND c.email_collected_at < ${to}::timestamptz)::int AS emails_collected,
+        (SELECT count(*) FROM app.contacts c
+          WHERE c.organization_id = ${organizationId} AND c.channel_account_id = ca.id
+            AND c.deleted_at IS NULL
+            AND c.phone_collected_at >= ${from}::timestamptz AND c.phone_collected_at < ${to}::timestamptz)::int AS phones_collected,
+        (SELECT au.name FROM week_runs w
+          JOIN app.automations au ON au.organization_id = ${organizationId} AND au.id = w.automation_id
+          WHERE w.channel_account_id = ca.id
+          GROUP BY au.id, au.name ORDER BY count(*) DESC, au.id LIMIT 1) AS top_automation_name
+      FROM app.channel_accounts ca
+      WHERE ca.organization_id = ${organizationId}
+        AND ca.connection_status <> ${CHANNEL_ACCOUNT_STATUS.REVOKED}
+      ORDER BY ca.id
+    `);
+    return result.rows.map((row) => ({
+      channelAccountPublicId: String(row.public_id),
+      displayName: String(row.display_name),
+      runsStarted: Number(row.runs_started),
+      tappedRuns: Number(row.tapped_runs),
+      directMessagesSent: Number(row.direct_messages_sent),
+      newContacts: Number(row.new_contacts),
+      emailsCollected: Number(row.emails_collected),
+      phonesCollected: Number(row.phones_collected),
+      topAutomationName: row.top_automation_name === null ? null : String(row.top_automation_name),
+    }));
+  }
+
   /** How many accounts are active — not revoked, not `plan_downgrade` (route 11's count, CA9). */
   async countActive(organizationId: number): Promise<number> {
     const [row] = await this.db()
@@ -504,6 +593,57 @@ export class ChannelAccountRepository {
   }
 
   /**
+   * One page of the organizations whose plan stop is due a look (WC-37, WC-38 — ROUTE row R52), read
+   * across tenants through the policy's sweep arm (retention handle only,
+   * {@link createRetentionChannelAccountRepository}): the organizations with a live account holding
+   * `reason` — for `plan_limit` only those whose month (in the organization's time zone) has turned
+   * since the stop began (`isMonthTurned`). Each with the organization's month now (`YYYY-MM`).
+   *
+   * @remarks
+   * Keyset by `organizations.id`; served by `idx_channel_accounts_plan_stop`.
+   */
+  async listOrganizationsHoldingPlanStop({
+    reason,
+    isMonthTurned,
+    afterOrganizationId,
+    limit,
+  }: {
+    reason: ChannelAccountPlanStopReason;
+    isMonthTurned: boolean;
+    afterOrganizationId: number;
+    limit: number;
+  }): Promise<{ organizationId: number; organizationPublicId: string; month: string }[]> {
+    const localMonth = (moment: SQL) =>
+      sql`date_trunc('month', ${moment} AT TIME ZONE ${organizations.timezone})`;
+    return this.db()
+      .select({
+        organizationId: organizations.id,
+        organizationPublicId: organizations.public_id,
+        month: sql<string>`to_char(now() AT TIME ZONE ${organizations.timezone}, 'YYYY-MM')`,
+      })
+      .from(organizations)
+      .where(
+        and(
+          isNull(organizations.deleted_at),
+          sql`${organizations.id} > ${afterOrganizationId}`,
+          sql`EXISTS (
+            SELECT 1 FROM ${channel_accounts}
+            WHERE ${channel_accounts.organization_id} = ${organizations.id}
+              AND ${channel_accounts.plan_stop_reason} = ${reason}
+              AND ${channel_accounts.connection_status} <> ${CHANNEL_ACCOUNT_STATUS.REVOKED}
+              ${
+                isMonthTurned
+                  ? sql`AND ${localMonth(sql`${channel_accounts.plan_stopped_at}`)} < ${localMonth(sql`now()`)}`
+                  : sql``
+              }
+          )`,
+        ),
+      )
+      .orderBy(asc(organizations.id))
+      .limit(limit);
+  }
+
+  /**
    * The organization's account-limit lock (MC7, CA9) — the one the pick takes, so a swap and a pick
    * never count at the same time. Held until the unit of work ends.
    */
@@ -538,5 +678,18 @@ export function createWorkerChannelAccountRepository(
   databaseHandle: WorkerDatabaseHandle,
 ): ChannelAccountRepository {
   assertWorkerDatabaseContext(['organization']);
+  return new ChannelAccountRepository(databaseHandle);
+}
+
+/**
+ * {@link ChannelAccountRepository} bound to a retention maintenance handle — the repair duties'
+ * cross-organization reads of the plan stops (WC-37's month wake, WC-38's backup — ROUTE row R52),
+ * through the sweep arm the account policy carries in `USING` only (it reads every organization's
+ * row and can write none).
+ */
+export function createRetentionChannelAccountRepository(
+  databaseHandle: WorkerDatabaseHandle,
+): ChannelAccountRepository {
+  assertWorkerDatabaseContext(['global_retention_cleanup']);
   return new ChannelAccountRepository(databaseHandle);
 }

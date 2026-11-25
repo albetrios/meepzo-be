@@ -8,11 +8,13 @@ import type { MetaAppUsageStore } from '@/domains/app/sub-domains/channel-connec
 import { SendingStateRepository, type SendingStateRow } from './sending-state.repository.js';
 import {
   INSTAGRAM_SEND_CORE_SETTINGS,
+  INSTAGRAM_SENDING_WATCH_SETTINGS,
   SENDING_MINIMUM_COMPATIBLE_SETTINGS_VERSION,
   SENDING_SETTINGS_VERSION,
 } from './instagram-sending.constants.js';
 import { ladderStep } from './instagram-send-error.util.js';
 import { MILLISECONDS_PER_MINUTE } from '@/shared/constants/ttl.constants.js';
+import { readWorkerClockReading } from '@/infrastructure/queue/worker-runtime/worker-clock-watch.js';
 
 /** How long one server trusts its last sending check before reading the row again (SN7: per minute). */
 const SENDING_CHECK_REFRESH_MILLISECONDS = 60_000;
@@ -28,7 +30,23 @@ export type SendingRefusalReason =
   | 'environment_id_missing'
   | 'sending_state_missing'
   | 'environment_mismatch'
-  | 'settings_version_too_old';
+  | 'settings_version_too_old'
+  | 'clock_skew';
+
+/**
+ * Whether this server's clock is in line with Postgres's (WC-23, AC-17.23): a reading within
+ * `INSTAGRAM_SENDING_WATCH_SETTINGS.clockSkewMaxMilliseconds`. No reading (never read, or the last
+ * read failed) is not in line — fail closed.
+ *
+ * @remarks
+ * Algorithm: `|skew| ≤ max`. Failure modes: none. Side effects: none.
+ */
+export function isServerClockInLine(skewMilliseconds: number | null): boolean {
+  return (
+    skewMilliseconds !== null &&
+    Math.abs(skewMilliseconds) <= INSTAGRAM_SENDING_WATCH_SETTINGS.clockSkewMaxMilliseconds
+  );
+}
 
 /**
  * The answer of {@link SendingStateService.checkSending}.
@@ -121,6 +139,20 @@ export function decideSending({
  */
 export class SendingStateService implements MetaAppUsageStore {
   private lastCheck: SendingCheck | null = null;
+  private isClockRefusalLogged = false;
+
+  constructor(
+    private readonly options: {
+      /** This process's clock skew against Postgres (WC-23); the worker clock watch by default. */
+      readClockSkewMilliseconds?: (() => number | null) | undefined;
+    } = {},
+  ) {}
+
+  private readClockSkewMilliseconds(): number | null {
+    return (
+      this.options.readClockSkewMilliseconds ?? (() => readWorkerClockReading().skewMilliseconds)
+    )();
+  }
 
   /**
    * Creates the row when it is missing (with `environmentId`) and writes this build's settings
@@ -196,11 +228,25 @@ export class SendingStateService implements MetaAppUsageStore {
    * and repair duty asks before it works (SN7; the workers are ROUTE rows R37, R42, R47).
    *
    * @remarks
-   * Algorithm: the last {@link checkSending} answer while under a minute old, else a fresh one.
+   * Algorithm: this server's clock first — over 2 s from Postgres's (or never read) answers
+   * `false` until the clock watch sees it in line (WC-23, AC-17.23; read live, never kept); then the
+   * last {@link checkSending} answer while under a minute old, else a fresh one.
    * Failure modes: a failed read answers `false` (fail closed) and is logged. Side effects: a
-   * warning log whenever a fresh check refuses.
+   * warning log whenever a fresh check refuses, and once when the clock refuses.
    */
   async mayTakeTickets(): Promise<boolean> {
+    const skewMilliseconds = this.readClockSkewMilliseconds();
+    if (!isServerClockInLine(skewMilliseconds)) {
+      if (!this.isClockRefusalLogged) {
+        logger.warn(
+          { reason: 'clock_skew', skew_milliseconds: skewMilliseconds },
+          'app.sending_state.sending_refused',
+        );
+        this.isClockRefusalLogged = true;
+      }
+      return false;
+    }
+    this.isClockRefusalLogged = false;
     const now = Date.now();
     if (
       this.lastCheck !== null &&
@@ -324,6 +370,56 @@ export class SendingStateService implements MetaAppUsageStore {
         });
         return 'all';
       },
+    });
+  }
+
+  /**
+   * Starts the all-accounts `instagram_down` stop (plan §33.5 rule 3, WC-22 — ROUTE row R48) when
+   * no all-accounts stop holds now: 5 · 10 · 20 · 40 minutes by the row's `all_stop_count`.
+   * Answers the stop's end, or `null` when one already held (nothing changed) or there is no row.
+   *
+   * @remarks
+   * Algorithm: one maintenance unit with the row locked — a live stop wins (an app limit is not
+   * overwritten, a down stop is not lengthened: the lanes test after it). Failure modes:
+   * propagates. Side effects: the row.
+   */
+  async startAllAccountsDownStop({ now = new Date() }: { now?: Date } = {}): Promise<Date | null> {
+    return withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.SENDING_STATE,
+      callback: async (databaseHandle) => {
+        const repository = new SendingStateRepository(databaseHandle);
+        const row = await repository.lockRow();
+        if (row === null) return null;
+        if (row.all_stop_until !== null && row.all_stop_until.getTime() > now.getTime()) {
+          return null;
+        }
+        const minutes = ladderStep({
+          ladder: INSTAGRAM_SENDING_WATCH_SETTINGS.allDownStopMinutes,
+          stopCount: row.all_stop_count,
+        });
+        const stopUntil = new Date(now.getTime() + minutes * MILLISECONDS_PER_MINUTE);
+        await repository.startAllStop({ reason: 'instagram_down', stopUntil });
+        return stopUntil;
+      },
+    });
+  }
+
+  /**
+   * Clears an all-accounts stop that ended over 24 quiet hours ago, so the next one starts at the
+   * first step again (plan §33.6 rule 4, WC-22). Answers whether it cleared one.
+   *
+   * @remarks
+   * Algorithm: one guarded maintenance update. Failure modes: propagates. Side effects: the row.
+   */
+  async resetQuietAllStop({ now = new Date() }: { now?: Date } = {}): Promise<boolean> {
+    const endedBefore = new Date(
+      now.getTime() -
+        INSTAGRAM_SENDING_WATCH_SETTINGS.allStopCountResetHours * 60 * MILLISECONDS_PER_MINUTE,
+    );
+    return withMaintenanceDatabaseContext({
+      scope: MAINTENANCE_SCOPE.SENDING_STATE,
+      callback: (databaseHandle) =>
+        new SendingStateRepository(databaseHandle).clearAllStopEndedBefore(endedBefore),
     });
   }
 

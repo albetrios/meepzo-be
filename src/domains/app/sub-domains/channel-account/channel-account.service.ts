@@ -7,6 +7,7 @@ import {
   INSTAGRAM_ACCOUNT_SETUP_JOB_NAME,
   startInstagramAccountChainBestEffort,
 } from '@/domains/app/sub-domains/instagram-account/queues/instagram-account-tasks.queue.js';
+import { MessageMonthCountRepository } from '@/domains/app/sub-domains/instagram-sending/message-month-count.repository.js';
 import type { SubscriptionService } from '@/domains/billing/sub-domains/subscription/subscription.service.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import {
@@ -38,6 +39,7 @@ import {
   CHANNEL_ACCOUNT_PLAN_STOP_REASON,
   CHANNEL_ACCOUNT_STATUS,
   type ChannelAccountChannel,
+  type ChannelAccountPlanStopReason,
 } from './channel-account.constants.js';
 import {
   APP_UNTESTED_META_FEATURES,
@@ -70,11 +72,15 @@ import type {
   ChannelAccountChange,
   ChannelAccountLanePort,
   ChannelAccountOutput,
+  ChannelAccountPlanStopMove,
   ChannelAccountPlanStopPort,
+  ChannelAccountPlanStopsInput,
+  ChannelAccountPlanStopsResult,
   ChannelAccountSummaryOutput,
   ChannelFeatureCheckResult,
   ChannelFeatureProblem,
 } from './channel-account.types.js';
+import { pickChannelAccountsInPlan } from './channel-account-plan-stop.util.js';
 
 /**
  * The plan read route 11 and the feature check take the plan from (sub-domain 8, P83).
@@ -83,6 +89,29 @@ import type {
  * Notes: structural, so a test can stub it; billing's `SubscriptionService` satisfies it.
  */
 export type ChannelAccountPlanAccessService = Pick<SubscriptionService, 'getPlanAccess'>;
+
+/**
+ * The organization's week as {@link ChannelAccountService.readWeeklySummary} answers it — the shape
+ * notify's weekly-summary port takes (feat-instagram-dm-sending UN1, UN12).
+ *
+ * @remarks
+ * Counts only, the account's username and an automation's name — no personal data.
+ */
+export interface ChannelAccountWeeklySummary {
+  accounts: {
+    channelAccountPublicId: string;
+    username: string;
+    runsStarted: number;
+    directMessagesSent: number;
+    tappedPercent: number;
+    newContacts: number;
+    emailsCollected: number;
+    phonesCollected: number;
+    topAutomationName: string | null;
+  }[];
+  monthUsed: number;
+  monthLimit: number | null;
+}
 
 /**
  * The caller of a channel account route: its organization scope and user.
@@ -553,6 +582,87 @@ export class ChannelAccountService
       change: result.change,
       stoppedChannelAccountPublicId: result.stoppedChannelAccountPublicId,
     };
+  }
+
+  /**
+   * Puts the organization's accounts' plan stops in line with its plan now (CA3, CA9 — WC-37, WC-38,
+   * ROUTE row R52): the accounts over the plan's limit take `plan_downgrade`, every account in the
+   * plan takes the organization's own stop (`plan_ended`, else `plan_limit`, else none).
+   *
+   * @remarks
+   * Algorithm: outside any unit, billing's plan read (the limit and the features, P83); then one
+   * unit under the organization's account-limit lock (the pick's and route 11's, MC7): the live
+   * accounts (oldest connected first); the organization's stop through
+   * {@link ChannelAccountPlanStopPort} (read in this unit — the month count against the plan's
+   * limit now); the accounts in the plan by {@link pickChannelAccountsInPlan} (while the plan has
+   * ended every account stays — nothing is trimmed or let back); each account whose
+   * stop differs is changed — a new `plan_ended` or `plan_downgrade` stops its lanes with its history
+   * row, a new `plan_limit` writes its history row only (the reply lane goes on, D62). One reason at
+   * a time (CA3): `plan_downgrade` is never replaced by the other two, `plan_ended` replaces
+   * `plan_limit`, and ending `plan_ended` re-derives `plan_limit`. Failure modes: none of its own —
+   * a read failure rolls the unit back. Side effects: the account rows; the lanes' stops and history.
+   * Notes: returns the organization's id, the plan's features and the moves; the caller wakes the
+   * lanes of each account whose stop got weaker, after the commit. Running it twice changes nothing
+   * the second time.
+   */
+  async applyOrganizationPlanStops({
+    scope,
+    keptChannelAccountPublicIds,
+    mayActivate,
+  }: ChannelAccountPlanStopsInput): Promise<ChannelAccountPlanStopsResult> {
+    const planAccess = await this.planAccessService.getPlanAccess({
+      organizationPublicId: scope.organizationPublicId,
+    });
+    const accountsMax =
+      planAccess.features?.channel_accounts_max ?? CHANNEL_ACCOUNTS_MAX_WITHOUT_PLAN;
+    return withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organizationId = await this.resolveOrganizationId(scope);
+        await this.accountRepository.lockOrganizationForAccountLimit(organizationId);
+        const live = await this.accountRepository.listLive({
+          organizationId,
+          channels: CHANNEL_ACCOUNT_CHANNELS,
+        });
+        const organizationStop =
+          (await this.planStopPort?.readOrganizationPlanStop({ scope, organizationId })) ?? null;
+        // A plan that ended holds every account where it is (CA3): its Free features trim nothing —
+        // the limit applies again once a plan is picked.
+        const isPlanEnded = organizationStop === CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_ENDED;
+        const inPlan = pickChannelAccountsInPlan({
+          live,
+          accountsMax: isPlanEnded ? live.length : accountsMax,
+          keptChannelAccountPublicIds,
+          mayActivate: mayActivate && !isPlanEnded,
+        });
+        const moves: ChannelAccountPlanStopMove[] = [];
+        for (const account of live) {
+          const to = inPlan.has(account.id)
+            ? organizationStop
+            : CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_DOWNGRADE;
+          if (account.plan_stop_reason === to) continue;
+          const changed = await this.accountRepository.setPlanStop({
+            organizationId,
+            channelAccountId: account.id,
+            reason: to,
+          });
+          if (changed === null) continue;
+          const key = { scope, organizationId, channelAccountId: account.id };
+          if (to === CHANNEL_ACCOUNT_PLAN_STOP_REASON.PLAN_LIMIT) {
+            await this.lanePort?.recordPlanStop?.({ ...key, planStopReason: to });
+          } else if (to !== null) {
+            await this.lanePort?.stopLanes({ ...key, planStopReason: to });
+          }
+          moves.push({
+            channelAccountId: account.id,
+            channelAccountPublicId: account.public_id,
+            from: account.plan_stop_reason as ChannelAccountPlanStopReason | null,
+            to,
+          });
+        }
+        return { organizationId, features: planAccess.features, moves };
+      },
+    });
   }
 
   /**
@@ -1126,6 +1236,71 @@ export class ChannelAccountService
           organizationPublicIds,
         }),
     });
+  }
+
+  /**
+   * The weekly summary's read (feat-instagram-dm-sending UN1, UN12, WC-58) — the app's side of
+   * notify's `NotificationWeeklySummaryPort`: per live account of the organization its last days'
+   * runs, DMs sent, % tapped, new contacts, emails and phones and top automation, plus this month's
+   * DM count and the plan's limit.
+   *
+   * @remarks
+   * - **Algorithm:** in the given organization scope (joining the job's unit): the organization,
+   *   one statement for every account (`ChannelAccountRepository.readWeeklySummary`), the month's
+   *   slots (`MessageMonthCountRepository.readMonth`) and billing's `message_month_limit`.
+   *   `tappedPercent` = runs with a tap ÷ runs started, rounded; the username is the display name
+   *   without its `@`.
+   * - **Failure modes:** a missing organization reads an empty week; read errors propagate.
+   * - **Side effects:** none — reads.
+   * - **Notes:** wired into notify's weekly-summary worker by the worker composition root.
+   */
+  async readWeeklySummary({
+    scope,
+    since,
+    until,
+  }: {
+    scope: OrganizationPrincipalDatabaseScope;
+    since: Date;
+    until: Date;
+  }): Promise<ChannelAccountWeeklySummary> {
+    const read = await withAppDatabaseContext({
+      scope,
+      callback: async () => {
+        const organization = await this.organizationService.findOrganizationByPublicId(
+          scope.organizationPublicId,
+        );
+        if (!organization) return null;
+        const accounts = await this.accountRepository.readWeeklySummary({
+          organizationId: organization.id,
+          since,
+          until,
+        });
+        const month = await new MessageMonthCountRepository().readMonth(organization.id);
+        return { accounts, monthUsed: month?.used ?? 0 };
+      },
+    });
+    if (read === null) return { accounts: [], monthUsed: 0, monthLimit: null };
+    const planAccess = await this.planAccessService.getPlanAccess({
+      organizationPublicId: scope.organizationPublicId,
+    });
+    return {
+      accounts: read.accounts.map((account) => ({
+        channelAccountPublicId: account.channelAccountPublicId,
+        username: account.displayName.replace(/^@/, ''),
+        runsStarted: account.runsStarted,
+        directMessagesSent: account.directMessagesSent,
+        tappedPercent:
+          account.runsStarted === 0
+            ? 0
+            : Math.round((account.tappedRuns / account.runsStarted) * 100),
+        newContacts: account.newContacts,
+        emailsCollected: account.emailsCollected,
+        phonesCollected: account.phonesCollected,
+        topAutomationName: account.topAutomationName,
+      })),
+      monthUsed: read.monthUsed,
+      monthLimit: planAccess.features?.message_month_limit ?? null,
+    };
   }
 
   /**

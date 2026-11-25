@@ -1,4 +1,5 @@
 import type { OrganizationPrincipalDatabaseScope } from '@/infrastructure/database/contexts/database-context.js';
+import type { PlanFeatures } from '@/domains/billing/sub-domains/plan/plan.types.js';
 import type { InstagramAccountExtensionOutput } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
 import type {
   ChannelAccountChannel,
@@ -94,6 +95,18 @@ export interface ChannelAccountLanePort {
    * the history.
    */
   wakeLanes(options: ChannelAccountPortScope & { channelAccountId: number }): Promise<void>;
+  /**
+   * Records a plan stop the account just took in the stop history (lane `all`, SN13) without
+   * touching its lanes, in the caller's unit — `plan_limit`, which holds the slow, fast and broadcast
+   * lanes through the account's column while the reply lane goes on (D62). Optional: a unit test's
+   * port may leave it out.
+   */
+  recordPlanStop?(
+    options: ChannelAccountPortScope & {
+      channelAccountId: number;
+      planStopReason: ChannelAccountPlanStopReason;
+    },
+  ): Promise<void>;
   /** The stop holding most of the account's lanes, or `null`, in the caller's unit (1B.6). */
   readActiveStop(
     options: ChannelAccountPortScope & { channelAccountId: number },
@@ -190,4 +203,36 @@ export interface ChannelAutomationPartProblem {
   /** The part's value (`story_repost`, `follow`, `cards`, `email_ask`). */
   part: string;
   reason: ChannelFeatureRefusalReason;
+}
+
+/**
+ * What the plan change (WC-37, WC-38 — ROUTE row R52) asks of the organization's accounts: the
+ * accounts the owner kept on a move down, and whether accounts "not in your plan" may come back (a
+ * move up). The plan's account limit is read by the service (billing's plan read).
+ */
+export interface ChannelAccountPlanStopsInput {
+  /** The organization's job scope. */
+  scope: OrganizationPrincipalDatabaseScope;
+  /** `cha_…` ids kept on a move down or a trial end (BL6) — `null` keeps the oldest connected. */
+  keptChannelAccountPublicIds: readonly string[] | null;
+  /** `true` on a move up (upgraded, resumed, trial started): `plan_downgrade` accounts fill the limit. */
+  mayActivate: boolean;
+}
+
+/** One account whose plan stop the plan change moved — its keys and the stop before and after. */
+export interface ChannelAccountPlanStopMove {
+  channelAccountId: number;
+  channelAccountPublicId: string;
+  from: ChannelAccountPlanStopReason | null;
+  to: ChannelAccountPlanStopReason | null;
+}
+
+/** What `ChannelAccountService.applyOrganizationPlanStops` did (WC-37, WC-38). */
+export interface ChannelAccountPlanStopsResult {
+  /** `tenancy.organizations.id` of the scope's organization. */
+  organizationId: number;
+  /** The plan's typed features read for the change (`null` when the catalog has no plan to read). */
+  features: PlanFeatures | null;
+  /** The accounts whose plan stop moved. */
+  moves: ChannelAccountPlanStopMove[];
 }

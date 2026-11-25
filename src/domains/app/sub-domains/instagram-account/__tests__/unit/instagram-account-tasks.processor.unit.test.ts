@@ -41,7 +41,9 @@ vi.mock(
 
 vi.mock('@/domains/app/sub-domains/instagram-account/instagram-account.repository.js', () => ({
   createWorkerInstagramAccountRepository: () => accountRepository,
-  createRetentionInstagramAccountRepository: () => ({ listConnectedForSubscriptionCheck: vi.fn() }),
+  createRetentionInstagramAccountRepository: () => ({
+    listConnectedForWebhookSubscriptionSweep: vi.fn(),
+  }),
 }));
 
 vi.mock(

@@ -264,6 +264,25 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
   - Removing the 1-day notice → an owner who missed the first may lose the plan without warning.
 - **Last reviewed**: 2026-11-24
 
+## PLAN_STATE_CHECK_MINUTES
+
+- **Value**: 15 minutes
+- **Source**: [src/domains/billing/sub-domains/subscription/subscription.constants.ts](src/domains/billing/sub-domains/subscription/subscription.constants.ts)
+- **Rationale**: How often the plan-state check sweeps (feat-instagram-dm-sending BL17, WC-59, ROUTE row R52): a grace that ended (no Stripe event marks it) stops the lanes with `plan_ended` within 15 minutes, the trial notices go out within 15 minutes of their day, and a subscription on a switched-off plan row is moved to Free's limits once. The app's plan-stop backup (`INSTAGRAM_PLAN_STOP_BACKUP_MINUTES`, WC-38) runs at the same pace. A grace that ended more than `PLAN_STATE_CHECK_GRACE_END_LOOKBACK_DAYS` (7) ago is not swept again — the app's plan-change job keeps its id for 7 days, and Stripe cancels the row at the end of its retries. Not environment-varying (P4).
+- **Consequences of change**:
+  - Decreasing → the stops follow the plan sooner, at one more cross-organization read per run.
+  - Increasing → a lapsed plan keeps sending longer after its grace.
+- **Last reviewed**: 2026-11-25
+
+## BILLING_SEAT_SYNC_ENABLED
+
+- **Value**: `false`
+- **Source**: [src/domains/billing/sub-domains/subscription/subscription.constants.ts](src/domains/billing/sub-domains/subscription/subscription.constants.ts)
+- **Rationale**: Members are unlimited on every plan (feat-instagram-dm-sending D55, BL9, WC-65 — ROUTE row R52): the member count is not pushed to Stripe (the quantity stays 1) and the hourly seat reconcile is not scheduled. A billing product switch, not an environment setting (P4); the seat machinery is kept for a plan that carries seats again.
+- **Consequences of change**:
+  - Turning it on → member adds and removes push the quantity to Stripe again and the hourly reconcile is scheduled; only worth it with a plan that has `included_seats`.
+- **Last reviewed**: 2026-11-25
+
 ## INSTAGRAM_WEBHOOK_EVENT_MAX_PROCESSING_ATTEMPTS
 
 - **Value**: 5 attempts
@@ -559,7 +578,7 @@ The canonical exports live under [src/shared/constants/](src/shared/constants/) 
 - **Source**: [src/shared/constants/instagram.constants.ts](src/shared/constants/instagram.constants.ts)
 - **Rationale**: The longest one Instagram profile read may take during a pick (route 3, routes-final § 1 MC7) before the pick goes on without it — it fails open, the username is enough.
 - **Consequences of change**:
-  - Decreasing → more picks connect without the profile (filled by the next daily token check).
+  - Decreasing → more picks connect without the profile (filled by the connection's next daily token check).
   - Increasing → a slow Meta holds the owner's pick answer longer.
 - **Last reviewed**: 2026-11-24
 

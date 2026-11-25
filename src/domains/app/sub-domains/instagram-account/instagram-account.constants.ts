@@ -23,16 +23,3 @@ export const INSTAGRAM_ACCOUNT_AUDIT_RESOURCE_TYPE = 'instagram_account';
  * reconnect notice (IA9), joined to `FRONTEND_URL` so the email's button works too.
  */
 export const INSTAGRAM_ACCOUNT_FRONTEND_PATH = '/instagram';
-
-/**
- * Accounts one webhook subscription sweep page reads (WC-25) — one short retention read per page,
- * the adds after it.
- */
-export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_PAGE_SIZE = 500;
-
-/**
- * Most pages one webhook subscription sweep reads — 100 000 accounts, the bound that keeps one
- * sweep run finite. An estate that reaches it logs
- * `app.instagram_account.webhook_subscription_check.sweep_capped` at error.
- */
-export const INSTAGRAM_WEBHOOK_SUBSCRIPTION_SWEEP_MAX_PAGES = 200;

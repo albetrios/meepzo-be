@@ -5,7 +5,10 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { expect } from 'vitest';
 import { ExternalServiceError } from '@/infrastructure/outbound/outbound-error.js';
-import type { InstagramMessageRecipient } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
+import type {
+  InstagramMessageRecipient,
+  readInstagramUserProfile,
+} from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import type {
   ChannelSendingPort,
   ChannelWaitingMessageSelection,
@@ -41,7 +44,6 @@ import type {
   InstagramWebhookIntakeServices,
 } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-intake.processor.js';
 import { createInstagramContactProfileReadTaskHandler } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
-import type { readInstagramUserProfile } from '@/domains/app/sub-domains/channel-connection/channel-connection-meta/meta-graph.client.js';
 import { runInstagramIntakeOfAccount } from './instagram-intake-run.helper.js';
 import {
   type InstagramTeamFixture,

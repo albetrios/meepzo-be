@@ -441,6 +441,79 @@ export class InstagramMessageService implements ChannelSendingPort {
   };
 
   /**
+   * An echo of the owner's chat to her that may be one of our own messages whose send was not saved
+   * with Meta's id yet (WH10, WHQ1 / P62): her direct messages `sending` or `unknown` without an id,
+   * changed in the last `withinMinutes`. Exactly one `unknown` → it becomes `sent` with the echo's
+   * id and its run hears `sent` (`confirmed`); one still `sending` → `in_flight` (the send is being
+   * saved — the echo is ours); otherwise `none` — the owner typed it by hand.
+   *
+   * @remarks
+   * Algorithm: joins intake's open unit (the event's one transaction): one read of at most 2 rows,
+   * then the guarded `unknown` → `sent` update and the engine's `recordMessageResult` in the same
+   * commit, as the result save does. Failure modes: a database error rolls the event back. Side
+   * effects: the message row and the run's next step. Notes: no message text is stored, so the
+   * match is by person and time, not by text.
+   */
+  async matchEchoedMessage({
+    scope,
+    organizationId,
+    channelAccountId,
+    contactInstagramUserId,
+    instagramMessageId,
+    withinMinutes,
+  }: InstagramSendLaneTarget & {
+    /** Her Instagram id (the echo's recipient). */
+    contactInstagramUserId: string;
+    /** The echo's `mid`. */
+    instagramMessageId: string;
+    withinMinutes: number;
+  }): Promise<'confirmed' | 'in_flight' | 'none'> {
+    return withAppDatabaseContext({
+      scope,
+      callback: async (databaseHandle) => {
+        const repository = new InstagramMessageRepository(databaseHandle);
+        const candidates = await repository.listUnconfirmedDirectMessagesSince({
+          organizationId,
+          channelAccountId,
+          contactInstagramUserId,
+          since: new Date(Date.now() - withinMinutes * 60_000),
+        });
+        if (candidates.some((candidate) => candidate.status === 'sending')) return 'in_flight';
+        const [only] = candidates;
+        if (only === undefined || candidates.length !== 1) return 'none';
+        const message = await repository.confirmUnknownAsSent({
+          key: {
+            organizationId,
+            publicId: only.public_id,
+            automationRunStartedAt: only.automation_run_started_at,
+          },
+          instagramMessageId,
+        });
+        if (message === null) return 'none';
+        if (message.automation_run_id !== null) {
+          await this.options.recordRunMessageResult({
+            scope,
+            databaseHandle,
+            organizationId,
+            channelAccountId,
+            automationRunId: message.automation_run_id,
+            automationRunStartedAt: message.automation_run_started_at,
+            messagePublicId: message.public_id,
+            step: instagramMessageStepOf(
+              message.message_type as Parameters<typeof instagramMessageStepOf>[0],
+            ),
+            messageNumber: message.message_number,
+            result: 'sent',
+            reason: null,
+            occurredAt: new Date(),
+          });
+        }
+        return 'confirmed';
+      },
+    });
+  }
+
+  /**
    * Route 63's waiting messages per lane (AC-7.12).
    *
    * @remarks

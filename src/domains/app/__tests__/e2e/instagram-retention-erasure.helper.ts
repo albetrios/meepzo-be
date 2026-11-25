@@ -39,10 +39,9 @@ import {
   nextInstagramObjectId,
   readRunRows,
 } from '@/domains/app/sub-domains/automation/automation-run/__tests__/factories/automation-run.factory.js';
-import {
-  type InstagramWebhookAccountJobResult,
-  processInstagramWebhookAccountJob,
-} from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
+import type { InstagramWebhookIntakeJobResult } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-intake.processor.js';
+import { createInstagramContactProfileReadTaskHandler } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
+import { runInstagramIntakeOfAccount } from './instagram-intake-run.helper.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { testApiPath } from '@/tests/helpers/test-api-prefix.helper.js';
 import {
@@ -308,7 +307,7 @@ export async function deliverInstagramEvents({
 }
 
 /**
- * Runs the account's real processing job over the app's own services (routes-final WH12–WH14) — the
+ * Runs the account's real intake jobs over the app's own services (WH11–WH14, R38) — the
  * events stored and not yet processed, with the real Instagram client (mocked at the network).
  */
 export async function processInstagramEvents({
@@ -317,15 +316,12 @@ export async function processInstagramEvents({
 }: {
   app: FastifyInstance;
   team: ConnectedInstagramTeam;
-}): Promise<InstagramWebhookAccountJobResult> {
-  const result = await processInstagramWebhookAccountJob({
-    jobData: {
-      organizationPublicId: team.organization.public_id,
-      channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(team.account.id),
-    },
+}): Promise<InstagramWebhookIntakeJobResult> {
+  const result = await runInstagramIntakeOfAccount({
+    organizationPublicId: team.organization.public_id,
+    channelAccountPublicId: await readChannelAccountPublicIdOfInstagramAccount(team.account.id),
     services: app.appDomain,
-    jobId: 'job-retention-erasure',
-    enqueueFollowUp: async () => undefined,
+    profileReadHandler: createInstagramContactProfileReadTaskHandler({ services: app.appDomain }),
   });
   // The run engine saves waiting messages (R14); the suite's recording port "sends" them as the
   // channel's sending sub-domain will (R19–R20).

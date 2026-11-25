@@ -71,7 +71,9 @@ describe('InstagramWebhookEventService', () => {
   const repository = {
     listByOrganization: vi.fn(),
     insertEvents: vi.fn(),
-    markQueued: vi.fn(),
+    countContactMessageEventsSince: vi.fn(),
+    listEchoMessageIdsSince: vi.fn(),
+    countWaitingEvents: vi.fn(),
     claimOldestWaitingEvent: vi.fn(),
     markProcessed: vi.fn(),
     markSkipped: vi.fn(),
@@ -215,15 +217,6 @@ describe('InstagramWebhookEventService', () => {
       expect(isInstagramWebhookEventReplay({ occurredAt: null, now })).toBe(false);
     });
 
-    it('marks the stored rows queued', async () => {
-      repository.markQueued.mockResolvedValue(2);
-
-      await expect(
-        service.markEventsQueued({ scope, channelAccount, eventIds: [1, 2] }),
-      ).resolves.toBe(2);
-      expect(repository.markQueued).toHaveBeenCalledWith({ ...channelAccount, eventIds: [1, 2] });
-    });
-
     it('claims with the caller’s attempt cap and lease', async () => {
       repository.claimOldestWaitingEvent.mockResolvedValue(null);
 
@@ -231,15 +224,32 @@ describe('InstagramWebhookEventService', () => {
         service.claimNextEvent({
           scope,
           channelAccount,
+          intakeGroup: 'comments',
           maxProcessingAttempts: 5,
           claimLeaseMinutes: 5,
+          retryAfterMinutes: 60,
         }),
       ).resolves.toBeNull();
+      // Comments claim SKIP LOCKED (S11); the other groups keep strict order.
       expect(repository.claimOldestWaitingEvent).toHaveBeenCalledWith({
         ...channelAccount,
+        intakeGroup: 'comments',
+        isSkipLocked: true,
         maxProcessingAttempts: 5,
         claimLeaseMinutes: 5,
+        retryAfterMinutes: 60,
       });
+      await service.claimNextEvent({
+        scope,
+        channelAccount,
+        intakeGroup: 'messages',
+        maxProcessingAttempts: 5,
+        claimLeaseMinutes: 5,
+        retryAfterMinutes: 60,
+      });
+      expect(repository.claimOldestWaitingEvent).toHaveBeenLastCalledWith(
+        expect.objectContaining({ intakeGroup: 'messages', isSkipLocked: false }),
+      );
     });
 
     it('passes each mark and the release the claim', async () => {
@@ -257,7 +267,12 @@ describe('InstagramWebhookEventService', () => {
         service.markEventSkipped({ scope, claim, skipReason: 'automation_disabled' }),
       ).resolves.toBe(true);
       await expect(
-        service.markEventFailed({ scope, claim, errorMessage: 'instagram_api:2/0' }),
+        service.markEventFailed({
+          scope,
+          claim,
+          errorMessage: 'instagram_api:2/0',
+          retryAfterMinutes: 60,
+        }),
       ).resolves.toBe(true);
       await expect(service.releaseEventClaim({ scope, claim })).resolves.toBe(true);
       await expect(service.releaseEventClaim({ scope, claim, isAttemptSpent: true })).resolves.toBe(
@@ -272,6 +287,7 @@ describe('InstagramWebhookEventService', () => {
       expect(repository.markFailed).toHaveBeenCalledWith({
         ...claim,
         errorMessage: 'instagram_api:2/0',
+        retryAfterMinutes: 60,
       });
       // An outage gives the attempt back; a temporary failure keeps it and only ends the lease.
       expect(repository.releaseClaim).toHaveBeenNthCalledWith(1, {

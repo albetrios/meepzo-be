@@ -85,6 +85,10 @@ describe('app domain wiring', () => {
     expect(application.appDomain.contactService).toBeInstanceOf(ContactService);
     expect(application.appDomain.automationService).toBeInstanceOf(AutomationService);
     expect(application.appDomain.automationRunService).toBeInstanceOf(AutomationRunService);
+    // Intake's new-contact profile read is a task (S11, ROUTE row R38).
+    expect(Object.keys(application.appDomain.instagramSendWork.taskHandlers)).toContain(
+      'contact-profile',
+    );
     // Instagram's sending port is its message service (AU35, ROUTE row R19).
     expect(application.appDomain.channelSendingPorts.instagram).toBe(
       application.appDomain.instagramMessageService,

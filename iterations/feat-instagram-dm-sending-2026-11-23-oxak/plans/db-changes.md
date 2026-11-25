@@ -1261,7 +1261,10 @@ move to a table of their own.
   `channel_account_id` → `app.channel_accounts` (`instagram_webhook_events_channel_account_fk`),
   `intake_group` generated, `next_attempt_at`, `payload` nullable with `chk_instagram_webhook_events_body`
   and `chk_instagram_webhook_events_next_attempt`; indexes of 5.B.3 (`..._organization_account_created_at`,
-  `..._pending` by group, `..._next_attempt_at`, `..._flood`).
+  `..._pending` by group, `..._next_attempt_at`, `..._flood`). **Used from R38** (no schema change,
+  [P312](decisions.md)): intake claims by `intake_group` (`SKIP LOCKED` for comments), sets
+  `next_attempt_at` on a failure, counts the flood over `..._flood`; `queued` is no longer written
+  (S25) but stays in `chk_instagram_webhook_events_status`.
 - **Sources:** plan:L3207–L3225, plan:L3926–L3941; D15, D64; current schema
   `src/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.schema.ts`.
 - **Added:** `next_attempt_at`; `intake_group`; five event kinds; `own_comment`, `flood`.

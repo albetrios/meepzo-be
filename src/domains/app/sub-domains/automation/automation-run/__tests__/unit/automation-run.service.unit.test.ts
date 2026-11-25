@@ -202,7 +202,8 @@ describe('AutomationRunService', () => {
   describe('an event unit (AU34)', () => {
     it.each([
       ['an unknown account', null],
-      ['a broken connection', accountRow({ connection_status: 'error' })],
+      // An `error` account still decides — its messages wait in its stopped lanes (WH3, R38).
+      ['a revoked account', accountRow({ connection_status: 'revoked' })],
     ])('answers account_unavailable for %s, with no unit of work', async (_label, account) => {
       const harness = createHarness();
       harness.readAutomationRunAccount.mockResolvedValueOnce(account);
@@ -413,15 +414,5 @@ describe('AutomationRunService', () => {
       await service.repairOpenRunKeys({ databaseHandle: {} as WorkerDatabaseHandle, limit: 500 }),
     ).toBe(4);
     expect(retentionOpenKeys.deleteKeysOfEndedRuns).toHaveBeenCalledWith({ limit: 500 });
-  });
-
-  it('a failed event leaves no run to fail (one commit per event since R14)', async () => {
-    const { service } = createHarness();
-
-    expect(
-      await service.failRunsOfFailedEvent(
-        {} as Parameters<AutomationRunService['failRunsOfFailedEvent']>[0],
-      ),
-    ).toEqual([]);
   });
 });

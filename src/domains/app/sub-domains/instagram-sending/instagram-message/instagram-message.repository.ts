@@ -1,4 +1,4 @@
-import { type SQL, and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { type SQL, and, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { WorkerDatabaseHandle } from '@/infrastructure/queue/worker-runtime/worker-processor.util.js';
 import {
   type RequestScopedPostgresDatabase,
@@ -501,6 +501,78 @@ export class InstagramMessageRepository {
       eq(instagram_messages.public_id, key.publicId),
       eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
     );
+  }
+
+  /**
+   * Her direct messages of the account that are `sending` or `unknown` without Meta's id, changed
+   * since `since` — what an echo of the owner's chat may be one of (WH10, P62); at most 2 rows (the
+   * caller only needs "exactly one").
+   */
+  async listUnconfirmedDirectMessagesSince({
+    organizationId,
+    channelAccountId,
+    contactInstagramUserId,
+    since,
+  }: {
+    organizationId: number;
+    channelAccountId: number;
+    /** Her Instagram id — the contact is found by it (an echo carries no contact of ours). */
+    contactInstagramUserId: string;
+    since: Date;
+  }): Promise<InstagramMessageRow[]> {
+    return this.db()
+      .select()
+      .from(instagram_messages)
+      .where(
+        and(
+          eq(instagram_messages.organization_id, organizationId),
+          eq(instagram_messages.channel_account_id, channelAccountId),
+          eq(
+            instagram_messages.contact_id,
+            sql`(SELECT ${contacts.id} FROM ${contacts}
+              WHERE ${contacts.organization_id} = ${organizationId}
+                AND ${contacts.channel_account_id} = ${channelAccountId}
+                AND ${contacts.instagram_user_id} = ${contactInstagramUserId})`,
+          ),
+          inArray(instagram_messages.status, ['sending', 'unknown']),
+          inArray(instagram_messages.channel, ['direct', 'private_reply']),
+          isNull(instagram_messages.instagram_message_id),
+          gte(instagram_messages.updated_at, since),
+        ),
+      )
+      .limit(2);
+  }
+
+  /**
+   * An `unknown` message whose echo came back (WH10): `sent`, with Meta's id. `null` when it is no
+   * longer `unknown`.
+   */
+  async confirmUnknownAsSent({
+    key,
+    instagramMessageId,
+  }: {
+    key: InstagramMessageKey;
+    instagramMessageId: string;
+  }): Promise<InstagramMessageRow | null> {
+    const [row] = await this.db()
+      .update(instagram_messages)
+      .set({
+        status: 'sent',
+        reason: null,
+        instagram_message_id: instagramMessageId,
+        sent_at: sql`now()`,
+        updated_at: sql`now()`,
+      })
+      .where(
+        and(
+          eq(instagram_messages.organization_id, key.organizationId),
+          eq(instagram_messages.public_id, key.publicId),
+          eq(instagram_messages.automation_run_started_at, key.automationRunStartedAt),
+          eq(instagram_messages.status, 'unknown'),
+        ),
+      )
+      .returning();
+    return row ?? null;
   }
 
   /** The Meta message ids among `messageIds` that one account sent (WHQ1, P62). */

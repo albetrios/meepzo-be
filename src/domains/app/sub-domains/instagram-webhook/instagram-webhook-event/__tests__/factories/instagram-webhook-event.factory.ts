@@ -132,6 +132,7 @@ export async function readTestInstagramWebhookEvent(eventId: number): Promise<{
   error_message: string | null;
   skip_reason: string | null;
   processed_at: Date | null;
+  next_attempt_at: Date | null;
   payload: Record<string, unknown> | null;
 } | null> {
   const [row] = await operatorQuery<
@@ -142,11 +143,12 @@ export async function readTestInstagramWebhookEvent(eventId: number): Promise<{
       error_message: string | null;
       skip_reason: string | null;
       processed_at: Date | null;
+      next_attempt_at: Date | null;
       payload: Record<string, unknown> | null;
     }>
   >`
     SELECT status, attempt_count, last_attempted_at, error_message, skip_reason, processed_at,
-           payload
+           next_attempt_at, payload
     FROM app.instagram_webhook_events WHERE id = ${eventId}`;
   return row ?? null;
 }

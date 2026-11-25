@@ -4,7 +4,7 @@ import { createTestUser } from '@/tests/factories/user.factory.js';
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { operatorQuery } from '@/tests/helpers/operator-database.js';
 import { runInstagramWebhookReclaimJob } from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-reclaim.processor.js';
-import type { InstagramWebhookAccountProcessingRequest } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
+import type { InstagramWebhookIntakeRequest } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook.types.js';
 import { insertInstagramAccount } from '@/domains/app/sub-domains/contact/__tests__/factories/contact.factory.js';
 import {
   insertTestInstagramWebhookEvent,
@@ -72,8 +72,8 @@ async function waitingEvent({
   }
 }
 
-async function runPickUp(): Promise<InstagramWebhookAccountProcessingRequest[]> {
-  const added: InstagramWebhookAccountProcessingRequest[] = [];
+async function runPickUp(): Promise<InstagramWebhookIntakeRequest[]> {
+  const added: InstagramWebhookIntakeRequest[] = [];
   await runInstagramWebhookReclaimJob({
     requestId: 'reclaim-job-1',
     enqueue: async (request) => {
@@ -99,11 +99,13 @@ describe('runInstagramWebhookReclaimJob (database)', () => {
       {
         organizationPublicId: older.organizationPublicId,
         channelAccountPublicId: older.channelAccountPublicId,
+        intakeKind: 'comments',
         requestId: 'reclaim-job-1',
       },
       {
         organizationPublicId: newer.organizationPublicId,
         channelAccountPublicId: newer.channelAccountPublicId,
+        intakeKind: 'comments',
         requestId: 'reclaim-job-1',
       },
     ]);

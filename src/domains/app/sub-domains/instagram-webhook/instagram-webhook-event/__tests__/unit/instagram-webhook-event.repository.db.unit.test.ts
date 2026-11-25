@@ -78,8 +78,11 @@ describe('InstagramWebhookEventRepository (database)', () => {
       repository.claimOldestWaitingEvent({
         organizationId: organizationScope.id,
         channelAccountId: accountId,
+        intakeGroup: 'comments',
+        isSkipLocked: false,
         maxProcessingAttempts: MAX_ATTEMPTS,
         claimLeaseMinutes: LEASE_MINUTES,
+        retryAfterMinutes: 60,
       }),
     );
   }
@@ -181,32 +184,6 @@ describe('InstagramWebhookEventRepository (database)', () => {
         }),
       );
       expect(inserted).toEqual([]);
-    });
-  });
-
-  describe('markQueued (WH10)', () => {
-    it('turns received rows queued and leaves other statuses alone', async () => {
-      const received = await insertTestInstagramWebhookEvent({
-        organizationId: organization.id,
-        account,
-      });
-      const skipped = await insertTestInstagramWebhookEvent({
-        organizationId: organization.id,
-        account,
-        status: 'skipped',
-      });
-
-      const turned = await inOrganization(organization, () =>
-        repository.markQueued({
-          organizationId: organization.id,
-          channelAccountId: account.channelAccountId,
-          eventIds: [received.id, skipped.id],
-        }),
-      );
-
-      expect(turned).toBe(1);
-      expect((await readTestInstagramWebhookEvent(received.id))?.status).toBe('queued');
-      expect((await readTestInstagramWebhookEvent(skipped.id))?.status).toBe('skipped');
     });
   });
 
@@ -344,12 +321,33 @@ describe('InstagramWebhookEventRepository (database)', () => {
       const key = await claimedKey();
 
       await inOrganization(organization, () =>
-        repository.markFailed({ ...key, errorMessage: `instagram_api:100/${'9'.repeat(2500)}` }),
+        repository.markFailed({
+          ...key,
+          errorMessage: `instagram_api:100/${'9'.repeat(2500)}`,
+          retryAfterMinutes: 60,
+        }),
       );
       const row = await readTestInstagramWebhookEvent(key.eventId);
       expect(row?.status).toBe('failed');
       expect(row?.error_message).toHaveLength(2000);
       expect(row?.payload).not.toBeNull();
+      expect(row?.next_attempt_at).not.toBeNull();
+    });
+
+    it('a refusal is failed with no next try (`retryAfterMinutes` null)', async () => {
+      const key = await claimedKey();
+
+      await inOrganization(organization, () =>
+        repository.markFailed({
+          ...key,
+          errorMessage: 'event_payload_invalid:x',
+          retryAfterMinutes: null,
+        }),
+      );
+      expect(await readTestInstagramWebhookEvent(key.eventId)).toMatchObject({
+        status: 'failed',
+        next_attempt_at: null,
+      });
     });
 
     it('changes nothing once another run took the claim over (the attempt count moved on)', async () => {
@@ -392,6 +390,108 @@ describe('InstagramWebhookEventRepository (database)', () => {
       });
       // The job's backoff retry claims it at once — its second attempt, not a 5-minute wait.
       expect((await claim())?.event.attempt_count).toBe(2);
+    });
+  });
+
+  describe('intake per kind group (WH11, S11) and intake reads (WH10, WH16)', () => {
+    function claimGroup(intakeGroup: 'messages' | 'comments', isSkipLocked = false) {
+      return inOrganization(organization, () =>
+        repository.claimOldestWaitingEvent({
+          organizationId: organization.id,
+          channelAccountId: account.channelAccountId,
+          intakeGroup,
+          isSkipLocked,
+          maxProcessingAttempts: MAX_ATTEMPTS,
+          claimLeaseMinutes: LEASE_MINUTES,
+          retryAfterMinutes: 60,
+        }),
+      );
+    }
+
+    it('a group claims only its own kinds: a message job never takes a comment', async () => {
+      const comment = await insertTestInstagramWebhookEvent({
+        organizationId: organization.id,
+        account,
+        receivedAt: new Date(Date.now() - 60_000),
+      });
+      const message = await insertTestInstagramWebhookEvent({
+        organizationId: organization.id,
+        account,
+        eventKind: 'message',
+        eventKey: 'message:m_1',
+        payload: { message: { mid: 'm_1' } },
+      });
+
+      expect((await claimGroup('messages'))?.event.id).toBe(message.id);
+      expect((await claimGroup('comments'))?.event.id).toBe(comment.id);
+    });
+
+    it('with SKIP LOCKED a second comment job takes the next free comment instead of waiting on the head', async () => {
+      const first = await insertTestInstagramWebhookEvent({
+        organizationId: organization.id,
+        account,
+        receivedAt: new Date(Date.now() - 60_000),
+      });
+      const second = await insertTestInstagramWebhookEvent({
+        organizationId: organization.id,
+        account,
+      });
+
+      expect((await claimGroup('comments', true))?.event.id).toBe(first.id);
+      // The head is leased now: strict order waits, SKIP LOCKED goes on with the next one.
+      expect(await claimGroup('comments', false)).toBeNull();
+      expect((await claimGroup('comments', true))?.event.id).toBe(second.id);
+    });
+
+    it('an exhausted head is failed with its next try an hour later', async () => {
+      const exhausted = await insertTestInstagramWebhookEvent({
+        organizationId: organization.id,
+        account,
+        attemptCount: MAX_ATTEMPTS,
+      });
+
+      expect((await claimGroup('comments'))?.outcome).toBe('exhausted');
+      const row = await readTestInstagramWebhookEvent(exhausted.id);
+      expect(row?.status).toBe('failed');
+      expect(row?.next_attempt_at).not.toBeNull();
+    });
+
+    it('counts her message events of a window (echoes aside), her processed echoes, and the waiting ones capped', async () => {
+      const contactInstagramUserId = '17841400000000999';
+      for (const [index, eventKind] of ['message', 'message', 'echo', 'postback'].entries()) {
+        await insertTestInstagramWebhookEvent({
+          organizationId: organization.id,
+          account,
+          eventKind,
+          eventKey: `${eventKind}:m_${index}`,
+          payload: {},
+          status: 'processed',
+          contactInstagramUserId,
+        });
+      }
+      await insertTestInstagramWebhookEvent({ organizationId: organization.id, account });
+      await insertTestInstagramWebhookEvent({ organizationId: organization.id, account });
+      const key = { organizationId: organization.id, channelAccountId: account.channelAccountId };
+      const since = new Date(Date.now() - 60_000);
+
+      await inOrganization(organization, async () => {
+        expect(
+          await repository.countContactMessageEventsSince({
+            ...key,
+            contactInstagramUserId,
+            since,
+          }),
+        ).toBe(3);
+        expect(
+          await repository.listEchoMessageIdsSince({ ...key, contactInstagramUserId, since }),
+        ).toEqual(['m_2']);
+        expect(
+          await repository.countWaitingEvents({ ...key, intakeGroup: 'comments', cap: 1 }),
+        ).toBe(1);
+        expect(
+          await repository.countWaitingEvents({ ...key, intakeGroup: 'comments', cap: 10 }),
+        ).toBe(2);
+      });
     });
   });
 });

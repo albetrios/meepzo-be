@@ -58,9 +58,8 @@ describe('worker-registration.registry', () => {
     // the run and automation clean-ups (retention family, crons, Postgres-backed — the hourly 7-day
     // wait cancel and the deleted-automation purge; run and comment-log retention retired at
     // feat-instagram-dm-sending R14, P133 — their month parts are dropped);
-    // +1 for the Instagram webhook event processing (instagram family, throughput,
-    // Postgres-backed, its stuck-event pick-up riding the queue — launch-2026-11-20-ujai WH5,
-    // WH12–WH15); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
+    // +1 for Instagram intake (instagram family, throughput, Postgres-backed through the shared
+    // limiter, its stuck-event pick-up riding the queue — feat-instagram-dm-sending WH5, R38); +3 for the Instagram send and task queues (feat-instagram-dm-sending SN2, R37 —
     // `instagram-send-slow` and `instagram-send-fast` in family `instagram-send`, `instagram-tasks`
     // in `instagram`; throughput, event-driven, their database through the shared limiter).
     expect(definitions).toHaveLength(43);
@@ -116,11 +115,12 @@ describe('worker-registration.registry', () => {
     ).toEqual([]);
   });
 
-  it('puts the Instagram send and task queues on one database limiter in the instagram family, gated on sending (SN24, P140)', () => {
+  it('puts Instagram intake and the send and task queues on one database limiter in the instagram family (SN24, P140, R38)', () => {
     const sendingQueues = getWorkerQueueRegistrationDefinitions().filter(
       (definition) => definition.databaseSlotLimiterName !== undefined,
     );
     expect(sendingQueues.map((definition) => [definition.queueName, definition.family])).toEqual([
+      ['instagram-webhook', 'instagram'],
       ['instagram-send-slow', 'instagram'],
       ['instagram-send-fast', 'instagram'],
       ['instagram-tasks', 'instagram'],

@@ -38,7 +38,14 @@ import { ChannelConnectionMetaCallbackService } from './sub-domains/channel-conn
 import { InstagramWebhookEventRepository } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
 import { InstagramWebhookEventService } from './sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import { InstagramWebhookService } from './sub-domains/instagram-webhook/instagram-webhook.service.js';
-import { enqueueInstagramWebhookAccountProcessing } from './sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import {
+  enqueueInstagramTagEventIntake,
+  enqueueInstagramWebhookIntake,
+} from './sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import {
+  INSTAGRAM_CONTACT_PROFILE_READ_JOB_NAME,
+  createInstagramContactProfileReadTaskHandler,
+} from './sub-domains/instagram-webhook/workers/instagram-contact-profile-read.processor.js';
 import { ContactTagEventRepository } from './sub-domains/contact/contact-tag-event/contact-tag-event.repository.js';
 import { ContactTagEventService } from './sub-domains/contact/contact-tag-event/contact-tag-event.service.js';
 import { ContactRepository } from './sub-domains/contact/contact.repository.js';
@@ -451,13 +458,13 @@ function createInstagramWebhookServices({
     new InstagramWebhookEventRepository(),
     organizationService,
   );
-  // The receiver stores through the events service (WH1), then adds the account's processing job
-  // after each entry's commit and turns the stored `received` rows `queued` (WH5, WH10). Our own
+  // The receiver stores through the events service (WH1), then adds one intake job per kind group
+  // that got events after each entry's commit — the rows stay `received` (WH5, S25). Our own
   // echoes are dropped by the message table's lookup (WHQ1, R19).
   const instagramWebhookService = new InstagramWebhookService(
     instagramAccountService,
     instagramWebhookEventService,
-    enqueueInstagramWebhookAccountProcessing,
+    enqueueInstagramWebhookIntake,
     instagramMessageService.findOwnSentMessageIds,
   );
   return { instagramWebhookEventService, instagramWebhookService };
@@ -496,7 +503,11 @@ function createContactServices({
   contactTagEventService: ContactTagEventService;
   contactErasureSteps: ContactErasureStep[];
 } {
-  const contactTagEventService = new ContactTagEventService(new ContactTagEventRepository());
+  // Tag events hand over to Instagram intake's `intake-tag-events` jobs after the tag commit (WC-4,
+  // ROUTE row R38): `queued_at` is stamped in that commit.
+  const contactTagEventService = new ContactTagEventService(new ContactTagEventRepository(), {
+    intakeQueue: { enqueueContactTagEventIntake: enqueueInstagramTagEventIntake },
+  });
   const contactErasureSteps: ContactErasureStep[] = [
     (input) => contactTagEventService.deleteContactTagEvents(input),
     // Her waiting messages cancelled in the erase's commit (CT11, AC-5.12) — every channel's.
@@ -680,7 +691,7 @@ function createSendAccessServices({
 /**
  * The send work of the Instagram tickets (§ 6 SNC3, SNC4, SNC7 — ROUTE row R42): the send core over
  * the gates, the message's result save, the send access, the attachments and the breaks; no lane
- * rules yet (R43–R45), and no task handlers (R40, R41, R46).
+ * rules yet (R43–R45); the one task handler is intake's profile read (R38) — R40, R41, R46 add theirs.
  *
  * @remarks
  * Notes: split out of {@link createAppContainer} to keep it short; wiring only.
@@ -705,7 +716,20 @@ function createInstagramSendWork(
     // The lanes' own rules plug in at R43–R45; until then a ticket is logged and finished.
     laneRules: {},
   });
-  return { ...NO_INSTAGRAM_SEND_WORK, laneTurn: sendCore, fastMessage: sendCore };
+  return {
+    ...NO_INSTAGRAM_SEND_WORK,
+    laneTurn: sendCore,
+    fastMessage: sendCore,
+    // Intake's new-contact profile read is a low-priority task (S11, ROUTE row R38).
+    taskHandlers: {
+      [INSTAGRAM_CONTACT_PROFILE_READ_JOB_NAME]: createInstagramContactProfileReadTaskHandler({
+        services: {
+          instagramAccountService: container.instagramAccountService,
+          contactService: container.contactService,
+        },
+      }),
+    },
+  };
 }
 
 /**

@@ -20,7 +20,7 @@ vi.mock(
 );
 
 vi.mock('@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js', () => ({
-  enqueueInstagramWebhookAccountProcessing: vi.fn(),
+  enqueueInstagramWebhookIntake: vi.fn(),
 }));
 
 vi.mock('@/shared/utils/infrastructure/logger.util.js', () => ({ logger: loggerMock }));
@@ -30,17 +30,19 @@ import { runInstagramWebhookReclaimJob } from '@/domains/app/sub-domains/instagr
 /**
  * The stuck-event pick-up (routes-final § 4.A WH15, worker-changes WC-2): one read across
  * organizations under the retention context — 5 minutes, up to 100 accounts — then, with the
- * context closed, one processing add per account, each carrying its organization (K8).
+ * context closed, one intake add per account and kind group, each carrying its organization (K8).
  */
 
 const STUCK = [
   {
     organizationPublicId: 'org_acmeshop0000000000001',
     channelAccountPublicId: 'cha_acmeshop0000000000001',
+    intakeGroup: 'comments' as const,
   },
   {
     organizationPublicId: 'org_brightway000000000001',
     channelAccountPublicId: 'cha_brightway000000000001',
+    intakeGroup: 'messages' as const,
   },
 ];
 
@@ -72,8 +74,22 @@ describe('runInstagramWebhookReclaimJob', () => {
     const result = await runInstagramWebhookReclaimJob({ requestId: 'reclaim-job-1', enqueue });
 
     expect(enqueue.mock.calls).toEqual([
-      [{ ...STUCK[0], requestId: 'reclaim-job-1' }],
-      [{ ...STUCK[1], requestId: 'reclaim-job-1' }],
+      [
+        {
+          organizationPublicId: STUCK[0]?.organizationPublicId,
+          channelAccountPublicId: STUCK[0]?.channelAccountPublicId,
+          intakeKind: 'comments',
+          requestId: 'reclaim-job-1',
+        },
+      ],
+      [
+        {
+          organizationPublicId: STUCK[1]?.organizationPublicId,
+          channelAccountPublicId: STUCK[1]?.channelAccountPublicId,
+          intakeKind: 'messages',
+          requestId: 'reclaim-job-1',
+        },
+      ],
     ]);
     expect(result).toEqual({ listedCount: 2, addedCount: 2, failedAddCount: 0 });
   });
@@ -91,6 +107,7 @@ describe('runInstagramWebhookReclaimJob', () => {
       {
         organizationPublicId: STUCK[0]?.organizationPublicId,
         channelAccountPublicId: STUCK[0]?.channelAccountPublicId,
+        intakeGroup: 'comments',
         errorName: 'Error',
       },
       'app.instagram_webhook.reclaim_enqueue_failed',

@@ -10,7 +10,12 @@ import { logger } from '@/shared/utils/infrastructure/logger.util.js';
 import { cleanStorableJson } from '@/shared/utils/text/storable-text.util.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
 import type { InstagramWebhookAccountState } from '@/domains/app/sub-domains/instagram-account/instagram-account.types.js';
-import type { InstagramWebhookEventSkipReason } from './instagram-webhook-event/instagram-webhook-event.constants.js';
+import {
+  INSTAGRAM_WEBHOOK_EVENT_INTAKE_GROUPS,
+  type InstagramWebhookEventIntakeGroup,
+  type InstagramWebhookEventSkipReason,
+} from './instagram-webhook-event/instagram-webhook-event.constants.js';
+import type { InstagramWebhookEventRow } from './instagram-webhook-event/instagram-webhook-event.repository.js';
 import type { InstagramWebhookEventService } from './instagram-webhook-event/instagram-webhook-event.service.js';
 import {
   INSTAGRAM_WEBHOOK_OBJECT,
@@ -32,7 +37,7 @@ import {
 } from './instagram-webhook-error.util.js';
 import {
   type InstagramOwnSentMessageLookup,
-  type InstagramWebhookAccountProcessingEnqueue,
+  type InstagramWebhookIntakeEnqueue,
   type InstagramWebhookDeliveryInput,
   type InstagramWebhookDeliveryResult,
   type InstagramWebhookSubscriptionCheck,
@@ -95,6 +100,16 @@ function firstEventPerKey(
   });
 }
 
+/** The kind groups among the rows this save inserted `received`, in the groups' fixed order (WH5). */
+function receivedIntakeGroupsOf(
+  rows: readonly InstagramWebhookEventRow[],
+): InstagramWebhookEventIntakeGroup[] {
+  const groups = new Set(
+    rows.filter((row) => row.status === 'received').map((row) => row.intake_group),
+  );
+  return INSTAGRAM_WEBHOOK_EVENT_INTAKE_GROUPS.filter((group) => groups.has(group));
+}
+
 /**
  * The Instagram webhook receiver (feat-instagram-dm-sending routes-final § 5.A, routes 60–61):
  * Meta's subscription check, and the save of each delivered event before Meta gets its answer — it
@@ -118,10 +133,10 @@ function firstEventPerKey(
  *   rest born `received` or `skipped` with its reason and handed to 5.B's store function
  *   (`recordReceivedEvents`: the 8-day replay guard, the keys first, then the events of only the new
  *   keys — steps 5–6), then the commit (step 7).
- * - After each commit (step 8), through the wired {@link InstagramWebhookAccountProcessingEnqueue}
- *   (the app container's `enqueueInstagramWebhookAccountProcessing`): the channel account's
- *   processing job is added (`channelAccountPublicId`, WHC4) and the just-saved `received` rows turn
- *   `queued`.
+ * - After each commit (step 8), through the wired {@link InstagramWebhookIntakeEnqueue} (the app
+ *   container's `enqueueInstagramWebhookIntake`): one intake job per kind group that got `received`
+ *   events (`intake-messages`, `intake-live`, `intake-comments`, WH5); the rows stay `received`
+ *   (S25, P97 — no `queued` update).
  *
  * Failure modes:
  * - `503 instagram_webhook_not_configured`, `400 invalid_webhook_verify_token` (route 60).
@@ -130,7 +145,7 @@ function firstEventPerKey(
  *   delivers again and the part already saved is a repeat (D53). A unit over its time — a statement
  *   or lock wait cancelled — is a `503` (WH2, {@link toInstagramWebhookStoreFailure}); Postgres
  *   down is the error handler's `503`. Nothing is kept anywhere else meanwhile — no Redis buffer
- *   (P32). A failed processing add is only logged.
+ *   (P32). A failed intake add is only logged.
  *
  * Side effects:
  * - Writes `app.instagram_webhook_event_keys` and `app.instagram_webhook_events` only, through
@@ -141,15 +156,15 @@ function firstEventPerKey(
  * Notes:
  * - Logs carry the request id, Instagram ids, public ids and counts — never the payload, message or
  *   comment text, emails or phone numbers (WH6, K7).
- * - Processing the saved events is the worker's (`workers/instagram-webhook.processor.ts`, intake
- *   per kind at ROUTE row R38); this service stops at the save and the enqueue hook.
+ * - Taking the saved events in is intake's (`workers/instagram-webhook-intake.processor.ts`,
+ *   intake per kind); this service stops at the save and the enqueue hook.
  */
 export class InstagramWebhookService {
   constructor(
     private readonly accountService: InstagramAccountService,
     private readonly eventService: InstagramWebhookEventService,
-    /** The processing enqueue; without one (a unit test) stored events stay `received`. */
-    private readonly enqueueAccountProcessing?: InstagramWebhookAccountProcessingEnqueue,
+    /** The intake enqueue; without one (a unit test) no intake job is added. */
+    private readonly enqueueIntake?: InstagramWebhookIntakeEnqueue,
     /** The own-message lookup (WH9 step 3); sub-domain 6's from ROUTE row R19, none before. */
     private readonly findOwnSentMessageIds: InstagramOwnSentMessageLookup = NO_OWN_SENT_MESSAGES,
   ) {}
@@ -183,7 +198,7 @@ export class InstagramWebhookService {
    * its own unit of work, whatever happened to the ones before. Failure modes: after the last entry,
    * the first entry's failure is thrown (the answer is not `200`); each is one error log line — the
    * request id, the entry's place and the error's name. Side effects: inserts events; log lines; the
-   * unknown-account metric; the processing enqueue.
+   * unknown-account metric; the intake enqueue per kind group.
    */
   async receiveDelivery({
     body,
@@ -298,7 +313,8 @@ export class InstagramWebhookService {
       return this.recordUnknownAccount({ requestId, instagramUserId, eventCount: items.length });
     }
 
-    const { account, eventCount, receivedEventIds, storedEventCount, droppedEventCount } = stored;
+    const { account, eventCount, receivedIntakeGroups, storedEventCount, droppedEventCount } =
+      stored;
     logger.info(
       {
         requestId,
@@ -308,11 +324,11 @@ export class InstagramWebhookService {
         eventCount,
         storedEventCount,
         droppedEventCount,
-        receivedEventCount: receivedEventIds.length,
+        receivedIntakeGroups,
       },
       'instagram.webhook.entry_stored',
     );
-    await this.enqueueProcessingBestEffort({ scope, account, receivedEventIds, requestId });
+    await this.enqueueIntakeBestEffort({ scope, account, receivedIntakeGroups, requestId });
     return {
       outcome: 'stored',
       storedEventCount,
@@ -344,7 +360,7 @@ export class InstagramWebhookService {
     eventCount: number;
     storedEventCount: number;
     droppedEventCount: number;
-    receivedEventIds: number[];
+    receivedIntakeGroups: InstagramWebhookEventIntakeGroup[];
   } | null> {
     return withAppDatabaseContext({
       scope,
@@ -397,7 +413,7 @@ export class InstagramWebhookService {
           eventCount: events.length,
           storedEventCount: rows.length,
           droppedEventCount: items.length - kept.length,
-          receivedEventIds: rows.filter((row) => row.status === 'received').map((row) => row.id),
+          receivedIntakeGroups: receivedIntakeGroupsOf(rows),
         };
       },
     });
@@ -442,45 +458,42 @@ export class InstagramWebhookService {
   }
 
   /**
-   * After the entry's commit (WH9 step 8): the processing enqueue, then the just-saved `received`
-   * rows turn `queued`. Without an enqueue, or with nothing `received`, it does nothing; a failure
-   * is logged and left to the stuck-event pick-up (WH17) — it never fails Meta's answer.
+   * After the entry's commit (WH9 step 8): one intake job per kind group that got `received` events
+   * (WH5). The rows stay `received` (S25, P97: no `queued` update). Without an enqueue, or with
+   * nothing `received`, it does nothing; a failed add is logged and left to the stuck-event pick-up
+   * (WH17) — it never fails Meta's answer.
    */
-  private async enqueueProcessingBestEffort({
+  private async enqueueIntakeBestEffort({
     scope,
     account,
-    receivedEventIds,
+    receivedIntakeGroups,
     requestId,
   }: {
     scope: OrganizationPrincipalDatabaseScope;
     account: InstagramWebhookAccountState;
-    receivedEventIds: readonly number[];
+    receivedIntakeGroups: readonly InstagramWebhookEventIntakeGroup[];
     requestId: string;
   }): Promise<void> {
-    if (this.enqueueAccountProcessing === undefined || receivedEventIds.length === 0) return;
-    try {
-      await this.enqueueAccountProcessing({
-        organizationPublicId: scope.organizationPublicId,
-        channelAccountPublicId: account.instagramAccountPublicId,
-        requestId,
-      });
-      await this.eventService.markEventsQueued({
-        scope,
-        channelAccount: {
-          organizationId: account.instagramAccount.organizationId,
-          channelAccountId: account.channelAccountId,
-        },
-        eventIds: receivedEventIds,
-      });
-    } catch (error) {
-      logger.warn(
-        {
-          requestId,
+    if (this.enqueueIntake === undefined) return;
+    for (const intakeKind of receivedIntakeGroups) {
+      try {
+        await this.enqueueIntake({
+          organizationPublicId: scope.organizationPublicId,
           channelAccountPublicId: account.instagramAccountPublicId,
-          errorName: error instanceof Error ? error.name : typeof error,
-        },
-        'instagram.webhook.processing_enqueue_failed',
-      );
+          intakeKind,
+          requestId,
+        });
+      } catch (error) {
+        logger.warn(
+          {
+            requestId,
+            channelAccountPublicId: account.instagramAccountPublicId,
+            intakeKind,
+            errorName: error instanceof Error ? error.name : typeof error,
+          },
+          'instagram.webhook.intake_enqueue_failed',
+        );
+      }
     }
   }
 }

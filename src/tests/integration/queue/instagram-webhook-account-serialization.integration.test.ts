@@ -6,7 +6,7 @@ import {
   getBullMQKeyPrefix,
 } from '@/infrastructure/queue/connection.js';
 import { getDefaultWorkerOptions } from '@/infrastructure/queue/worker-runtime/worker-options.js';
-import { instagramWebhookAccountProcessingDeduplication } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
+import { instagramWebhookIntakeDeduplication } from '@/domains/app/sub-domains/instagram-webhook/queues/instagram-webhook.queue.js';
 
 /**
  * Against real BullMQ and Redis, with the deduplication the Instagram event-processing enqueue uses
@@ -49,7 +49,10 @@ describe('Integration: Instagram event processing runs one job per account at a 
       { instagramAccountPublicId, label },
       {
         jobId: `instagram-webhook-events-${instagramAccountPublicId}-${randomUUID()}`,
-        deduplication: instagramWebhookAccountProcessingDeduplication(instagramAccountPublicId),
+        deduplication: instagramWebhookIntakeDeduplication({
+          intakeKind: 'messages',
+          channelAccountPublicId: instagramAccountPublicId,
+        }),
       },
     );
   }

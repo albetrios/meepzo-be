@@ -1,11 +1,8 @@
+import type { ChannelInboundEventKind } from '@/domains/app/app.channel-ports.js';
 import {
   type AutomationButtonPayload,
   parseAutomationButtonPayload,
 } from '@/domains/app/sub-domains/automation/automation-run/automation-run-button-payload.util.js';
-import {
-  CONTACT_INTERACTION_KIND,
-  type ContactInteractionKind,
-} from '@/domains/app/sub-domains/contact/contact.constants.js';
 import type { InstagramWebhookEventKind } from './instagram-webhook-event/instagram-webhook-event.constants.js';
 import { readInstagramWebhookUserId } from './instagram-webhook-event-classifier.util.js';
 import { InstagramWebhookEventPermanentError } from './instagram-webhook.types.js';
@@ -14,54 +11,108 @@ import { InstagramWebhookEventPermanentError } from './instagram-webhook.types.j
 type MetaObject = Record<string, unknown>;
 
 /**
- * What processing hands sub-domains 2 and 3 for one stored event (4.A.10 "What each event does"),
- * read from its payload: the person on the other side and the kind's own fields.
+ * Instagram's saved kind → the normalized inbound kind (feat-instagram-dm-sending § 5 WH27, WHC17):
+ * what intake calls contacts and the run engine with. `edit` and `unknown` never cross (`null`) —
+ * they are saved `skipped` and never taken in.
+ */
+export const INSTAGRAM_INBOUND_EVENT_KIND_OF = {
+  comment: 'comment',
+  live_comment: 'live_comment',
+  message: 'message',
+  postback: 'postback',
+  ice_breaker: 'starter_question',
+  story_reply: 'story_reply',
+  story_mention: 'story_mention',
+  shared_post: 'shared_post',
+  referral: 'referral',
+  reaction: 'reaction',
+  echo: 'owner_message',
+  edit: null,
+  unknown: null,
+} as const satisfies Record<InstagramWebhookEventKind, ChannelInboundEventKind | null>;
+
+/**
+ * The normalized inbound kind of a saved event kind (WH27), or `null` for a kind that never crosses
+ * the seam (`edit`, `unknown`, or a value outside the list).
+ */
+export function toInboundEventKind(eventKind: string): ChannelInboundEventKind | null {
+  return Object.hasOwn(INSTAGRAM_INBOUND_EVENT_KIND_OF, eventKind)
+    ? INSTAGRAM_INBOUND_EVENT_KIND_OF[eventKind as InstagramWebhookEventKind]
+    : null;
+}
+
+/** The fields a comment or a Live comment hands the run engine (WH27). */
+interface CommentDispatchFields {
+  contactInstagramUserId: string;
+  /** `from.username`, when Meta sent it. */
+  username: string | null;
+  instagramCommentId: string;
+  instagramMediaId: string;
+  /** `parent_id` — the comment this one replies under (D64); `null` for a top-level comment. */
+  parentCommentId: string | null;
+  /** `media.ad_id` — the ad the commented post belongs to (an ad comment); `null` otherwise. */
+  adId: string | null;
+  text: string | null;
+}
+
+/**
+ * What intake hands contacts and the run engine for one saved event (routes-final § 5.A.10 "What
+ * each kind group does", WH27): the normalized kind (`inboundKind`), the person on the other side
+ * and the item's own ids — never Instagram's body.
  *
  * @remarks
- * - `comment` — `startCommentRun` after the post is stored and "next post" linking ran (WH13);
- * - `direct_message` — a DM or a `messages` change (D18), `handleDirectMessage`: the typed text,
- *   the quick reply's payload (the email or phone Instagram's own quick reply sends) and an
- *   attachment's email;
- * - `story_reply` — `handleDirectMessage` (`story_reply`) with the story's id;
- * - `button_click` — `handleButtonClick` with the payload's two public ids, or `button: null` for a
- *   payload this engine never sent (nothing runs; the click is handled).
+ * - `comment`, `live_comment` — `startCommentRun` (an ad's comment carries its `adId`);
+ * - `message`, `story_reply`, `story_mention`, `shared_post` — `handleDirectMessage` with the text,
+ *   the quick reply's payload, an attachment's email, the story or the shared post;
+ * - `postback` — `handleButtonClick` with our payload's two public ids (`button: null` for a
+ *   payload this engine never sent) and the message the button was on (`messagePublicId`, when
+ *   the payload names it);
+ * - `starter_question` — `handleButtonClick` with the question's text;
+ * - `referral` — `handleButtonClick` with the link's `ref` code or the ad's id;
+ * - `reaction` — her window only;
+ * - `owner_message` — the owner's hand-typed echo to her (the quiet time, WH10).
  *
  * Personal data (text, usernames, emails) is passed on, never logged (WH6).
  */
 export type InstagramWebhookEventDispatch =
+  | ({ inboundKind: 'comment' | 'live_comment' } & CommentDispatchFields)
   | {
-      kind: 'comment';
-      contactInstagramUserId: string;
-      /** `from.username`, when Meta sent it. */
-      username: string | null;
-      instagramCommentId: string;
-      instagramMediaId: string;
-      text: string | null;
-    }
-  | {
-      kind: 'direct_message';
+      inboundKind: 'message' | 'story_reply' | 'story_mention' | 'shared_post';
       contactInstagramUserId: string;
       text: string | null;
       quickReplyPayload: string | null;
       attachmentEmail: string | null;
+      /** The story replied to or mentioned in, when Meta named it. */
+      storyId: string | null;
+      /** The shared post, when Meta named it. */
+      sharedMediaId: string | null;
     }
   | {
-      kind: 'story_reply';
-      contactInstagramUserId: string;
-      instagramStoryId: string;
-      text: string | null;
-    }
-  | {
-      kind: 'button_click';
+      inboundKind: 'postback';
       contactInstagramUserId: string;
       button: AutomationButtonPayload | null;
-    };
+      /** `igm_…` — the message whose button was tapped (the payload's third part), when present. */
+      messagePublicId: string | null;
+    }
+  | {
+      inboundKind: 'starter_question';
+      contactInstagramUserId: string;
+      starterQuestion: string | null;
+    }
+  | {
+      inboundKind: 'referral';
+      contactInstagramUserId: string;
+      refCode: string | null;
+      adId: string | null;
+    }
+  | { inboundKind: 'reaction'; contactInstagramUserId: string }
+  | { inboundKind: 'owner_message'; contactInstagramUserId: string; instagramMessageId: string };
 
 /** The stored event fields the dispatch is read from (`app.instagram_webhook_events` columns). */
 export interface InstagramWebhookStoredEvent {
   /** `event_kind` — one of `InstagramWebhookEventKind`. */
   eventKind: string;
-  /** The event item as received (WH16): a `changes[]` item or a `messaging[]` item. */
+  /** The event item as received: a `changes[]` item or a `messaging[]` item. */
   payload: unknown;
   /** The sender the receiver stored (`contact_instagram_user_id`), digits; `null` when none. */
   contactInstagramUserId: string | null;
@@ -79,6 +130,12 @@ function readText(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+/** A non-empty string or number id as text, or `null`. */
+function readOptionalId(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
 /** The permanent failure of a payload missing what its kind needs — a code, never its text. */
 function invalidPayload(reason: string): InstagramWebhookEventPermanentError {
   return new InstagramWebhookEventPermanentError(`event_payload_invalid:${reason}`);
@@ -92,80 +149,119 @@ function requireInstagramId({ value, reason }: { value: unknown; reason: string 
 }
 
 /**
- * The messaging item of a message, story reply or postback: the payload itself, or the `value` of
- * a `messages` change, which the receiver stores whole (D18, 4.A.10).
+ * The messaging item: the payload itself, or the `value` of a `messages` change, which the
+ * receiver stores whole (D18, 5.A.10).
  */
 function readMessagingItem(payload: MetaObject): MetaObject {
   const changeValue = payload.field === 'messages' ? asMetaObject(payload.value) : null;
   return changeValue ?? payload;
 }
 
+/** A message's attachments as objects. */
+function readAttachments(message: MetaObject): MetaObject[] {
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  return attachments.flatMap((attachment) => {
+    const object = asMetaObject(attachment);
+    return object === null ? [] : [object];
+  });
+}
+
 /** The first attachment's email (`attachments[].payload.email`, D18), or `null`. */
 function readAttachmentEmail(message: MetaObject): string | null {
-  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-  for (const attachment of attachments) {
-    const email = readText(asMetaObject(asMetaObject(attachment)?.payload)?.email);
+  for (const attachment of readAttachments(message)) {
+    const email = readText(asMetaObject(attachment.payload)?.email);
     if (email !== null && email.length > 0) return email;
   }
   return null;
 }
 
-/** A stored comment: `value.id`, `value.media.id`, `value.text`, `value.from.username`. */
+/** The id in the first attachment of one of `types` (`payload.id`, `payload.ig_post_media_id`). */
+function readAttachmentId({
+  message,
+  types,
+}: {
+  message: MetaObject;
+  types: readonly string[];
+}): string | null {
+  for (const attachment of readAttachments(message)) {
+    if (typeof attachment.type !== 'string' || !types.includes(attachment.type)) continue;
+    const payload = asMetaObject(attachment.payload);
+    return readOptionalId(payload?.ig_post_media_id) ?? readOptionalId(payload?.id);
+  }
+  return null;
+}
+
+/** A stored comment or Live comment: its id, post, parent, ad, text and the commenter's username. */
 function readComment({
+  inboundKind,
   payload,
   contactInstagramUserId,
 }: {
+  inboundKind: 'comment' | 'live_comment';
   payload: MetaObject;
   contactInstagramUserId: string;
 }): InstagramWebhookEventDispatch {
   const value = asMetaObject(payload.value);
   if (value === null) throw invalidPayload('comment_value_missing');
+  const media = asMetaObject(value.media);
   return {
-    kind: 'comment',
+    inboundKind,
     contactInstagramUserId,
     username: readText(asMetaObject(value.from)?.username),
     instagramCommentId: requireInstagramId({ value: value.id, reason: 'comment_id_missing' }),
-    instagramMediaId: requireInstagramId({
-      value: asMetaObject(value.media)?.id,
-      reason: 'comment_media_missing',
-    }),
+    instagramMediaId: requireInstagramId({ value: media?.id, reason: 'comment_media_missing' }),
+    parentCommentId: readInstagramWebhookUserId(value.parent_id),
+    adId: readOptionalId(media?.ad_id),
     text: readText(value.text),
   };
 }
 
-/** A stored message or story reply: `message.text`, its quick reply, attachments and story. */
+/** A stored message, story reply or mention, or shared post. */
 function readMessage({
-  eventKind,
+  inboundKind,
   payload,
   contactInstagramUserId,
 }: {
-  eventKind: 'message' | 'story_reply';
+  inboundKind: 'message' | 'story_reply' | 'story_mention' | 'shared_post';
   payload: MetaObject;
   contactInstagramUserId: string;
 }): InstagramWebhookEventDispatch {
   const message = asMetaObject(readMessagingItem(payload).message);
   if (message === null) throw invalidPayload('message_missing');
-  const text = readText(message.text);
-  if (eventKind === 'story_reply') {
-    const story = asMetaObject(asMetaObject(message.reply_to)?.story);
-    return {
-      kind: 'story_reply',
-      contactInstagramUserId,
-      instagramStoryId: requireInstagramId({ value: story?.id, reason: 'story_id_missing' }),
-      text,
-    };
+  let storyId: string | null = null;
+  if (inboundKind === 'story_reply') {
+    storyId = requireInstagramId({
+      value: asMetaObject(asMetaObject(message.reply_to)?.story)?.id,
+      reason: 'story_id_missing',
+    });
+  } else if (inboundKind === 'story_mention') {
+    storyId = readAttachmentId({ message, types: ['story_mention'] });
   }
   return {
-    kind: 'direct_message',
+    inboundKind,
     contactInstagramUserId,
-    text,
+    text: readText(message.text),
     quickReplyPayload: readText(asMetaObject(message.quick_reply)?.payload),
     attachmentEmail: readAttachmentEmail(message),
+    storyId,
+    sharedMediaId:
+      inboundKind === 'shared_post'
+        ? readAttachmentId({ message, types: ['share', 'ig_post'] })
+        : null,
   };
 }
 
-/** A stored button click: `postback.payload` split as `<aut_…>::<run_…>`, or `null` when not ours. */
-function readButtonClick({
+/** The separator of our button payload's parts (`<aut_…>::<run_…>::<igm_…>`, WH8). */
+const BUTTON_PAYLOAD_SEPARATOR = '::';
+
+/** The prefix of a starter-question payload (`starter:<question>`, WH8). */
+const STARTER_QUESTION_PAYLOAD_PREFIX = 'starter:';
+
+/**
+ * A stored postback: our payload `<aut_…>::<run_…>` (optionally `::<igm_…>`, WH8) split into the
+ * run engine's two ids and the message's — `button: null` when the payload is not ours.
+ */
+function readPostback({
   payload,
   contactInstagramUserId,
 }: {
@@ -175,29 +271,96 @@ function readButtonClick({
   const postback = asMetaObject(readMessagingItem(payload).postback);
   if (postback === null) throw invalidPayload('postback_missing');
   const buttonPayload = readText(postback.payload);
+  if (buttonPayload === null) {
+    return { inboundKind: 'postback', contactInstagramUserId, button: null, messagePublicId: null };
+  }
+  const parts = buttonPayload.split(BUTTON_PAYLOAD_SEPARATOR);
+  const messagePublicId = parts.length === 3 ? (parts[2] ?? null) : null;
+  const button = parseAutomationButtonPayload(
+    parts.length === 3 ? parts.slice(0, 2).join(BUTTON_PAYLOAD_SEPARATOR) : buttonPayload,
+  );
   return {
-    kind: 'button_click',
+    inboundKind: 'postback',
     contactInstagramUserId,
-    button: buttonPayload === null ? null : parseAutomationButtonPayload(buttonPayload),
+    button,
+    messagePublicId: button === null ? null : messagePublicId,
   };
 }
 
 /**
- * Reads one stored event into what its handling calls (routes-final § 4.A.10, WH13): the contact
- * and the kind's fields for the run engine's entry point.
+ * A stored starter-question tap: the question's text — the postback's `title`, else the payload
+ * after `starter:` — which the run engine matches against each automation's starter questions.
+ */
+function readStarterQuestion({
+  payload,
+  contactInstagramUserId,
+}: {
+  payload: MetaObject;
+  contactInstagramUserId: string;
+}): InstagramWebhookEventDispatch {
+  const postback = asMetaObject(readMessagingItem(payload).postback);
+  if (postback === null) throw invalidPayload('postback_missing');
+  const buttonPayload = readText(postback.payload);
+  const fromPayload = buttonPayload?.startsWith(STARTER_QUESTION_PAYLOAD_PREFIX)
+    ? buttonPayload.slice(STARTER_QUESTION_PAYLOAD_PREFIX.length)
+    : null;
+  const title = readText(postback.title);
+  return {
+    inboundKind: 'starter_question',
+    contactInstagramUserId,
+    starterQuestion: title !== null && title.trim() !== '' ? title : fromPayload,
+  };
+}
+
+/** A stored referral (`messaging_referral`, or one carried by her message): the ref or the ad. */
+function readReferral({
+  payload,
+  contactInstagramUserId,
+}: {
+  payload: MetaObject;
+  contactInstagramUserId: string;
+}): InstagramWebhookEventDispatch {
+  const item = readMessagingItem(payload);
+  const message = asMetaObject(item.message);
+  const referral = asMetaObject(item.referral) ?? asMetaObject(message?.referral);
+  if (referral === null) throw invalidPayload('referral_missing');
+  const adId = readOptionalId(referral.ad_id);
+  return {
+    inboundKind: 'referral',
+    contactInstagramUserId,
+    refCode: adId === null ? readText(referral.ref) : null,
+    adId,
+  };
+}
+
+/** A stored echo: her side is the recipient; its `mid` is the message the owner typed. */
+function readOwnerMessage({
+  payload,
+  contactInstagramUserId,
+}: {
+  payload: MetaObject;
+  contactInstagramUserId: string;
+}): InstagramWebhookEventDispatch {
+  const message = asMetaObject(readMessagingItem(payload).message);
+  const instagramMessageId = readOptionalId(message?.mid);
+  if (instagramMessageId === null) throw invalidPayload('echo_mid_missing');
+  return { inboundKind: 'owner_message', contactInstagramUserId, instagramMessageId };
+}
+
+/**
+ * Reads one saved event into what intake calls (routes-final § 5.A.10, WH27): the normalized kind,
+ * the person and the item's ids.
  *
  * @remarks
- * - **Algorithm:** the sender is the stored `contact_instagram_user_id` (the classifier's, WH9). A
- *   `comment` reads the change's `value` (its id, post, text and the commenter's username); a
- *   `message` (and, until ROUTE row R38, a `story_mention` or `shared_post` as a DM) or a
- *   `story_reply` reads the messaging item (a `messages` change's `value`, D18) — the
- *   text, the quick reply's payload, the first attachment's email, the replied story's id; a
- *   `postback` splits its payload with `parseAutomationButtonPayload`.
+ * - **Algorithm:** the person is the stored `contact_instagram_user_id` (the classifier's — an
+ *   echo's recipient); the kind maps through {@link INSTAGRAM_INBOUND_EVENT_KIND_OF}; each reader
+ *   takes the change's `value` (comments) or the messaging item (a `messages` change's `value`,
+ *   D18) and reads only ids, the text, the quick reply's payload and an attachment's email.
  * - **Failure modes:** throws {@link InstagramWebhookEventPermanentError}
- *   (`event_payload_invalid:<reason>`) for an event no retry can handle: no sender, a comment
+ *   (`event_payload_invalid:<reason>`) for an event no retry can handle: no person, a comment
  *   without its digits-only id or post, a message without `message`, a story reply without its
- *   story id, a postback without `postback`, or a kind the processor does not dispatch (it sets the
- *   kinds intake takes in from ROUTE row R38 aside before calling this).
+ *   story id, a postback without `postback`, a referral without `referral`, an echo without `mid`,
+ *   or a kind that never crosses the seam (`edit`, `unknown`).
  * - **Side effects:** none; pure. Never logs — the payload holds personal data (WH6).
  * - **Notes:** an Instagram id must be digits, as the run and comment-log columns require.
  */
@@ -206,44 +369,31 @@ export function readInstagramWebhookEventDispatch({
   payload,
   contactInstagramUserId,
 }: InstagramWebhookStoredEvent): InstagramWebhookEventDispatch {
-  const sender = requireInstagramId({ value: contactInstagramUserId, reason: 'contact_missing' });
+  const person = requireInstagramId({ value: contactInstagramUserId, reason: 'contact_missing' });
   const item = asMetaObject(payload);
   if (item === null) throw invalidPayload('payload_not_object');
-  const kind = eventKind as InstagramWebhookEventKind;
-  switch (kind) {
+  const inboundKind = toInboundEventKind(eventKind);
+  const read = { payload: item, contactInstagramUserId: person };
+  switch (inboundKind) {
     case 'comment':
-      return readComment({ payload: item, contactInstagramUserId: sender });
+    case 'live_comment':
+      return readComment({ ...read, inboundKind });
     case 'message':
+    case 'story_reply':
     case 'story_mention':
     case 'shared_post':
-      // A story mention and a shared post are DMs to the launch's engine until intake per kind
-      // (ROUTE row R38) gives them their own way to start (WH27).
-      return readMessage({ eventKind: 'message', payload: item, contactInstagramUserId: sender });
-    case 'story_reply':
-      return readMessage({ eventKind: kind, payload: item, contactInstagramUserId: sender });
+      return readMessage({ ...read, inboundKind });
     case 'postback':
-      return readButtonClick({ payload: item, contactInstagramUserId: sender });
+      return readPostback(read);
+    case 'starter_question':
+      return readStarterQuestion(read);
+    case 'referral':
+      return readReferral(read);
+    case 'reaction':
+      return { inboundKind: 'reaction', contactInstagramUserId: person };
+    case 'owner_message':
+      return readOwnerMessage(read);
     default:
-      throw invalidPayload(`unhandled_kind:${kind}`);
-  }
-}
-
-/**
- * The contact interaction one dispatched event records (sub-domain 2, CT10): a comment moves only
- * the last message time; a DM, a story reply and a button click also open the messaging window
- * (`last_direct_message_received_at`).
- */
-export function toContactInteractionKind(
-  kind: InstagramWebhookEventDispatch['kind'],
-): ContactInteractionKind {
-  switch (kind) {
-    case 'comment':
-      return CONTACT_INTERACTION_KIND.COMMENT;
-    case 'direct_message':
-      return CONTACT_INTERACTION_KIND.DIRECT_MESSAGE;
-    case 'story_reply':
-      return CONTACT_INTERACTION_KIND.STORY_REPLY;
-    case 'button_click':
-      return CONTACT_INTERACTION_KIND.BUTTON_CLICK;
+      throw invalidPayload(`unhandled_kind:${eventKind}`);
   }
 }

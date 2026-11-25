@@ -127,22 +127,27 @@ export interface ChannelBroadcastMessageResultInput {
   occurredAt: Date;
 }
 
-/** The normalized inbound kinds the run engine takes (4.B.10 — the inbound seam). */
+/**
+ * The normalized inbound event kinds (feat-instagram-dm-sending § 5 WH27, § 3 CT18 — the inbound
+ * seam): what a channel's intake maps each saved event to before it calls contacts and the run
+ * engine, so a later channel's intake (WhatsApp, TikTok) reuses the same entry points. Instagram's
+ * map: `comment` → `comment` (an ad's carries its `ad_id`), `live_comment`, `message`, `postback`,
+ * `ice_breaker` → `starter_question`, `story_reply`, `story_mention`, `shared_post`, `referral` (its
+ * `ref` code or `ad_id`), `reaction`, an echo the owner typed → `owner_message`; `edit` and
+ * `unknown` never cross.
+ */
 export type ChannelInboundEventKind =
   | 'comment'
   | 'live_comment'
+  | 'message'
+  | 'postback'
+  | 'starter_question'
   | 'story_reply'
   | 'story_mention'
-  | 'story_repost'
-  | 'message'
   | 'shared_post'
-  | 'starter_question'
-  | 'ref_link'
-  | 'ad_comment'
-  | 'ad_message'
-  | 'button_click'
-  | 'tag_added'
-  | 'tag_removed';
+  | 'referral'
+  | 'reaction'
+  | 'owner_message';
 
 /** Why a failed message cannot go again now (SN18, CT15, AU18). */
 export type ChannelFailedMessageBlock =

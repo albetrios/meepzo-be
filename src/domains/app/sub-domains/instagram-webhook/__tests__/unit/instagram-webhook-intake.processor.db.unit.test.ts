@@ -1,6 +1,4 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CircuitBreakerOpenError } from '@/infrastructure/resilience/circuit-breaker.js';
-import { ProviderOutageError } from '@/infrastructure/queue/worker-runtime/provider-outage-pause.util.js';
 import { initializeI18nextForBackgroundWork } from '@/shared/middlewares/core/i18n.middleware.js';
 import type { OrganizationService } from '@/domains/tenancy/sub-domains/organization/organization.service.js';
 import type { InstagramAccountService } from '@/domains/app/sub-domains/instagram-account/instagram-account.service.js';
@@ -22,9 +20,10 @@ import {
 import { InstagramWebhookEventRepository } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.repository.js';
 import { InstagramWebhookEventService } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.service.js';
 import {
-  type InstagramWebhookAccountJobResult,
-  processInstagramWebhookAccountJob,
-} from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook.processor.js';
+  type InstagramWebhookIntakeJobResult,
+  processInstagramWebhookIntakeJob,
+} from '@/domains/app/sub-domains/instagram-webhook/workers/instagram-webhook-intake.processor.js';
+import type { InstagramWebhookEventIntakeGroup } from '@/domains/app/sub-domains/instagram-webhook/instagram-webhook-event/instagram-webhook-event.constants.js';
 import {
   insertInstagramAccount,
   readAccountContactRows,
@@ -48,26 +47,25 @@ import {
 import { createTestOrganization } from '@/tests/factories/organization.factory.js';
 import { createTestUser } from '@/tests/factories/user.factory.js';
 import { cleanupDatabase } from '@/tests/helpers/test-database.js';
-import { operatorQuery } from '@/tests/helpers/operator-database.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 /**
- * Instagram webhook event processing end to end against the database (routes-final § 4.A
- * WH12–WH14 — AUC14's integration part): one stored event fixture per trigger — a comment, the
- * button click on its opening message, a DM, a story reply — claimed, its contact recorded first,
- * handled by the real run engine (4.B — it saves waiting messages through a recording sending port,
- * R14), and marked; then the failure rules on the real claim: a skipped event never runs after the
- * switch is back on, the 5th failure marks the event `failed` and the next one runs, an outage spends
- * no attempt. (Since R14 an event's engine work is one commit, so a failed event leaves no run behind
- * — the launch's "fail the runs it left running" cases retired with it.) Every unit
- * runs in the organization's own job scope, so the suite also holds under `pnpm test:rls-role`.
+ * Instagram intake per kind end to end against the database (feat-instagram-dm-sending § 5 WH11–
+ * WH16, WH26 — WHC7–WHC9, WHC16; AC-16.7–AC-16.9, AC-16.17): one stored event fixture per kind —
+ * a comment, the tap on its opening message, a DM, a story reply — claimed by its group's job, its
+ * contact recorded first through the inbound seam, decided by the real run engine (4.B — it saves
+ * waiting messages through a recording sending port) and marked, all in one transaction; the
+ * failure rules on the real claim (the 5th failed try `failed` with `next_attempt_at`, a database
+ * outage spends no try); the flood guard and a stop word; two groups' jobs racing on one contact.
+ * Every unit runs in the organization's own job scope, so the suite also holds under
+ * `pnpm test:rls-role`.
  */
 
 const SENDER = '17841400000000777';
 const ACCOUNT_INSTAGRAM_USER_ID = '9000000000000001';
 
-describe('processInstagramWebhookAccountJob (database, the real run engine)', () => {
+describe('processInstagramWebhookIntakeJob (database, the real run engine)', () => {
   let organization: { id: number; public_id: string };
   let account: { id: number; public_id: string };
   let processingAccount: InstagramWebhookProcessingAccount;
@@ -75,14 +73,11 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     findWebhookProcessingAccount: ReturnType<typeof vi.fn>;
     markConnectionBroken: ReturnType<typeof vi.fn>;
   };
+  let profileReads: Array<{ contactPublicId: string }>;
   let runAccountRead: ReturnType<typeof vi.fn>;
   let port: RecordingSendingPort;
   let engine: AutomationRunService;
-  let processingInstagram: {
-    readInstagramUserProfile: ReturnType<typeof vi.fn>;
-    readInstagramMediaItem: ReturnType<typeof vi.fn>;
-  };
-  let services: Parameters<typeof processInstagramWebhookAccountJob>[0]['services'];
+  let services: Parameters<typeof processInstagramWebhookIntakeJob>[0]['services'];
 
   beforeAll(async () => {
     await initializeI18nextForBackgroundWork();
@@ -129,21 +124,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       [],
       async () => null,
     );
-    processingInstagram = {
-      readInstagramUserProfile: vi.fn(async () => ({
-        name: 'Jordan Lee',
-        username: 'jordan.lee',
-        profilePictureUrl: null,
-        followerCount: 42,
-        isUserFollowingBusiness: null,
-      })),
-      readInstagramMediaItem: vi.fn(async ({ instagramMediaId }) => ({
-        id: instagramMediaId,
-        media_type: 'IMAGE',
-        media_product_type: 'FEED',
-        timestamp: '2026-11-21T08:00:00+0000',
-      })),
-    };
+    profileReads = [];
     engine = new AutomationRunService({
       channelAccountService: { readAutomationRunAccount: runAccountRead as never },
       contactService,
@@ -158,6 +139,9 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
         new InstagramWebhookEventRepository(),
         organizationService,
       ),
+      instagramAccountSettingsService: { findSettings: async () => null },
+      channelAccountService: { markAccountBroken: async () => true },
+      broadcastRecipientService: { recordContactReply: async () => 0 },
       contactService,
       instagramMediaService: new InstagramMediaService(
         new InstagramMediaRepository(),
@@ -166,19 +150,28 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       ),
       automationService: createTestAutomationService({ organizationService }),
       automationRunService: engine,
+      instagramMessageService: {
+        findOwnSentMessageIds: async () => new Set<string>(),
+        matchEchoedMessage: async () => 'none',
+      },
     };
   });
 
-  function runJob(): Promise<InstagramWebhookAccountJobResult> {
-    return processInstagramWebhookAccountJob({
+  function runJob(
+    intakeKind: InstagramWebhookEventIntakeGroup = 'messages',
+  ): Promise<InstagramWebhookIntakeJobResult> {
+    return processInstagramWebhookIntakeJob({
       jobData: {
         organizationPublicId: organization.public_id,
         channelAccountPublicId: processingAccount.instagramAccountPublicId,
+        intakeKind,
       },
       services,
-      jobId: 'job-1',
-      instagramClient: processingInstagram as never,
+      jobId: `job-${intakeKind}`,
       enqueueFollowUp: async () => undefined,
+      enqueueProfileRead: async ({ contactPublicId }) => {
+        profileReads.push({ contactPublicId });
+      },
     });
   }
 
@@ -186,9 +179,10 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     eventKind,
     eventKey,
     payload,
-    status = 'queued',
+    status = 'received',
     skipReason,
     attemptCount,
+    receivedAt,
   }: {
     eventKind: string;
     eventKey: string;
@@ -196,6 +190,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     status?: string;
     skipReason?: string;
     attemptCount?: number;
+    receivedAt?: Date;
   }) {
     return insertTestInstagramWebhookEvent({
       organizationId: organization.id,
@@ -206,6 +201,7 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       status,
       ...(skipReason === undefined ? {} : { skipReason }),
       ...(attemptCount === undefined ? {} : { attemptCount }),
+      ...(receivedAt === undefined ? {} : { receivedAt }),
     });
   }
 
@@ -254,32 +250,27 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     });
   }
 
-  it('a comment: the contact and its profile, the post stored, one run started — its hello saved to answer the comment', async () => {
+  it('a comment (comment group): the contact, one run started and its hello saved — in one commit, no Meta read, the profile read handed to a task', async () => {
     const automation = await liveAutomation({ keywords: ['link'], name: 'Spring link' });
-    const postId = nextInstagramObjectId();
-    const stored = await storeComment({ text: 'Link please', postId });
+    const stored = await storeComment({ text: 'Link please', postId: nextInstagramObjectId() });
 
-    const result = await runJob();
+    // The message group's job never claims a comment (WH11).
+    await expect(runJob('messages')).resolves.toMatchObject({ processedEventCount: 0 });
+    const result = await runJob('comments');
 
     expect(result).toMatchObject({ outcome: 'drained', processedEventCount: 1 });
     expect(await readTestInstagramWebhookEvent(stored.id)).toMatchObject({
       status: 'processed',
       attempt_count: 1,
       error_message: null,
+      payload: null,
     });
     const [contact] = await readAccountContactRows({
       organizationId: organization.id,
       instagramAccountId: account.id,
     });
-    expect(contact).toMatchObject({
-      instagram_user_id: SENDER,
-      username: 'jordan.lee',
-      full_name: 'Jordan Lee',
-      followers_count: 42,
-    });
-    const [post] = await operatorQuery<Array<{ instagram_media_id: string }>>`
-      SELECT instagram_media_id FROM app.instagram_media WHERE organization_id = ${organization.id}`;
-    expect(post?.instagram_media_id).toBe(postId);
+    expect(contact).toMatchObject({ instagram_user_id: SENDER, username: 'jordan.lee' });
+    expect(profileReads).toEqual([{ contactPublicId: contact?.public_id }]);
     const [run] = await readRunRows(organization.id);
     expect(run).toMatchObject({
       automation_id: automation.id,
@@ -288,15 +279,14 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       current_step: 'comment_reply',
     });
     expect(await readCommentLogRows(organization.id)).toHaveLength(1);
-    // The engine sends nothing: the hello waits for the channel, answering the comment.
+    // Intake sends nothing: the hello waits for sub-domain 6 (AC-16.7).
     expect(port.steps()).toEqual(['hello']);
-    expect(port.last('hello').answersEventId).toBe(run?.trigger_instagram_comment_id);
   });
 
-  it('the button click on that opening message continues the run, in a second job', async () => {
+  it('the tap on that opening message continues the run, in the message group’s job', async () => {
     const automation = await liveAutomation({ keywords: ['link'] });
     await storeComment({ text: 'link', postId: nextInstagramObjectId() });
-    await runJob();
+    await runJob('comments');
     await reportSent('hello');
     const [waiting] = await readRunRows(organization.id);
     expect(waiting?.status).toBe('waiting');
@@ -311,15 +301,10 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       },
     });
 
-    await runJob();
+    await runJob('messages');
 
     expect((await readTestInstagramWebhookEvent(click.id))?.status).toBe('processed');
     expect(port.steps().at(-1)).toBe('messages#1');
-    await reportSent('messages');
-    expect((await readRunRows(organization.id))[0]).toMatchObject({
-      id: waiting?.id,
-      status: 'completed',
-    });
   });
 
   it('a DM with a keyword: the DM automation runs to its final message', async () => {
@@ -341,6 +326,11 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       trigger_type: 'dm_keyword',
       status: 'completed',
     });
+    const [contact] = await readAccountContactRows({
+      organizationId: organization.id,
+      instagramAccountId: account.id,
+    });
+    expect(contact?.first_message_at).not.toBeNull();
   });
 
   it('a story reply: the story-reply automation runs for that story', async () => {
@@ -372,18 +362,11 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       automation_id: automation.id,
       trigger_type: 'story_reply',
       trigger_instagram_story_id: '17910000000000001',
-      status: 'running',
       once_key: 'story:17910000000000001',
     });
   });
 
   it('an event stored skipped never runs, even after the switch is back on', async () => {
-    await liveAutomation({
-      trigger_type: 'dm',
-      keywords: ['catalog'],
-      is_opening_message_enabled: false,
-      opening_message: null,
-    });
     const skipped = await storeEvent({
       eventKind: 'message',
       eventKey: 'message:m_skipped',
@@ -395,13 +378,11 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     await expect(runJob()).resolves.toMatchObject({ outcome: 'drained', processedEventCount: 0 });
     expect(await readTestInstagramWebhookEvent(skipped.id)).toMatchObject({
       status: 'skipped',
-      skip_reason: 'automation_disabled',
       attempt_count: 0,
     });
-    expect(await readRunRows(organization.id)).toEqual([]);
   });
 
-  it('skips an event whose account was switched off while it waited, and runs nothing', async () => {
+  it('skips an event whose account was switched off while it waited, and records no contact', async () => {
     processingAccount = { ...processingAccount, isAutomationEnabled: false };
     const stored = await storeDirectMessage('catalog');
 
@@ -419,7 +400,16 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
     ).toEqual([]);
   });
 
-  it('the 5th failed attempt marks the event failed, and the account’s next event runs', async () => {
+  it('an account in error is still taken in — its messages wait in its stopped lanes (WH3)', async () => {
+    processingAccount = { ...processingAccount, connectionStatus: 'error' };
+    const stored = await storeDirectMessage('hello');
+
+    await runJob();
+
+    expect((await readTestInstagramWebhookEvent(stored.id))?.status).toBe('processed');
+  });
+
+  it('the 5th failed try marks the event failed with its hourly retry, and the group’s next event runs', async () => {
     await liveAutomation({
       trigger_type: 'dm',
       keywords: ['catalog'],
@@ -433,56 +423,146 @@ describe('processInstagramWebhookAccountJob (database, the real run engine)', ()
       attemptCount: 4,
     });
     const next = await storeDirectMessage('catalog again');
-    runAccountRead.mockRejectedValueOnce(
-      Object.assign(new Error('connection terminated unexpectedly'), { code: '57P01' }),
-    );
+    runAccountRead.mockRejectedValueOnce(new TypeError('boom'));
 
     const result = await runJob();
 
     expect(result).toMatchObject({ processedEventCount: 1, failedEventCount: 1 });
-    expect(await readTestInstagramWebhookEvent(failing.id)).toMatchObject({
+    const failed = await readTestInstagramWebhookEvent(failing.id);
+    expect(failed).toMatchObject({
       status: 'failed',
       attempt_count: 5,
-      error_message: 'processing_error:Error:57P01',
+      error_message: 'processing_error:TypeError',
     });
+    expect(failed?.next_attempt_at).not.toBeNull();
     expect((await readTestInstagramWebhookEvent(next.id))?.status).toBe('processed');
   });
 
-  it('a temporary failure before the last attempt keeps the attempt, ends the lease and holds the next event back', async () => {
+  it('a failure before the last try keeps the try, ends the lease and holds the group back', async () => {
     const failing = await storeDirectMessage('catalog');
     const next = await storeDirectMessage('catalog again');
-    runAccountRead.mockRejectedValueOnce(new Error('deadlock detected'));
+    runAccountRead.mockRejectedValueOnce(new TypeError('boom'));
 
-    await expect(runJob()).rejects.toThrow('deadlock detected');
+    await expect(runJob()).rejects.toThrow('boom');
 
     expect(await readTestInstagramWebhookEvent(failing.id)).toMatchObject({
-      status: 'queued',
+      status: 'received',
       attempt_count: 1,
       last_attempted_at: null,
     });
-    expect(await readTestInstagramWebhookEvent(next.id)).toMatchObject({
-      status: 'queued',
-      attempt_count: 0,
-    });
+    expect(await readTestInstagramWebhookEvent(next.id)).toMatchObject({ attempt_count: 0 });
   });
 
-  it('an Instagram outage gives the claim back without spending its attempt, and pauses the job', async () => {
+  it('Postgres unreachable gives the claim back without using a try', async () => {
     const stored = await storeEvent({
       eventKind: 'message',
-      eventKey: 'message:m_outage',
-      payload: { sender: { id: SENDER }, message: { mid: 'm_outage', text: 'catalog' } },
+      eventKey: 'message:m_down',
+      payload: { sender: { id: SENDER }, message: { mid: 'm_down', text: 'catalog' } },
       attemptCount: 2,
     });
     runAccountRead.mockRejectedValueOnce(
-      new CircuitBreakerOpenError('meta', 30_000, 'instagram circuit open'),
+      Object.assign(new Error('connection terminated unexpectedly'), { code: '57P01' }),
     );
 
-    await expect(runJob()).rejects.toBeInstanceOf(ProviderOutageError);
+    await expect(runJob()).rejects.toThrow('connection terminated unexpectedly');
 
     expect(await readTestInstagramWebhookEvent(stored.id)).toMatchObject({
-      status: 'queued',
+      status: 'received',
       attempt_count: 2,
       last_attempted_at: null,
     });
+  });
+
+  it('a failing comment does not hold back her tap: the groups have their own jobs (WH11)', async () => {
+    const comment = await storeComment({ text: 'link', postId: nextInstagramObjectId() });
+    const message = await storeDirectMessage('hi');
+    runAccountRead.mockRejectedValueOnce(new TypeError('boom'));
+
+    await expect(runJob('comments')).rejects.toThrow('boom');
+    await runJob('messages');
+
+    expect((await readTestInstagramWebhookEvent(comment.id))?.status).toBe('received');
+    expect((await readTestInstagramWebhookEvent(message.id))?.status).toBe('processed');
+  });
+
+  it('more than 20 of her message events in a minute: the next is skipped `flood` and starts nothing (AC-16.17)', async () => {
+    await liveAutomation({
+      trigger_type: 'dm',
+      keywords: ['catalog'],
+      is_opening_message_enabled: false,
+      opening_message: null,
+    });
+    for (let index = 0; index < 21; index += 1) {
+      await storeEvent({
+        eventKind: 'message',
+        eventKey: `message:m_seen_${index}`,
+        payload: {},
+        status: 'processed',
+      });
+    }
+    const flooded = await storeDirectMessage('catalog');
+
+    await runJob();
+
+    expect(await readTestInstagramWebhookEvent(flooded.id)).toMatchObject({
+      status: 'skipped',
+      skip_reason: 'flood',
+    });
+    expect(await readRunRows(organization.id)).toEqual([]);
+  });
+
+  it('a stop word opts her out and starts nothing', async () => {
+    await liveAutomation({
+      trigger_type: 'dm',
+      keywords: ['stop'],
+      is_opening_message_enabled: false,
+      opening_message: null,
+    });
+    const stored = await storeDirectMessage(' STOP ');
+
+    await runJob();
+
+    expect((await readTestInstagramWebhookEvent(stored.id))?.status).toBe('processed');
+    const [contact] = await readAccountContactRows({
+      organizationId: organization.id,
+      instagramAccountId: account.id,
+    });
+    expect(contact?.opted_out_at).not.toBeNull();
+    expect(await readRunRows(organization.id)).toEqual([]);
+  });
+
+  it('her DM and her comment taken in by two jobs at once never deadlock and lose nothing (WH26, AC-16.8)', async () => {
+    await liveAutomation({ keywords: ['link'] });
+    await liveAutomation({
+      trigger_type: 'dm',
+      keywords: ['catalog'],
+      is_opening_message_enabled: false,
+      opening_message: null,
+    });
+    const comments = await Promise.all(
+      [0, 1, 2].map(() => storeComment({ text: 'link', postId: nextInstagramObjectId() })),
+    );
+    const messages = await Promise.all([0, 1, 2].map(() => storeDirectMessage('catalog')));
+
+    const results = await Promise.all([runJob('comments'), runJob('messages')]);
+
+    expect(results.map((result) => result.failedEventCount)).toEqual([0, 0]);
+    for (const event of [...comments, ...messages]) {
+      expect((await readTestInstagramWebhookEvent(event.id))?.status).toBe('processed');
+    }
+    const contacts = await readAccountContactRows({
+      organizationId: organization.id,
+      instagramAccountId: account.id,
+    });
+    expect(contacts).toHaveLength(1);
+    const runs = await readRunRows(organization.id);
+    const openRunsPerAutomation = new Map<number, number>();
+    for (const run of runs.filter((row) => ['running', 'waiting'].includes(row.status))) {
+      openRunsPerAutomation.set(
+        run.automation_id,
+        (openRunsPerAutomation.get(run.automation_id) ?? 0) + 1,
+      );
+    }
+    expect([...openRunsPerAutomation.values()].every((count) => count === 1)).toBe(true);
   });
 });

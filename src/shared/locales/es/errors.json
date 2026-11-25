@@ -242,6 +242,7 @@
   "subscriptionAlreadyExists": "Ya existe una suscripción activa para esta organización",
   "subscriptionCreateInProgress": "Ya se está creando una suscripción para esta organización; vuelve a intentarlo en breve.",
   "seatLimitReached": "Se alcanzó el límite de asientos de tu plan ({{limit}}). Mejora tu plan o elimina un miembro antes de agregar otro.",
+  "subscriptionRequiredForPaidPlan": "Esta organización está en Free sin una suscripción de pago. Suscríbete a un plan de pago para subir.",
   "subscriptionNotMutable": "Esta suscripción está en estado terminal y ya no puede modificarse; crea una nueva suscripción en su lugar",
   "defaultOrganizationUnavailable": "Elige como organización de inicio una organización de la que seas miembro activo",
   "teamOrganizationRequired": "Elige una organización de equipo como organización de inicio",

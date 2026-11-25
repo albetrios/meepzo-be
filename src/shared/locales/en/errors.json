@@ -242,6 +242,7 @@
   "subscriptionAlreadyExists": "An active subscription already exists for this organization",
   "subscriptionCreateInProgress": "A subscription is already being created for this organization; please retry shortly.",
   "seatLimitReached": "Your plan's seat limit ({{limit}}) has been reached. Upgrade your plan or remove a member before adding another.",
+  "subscriptionRequiredForPaidPlan": "This organization is on Free without a paid subscription. Subscribe to a paid plan to move up.",
   "subscriptionNotMutable": "This subscription is in a terminal state and can no longer be modified; create a new subscription instead",
   "defaultOrganizationUnavailable": "Choose an organization you're an active member of as your sign-in organization",
   "teamOrganizationRequired": "Choose a team organization as your sign-in organization",
